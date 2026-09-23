@@ -37,6 +37,12 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
@@ -127,10 +133,12 @@ def _protocol_assets(
     raw = _read(root / "cases.json", "DRACO cases")
     selected = _parse_cases(raw)
     if len(selected) != CASE_COUNT:
-        raise _unavailable(f"expected {CASE_COUNT} DRACO cases, got {len(selected)}")
+        raise _definition_error(f"expected {CASE_COUNT} DRACO cases, got {len(selected)}")
     try:
         rubrics = protocol_assets.validate_protocol_assets(root, selected)
     except (OSError, ValueError) as exc:
+        # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+        # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
         raise _unavailable(str(exc)) from exc
     return (
         json.dumps(selected, ensure_ascii=False, separators=(",", ":")),
@@ -205,6 +213,8 @@ def _task_rows(
                     separators=(",", ":"),
                 )
         except (OSError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         return compact_json(result)
 
@@ -223,7 +233,7 @@ def _criterion_verdict(benchmark_id: str):
                 producer_id=JUDGE_MODEL,
             )
         except ValueError as exc:
-            raise _unavailable(str(exc)) from exc
+            raise _contract_error(str(exc)) from exc
         accounting = accounting_for_grading_evidence(
             GradingEvidenceOwner(
                 benchmark_id=benchmark_id,
@@ -275,7 +285,7 @@ def _criterion_evaluation(judge_passes: int):
                 evidence,
             )
         except (TypeError, ValueError) as exc:
-            raise _unavailable(str(exc)) from exc
+            raise _contract_error(str(exc)) from exc
         return compact_json(result)
 
     return handle

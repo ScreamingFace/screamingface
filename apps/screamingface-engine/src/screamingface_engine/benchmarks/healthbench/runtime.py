@@ -34,6 +34,12 @@ from screamingface_engine.benchmarks.evaluation import (
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
 from screamingface_engine.benchmarks.healthbench import grade as reducing
 from screamingface_engine.benchmarks.healthbench import records
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
@@ -169,7 +175,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
         if reducing.load_rubric_points(root, case_id) is None:
             problems.append(f"rubric asset for case {case_id} missing or invalid")
     if problems:
-        raise _unavailable("HealthBench assets failed preflight: " + "; ".join(problems[:8]))
+        raise _definition_error("HealthBench assets failed preflight: " + "; ".join(problems[:8]))
 
 
 def _cases(root: Path, case_ids: tuple[int, ...]):
@@ -245,6 +251,8 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                     }
                 )
         except (OSError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         return compact_json(tasks)
 
@@ -267,7 +275,7 @@ def _rubric_verdict(benchmark_id: str):
                 producer_id=JUDGE_MODEL,
             )
         except ValueError as exc:
-            raise _unavailable(str(exc)) from exc
+            raise _contract_error(str(exc)) from exc
         if record.get("valid") is not True:
             # WHY transient, not a returned record: the expression's `;retry=` on this
             # route re-resolves the NESTED judge call, so each re-ask draws a fresh
@@ -312,7 +320,7 @@ def _rubric_evaluation(request: Request) -> str:
             json_object(payload["evidence"], "Rubric verdict"),
         )
     except (TypeError, ValueError) as exc:
-        raise _unavailable(str(exc)) from exc
+        raise _contract_error(str(exc)) from exc
     return compact_json(result)
 
 

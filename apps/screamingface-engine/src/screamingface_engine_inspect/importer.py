@@ -99,6 +99,12 @@ class TaskFacts:
     #: resolves to one module attribute — captured as a fact instead of flagged
     #: (the family renderer, OME-1116 milestone C).
     choice_template: str | None = None
+    #: The eval's system instruction when it lives in a module-level constant —
+    #: captured as a fact the row POINTS at; the bake delivers it as leading
+    #: input text (a benchmark cannot address a candidate's system role — the
+    #: contracteval named-deviation pattern, owner-approved on OME-1253). An
+    #: inline-literal system message still earns the review flag instead.
+    system_message: str | None = None
     #: The eval shuffles its exam order (hf_dataset shuffle=True). Without a seed
     #: the upstream order is random per run, so an import must pin one order —
     #: the upstream seed when the eval has one, else a --shuffle-seed policy seed.
@@ -155,11 +161,11 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     recorded: list[tuple[dict[str, Any], Any]] = []
     # WHY bind against the REAL signature: 17 of 80 inspect_evals call sites pass
     # path (some also split) positionally — a kwargs-only recorder would drop them.
-    signature = _inspect.signature(module.hf_dataset)
+    signature: _inspect.Signature = _binding_signature(module.hf_dataset)
 
     def recorder(*args: Any, **kwargs: Any) -> Any:
         stub = MemoryDataset([Sample(input="stub", target="A", choices=["a", "b"])])
-        recorded.append((dict(signature.bind_partial(*args, **kwargs).arguments), stub))
+        recorded.append((_bound_call_arguments(signature, args, kwargs), stub))
         return stub
 
     original: Any = module.hf_dataset
@@ -173,7 +179,9 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
-    template_ref, choice_template_ref, custom_solvers = _solver_facts(task, module, task_ref)
+    template_ref, choice_template_ref, system_message_ref, custom_solvers = _solver_facts(
+        task, module, task_ref
+    )
     return TaskFacts(
         task_ref=task_ref,
         dataset=str(kwargs["path"]),
@@ -187,9 +195,71 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         scorer_kwargs=scorer_kwargs,
         custom_solvers=custom_solvers,
         choice_template=choice_template_ref,
+        system_message=system_message_ref,
         upstream_shuffle=bool(kwargs.get("shuffle")),
         upstream_shuffle_seed=kwargs.get("seed") if kwargs.get("shuffle") else None,
     )
+
+
+def _binding_signature(binding: Any) -> _inspect.Signature:
+    """The signature the recorded call arguments bind against.
+
+    WHY the substitution: inspect_evals ≥0.20 routes hf_dataset through a fully
+    variadic retry shim (``def hf_dataset(*args, **kwargs)`` in
+    utils/huggingface.py). Binding against the shim buries every real kwarg in
+    the VAR_KEYWORD bucket, and the conserved-kwargs guard then refuses the
+    whole family as "kwarg(s) kwargs" (OME-1238). That ONE shim — checked by
+    identity, never by shape — borrows the real hf_dataset's parameter names,
+    because it is verified pass-through (it only injects ``retry=False``). Any
+    other fully variadic wrapper is refused: a wrapper that renamed or mutated
+    kwargs before forwarding would make the conserved-kwargs guard reason about
+    arguments the real load never sees (review finding on PR 1009).
+    """
+
+    signature: _inspect.Signature = _inspect.signature(binding)
+    if not all(
+        parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        for parameter in signature.parameters.values()
+    ):
+        return signature
+    from inspect_evals.utils.huggingface import hf_dataset as vendored_shim
+
+    if binding is vendored_shim:
+        from inspect_ai.dataset import hf_dataset as real_hf_dataset
+
+        return _inspect.signature(real_hf_dataset)
+    raise ImporterError(
+        "hf_dataset is a fully variadic wrapper the importer does not recognize — only "
+        "inspect_evals.utils.huggingface's shim is verified pass-through; extend the "
+        "importer for this wrapper"
+    )
+
+
+def _bound_call_arguments(
+    signature: _inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """One recorded hf_dataset call as ``{parameter name: value}``, with any
+    VAR_KEYWORD bucket flattened so extra kwargs keep their own names.
+
+    WHY: the conserved-kwargs guard judges kwargs BY NAME — a bucket entry like
+    ``kwargs={'limit': 500}`` would be judged as one opaque kwarg called
+    'kwargs' instead of the ``limit`` that actually changes the exam.
+    """
+
+    try:
+        arguments: dict[str, Any] = dict(signature.bind_partial(*args, **kwargs).arguments)
+    except TypeError as exc:
+        # WHY: bind_partial raises a bare TypeError on a call the signature cannot
+        # hold (e.g. a doubled argument); the importer's contract is that every
+        # refusal is an ImporterError naming the fact that stopped it.
+        raise ImporterError(
+            f"the eval's hf_dataset call does not bind against the hf_dataset "
+            f"signature ({exc}) — the importer cannot read this call's arguments"
+        ) from exc
+    for name, parameter in signature.parameters.items():
+        if parameter.kind is parameter.VAR_KEYWORD and name in arguments:
+            arguments.update(arguments.pop(name))
+    return arguments
 
 
 def _module_level_row_rule(sample_fields: Any, task_ref: str) -> Any:
@@ -306,14 +376,16 @@ def _scorer_reference(task: Any, module: Any) -> tuple[str, dict[str, Any], str]
 
 def _solver_facts(
     task: Any, module: Any, task_ref: str
-) -> tuple[str | None, str | None, tuple[str, ...]]:
-    """The template references (prompt_template / custom multiple_choice) + unknowns."""
+) -> tuple[str | None, str | None, str | None, tuple[str, ...]]:
+    """The template references (prompt_template / custom multiple_choice / module-level
+    system message) + unknowns."""
 
     from inspect_ai._util.registry import registry_info, registry_params
 
     solvers: list[Any] = task.solver if isinstance(task.solver, list) else [task.solver]
     template_ref: str | None = None
     choice_template_ref: str | None = None
+    system_message_ref: str | None = None
     custom: list[str] = []
     for solver in solvers:
         registry_name: str = registry_info(solver).name
@@ -326,38 +398,83 @@ def _solver_facts(
             template_value: Any = registry_params(solver).get("template")
             template_ref = _template_attribute(module, template_value, task_ref)
         elif name == "system_message":
-            # WHY always flagged: the bake has no system-message channel, so the
-            # instruction would silently vanish from the imported exam.
-            custom.append(f"{registry_name} (system instructions are not baked)")
+            # A module-level system instruction the bake CAN deliver — as leading
+            # input text (a benchmark cannot address a candidate's system role;
+            # contracteval named-deviation pattern, owner-approved on OME-1253).
+            # An inline literal has no module attribute for the row to POINT at,
+            # and the importer never copies exam text, so it stays flagged.
+            system_message_ref = _resolved_or_flagged(
+                module,
+                solver,
+                task_ref,
+                custom,
+                f"{registry_name} (system instructions are not baked)",
+            )
         elif name == "multiple_choice" and registry_params(solver).get("template") is not None:
             # A custom choice template the bake CAN reproduce — when it resolves to
             # one module attribute the row points at (the family renderer, OME-1116
             # milestone C); an unresolvable one still earns the review flag.
-            try:
-                choice_template_ref = _template_attribute(
-                    module, registry_params(solver).get("template"), task_ref
-                )
-            except ImporterError:
-                custom.append(f"{registry_name} (custom choice template is not baked)")
+            choice_template_ref = _resolved_or_flagged(
+                module,
+                solver,
+                task_ref,
+                custom,
+                f"{registry_name} (custom choice template is not baked)",
+            )
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
-    return template_ref, choice_template_ref, tuple(custom)
+    return template_ref, choice_template_ref, system_message_ref, tuple(custom)
+
+
+def _resolved_or_flagged(
+    module: Any, solver: Any, task_ref: str, custom: list[str], flag: str
+) -> str | None:
+    """Resolve the solver's template to one module attribute, or record the review flag."""
+
+    from inspect_ai._util.registry import registry_params
+
+    try:
+        return _template_attribute(module, registry_params(solver).get("template"), task_ref)
+    except ImporterError:
+        custom.append(flag)
+        return None
 
 
 def _template_attribute(module: Any, template: Any, task_ref: str) -> str:
-    """Find the module attribute holding the template — the row must POINT, not copy."""
+    """Find the module attribute holding the template — the row must POINT, not copy.
+
+    The task module wins; when it has no match the template may live in a shared
+    helper elsewhere in the eval DISTRIBUTION (AIME's inspect_evals.utils.aime_common
+    — OME-1238), so the search widens to the loaded modules under the task module's
+    top-level package — still requiring exactly one match, because two candidate
+    references cannot both be THE row's pointer.
+    """
 
     matches: list[str] = [
         name
         for name, value in vars(module).items()
         if value is template and not name.startswith("_")
     ]
-    if len(matches) != 1:
-        raise ImporterError(
-            f"{task_ref}: cannot resolve the prompt template to exactly one module "
-            f"attribute (found {matches!r}) — add the prompt_template reference by hand"
+    if len(matches) == 1:
+        return f"{module.__name__}:{matches[0]}"
+    found: list[str] = [f"{module.__name__}:{name}" for name in matches]
+    if not matches:
+        package_prefix: str = f"{module.__name__.partition('.')[0]}."
+        found = sorted(
+            f"{sibling_name}:{attribute}"
+            for sibling_name, sibling in sys.modules.items()
+            if sibling is not None
+            and sibling is not module
+            and sibling_name.startswith(package_prefix)
+            for attribute, value in vars(sibling).items()
+            if value is template and not attribute.startswith("_")
         )
-    return f"{module.__name__}:{matches[0]}"
+        if len(found) == 1:
+            return found[0]
+    raise ImporterError(
+        f"{task_ref}: cannot resolve the prompt template to exactly one module "
+        f"attribute (found {found!r}) — add the prompt_template reference by hand"
+    )
 
 
 def _is_literal(value: Any) -> bool:
@@ -492,6 +609,15 @@ def render_fragments(
         snapshot_lines.append(f'        prompt_template="{facts.prompt_template}",')
     if facts.choice_template is not None:
         snapshot_lines.append(f'        choice_template="{facts.choice_template}",')
+    if facts.system_message is not None:
+        snapshot_lines.append(
+            "        # Named deviation: the eval sends this as a SYSTEM message; the"
+        )
+        snapshot_lines.append(
+            "        # bake delivers it as leading input text (a benchmark cannot"
+        )
+        snapshot_lines.append("        # address a candidate's system role).")
+        snapshot_lines.append(f'        system_message="{facts.system_message}",')
     if shuffle_seed is not None:
         snapshot_lines.append(f"        shuffle_seed={prefix}_SHUFFLE_SEED,")
     for solver_name in facts.custom_solvers:
@@ -522,6 +648,10 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         '        description="TODO",',
         '        focus="TODO",',
         f'        dataset_url="https://huggingface.co/datasets/{facts.dataset}",',
+        "        # TODO(review): assign the catalogue's easy→hard tier (OME-1257) —",
+        '        # "easy" | "medium" | "hard". The literal TODO is',
+        "        # refused by name at registration, so an unassigned tier cannot ship.",
+        '        difficulty="TODO",  # type: ignore[arg-type]',
         # WHY two lines: a long task_ref must never push a generated line past
         # the 100-column lint gate.
         "        # Provenance: this scorer is declared by the Task of",

@@ -52,7 +52,7 @@ def _failed_case(case_id: int) -> sf.CaseResult:
         failures=(
             sf.Failure(
                 stage="candidate",
-                code="provider_timeout",
+                code="provider_error",
                 message="the provider timed out",
                 case_id=case_id,
             ),
@@ -203,7 +203,7 @@ def test_failed_case_keeps_failures_in_metadata_and_omits_output_and_scores() ->
     assert failed["metadata"]["status"] == "failed"
     failure = failed["metadata"]["failures"][0]
     assert failure["stage"] == "candidate"
-    assert failure["code"] == "provider_timeout"
+    assert failure["code"] == "provider_error"
 
 
 def test_graded_refusal_rides_metadata_and_becomes_the_scored_answer() -> None:

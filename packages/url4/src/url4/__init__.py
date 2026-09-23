@@ -52,7 +52,7 @@ a requestor (:class:`Client`), or stand up a node (:class:`Url4Node`)::
 
 The execution engine — DAG compilation, the executor, lowering — lives one
 level down: ``from url4.dag import compile_expression, run``; the wire codecs
-in :mod:`url4.core.subrequest`; scope internals in :mod:`url4.core.context`.
+in :mod:`url4.wire.subrequest`; scope internals in :mod:`url4.core.context`.
 """
 
 from __future__ import annotations
@@ -77,6 +77,7 @@ from url4.core.builders import (
 from url4.core.errors import (
     CollectionError,
     CycleError,
+    ErrorCode,
     ParseError,
     RenderError,
     ResolutionError,
@@ -105,6 +106,7 @@ from url4.io.layer import (
     FetchRequest,
     FetchResult,
     IOLayer,
+    SupportsClose,
     SupportsDefaultRoute,
     SupportsFetchEx,
     SupportsHoldings,
@@ -123,7 +125,7 @@ __version__ = "1.5.1"
 # AIDEV-NOTE: HttpIOLayer is resolved lazily (PEP 562) so `import url4` never
 # pulls in httpx — ~44ms of a ~95ms import, paid by `url4 --version` and
 # `url4 eval`, neither of which speaks HTTP. This mirrors the discipline the
-# execution core already keeps: `executor._run_context`, `Client._effective_io`
+# execution core already keeps: `_run._run_context`, `Client._effective_io`
 # and `Url4Node._outbound_io` all import the concrete transport inside the
 # function, so the static import graph names no transport.
 def __getattr__(name: str) -> object:
@@ -148,6 +150,7 @@ __all__ = [
     "Iteration",
     "Node",
     "ParamsLike",
+    "ErrorCode",
     "ParseError",
     "RelExpr",
     "RelUrl",
@@ -161,6 +164,7 @@ __all__ = [
     "SourceLike",
     "StaticIOLayer",
     "StructObject",
+    "SupportsClose",
     "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",

@@ -519,6 +519,9 @@ class ScoredPath:
                 "message": diagnostic.message,
                 "retryable": diagnostic.retryable,
             }
+            if diagnostic.source_code is not None:
+                # The upstream spelling folded into upstream_error — kept for on-call.
+                public_metadata["source_error"]["source_code"] = diagnostic.source_code
         return {
             "stage": stage,
             "code": code,

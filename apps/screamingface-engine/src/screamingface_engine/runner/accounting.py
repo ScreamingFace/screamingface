@@ -24,7 +24,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
-from typing import Any
+from typing import Any, Literal
 
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
@@ -38,8 +38,14 @@ __all__ = [
     "OPENROUTER_CREDIT_UNIT",
     "PRICING_VERSION",
     "UNPRICED",
+    "USD_UNIT",
+    "AMOUNT_PRECISION",
+    "AvoidedCost",
     "CallAccounting",
+    "SavedCostProvenance",
     "accumulate",
+    "avoided_usd_for_outcome",
+    "avoided_usd_from_aigw",
     "read_aigw",
     "retained_operation_accounting",
     "usd_from_aigw",
@@ -52,12 +58,17 @@ PRICING_VERSION = "openrouter-credits-1usd"
 UNPRICED = "unpriced"
 
 OPENROUTER_CREDIT_UNIT = "openrouter_credits"
+# The unit a v5-seeded `archive_matched` reference reports: already dollars, so no rate applies.
+USD_UNIT = "usd"
+
+SavedCostProvenance = Literal["reported", "archive_matched"]
+_SAVED_COST_PROVENANCES: tuple[SavedCostProvenance, ...] = ("reported", "archive_matched")
 # INVARIANT: an owner decision (2026-08-17), not something this code can verify. It lives here as a
 # named constant so the assumption is visible rather than implied by an absent multiplication.
 _CREDIT_TO_USD = Decimal(1)
 # The producer's published amount bound is 18 integer + 33 fractional digits; this leaves headroom
 # so no conversion can round a value that arrived at the bound.
-_AMOUNT_PRECISION = 18 + 33 + 2
+AMOUNT_PRECISION = 18 + 33 + 2
 
 # Copied verbatim from the producer's published schema (the `amount` property). Keep it that way:
 # a locally-invented variant would drift from the contract it exists to mirror.
@@ -166,7 +177,7 @@ def _credits_to_usd(subtotals: object) -> Decimal | None:
     # INVARIANT: money arithmetic here is independent of whatever decimal context the caller happens
     # to be running under, exactly as the producing gateway guarantees for its own subtotals.
     with localcontext() as ctx:
-        ctx.prec = _AMOUNT_PRECISION
+        ctx.prec = AMOUNT_PRECISION
         return amount * _CREDIT_TO_USD
 
 
@@ -197,6 +208,106 @@ def usd_from_aigw(aigw: object) -> Decimal | None:
     # EMPTY subtotal list. Reading the list alone reports paid work as free.
     free = status == "not_applicable" and _is_cache_hit(_mapping(envelope.get("usage_accounting")))
     return Decimal(0) if free else None
+
+
+@dataclass(frozen=True, slots=True)
+class AvoidedCost:
+    """What one cache HIT would have cost, and how that amount was established.
+
+    FEATURE: run-level saved cost (PRD ans:Q2). Separate from :func:`usd_from_aigw` on purpose:
+    that function prices the CURRENT request, and on a hit it must stay exactly `Decimal("0")`
+    (PRD I1). Reading the reference cost into the same field would bill a free answer.
+
+    INVARIANT: `provenance` is `None` if and only if `usd` is. `reported` money is
+    provider-authored; `archive_matched` money is paired from the DRACO archive and its per-row
+    attribution is unproven (PRD ans:Q5). The two are reported and summed separately and are
+    NEVER added into one figure — a consumer that combines them cannot tell the claims apart.
+    """
+
+    usd: Decimal | None = None
+    provenance: SavedCostProvenance | None = None
+
+    def __post_init__(self) -> None:
+        if (self.usd is None) != (self.provenance is None):
+            raise ValueError("AvoidedCost usd and provenance must be set together or not at all")
+
+
+def _cache_reference_direct_cost(aigw: object) -> Mapping[str, Any] | None:
+    """The stored cost the gateway attached to a cache hit, or `None`.
+
+    This is `_aigw.usage_accounting.cache.reference.direct_cost`, populated by the gateway at
+    write time from the raw provider response (PRD §2.4) — never a value inferred from the
+    cached body.
+    """
+    envelope = _mapping(aigw)
+    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
+    cache = _mapping(accounting.get("cache")) if accounting is not None else None
+    reference = _mapping(cache.get("reference")) if cache is not None else None
+    return _mapping(reference.get("direct_cost")) if reference is not None else None
+
+
+def _saved_cost_usd(direct_cost: Mapping[str, Any]) -> Decimal | None:
+    """USD from one reference direct cost, or `None` for a unit this engine cannot price.
+
+    INVARIANT: never guess a rate. `openrouter_credits` converts 1:1 through the SAME
+    :func:`_credits_to_usd` the live path uses, `usd` is already dollars, and every other unit —
+    including the producer's `unit_unknown` spelling of "amount present, currency not" — makes
+    the hit unpriced rather than inventing an exchange rate (PRD S14). The producing gateway
+    stores the provider's unit VERBATIM (PRD I6); conversion is engine-side.
+    """
+    unit = direct_cost.get("unit")
+    amount = direct_cost.get("amount")
+    if unit == OPENROUTER_CREDIT_UNIT:
+        # Reuse the live converter so the 1:1 rate and the precision context are declared once.
+        return _credits_to_usd([{"unit": unit, "amount": amount}])
+    if unit == USD_UNIT:
+        return _exact_amount(amount)
+    return None
+
+
+def avoided_usd_from_aigw(aigw: object) -> AvoidedCost:
+    """The counterfactual one cache hit avoided, or nothing this engine can price.
+
+    FEATURE: run-level saved cost (PRD ans:Q2). Reads ONLY
+    `_aigw.usage_accounting.cache.reference.direct_cost` and is total: every malformed, absent
+    or unknown input yields :class:`AvoidedCost`, never an exception. The provider call is long
+    paid for by the time this runs, so accounting must never turn a completed response into a
+    run failure.
+
+    An empty result covers two different facts that the counter must both treat as an unpriced
+    HIT: no reference cost at all (a legacy row, a gateway that predates the field), and a
+    reference whose status or unit this engine cannot price. Only `reported` and
+    `archive_matched` statuses with a priceable unit carry a provenance.
+    """
+    direct_cost = _cache_reference_direct_cost(aigw)
+    if direct_cost is None:
+        return AvoidedCost()
+    status = direct_cost.get("status")
+    if status not in _SAVED_COST_PROVENANCES:
+        return AvoidedCost()
+    provenance: SavedCostProvenance = "reported" if status == "reported" else "archive_matched"
+    usd = _saved_cost_usd(direct_cost)
+    # Unpriced, not free: a status we trust but a unit we cannot convert stays out of every total
+    # and is counted as an unpriced hit instead.
+    return AvoidedCost(usd=usd, provenance=provenance) if usd is not None else AvoidedCost()
+
+
+def avoided_usd_for_outcome(aigw: object, cache: CacheOutcome) -> AvoidedCost:
+    """What one round trip's outcome PROVES the cache avoided.
+
+    A retried round trip proves nothing was avoided. `_post_completion` retries a lost response,
+    and the attempt whose reply was lost may have been processed and billed upstream — in which
+    case the row this attempt hit is the very one the lost attempt wrote and paid for. Pricing
+    that hit would report money saved that was in fact spent: the one direction of error this
+    whole feature exists to remove.
+
+    This WITHDRAWS a claim; it does not assert the spend was zero. The hit is still a hit and
+    still counted — as an unpriced one, which is the honest answer when the evidence is
+    ambiguous rather than absent.
+    """
+    if cache.retried:
+        return AvoidedCost()
+    return avoided_usd_from_aigw(aigw)
 
 
 def _attempt_usage(attempt: Mapping[str, Any]) -> tuple[int | None, ...]:

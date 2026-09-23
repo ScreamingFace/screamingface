@@ -14,6 +14,7 @@ from screamingface._ui.activity_view import STYLE as ACTIVITY_STYLE
 from screamingface._ui.activity_widget import CandidateActivityRow
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface._ui.evaluation_view import _evaluation_fragments
+from screamingface._ui.style import NO_MATH_CLASSES
 from screamingface.events import Event, Log
 from screamingface.report import CandidateResult, Report
 
@@ -94,6 +95,8 @@ class _NotebookEvaluationView:
         )
         self._html.add_class("sf-ui")
         self._html.add_class("sf-eval")
+        for css_class in NO_MATH_CLASSES:
+            self._html.add_class(css_class)
 
     def observe(self, candidate: Candidate, event: Event) -> None:
         with self._lock:

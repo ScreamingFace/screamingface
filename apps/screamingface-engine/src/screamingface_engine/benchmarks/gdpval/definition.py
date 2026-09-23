@@ -73,6 +73,9 @@ TEXT_EXAM, GDPVAL_TEXT = gdpval_benchmark(
     # WHY the GDPval task ids rather than the Engine Case ids: this board's identity IS a
     # selection out of the 220, so the dataset's own stable ids are the honest fingerprint.
     selection_sha=subset_sha(),
+    # Real professional deliverables graded on expert rubrics — the board that appears
+    # in frontier-model launch tables (OME-1257).
+    difficulty="hard",
     focus="Real professional work, prose deliverables",
     dataset_url=GDPVAL_DATASET_URL,
 )

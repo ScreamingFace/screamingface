@@ -23,6 +23,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.definition import DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine_inspect.prepare import (
     SNAPSHOTS,
@@ -52,6 +53,9 @@ class BoardSpec:
     description: str
     focus: str
     dataset_url: str
+    #: The catalogue's hand-assigned easy→hard tier (OME-1257) — authored here because
+    #: this row IS the imported board's authoring site; reviewed in the PR that lands it.
+    difficulty: DifficultyTier
     scorer: str
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
     #: §4 dual registration; False for MCQ boards — pass/fail feedback over a
@@ -75,6 +79,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Grade-school math word problems",
         dataset_url="https://huggingface.co/datasets/openai/gsm8k",
+        # Grade-school material frontier models saturate — quick, cheap signal (OME-1257).
+        difficulty="easy",
         # Provenance: inspect_evals.gsm8k.gsm8k's Task declares scorer=match(numeric=True).
         scorer="inspect_ai.scorer:match",
         scorer_kwargs={"numeric": True},
@@ -97,6 +103,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Broad multi-subject knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/mmlu",
+        # Broad knowledge with real headroom, but no expert-frontier stakes (OME-1257).
+        difficulty="medium",
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
     ),
@@ -114,6 +122,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Grade-school science (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
+        # Grade-school material frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_easy. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
@@ -132,6 +142,9 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Hard science reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
+        # Built as the subset simple baselines get wrong — still differentiates the
+        # small/local models a fusion draws on, unlike its saturated Easy sibling (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_challenge. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
@@ -151,6 +164,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Everyday commonsense reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/tau/commonsense_qa",
+        # Everyday commonsense frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa. License: mit.
         scorer="inspect_ai.scorer:choice",
@@ -171,6 +186,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Paraphrase adjudication (yes/no)",
         dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
+        # Binary adjudication frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.paws.paws:paws. License: other.
         scorer="inspect_ai.scorer:includes",
@@ -193,6 +210,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Yes/no reading comprehension",
         dataset_url="https://huggingface.co/datasets/google/boolq",
+        # Passage-grounded yes/no frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
         scorer="inspect_ai.scorer:pattern",
@@ -215,6 +234,9 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Harder multi-discipline knowledge, ten options (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
+        # Harder than MMLU but still curated exam knowledge, not expert-written
+        # frontier work (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro. License: mit.
         scorer="inspect_ai.scorer:choice",
@@ -234,6 +256,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Commonsense pronoun resolution (binary choice)",
         dataset_url="https://huggingface.co/datasets/allenai/winogrande",
+        # Binary commonsense frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.winogrande.winogrande:winogrande. License: UNKNOWN.
         scorer="inspect_ai.scorer:choice",
@@ -253,8 +277,188 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Long-passage reading comprehension (multiple choice)",
         dataset_url="https://huggingface.co/datasets/ehovy/race",
+        # High-school reading exams frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.race_h.race_h:race_h. License: other.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="aime24",
+        title="AIME 2024",
+        description=(
+            "All 30 problems of the 2024 American Invitational Mathematics "
+            "Examination (AIME I and II), imported from inspect_evals. Every "
+            "answer is an integer from 0 to 999; the model solves step by step "
+            "and commits its final answer on a closing 'ANSWER:' line. Grading "
+            "is the eval's own scorer — a numeric match of the reply's final "
+            "line against the answer key — so no judge tokens are spent. Cases "
+            "are served in a fixed seeded shuffle so a limited run spans both "
+            "exams and the difficulty range. Benchmark score = plain accuracy "
+            "over the cases run. Free-form replies make the mid-run check "
+            "surface legitimate (corrective loop)."
+        ),
+        focus="Competition mathematics (AIME 2024)",
+        dataset_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
+        # Competition-exam mathematics: hard for non-reasoning models, high but
+        # unsaturated for frontier reasoning models — headroom without expert
+        # professional stakes (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.aime2024.aime2024:aime2024.
+        # License: mit.
+        scorer="inspect_evals.aime2024.aime2024:aime_scorer",
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ boards must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
+    BoardSpec(
+        key="aime25",
+        title="AIME 2025",
+        description=(
+            "All 30 problems of the 2025 American Invitational Mathematics "
+            "Examination (AIME I and II), imported from inspect_evals. Every "
+            "answer is an integer from 0 to 999; the model solves step by step "
+            "and commits its final answer on a closing 'ANSWER:' line. Grading "
+            "is the eval's own scorer — a numeric match of the reply's final "
+            "line against the answer key — so no judge tokens are spent. Cases "
+            "are served in a fixed seeded shuffle so a limited run spans both "
+            "exams and the difficulty range. Benchmark score = plain accuracy "
+            "over the cases run. Free-form replies make the mid-run check "
+            "surface legitimate (corrective loop)."
+        ),
+        focus="Competition mathematics (AIME 2025)",
+        dataset_url="https://huggingface.co/datasets/math-ai/aime25",
+        # Same tier as aime24 — the sibling year of one competition (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.aime2025.aime2025:aime2025.
+        # License: apache-2.0.
+        scorer="inspect_evals.aime2025.aime2025:aime_scorer",
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ boards must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
+    BoardSpec(
+        key="musr",
+        title="MuSR",
+        description=(
+            "250 machine-generated murder mysteries (the MuSR murder_mysteries "
+            "split — the upstream eval's default domain), each a ~1,000-word "
+            "narrative whose whodunit question takes multi-step soft reasoning "
+            "over the story, imported from inspect_evals. The model picks a "
+            "suspect through the eval's own choice prompt; grading is inspect's "
+            "own choice scorer against the published key, so no judge tokens "
+            "are spent. Cases are served in a fixed seeded shuffle (the "
+            "upstream eval randomizes order per run); benchmark score = plain "
+            "accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over few options)."
+        ),
+        focus="Long-narrative multi-step reasoning (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/TAUR-Lab/MuSR",
+        # Multi-step narrative reasoning frontier models handle well but do not
+        # saturate — headroom without expert stakes (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.musr.musr:musr.
+        # License: cc-by-4.0.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="wmdp_bio",
+        title="WMDP-Bio",
+        description=(
+            "1,273 four-option questions probing hazardous biosecurity "
+            "knowledge (the WMDP wmdp-bio test split), written by experts as a "
+            "proxy measure of weapons-of-mass-destruction-relevant capability, "
+            "imported from inspect_evals. Grading is inspect's own choice "
+            "scorer against the published key, so no judge tokens are spent; "
+            "cases are served in the upstream order (the eval does not "
+            "shuffle); benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Hazardous biosecurity knowledge probe (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Expert-written knowledge probe with real headroom; an MCQ capability
+        # measure, not expert work models visibly fail (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.wmdp.wmdp:wmdp_bio.
+        # License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="wmdp_chem",
+        title="WMDP-Chem",
+        description=(
+            "408 four-option questions probing hazardous chemical-security "
+            "knowledge (the WMDP wmdp-chem test split), written by experts as "
+            "a proxy measure of weapons-of-mass-destruction-relevant "
+            "capability, imported from inspect_evals. Grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent; cases are served in the upstream order (the eval does not "
+            "shuffle); benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Hazardous chemical-security knowledge probe (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Same family and rubric as wmdp_bio (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.wmdp.wmdp:wmdp_chem.
+        # License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="wmdp_cyber",
+        title="WMDP-Cyber",
+        description=(
+            "1,987 four-option questions probing hazardous cybersecurity "
+            "knowledge (the WMDP wmdp-cyber test split), written by experts as "
+            "a proxy measure of weapons-of-mass-destruction-relevant "
+            "capability, imported from inspect_evals. Grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent; cases are served in the upstream order (the eval does not "
+            "shuffle); benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Hazardous cybersecurity knowledge probe (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Same family and rubric as wmdp_bio (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.wmdp.wmdp:wmdp_cyber.
+        # License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BoardSpec(
+        key="hellaswag",
+        title="HellaSwag",
+        description=(
+            "10,042 everyday scenarios (the HellaSwag validation split — test "
+            "labels are withheld upstream), each a story context with four "
+            "candidate continuations where only one is plausible; the wrong "
+            "ones are adversarially machine-generated, imported from "
+            "inspect_evals. One named deviation: the eval sends its task "
+            "instruction ('Choose the most plausible continuation for the "
+            "story.') as a system message, while this board delivers it as the "
+            "leading text of the candidate input, because a benchmark cannot "
+            "address a candidate's system role. Grading is inspect's own "
+            "choice scorer against the published key, so no judge tokens are "
+            "spent; cases are served in a fixed seeded shuffle (the pinned "
+            "split is domain-grouped, so a limited run over raw order would "
+            "examine one domain); benchmark score = plain accuracy over the "
+            "cases run. No mid-run check surface (elimination attack over few "
+            "options)."
+        ),
+        focus="Commonsense sentence continuation (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/Rowan/hellaswag",
+        # Everyday commonsense continuation frontier models saturate (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.hellaswag.hellaswag:hellaswag.
+        # License: UNKNOWN on the HF card; MIT per the upstream source repo
+        # (owner-approved 2026-09-22 — see pins.py).
         scorer="inspect_ai.scorer:choice",
     ),
     # --- importer: generated BoardSpec rows land above this line ---
@@ -288,6 +492,7 @@ def _assemble(spec: BoardSpec) -> ImportedBoard:
         description=spec.description,
         focus=spec.focus,
         dataset_url=spec.dataset_url,
+        difficulty=spec.difficulty,
         case_count=snapshot.case_count,
         revision_pins=_revision_pins(snapshot),
         scorer_factory=_scorer_factory(spec),
@@ -310,6 +515,12 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
     ]
     if snapshot.shuffle_seed is not None:
         pins.append(f"shuffle_seed={snapshot.shuffle_seed}")
+    if snapshot.system_message is not None:
+        # WHY: adding or dropping the leading instruction changes the exam a
+        # candidate sits, so the pointer rides exam identity. (The template
+        # pointers predate revision-pin coverage and cannot join without
+        # moving every published board's revision.)
+        pins.append(f"system_message={snapshot.system_message}")
     return tuple(pins)
 
 

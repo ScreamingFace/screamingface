@@ -39,7 +39,7 @@ from .core.parameter_discovery_cache import (
 )
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
-from .core.provider_access import ProfileBackedProviderAccess
+from .core.provider_access import ProfileBackedCredentialAdmin, ProfileBackedProviderAccess
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -63,6 +63,7 @@ from .routes import (
     model_parameters,
     models,
     oauth_connections,
+    provider_access_availability,
     providers,
     tavily_retrieval_cache,
 )
@@ -412,8 +413,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     credential_store = ORMStore()
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
-    # OME-1200: the provider-access port; routes reach it via the chat_credentials shims until A2.
+    # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
     app.state.provider_access = ProfileBackedProviderAccess(app)
+    # OME-1230: the provider-credential admin interface (writes + listings); the Profile management
+    # routes are shells over it. Stage B swaps both backings here, without touching a route.
+    app.state.provider_credential_admin = ProfileBackedCredentialAdmin(app)
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
     )
@@ -459,6 +463,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router)
     app.include_router(model_admission.router)
     app.include_router(providers.router)
+    # OME-1244 (A4): the caller-scoped availability successor, over the provider-access port.
+    app.include_router(provider_access_availability.router)
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)

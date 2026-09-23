@@ -20,7 +20,7 @@ from screamingface_engine.benchmarks import (
     BenchmarkRegistry,
     candidate,
 )
-from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import BenchmarkOrigin
 from screamingface_engine.config import Settings
 from screamingface_engine.testing import InMemoryEventStream
@@ -44,6 +44,7 @@ def _benchmark(
         declaration=BenchmarkDeclaration(
             failure_policy="coverage_declare",
             interaction="single_shot",
+            difficulty="easy",
         ),
     )
     return build() if origin is None else build(origin=origin)
@@ -66,11 +67,22 @@ def test_an_undeclared_origin_value_is_refused_by_name() -> None:
         _benchmark(origin=cast("BenchmarkOrigin", "huggingface"))
 
 
-def test_every_builtin_board_publishes_screamingface_origin() -> None:
+def test_every_deployed_board_publishes_an_origin() -> None:
     # INVARIANT: acceptance says /v1/benchmarks returns origin for EVERY board —
-    # unconditionally emitted, never an optional key.
+    # unconditionally emitted, never an optional key. BUILTIN_BENCHMARKS is the whole
+    # deployment (this repo's boards PLUS whatever plugins discovery found), so the
+    # value varies by board; only its presence is universal.
     for board in BUILTIN_BENCHMARKS:
-        assert board.catalog_entry()["origin"] == "screamingface"
+        assert board.catalog_entry()["origin"]
+
+
+def test_every_board_authored_in_this_repo_publishes_screamingface_origin() -> None:
+    # INVARIANT: the default is a claim of authorship, so it must hold for exactly the
+    # boards written here. Asserted over BUILTIN_REGISTRATIONS, not the deployment:
+    # an installed import plugin contributes boards that are NOT ours, and folding them
+    # in made this assertion pass only while imported boards were mis-stamped.
+    for registration in BUILTIN_REGISTRATIONS:
+        assert registration.benchmark.catalog_entry()["origin"] == "screamingface"
 
 
 @pytest.mark.asyncio

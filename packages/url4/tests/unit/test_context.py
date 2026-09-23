@@ -35,3 +35,26 @@ def test_nearest_binding_shadows() -> None:
 def test_unbound_raises_scope_error() -> None:
     with pytest.raises(ScopeError):
         Context.root().lookup("missing")
+
+
+def test_get_in_own_frame() -> None:
+    assert Context.root().child(a="1").get("a") == "1"
+
+
+def test_get_walks_parent_chain() -> None:
+    nested = Context.root().child(a="1").child(b="2")
+    assert nested.get("a") == "1"
+    assert nested.get("b") == "2"
+
+
+def test_get_nearest_binding_shadows() -> None:
+    outer = Context.root().child(a="outer")
+    inner = outer.child(a="inner")
+    assert inner.get("a") == "inner"
+    assert outer.get("a") == "outer"
+
+
+def test_get_absent_returns_default() -> None:
+    assert Context.root().get("missing") is None
+    assert Context.root().child(a="1").get("missing") is None
+    assert Context.root().get("missing", "fallback") == "fallback"

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,12 +44,13 @@ from url4.core.builders import expr as _expr
 from url4.core.builders import iterate as _iterate
 from url4.core.builders import reduce as _reduce
 from url4.core.context import Context
+from url4.core.errors import ParseError
 from url4.core.nodes import Expression, Iteration, Node, Params, RemoteExpr, Source, Text
 from url4.core.parser import build
-from url4.core.render import _render_source, render
-from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
-from url4.dag.node import ProcessFn, default_process
+from url4.core.render import _render_source, render, verify
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.io.layer import IOLayer
+from url4.peer._owned import _OwnedIO
 
 
 @dataclass(frozen=True)
@@ -132,8 +133,7 @@ class Client:
             if node is not None:
                 raise ValueError("pass the node target once — positionally or as node=, not both")
             io, node = None, io
-        self._io = io
-        self._owned_io: IOLayer | None = None
+        self._owned = _OwnedIO(io)
         self._node = node
         self._path = path
         self._processor = processor
@@ -145,25 +145,17 @@ class Client:
 
     async def aclose(self) -> None:
         """Close the lazily-owned io adapter, if any (injected io is left alone)."""
-        owned = self._owned_io
-        self._owned_io = None
-        if owned is not None:
-            await owned.aclose()  # type: ignore[attr-defined]  # owned is always HttpIOLayer
+        await self._owned.aclose()
 
     async def __aenter__(self) -> Client:
+        await self._owned.__aenter__()
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
-        await self.aclose()
+        await self._owned.__aexit__(*exc_info)
 
     def _effective_io(self) -> IOLayer:
-        if self._io is not None:
-            return self._io
-        if self._owned_io is None:
-            from url4.io.http import HttpIOLayer  # composition root: lazy transport import
-
-            self._owned_io = HttpIOLayer()
-        return self._owned_io
+        return self._owned.outbound()
 
     # --- the query surface ------------------------------------------------------
 
@@ -258,17 +250,35 @@ class Client:
         against ``io``. ``env`` seeds the lexical scope: ``$name`` references
         in the expression resolve against it. ``params`` are protocol params
         merged onto the expression.
+
+        A tree passed as ``Node`` is rendered with the round-trip re-parse
+        skipped (``check=False``, ~15x the render). A tree the grammar cannot
+        faithfully carry (spec §8.1.2) is still reported as
+        :class:`~url4.core.errors.RenderError` naming the tree — the check runs
+        only once the run has already failed, so it costs nothing when the tree
+        is sound.
         """
         target = node or self._node
         proto = _pairs(params)
+        # WHY check=False: the verified re-parse costs ~15x the render on this
+        # front-door path, and the trees rendered here are overwhelmingly parser- or
+        # builder-produced — the exact class the renderer's round-trip property tests
+        # pin. `rendered` keeps the tree `request` came from (None when the caller
+        # passed text), so _blaming_render below can buy the diagnostic back for the
+        # rest, on failure only.
+        rendered: Node | None
         if target is None and not proto:
-            request = expression if isinstance(expression, str) else render(expression)
+            if isinstance(expression, str):
+                request, rendered = expression, None
+            else:
+                request, rendered = render(expression, check=False), expression
         else:
             root = _as_composite(build(expression) if isinstance(expression, str) else expression)
             if target is None:
-                request = render(_with_params(root, proto))
+                rendered = _with_params(root, proto)
             else:
-                request = render(_passthrough(_as_remote(root, target, path or self._path, proto)))
+                rendered = _passthrough(_as_remote(root, target, path or self._path, proto))
+            request = render(rendered, check=False)
         ctx = ExecutionContext(
             self._effective_io(),
             processor=self._processor,
@@ -276,8 +286,31 @@ class Client:
             scope=Context(bindings=dict(env)) if env else None,
             strict_fields=self._strict_fields,
         )
-        text = await run(request, ctx=ctx, concurrency=self._concurrency)
+        text = await _blaming_render(
+            rendered, request, run(request, ctx=ctx, concurrency=self._concurrency)
+        )
         return Url4Result(text=text, request=request)
+
+
+async def _blaming_render(rendered: Node | None, request: str, run: Awaitable[str]) -> str:
+    """Await ``run``, re-attributing a parse failure to ``rendered`` when it is at fault.
+
+    The front doors render caller-supplied trees with ``check=False``, so an unfaithful
+    tree does not fail at the render — it surfaces downstream as a
+    :class:`~url4.core.errors.ParseError` naming rendered text the caller never wrote.
+    Verifying the round-trip only on that failure restores the
+    :class:`~url4.core.errors.RenderError` ``check=True`` would have raised, naming their
+    tree, while a parse failure raised from inside the run (a malformed fetched
+    sub-expression, say) is left to propagate untouched. Shared by
+    :meth:`Client.evaluate` and :meth:`~url4.peer.server.Url4Node.evaluate` so the two
+    front doors cannot drift.
+    """
+    try:
+        return await run
+    except ParseError:
+        if rendered is not None:
+            verify(rendered, request)
+        raise
 
 
 # --- the sync convenience ---------------------------------------------------------

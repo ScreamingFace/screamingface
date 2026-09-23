@@ -22,6 +22,7 @@ function job(overrides: Partial<AdminCacheJob> = {}): AdminCacheJob {
     live_after: 10,
     inserted_rows: 5,
     updated_rows: 5,
+    metadata_degraded: 0,
     manifest_present: true,
     forced: false,
     warnings: [],

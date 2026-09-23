@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.parser import build
 from url4.io.layer import IOLayer, SupportsProcessorRoutes
 
@@ -79,7 +79,7 @@ async def _evaluate(value: str, spawn: Callable[[str], Awaitable[str]] | None) -
         raise ResolutionError(
             f"processor {value!r} is an expression, but this run cannot evaluate one "
             "(no spawn hook) — pass a processor id, route, or URI instead",
-            code="unknown_processor",
+            code=ErrorCode.UNKNOWN_PROCESSOR,
             permanent=True,
         )
     # INVARIANT: a Form-3 processor value is USER surface (§27.3's
@@ -95,7 +95,7 @@ async def _evaluate(value: str, spawn: Callable[[str], Awaitable[str]] | None) -
         raise ResolutionError(
             f"processor expression resolved to another expression ({resolved!r}); "
             "resolution is single-pass",
-            code="unknown_processor",
+            code=ErrorCode.UNKNOWN_PROCESSOR,
             permanent=True,
         )
     return resolved
@@ -114,7 +114,7 @@ def _route_for_id(processor_id: str, io: IOLayer) -> str:
     raise ResolutionError(
         f"unknown processor {processor_id!r} — this node declares "
         f"{sorted(routes) if routes else 'no routes'}",
-        code="unknown_processor",
+        code=ErrorCode.UNKNOWN_PROCESSOR,
         permanent=True,
     )
 

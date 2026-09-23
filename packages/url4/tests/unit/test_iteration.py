@@ -310,7 +310,11 @@ async def test_map_rows_share_one_compile_per_unique_body(monkeypatch) -> None:
     # attributes, constant across rows), so the per-row lowering must compile
     # it once and reuse the graph for every row — not re-parse per row. A spy on
     # compile_expression should see the outer expression once and the shared
-    # row body exactly once, regardless of row count.
+    # row body exactly once, regardless of row count. The spy patches BOTH
+    # consuming modules since the executor/run split (F1): the outer compile
+    # lives in url4.dag._run (_to_node), the spawn-hook compiles in
+    # url4.dag.executor.
+    import url4.dag._run as run_mod
     import url4.dag.executor as executor
 
     calls: list[str] = []
@@ -320,6 +324,7 @@ async def test_map_rows_share_one_compile_per_unique_body(monkeypatch) -> None:
         calls.append(text)
         return real(text, registry=registry, **kwargs)
 
+    monkeypatch.setattr(run_mod, "compile_expression", spy)
     monkeypatch.setattr(executor, "compile_expression", spy)
 
     rows = json.dumps([{"q": f"r{i}"} for i in range(5)])
@@ -345,6 +350,9 @@ async def test_distinct_spawned_bodies_each_compile_once(monkeypatch) -> None:
     # distinct text lowers exactly once even though 3 rows each spawn both —
     # proving the memo is text-keyed, not "compile once per run". Without the
     # cache this would be 1 (outer) + 3 (row body) + 3 (lazy fragment) = 7 calls.
+    # Same two-module spy as the test above (the F1 split moved the outer
+    # compile into url4.dag._run).
+    import url4.dag._run as run_mod
     import url4.dag.executor as executor
 
     calls: list[str] = []
@@ -354,6 +362,7 @@ async def test_distinct_spawned_bodies_each_compile_once(monkeypatch) -> None:
         calls.append(text)
         return real(text, registry=registry, **kwargs)
 
+    monkeypatch.setattr(run_mod, "compile_expression", spy)
     monkeypatch.setattr(executor, "compile_expression", spy)
 
     rows = json.dumps([{"k": i} for i in range(3)])

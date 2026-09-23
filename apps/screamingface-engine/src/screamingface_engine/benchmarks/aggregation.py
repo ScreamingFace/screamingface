@@ -23,9 +23,11 @@ from screamingface_engine.benchmarks.contract import (
     Failure,
     OperationOutput,
     candidate_coverage,
+    is_declared_failure_code,
     validate_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
 from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
 
@@ -54,6 +56,9 @@ class PublicError:
     code: str
     message: str
     retryable: bool | None
+    # The pre-mapping upstream spelling when `code` was folded into upstream_error;
+    # None whenever the upstream code was declared (or absent).
+    source_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +165,17 @@ def public_error(
     if not isinstance(retryable, bool):
         permanent = error.get("permanent")
         retryable = not permanent if isinstance(permanent, bool) else None
-    return PublicError(kind=kind, code=code, message=message, retryable=retryable)
+    # WHY the mapping (OME-1234, owner decision): upstream produces an open set of
+    # codes the engine does not control, but Failure.code refuses anything undeclared.
+    # Folding unknowns into upstream_error here — spelling preserved in source_code —
+    # keeps the axis closed without letting routine gateway churn crash a paid run.
+    source_code: str | None = None
+    if not is_declared_failure_code(code):
+        source_code = code
+        code = UPSTREAM_FALLBACK_CODE
+    return PublicError(
+        kind=kind, code=code, message=message, retryable=retryable, source_code=source_code
+    )
 
 
 def _public_identifier(value: object) -> str | None:
@@ -385,6 +400,10 @@ def grading_failure_case_result(
     metadata: dict[str, Any] = {}
     if diagnostic.kind is not None:
         metadata["error_kind"] = diagnostic.kind
+    if diagnostic.source_code is not None:
+        # The upstream spelling that was folded into upstream_error — kept so on-call
+        # can still see exactly what the gateway said.
+        metadata["source_code"] = diagnostic.source_code
     failure = Failure(
         stage="grading",
         code=diagnostic.code,

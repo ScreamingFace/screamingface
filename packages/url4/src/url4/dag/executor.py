@@ -17,39 +17,30 @@ not the same as I/O *completion* order: independent nodes still run in
 parallel, so their ``ctx.io.fetch`` calls may arrive at (or return from) the
 I/O layer in any interleaving. An order-sensitive ``IOLayer`` must not assume
 FIFO arrival.
+
+The public ``run()`` entry and its composition root live in
+:mod:`url4.dag._run` — split by reason to change (second review, F1): this
+module is the scheduling engine; that module is the public API surface.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import secrets
-from typing import Literal, cast
 
 from url4.core.context import Context
 from url4.core.errors import CycleError
-from url4.core.nodes import Node as AstNode
-from url4.io.layer import IOLayer
 from url4.observe import (
     NodeFinished,
     NodeStarted,
-    Observer,
-    RunFinished,
-    RunStarted,
     _bind_node_sinks,
 )
 
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
-    DEFAULT_RUN_CONCURRENCY,
-    BoundedIOLayer,
     DagNode,
     ExecutionContext,
     Payload,
-    ProcessFn,
     SourceFailure,
-    _ObsState,
-    default_process,
     node_children,
     reraise_first,
 )
@@ -80,33 +71,6 @@ def check_acyclic(root: DagNode) -> None:
                 stack.append((dep, False))
 
 
-def _validate_concurrency(concurrency: int | None) -> None:
-    """Reject a run-wide I/O cap that can't be honored — before any allocation.
-
-    The surface ``;iteration.concurrency`` syntax rejects ``n < 1`` with a
-    ParseError; :func:`run`'s programmatic ``concurrency`` kwarg must do the
-    same, and BEFORE :class:`BoundedIOLayer` builds an :class:`asyncio.Semaphore`.
-    A ``Semaphore(0)`` can never be acquired, so every fetch would hang forever
-    (no error, no timeout, and ``run``'s try/finally would never close the owned
-    client). A non-int is rejected too so a bad upstream config value surfaces
-    here, not as a raw asyncio TypeError at first-fetch time. ``None`` opts out.
-    ``bool`` is an ``int`` subclass, so ``True`` (1) is accepted and ``False``
-    (0) is rejected — the latter would otherwise hang.
-    """
-    if concurrency is None:
-        return
-    if not isinstance(concurrency, int):
-        raise TypeError(
-            f"run(): `concurrency` must be an int or None (None opts out of the "
-            f"run-wide I/O cap); got {type(concurrency).__name__}={concurrency!r}"
-        )
-    if concurrency < 1:
-        raise ValueError(
-            "run(): `concurrency` must be >= 1, or None to opt out of the "
-            f"run-wide I/O cap; got {concurrency!r}"
-        )
-
-
 class Executor:
     """Executes one graph run against a per-run :class:`ExecutionContext`."""
 
@@ -115,6 +79,12 @@ class Executor:
         # id -> (task, node); the node reference pins the id for the run's lifetime
         self._memo: dict[int, tuple[asyncio.Task, DagNode]] = {}
         self._tg: asyncio.TaskGroup | None = None
+        # Debug-only guard for the resolve-once invariant documented in ``_run``:
+        # id -> how many times that node's evaluation task ran. Not allocated, and
+        # never incremented or asserted, under ``python -O`` (``__debug__`` is
+        # False), so the production hot path is unchanged.
+        if __debug__:
+            self._resolve_counts: dict[int, int] = {}
 
     async def execute(self, root: DagNode, *, _prevalidated: bool = False) -> str:
         """Execute ``root`` and render the sink payload as the run's string result.
@@ -149,6 +119,14 @@ class Executor:
                 result = await self._run(root, self._ctx._current_span_id)
         except BaseExceptionGroup as group:
             reraise_first(group)
+        finally:
+            # Checked on the failure paths too: a run that double-resolved a node
+            # before failing still did the duplicate I/O. If the assert fires while
+            # an error is already propagating, the invariant break becomes the
+            # surfaced error and the original travels as its ``__context__`` —
+            # the diagnostic is not lost.
+            if __debug__:
+                self._check_resolve_counts()
         return result
 
     async def _run(self, node: DagNode, parent_span_id: str | None) -> Payload:
@@ -173,7 +151,25 @@ class Executor:
             self._memo[id(node)] = memoized = (task, node)
         return await memoized[0]
 
+    def _check_resolve_counts(self) -> None:
+        """Assert the resolve-once invariant documented in ``_run`` (debug only).
+
+        Every node scheduled during a *successful* run must have resolved exactly
+        once; a shared diamond dependency resolving twice is the silent regression
+        the ``_run`` comment forbids. Compiled out under ``python -O``
+        (``__debug__`` False), so it costs nothing in production.
+        """
+        duplicates = {node_id: n for node_id, n in self._resolve_counts.items() if n != 1}
+        assert not duplicates, (
+            f"executor memo invariant violated: nodes resolved != once: {duplicates}"
+        )
+
     async def _eval(self, node: DagNode, parent_span_id: str | None) -> Payload:
+        if __debug__:
+            # One entry per node whose evaluation task started. On the success
+            # path each scheduled task runs its single ``resolve``, so a count of
+            # 2 means the ``_run`` memo let a shared node schedule twice.
+            self._resolve_counts[id(node)] = self._resolve_counts.get(id(node), 0) + 1
         obs = self._ctx._obs
         roles = list(node.deps)  # insertion order → deterministic scheduling
         if obs is None:
@@ -225,6 +221,14 @@ def _detail(node: DagNode) -> str:
 
 def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> None:
     """Bind the dynamic-expansion hook: compile a fragment, run it fresh.
+
+    WHY this lives in executor.py and not ``url4.dag._run`` (the F1 split):
+    these closures are the only engine-internal constructors of
+    :class:`Executor` (one fresh executor per row / per lazy consumer) and they
+    consume ``check_acyclic`` — the same reason-to-change neighborhood as the
+    executor itself. They also read this module's ``compile_expression`` /
+    ``check_acyclic`` globals, which is the monkeypatch seam
+    ``tests/unit/test_iteration.py`` spies through.
 
     The compiled :class:`~url4.dag.compiler.Graph` is memoized by its surface
     text for the run's lifetime. Every row of a
@@ -295,198 +299,4 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
     ctx._execute_node_hook = execute_node_hook
 
 
-def _to_node(target: str | AstNode | Graph | DagNode, registry: LoweringRegistry | None) -> DagNode:
-    if isinstance(target, Graph):
-        return target.sink
-    if isinstance(target, DagNode):  # parse-tree nodes have no resolve → fall through
-        return target
-    return compile_expression(cast("str | AstNode", target), registry=registry).sink
-
-
-async def run(
-    target: str | AstNode | Graph | DagNode,
-    io: IOLayer | None = None,
-    *,
-    processor: str | None = None,
-    process: ProcessFn = default_process,
-    registry: LoweringRegistry | None = None,
-    ctx: ExecutionContext | None = None,
-    concurrency: int | None = DEFAULT_RUN_CONCURRENCY,
-    strict_fields: bool = False,
-    observer: Observer | None = None,
-    trace_id: str | None = None,
-    root_span_id: str | None = None,
-) -> str:
-    """Evaluate a url4 expression (text, parse tree, graph, or node) to a string.
-
-    ``io`` is the :class:`~url4.io.layer.IOLayer` performing fetches and backend
-    calls; it defaults to a batteries-included :class:`~url4.io.http.HttpIOLayer`
-    (httpx GET). Pass a :class:`~url4.io.static.StaticIOLayer` for deterministic,
-    network-free runs. Pass an explicit ``ctx`` instead to inspect per-run state
-    afterwards (e.g. ``ctx.collected_errors``).
-
-    ``processor`` is the route a fan-out reduce dispatches to. Unset, it
-    resolves to the io world's first declared route
-    (:class:`~url4.io.layer.SupportsDefaultRoute`) — the core hardcodes no
-    route names; with neither, a reduce raises a clear
-    :class:`~url4.core.errors.ResolutionError`.
-
-    When ``ctx`` is supplied, ``io``/``processor``/``process`` must be left at
-    their defaults — the ctx already carries them, and combining both is
-    ambiguous (see the ``ValueError`` below). Execution runs on a *child* of the
-    supplied ``ctx`` (fresh ``spawn`` wiring, shared scope/io/error-tally/process
-    hook), so ``ctx`` itself is never mutated: it is safe to hold on to the same
-    ``ExecutionContext`` and pass it to overlapping concurrent ``run()`` calls
-    (each gets its own ``spawn`` closure/registry on its own child), and
-    ``ctx.collected_errors`` still totals every run's captured row errors
-    (they share one error tally by construction).
-
-    ``concurrency`` bounds how many ``ctx.io.fetch`` calls this run (including
-    every fragment it spawns) may have in flight at once — the run-wide
-    admission-control gate that a bare fan-out group, a fan-out+reduce, and the
-    aggregate of a collection's rows would otherwise have no cap on at all
-    (per-map ``;iteration.concurrency`` only tightens *within* one map, it does
-    not bound the whole run). Defaults to :data:`DEFAULT_RUN_CONCURRENCY`; pass
-    ``None`` to opt out and run fully unbounded (the pre-existing behavior),
-    e.g. if the ``IOLayer`` already enforces its own limit.
-
-    ``strict_fields`` selects the spec §5.3.4.1 field-path error mode: the
-    default (False) is the lenient LLM mode — a missing field / bad index
-    substitutes ``""``; True is the strict RDS mode — it raises
-    :class:`~url4.core.errors.ScopeError` with code ``malformed_source``. With a
-    supplied ``ctx``, ``strict_fields=True`` tightens the run; the ctx's own
-    mode otherwise applies.
-
-    ``observer``, when given, receives one :class:`~url4.observe.RunStarted`,
-    one :class:`~url4.observe.NodeStarted`/:class:`~url4.observe.NodeFinished`
-    pair per node evaluation, and one :class:`~url4.observe.RunFinished` for
-    this run — minted once, here, for the top-level run only (every fragment
-    this run spawns shares the same observer via ``ExecutionContext.child``).
-    ``on_event`` is called synchronously and inline; an observer that raises
-    fails the run with that exact exception (nothing here catches it).
-
-    ``trace_id``/``root_span_id`` let a caller (e.g. a hosting service that
-    already minted its own run-root identity) pin the ids :class:`~url4.observe.RunStarted`
-    carries and the top-level node's ``parent_span_id`` resolves to, instead of
-    the engine minting fresh ones. Only meaningful together with ``observer``;
-    ignored (no-op) when ``observer`` is ``None``, since no ids are ever minted
-    or emitted in that case.
-    """
-    if ctx is not None and (
-        io is not None or processor is not None or process is not default_process
-    ):
-        raise ValueError(
-            "run(): pass either `ctx` or `io`/`processor`/`process`, not both — "
-            "a supplied `ctx` already carries its own io/processor/process, so "
-            "the other kwargs would be silently ignored"
-        )
-    _validate_concurrency(concurrency)
-    run_ctx, owned_io = _run_context(io, ctx, processor, process, strict_fields)
-    if concurrency is not None:
-        # Wraps only run_ctx's (private, freshly-built-or-childed) io reference,
-        # never the caller-supplied ctx.io directly — same non-mutation
-        # discipline as the spawn wiring above. Every node in this run, and
-        # every fragment it spawns, shares this one bounded wrapper via
-        # ExecutionContext.child, so the cap is truly run-wide.
-        run_ctx.io = BoundedIOLayer(run_ctx.io, concurrency)
-    obs = _start_observation(run_ctx, observer, target, trace_id, root_span_id)
-    _wire_spawn(run_ctx, registry)
-    try:
-        result = await Executor(run_ctx).execute(_to_node(target, registry))
-    except BaseException as exc:
-        status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
-        _finish_observation(obs, status)
-        raise
-    else:
-        _finish_observation(obs, "ok")
-        return result
-    finally:
-        if owned_io is not None:
-            await owned_io.aclose()
-
-
-def _start_observation(
-    run_ctx: ExecutionContext,
-    observer: Observer | None,
-    target: str | AstNode | Graph | DagNode,
-    trace_id: str | None = None,
-    root_span_id: str | None = None,
-) -> _ObsState | None:
-    """Mint the run's ``_ObsState``, wire it onto ``run_ctx``, and emit
-    :class:`~url4.observe.RunStarted` — once, here, for the top-level owned
-    run only. ``None`` (a no-op run) when no ``observer`` was passed.
-
-    ``trace_id``/``root_span_id``, when supplied, are used verbatim instead of
-    minting fresh ones — letting a caller's own run-root identity (e.g. a
-    hosting service's ``publish.run``) agree with the engine's."""
-    if observer is None:
-        return None
-    obs = _ObsState(observer, trace_id if trace_id is not None else secrets.token_hex(16))
-    run_ctx._obs = obs
-    run_ctx._current_span_id = root_span_id if root_span_id is not None else secrets.token_hex(8)
-    obs.emit(RunStarted(obs.trace_id, run_ctx._current_span_id, _expression_hash(target)))
-    return obs
-
-
-def _finish_observation(obs: _ObsState | None, status: Literal["ok", "error", "cancelled"]) -> None:
-    """Emit :class:`~url4.observe.RunFinished`; a no-op when ``obs`` is ``None``."""
-    if obs is not None:
-        obs.emit(RunFinished(status, obs.next_seq()))
-
-
-def _expression_hash(target: str | AstNode | Graph | DagNode) -> str:
-    """A short, deterministic fingerprint of ``target`` for
-    :class:`~url4.observe.RunStarted` — identifies "which expression" without
-    carrying (and potentially leaking) the full source text through the
-    observation stream.
-
-    A raw hand-built :class:`DagNode` has no engine-guaranteed ``__repr__`` —
-    the default object repr is id-based and differs run to run, which would
-    break the "deterministic" contract above. ``str``/``AstNode``/``Graph``
-    targets stringify structurally (source text / a dataclass repr), so only
-    the ``DagNode`` fallback needs the type-name-only fingerprint.
-    """
-    if isinstance(target, (str, AstNode, Graph)):
-        fingerprint = str(target)
-    else:
-        fingerprint = type(target).__name__
-    return hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
-
-
-def _run_context(
-    io: IOLayer | None,
-    ctx: ExecutionContext | None,
-    processor: str | None,
-    process: ProcessFn,
-    strict_fields: bool,
-):
-    """The per-run context + the owned adapter to close (None when injected).
-
-    With no ``ctx``, a fresh context is built (defaulting ``io`` to an owned
-    HttpIOLayer). A supplied ``ctx`` yields a *child*, never ``ctx`` itself:
-    ``_wire_spawn`` mutates whatever it's given, and ctx may be shared across
-    overlapping run() calls — mutating it in place would let a second call's
-    spawn wiring silently replace the first's, a logical race across the two
-    runs' await points. child() shares scope/io/error-tally/process, so
-    ``ctx.collected_errors`` still totals correctly. ``strict_fields`` is
-    tighten-only on a supplied ctx: a run may opt INTO strictness, never out.
-    """
-    if ctx is not None:
-        run_ctx = ctx.child(ctx.scope)
-        if strict_fields:
-            run_ctx.strict_fields = True
-        return run_ctx, None
-    owned_io = None
-    if io is None:
-        # Composition-root default: imported lazily so the execution core's
-        # static import graph never references a concrete transport (httpx).
-        from url4.io.http import HttpIOLayer
-
-        io = owned_io = HttpIOLayer()
-    run_ctx = ExecutionContext(
-        io, processor=processor, process=process, strict_fields=strict_fields
-    )
-    return run_ctx, owned_io
-
-
-__all__ = ["Executor", "check_acyclic", "run"]
+__all__ = ["Executor", "check_acyclic"]

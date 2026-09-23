@@ -31,7 +31,7 @@ class _CandidateProgress:
     submitted: bool = False
     started: bool = False
     terminal_status: str | None = None
-    root_sources: set[str] = field(default_factory=set)
+    root_identity: tuple[str, str] | None = None
     cache_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)
     cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
     activity: str | None = None
@@ -145,13 +145,16 @@ class _CandidateProgress:
     def _observe_started(self, event: Started, elapsed_seconds: float | None) -> None:
         self.submitted = True
         self.started = True
-        self.root_sources.add(event.source)
+        # INVARIANT: match the decoder's first candidate-expression root, not child arrivals.
+        if self.root_identity is not None or event.url4 != self.candidate.url4:
+            return
+        self.root_identity = (event.run_id, event.source)
         self.activity = "Run started"
         self.started_elapsed_seconds = elapsed_seconds
         self.started_at = event.timestamp
 
     def _observe_terminated(self, event: Terminated) -> None:
-        if event.source not in self.root_sources:
+        if (event.run_id, event.source) != self.root_identity:
             return
         self.terminal_status = event.status
         # INVARIANT: a sibling run must never advance this candidate's finished timer.

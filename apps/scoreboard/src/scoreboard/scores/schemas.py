@@ -45,6 +45,9 @@ def _validate_run_cost(value: Decimal | None) -> Decimal | None:
     Those constraints run BEFORE this validator, so they would reject the very
     values it exists to normalize.
     """
+    # OME-822: absent is legal again, but only beside a status saying the amount is
+    # unknowable — `ScoreSubmission.validate_cost_matches_its_status` enforces that
+    # pairing. There is nothing to normalize here.
     if value is None:
         return None
     # ge=0 on the field already rejects negatives, and NaN fails that comparison,
@@ -126,6 +129,22 @@ RunCostUsd = Annotated[
     Decimal | None,
     PlainSerializer(_serialize_run_cost, return_type=str | None, when_used="json"),
 ]
+
+# FEATURE: OME-822 / OME-1251 D4 — whether a submitted cost can be believed as a number.
+#
+# INVARIANT: a RUN-level vocabulary, NOT the gateway's per-call `DirectCostStatus`. A run is many
+# calls; no member of that vocabulary can say "forty priced, three not", which is the common case.
+#
+#   complete     every component priced — the amount is exact and is stored
+#   partial      the amount is not derivable, but cache saved-cost evidence exists, so a real
+#                lower bound is known even though the total is not
+#   unavailable  not derivable and no cost evidence at all
+#
+# `partial` and `unavailable` behave identically today — both store a null amount and so leave
+# every cost-bearing surface. The distinction is kept because this is a STORED column: if the
+# board ever shows a lower bound somewhere, `partial` is the set it applies to, and widening the
+# vocabulary later would cost a migration plus another one-directional client rollout.
+RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 # INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
 # public HTTP endpoint) but still bounded, so one bad import can't make
@@ -227,6 +246,26 @@ SubmittedBy = Annotated[
 # an unbounded public write. This matches the established metadata envelope.
 _AUTHORS_MAX_BYTES = 4096
 _AUTHORS_MAX_DISTINCT = 10
+
+# FEATURE: OME-1181 — the declared candidate model routes.
+#
+# WHY a count cap AND a byte cap: 32 routes of 255 characters is still 8 KiB of
+# client-controlled text arriving on a public write path. Same reasoning and the
+# same envelope as `authors` above and `metadata`.
+#
+# WHY 32: the live maximum on any board is 4 (a three-member fusion plus its
+# synthesizer). A recipe naming 32 distinct models is already implausible, so the
+# cap bounds the payload without constraining any real submission.
+_MODELS_MAX_ROUTES = 32
+_MODELS_MAX_BYTES = 4096
+
+# INVARIANT: this mirrors the Client's own route grammar (`_MODEL_ROUTE_RE` in
+# `packages/screamingface/.../_evaluation/candidate.py:429`), anchored. The two ends must agree
+# on what a route is, or the Client compiles an expression the board then rejects at submit —
+# a failure that would only appear in the field, after a release.
+_MODEL_ROUTE_PATTERN = r"^[A-Za-z0-9\-_.~]+(?:/[A-Za-z0-9\-_.~]+)*$"
+
+ModelRoute = Annotated[str, Field(max_length=255, pattern=_MODEL_ROUTE_PATTERN)]
 
 
 def _author_identity(author: str) -> str:
@@ -341,6 +380,22 @@ class ScoreSubmission(BaseModel):
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
+    #
+    # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
+    # constraint 1). `extra="forbid"` above means the rollout is one-directional — a Client
+    # sending an unknown field to an older board gets a 422 — so the board must tolerate its
+    # absence or the deploy order reverses and every in-field submission breaks.
+    #
+    # INVARIANT: `None` and `[]` are different. None is "the client did not send them"; an
+    # empty list would claim the run used no models at all, which no real submission can mean
+    # (`CandidateResult.models` is required and non-empty at the Client) and which would store
+    # an unclassifiable row that looks populated.
+    #
+    # AIDEV-NOTE: deliberately absent from `_content_hash`. These routes are a richer
+    # projection of what `url4_expression` already carries, and that IS hashed — see the
+    # invariant on `_content_hash` in store.py before changing this.
+    models: Annotated[list[ModelRoute], Field(min_length=1)] | None = None
     # the exact primary score the Engine Benchmark produced — any
     # finite number, higher is better
     score: Annotated[float, Field(strict=True, allow_inf_nan=False)]
@@ -352,17 +407,11 @@ class ScoreSubmission(BaseModel):
     # (D-SCORE-006). Persisted onto the flat client_* columns by the store.
     client: ClientInfo | None = None
     metadata: dict[str, Any] | None = None
-    # INVARIANT: absent (None) means "no cost was reported" and is NOT the same as
-    # 0. A fully cache-served run genuinely costing nothing is a legitimate 0, so
-    # OME-770's Pareto frontier must exclude None rather than rank it as the
-    # cheapest entry. Decimal, not float — this is money.
-    #
-    # AIDEV-NOTE: optional only because nothing emits a run cost yet (OME-303 is
-    # unmerged, the Engine does not roll per-call cost into a run total, and the
-    # Client has no field for it), and because the column lands on an already
-    # populated table. Once a client can send it, a direct submission arriving
-    # without one is a client bug and should be REJECTED — null then means
-    # "imported or legacy" only. Tracked on OME-770.
+    # INVARIANT (OME-822): every direct submission reports a cost. A fully
+    # cache-served run genuinely costing nothing is represented by 0; omission or
+    # null is a client bug and is rejected by this non-nullable required field.
+    # Database and read DTOs deliberately remain nullable because imported and
+    # legacy rows can still have no known cost. Decimal, not float — this is money.
     # INVARIANT: the request contract mirrors the column exactly — DECIMAL(12, 6).
     # `ge=0` alone let three failures through, each reproduced live:
     #   0.0000009 -> accepted (201) and silently stored as 0.000001, publishing a
@@ -378,7 +427,60 @@ class ScoreSubmission(BaseModel):
     # requires us to quantize and accept. `ge=0` stays here (it also rejects NaN,
     # which fails the comparison); allow_inf_nan=False stops +Infinity, which
     # would pass ge=0 and then raise inside quantize().
+    #
+    # OME-822/OME-1251 D1: OPTIONAL again, but only because `run_cost_status` now carries the
+    # obligation. An absent amount is legal ONLY beside a status that says it is unknowable, and
+    # the model validator below enforces that pairing. Omitting both is still rejected.
     run_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # INVARIANT (OME-1251 D4): a RUN-level vocabulary, deliberately not the gateway's per-call
+    # `DirectCostStatus`. A run has many calls, and no member of that vocabulary can express
+    # "forty priced, three not" — the common case and the one that matters.
+    #
+    # OPTIONAL, and that is the EXPAND half of a deliberate expand/contract split (OME-1258).
+    #
+    # WHY not required, which is what OME-822 asks for: the deployed SDK sends `run_cost_usd`
+    # and no status (`packages/screamingface/.../leaderboards.py:445` on main). A required field
+    # here 422s EVERY live submission the moment this deploys — including payloads carrying a
+    # perfectly good cost — and the client cannot ship first either, because an older board is
+    # `extra="forbid"` and rejects the unknown field. That is a deadlock, and this PR's own
+    # documented deploy order could not work (review of PR #841, 2026-09-22).
+    #
+    # `OME-1258` flips it to required once `OME-1252` is released and confirmed live in the SDK
+    # version submitters actually run. Until then silence is accepted, which is precisely the
+    # thing OME-822 exists to stop — so the flip is a ticket, not a maybe.
+    run_cost_status: RunCostStatus | None = None
+
+    @model_validator(mode="after")
+    def validate_cost_matches_its_status(self) -> ScoreSubmission:
+        """INVARIANT: when a status IS given, `complete` if and only if an amount is present.
+
+        A contract admitting two spellings of the same fact gets both, and the board then has to
+        guess which one the client meant. `complete` asserts an exact amount, so asserting it
+        without one is incoherent; an amount beside a status saying it is unknowable is the same
+        incoherence from the other side. Refusing both keeps `run_cost_status` a fact about the
+        amount rather than a second opinion on it.
+
+        INVARIANT: an ABSENT status beside an amount resolves to `complete`. That is not a guess
+        — an amount IS the claim the status would make. Resolving here rather than at the store
+        means the submission object, the stored row and the response all carry the same fact,
+        and it keeps pre-OME-1252 clients producing correctly labelled rows instead of a
+        population the flip in `OME-1258` would have to clean up afterwards.
+
+        An absent status with no amount stays absent: that is a legacy-shaped row, and the board
+        genuinely does not know whether the client looked. `OME-1258` is what starts refusing it.
+        """
+        if self.run_cost_status is None:
+            if self.run_cost_usd is not None:
+                self.run_cost_status = "complete"
+            return self
+        priced = self.run_cost_status == "complete"
+        if priced and self.run_cost_usd is None:
+            raise ValueError("run_cost_usd is required when run_cost_status is 'complete'")
+        if not priced and self.run_cost_usd is not None:
+            raise ValueError(
+                f"run_cost_usd must be absent when run_cost_status is {self.run_cost_status!r}"
+            )
+        return self
 
     @field_validator("authors")
     @classmethod
@@ -392,6 +494,20 @@ class ScoreSubmission(BaseModel):
         encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
         if len(encoded) > _AUTHORS_MAX_BYTES:
             raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+        return value
+
+    @field_validator("models")
+    @classmethod
+    def validate_bounded_models(cls, value: list[str] | None) -> list[str] | None:
+        # INVARIANT: both caps are needed. The route count alone still admits 32 maximum-length
+        # routes, and the byte cap alone still admits thousands of short ones.
+        if value is None:
+            return value
+        if len(value) > _MODELS_MAX_ROUTES:
+            raise ValueError(f"models must name at most {_MODELS_MAX_ROUTES} routes")
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > _MODELS_MAX_BYTES:
+            raise ValueError(f"models must serialize to at most {_MODELS_MAX_BYTES} bytes")
         return value
 
     @field_validator("run_cost_usd")
@@ -464,7 +580,23 @@ class BenchmarkSchema(BaseModel):
 
 
 class ScoreRankingNotice(BaseModel):
-    """Why a successfully persisted score will not enter the current ranking."""
+    """Why a successfully persisted score will not enter the current ranking.
+
+    AIDEV-NOTE: "the current ranking", literally. This is for a row that is stored and readable
+    but ABSENT FROM THE RANKED BOARD. It is not a general "something about this row is off"
+    channel, and widening it to one costs the type its meaning.
+
+    An unpriced run (OME-822, `run_cost_status` of `partial` or `unavailable`) deliberately does
+    NOT use this, and `OME-1251` D2's original wording — which said it would — was withdrawn for
+    that reason. Such a row DOES rank: its score is known and not in doubt. It is absent only
+    from the Pareto frontier and the other surfaces that read cost as a number. Giving it a
+    notice here would assert something false about it on every read.
+
+    `run_cost_status` already travels on `ScoreSchema`, so the client is told why its cost is
+    missing without a second, worse-shaped carrier. Note also that the two fields below are
+    revision-specific and required — a member added for any other reason would have to make
+    them optional, which weakens the shape for the one case that does belong here.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -488,6 +620,20 @@ class ScoreSchema(BaseModel):
     url4_expression: str
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-1181 — the declared candidate model routes, for classification.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.
+    # This schema is NOT internal — it is the response model for `POST /scores` and
+    # `GET /scores/{id}`, and it also feeds the private JSONL export, whose exact bytes
+    # `purge_private_benchmark.export_sha256` hashes to authorize a destructive purge against
+    # an operator-supplied digest. Emitting `"models": null` would change every export saved
+    # before this field existed, with no underlying row having changed, so a previously
+    # certified export could no longer authorize its own purge (review of PR #922).
+    #
+    # `models` stays off `LeaderboardEntry`, the ranked-board payload (OME-1179 Q2). That
+    # decision recorded this schema as internal, which was wrong; the exclusion below is what
+    # actually keeps the absent case off the wire.
+    models: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
     submitted_at: datetime
     score: float
     total_questions: int
@@ -505,6 +651,22 @@ class ScoreSchema(BaseModel):
     # classification registry. Operator-only, never set via ScoreSubmission.
     openness_override: Literal["open", "closed"] | None = None
     run_cost_usd: RunCostUsd
+    # FEATURE: OME-822 / OME-1251 D1 — why this row's cost is absent, when it is.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for exactly the reason `models` above records. This schema
+    # feeds the private JSONL export whose bytes authorize a purge; emitting
+    # `"run_cost_status": null` on every legacy row would change every export saved before this
+    # field existed, with no row having changed, and a previously certified export could no
+    # longer authorize its own purge.
+    #
+    # INVARIANT: null here is NOT the same as `unavailable`. Null means the row predates this
+    # field — an imported baseline, or a submission from before OME-822. `unavailable` means a
+    # client looked and could not determine the cost. Collapsing the two would lose the
+    # distinction the Pareto frontier depends on.
+    run_cost_status: RunCostStatus | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.

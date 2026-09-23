@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -11,6 +12,88 @@ from screamingface._immutable_json import freeze_mapping, thaw_mapping
 
 type FailureStage = Literal["candidate", "grading", "aggregation"]
 type CaseId = int | str
+
+# FEATURE (OME-1235): the declared failure vocabulary — every code a Report Failure
+# may carry, mirroring the Engine's list in benchmarks/contract.py. The duplication is
+# deliberate (the FailureStage house pattern: an app's internals are never imported);
+# a conformance test binds the two copies so a code added on one side and forgotten on
+# the other fails loudly. This list IS the reference for report consumers: each code
+# names one kind of failure, and `retryable` on the Failure says whether retrying helps.
+DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        # engine-raised codes
+        "benchmark_unavailable",
+        "benchmark_operation_unsupported",
+        "benchmark_retrieval_unavailable",
+        "provider_refusal",
+        "model_token_cap",
+        "model_empty_content",
+        "model_parameter_invalid",
+        "aigateway_bad_response",
+        "aigateway_empty_response",
+        "aigateway_transport_error",
+        "invalid_candidate_input",
+        "web_tool_loop_limit",
+        "web_retrieval_invalid",
+        "web_retrieval_unavailable",
+        "result_too_large",
+        "candidate_contract_error",
+        "candidate_policy_invalid",
+        "candidate_policy_escalation",
+        "case_result_missing",
+        "case_execution_failed",
+        "corrective_role_failed",
+        "judge_reply_invalid",
+        "invalid_case_evaluation",
+        "ifeval_checker_failed",
+        "draco_grading_failed",
+        "gdpval_grading_failed",
+        "healthbench_grading_failed",
+        "medxpert_grading_failed",
+        "inspect_grading_failed",
+        # WHY declared here (OME-1246): contracteval (engine PR #984) landed in flight
+        # with the OME-1233 vocabulary close, so its two codes never joined the set —
+        # a polarity mismatch then crashed report validation instead of failing the case.
+        "contracteval_grading_failed",
+        "polarity_mismatch",
+        "missing_answer_asset",
+        "missing_target_asset",
+        # spine failure_messages table codes
+        "missing_case_row",
+        "missing_rubric_asset",
+        "case_error",
+        "incomplete_verdicts",
+        "no_positive_points",
+        "missing_case_rubric",
+        "scorer_error",
+        "invalid_score_value",
+        # fallback defaults
+        "grading_dependency_failed",
+        "grading_failed",
+        # upstream pass-through codes the engine declares verbatim
+        "resolution_failed",
+        "judge_unavailable",
+        "asset_unavailable",
+        "provider_error",
+        "rate_limited",
+        "candidate_failed",
+        "checker_failed",
+        "judge_failed",
+        # classes introduced by OME-1234
+        "benchmark_contract_error",
+        "benchmark_definition_error",
+        "upstream_error",
+    }
+)
+# WHY a pattern beside the set: the engine's connector mints one code per HTTP status
+# (`aigateway_http_<status>`) and the number is load-bearing for retry advice — a
+# closed family, not an open axis. Kept byte-identical to the engine's pattern.
+_AIGATEWAY_HTTP_CODE = re.compile(r"aigateway_http_[1-5][0-9]{2}")
+
+
+def is_declared_failure_code(code: str) -> bool:
+    """Whether a failure code belongs to the declared vocabulary (set or the one family)."""
+    return code in DECLARED_FAILURE_CODES or _AIGATEWAY_HTTP_CODE.fullmatch(code) is not None
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -83,9 +166,15 @@ class Failure:
     ) -> None:
         if stage not in {"candidate", "grading", "aggregation"}:
             raise ValueError("Failure stage must be 'candidate', 'grading', or 'aggregation'")
+        # INVARIANT (OME-1235): an undeclared code cannot enter a Report object — the
+        # same refusal the Engine's Failure model makes, so the vocabulary a researcher
+        # reads cannot drift one typo at a time.
+        validated_code: str = _nonempty_text(code, "Failure code")
+        if not is_declared_failure_code(validated_code):
+            raise ValueError(f"undeclared failure code {validated_code!r}")
         values = {
             "stage": stage,
-            "code": _nonempty_text(code, "Failure code"),
+            "code": validated_code,
             "message": _nonempty_text(message, "Failure message"),
             "retryable": _optional_retryable(retryable),
             "operation_id": _optional_operation_id(operation_id),

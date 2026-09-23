@@ -30,6 +30,7 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     CheckSurface,
+    DifficultyTier,
     candidate,
 )
 from screamingface_engine.benchmarks.healthbench import verdict
@@ -274,6 +275,7 @@ def healthbench_benchmark(
     scoring: str,
     mean: ExamMean,
     selection_sha: str,
+    difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
 ) -> tuple[Exam, Benchmark]:
@@ -337,6 +339,7 @@ def healthbench_benchmark(
         declaration=BenchmarkDeclaration(
             failure_policy="coverage_declare",
             interaction="single_shot",
+            difficulty=difficulty,
         ),
         build=build,
         install=install,

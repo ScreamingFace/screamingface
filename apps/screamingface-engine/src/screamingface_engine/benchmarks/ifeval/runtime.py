@@ -14,6 +14,9 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
 from screamingface_engine.benchmarks.ifeval import grade as scoring
 from screamingface_engine.benchmarks.ifeval import grading
 from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
@@ -70,6 +73,8 @@ def _check(root: Path):
             candidate = candidate_answer(request.context)
             spec, result, violations = _verification(root, case_id, candidate.text)
         except (KeyError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         record = {
             "schema": scoring.SCHEMA,
@@ -139,6 +144,8 @@ def _check_surface(root: Path):
                 payload,
             )
         except (KeyError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         strict = result["strict"]
         passed = all(bool(value) for value in strict)
@@ -183,10 +190,12 @@ def _surface_feedback(record_json: object) -> str:
 
     record = json_object(record_json, "IFEval check-surface feedback")
     if record.get("schema") != CHECK_SURFACE_SCHEMA:
-        raise _unavailable(f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+        raise _contract_error(
+            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+        )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
-        raise _unavailable("check-surface record feedback must be text")
+        raise _contract_error("check-surface record feedback must be text")
     return feedback
 
 
@@ -233,7 +242,7 @@ def _case_evaluation(request: Request) -> str:
             attempts.append(decoded)
         result = bind_case_evaluation(case_id, attempts)
     except (TypeError, ValueError) as exc:
-        raise _unavailable(str(exc)) from exc
+        raise _contract_error(str(exc)) from exc
     return compact_json(result)
 
 

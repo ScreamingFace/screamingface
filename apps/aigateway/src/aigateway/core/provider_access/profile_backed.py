@@ -38,6 +38,7 @@ from .selector import Selector
 from .types import (
     Authorization,
     AvailabilityRow,
+    AvailabilityStatus,
     CredentialTarget,
     RequestDefaults,
     ResolvePolicy,
@@ -228,11 +229,38 @@ class ProfileBackedProviderAccess:
         return await record_dispatch_failure(self._app, target, status, detail, plugin=plugin)
 
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
-        # AIDEV-NOTE (A3): the Profile-backed body — today's Engine aggregation
-        # (authenticated > pending > error; Connection-only accounts `not_connected`) — lands
-        # with its golden-equivalence tests at A3 (plan §3). Declared on the port at A1 so the
-        # contract is complete; fail closed until then. No caller exists before A4.
-        raise NotImplementedError("ProviderAccess.availability is implemented at A3 (OME-1138)")
+        """Op 6 (A3, OME-1230): the Hosted Engine's aggregation, gateway-side.
+
+        # WHY the index only: spec op 6 — no secret read, no refresh, no mutation. The rule is
+        # `screamingface_engine/connections/profile_availability.py::decode_profile_statuses`
+        # (authenticated > pending > error) over the account's legacy Profiles; a registered
+        # provider with no row is the Engine's "none" case, `not_connected`. Connections are
+        # deliberately NOT folded in (D17: a later, flagged behaviour change), so a Connection-only
+        # account shows `not_connected`. `needs_reauth` is never emitted in the window.
+        # INVARIANT: rows carry provider and status ONLY, sorted by provider for a stable listing.
+        """
+        states: dict[str, set[ProfileState]] = {}
+        for profile in await self._index.list(account_id):
+            states.setdefault(profile.provider, set()).add(profile.state)
+        registry = getattr(self._app.state, "providers", None)
+        registered = (
+            set() if registry is None else {plugin.custom_llm_provider for plugin in registry.all()}
+        )
+        return tuple(
+            AvailabilityRow(provider, availability_status(states.get(provider)))
+            for provider in sorted(registered | set(states))
+        )
+
+
+def availability_status(states: set[ProfileState] | None) -> AvailabilityStatus:
+    """The Engine precedence for one provider's Profile states; no rows means `not_connected`."""
+    if not states:
+        return "not_connected"
+    if ProfileState.AUTHENTICATED in states:
+        return "connected"
+    if ProfileState.PENDING in states:
+        return "pending"
+    return "error"
 
 
 def provider_access_for(app: Any) -> ProviderAccess:
@@ -249,13 +277,19 @@ def provider_access_for(app: Any) -> ProviderAccess:
     return access
 
 
-# --- shim support: dies at A2 with `routes/chat_credentials.py` ---------------------------------
+# --- shim support: dies with `routes/chat_credentials.py` at Stage E (OME-1209) -----------------
+#
+# COMPATIBILITY (OME-1207): A1 scheduled these for A2, on the assumption that migrating the four
+# route call sites would leave `routes/chat_credentials.py` with no importer. It did — no ROUTE
+# imports it any more — but the A1 shim suite still does, and a prior suite is not deleted to
+# make a removal tidy. The shim therefore survives with its translation layer, and both go at
+# Stage E with the legacy vocabulary they exist to speak.
 
 
 def legacy_target_parts(
     target: CredentialTarget,
 ) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
-    """Today's `(profile, connection, defaults)` triple, for the route call sites A1 leaves."""
+    """Today's `(profile, connection, defaults)` triple, for the A1 shim's own callers."""
     profile, connection = backing_rows(target)
     return profile, connection, target.defaults
 

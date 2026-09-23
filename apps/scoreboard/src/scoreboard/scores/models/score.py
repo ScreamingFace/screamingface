@@ -20,6 +20,24 @@ class BaseScore(BaseScoreboardModel):
     # specify authors, so read DTOs derive [submitted_by] for backwards compatibility; an
     # explicit JSON list is the exact credit line and is never auto-expanded.
     authors = fields.JSONField(null=True)
+    # FEATURE: OME-1181 — the candidate's DECLARED model routes, e.g.
+    # ["openrouter/deepseek/deepseek-v4-pro", "openrouter/qwen/qwen3.6-plus"].
+    #
+    # WHY this exists when `ran_with_providers` already does: the Client truncates each route
+    # to its first path segment, so a fusion of deepseek, kimi and qwen arrives as
+    # ["openrouter"] and classifies closed. The provider says who carried the request; this
+    # says what ran (OME-1145).
+    #
+    # WHY nullable and not backfilled: every existing row predates the Client that sends these
+    # (OME-1180), and the routes cannot be recovered from `ran_with_providers` — the truncation
+    # is lossy. NULL means "not declared", and such a row is excluded from the openness
+    # statistic's numerator AND denominator rather than counted as closed.
+    #
+    # AIDEV-NOTE: declared, not observed. These are the routes the recipe composes
+    # (`CandidateResult.models`), not the provider responses the run actually selected. A
+    # fallback model that never fired still appears here, which is correct for a statistic
+    # about what a system is made of.
+    models = fields.JSONField(null=True)
     submitted_at = fields.DatetimeField(auto_now_add=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
@@ -82,6 +100,18 @@ class BaseScore(BaseScoreboardModel):
     # recipe already submitted without a cost cannot later gain one — the
     # resubmission dedups to the existing row.
     run_cost_usd = fields.DecimalField(max_digits=12, decimal_places=6, null=True)
+    # FEATURE: OME-822 / OME-1251 D1 — why `run_cost_usd` is absent, when it is.
+    #
+    # INVARIANT: STORED, not derived at submit time. `ranking_notice` is built in
+    # `_submission_response` via `model_copy` and never persisted; a revision mismatch survives
+    # that because it is recomputable on read, by comparing the stored revision against the
+    # registered one. Unpriced-ness is NOT recomputable — once the amount is null, nothing
+    # distinguishes "the client said it could not be priced" from "this row predates the field".
+    # That distinction is what keeps the Pareto frontier honest, so it lives in a column.
+    #
+    # NULL means the row predates OME-822 (an imported baseline, or an older submission), which
+    # is a different fact from the stored value "unavailable".
+    run_cost_status = fields.CharField(max_length=16, null=True)
     # INVARIANT: sha256 hex over the submission's recipe identity (benchmark, spec,
     # url4 expression, result numbers, provider order) — NOT submitted_by or client
     # metadata. Unique so the DB itself rejects a duplicate recipe, independent of

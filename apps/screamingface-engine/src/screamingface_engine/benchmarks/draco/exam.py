@@ -33,6 +33,7 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     CheckSurface,
+    DifficultyTier,
     candidate,
 )
 from screamingface_engine.benchmarks.draco.prompts import (
@@ -301,6 +302,7 @@ def draco_benchmark(
     description: str,
     judge_passes: int,
     protocol_revision: str,
+    difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
 ) -> tuple[DracoExam, Benchmark]:
@@ -314,6 +316,8 @@ def draco_benchmark(
         judge_passes: how many times the Judge grades each answer (the pass seeds
             derive from it).
         protocol_revision: this board's own protocol version string (hashed).
+        difficulty: the catalogue's hand-assigned easy→hard tier (OME-1257); threaded
+            per board because sibling boards may sit different slices of one dataset.
         focus: the short editorial line the leaderboard shows in its "Focus" column. It has
             to separate this board from its siblings at a glance, since they share a dataset.
         dataset_url: where a reader can go and look at the source data.
@@ -360,6 +364,7 @@ def draco_benchmark(
         declaration=BenchmarkDeclaration(
             failure_policy="coverage_declare",
             interaction="single_shot",
+            difficulty=difficulty,
         ),
         build=build,
         install=install,

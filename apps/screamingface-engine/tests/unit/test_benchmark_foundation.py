@@ -62,6 +62,7 @@ def _benchmark(
         "declaration": BenchmarkDeclaration(
             failure_policy="coverage_declare",
             interaction="single_shot",
+            difficulty="easy",
         ),
         "build": build_protocol
         or (
@@ -129,6 +130,8 @@ async def test_list_is_complete_metadata_and_detail_is_an_exact_selection() -> N
                 # reviewers approve the policy by reading the manifest, never engine source.
                 "failure_policy": "coverage_declare",
                 "interaction": "single_shot",
+                # OME-1257: the hand-assigned easy→hard tier the listing groups by.
+                "difficulty": "easy",
                 "href": "/v1/benchmarks/example-smoke",
             }
         ],

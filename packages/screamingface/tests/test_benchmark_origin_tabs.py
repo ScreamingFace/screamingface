@@ -1,9 +1,16 @@
-"""OME-1114 — the benchmark catalogue renders one tab per origin, linked to its source.
+"""OME-1114 — every catalogue row carries its provenance, linked to its source.
 
 Mental model: the Engine stamps every benchmark with where it came from (OME-1112);
-the SDK is the shelf display. One tab per origin — "ScreamingFace" and
-"inspect_evals" — each linking to its source collection, so a researcher scanning
+the SDK is the shelf display. Provenance — "ScreamingFace" and "inspect_evals",
+each linking to its source collection — rides every row, so a researcher scanning
 the catalogue always knows which boards we authored and which we imported.
+
+AIDEV-NOTE: OME-1257 replaced the original one-tab-per-origin layout with the
+difficulty × interaction map (test_benchmark_catalogue_grouping.py); provenance
+moved to a per-row chip. The decode tests and the visible-provenance/source-link
+pins below survived that move unchanged — they assert the invariant, not the
+layout. One widget test asserting tab-titles-are-origins was superseded by the
+tier-tabs pin in the new file.
 """
 
 from __future__ import annotations
@@ -149,9 +156,13 @@ def test_screamingface_only_catalogue_keeps_repr_and_gains_the_leaderboard_link(
 # ── interactive widget ────────────────────────────────────────────────────────
 
 
-def test_widget_renders_one_tab_per_origin_with_titles_and_links(
+def test_widget_keeps_provenance_and_source_links_visible(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # AIDEV-NOTE: superseded the original tab-titles-are-origins pin (OME-1257 made
+    # tabs difficulty tiers, pinned in test_benchmark_catalogue_grouping.py); what
+    # this file still owns is the OME-1114 invariant — the rendered widget shows
+    # which boards we authored, which we imported, and where each collection lives.
     widgets = pytest.importorskip("ipywidgets")
     display_module = pytest.importorskip("IPython.display")
 
@@ -162,13 +173,9 @@ def test_widget_renders_one_tab_per_origin_with_titles_and_links(
     monkeypatch.setattr(display_module, "display", lambda value: shown.append(value))
     cast(Any, benchmarks)._ipython_display_()
 
-    tab = next(item for item in _walk(shown[0]) if isinstance(item, widgets.Tab))
-    titles = tuple(tab.get_title(index) for index in range(len(tab.children)))
-    assert titles == ("ScreamingFace", "inspect_evals")
-
     bodies = [
         item.value
-        for item in _walk(tab)
+        for item in _walk(shown[0])
         if isinstance(item, widgets.HTML) and isinstance(item.value, str)
     ]
     assert any(LEADERBOARD_URL in body for body in bodies)

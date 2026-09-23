@@ -40,6 +40,7 @@ def _submission(spec_id: str) -> ScoreSubmission:
         correct_questions=80,
         ran_with_providers=["openai"],
         run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
     )
 
 

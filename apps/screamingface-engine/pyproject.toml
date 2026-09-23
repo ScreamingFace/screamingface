@@ -60,9 +60,33 @@ url4-cloud-runner = "screamingface_engine.runner.main:main"
 # EXACT == pins (spec OME-1113 §3.1): imported boards hash the pinned versions into
 # their revision identity — a floating pin would let the same revision mean two exams.
 [project.optional-dependencies]
+# What a DEPLOYED Engine needs to register the imported boards and run them.
 inspect = [
     "inspect-ai==0.3.263",
     "inspect-evals==0.20.0",
+    # WHY declared here although inspect-evals already requires it: inspect-evals does NOT
+    # pin it, so resolving this extra alone floats `datasets` to whatever is newest. The
+    # preparer's extraction is part of the answer key, so a float means two builds of the
+    # same board revision can ask different questions. Pinning it here is what makes the
+    # version a reviewable decision instead of a resolution accident. Keep in step with
+    # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+    "datasets==5.0.0",
+]
+
+# Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
+# `inspect` because these two are installed in different places: `inspect` goes in the base
+# image, which ships, while this extra is only ever installed in a build stage that is
+# thrown away (Dockerfile.benchmark) or in a developer's checkout. Folding these into
+# `inspect` would put ~25MB of PDF/XML readers in every deployed Engine, which imports them
+# through `importlib` at build time and never at run time.
+benchmarks = [
+    "screamingface-engine[inspect]",
+    # GDPval's preparer flattens the task's reference PDFs and Word documents to text at
+    # build time, and that text is baked into the answer key. Pinned exactly for the same
+    # reason `datasets` is: a release whose extraction differs would silently change what
+    # every candidate is asked.
+    "pdfplumber==0.11.10",
+    "python-docx==1.2.0",
 ]
 
 # The benchmark-plugin loading dock (spec OME-1113 §3.1): engine core discovers this

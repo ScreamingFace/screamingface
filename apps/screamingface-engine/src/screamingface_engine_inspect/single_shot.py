@@ -33,6 +33,7 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     CheckSurface,
+    DifficultyTier,
     candidate,
 )
 from screamingface_engine.benchmarks.deployment import (
@@ -50,6 +51,9 @@ from screamingface_engine.benchmarks.evaluation import (
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
@@ -156,6 +160,7 @@ def single_shot_board(
     prepare: BenchmarkAssetPreparer,
     install: Callable[[Url4Node, Path], None],
     with_check_surface: bool,
+    difficulty: DifficultyTier,
     multiple_correct: bool = False,
 ) -> ImportedBoard:
     """Assemble one imported single-shot board from its declarations.
@@ -173,6 +178,8 @@ def single_shot_board(
     Args:
         board_key: the flat identity tail ("gsm8k" → benchmark id "inspect-gsm8k").
         title, description, focus, dataset_url: leaderboard display fields (OME-904).
+        difficulty: the catalogue's hand-assigned easy→hard tier, authored on the
+            BoardSpec row (OME-1257).
         case_count: rows in the pinned split — the board's declared exam size.
         revision_pins: every dataset fact that participates in exam identity.
         scorer_factory: zero-arg callable returning the imported eval's scorer.
@@ -225,6 +232,11 @@ def single_shot_board(
         description=description,
         revision=revision,
         case_count=case_count,
+        # WHY explicit: `origin` defaults to "screamingface", which is true for every
+        # board authored in this repo and wrong for every board that arrives through
+        # here. The listing groups by this field (OME-1114), so a defaulted row hides
+        # the imported shelf inside our own group.
+        origin="inspect_evals",
         build=_build(routes, case_count),
         install=install,
         focus=focus,
@@ -235,6 +247,9 @@ def single_shot_board(
             # publishes coverage — the declaration matches the code (OME-1039).
             failure_policy="coverage_declare",
             interaction="single_shot",
+            # The tier is authored on the BoardSpec row (the imported board's one
+            # authoring site) and threaded through verbatim (OME-1257).
+            difficulty=difficulty,
         ),
         check_surface=(
             CheckSurface(
@@ -399,6 +414,8 @@ def _check(root: Path) -> Callable[[Request], str]:
                 raise ValueError(f"the private target record for case {case_id} is unusable")
             answer = candidate_answer(request.context)
         except (OSError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         record: dict[str, Any] = {
             "schema": CHECK_SCHEMA,
@@ -432,7 +449,7 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
         if request.intent == "feedback":
             return _surface_feedback(request.context)
         if request.intent != "check":
-            raise _unavailable(f"unsupported check-surface operation {request.intent!r}")
+            raise _contract_error(f"unsupported check-surface operation {request.intent!r}")
         try:
             payload = json_object(request.context, "imported board check surface")
             if set(payload) != {"input", "invocation"}:
@@ -444,6 +461,8 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
                 board, root, input_text=input_text, invocation=invocation
             )
         except (OSError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         return compact_json(verdict)
 
@@ -453,10 +472,12 @@ def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]
 def _surface_feedback(record_json: object) -> str:
     record = json_object(record_json, "imported board check-surface feedback")
     if record.get("schema") != CHECK_SURFACE_SCHEMA:
-        raise _unavailable(f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+        raise _contract_error(
+            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+        )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
-        raise _unavailable("check-surface record feedback must be text")
+        raise _contract_error("check-surface record feedback must be text")
     return feedback
 
 

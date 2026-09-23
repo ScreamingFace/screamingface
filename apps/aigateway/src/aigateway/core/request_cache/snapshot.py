@@ -10,6 +10,11 @@ guarantee that survives a decode/re-encode round trip is the one we never make.
 INVARIANT — nothing here parses SQL. The header is recognised by shape, the data lines are
 yielded verbatim, and the epilogue (``CREATE TABLE``, indexes, constraints) is discarded
 unread. The dump's own DDL must never reach the server through this path.
+
+The header is validated against exactly two layouts: the current ``CANONICAL_COLUMNS`` and the
+single 12-column predecessor (``LEGACY_COLUMNS``). That tolerance is what lets an archive taken
+before the metadata column existed restore with ``metadata_json`` NULL. Anything else is refused
+loudly rather than reinterpreted against the wrong columns.
 """
 
 from __future__ import annotations
@@ -38,7 +43,19 @@ CANONICAL_COLUMNS: Final[tuple[str, ...]] = (
     "expires_at",
     "last_hit_at",
     "hit_count",
+    # The standard cache-entry metadata block (aigw.cache-entry-metadata.v1), appended LAST by
+    # migration 0011 so it is also physically last in the database. Nullable: every row written
+    # before this feature, and every Tavily-lane row, holds NULL — "unknown", never "zero".
+    "metadata_json",
 )
+
+# The one predecessor layout this gateway still accepts. A snapshot taken before the metadata
+# column existed carries these 12 columns; the copy names exactly them, so `metadata_json` keeps
+# its NULL default and no value is ever invented for a legacy row. Anything that is neither
+# layout is still refused (CopyHeaderMismatch -> `column_layout_mismatch`), because the row
+# lines would otherwise be reinterpreted against the wrong columns.
+LEGACY_COLUMNS: Final[tuple[str, ...]] = CANONICAL_COLUMNS[:-1]
+ACCEPTED_COLUMN_LAYOUTS: Final[tuple[tuple[str, ...], ...]] = (CANONICAL_COLUMNS, LEGACY_COLUMNS)
 
 _TABLE_NAME: Final = "request_cache_entries"
 _HEADER_PREFIX: Final = f"COPY public.{_TABLE_NAME} (".encode()
@@ -111,7 +128,7 @@ class CopyBlockSource:
                 raise CopyHeaderMismatch(()) from exc
             if any(not name for name in columns):
                 raise CopyHeaderMismatch(columns)
-            if columns != CANONICAL_COLUMNS:
+            if columns not in ACCEPTED_COLUMN_LAYOUTS:
                 raise CopyHeaderMismatch(columns)
             return columns
         raise NoCopyBlock(f"no COPY block for public.{_TABLE_NAME} in the snapshot")
@@ -197,7 +214,9 @@ def digest_matches(actual_hex: str, manifest: SnapshotManifest) -> bool:
 
 
 __all__ = [
+    "ACCEPTED_COLUMN_LAYOUTS",
     "CANONICAL_COLUMNS",
+    "LEGACY_COLUMNS",
     "CopyBlockSource",
     "CopyHeaderMismatch",
     "NoCopyBlock",

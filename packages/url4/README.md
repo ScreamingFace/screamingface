@@ -62,6 +62,25 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
   tests/offline, HTTP for real fetches), keeping the core pure and deterministic.
 - **Fully typed**: passes `pyright`; type hints ship to consumers.
 
+## Iteration position
+
+Inside `collection*(...)`, `$item` is the current value and `$index` is its zero-based
+position **after** `iteration.slice` is applied. For example, a handler can receive both:
+
+```text
+/rows*(result:0.0:/process($item)!'Process row $index')!'$result'
+```
+
+The index is assigned before concurrent execution. Retries keep it, and skipped failures
+do not renumber later rows. A nested iteration has its own index; capture the outer value
+in another binding (for example, `outer:0.0:$index`) before entering it.
+
+`$index` is reserved inside an iteration, including its intent, and takes precedence over
+an author binding named `index`. Outside an iteration, `index` remains an ordinary binding.
+This is an SDK language extension: existing expressions that use their own `index` inside
+iterations must rename that binding. The index interpolates as decimal text, like other
+references; it does not introduce arithmetic or a collection-count variable.
+
 ## The `url4` CLI: serve a node
 
 A url4 expression *is* the address. `(/upper(hello)!'go')` names a route, a context, and an
@@ -108,6 +127,11 @@ handler would, each substituted as a **single token** (never re-split):
 
 **stdout** is the result. Substitution happens in one pass over *your* template, so
 token-shaped text in a caller's input stays literal: it never expands.
+
+**Commands must be idempotent.** A timeout kills the command and reports a transient
+error, and a `;retry=N` source retries transient errors. The engine cannot tell a
+command that never ran from one that ran and lost its answer. A retry therefore runs
+the command again. Make every command safe to run more than once.
 
 #### Reads: what the node can see
 
@@ -216,6 +240,16 @@ Errors come back as JSON: `{"error": {"code": "...", "message": "..."}}`.
 ```bash
 uv run url4 eval "(/upper(hi)!'go')"
 ```
+
+## Development
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the three-layer map (language / engine /
+node), the import-direction rule, and a task index of where to start.
+
+CI runs a suppression ratchet: `scripts/check_suppressions.py` counts every `# type: ignore`
+and `# noqa` under `src/url4`, and fails when the total is above the `BASELINE` in that
+script. Remove a suppression instead of raising the baseline; when you remove one for good,
+lower `BASELINE` to the new count.
 
 ## License
 

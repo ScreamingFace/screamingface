@@ -1,0 +1,238 @@
+"""OME-1039: the declared grading contract every Benchmark must register.
+
+INVARIANT: `failure_policy` and `interaction` are explicit, required, per-benchmark
+parameters — never a spine-level default. A policy nobody can see from the manifest is a
+policy nobody can approve, and a default that flips silently changes published-score
+semantics for every board at once.
+"""
+
+from __future__ import annotations
+
+import importlib
+
+import pytest
+
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BenchmarkDeclaration,
+    candidate,
+)
+
+DECLARATION = BenchmarkDeclaration(
+    failure_policy="coverage_declare",
+    interaction="single_shot",
+    difficulty="easy",
+)
+
+
+def _benchmark_values() -> dict[str, object]:
+    return {
+        "id": "example-smoke",
+        "title": "Example Smoke",
+        "description": "One non-comparable structural probe.",
+        "revision": "example-smoke-v1",
+        "case_count": 3,
+        "build": lambda selected: candidate(
+            f"Explain why the sky looks blue. Selected cases: {selected}.",
+            web_search=False,
+        ),
+        "declaration": DECLARATION,
+    }
+
+
+def test_benchmark_without_a_declaration_cannot_be_constructed() -> None:
+    # STORY: as an auditor who must approve eval code before it runs, a benchmark that
+    # never declared its failure policy must fail registration before any paid request.
+    values = _benchmark_values()
+    del values["declaration"]
+    with pytest.raises(TypeError):
+        Benchmark(**values)  # type: ignore[arg-type]
+
+
+def test_declaration_refuses_an_unknown_failure_policy_by_name() -> None:
+    with pytest.raises(ValueError, match="failure_policy"):
+        BenchmarkDeclaration(
+            failure_policy="drop-silently",  # type: ignore[arg-type]
+            interaction="single_shot",
+            difficulty="easy",
+        )
+
+
+def test_declaration_refuses_an_unknown_interaction_by_name() -> None:
+    # WHY: a new interaction shape arrives as a DECLARED value, never as a silent acceptance —
+    # the contract refuses the unknown one before any paid request.
+    #
+    # AIDEV-NOTE: this test used to name `multi_turn` as its unknown value. OME-1126 (MedXpertQA)
+    # added it as a real value: that board invokes the Candidate twice per Case (reason, then
+    # commit against a bare trigger), so it could not register while `single_shot` was the only
+    # option. The guard itself is unchanged in strength — it still proves an unknown value is
+    # refused by name. Agentic/tool-environment shapes remain unknown until a board needs them.
+    with pytest.raises(ValueError, match="interaction"):
+        BenchmarkDeclaration(
+            failure_policy="withhold",
+            interaction="agentic_tool_use",  # type: ignore[arg-type]
+            difficulty="easy",
+        )
+
+
+def test_declaration_accepts_the_declared_multi_turn_shape() -> None:
+    # The positive half of the guard above: a value only becomes acceptable by being declared.
+    declaration = BenchmarkDeclaration(
+        failure_policy="coverage_declare",
+        interaction="multi_turn",
+        difficulty="hard",
+    )
+    assert declaration.as_block()["interaction"] == "multi_turn"
+
+
+def test_declaration_refuses_an_unknown_difficulty_by_name() -> None:
+    # WHY: the catalogue GROUPS on this value (OME-1257) — an unknown tier would render as
+    # its own orphan shelf, so the contract refuses it at registration, like its siblings.
+    with pytest.raises(ValueError, match="difficulty"):
+        BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+            difficulty="impossible",  # type: ignore[arg-type]
+        )
+
+
+def test_declaration_requires_difficulty_with_no_default() -> None:
+    # INVARIANT: a defaulted tier is a tier nobody assigned — every board's difficulty is a
+    # reviewed judgment call, so the field is required exactly like its two siblings (OME-1257).
+    with pytest.raises(TypeError):
+        BenchmarkDeclaration(  # type: ignore[call-arg]
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+        )
+
+
+def test_declaration_requires_every_field_with_no_defaults() -> None:
+    # INVARIANT: no value on this record may fall back to a default — a defaulted
+    # policy is exactly the hidden-default failure OME-1039 exists to prevent.
+    with pytest.raises(TypeError):
+        BenchmarkDeclaration(failure_policy="withhold")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        BenchmarkDeclaration(interaction="single_shot")  # type: ignore[call-arg]
+
+
+def test_wrong_declaration_type_is_refused() -> None:
+    values = _benchmark_values()
+    values["declaration"] = {"failure_policy": "withhold", "interaction": "single_shot"}
+    with pytest.raises(TypeError):
+        Benchmark(**values)  # type: ignore[arg-type]
+
+
+def test_catalog_entry_names_every_declared_value() -> None:
+    entry = Benchmark(**_benchmark_values()).catalog_entry()  # type: ignore[arg-type]
+    assert entry["failure_policy"] == "coverage_declare"
+    assert entry["interaction"] == "single_shot"
+    # OME-1257: the tier rides the same declaration block, so every catalogue row
+    # carries it without a serving change.
+    assert entry["difficulty"] == "easy"
+
+
+def test_resource_names_every_declared_value() -> None:
+    resource = Benchmark(**_benchmark_values()).resource(limit=1)  # type: ignore[arg-type]
+    assert resource["failure_policy"] == "coverage_declare"
+    assert resource["interaction"] == "single_shot"
+    assert resource["difficulty"] == "easy"
+
+
+def test_every_builtin_board_declares_its_actual_policy() -> None:
+    # INVARIANT: the declaration tells the truth about the code. Every board reduces through the
+    # shared `finalize_candidate_result`, which scores exactly the gradeable subset and publishes
+    # coverage — coverage_declare behavior. A board may only declare `withhold` once its aggregate
+    # actually withholds, and may only declare an interaction it actually performs.
+    #
+    # AIDEV-NOTE: an explicit per-board table rather than a blanket assertion. A new board must
+    # add its row deliberately, and a board that CHANGES its declaration trips here — which a
+    # loop over "all single_shot" could not catch once a second shape existed (OME-1126).
+    expected = {
+        # ContractEval answers each Case once; a reply quoting the wrong sentences is GRADED
+        # (0.0, and it keeps its cell in the confusion matrix), so only never-graded Cases
+        # reach the shared finalizer — coverage_declare.
+        #
+        # AIDEV-NOTE: this row was added under the owner's ruling of 2026-09-09, re-affirmed
+        # 2026-09-17, and landed with `--skip-append-only` — the append-only gate cannot tell
+        # a new row in a registry table from an edited assertion. Recorded here because the
+        # next reader of THIS file will not open the work ledger (OME-1148).
+        # OME-1257 third element: the hand-assigned difficulty tier. The rationale for
+        # each assignment lives as a comment at the board's own declaration site; this
+        # table pins the reviewed outcome so a silent tier change trips loudly.
+        "contracteval": ("coverage_declare", "single_shot", "medium"),
+        "draco": ("coverage_declare", "single_shot", "hard"),
+        "draco-3pass": ("coverage_declare", "single_shot", "hard"),
+        "gdpval-text": ("coverage_declare", "single_shot", "hard"),
+        "healthbench-professional": ("coverage_declare", "single_shot", "hard"),
+        "healthbench-worst30": ("coverage_declare", "single_shot", "hard"),
+        "ifeval": ("coverage_declare", "single_shot", "medium"),
+        # MedXpertQA invokes the Candidate twice per Case: turn 1 reasons, turn 2 commits against
+        # a bare trigger. Its ungradeable Cases still go to the shared finalizer, hence
+        # coverage_declare.
+        "medxpert": ("coverage_declare", "multi_turn", "hard"),
+    }
+    # Plugin-contributed boards (OME-1115) are present only when their extra is
+    # installed; their rows are still explicit, so a new imported board — or a changed
+    # declaration — trips here exactly like a home-grown one.
+    expected_plugin = {
+        "inspect-gsm8k": ("coverage_declare", "single_shot", "easy"),
+        "inspect-mmlu": ("coverage_declare", "single_shot", "medium"),
+        # OME-1116 milestone C: the eight generated boards, every one single-shot
+        # through the shared row machine.
+        "inspect-arc_easy": ("coverage_declare", "single_shot", "easy"),
+        "inspect-arc_challenge": ("coverage_declare", "single_shot", "medium"),
+        "inspect-commonsense_qa": ("coverage_declare", "single_shot", "easy"),
+        "inspect-mmlu_pro": ("coverage_declare", "single_shot", "medium"),
+        "inspect-winogrande": ("coverage_declare", "single_shot", "easy"),
+        "inspect-race_h": ("coverage_declare", "single_shot", "easy"),
+        "inspect-paws": ("coverage_declare", "single_shot", "easy"),
+        "inspect-boolq": ("coverage_declare", "single_shot", "easy"),
+        # OME-1238 landed these two mid-stack; tiers assigned in the OME-1257 rebase.
+        "inspect-aime24": ("coverage_declare", "single_shot", "medium"),
+        "inspect-aime25": ("coverage_declare", "single_shot", "medium"),
+        # OME-1253 batch 1 landed mid-stack too; tiers assigned in the same rebase.
+        "inspect-musr": ("coverage_declare", "single_shot", "medium"),
+        "inspect-wmdp_bio": ("coverage_declare", "single_shot", "medium"),
+        "inspect-wmdp_chem": ("coverage_declare", "single_shot", "medium"),
+        "inspect-wmdp_cyber": ("coverage_declare", "single_shot", "medium"),
+        "inspect-hellaswag": ("coverage_declare", "single_shot", "easy"),
+    }
+    actual = {
+        benchmark.id: (
+            benchmark.declaration.failure_policy,
+            benchmark.declaration.interaction,
+            benchmark.declaration.difficulty,
+        )
+        for benchmark in BUILTIN_BENCHMARKS
+    }
+    plugin_actual = {board: row for board, row in actual.items() if board.startswith("inspect-")}
+    core_actual = {board: row for board, row in actual.items() if board not in plugin_actual}
+    assert core_actual == expected
+    # Every registered imported board must have its explicit row (subset, not equality:
+    # which plugin boards are present depends on the installed extra and, mid-stack, on
+    # how many board PRs have landed).
+    assert plugin_actual == {board: expected_plugin[board] for board in plugin_actual}
+
+
+def test_each_board_aggregate_reduces_through_the_shared_finalizer() -> None:
+    # WHY: the coverage_declare pins above are only TRUE while every board funnels its
+    # cases through the shared finalizer (score over the gradeable subset + published
+    # coverage). This asserts the mechanism, not just the literal: a board that stops
+    # importing the shared finalize_candidate_result (hand-rolling its own reduction,
+    # or shadowing the name) trips here and must revisit its declaration.
+    # AIDEV-NOTE: import identity, not call-path proof — the e2e goldens' coverage rung
+    # proves the call path; full closure lands when the spine itself consumes
+    # failure_policy (`OME-1097`+) and the policy stops being prose entirely.
+    from screamingface_engine.benchmarks import aggregation
+    from screamingface_engine.benchmarks.spine import scored
+
+    # These boards funnel through the spine's shared scored path (OME-1097; ifeval
+    # folded in OME-1101, draco in OME-1100), which itself reduces through the
+    # shared finalizer — same mechanism, one hop up.
+    assert scored.finalize_candidate_result is aggregation.finalize_candidate_result
+    for family in ("draco", "gdpval", "healthbench", "ifeval"):
+        module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
+        assert module.ScoredPath is scored.ScoredPath, (
+            f"{family} no longer reduces through the shared scored path"
+        )

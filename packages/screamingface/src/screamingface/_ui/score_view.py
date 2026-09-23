@@ -10,6 +10,7 @@ from urllib.parse import quote
 # same tokens, same grid, same disclosure — and duplicating that CSS here is how two
 # cards drift apart. One stylesheet, two renderers.
 from screamingface._ui.report_view import _STYLE, _cell, _clip, _score_text, _stamp
+from screamingface._ui.style import NO_MATH
 
 if TYPE_CHECKING:
     from screamingface.leaderboard import LeaderboardScore
@@ -49,7 +50,8 @@ def leaderboard_score_html(value: LeaderboardScore) -> str:
         _cell("submitted", _stamp(value.submitted_at)),
     ]
     return (
-        f"{_STYLE}<div class='sf-ui sf-report' aria-label='ScreamingFace published score'>"
+        f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
+        "aria-label='ScreamingFace published score'>"
         "<div class='sf-report__head-row'><div>"
         "<div class='sf-report__title'>Score published</div>"
         f"<div class='sf-report__sub'>Leaderboard · {escape(str(value.benchmark_id))}</div>"

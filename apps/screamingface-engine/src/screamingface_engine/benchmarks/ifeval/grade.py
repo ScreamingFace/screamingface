@@ -313,6 +313,9 @@ def _collected_failure_result(
     metadata: dict[str, Any] = {"row_index": row_index}
     if diagnostic.kind is not None:
         metadata["error_kind"] = diagnostic.kind
+    if diagnostic.source_code is not None:
+        # The upstream spelling that was folded into upstream_error — kept for on-call.
+        metadata["source_code"] = diagnostic.source_code
     return failed_case_result(
         selected_case=selected_case,
         failures=[

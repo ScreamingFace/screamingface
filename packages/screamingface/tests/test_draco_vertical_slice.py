@@ -174,7 +174,7 @@ def _unscored_invalid_evidence_case_payload() -> dict[str, object]:
     case["failures"] = [
         {
             "stage": "grading",
-            "code": "no_valid_judge_verdict",
+            "code": "judge_reply_invalid",
             "message": "no valid Judge verdict was produced for this Case",
             "retryable": None,
             "case_id": 1,
@@ -451,7 +451,7 @@ def test_client_retains_an_unscored_case_with_its_invalid_judge_evidence() -> No
     assert case.grade.checks[0].evidence[0].valid is False
     assert case.grade.checks[0].evidence[0].raw_output == "not json"
     assert case.grade.checks[0].evidence[0].metadata == {"rejection_reason": "invalid_json"}
-    assert case.failures[0].code == "no_valid_judge_verdict"
+    assert case.failures[0].code == "judge_reply_invalid"
     artifact = json.loads(report.to_json())
     artifact_case = artifact["candidates"][0]["cases"][0]
     assert artifact["candidates"][0]["score"] is None
@@ -460,7 +460,7 @@ def test_client_retains_an_unscored_case_with_its_invalid_judge_evidence() -> No
     assert artifact_case["grade"]["checks"][0]["evidence"][0]["metadata"] == {
         "rejection_reason": "invalid_json"
     }
-    assert artifact_case["failures"][0]["code"] == "no_valid_judge_verdict"
+    assert artifact_case["failures"][0]["code"] == "judge_reply_invalid"
 
 
 @pytest.mark.asyncio
@@ -903,7 +903,7 @@ def test_candidate_result_decoder_retains_invalid_evidence_under_an_unscored_gra
     assert result.cases[0].grade is not None
     assert result.cases[0].grade.score is None
     assert result.cases[0].grade.checks[0].evidence[0].valid is False
-    assert result.cases[0].failures[0].code == "no_valid_judge_verdict"
+    assert result.cases[0].failures[0].code == "judge_reply_invalid"
 
 
 def test_candidate_result_rejects_coverage_that_contradicts_case_grades() -> None:

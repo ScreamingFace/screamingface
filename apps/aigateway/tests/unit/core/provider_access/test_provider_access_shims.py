@@ -4,6 +4,9 @@ through the edge table; `app.state.provider_access` is the Profile-backed implem
 
 # INVARIANT (A1): no route call site changes, so every name a route or an existing test imports
 # from the two shim modules must still exist and behave as before.
+# AIDEV-NOTE (A2, OME-1207): the four consumers now call the port directly, so `chat_credentials`
+# is no longer imported by any ROUTE — only by this suite, which is why it survives. It and the
+# names below are deleted at Stage E (OME-1209) together with the legacy vocabulary.
 """
 
 from __future__ import annotations
@@ -26,7 +29,6 @@ from aigateway.core.provider_access import (
     reauth_url_for,
 )
 from aigateway.routes import chat, chat_credentials, chat_dispatch, chat_profile_defaults
-from aigateway.routes.model_parameters import _context_identity
 
 # WHY parents[3]: <src>/aigateway/core/provider_access/<module>.py — three package dirs up.
 _SRC = Path(inspect.getfile(ProfileBackedProviderAccess)).resolve().parents[3]
@@ -68,10 +70,14 @@ def test_chat_profile_defaults_still_exports_its_two_names() -> None:
     assert callable(chat_profile_defaults._parameter_rejection_exception)
 
 
-def test_the_chat_namespace_still_binds_the_names_the_suite_patches() -> None:
-    assert chat._inject_credentials is chat_credentials._inject_credentials
-    assert chat._credential_target_for_chat is chat_credentials._credential_target_for_chat
-    assert chat_dispatch._mark_profile_error_fresh is chat_credentials._mark_profile_error_fresh
+def test_the_chat_namespace_binds_the_accessor_the_suites_patch() -> None:
+    """# INVARIANT (OME-1207): A1 pinned that chat's namespace still bound the three shim names
+    the suites patched. A2 moved those call sites onto the port, so the name a suite reaches for
+    is `provider_access_for` — bound in BOTH route namespaces, and the same object the port
+    package exports. Patch `app.state.provider_access` (or this name) to steer chat's credentials;
+    nothing else is a supported seam."""
+    assert chat.provider_access_for is provider_access_for
+    assert chat_dispatch.provider_access_for is provider_access_for
 
 
 # --- wiring ---------------------------------------------------------------------------------
@@ -213,7 +219,14 @@ def test_the_context_stamp_is_byte_identical_to_the_legacy_context_identity(
         authenticated_client.app.state.profile_index.get, harness.account_id, "anthropic", "default"
     )
 
-    assert target.context_stamp == _context_identity(harness.account_id, profile, None)
+    # OME-1207: A1 pinned this against `model_parameters._context_identity`. A2 deleted that
+    # helper, so the pin is now the FORMULA itself — stronger than agreeing with a function that
+    # could have drifted with it. These bytes feed the contract/context digests: changing them
+    # silently re-identifies every published contract.
+    assert target.context_stamp == (
+        f"acct:{harness.account_id}|"
+        f"prof:{profile.id}:{profile.state.value}:{profile.last_refreshed_at or '-'}"
+    )
 
 
 # --- size and layering --------------------------------------------------------------------------

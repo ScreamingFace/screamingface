@@ -23,11 +23,43 @@ overridden per instance for spec codes that share a Python type — e.g.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
+
+class ErrorCode(StrEnum):
+    """Central vocabulary of the spec's wire-level error codes.
+
+    Each member's value is the exact string the spec assigns and that appears
+    on the wire, so code never changes even when a member is renamed. Members
+    are ``str`` (``StrEnum``), so ``exc.code == "malformed_source"`` and
+    f-string rendering keep working.
+    """
+
+    INTERNAL_ERROR = "internal_error"
+    MALFORMED_SOURCE = "malformed_source"
+    UNBOUND_REFERENCE = "unbound_reference"
+    RESOLUTION_FAILED = "resolution_failed"
+    CYCLE_DETECTED = "cycle_detected"
+    UNRENDERABLE = "unrenderable"
+    MISSING_INTENT = "missing_intent"
+    UNKNOWN_IDENTITY = "unknown_identity"
+    ENDPOINT_NOT_FOUND = "endpoint_not_found"
+    TIMEOUT = "timeout"
+    EXPANSION_NOT_ITERABLE = "expansion_not_iterable"
+    QUORUM_NOT_MET = "quorum_not_met"
+    UNKNOWN_PROCESSOR = "unknown_processor"
+    SELF_REF_ON_NON_URL4 = "self_ref_on_non_url4"
+    IDENTITY_REF_ON_NON_URL4 = "identity_ref_on_non_url4"
+    IDENTITY_UNAVAILABLE = "identity_unavailable"
+    IDENTITY_ACCESS_DENIED = "identity_access_denied"
+    CONSENT_REQUIRED = "consent_required"
+    CONSENT_WITHHELD = "consent_withheld"
+
 
 class Url4Error(Exception):
     """Base class for every error raised by the url4 library."""
 
-    code: str = "internal_error"
+    code: str = ErrorCode.INTERNAL_ERROR
     permanent: bool = True
 
     def __init__(
@@ -48,7 +80,7 @@ class ParseError(Url4Error):
     one.
     """
 
-    code = "malformed_source"
+    code = ErrorCode.MALFORMED_SOURCE
 
     def __init__(
         self,
@@ -65,7 +97,7 @@ class ParseError(Url4Error):
 class ScopeError(Url4Error):
     """A ``$name`` or ``$N`` variable reference could not be resolved in scope."""
 
-    code = "unbound_reference"
+    code = ErrorCode.UNBOUND_REFERENCE
 
 
 class ResolutionError(Url4Error):
@@ -76,14 +108,14 @@ class ResolutionError(Url4Error):
     are raised with explicit ``code=…, permanent=True``.
     """
 
-    code = "resolution_failed"
+    code = ErrorCode.RESOLUTION_FAILED
     permanent = False
 
 
 class CollectionError(Url4Error):
     """A ``*`` collection source did not resolve to a usable, iterable value."""
 
-    code = "malformed_source"
+    code = ErrorCode.MALFORMED_SOURCE
 
 
 class CycleError(Url4Error):
@@ -93,7 +125,7 @@ class CycleError(Url4Error):
     assembled by hand from custom nodes.
     """
 
-    code = "cycle_detected"
+    code = ErrorCode.CYCLE_DETECTED
 
 
 class RenderError(Url4Error):
@@ -106,12 +138,13 @@ class RenderError(Url4Error):
     a nested reduce-over-iteration).
     """
 
-    code = "unrenderable"
+    code = ErrorCode.UNRENDERABLE
 
 
 __all__ = [
     "CollectionError",
     "CycleError",
+    "ErrorCode",
     "ParseError",
     "RenderError",
     "ResolutionError",

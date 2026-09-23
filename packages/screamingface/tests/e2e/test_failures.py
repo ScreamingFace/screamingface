@@ -26,7 +26,7 @@ The declared policy chain, with the code that declares it:
   ones and the gateway-authored MESSAGE names the provider failure.
 - a judge that answers but is cut off (truncated verdict JSON) never errors the row:
   every verdict is bound invalid (``benchmarks/draco/verdict.py::bind``) and the case
-  lands as a ``stage="grading"`` Failure, code ``no_valid_judge_verdict``
+  lands as a ``stage="grading"`` Failure, code ``judge_reply_invalid``
   (``benchmarks/draco/grade.py``), with the candidate's output preserved.
 
 Lanes: the FakeGateway/fixture contract tests below are pure-code + loopback-thread and
@@ -513,7 +513,12 @@ def test_a_judge_cut_off_mid_batch_lands_as_grading_never_candidate(
     assert case.output, "the candidate's completed answer must be preserved"
     assert case.failures, "the cut-off judge must be reported, not silently ungraded"
     assert all(failure.stage == "grading" for failure in case.failures)
-    assert any(failure.code == "no_valid_judge_verdict" for failure in case.failures)
+    # WHY judge_reply_invalid (OME-1234): the reconciled grader spelling — DRACO's
+    # no_valid_judge_verdict merged into the shared judge-failure code, and the class
+    # is retryable: a fresh judge run can produce a valid verdict.
+    judge_failures = [f for f in case.failures if f.code == "judge_reply_invalid"]
+    assert judge_failures
+    assert all(f.retryable is True for f in judge_failures)
 
 
 @pytest.mark.e2e

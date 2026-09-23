@@ -4,14 +4,26 @@
 
 ### Features
 
-* **screamingface:** show the benchmark catalogue as one tab per origin, each linking to its source collection (`Benchmark.origin` — any non-blank string, `"screamingface"` when an older Engine omits it; the benchmark card links the origin to its source)
+* **screamingface:** carry the catalogue's two grouping axes on `Benchmark` — `interaction` and the new hand-assigned `difficulty` tier (`easy`/`medium`/`hard`; served values verbatim, any non-blank string; `None` when an older Engine omits the key)
+* **screamingface:** render `sf.benchmarks.list()` as a faceted map — clickable chip rows (Difficulty: All/Easy/Medium/Hard · Interaction: All/Single-shot/Multi-turn/Agentic · Origin: All plus the origins present) over a listing grouped easy→hard with interaction lanes; chips and search compose, and a tier-less catalogue from an older Engine keeps the flat list
+* **screamingface:** show each benchmark's provenance in the listing and on its card, linked to its source collection (`Benchmark.origin` — any non-blank string, `"screamingface"` when an older Engine omits it; rendered as a per-row chip)
 * **screamingface:** declare an answer seed per evaluation and name the sitting in the report (`evaluate(answer_seed=…)` sends `X-Answer-Seed`; `CandidateResult.answer_seed` serializes into report.json, null when unseeded)
 * **screamingface:** expose `ModelDetails.execution_access` (`configured`, `missing`, or `None` for older Gateways).
 
 * **screamingface:** expose and render why a published score will not rank
+* **screamingface:** send the candidate's declared model routes on a leaderboard submission.
+  The payload gains a `models` array carrying `CandidateResult.models` verbatim, alongside the
+  existing `ran_with_providers`, which is unchanged. Previously each route was truncated to its
+  provider prefix, so a fusion of open-weight models submitted as `["openrouter"]` and was
+  published as closed.
+
+  **Requires a Scoreboard that accepts the field.** Submissions reject with HTTP 422 against a
+  Scoreboard deployed before `OME-1181`.
 
 ### Bug Fixes
 
+* **screamingface:** refuse a seeded evaluation before any spend when a Candidate Model's provider does not accept `seed`. The parameter preflight read the gateway's policy (`gateway_status`) and never the provider's evidence (`provider_support`) on the same contract row, so a fusion containing such a model passed the check, went to the wire, and died mid-run with `provider_error` — score `null`, coverage `0.0`, after the members that worked were already billed. It now raises `PlanningError` naming the Model and the parameter and saying the run cannot be reproducible, and likewise for **any** declared parameter the provider denies — `temperature`, `top_k` or anything else — not just `seed`. Only an explicit `unsupported` refuses: `conditional` and `unknown` pass through unchanged, and an unseeded run is unaffected. Declaring a seed per-Model only on the Models that accept it remains allowed, which is how a deliberately partial sitting is expressed.
+* **screamingface:** accept `answer_seed` on the module-level `evaluate(...)`, not only on `Client.evaluate`. The one-line call every example notebook uses raised `TypeError: evaluate() got an unexpected keyword argument 'answer_seed'`, so seeded runs were unreachable for notebook users even though the feature above had shipped. Both branches forward it now — Recipes and a complete URL4 — and omitting it still declares no seed.
 * **screamingface:** check every required Candidate Model before evaluation dispatch and raise `ProviderConnectionError` for Gateway-reported missing access. Sync and async Clients reuse model admission details; older Gateways preserve existing behavior.
 
 ## 0.1.1 (2026-08-13)

@@ -42,6 +42,18 @@ from typing import TYPE_CHECKING, Any
 
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine_inspect.pins import (
+    AIME24_CASE_COUNT,
+    AIME24_CONFIG,
+    AIME24_DATASET,
+    AIME24_DATASET_REVISION,
+    AIME24_SHUFFLE_SEED,
+    AIME24_SPLIT,
+    AIME25_CASE_COUNT,
+    AIME25_CONFIG,
+    AIME25_DATASET,
+    AIME25_DATASET_REVISION,
+    AIME25_SHUFFLE_SEED,
+    AIME25_SPLIT,
     ARC_CHALLENGE_CASE_COUNT,
     ARC_CHALLENGE_CONFIG,
     ARC_CHALLENGE_DATASET,
@@ -69,6 +81,12 @@ from screamingface_engine_inspect.pins import (
     GSM8K_DATASET,
     GSM8K_DATASET_REVISION,
     GSM8K_SPLIT,
+    HELLASWAG_CASE_COUNT,
+    HELLASWAG_CONFIG,
+    HELLASWAG_DATASET,
+    HELLASWAG_DATASET_REVISION,
+    HELLASWAG_SHUFFLE_SEED,
+    HELLASWAG_SPLIT,
     MMLU_CASE_COUNT,
     MMLU_CONFIG,
     MMLU_DATASET,
@@ -81,6 +99,12 @@ from screamingface_engine_inspect.pins import (
     MMLU_PRO_SPLIT,
     MMLU_SHUFFLE_SEED,
     MMLU_SPLIT,
+    MUSR_CASE_COUNT,
+    MUSR_CONFIG,
+    MUSR_DATASET,
+    MUSR_DATASET_REVISION,
+    MUSR_SHUFFLE_SEED,
+    MUSR_SPLIT,
     PAWS_CASE_COUNT,
     PAWS_CONFIG,
     PAWS_DATASET,
@@ -98,6 +122,21 @@ from screamingface_engine_inspect.pins import (
     WINOGRANDE_DATASET,
     WINOGRANDE_DATASET_REVISION,
     WINOGRANDE_SPLIT,
+    WMDP_BIO_CASE_COUNT,
+    WMDP_BIO_CONFIG,
+    WMDP_BIO_DATASET,
+    WMDP_BIO_DATASET_REVISION,
+    WMDP_BIO_SPLIT,
+    WMDP_CHEM_CASE_COUNT,
+    WMDP_CHEM_CONFIG,
+    WMDP_CHEM_DATASET,
+    WMDP_CHEM_DATASET_REVISION,
+    WMDP_CHEM_SPLIT,
+    WMDP_CYBER_CASE_COUNT,
+    WMDP_CYBER_CONFIG,
+    WMDP_CYBER_DATASET,
+    WMDP_CYBER_DATASET_REVISION,
+    WMDP_CYBER_SPLIT,
 )
 
 if TYPE_CHECKING:
@@ -128,6 +167,12 @@ class SnapshotSpec:
     #: SINGLE_ANSWER render (mmlu_pro, winogrande, race_h) — same dotted-reference
     #: convention as ``prompt_template``, resolved lazily at bake time.
     choice_template: str | None = None
+    #: The eval's system instruction, delivered as the LEADING TEXT of the
+    #: candidate input at bake time — a benchmark cannot address a candidate's
+    #: system role (the contracteval named-deviation pattern), so the
+    #: instruction rides ahead of the render. Same dotted-reference convention
+    #: as ``prompt_template``.
+    system_message: str | None = None
     shuffle_seed: int | None = None
 
 
@@ -267,6 +312,111 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # limit=N run would see few passages; the seed rides the revision hash.
         shuffle_seed=RACE_H_SHUFFLE_SEED,
     ),
+    "aime24": SnapshotSpec(
+        dataset=AIME24_DATASET,
+        config=AIME24_CONFIG,
+        split=AIME24_SPLIT,
+        dataset_revision=AIME24_DATASET_REVISION,
+        case_count=AIME24_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.aime2024.aime2024:aime2024;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.aime2024.aime2024:record_to_sample",
+        prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
+        shuffle_seed=AIME24_SHUFFLE_SEED,
+    ),
+    "aime25": SnapshotSpec(
+        dataset=AIME25_DATASET,
+        config=AIME25_CONFIG,
+        split=AIME25_SPLIT,
+        dataset_revision=AIME25_DATASET_REVISION,
+        case_count=AIME25_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.aime2025.aime2025:aime2025;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.aime2025.aime2025:record_to_sample",
+        prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
+        shuffle_seed=AIME25_SHUFFLE_SEED,
+    ),
+    "musr": SnapshotSpec(
+        dataset=MUSR_DATASET,
+        config=MUSR_CONFIG,
+        split=MUSR_SPLIT,
+        dataset_revision=MUSR_DATASET_REVISION,
+        case_count=MUSR_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.musr.musr:musr;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.musr.musr:record_to_sample",
+        choice_template="inspect_evals.musr.musr:REGULAR_PROMPT",
+        shuffle_seed=MUSR_SHUFFLE_SEED,
+        # WHY the unbaked system_message is benign (review flag resolved): the
+        # eval's SYSTEM_PROMPT is the generic "You are a helpful assistant that
+        # will answer the questions given by the user." — boilerplate with no
+        # exam content. Every format instruction rides REGULAR_PROMPT, which IS
+        # the baked choice_template, so the baked prompt matches the eval's
+        # rendered user turn.
+    ),
+    "wmdp_bio": SnapshotSpec(
+        dataset=WMDP_BIO_DATASET,
+        config=WMDP_BIO_CONFIG,
+        split=WMDP_BIO_SPLIT,
+        dataset_revision=WMDP_BIO_DATASET_REVISION,
+        case_count=WMDP_BIO_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.wmdp.wmdp:wmdp_bio;
+        # verify against the eval's task.
+        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
+        # this pinned revision (verified 1273/1273 unique stable ids), so the
+        # bake's unfiltered rows are the same exam.
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+    ),
+    "wmdp_chem": SnapshotSpec(
+        dataset=WMDP_CHEM_DATASET,
+        config=WMDP_CHEM_CONFIG,
+        split=WMDP_CHEM_SPLIT,
+        dataset_revision=WMDP_CHEM_DATASET_REVISION,
+        case_count=WMDP_CHEM_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.wmdp.wmdp:wmdp_chem;
+        # verify against the eval's task.
+        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
+        # this pinned revision (verified 408/408 unique stable ids), so the
+        # bake's unfiltered rows are the same exam.
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+    ),
+    "wmdp_cyber": SnapshotSpec(
+        dataset=WMDP_CYBER_DATASET,
+        config=WMDP_CYBER_CONFIG,
+        split=WMDP_CYBER_SPLIT,
+        dataset_revision=WMDP_CYBER_DATASET_REVISION,
+        case_count=WMDP_CYBER_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.wmdp.wmdp:wmdp_cyber;
+        # verify against the eval's task.
+        # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
+        # this pinned revision (verified 1987/1987 unique stable ids), so the
+        # bake's unfiltered rows are the same exam.
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+    ),
+    "hellaswag": SnapshotSpec(
+        dataset=HELLASWAG_DATASET,
+        config=HELLASWAG_CONFIG,
+        split=HELLASWAG_SPLIT,
+        dataset_revision=HELLASWAG_DATASET_REVISION,
+        case_count=HELLASWAG_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.hellaswag.hellaswag:hellaswag;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.hellaswag.hellaswag:record_to_sample",
+        # Named deviation: the eval sends this as a SYSTEM message; the
+        # bake delivers it as leading input text (a benchmark cannot
+        # address a candidate's system role).
+        system_message="inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE",
+        # WHY the seed: the split is domain-grouped (ActivityNet then
+        # WikiHow) — see the pin's comment; OURS by policy.
+        shuffle_seed=HELLASWAG_SHUFFLE_SEED,
+    ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
 
@@ -369,6 +519,7 @@ def emit_snapshot(
     choice_template: str | None = (
         None if spec.choice_template is None else _resolve(spec.choice_template)
     )
+    system_text: str | None = _resolved_system_text(spec)
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
         random.Random(spec.shuffle_seed).shuffle(ordered)
@@ -383,6 +534,11 @@ def emit_snapshot(
                 f"case {case_id}: record_to_sample refused the row ({type(exc).__name__}: {exc})"
             ) from exc
         target, choices = _validated_target(sample, case_id)
+        input_text: str = _prompt(sample, choices, template, choice_template)
+        if system_text is not None:
+            # Named deviation (contracteval pattern): the eval's SYSTEM
+            # instruction becomes the input's leading text, render untouched.
+            input_text = f"{system_text}\n\n{input_text}"
         # WHY "case_id" beside "id": the board's url4 protocol template reads
         # $item.case_id per Case (the transport contract's string spelling);
         # "id" is the integer the engine's row/target files key on.
@@ -390,13 +546,34 @@ def emit_snapshot(
             {
                 "id": case_id,
                 "case_id": str(case_id),
-                "input": _prompt(sample, choices, template, choice_template),
+                "input": input_text,
             }
         )
         targets[case_id] = (
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
+
+
+def _resolved_system_text(spec: SnapshotSpec) -> str | None:
+    """The eval's system instruction as leading input text, or None without one.
+
+    WHY stripped once here: eval constants often carry framing newlines
+    (hellaswag's SYSTEM_MESSAGE); the leading text must join the render with
+    exactly one blank line. A non-string resolution (a mispointed reference
+    landing on a function) refuses the bake — str() would silently bake its
+    repr into every case of the exam (review finding on PR #1018).
+    """
+
+    if spec.system_message is None:
+        return None
+    resolved_message: Any = _resolve(spec.system_message)
+    if not isinstance(resolved_message, str):
+        raise PrepareError(
+            f"system_message {spec.system_message} must resolve to text, "
+            f"got {type(resolved_message).__name__}"
+        )
+    return resolved_message.strip()
 
 
 def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:

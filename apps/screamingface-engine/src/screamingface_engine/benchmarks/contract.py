@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
 
@@ -41,6 +42,92 @@ FailureStage = Literal["candidate", "grading", "aggregation"]
 # (CandidateInvocationStatus) stays: there it unambiguously means "did not answer".
 CaseStatus = Literal["scored", "failed"]
 CandidateInvocationStatus = Literal["completed", "refused"]
+# FEATURE (OME-1234): the declared failure vocabulary — every code a published Failure
+# may carry. A failed run tells the researcher which KIND of thing went wrong; a code
+# nobody declared here cannot reach a report, so the names stay trustworthy instead of
+# drifting one typo at a time (three grader spellings had already drifted).
+# WHY a frozenset and not a Literal on Failure.code: one dynamic family
+# (`aigateway_http_<status>`) is also declared, via `is_declared_failure_code` — a
+# Literal cannot express it, and the validator enforces both together.
+# INVARIANT: additions are deliberate — the conformance test pins this exact set, and
+# the SDK keeps its own copy (`_report_primitives.py`, the FailureStage house pattern).
+DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        # engine-raised codes grandfathered at declaration time
+        "benchmark_unavailable",
+        "benchmark_operation_unsupported",
+        "benchmark_retrieval_unavailable",
+        "provider_refusal",
+        "model_token_cap",
+        "model_empty_content",
+        "model_parameter_invalid",
+        "aigateway_bad_response",
+        "aigateway_empty_response",
+        "aigateway_transport_error",
+        "invalid_candidate_input",
+        "web_tool_loop_limit",
+        "web_retrieval_invalid",
+        "web_retrieval_unavailable",
+        "result_too_large",
+        "candidate_contract_error",
+        "candidate_policy_invalid",
+        "candidate_policy_escalation",
+        "case_result_missing",
+        "case_execution_failed",
+        "corrective_role_failed",
+        "judge_reply_invalid",
+        "invalid_case_evaluation",
+        "ifeval_checker_failed",
+        "draco_grading_failed",
+        "gdpval_grading_failed",
+        "healthbench_grading_failed",
+        "medxpert_grading_failed",
+        "inspect_grading_failed",
+        # WHY declared here (OME-1246): contracteval (PR #984) landed in flight with the
+        # OME-1233 vocabulary close, so its two codes never joined the set — a polarity
+        # mismatch then CRASHED report validation instead of failing the case.
+        "contracteval_grading_failed",
+        "polarity_mismatch",
+        "missing_answer_asset",
+        "missing_target_asset",
+        # spine failure_messages table codes (spine/scored.py `_failure`)
+        "missing_case_row",
+        "missing_rubric_asset",
+        "case_error",
+        "incomplete_verdicts",
+        "no_positive_points",
+        "missing_case_rubric",
+        "scorer_error",
+        "invalid_score_value",
+        # fallback defaults (evaluation.py upstream re-raise, aggregation.py default_code)
+        "grading_dependency_failed",
+        "grading_failed",
+        # upstream pass-through codes observed in reports today (public_error keeps
+        # these verbatim; unknown upstream codes map to upstream_error instead)
+        "resolution_failed",
+        "judge_unavailable",
+        "asset_unavailable",
+        "provider_error",
+        "rate_limited",
+        "candidate_failed",
+        "checker_failed",
+        "judge_failed",
+        # classes introduced by OME-1234
+        "benchmark_contract_error",
+        "benchmark_definition_error",
+        "upstream_error",
+    }
+)
+# WHY a pattern beside the set: the connector mints one code PER HTTP status
+# (`aigateway_http_{status}`, runner/connector.py) and the number is load-bearing —
+# 429 vs 500 drives retryability, and ifeval/grade.py already branches on this exact
+# shape. A closed family, not an open axis.
+_AIGATEWAY_HTTP_CODE = re.compile(r"aigateway_http_[1-5][0-9]{2}")
+
+
+def is_declared_failure_code(code: str) -> bool:
+    """Whether a failure code belongs to the declared vocabulary (set or the one family)."""
+    return code in DECLARED_FAILURE_CODES or _AIGATEWAY_HTTP_CODE.fullmatch(code) is not None
 
 
 class _StrictWireModel(BaseModel):
@@ -130,6 +217,18 @@ class Failure(_StrictWireModel):
     retryable: bool | None
     case_id: CaseId | None
     metadata: dict[str, Any]
+
+    @field_validator("code")
+    @classmethod
+    def _validate_code(cls, value: str) -> str:
+        # INVARIANT (OME-1234): every published failure passes through this model,
+        # whichever board produced it — refusing an undeclared code HERE means it can
+        # never reach a report, so the vocabulary cannot drift one typo at a time.
+        # Unknown UPSTREAM codes never hit this: public_error maps them to
+        # upstream_error before a Failure is built.
+        if not is_declared_failure_code(value):
+            raise ValueError(f"undeclared failure code {value!r}")
+        return value
 
     @field_validator("case_id")
     @classmethod

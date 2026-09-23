@@ -53,6 +53,8 @@ def notebooks() -> dict[str, NotebookNode]:
         "09_corrective_loops.ipynb": _corrective_loops(),
         "10_gdpval.ipynb": _gdpval_e2e(),
         "11_medxpert.ipynb": _medxpert_e2e(),
+        "12_inspect_evals_benchmarks.ipynb": _inspect_evals_boards(),
+        "13_contracteval.ipynb": _contracteval_e2e(),
     }
 
 
@@ -101,7 +103,8 @@ Report, publish its Candidate Result, and replay its URL4. The wider interface i
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -229,7 +232,8 @@ Every state-changing or paid example is either descriptive or guarded off by def
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -634,7 +638,8 @@ where `sf.CorrectiveLoop` is the protocol from
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare ifeval  # first run only: download pinned Benchmark assets
@@ -758,7 +763,8 @@ This notebook evaluates DRACO using new models (August 2026) and fusions of thes
         nbformat.v4.new_markdown_cell("""\
 ## Running things locally
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare draco  # first run only: download pinned Benchmark assets
@@ -909,7 +915,8 @@ what published HealthBench figures do."""),
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare healthbench  # first run only: download pinned Benchmark assets
@@ -1058,7 +1065,8 @@ leaderboard?"."""),
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare gdpval  # first run only: download pinned Benchmark assets
@@ -1186,7 +1194,8 @@ entirely answer generation.
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare medxpert  # first run only: download pinned Benchmark assets
@@ -1278,6 +1287,377 @@ quoting a comparison."""),
     )
 
 
+def _inspect_evals_boards() -> NotebookNode:
+    # FEATURE: OME-1202 — the front door to the imported catalogue: list the two origin
+    # groups, pick an imported board, run a fusion against it. STORY: as a researcher who
+    # heard "we import inspect_evals benchmarks now", I see what's on the shelf and run
+    # one, without reverse-engineering SDK calls from tickets or source.
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# The benchmark catalogue — ours and imported
+
+The catalogue no longer holds only ScreamingFace-authored boards. Benchmarks imported from
+[inspect_evals](https://ukgovernmentbeis.github.io/inspect_evals/) — GSM8K, MMLU, ARC, BoolQ and
+friends — sit beside them as first-class boards: same listing, same `sf.evaluate(...)` call, same
+report.
+
+Every benchmark carries an **origin**, and the listing renders one group per origin, so you can
+always tell what we built from what we brought in. An imported board keeps its source eval's own
+scorer — the upstream grading logic is called, never reimplemented — and its dataset is snapshotted
+and pinned at import time, so a published board never drifts under you.
+
+This notebook walks the whole path: list the catalogue → read an imported board's card → run a
+fusion against it."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
+
+```bash
+screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local services.
+
+**Where the imported boards live.** An Engine serves imported boards only when it runs with its
+`inspect` extra (the upstream scorers come from `inspect-ai`, which cannot co-install with the
+local runtime's dependencies — a declared conflict, not an accident). The local
+`screamingface up` stack therefore lists the ScreamingFace group only. **An inspect-capable
+Engine is a prerequisite for everything past section 1**: the listing works against any Engine,
+and the first cell of section 2 checks for the imported shelf and stops with guidance rather
+than failing partway through. To browse and run the imported catalogue, point the SDK at an
+inspect-capable Engine before starting the kernel:
+
+```bash
+export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
+```
+
+Leaving it unset falls back to a running local stack, then to the hosted default.
+
+**Running one yourself, from a checkout.** The `just local-stack-notebooks` recipe above does
+exactly this: it bakes the imported snapshots, serves an inspect-capable Engine beside the
+`screamingface up` stack on a free port — reaching the same Gateway on `:9105`, so only the
+Engine URL changes — and exports `SCREAMINGFACE_ENGINE_URL` for the kernel it opens."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. List the catalogue — one group per origin
+
+The listing groups by each benchmark's `origin`: a **ScreamingFace** tab for our boards, first,
+and an **inspect_evals** tab linking to the source collection. Without `ipywidgets` the same
+grouping renders as titled sections. The search box filters rows inside every group."""),
+        nbformat.v4.new_code_cell("""\
+benchmarks = sf.benchmarks.list()
+benchmarks"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Read an imported board's card
+
+Imported boards are named `inspect-<key>` after their upstream eval. We'll use **GSM8K** —
+grade-school math word problems, graded by the eval's own numeric match against the published
+answer. That grading is free: no judge, no grading tokens, so cost is answer generation only.
+
+The card carries the provenance: `origin` names the source collection, and `revision` pins the
+imported dataset snapshot — two catalogues showing the same revision asked the exact same
+questions.
+
+The first lines below are the gate from section 0: if this Engine serves no imported boards,
+the notebook stops here with directions instead of failing on the lookup."""),
+        nbformat.v4.new_code_cell("""\
+if not any(benchmark.origin == "inspect_evals" for benchmark in benchmarks):
+    raise RuntimeError(
+        "this Engine serves no imported boards — the rest of this notebook needs an "
+        "Engine running with its inspect extra; see section 0 for how to point "
+        "SCREAMINGFACE_ENGINE_URL at one"
+    )
+
+gsm8k = sf.benchmarks.get("inspect-gsm8k")
+{
+    "id": gsm8k.id,
+    "title": gsm8k.title,
+    "origin": gsm8k.origin,
+    "revision": gsm8k.revision,
+    "case_count": gsm8k.case_count,
+}"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Run a fusion against it
+
+An imported board takes a fusion exactly like a home-grown one — the Engine invokes the candidate
+as an opaque recipe, so nothing about the import changes how ensembles run. `limit` keeps the
+rehearsal cheap; the calls below are paid model calls, so run this cell deliberately and rehearse
+small before any full sweep."""),
+        # WHY an all-OpenRouter panel rather than the Anthropic synthesiser used elsewhere in
+        # these examples: the seeded cells below are the point of this section, and the SDK's
+        # free preflight REFUSES a seeded run whose catalogue marks `seed` unsupported
+        # (OME-1231). An Anthropic synthesiser would make the seeded cells raise.
+        nbformat.v4.new_code_cell("""\
+PANEL_PARAMS = {"max_tokens": 8192, "temperature": 0.0}
+SYNTHESIS_PROMPT = (
+    "You are given several models' step-by-step solutions to a grade-school math word "
+    "problem. Check each chain of arithmetic, resolve any disagreement by re-deriving the "
+    "disputed step, and answer with the single final number."
+)
+
+member1 = sf.Model(model="openrouter/qwen/qwen3.7-flash", params=PANEL_PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARAMS)
+synth = sf.Model(
+    model="openrouter/qwen/qwen3.8-flash", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
+)
+math_panel = sf.Fusion(name="math_panel", members=[member1, member2], synthesizer=synth)
+
+math_panel"""),
+        nbformat.v4.new_code_cell("""\
+report = sf.evaluate(math_panel, benchmark="inspect-gsm8k", limit=2)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+### Asking for a reproducible run
+
+`answer_seed` pins the sampler for every model in the fusion — members and synthesiser
+alike — so the same seed asks each provider for the same draw twice.
+
+A seed only means something if every model honours it, so the SDK checks the whole panel
+before spending anything: if a provider's catalogue says outright that the model does not
+support `seed`, the run is refused up front rather than sampled unseeded and reported as
+though it were reproducible. That is why this panel is all-OpenRouter — an Anthropic
+synthesiser would be refused here, since the Messages API has no seed field at all.
+
+Changing the seed is the cheapest way to separate the panel from the draw: what stays the
+same across the two runs below is the panel, what moves is the sampling."""),
+        nbformat.v4.new_code_cell("""\
+report1 = sf.evaluate(math_panel, benchmark="inspect-gsm8k", limit=2, answer_seed=42)
+report1"""),
+        nbformat.v4.new_code_cell("""\
+report2 = sf.evaluate(math_panel, benchmark="inspect-gsm8k", limit=2, answer_seed=7)
+report2"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Read the per-case outcomes
+
+Each case is one bit — the committed number matched the key or it did not — and the check row
+carries what the candidate answered against what was expected, so a miss can be inspected rather
+than just counted."""),
+        nbformat.v4.new_code_cell("""\
+for case in report.candidates.only.cases:
+    grade = case.grade
+    print(case.case_id, case.status, grade.score if grade else None)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. A multiple-choice board — same calls, one thing to change
+
+`inspect-mmlu` is 57 subjects of four-option questions, graded by the eval's `choice`
+scorer against the published letter. The SDK calls are identical to section 3; what has to
+change is the **synthesiser's prompt**, because the answer format did. Asking for "the
+single final number" on a board that wants `A`/`B`/`C`/`D` is how a panel scores zero
+while answering correctly.
+
+Worth knowing about MCQ boards: a fusion has less to do here than on free text. A choice is
+one discrete token, so the synthesiser cannot *merge* partial credit the way it can on a
+rubric board — it can only weigh votes and pick. The two families are not comparable in
+what they ask of an ensemble."""),
+        nbformat.v4.new_code_cell("""\
+MCQ_SYNTHESIS_PROMPT = (
+    "You are given several experts' analyses of one multiple-choice question. Weigh their "
+    "reasoning and the evidence they cite — not merely how many chose each option — and "
+    "answer with the single best choice."
+)
+
+mcq_synth = sf.Model(
+    model="openrouter/anthropic/claude-haiku-4.5",
+    params=PANEL_PARAMS,
+    prompt=MCQ_SYNTHESIS_PROMPT,
+)
+mcq_panel = sf.Fusion(name="mcq_panel", members=[member1, member2], synthesizer=mcq_synth)
+
+mmlu_report = sf.evaluate(mcq_panel, benchmark="inspect-mmlu", limit=2)
+mmlu_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 6. A yes/no board
+
+`inspect-boolq` asks a reading-comprehension question whose answer is `Yes` or `No`, graded
+by the eval's `pattern` scorer against a regex anchored at the end of the reply. That anchor
+is the whole trick: a model that reasons for a paragraph and finishes with "Yes" scores,
+while one that opens with "Yes, because…" does not. Say so in the prompt.
+
+This board is free text rather than a fixed set of options, so unlike the MCQ boards it
+carries a **check surface** — the mid-run pass/fail signal a `corrective_loop` reads (see
+`09_corrective_loops.ipynb`). MCQ boards are refused one deliberately: pass/fail feedback
+over four options is an elimination attack, not a hint."""),
+        nbformat.v4.new_code_cell("""\
+BOOLQ_SYNTHESIS_PROMPT = (
+    "You are given several experts' readings of one passage and a yes/no question about it. "
+    "Weigh their reasoning, then end your reply with exactly one word — Yes or No — as the "
+    "final word, with nothing after it."
+)
+
+boolq_synth = sf.Model(
+    model="openrouter/anthropic/claude-haiku-4.5",
+    params=PANEL_PARAMS,
+    prompt=BOOLQ_SYNTHESIS_PROMPT,
+)
+boolq_panel = sf.Fusion(name="boolq_panel", members=[member1, member2], synthesizer=boolq_synth)
+
+boolq_report = sf.evaluate(boolq_panel, benchmark="inspect-boolq", limit=2)
+boolq_report"""),
+        nbformat.v4.new_code_cell("""\
+for case in boolq_report.candidates.only.cases:
+    grade = case.grade
+    print(case.case_id, case.status, grade.score if grade else None)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 7. The rest of the shelf
+
+Three boards, three scorer families, one set of calls — that is the whole point of the
+import. The remaining seven work the same way; pick an id from the inspect_evals group in
+section 1 and match the synthesiser's prompt to how that board is graded:
+
+- **A final number**, graded by numeric match — `inspect-gsm8k`.
+- **A letter**, graded by the `choice` scorer — `inspect-mmlu`, `inspect-mmlu_pro`,
+  `inspect-arc_easy`, `inspect-arc_challenge`, `inspect-commonsense_qa`,
+  `inspect-winogrande`, `inspect-race_h`.
+- **Yes / No as the last word**, graded by an anchored pattern — `inspect-boolq`.
+- **yes / no anywhere in the reply**, graded by `includes` — `inspect-paws`.
+
+A `limit=N` run is a smoke test, not a ranking: on small subsamples a point or two between
+two systems is noise. Run the whole set before quoting a comparison, and read `coverage`
+beside the score — these boards score the gradeable subset and publish how much of the run
+that was, so a good score over thin coverage is a formatting failure wearing a knowledge
+result's clothes."""),
+    )
+
+
+def _contracteval_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# ContractEval — find the clause, scored by pure string matching
+
+[ContractEval](https://arxiv.org/abs/2508.03080) gives a model a full commercial contract and one
+of 41 clause categories, and asks it to quote the answering sentences **verbatim** — or to reply
+`"No related clause."` if the contract has none. 4,182 questions over 102 real contracts, from
+the [CUAD](https://huggingface.co/datasets/theatticusproject/cuad-qa) test split.
+
+Grading is string containment: every gold sentence must appear in the reply, with **no partial
+credit**. No judge, no grading tokens — like MedXpertQA, what you pay for is answer generation.
+
+**Two things to know before reading a score.**
+
+- **70.3% of rows have no clause.** A model that always says "No related clause." is right on
+  every one of them and scores ~70% *accuracy* while answering nothing. That is why the headline
+  score here is **F1**, not accuracy — F1 scores that model 0.
+- **The score is not a mean of case scores.** F1 comes from a confusion matrix built across the
+  whole run, so a 5-case rehearsal produces a number that is real but extremely coarse."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
+
+```bash
+screamingface prepare contracteval  # first run only: download pinned Benchmark assets
+screamingface up                    # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status
+```
+
+Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
+Stack management stays outside the notebook so **Run All** never starts or stops local
+services."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Run a few cases with one model
+
+Contracts are long — the median case is about 5,400 input tokens and the largest is ~63,000 — so
+`limit` matters more here than on most boards. The answer itself is short: a few quoted
+sentences, or the refusal string."""),
+        nbformat.v4.new_code_cell("""\
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright — OpenRouter answers `openai/gpt-5.5` with a 404 for ANY temperature value, and
+# `anthropic/claude-opus-4.8` with a 400 — while `gemini-3.1-pro-preview` and
+# `qwen/qwen3.7-flash` accept it. The reference harness calls at temperature 0; omitting it
+# leaves each provider on its own default, which is the only setting that works across a
+# mixed panel. Add `"temperature": 0.0` back for a model you know accepts it.
+PARAMS = {"max_tokens": 4096}
+
+solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+report = sf.evaluate(solo, benchmark="contracteval", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+### Reading the metrics
+
+`score` is F1. Beside it the board reports the whole confusion matrix, so you can see *which*
+mistake a model is making rather than only how often:
+
+- **`false_no_related_clause_rate`** — the paper calls this *laziness*: how often the model
+  claimed no clause exists when one did. This is the refusal lever, and it is the number that
+  separates a cautious model from a knowledgeable one.
+- **`recall`** vs **`precision`** — low recall means it misses real clauses; low precision means
+  it answers when it should have abstained.
+- **`jaccard_mean`** — token overlap on the rows that *do* have a clause, so a model that found
+  roughly the right passage but not exactly scores above one that was nowhere near."""),
+        nbformat.v4.new_code_cell("""\
+candidate = report.candidates.only
+print("score (F1):", candidate.score)
+for key, value in candidate.metrics.items():
+    print(f"  {key:32s} {value}")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Compare a Fusion against the same model
+
+The board takes no view on whether a fusion should win. Worth knowing what the mechanism has to
+work with: unlike an MCQ, the answer here is *text a member either quoted or did not*, so a
+synthesiser has something real to reconcile. It also has a way to lose — a synthesiser that
+paraphrases its members instead of copying their quotes scores zero on rows they got right."""),
+        nbformat.v4.new_code_cell("""\
+SYNTHESIS_PROMPT = (
+    "You are given several assistants' attempts to extract the clause sentences answering a "
+    "question about a contract. Choose the sentences best supported by the contract text. "
+    "Reproduce them EXACTLY as they appear — never paraphrase, reword, or summarise. If none "
+    'of the attempts identifies a genuinely relevant clause, reply "No related clause."'
+)
+
+member1 = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARAMS)
+synth = sf.Model(
+    model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
+)
+panel = sf.Fusion(name="contract_panel", members=[member1, member2], synthesizer=synth)
+
+fusion_report = sf.evaluate(panel, benchmark="contracteval", limit=5)
+fusion_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Read the per-case outcomes
+
+Each case is one bit: every gold sentence was quoted, or it was not. The check row records
+whether the model abstained and how many gold sentences the case had, so a wrong answer can be
+inspected rather than just counted."""),
+        nbformat.v4.new_code_cell("""\
+for case in fusion_report.candidates.only.cases:
+    grade = case.grade
+    metrics = grade.metrics if grade else {}
+    print(
+        case.case_id,
+        case.status,
+        grade.score if grade else None,
+        "positive" if metrics.get("is_positive") else "negative",
+        "abstained" if metrics.get("abstained") else "answered",
+    )"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking — and on this board it is coarser than most,
+because F1 over five cases is built from a handful of confusion-matrix cells. With 70% of rows
+negative, a small sample can easily contain no positive case at all, which makes precision and
+recall undefined and the score 0. Run the full set before quoting any comparison.
+
+**Know what the full set costs before you start it.** Contracts are long: the median case is
+about 5,400 input tokens, so one pass over all 4,182 rows is roughly **23M input tokens per
+panel member** — multiply by your members, and again by the synthesiser if it sees their
+answers. There is no spend cap in this stack, so `limit` is the only brake. Raise it in steps
+and read the cost in `report.usage` as you go."""),
+    )
+
+
 def _corrective_loops() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell("""\
@@ -1300,7 +1680,8 @@ Every installed Benchmark advertises whether its check surface is free or paid:
         nbformat.v4.new_markdown_cell("""\
 ## Before running
 
-From a terminal:
+Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
+below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
 screamingface prepare --all  # first run only: download all three Benchmark assets

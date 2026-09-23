@@ -1,8 +1,194 @@
-# Bless recipes only: e2e replay fixtures (OME-964 dump path, OME-978 report path).
-# The local dev stack is `screamingface up` (OME-1001) — never a justfile concern again.
+# Bless recipes (e2e replay fixtures) + the one-command notebook stack.
+#
+# The local dev stack is `screamingface up` (OME-1001): the `notebooks` recipe SHELLS
+# that CLI rather than assembling a stack of its own, so devs keep running the exact
+# code path users run. It adds one thing the CLI cannot: a second Engine carrying the
+# `inspect` extra, because `inspect-ai` and the runtime extra's `litellm` pin are
+# declared uncoinstallable — the imported boards can only be served from their own env.
 
-default:
-    @just --list
+set default-list := true
+
+# One blesser, four flag shapes — the path moves in a single place.
+blesser := "uv run python tests/e2e/fixtures/slice_snapshot.py"
+
+# Where each benchmark's downloaded dataset is written — resolved the SAME way the blesser
+# resolves it (`tests/e2e/fixtures/slice_snapshot.py`: SCREAMINGFACE_E2E_ASSETS, else
+# `default_data_dir()/benchmark-assets`, which SCREAMINGFACE_DATA_DIR moves).
+#
+# NOT URL4_BENCHMARK_ASSETS: that is what the Engine PROCESS is handed so it can find the
+# assets, an output of this file rather than an input. Keying the precondition on it was
+# wrong in both directions — a dev who had moved SCREAMINGFACE_DATA_DIR and run
+# `screamingface prepare --all` got told to run the command they had just run, and a stale
+# value in the shell let the precondition pass while the blesser died deep inside, which is
+# the half-written-fixtures failure the precondition exists to prevent.
+data_dir := env("SCREAMINGFACE_DATA_DIR", home_directory() / ".screamingface")
+assets := env("SCREAMINGFACE_E2E_ASSETS", data_dir / "benchmark-assets")
+
+# source_directory(), NOT justfile_directory(): reached through the root justfile's `mod`,
+# the latter resolves to the REPO ROOT and every relative path below lands two levels too high.
+engine_dir := source_directory() / ".." / ".." / "apps" / "screamingface-engine"
+# Not 9108: `screamingface up` owns that one, and this Engine runs beside it. Overridable
+# because two worktrees running this recipe at once would otherwise contend for one port —
+# which this repo expects, since sessions run concurrently against one clone.
+engine_port := env("SCREAMINGFACE_NOTEBOOK_ENGINE_PORT", "9111")
+
+# Every bless recipe's preconditions, checked BEFORE its body — a run that discovers a
+# missing docker or unprepared assets deep inside Python may already have written partial
+# fixtures. A dependency rather than a top-level variable because `require()` and `error()`
+# both evaluate eagerly there, which would abort `local-stack-notebooks` too (it needs
+# neither, and prepares its own datasets).
+[private]
+_bless-preconditions:
+    @echo "docker: {{ require('docker') }}"
+    @echo "assets: {{ if path_exists(assets) == 'true' { assets } else { error('no benchmark assets at ' + assets + ' — run `uv run screamingface prepare --all`') } }}"
+
+# Open EVERY example notebook against a stack serving both board families: ours
+# (7 boards, origin=screamingface) and imported (10 inspect_evals boards). Downloads each
+# benchmark's dataset on first run — network, minutes — then reuses it forever.
+#
+# Layout: `screamingface up` brings the Gateway (:9105) and Scoreboard (:9106); the
+# Engine started here serves ALL 17 boards on :9111 and reaches that same Gateway, so
+# the stack's own Engine simply goes unused.
+#
+# Shutting down: quit JupyterLab (Ctrl-C in this terminal, or File > Shut Down) and the
+# recipe tears down what it started. The Engine it launched always goes; the stack goes
+# only if this recipe was what started it — a stack you already had running is left alone,
+# because tearing down someone else's is not this recipe's business. Stop that one yourself
+# with `screamingface down` when you are finished with it.
+[doc("Open every example notebook against a stack serving ours AND imported boards")]
+local-stack-notebooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    UV="{{ require('uv') }}"
+    # require() so a missing binary aborts loudly. Bare `lsof` was worse than useless:
+    # its "not found" went to the same /dev/null as a clean result, so on a box without
+    # it the port guard below silently never fired.
+    LSOF="{{ require('lsof') }}"
+    CURL="{{ require('curl') }}"
+
+    # Each benchmark's dataset is downloaded once and written to disk as fixed files (the
+    # repo calls this baking); a run afterwards only reads them. That is slow and it is
+    # exactly what a half-finished attempt must not repeat, so this resumes one benchmark
+    # at a time. Every preparer writes `cases.json` LAST, so a directory containing it is
+    # finished; a directory with anything else is wreckage from a run that died mid-write,
+    # which the preparer would refuse to write over. Ask the Engine which exist, clear
+    # only the unfinished directories, and redo exactly those. Nothing complete is fetched
+    # twice, and nothing usable is deleted (without cases.json a benchmark cannot be served).
+    #
+    # `benchmarks` is the Engine's preparer extra — `inspect` (the imported boards' own
+    # scorers, plus the pinned `datasets`) plus the pdfplumber/python-docx readers that
+    # flatten GDPval's reference PDFs into text. It is the SAME extra Dockerfile.benchmark
+    # syncs, so a notebook reads data built exactly the way production builds it.
+    ( cd "{{ engine_dir }}" && "$UV" sync --extra benchmarks )
+
+    # A bundle counts as finished only when its cases.json PARSES. Existence alone is not
+    # enough: the preparers write that file non-atomically, so a run killed mid-write (or a
+    # full disk) leaves a truncated, unparseable file that `-f` would happily call complete
+    # — and the bundle would then be skipped forever while the Engine could never serve it.
+    # Reading it is cheap next to re-downloading a dataset by mistake.
+    missing=()
+    while read -r bundle; do
+        if "$UV" run python -c "import json,sys;json.load(open(sys.argv[1]))" \
+            "{{ assets }}/$bundle/cases.json" >/dev/null 2>&1; then
+            continue
+        fi
+        # Unfinished or corrupt: clear the debris so the preparer sees a clean directory.
+        # Nothing usable is lost — a bundle whose cases.json will not parse cannot be served.
+        rm -rf "{{ assets }}/${bundle:?}"
+        missing+=("--bundle" "$bundle")
+    done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "==> downloading $((${#missing[@]} / 2)) benchmark dataset(s) into {{ assets }} — slow, once"
+        ( cd "{{ engine_dir }}" \
+            && "$UV" run python -m screamingface_engine.benchmarks.prepare \
+                --root "{{ assets }}" "${missing[@]}" )
+    fi
+
+    # Refuse the port BEFORE starting anything. `screamingface up` guards its own three and
+    # says so plainly; this one had nothing, and the two ways it goes wrong are both silent.
+    # A listener on the same address makes uvicorn exit with EADDRINUSE, which downstream
+    # looks like a missing dependency. A listener on the OTHER address family (IPv6 `*` vs
+    # our IPv4 127.0.0.1) does not collide at all: both bind, and which one answers is luck.
+    if "$LSOF" -nP -iTCP:{{ engine_port }} -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "error: port {{ engine_port }} is already in use, so the Engine cannot start there." >&2
+        echo "  Another worktree running this recipe is the usual cause. Either stop it, or" >&2
+        echo "  pick a free port: SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=9121 just …" >&2
+        exit 1
+    fi
+
+    # Note whether a stack was ALREADY up, so the trap tears down only what this recipe
+    # started — quitting a notebook must not kill a gateway someone started for other work.
+    stack_was_running=false
+    if "$UV" run --extra runtime screamingface status --json 2>/dev/null \
+        | grep -q '"status":"running"'; then
+        stack_was_running=true
+    fi
+
+    # `up` runs EITHER WAY, including over a stack that is already running. Skipping it then
+    # looked harmless — it prints "already running" and returns — but `up` is where
+    # `_ensure_adoptable` lives, the check that refuses to adopt a stack belonging to a
+    # DIFFERENT checkout (OME-1001). `status` reports ownership and health; it does not
+    # enforce them, so the shortcut silently ran notebooks against another branch's services.
+    # --extra runtime: the stack's servers live in that optional extra, and the default
+    # project env (notebook + dev only) cannot boot them.
+    echo "==> checking the Gateway and Scoreboard (screamingface up)"
+    "$UV" run --extra runtime screamingface up
+
+    echo "==> starting an inspect-capable Engine on :{{ engine_port }}"
+    ( cd "{{ engine_dir }}" \
+        && URL4_BENCHMARK_ASSETS="{{ assets }}" exec "$UV" run uvicorn \
+            --factory screamingface_engine.local:create_local_app \
+            --host 127.0.0.1 --port {{ engine_port }} ) &
+    engine_pid=$!
+    # Runs on any exit, including the Ctrl-C that ends Jupyter. Killing the `uv run` wrapper
+    # takes uvicorn with it (verified), so the port is released.
+    trap 'kill "$engine_pid" 2>/dev/null || true; \
+          [ "$stack_was_running" = true ] || "$UV" run --extra runtime screamingface down || true' EXIT
+
+    ready=false
+    for _ in $(seq 60); do
+        if "$CURL" -fsS --max-time 2 "http://127.0.0.1:{{ engine_port }}/v1/benchmarks" \
+            >/dev/null 2>&1; then
+            ready=true
+            break
+        fi
+        if ! kill -0 "$engine_pid" 2>/dev/null; then
+            echo "error: the Engine exited before it served anything." >&2
+            echo "  Run the uvicorn command above by hand to see why." >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    # WHY an explicit failure: without it the loop simply ran out and fell through, opening
+    # Jupyter against an Engine that never answered.
+    if [ "$ready" != true ]; then
+        echo "error: the Engine is still not answering on :{{ engine_port }} after 60s." >&2
+        exit 1
+    fi
+
+    # Explicit URL beats local-stack adoption (OME-998), so the kernel reaches THIS Engine.
+    #
+    # The Scoreboard has to be named too, and for a reason easy to miss: the SDK adopts the
+    # local stack ONLY when no engine URL is set, so naming the Engine turns that adoption
+    # off for BOTH services and the Scoreboard silently falls back to the hosted leaderboard.
+    # `sf.leaderboards.submit(...)` from a notebook would then publish to the deployment
+    # instead of the Scoreboard this recipe just started — the "local engine + hosted
+    # leaderboard" hybrid `_default_client` warns about in its own comment. Read from
+    # `status` rather than assuming 9106, so a port override still lands.
+    export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:{{ engine_port }}"
+    export SCREAMINGFACE_SCOREBOARD_URL="$(
+        "$UV" run --extra runtime screamingface status --json \
+            | "$UV" run python -c "import json,sys;print(json.load(sys.stdin)['services']['scoreboard']['url'])"
+    )"
+    echo "==> Engine ready at $SCREAMINGFACE_ENGINE_URL"
+    echo "==> Scoreboard at $SCREAMINGFACE_SCOREBOARD_URL — opening the examples"
+    # --extra inspect: `report.export(format="inspect")` writes a .eval log through inspect-ai,
+    # so the kernel needs it importable. This is the SDK's exporter extra, NOT the Engine's
+    # `benchmarks` extra (a different project) — the kernel writes a log, it never bakes assets.
+    # Safe here precisely because this line does NOT ask for `runtime`: the stack's servers are
+    # what conflict with inspect-ai, and they were started above in their own uv invocation.
+    "$UV" run --extra inspect jupyter lab examples/
 
 # Bless one board's e2e replay fixtures from the owner-held recordings (OME-964):
 # capture → re-key → verified replay → slice → snapshot + manifest + golden under
@@ -13,8 +199,9 @@ default:
 # Example:
 #   just e2e-bless draco-3pass openrouter/google/gemini-3-flash-preview \
 #       <cache-dump.sql.gz> <eval_results.eval.jsonl>
-e2e-bless board model dump answers *flags:
-    uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} --model {{model}} \
+[doc("Bless one board's e2e fixtures from an owner-held recording (dump + answers)")]
+e2e-bless board model dump answers *flags: _bless-preconditions
+    {{ blesser }} --board {{board}} --model {{model}} \
         --dump {{dump}} --answers {{answers}} {{flags}}
 
 # Bless a FUSION board's e2e replay fixtures from the saved SDK report alone
@@ -23,8 +210,9 @@ e2e-bless board model dump answers *flags:
 # The replay must reproduce the report's score/coverage/statuses exactly.
 # Example:
 #   just e2e-bless-report healthbench-worst30 <report.json>
-e2e-bless-report board report *flags:
-    uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} \
+[doc("Bless a FUSION board's e2e fixtures from its saved SDK report alone")]
+e2e-bless-report board report *flags: _bless-preconditions
+    {{ blesser }} --board {{board}} \
         --report {{report}} {{flags}}
 
 # Bless from a FRESH cache dump (OME-1098) — one recorded through THIS checkout's
@@ -34,8 +222,9 @@ e2e-bless-report board report *flags:
 # the replay must reproduce the report's score/coverage/statuses AND rendered
 # expression exactly. Example:
 #   just e2e-bless-fresh ifeval <cache-dump.sql.gz> <report.json> <candidate.json> --limit 50
-e2e-bless-fresh board dump report candidate *flags:
-    uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} --dump-fresh \
+[doc("Bless from a FRESH cache dump recorded through this checkout's gateway")]
+e2e-bless-fresh board dump report candidate *flags: _bless-preconditions
+    {{ blesser }} --board {{board}} --dump-fresh \
         --dump {{dump}} --report {{report}} --candidate {{candidate}} {{flags}}
 
 # Re-author one board's golden from its COMMITTED snapshot (OME-1094) — no
@@ -44,6 +233,12 @@ e2e-bless-fresh board dump report candidate *flags:
 # score differ from the committed file (a refresh may only ADD failure codes).
 # Needs docker and prepared benchmark assets. Example:
 #   just e2e-refresh-golden healthbench-worst30
-e2e-refresh-golden board *flags:
-    uv run python tests/e2e/fixtures/slice_snapshot.py --board {{board}} \
+#
+# Confirmed because it rewrites a COMMITTED golden in place, and a golden is a
+# byte-exact promise: a mistyped board name would otherwise silently rewrite one.
+# Without a TTY it refuses rather than hanging, so CI fails closed.
+[confirm("Rewrite the committed golden for this board in place? [y/N]")]
+[doc("Re-author one board's golden from its COMMITTED snapshot (rewrites it in place)")]
+e2e-refresh-golden board *flags: _bless-preconditions
+    {{ blesser }} --board {{board}} \
         --refresh-golden {{flags}}
