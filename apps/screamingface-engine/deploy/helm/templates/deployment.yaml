@@ -13,7 +13,12 @@ spec:
     metadata:
       labels:
         {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
+        {{/* FX-93: OMIT the chart-owned keys, as `deployment-node.yaml` does. Rendering them
+        AFTER `podLabels` stops an override from winning, but the operator's own copy is still
+        written first — a duplicate mapping key that a strict parser refuses and a lenient one
+        resolves either way. `name`/`instance` come from `selectorLabels` above; `component` is
+        rendered below. */}}
+        {{- with (omit .Values.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component") }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # FEATURE (unit 3, AC5): the node tier's NetworkPolicy admits ONLY these pods, and it
@@ -22,8 +27,9 @@ spec:
         # that distinguishes the App from the node and the runner pool, so the policy's peer can
         # name exactly it.
         #
-        # INVARIANT: CHART-OWNED and deliberately rendered AFTER `podLabels`, so an operator's
-        # label set cannot override it. The aigateway chart lost an outage to exactly this:
+        # INVARIANT: CHART-OWNED. The `omit` above removes an operator's copy from `podLabels`,
+        # so there is no duplicate key, and this line renders after it, so it cannot be
+        # overridden. The aigateway chart lost an outage to exactly this:
         # a platform's `podLabels` rendered later, changed `component`, and emptied a Service
         # selector. Here the consequence would be the node refusing the App's traffic — lockout
         # rather than a zero-endpoint Service. Adding a POD label is safe: `spec.selector`
