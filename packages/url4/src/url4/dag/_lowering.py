@@ -283,11 +283,11 @@ def _lower_expression(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     )
 
 
-_ROW_NAMES = frozenset({"item", "current"})
-"""The reserved per-row names (§5.3.4) — never wired from an enclosing binding.
+_ROW_NAMES = frozenset({"item", "current", "index"})
+"""Reserved per-row names, including the SDK index extension.
 
-Mirrors the exclusion `_refs_of_ast` already applies when collecting AST references, so the
-text path and the AST path agree on which names an iteration rebinds for itself.
+Both text and AST iteration bodies exclude these from enclosing dependency capture.
+Ordinary AST references still retain `index`, which is only reserved inside iteration.
 """
 
 
@@ -326,8 +326,8 @@ def _body_intent_refs(body: str, intent: str | None) -> set[str]:
 def _body_ref_edges(body: str, intent: str | None, edges: Edges) -> dict[str, DagNode]:
     """Reference edges for the `$name`s an iteration's body and per-row intent mention.
 
-    INVARIANT: ``item`` and ``current`` are excluded. They are the RESERVED row names (§5.3.4),
-    rebound per row by :class:`~url4.dag.nodes.MapNode`; wiring one to an enclosing binding of
+    INVARIANT: ``item``, ``current`` and ``index`` are reserved row names, excluded here.
+    They are rebound by :class:`~url4.dag.nodes.MapNode`; wiring one to an enclosing binding of
     the same name would let an outer value capture the row and silently iterate the wrong data.
 
     An edge is added only for a name the enclosing group actually declares, so a body that
@@ -659,7 +659,8 @@ def _refs_of_ast(node: Node) -> set[str]:
             refs |= _body_intent_refs(descendant.body, descendant.intent)
         elif isinstance(descendant, StructObject):
             refs |= find_references(descendant.raw)
-        elif isinstance(descendant, VarRef) and descendant.name not in _ROW_NAMES:
+        # Unlike row-body capture, ordinary references retain named index dependencies.
+        elif isinstance(descendant, VarRef) and descendant.name not in {"item", "current"}:
             refs.add(descendant.name)
     return refs
 

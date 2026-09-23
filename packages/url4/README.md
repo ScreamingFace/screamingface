@@ -62,6 +62,25 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
   tests/offline, HTTP for real fetches), keeping the core pure and deterministic.
 - **Fully typed**: passes `pyright`; type hints ship to consumers.
 
+## Iteration position
+
+Inside `collection*(...)`, `$item` is the current value and `$index` is its zero-based
+position **after** `iteration.slice` is applied. For example, a handler can receive both:
+
+```text
+/rows*(result:0.0:/process($item)!'Process row $index')!'$result'
+```
+
+The index is assigned before concurrent execution. Retries keep it, and skipped failures
+do not renumber later rows. A nested iteration has its own index; capture the outer value
+in another binding (for example, `outer:0.0:$index`) before entering it.
+
+`$index` is reserved inside an iteration, including its intent, and takes precedence over
+an author binding named `index`. Outside an iteration, `index` remains an ordinary binding.
+This is an SDK language extension: existing expressions that use their own `index` inside
+iterations must rename that binding. The index interpolates as decimal text, like other
+references; it does not introduce arithmetic or a collection-count variable.
+
 ## The `url4` CLI: serve a node
 
 A url4 expression *is* the address. `(/upper(hello)!'go')` names a route, a context, and an
