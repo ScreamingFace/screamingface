@@ -56,18 +56,24 @@ from screamingface_engine.request_scope import (
     request_scope_from_headers,
     trace_from_headers,
 )
-from screamingface_engine.rest.forwarder import forwarded_headers
+from screamingface_engine.rest.forwarder import derive_forward_contract, forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
 from screamingface_engine.trace_scope import run_trace_scope
+from screamingface_engine.world.config import load_config
 from screamingface_engine.world.serving import (
     NodeMountRoute,
     compose_serving_world,
     engine_route_paths,
     install_node_route,
     node_eval_path,
-    node_mount_paths,
 )
-from screamingface_engine.world.wire import AsgiReceive, AsgiScope, AsgiSend, send_url4_error
+from screamingface_engine.world.wire import (
+    MALFORMED_HEADER,
+    AsgiReceive,
+    AsgiScope,
+    AsgiSend,
+    send_url4_error,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -238,8 +244,9 @@ class _LocalNodeMount:
         except AnswerSeedError as exc:
             # A declared sitting must not silently run without its seed (OME-1038). The node tier
             # maps this to 400 before dispatch; local mode calls the same producer itself, so it
-            # owns the same mapping rather than letting a malformed seed escape as a 500.
-            await send_url4_error(send, 400, "malformed_source", str(exc))
+            # owns the same mapping — the same shared code, ``MALFORMED_HEADER`` (item 3, B6
+            # review) — rather than letting a malformed seed escape as a 500.
+            await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
             return
         cleaned = forwarded_headers(
             (
@@ -296,23 +303,54 @@ def _install_local_node(
 
     async def _build_shared_node() -> None:
         """Compose the ONE world both surfaces use, guarded against the App's real route table."""
+        # AIDEV-NOTE (item 1, B6 review): parsed here, ONCE, rather than left for
+        # `compose_serving_world`/`build_world` to parse internally, so `holder["section"]` and
+        # the world it builds are the SAME read. A run on the shared node then logs from
+        # `holder["section"]` (see `runner.main._model_section`) instead of re-reading
+        # `url4.toml` — a file broken or changed after startup must not fail or misreport a run
+        # that never needed to read it again.
+        resolved_config = load_config(run_env, include_extra_models=True)
         world, aclose = await compose_serving_world(
             env=run_env,
+            config=resolved_config,
             # F4/D3: run the collision guard against the routes the mount actually joins, so a
             # declared mount shadowed by an engine literal fails startup instead of vanishing.
             engine_routes=engine_route_paths(app),
             benchmarks=benchmarks,
         )
         holder["io"] = world
+        holder["section"] = resolved_config.aigateway
         holder["aclose"] = aclose
         asgi = getattr(world, "asgi", None)
         holder["asgi"] = asgi() if callable(asgi) else None
         # No node means no mounts and no eval path: every path is then the engine's.
-        holder["paths"] = (
-            node_mount_paths(world) | {node_eval_path(world)}
-            if holder["asgi"] is not None
-            else frozenset()
-        )
+        if holder["asgi"] is not None:
+            # item 2 (B6 review): the direct-mount route set must equal the DEPLOYED shape's —
+            # model + data mounts, WITHOUT benchmark/candidate/corrective/judge endpoints —
+            # derived the SAME way `rest.forwarder.derive_forward_contract` derives it for the
+            # App forwarder: a second world, built from the SAME config but with NO benchmarks
+            # installed, whose mount set is read and then closed. `holder["io"]` (above) is the
+            # ONE node that actually serves every request, benchmarks included.
+            #
+            # WHY: a connector applies the run's X-Answer-Seed to every model call it makes.
+            # Inside a candidate invocation that is correct (the candidate call and its
+            # downstream model calls share the seed); a JUDGE call a benchmark endpoint issues
+            # OUTSIDE a candidate invocation must NOT be seeded. A direct loopback hit on a judge
+            # endpoint has no candidate invocation around it, so excluding benchmark endpoints
+            # from the direct-mount set is what keeps a judge call unseeded here, as it is on the
+            # deployed shape (which never mounts them at all).
+            contract = await derive_forward_contract(
+                env=run_env, engine_routes=engine_route_paths(app), config=resolved_config
+            )
+            # AIDEV-NOTE: the eval path stays IN the direct-mount set, and the actual node
+            # (`holder["io"]`) still has the benchmark endpoints installed — so an expression
+            # evaluated through `{eval_path}?q=` can still address `/benchmarks/candidate` and
+            # friends. Only a DIRECT external hit on a benchmark URL is excluded above. This is
+            # the dev shape (C8, loopback only); it does not need to match the deployed shape,
+            # which has no eval-path caller to protect from itself.
+            holder["paths"] = contract.mount_paths | {node_eval_path(world)}
+        else:
+            holder["paths"] = frozenset()
         app.state.node_world = world
 
     async def _close_shared_node() -> None:
@@ -389,6 +427,9 @@ def create_local_app(
             observers=observers,
             # Read AT RUN TIME so the shared node exists by the time a run is scheduled.
             io_provider=lambda: holder.get("io"),
+            # item 1 (B6 review): the `[aigateway]` section the shared node was built from, so
+            # a run's world line reads it back instead of re-parsing `url4.toml`.
+            io_config_provider=lambda: holder.get("section"),
         ),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,

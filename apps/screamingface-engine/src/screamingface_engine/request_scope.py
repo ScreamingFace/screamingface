@@ -105,6 +105,13 @@ class RequestScope:
         # WHY `object.__setattr__`: the dataclass is frozen, so this is its one sanctioned write.
         object.__setattr__(self, "identity_headers", MappingProxyType(dict(self.identity_headers)))
         object.__setattr__(self, "cache", self.cache.model_copy())
+        # AIDEV-NOTE (item 6, B6 review): `cache` is a COPY, but still a MUTABLE pydantic model —
+        # `model_copy()` is shallow, not frozen. It is shared by every model call the run's
+        # fan-out makes (one `RequestScope` instance, read by every concurrent call under it), so
+        # never mutate it in place; treat it as read-only and build a new `CachePolicy` instead.
+        # Also: `copy.deepcopy(RequestScope)` is UNSUPPORTED — `identity_headers` is a
+        # `MappingProxyType`, which `copy.deepcopy` cannot pickle/copy, so a caller reaching for
+        # a defensive deep copy of the whole scope raises instead of protecting anything.
 
 
 # INVARIANT: NO default. A permissive default would let an unbound read silently produce an
@@ -168,6 +175,12 @@ def trace_from_headers(headers: Mapping[str, str]) -> TraceContext | None:
 
     WHY the flags are not kept: `trace_scope` renders the bound trace with url4's own
     `format_traceparent`, the same rendering the run path has always sent.
+
+    # WHY: this deliberately re-emits the trace with the sampled flag `01`, whatever the
+    # inbound flag was — an inbound `...-00` traceparent comes back out `...-01`, same trace id.
+    # `format_traceparent` always writes `01` (`lifecycle.run` / the run path never carried a
+    # flag either), so the sync surface and the ensemble path agree on one rendering rather than
+    # the sync surface forwarding a caller's unsampled flag downstream.
     """
     valid = valid_traceparent(_optional(headers.get(TRACEPARENT_HEADER)))
     if valid is None:

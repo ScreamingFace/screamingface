@@ -363,10 +363,17 @@ def _reject_disallowed_read_side_providers(
         return
     named = [f"{label} ({kind!r})" for label, kind in offenders]
     allowed = " or ".join(repr(kind) for kind in ALLOWED_PROVIDER_KINDS)
-    raise WorldConfigError(
+    message = (
         f"{named} do not use an allowed provider kind — only {allowed} providers may be "
-        "declared on the node tier; a command-backed provider is an exec mount with no sandbox"
+        "declared on the node tier"
     )
+    # item 7 (B6 review): the exec-mount sentence is true of a `command` offender, not of an
+    # `unknown` one (no source declared at all) — appending it unconditionally mislabelled an
+    # `unknown` offender as an exec mount, contradicting `_provider_kind`'s own contract that a
+    # sourceless spec is refused under its own name, never as a command.
+    if any(kind == "command" for _label, kind in offenders):
+        message += "; a command-backed provider is an exec mount with no sandbox"
+    raise WorldConfigError(message)
 
 
 DEFAULT_EVAL_PATH = "/v1"

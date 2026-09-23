@@ -27,6 +27,7 @@ from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.config import WorldConfig, parse_config
 from screamingface_engine.world.factory import build_world
 from screamingface_engine.world.models.registry import EMPTY_MODEL_WORLD
+from url4.streaming.interfaces import Completed
 
 pytestmark = pytest.mark.asyncio
 
@@ -143,3 +144,36 @@ async def test_each_local_run_on_the_shared_node_writes_its_own_line(
     lines = [r.getMessage() for r in _world_lines(caplog)]
     assert [line.split()[2] for line in lines] == ["topic=t-a", "topic=t-b"], lines
     assert all(r.name == _RUN_LOGGER for r in _world_lines(caplog))
+
+
+async def test_a_run_on_the_shared_node_survives_the_config_file_breaking_after_startup(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A run on the shared node must not re-read `url4.toml` for its world line (item 1).
+
+    Startup resolves the config once, to build the shared node. A run that follows must not
+    read the file again just to log — a file broken or changed after startup would otherwise
+    fail every later run, or log a shape that no longer matches what the node actually serves.
+    """
+    config = tmp_path / "url4.toml"
+    config.write_text(
+        '[aigateway]\nbase_url = "http://aigateway.test"\n'
+        'default_route = "/anthropic/claude-haiku-4-5"\n'
+    )
+    app = create_local_app(Settings(jwt_secret="s" * 32), env={job_env.RUNNER_CONFIG: str(config)})
+
+    with caplog.at_level(logging.INFO):
+        async with app.router.lifespan_context(app):
+            runner = app.state.job_runner
+            runner._extra_models = lambda: []  # noqa: SLF001 - no catalog dial
+            config.write_text("this is not valid toml [[[")
+            env = runner._env("t-broken", "'hello'", 60, None, None)  # noqa: SLF001
+            executor = runner._factory(env)  # noqa: SLF001
+            steps = [step async for step in executor.execute("'hello'")]
+
+    assert isinstance(steps[-1], Completed)
+    (record,) = _world_lines(caplog)
+    assert record.getMessage() == (
+        "runner world topic=t-broken models=117 default_model=anthropic/claude-haiku-4-5 "
+        "web_tools=disabled cache=not-stated outbound=allowed"
+    )

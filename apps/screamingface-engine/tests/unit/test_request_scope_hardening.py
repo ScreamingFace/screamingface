@@ -100,6 +100,27 @@ def test_the_sync_trace_producer_is_as_strict_as_valid_traceparent() -> None:
     assert trace_from_headers({"traceparent": "not-a-traceparent"}) is None
 
 
+def test_the_sync_path_re_emits_the_trace_sampled() -> None:
+    """An inbound unsampled traceparent (`-00`) goes out sampled (`-01`), same trace id (item 4).
+
+    `format_traceparent` always writes `01` — the same rendering `lifecycle.run` / the ensemble
+    path has always sent — so the sync surface must not forward a caller's `-00` downstream.
+    """
+    from screamingface_engine.request_scope import trace_from_headers
+    from screamingface_engine.trace_scope import current_traceparent, run_trace_scope
+
+    trace_id = "a" * 32
+    span_id = "b" * 16
+    inbound = f"00-{trace_id}-{span_id}-00"
+
+    trace = trace_from_headers({"traceparent": inbound})
+    assert trace is not None
+    with run_trace_scope(trace):
+        outbound = current_traceparent()
+
+    assert outbound == f"00-{trace_id}-{span_id}-01"
+
+
 # --- FX-60: no scope value survives a call on any long-lived object ----------------------------
 
 # INVARIANT: the handler's slots are WORLD-level only — the aigateway client and config, the route
@@ -126,6 +147,13 @@ _OPAQUE = (
     types.BuiltinFunctionType,
     float,
     type(None),
+    # item 8 (B6 review): widening the module set to every `screamingface_engine.*` module
+    # (not only `world*`) put CLASS objects in a module's globals within reach for the first
+    # time — e.g. a Pydantic `BaseModel` subclass, or `BaseModel` itself, imported by name at
+    # module scope elsewhere in the package. A class is shared code, never per-request state,
+    # and walking one's attributes can trigger a descriptor that only behaves on an INSTANCE
+    # (Pydantic's `__pydantic_validator__` raises `PydanticUserError` when read off the class).
+    type,
 )
 
 
@@ -185,6 +213,24 @@ def _attributes(path: str, value: object) -> list[tuple[str, object]]:
     return found
 
 
+def _engine_modules() -> list[tuple[str, object]]:
+    """Every loaded ``screamingface_engine.*`` module (item 8, B6 review).
+
+    WHY every module and not only ``world*`` (U1-H1's original scope): a scope value can leak
+    into ANY module's globals a request touches, not only the world package's — the original
+    scan would miss a leak into, say, ``job_env`` or ``logs`` entirely. No module here is
+    excluded as "a cache of constants" today: `job_env` holds Job env variable NAMES and pure
+    readers, and every other engine module is either stateless or already covered by the
+    handler/world roots. A module that legitimately needs to cache a resolved value would earn
+    a documented skip here, not a silent one.
+    """
+    return [
+        (name, module)
+        for name, module in sorted(sys.modules.items())
+        if name == "screamingface_engine" or name.startswith("screamingface_engine.")
+    ]
+
+
 def test_the_model_handlers_slots_are_exactly_the_world_level_allowlist() -> None:
     assert frozenset(_ModelEndpoint.__slots__) == _HANDLER_SLOTS
     assert not hasattr(_ModelEndpoint(**_handler_fields()), "__dict__")
@@ -208,8 +254,6 @@ async def test_no_scope_value_survives_a_call_on_the_handler_the_world_or_module
     Candidate invocation only the sync surface stamps it), then every long-lived object is
     scanned for the sentinels once the call has returned.
     """
-    import screamingface_engine.world.connector as connector_module
-
     gw = _MockAigateway((MODEL,))
     cfg = AigatewayConfig(models=gw.models, default_model=MODEL)
     scope = RequestScope(
@@ -237,13 +281,30 @@ async def test_no_scope_value_survives_a_call_on_the_handler_the_world_or_module
             assert body["cache"] == {"use-cache": False}
 
             handler = cast(Any, world.node)._endpoints[f"/{MODEL}"]
-            modules = [
-                (name, module)
-                for name, module in sorted(sys.modules.items())
-                if name.startswith("screamingface_engine.world") or module is connector_module
-            ]
+            # item 8 (B6 review): every LOADED `screamingface_engine.*` module, not only
+            # `world*` — see `_engine_modules`.
+            modules = _engine_modules()
             roots: list[tuple[str, object]] = [("handler", handler), ("world", world)]
             roots += [(f"{name}.<globals>", vars(module)) for name, module in modules]
             assert _leaks(roots) == []
         finally:
             await world.aclose()
+
+
+def test_the_module_scan_reaches_every_engine_module_not_only_world() -> None:
+    """Pins the scan's own coverage (item 8, B6 review): a leak OUTSIDE `world*` must be caught.
+
+    `job_env` holds only Job env variable names and pure readers, so it would never legitimately
+    hold a request value — a write there is unambiguously a leak, which is exactly why it is the
+    module a mutant plants one in. Confirmed RED against a scan narrowed to `world*` before this
+    fix (the mutant landed outside its scope and the scan reported no leaks).
+    """
+    import screamingface_engine.job_env as job_env_module
+
+    mutant = cast(Any, job_env_module)
+    mutant._LAST = _PROFILE
+    try:
+        roots = [(f"{name}.<globals>", vars(module)) for name, module in _engine_modules()]
+        assert any(path.endswith("['_LAST']") for path in _leaks(roots))
+    finally:
+        del mutant._LAST

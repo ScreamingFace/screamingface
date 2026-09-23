@@ -264,6 +264,7 @@ def _seeded_world(
     env: Mapping[str, str],
     config: WorldConfig | None,
     shared_io: Any,
+    shared_section: AigatewaySection | None,
     build: Callable[[WorldConfig], Awaitable[World]],
 ) -> tuple[Callable[[], Awaitable[World]], Callable[[], RequestScope]]:
     """The run's world factory and its request-scope producer, sharing ONE seed parse.
@@ -283,6 +284,11 @@ def _seeded_world(
 
     ``shared_io`` is local mode's shared world, or ``None`` for a per-run world. A shared world
     comes back with NO teardown: its owner closes it, never a run.
+
+    ``shared_section`` is the ``[aigateway]`` section the shared world was ALREADY built from —
+    local mode's holder captures it once, at startup. A run on the shared node must not re-read
+    ``url4.toml`` a second time just to log; a per-run world (``shared_io is None``) still reads
+    ``resolved()`` for its own config, and ``shared_section`` is unused there.
 
     FEATURE (OME-1069, FX-68): once the world is resolved, the run writes its world line — for
     a per-run world AND for the shared node, so every run says what it ran on, as on `main`.
@@ -308,7 +314,7 @@ def _seeded_world(
     async def world() -> World:
         bound = scope()  # FX-40: refuse a malformed seed before the world is built or run
         built: World = (shared_io, None) if shared_io is not None else await build(resolved())
-        section = _model_section(shared_io, resolved)
+        section = _model_section(shared_io, shared_section, resolved)
         if section is not None:
             _log_world(env, section, bound.cache)
         return built
@@ -316,15 +322,25 @@ def _seeded_world(
     return world, scope
 
 
-def _model_section(shared_io: Any, resolved: Callable[[], WorldConfig]) -> AigatewaySection | None:
+def _model_section(
+    shared_io: Any,
+    shared_section: AigatewaySection | None,
+    resolved: Callable[[], WorldConfig],
+) -> AigatewaySection | None:
     """The run's declared model world, for its world line — or ``None`` when it has none.
 
     WHY the same test the seed uses (`world_reads_answer_seed`): a shared world with no model
     route (the deny-by-default layer, a bare read-side node) is the shape of a run with no
     `[aigateway]` table, which never wrote the line on `main` — so its config is not read.
+
+    WHY ``shared_section`` and not ``resolved()`` on the shared branch: ``resolved()`` re-reads
+    ``url4.toml`` from disk. On the shared node that file was already read once, at startup, to
+    build ``shared_io`` — reading it again per run means a file broken or changed after startup
+    fails or misreports every later run for a line that only logs, never builds, anything. A
+    per-run world (``shared_io is None``) has no such prior read, so it still calls ``resolved()``.
     """
-    if shared_io is not None and not world_reads_answer_seed(shared_io):
-        return None
+    if shared_io is not None:
+        return shared_section if world_reads_answer_seed(shared_io) else None
     return resolved().aigateway
 
 
@@ -374,6 +390,7 @@ def build_executor(
     io_gate: FairShareGate | None = None,
     observers: tuple[ObserverFactory, ...] = (),
     io_provider: Callable[[], Any] | None = None,
+    io_config_provider: Callable[[], AigatewaySection | None] | None = None,
 ) -> OperationCapturingExecutor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -393,6 +410,11 @@ def build_executor(
 
     ``observers`` are per-execution factories supplied by composition. The empty default
     leaves execution without observers; optional telemetry policy belongs to its adapter.
+
+    ``io_config_provider`` is local mode's second half of ``io_provider`` (item 1, B6 review): the
+    ``[aigateway]`` section the shared world was ALREADY built from, so the run's world line does
+    not re-read ``url4.toml``. ``None`` (every non-local caller) leaves the per-run world's own
+    ``resolved()`` read in place, unchanged.
 
     The concrete return type (not the ``Executor`` port) is deliberate: the composition root
     reads the run's process-level summary back off the wrapper after the run (OME-1069), and
@@ -426,11 +448,13 @@ def build_executor(
     # whoever built it, so its factory returns NO teardown — a run must not close a world it does
     # not own.
     shared_io = io_provider() if io_provider is not None else None
+    shared_section = io_config_provider() if io_config_provider is not None else None
     # FEATURE (FX-30, OME-880): a model admitted after the shared node was built is not a route
     # on it. Such a run builds its own per-run world, exactly as before the shared node existed,
     # and that world owns its own teardown.
     if shared_io is not None and not shared_world_serves(shared_io, env):
         shared_io = None
+        shared_section = None
 
     async def _build(resolved: WorldConfig) -> World:
         # FEATURE (F1, prd/01): building the world lives in the shared world package, because
@@ -447,7 +471,7 @@ def build_executor(
             benchmark_assets_root=benchmark_assets_root,
         )
 
-    world_factory, scope_factory = _seeded_world(env, config, shared_io, _build)
+    world_factory, scope_factory = _seeded_world(env, config, shared_io, shared_section, _build)
     return OperationCapturingExecutor(
         Url4Executor(
             world_factory=world_factory,

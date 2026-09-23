@@ -62,6 +62,7 @@ from screamingface_engine.world.node_tier.send import (
 )
 from screamingface_engine.world.node_tier.settings import NodeTierSettings
 from screamingface_engine.world.wire import (
+    MALFORMED_HEADER,
     AsgiApp,
     AsgiReceive,
     AsgiScope,
@@ -86,8 +87,6 @@ _READY_PATH = "/readyz"
 OPS_PATHS = frozenset({*_HEALTH_PATHS, _READY_PATH})
 
 _MISSING_Q_MESSAGE = "this mount requires a `q` query parameter: GET <mount>?q=(context)!intent"
-# Engine-added code (contracts.md C1): a present-but-unusable request header.
-_MALFORMED_HEADER = "malformed_header"
 _DRAINING = "draining"
 # The final codes that mean "the request budget ran out" (§2.2b, the R7 signal): url4's 504 and
 # the connector's deadline-bounded 502.
@@ -264,7 +263,7 @@ class NodeTier:
         except AnswerSeedError as exc:
             # A declared sitting must not silently run without its seed (OME-1038), so this is
             # the sync surface's one 400 that is not url4's dispatch refusing anything (FX-17).
-            await send_url4_error(send, 400, _MALFORMED_HEADER, str(exc))
+            await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
             return
         await self._dispatch(scope, receive, send, bound, trace_from_headers(headers), path)
 

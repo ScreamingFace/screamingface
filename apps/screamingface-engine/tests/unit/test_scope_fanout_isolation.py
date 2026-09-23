@@ -23,6 +23,7 @@ import pytest
 from screamingface_engine import job_env
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.factory import build_world
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.no_default_scope]
 
@@ -111,6 +112,44 @@ async def test_every_fan_out_call_carries_its_own_runs_identity_under_concurrent
     chats = [r for r in gateway.calls if r.url.path == "/v1/chat/completions"]
     # Two branches and one reduce per run. Reaching here means the barrier filled: all four
     # branch calls were in flight together.
+    assert len(chats) == len(_RUNS) * (len(_BRANCHES) + 1), [_user_content(r) for r in chats]
+    for request in chats:
+        run = _run_of(request)
+        assert request.headers["X-User-Email"] == _identity(run), _user_content(request)
+        assert request.headers["X-Profile"] == f"profile-{run}", _user_content(request)
+
+
+async def _run_on_shared(run: str, shared: object) -> None:
+    """Same run body as ``_run``, but on the SHARED world (the local-mode shape, item 9)."""
+    env = {
+        **job_env.identity_to_env({"X-User-Email": _identity(run)}),
+        job_env.AIGATEWAY_PROFILE: f"profile-{run}",
+    }
+    executor = build_executor(env, io_provider=lambda: shared)
+    async for _ in executor.execute(_fan_out(run)):
+        pass
+
+
+async def test_every_fan_out_call_carries_its_own_runs_identity_on_one_shared_world() -> None:
+    """The local-mode shape (C8): ONE handler/world serves BOTH runs' fan-out, concurrently.
+
+    Every other test in this module (and `test_run_path_fixes.py`'s shared-world cases) drives
+    at most one run at a time through a shared world, or two runs through TWO separate worlds.
+    Neither proves the handler stays stateless under concurrent fan-out on the SAME instance —
+    exactly the shape `local.py`'s one node serving every in-process run takes.
+    """
+    gateway = _OverlappingGateway()
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(gateway.handle), base_url="http://aigateway.test"
+    ) as client:
+        shared, aclose = await build_world(env={}, config=_config(), client=client)
+        try:
+            await asyncio.gather(*(_run_on_shared(run, shared) for run in _RUNS))
+        finally:
+            if aclose is not None:
+                await aclose()
+
+    chats = [r for r in gateway.calls if r.url.path == "/v1/chat/completions"]
     assert len(chats) == len(_RUNS) * (len(_BRANCHES) + 1), [_user_content(r) for r in chats]
     for request in chats:
         run = _run_of(request)

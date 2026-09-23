@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from starlette.routing import Route
 
 from screamingface_engine import job_env
+from screamingface_engine.benchmarks.registry import BENCHMARK_ASSETS_ENV
 from screamingface_engine.catalog.port import Credential, ModelCatalog, compute_etag
 from screamingface_engine.config import Settings
 from screamingface_engine.local import create_local_app
@@ -133,7 +134,9 @@ async def test_a_malformed_answer_seed_is_a_400_in_the_mount_envelope(
             response = await client.get("/corpus", headers={"X-Answer-Seed": "not-an-int"})
 
     assert response.status_code == 400
-    assert response.json()["error"]["code"] == "malformed_source"
+    # item 3 (B6 review): the same shared code the node tier answers with (`MALFORMED_HEADER`),
+    # not `malformed_source` — the two tiers must not drift onto different codes for one refusal.
+    assert response.json()["error"]["code"] == "malformed_header"
 
 
 # --- T3 refactor note: the composition root asserts the ordering -------------------------------
@@ -206,3 +209,50 @@ async def test_the_in_process_run_path_shares_the_mounted_nodes_io_layer(
         assert isinstance(inner._io, FairShareIOLayer)  # noqa: SLF001
         assert inner._io._inner is shared  # noqa: SLF001
         assert inner._world_aclose is None  # noqa: SLF001 - a run never closes the shared node
+
+
+# --- item 2 (B6 review): the direct-mount set excludes benchmark endpoints --------------------
+
+
+@pytest.mark.asyncio
+async def test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404(
+    tmp_path: Path,
+) -> None:
+    """`/benchmarks/candidate` is installed on the shared node, but is not a direct mount.
+
+    WHY: the connector applies the run's X-Answer-Seed to every model call it makes. A judge
+    call a benchmark issues OUTSIDE a candidate invocation must stay unseeded (OME-1038) — a
+    direct loopback hit on a judge/candidate endpoint has no candidate invocation around it, so
+    the direct-mount set must exclude benchmark endpoints, exactly as the deployed shape does
+    (which never mounts them for the forwarder at all).
+    """
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    config = (
+        '[aigateway]\nbase_url = "http://aigateway.test"\n'
+        'default_route = "/anthropic/claude-haiku-4-5"\n'
+        '[data]\n"/corpus" = { value = "rows", media_type = "text/plain" }\n'
+    )
+    # Any (even empty) asset root installs BUILTIN_BENCHMARKS lazily — install() never reads an
+    # asset eagerly (see test_benchmark_asset_isolation.py).
+    app = create_local_app(
+        Settings(jwt_secret="s" * 32),
+        env={
+            job_env.RUNNER_CONFIG: _config_file(tmp_path, config),
+            BENCHMARK_ASSETS_ENV: str(assets),
+        },
+    )
+    app.state.catalog = _FakeCatalog()
+
+    async with app.router.lifespan_context(app):
+        async with _client(app) as client:
+            benchmark_hit = await client.get("/benchmarks/candidate")
+            mount_hit = await client.get("/corpus")
+
+    assert benchmark_hit.status_code == 404
+    # AND: not url4's error envelope either — a route the App never declared a mount for.
+    assert "error" not in benchmark_hit.json() or "code" not in benchmark_hit.json().get(
+        "error", {}
+    )
+    assert mount_hit.status_code == 200
+    assert mount_hit.text == "rows"

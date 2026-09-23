@@ -26,6 +26,13 @@ AsgiReceive = Callable[[], Awaitable[MutableMapping[str, Any]]]
 AsgiSend = Callable[[MutableMapping[str, Any]], Awaitable[None]]
 AsgiApp = Callable[[AsgiScope, AsgiReceive, AsgiSend], Awaitable[None]]
 
+MALFORMED_HEADER = "malformed_header"
+"""Engine-added code (contracts.md C1): a present-but-unusable request header.
+
+ONE constant for the node tier and local mode (item 3, B6 review): both refuse a bad
+``X-Answer-Seed`` before dispatch with the SAME 400, and a second, independently-spelled
+string would let the two answers drift silently."""
+
 
 async def write(
     send: AsgiSend, status: int, headers: Sequence[tuple[bytes, bytes]], body: bytes
@@ -70,6 +77,7 @@ __all__ = [
     "AsgiReceive",
     "AsgiScope",
     "AsgiSend",
+    "MALFORMED_HEADER",
     "send_url4_error",
     "url4_error_body",
     "write",

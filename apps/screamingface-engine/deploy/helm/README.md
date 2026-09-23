@@ -251,6 +251,17 @@ budget (`node.requestTimeoutS`), and a web-tool-enabled mount usually exhausts t
 its iteration count (contracts.md C4); operators should prefer `web_search = false` on model
 routes the sync surface serves.
 
+**Sizing the node pod (item 11, B6 review).** The defaults — `node.resources.limits.memory: 512Mi`,
+`node.maxInflightPerWorker: 2` (× `node.workers: 1` = an in-flight cap of 2), and
+`node.resultHardCapBytes: 64Mi` — assume a small, in-memory response per request. One capped
+response can hold TWO OR MORE copies in memory at once (the body itself, plus at least one
+serialization/encoding copy) and, for a spilled result, an S3 upload buffer on top of that — so at
+`maxInflight=2` a pod can carry several times the 64 MiB cap in flight before it ever reaches the
+memory limit's headroom. If a `[data]` file mount on this node serves large files, raise
+`node.resources.limits.memory` (and, correspondingly, `node.resources.requests.memory`) to keep
+that headroom, or lower `node.resultHardCapBytes` instead if the response size is what should
+shrink.
+
 ## Artifact storage (OME-929)
 
 A Run whose serialized result exceeds the inline cap (1 MiB) is parked under its content address,

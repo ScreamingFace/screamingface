@@ -40,7 +40,11 @@ _trace: contextvars.ContextVar[TraceContext | None] = contextvars.ContextVar(
 
 @contextmanager
 def run_trace_scope(trace: TraceContext | None) -> Iterator[None]:
-    """Bind one run's trace for the duration of a scope; restore on exit.
+    """Bind one trace for the duration of a scope; restore on exit.
+
+    "One scope" is not only a run. The run path binds it in `Url4Executor`; the sync producers
+    (the node tier, local mode's mount) bind it too, once per request, from the validated
+    inbound header (`request_scope.trace_from_headers`) — see the module INVARIANT.
 
     ``None`` is a real argument, not a degenerate one: `Executor.execute` declares
     ``trace: TraceContext | None`` and callers outside `lifecycle.run` pass nothing. Binding it
@@ -55,7 +59,9 @@ def run_trace_scope(trace: TraceContext | None) -> Iterator[None]:
 
 
 def current_traceparent() -> str | None:
-    """This run's ``traceparent`` header value, or ``None`` outside any run.
+    """The bound scope's ``traceparent`` header value, or ``None`` outside any bound scope.
+
+    "Bound scope" is a run OR a sync request — both producers call `run_trace_scope`.
 
     ``None`` means the header is OMITTED, never sent empty or all-zero. A well-formed header
     carrying a zero id would parse everywhere, join nothing, and look correct in every log it

@@ -345,3 +345,22 @@ def test_a_provider_with_no_source_is_not_called_a_command() -> None:
     message = str(excinfo.value)
     assert "'/empty' ('unknown')" in message, message
     assert "'command'" not in message, message
+
+
+def test_the_exec_mount_sentence_is_said_only_for_a_command_offender() -> None:
+    """item 7 (B6 review): an ``unknown``-kind offender is not a command, so the message must not
+    claim it is an exec mount either — only a genuine ``command`` offender gets that sentence."""
+    from screamingface_engine.world.config import _reject_disallowed_read_side_providers
+    from url4.cli._config import ProviderSpec
+
+    with pytest.raises(WorldConfigError) as excinfo:
+        _reject_disallowed_read_side_providers({"/empty": ProviderSpec()}, {}, {})
+
+    assert "exec mount" not in str(excinfo.value), str(excinfo.value)
+
+    with pytest.raises(WorldConfigError) as excinfo:
+        _reject_disallowed_read_side_providers(
+            {"/corpus": ProviderSpec(command=("cat", "/etc/passwd"))}, {}, {}
+        )
+
+    assert "exec mount with no sandbox" in str(excinfo.value)
