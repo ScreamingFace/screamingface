@@ -17,6 +17,14 @@ The node tier (sync surface, unit 3) is running as:
   Deployment/{{ include "screamingface-engine.nodeName" . }} ({{ .Values.node.replicas }} replicas)
   Service/{{ include "screamingface-engine.nodeName" . }} (port {{ .Values.node.service.port }}, reachable only from the App)
   NetworkPolicy/{{ include "screamingface-engine.nodeName" . }} (App-only ingress; see the chart README's "The node tier" section for the label set an external aigateway policy must admit)
+{{- if not (or .Values.artifactSigning.existingSecret .Values.artifactSigning.signingKey) }}
+
+WARNING: the artifact-signing key is chart-generated (FX-91). It stays the same only when
+`helm upgrade` can read the live cluster. An offline render (ArgoCD, `helm template`)
+makes a NEW key on each sync, and no pod restarts for it. Pods that start later then use a
+different key, and a signed artifact URL from one pod fails with 401 at another.
+For GitOps, set artifactSigning.existingSecret (recommended) or artifactSigning.signingKey.
+{{- end }}
 {{- else }}
 
 The node tier (sync surface) is OFF (the default). Turn it on with:

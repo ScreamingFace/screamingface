@@ -234,7 +234,7 @@ Left empty (and with `artifactSigning.signingKey` also empty), the chart generat
 reuses it across upgrades via Helm's `lookup` function — but `lookup` reads the LIVE cluster, so
 it returns nothing under `helm template` (no cluster to query).
 
-> **GitOps / offline-render workflows (ArgoCD, Flux, or any `helm template` that never talks to
+> **GitOps / offline-render workflows (ArgoCD, or any `helm template` that never talks to
 > the target cluster) MUST set `artifactSigning.existingSecret` or `artifactSigning.signingKey`.**
 > Left to the generated default, every offline render mints a NEW random key — and unlike a live
 > `helm upgrade --install` (where `lookup` finds and reuses the cluster's existing copy), an

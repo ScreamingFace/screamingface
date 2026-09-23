@@ -51,7 +51,9 @@ spec:
         # `existingSecret`/`signingKey`, `secret-artifact-signing.yaml`'s `lookup` is EMPTY under
         # `helm template` (no live cluster to query), so it falls back to `randAlphaNum` — a NEW
         # value on every offline render. Hashing that would roll this App, which holds live
-        # WebSocket relays, on every GitOps sync even though the key never actually changed.
+        # WebSocket relays, on every GitOps sync. The cost of NOT hashing it (FX-91): an offline
+        # render does write a new key that no pod restarts for, so GitOps must pin one — see the
+        # `artifactSigningChecksum` helper and the NOTES.txt warning.
         checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
         {{- end }}
         {{- with .Values.podAnnotations }}

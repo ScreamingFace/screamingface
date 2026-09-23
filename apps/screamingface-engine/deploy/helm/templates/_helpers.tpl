@@ -253,6 +253,13 @@ that Secret's contents out-of-band is the operator's own concern, same as any ot
 `existingSecret`), else one FIXED constant for the chart-generated-and-`lookup`-reused case — a
 real `helm upgrade` reuses the SAME key via `lookup` there, so nothing needs to roll for it; only
 `signingKey`/`existingSecret` are meant to change under an intentional rotation.
+
+AIDEV-NOTE (FX-91): the fixed constant is safe ONLY for a live `helm upgrade`. Under an offline
+render the chart-generated Secret gets a NEW key on each sync while this checksum stays the same,
+so no pod restarts: pods that start later read the new key, and the tiers can disagree (401 on
+signed fetches). The owner chose a NOTES.txt warning over a render refusal (B7); GitOps must set
+`existingSecret` or `signingKey`. Do not "fix" this by hashing the rendered key — that restarts
+the App (and its live WebSocket relays) on every sync.
 */}}
 {{- define "screamingface-engine.artifactSigningChecksum" -}}
 {{- if .Values.artifactSigning.signingKey -}}

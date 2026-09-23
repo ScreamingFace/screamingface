@@ -211,6 +211,15 @@ The batches run in order. B5 changes only chart files, so it can run in parallel
 | FX-89 | HL-M7, HL-L1, HL-L10, HL-L11 | *docs*: chart README and NOTES cover the node tier, its label set, S3, the signing key (`existingSecret` for GitOps) and web tools off. Remove the `config_digest`-on-the-node claim. Use `curl --get --data-urlencode` in the example. |
 | FX-90 | HL-L7 | Render tests: the NetworkPolicy peer does not match node pods; the App Service does not select node pods. |
 
+### B7 — whole-PR code review (ledger `docs/work/2026-09-23-OME-1267-b7-review-fixes.md`)
+
+| Fix | Closes | Change |
+|---|---|---|
+| FX-91 | CR-1 | *chart-render*: a chart-generated signing key gets a warning in the rendered Secret (seen by `helm template` and ArgoCD) and in NOTES.txt, and a GitOps line in `values.yaml`. Owner decision: warn only, no render refusal. The checksum stays keyed on the key's source. |
+| FX-92 | CR-2 | The node tier's `/healthz` reports `config_digest`, as the App's does. One helper, `world.config.config_file_digest`, serves both tiers. |
+| FX-93 | CR-3 | The App pod `omit`s `name`/`instance`/`component` from `podLabels`, as the node pod does. No duplicate label key. |
+| FX-94 | CR-4 | `check_layering.py` records `module.name` for every from-import, so `from screamingface_engine.world import serving` in `runner/` fails the gate. |
+
 ## 4. Not in this round
 
 | Item | Why |

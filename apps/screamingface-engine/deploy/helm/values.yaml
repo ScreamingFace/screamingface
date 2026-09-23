@@ -635,6 +635,8 @@ artifactSigning:
   # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
   # / Sealed Secrets flow). Empty + node.enabled => the chart creates one and reuses it across
   # upgrades via `lookup`, so a values-less `helm upgrade` does not invalidate in-flight URLs.
+  # GitOps (ArgoCD, any offline `helm template`): `lookup` is empty there, so each sync makes a
+  # NEW key and no pod restarts for it — set this or `signingKey` (FX-91).
   # It must key the value `URL4_CLOUD_ARTIFACT_SIGNING_KEY`: both tiers attach it with
   # `envFrom.secretRef`, which injects keys under their own names and cannot rename.
   existingSecret: ""

@@ -80,8 +80,9 @@ spec:
         # WHY the key's SOURCE and not the rendered Secret (review round #2): with no
         # `existingSecret`/`signingKey` its `lookup` is EMPTY under `helm template` (no live
         # cluster to query), so it falls back to `randAlphaNum` — a NEW value on every offline
-        # render, which would roll this stateless-but-in-flight-holding tier on every GitOps sync
-        # even though the key never actually changed.
+        # render, which would roll this stateless-but-in-flight-holding tier on every GitOps sync.
+        # The cost of NOT hashing it (FX-91): an offline render does write a new key that no pod
+        # restarts for, so GitOps must pin one — see the NOTES.txt warning.
         checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
