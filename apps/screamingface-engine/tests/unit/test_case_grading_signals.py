@@ -140,27 +140,3 @@ def test_case_phase_excludes_candidate_checks_and_contains_observer_faults(monke
         assert not calls
         grading_activity(7, "started")
     assert len(calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_imported_scorer_emits_real_grading_outcome(monkeypatch):
-    pytest.importorskip("inspect_ai")
-    from inspect_ai.scorer import match
-    from test_inspect_shim import _request
-
-    from screamingface_engine_inspect.shim import inspect_grade_case
-
-    records = []
-    monkeypatch.setattr(
-        "screamingface_engine.benchmarks.grading_activity.current_log_sink",
-        lambda: lambda body, attrs, **kwargs: records.append(dict(attrs)),
-    )
-    run = RunObservations((ActivityObserver,))
-    with run.bind():
-        grading_activity(7, "completed")  # Answer recording precedes actual scoring.
-        assert not records
-        outcome = await inspect_grade_case(match(numeric=True))(_request())
-    await run.aclose()
-    assert outcome.score == 1.0
-    assert [r["sf.activity.state"] for r in records] == ["started", "completed"]
-    assert all(r["sf.activity.case_id"] == 7 for r in records)

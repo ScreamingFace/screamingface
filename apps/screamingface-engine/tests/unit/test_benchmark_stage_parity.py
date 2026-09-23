@@ -27,6 +27,10 @@ def assets(registration, root, monkeypatch):
     elif name == "ifeval":
         (root / name).mkdir()
         ifeval_assets(root / name)
+    elif name == "contracteval":
+        from test_contracteval_resolution import _assets as contracteval_assets
+
+        contracteval_assets(root)
     elif name == "medxpert":
         medxpert_assets(root, 1)
     else:
