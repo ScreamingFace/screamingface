@@ -19,3 +19,13 @@ Keyless replay passed for DRACO-3pass (100 cases, 0.3593), IFEval (50, 0.9184), 
 Owner resumed completion of numbering. Replayed all four cached benchmarks against the shared selected-case annotation and numbered envelope. DRACO-3pass: 100 cases / 0.3593; IFEval: 50 / 0.9184; HealthBench-worst30: 157 / -0.091; GDPval-text: 25 / 0.8044. Original statuses, coverage, failure codes and scores all match. Only expression_sha changed in each golden; no snapshots, request keys, expected outcomes or harness changes. Full Client gate verification runs before committing this migration.
 
 Numbering migration outcome: all Client gates green (lint, format, types, full pytest/95% coverage, notebook validation, build and distribution). Only four golden hashes changed. Existing expectations and cached request snapshots remain byte-identical. Approved append-only exception applies only to this expression migration. Draft/In Progress retained until review/merge.
+
+## Native-index migration — 2026-09-23
+
+Owner approved migration after #1039 merged. Replayed all four original cached recordings
+against the new cases processor, native slicing and index envelope. DRACO-3pass: 100 cases /
+0.3593; IFEval: 50 / 0.9184; HealthBench-worst30: 157 / -0.091; GDPval-text: 25 / 0.8044.
+Every original status, failure map and coverage value matches. Each golden changes only its
+expression_sha; gateway request snapshots and model response recordings remain unchanged.
+Full Client gates pass: lint, format, types, complete tests/95% coverage, notebook
+validation, build and distribution checks. No new paid model requests.
