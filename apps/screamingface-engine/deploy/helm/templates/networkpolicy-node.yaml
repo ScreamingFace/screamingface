@@ -27,7 +27,6 @@ spec:
   podSelector:
     matchLabels:
       {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: node
   # Ingress only. The node dials aigateway and object storage on unrestricted egress; only
   # who may reach ITS surface is the security property.
   policyTypes:

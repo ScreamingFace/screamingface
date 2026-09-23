@@ -48,6 +48,11 @@ CONSOLE_RELEASE = "aigw-ui"
 # chart pins its name half with `nameOverride`; renaming the release would move every object name
 # anyway and defeat the pin. The two must be changed together, in OME-877, or not at all.
 ENGINE_RELEASE = "url4-cloud"
+# `fullname` is `<release>-<chart name>` (see the INVARIANT above), and the chart pins the chart-
+# name half to the release name too — so the fullname is this release name doubled. Pulled out
+# because the doubled f-string was spelled out at every call site that needs an engine object's
+# name.
+ENGINE_FULLNAME = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
 INTAKE_RELEASE = "reports"
 # What `values-cloud.yaml` deliberately leaves empty, because a chart cannot know a Gateway's name,
 # a Cloudflare application, a Pod CIDR or a mesh gateway's label — and refuses the render rather
@@ -161,6 +166,12 @@ def peer_names(policy: dict, direction: str) -> set[str]:
             ):
                 names.add(pod["app.kubernetes.io/name"])
     return names
+
+
+def _selects(selector: dict, labels: dict) -> bool:
+    """Whether every key/value `selector` names is present in `labels` — a Kubernetes selector
+    match is a SUBSET test, so `labels` carrying extra keys still matches."""
+    return all(labels.get(k) == v for k, v in selector.items())
 
 
 def settings_fields() -> list[tuple[str, ast.expr]]:
@@ -503,7 +514,7 @@ check(
     "Garage's 3900 ingress names THIS release's gateway Pods (name+instance+component)",
 )
 check(
-    all(gw_pod_labels.get(key) == value for key, value in admitted_peer.items()),
+    _selects(admitted_peer, gw_pod_labels),
     "the peer Garage admits IS the label set the gateway Deployment renders — the pair holds",
 )
 check(
@@ -732,15 +743,11 @@ engine_chart = render(
 # The chart now renders THREE Deployments (the App, the runner pool OME-1092, and the node tier
 # of unit 3), so each is looked up by name rather than by `find` (which would silently return
 # whichever renders first).
-url4_deployment = find_named(
-    engine_chart, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-)
+url4_deployment = find_named(engine_chart, "Deployment", ENGINE_FULLNAME)
 url4_runner_deployment = find_named(
-    engine_chart, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-runner"
+    engine_chart, "Deployment", f"{ENGINE_FULLNAME}-runner"
 )
-url4_node_deployment = find_named(
-    engine_chart, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-node"
-)
+url4_node_deployment = find_named(engine_chart, "Deployment", f"{ENGINE_FULLNAME}-node")
 url4_app_image = url4_deployment["spec"]["template"]["spec"]["containers"][0]["image"]
 url4_runner_image = url4_runner_deployment["spec"]["template"]["spec"]["containers"][0][
     "image"
@@ -761,7 +768,7 @@ check(
 # pods each object selects, which peer the NetworkPolicy admits, and which Secret reaches which
 # tier. contracts.md §10 makes the App-only ingress a CORRECTNESS requirement — without it any
 # pod in the cluster can set `X-User-Email` freely.
-node_name = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-node"
+node_name = f"{ENGINE_FULLNAME}-node"
 url4_node_service = find_named(engine_chart, "Service", node_name)
 url4_node_policy = find_named(engine_chart, "NetworkPolicy", node_name)
 url4_node_pdb = find_named(engine_chart, "PodDisruptionBudget", node_name)
@@ -835,7 +842,7 @@ node_peer = next(
 url4_app_pod_labels = url4_deployment["spec"]["template"]["metadata"]["labels"]
 check(
     node_peer.get("app.kubernetes.io/component") == "control-plane"
-    and all(url4_app_pod_labels.get(key) == value for key, value in node_peer.items()),
+    and _selects(node_peer, url4_app_pod_labels),
     "the peer the node policy admits IS the label set the App pods render — the App carries "
     "component: control-plane, which is what distinguishes it from the node's own pods",
 )
@@ -853,9 +860,9 @@ check(
     "the node mounts no Kubernetes API token — it calls aigateway and object storage only",
 )
 check(
-    find_named(engine_chart, "ConfigMap", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}")[
-        "data"
-    ].get("URL4_CLOUD_NODE_BASE_URL")
+    find_named(engine_chart, "ConfigMap", ENGINE_FULLNAME)["data"].get(
+        "URL4_CLOUD_NODE_BASE_URL"
+    )
     == f"http://{node_name}:{url4_node_service['spec']['ports'][0]['port']}",
     "the App's node_base_url names the node Service the chart renders, so the forwarder arms",
 )
@@ -867,25 +874,15 @@ check(
 
 # The secrets, in the object-storage shape the spill path requires. ONE signing Secret must
 # reach BOTH tiers (the node signs the 303, the App verifies): reaching one half only means
-# every redirect is unfetchable or every spill is a 502 (OQ-3.2).
-engine_s3 = render(
-    ENGINE_CHART,
-    ENGINE_RELEASE,
-    "--set-string",
-    "config.natsUrl=nats://nats.example:4222",
-    *ENGINE_NODE_ARGS,
-)
-signing_name = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-artifact-signing"
-artifact_name = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-artifact-storage"
-node_s3_container = find_named(engine_s3, "Deployment", node_name)["spec"]["template"][
-    "spec"
-]["containers"][0]
-app_s3_container = find_named(
-    engine_s3, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-)["spec"]["template"]["spec"]["containers"][0]
+# every redirect is unfetchable or every spill is a 502 (OQ-3.2). Read off `engine_chart` —
+# it already rendered with these exact args; a second render here bought nothing.
+signing_name = f"{ENGINE_FULLNAME}-artifact-signing"
+artifact_name = f"{ENGINE_FULLNAME}-artifact-storage"
+node_s3_container = url4_node_container
+app_s3_container = url4_deployment["spec"]["template"]["spec"]["containers"][0]
 check(
     "URL4_CLOUD_ARTIFACT_SIGNING_KEY"
-    in find_named(engine_s3, "Secret", signing_name).get("stringData", {}),
+    in find_named(engine_chart, "Secret", signing_name).get("stringData", {}),
     "the chart's signing Secret keys the value with the exact name `envFrom.secretRef` injects",
 )
 check(
@@ -919,9 +916,9 @@ check(
     "the node's OWN component label is ALSO chart-owned (FX-84) — a podLabels override cannot "
     "silently change which selector the node's own pods match either",
 )
-override_app_labels = find_named(
-    engine_podlabels, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-)["spec"]["template"]["metadata"]["labels"]
+override_app_labels = find_named(engine_podlabels, "Deployment", ENGINE_FULLNAME)[
+    "spec"
+]["template"]["metadata"]["labels"]
 override_node_policy = find_named(engine_podlabels, "NetworkPolicy", node_name)
 override_peer = next(
     (
@@ -937,10 +934,7 @@ check(
     "the App's component label is CHART-OWNED — a podLabels override cannot silently change it",
 )
 check(
-    bool(override_peer)
-    and all(
-        override_app_labels.get(key) == value for key, value in override_peer.items()
-    ),
+    bool(override_peer) and _selects(override_peer, override_app_labels),
     "under the podLabels override the node policy's peer STILL matches the App pods — a "
     "platform convention cannot lock the App out of the node",
 )
@@ -957,19 +951,10 @@ engine_pod_templates = {
     if doc.get("kind") == "Deployment"
 }
 _ENGINE_SELECTOR_OWNERS = {
-    (
-        "Service",
-        f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
-    ): f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
+    ("Service", ENGINE_FULLNAME): ENGINE_FULLNAME,
     ("Service", node_name): node_name,
-    (
-        "Deployment",
-        f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
-    ): f"{ENGINE_RELEASE}-{ENGINE_RELEASE}",
-    (
-        "Deployment",
-        f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-runner",
-    ): f"{ENGINE_RELEASE}-{ENGINE_RELEASE}-runner",
+    ("Deployment", ENGINE_FULLNAME): ENGINE_FULLNAME,
+    ("Deployment", f"{ENGINE_FULLNAME}-runner"): f"{ENGINE_FULLNAME}-runner",
     ("Deployment", node_name): node_name,
     ("PodDisruptionBudget", node_name): node_name,
     ("NetworkPolicy", node_name): node_name,
@@ -988,7 +973,7 @@ _selector_mismatches: list[str] = []
 for (kind, name), owner in _ENGINE_SELECTOR_OWNERS.items():
     selector = _selector_of(find_named(engine_chart, kind, name))
     for deployment_name, pod_labels in engine_pod_templates.items():
-        matches = all(pod_labels.get(k) == v for k, v in selector.items())
+        matches = _selects(selector, pod_labels)
         if deployment_name == owner and not matches:
             _selector_mismatches.append(
                 f"{kind}/{name} does not even match its OWN pods"
@@ -1004,29 +989,22 @@ check(
     + (f" — {_selector_mismatches}" if _selector_mismatches else ""),
 )
 check(
-    not all(
-        engine_pod_templates[node_name].get(k) == v
-        for k, v in find_named(
-            engine_chart, "Service", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-        )["spec"]["selector"].items()
+    not _selects(
+        find_named(engine_chart, "Service", ENGINE_FULLNAME)["spec"]["selector"],
+        engine_pod_templates[node_name],
     ),
     "the App's Service selector does NOT match the node pods (FX-90) — before the node's own "
     "instance existed, the App's plain name+instance selector silently fronted it too",
 )
 check(
     node_peer.get("app.kubernetes.io/component") == "control-plane"
-    and not all(
-        engine_pod_templates[node_name].get(k) == v for k, v in node_peer.items()
-    ),
+    and not _selects(node_peer, engine_pod_templates[node_name]),
     "the node NetworkPolicy's admitted peer (component: control-plane) does NOT match the "
     "node's OWN pods — it names the App and only the App",
 )
 
 # --- FX-82: /metrics on its own port, admitted by a peer-scoped second ingress rule ----------
-node_container = find_named(engine_chart, "Deployment", node_name)["spec"]["template"][
-    "spec"
-]["containers"][0]
-node_ports = {p["name"]: p["containerPort"] for p in node_container["ports"]}
+node_ports = {p["name"]: p["containerPort"] for p in url4_node_container["ports"]}
 check(
     node_ports["http"] != node_ports["metrics"] and node_ports["metrics"] == 9110,
     "the node's http and metrics containerPorts are DISTINCT — a scrape can no longer share the "
@@ -1072,7 +1050,7 @@ check(
 )
 
 # --- FX-85: the node's own hard cap renders as a plain integer, never scientific notation -----
-node_env = {e["name"]: e.get("value") for e in node_container["env"]}
+node_env = {e["name"]: e.get("value") for e in url4_node_container["env"]}
 check(
     node_env.get("URL4_CLOUD_RESULT_HARD_CAP_BYTES") == "67108864",
     "URL4_CLOUD_RESULT_HARD_CAP_BYTES renders as a plain integer string — Helm decodes large "
@@ -1095,9 +1073,9 @@ engine_no_node = render(
 )
 check(
     "checksum/artifact-signing"
-    not in find_named(
-        engine_no_node, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-    )["spec"]["template"]["metadata"]["annotations"],
+    not in find_named(engine_no_node, "Deployment", ENGINE_FULLNAME)["spec"][
+        "template"
+    ]["metadata"]["annotations"],
     "with node.enabled=false (the default) the App carries NO checksum/artifact-signing "
     "annotation — there is no signer, so there is nothing to roll for",
 )
@@ -1154,9 +1132,7 @@ check(
     "REFUSES a node.terminationGracePeriodSeconds too small for preStop + requestTimeoutS + "
     "spillTimeoutS — otherwise the kubelet SIGKILLs an in-flight spill write",
 )
-engine_forward_configmap = find_named(
-    engine_chart, "ConfigMap", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-)
+engine_forward_configmap = find_named(engine_chart, "ConfigMap", ENGINE_FULLNAME)
 check(
     engine_forward_configmap["data"].get("URL4_CLOUD_NODE_FORWARD_TIMEOUT_S") == "35",
     "URL4_CLOUD_NODE_FORWARD_TIMEOUT_S is DERIVED (requestTimeoutS + spillTimeoutS + 1 = 35 by "
@@ -1225,12 +1201,12 @@ engine_chart_again = render(
     "config.natsUrl=nats://nats.example:4222",
     *ENGINE_NODE_ARGS,
 )
-checksum_first = find_named(
-    engine_chart, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-)["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
-checksum_second = find_named(
-    engine_chart_again, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-)["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+checksum_first = find_named(engine_chart, "Deployment", ENGINE_FULLNAME)["spec"][
+    "template"
+]["metadata"]["annotations"]["checksum/artifact-signing"]
+checksum_second = find_named(engine_chart_again, "Deployment", ENGINE_FULLNAME)["spec"][
+    "template"
+]["metadata"]["annotations"]["checksum/artifact-signing"]
 check(
     checksum_first == checksum_second,
     "checksum/artifact-signing is STABLE across two independent renders with no key pinned — "
@@ -1254,9 +1230,9 @@ engine_pinned_key = render(
     "--set-string",
     "artifactSigning.signingKey=a-real-pinned-key",
 )
-pinned_checksum = find_named(
-    engine_pinned_key, "Deployment", f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
-)["spec"]["template"]["metadata"]["annotations"]["checksum/artifact-signing"]
+pinned_checksum = find_named(engine_pinned_key, "Deployment", ENGINE_FULLNAME)["spec"][
+    "template"
+]["metadata"]["annotations"]["checksum/artifact-signing"]
 check(
     pinned_checksum != checksum_first,
     "pinning artifactSigning.signingKey changes the checksum — a REAL rotation must still roll "

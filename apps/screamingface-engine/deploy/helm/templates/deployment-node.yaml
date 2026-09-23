@@ -46,12 +46,11 @@ spec:
   replicas: {{ .Values.node.replicas }}
   selector:
     matchLabels:
+      # The node's OWN component label (now part of `nodeSelectorLabels` itself). It shares
+      # `app.kubernetes.io/name` with the App so aigateway's NetworkPolicy admits its outbound
+      # calls by that name, but without the component the node Service would also front the
+      # App's pods — and the NodePolicy would select them too.
       {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 6 }}
-      # The node's OWN component label. It shares `app.kubernetes.io/name` with the App so
-      # aigateway's NetworkPolicy admits its outbound calls by that name, but without the
-      # component the node Service would also front the App's pods — and the NodePolicy would
-      # select them too.
-      app.kubernetes.io/component: node
   template:
     metadata:
       labels:
@@ -61,17 +60,16 @@ spec:
         value still applies), but the operator's OWN copy of the key is still written to the
         YAML first — a genuine duplicate mapping key (the exact class FX-87 fixed), and one a
         strict parser rejects regardless of which value wins. Omitting means there is nothing
-        left to duplicate, for ALL FOUR identity-bearing keys, not just the two rendered after
-        this block. */}}
+        left to duplicate: `name`/`instance`/`component` arrive above from `nodeSelectorLabels`
+        itself, and `part-of` is omitted too since it is re-declared below. */}}
         {{- with (omit .Values.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" "app.kubernetes.io/part-of") }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # INVARIANT (FX-84): CHART-OWNED and rendered AFTER `podLabels`, mirroring the App
         # Deployment's own rule (see its identical comment) — an operator's `podLabels` override
-        # must not be able to change which selector this pod matches. Rendered in this order a
-        # platform convention adds a label; it can never rewrite `component` or `part-of` (and,
-        # per the `omit` above, can no longer even duplicate `name`/`instance` either).
-        app.kubernetes.io/component: node
+        # must not be able to change which selector this pod matches. `component` is chart-owned
+        # via `nodeSelectorLabels` itself above (guarded by the `omit` above, not by ordering);
+        # only `part-of` still needs its own copy here.
         app.kubernetes.io/part-of: screamingface
       annotations:
         # INVARIANT: a ConfigMap/Secret value change alone rolls the pod — the same rule the App

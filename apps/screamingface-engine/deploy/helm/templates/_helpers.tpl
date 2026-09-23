@@ -191,10 +191,16 @@ existed the node pods (same name, same instance, PLUS component: node) were sile
 App Service's endpoints and the App Deployment's replace/evict blast radius too. Giving the node
 its own instance breaks that subset match with no change on the App side at all: `<release>-node`
 can never equal `<release>`.
+
+Also carries `component: node` itself: every one of its five call sites (the node Deployment's
+own selector AND its pod template, its Service, its NetworkPolicy, its PDB) appended the same
+literal by hand right after including this, so the label belongs in the one place those call
+sites share rather than five near-identical copies.
 */}}
 {{- define "screamingface-engine.nodeSelectorLabels" -}}
 app.kubernetes.io/name: {{ include "screamingface-engine.name" . }}
 app.kubernetes.io/instance: {{ printf "%s-node" .Release.Name }}
+app.kubernetes.io/component: node
 {{- end -}}
 
 {{/*
