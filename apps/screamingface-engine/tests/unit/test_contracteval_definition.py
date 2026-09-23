@@ -87,6 +87,8 @@ def test_the_declaration_matches_what_the_board_actually_does() -> None:
 
     assert board.CONTRACTEVAL.declaration.interaction == "single_shot"
     assert board.CONTRACTEVAL.declaration.failure_policy == "coverage_declare"
+    # OME-1257: specialized extraction with headroom, no expert-frontier stakes.
+    assert board.CONTRACTEVAL.declaration.difficulty == "medium"
 
 
 def test_no_check_surface_is_advertised() -> None:

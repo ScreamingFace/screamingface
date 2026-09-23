@@ -131,6 +131,9 @@ IFEVAL = Benchmark(
     declaration=BenchmarkDeclaration(
         failure_policy="coverage_declare",
         interaction="single_shot",
+        # Instruction following still trips strong models on strict verification, but the
+        # material itself is everyday prose, not expert work (OME-1257).
+        difficulty="medium",
     ),
     build=_build,
     install=install_ifeval,

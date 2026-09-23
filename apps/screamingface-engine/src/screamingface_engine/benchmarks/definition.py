@@ -40,6 +40,17 @@ type FailurePolicy = Literal["withhold", "coverage_declare"]
 #                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
 # Agentic/tool-environment interactions arrive later as further declared values.
 type InteractionType = Literal["single_shot", "multi_turn"]
+# How hard the exam is — the catalogue's easy→hard axis (OME-1257). Hand-assigned by the
+# board's author/importer and reviewed in the PR that lands it; NOT measured from score
+# distributions (a measured tier would be a separate, later mechanism).
+#   "easy" — largely saturated material (grade-school sets, binary choices):
+#                    frontier models pass ~90%+, so the board gives quick, cheap signal.
+#   "medium" — real headroom without expert stakes: broad knowledge exams,
+#                    instruction following, specialized extraction.
+#   "hard"     — expert-written material today's best models visibly fail (clinical
+#                    safety, deep research, real professional work) — where a
+#                    fusion-beats-solo result carries the most weight.
+type DifficultyTier = Literal["easy", "medium", "hard"]
 # Where a benchmark's definition was authored (OME-1112).
 #   "screamingface"  — written in this repo, the Engine's own catalogue.
 #   "inspect_evals"  — imported from the inspect_evals catalogue (parent epic OME-1111).
@@ -49,6 +60,9 @@ type BenchmarkOrigin = Literal["screamingface", "inspect_evals"]
 
 _FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
 _INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
+# INVARIANT: ordered easy→hard — the SDK renders catalogue sections in exactly this
+# order, and its copy of the tuple is pinned to this one (test_difficulty_conformance).
+_DIFFICULTY_TIERS: tuple[DifficultyTier, ...] = ("easy", "medium", "hard")
 _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -105,19 +119,23 @@ class BenchmarkDeclaration:
     """The declared grading contract a Benchmark registers — public, typed, no defaults.
 
     Think of it as the rules printed on the exam's cover sheet: before anyone sits the
-    exam, a reader can see how a failed paper counts. Two axes today:
+    exam, a reader can see how a failed paper counts. Three axes today:
 
     ``failure_policy`` — what a Case that never got a valid grade does to the published
     score. ``withhold``: the case counts against the candidate (all-or-nothing).
     ``coverage_declare``: the case is excluded from the score and the report's coverage
     figure drops, so a reader sees "scored 124 of 157".
 
-    ``interaction`` — how the Candidate is exercised. ``single_shot`` is the only value
+    ``interaction`` — how the Candidate is exercised. ``single_shot`` and ``multi_turn``
     today; any other value is refused by name before any paid request.
 
-    INVARIANT: both fields are REQUIRED with no defaults. A defaulted policy is a policy
+    ``difficulty`` — how hard the exam is, the catalogue's easy→hard axis (OME-1257).
+    A hand-assigned tier from the closed set above, so the listing can group boards
+    into a map a newcomer reads without knowing each board by name.
+
+    INVARIANT: every field is REQUIRED with no defaults. A defaulted policy is a policy
     nobody can see from the manifest, and a policy nobody can see is a policy nobody can
-    approve (OME-1039).
+    approve (OME-1039); a defaulted difficulty is a tier nobody assigned (OME-1257).
     AIDEV-NOTE: this record is THE extension point for later declared axes — a
     ``multi_turn`` interaction, or an ``environment`` declaration (image digest + setup +
     verifier) lands as a new field/value HERE, never as a spine change. Do not add those
@@ -126,6 +144,7 @@ class BenchmarkDeclaration:
 
     failure_policy: FailurePolicy
     interaction: InteractionType
+    difficulty: DifficultyTier
 
     def __post_init__(self) -> None:
         if self.failure_policy not in _FAILURE_POLICIES:
@@ -138,11 +157,17 @@ class BenchmarkDeclaration:
                 f"BenchmarkDeclaration interaction must be one of {_INTERACTION_TYPES!r}, "
                 f"got {self.interaction!r}"
             )
+        if self.difficulty not in _DIFFICULTY_TIERS:
+            raise ValueError(
+                f"BenchmarkDeclaration difficulty must be one of {_DIFFICULTY_TIERS!r}, "
+                f"got {self.difficulty!r}"
+            )
 
     def as_block(self) -> dict[str, str]:
         return {
             "failure_policy": self.failure_policy,
             "interaction": self.interaction,
+            "difficulty": self.difficulty,
         }
 
 
@@ -372,6 +397,7 @@ __all__ = [
     "BenchmarkDeclaration",
     "BenchmarkInstaller",
     "CheckSurface",
+    "DifficultyTier",
     "FailurePolicy",
     "InteractionType",
     "candidate",

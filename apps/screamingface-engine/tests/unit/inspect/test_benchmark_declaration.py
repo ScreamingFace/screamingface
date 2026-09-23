@@ -22,6 +22,7 @@ from screamingface_engine.benchmarks.definition import (
 DECLARATION = BenchmarkDeclaration(
     failure_policy="coverage_declare",
     interaction="single_shot",
+    difficulty="easy",
 )
 
 
@@ -54,6 +55,7 @@ def test_declaration_refuses_an_unknown_failure_policy_by_name() -> None:
         BenchmarkDeclaration(
             failure_policy="drop-silently",  # type: ignore[arg-type]
             interaction="single_shot",
+            difficulty="easy",
         )
 
 
@@ -70,16 +72,42 @@ def test_declaration_refuses_an_unknown_interaction_by_name() -> None:
         BenchmarkDeclaration(
             failure_policy="withhold",
             interaction="agentic_tool_use",  # type: ignore[arg-type]
+            difficulty="easy",
         )
 
 
 def test_declaration_accepts_the_declared_multi_turn_shape() -> None:
     # The positive half of the guard above: a value only becomes acceptable by being declared.
-    declaration = BenchmarkDeclaration(failure_policy="coverage_declare", interaction="multi_turn")
+    declaration = BenchmarkDeclaration(
+        failure_policy="coverage_declare",
+        interaction="multi_turn",
+        difficulty="hard",
+    )
     assert declaration.as_block()["interaction"] == "multi_turn"
 
 
-def test_declaration_requires_both_fields_with_no_defaults() -> None:
+def test_declaration_refuses_an_unknown_difficulty_by_name() -> None:
+    # WHY: the catalogue GROUPS on this value (OME-1257) — an unknown tier would render as
+    # its own orphan shelf, so the contract refuses it at registration, like its siblings.
+    with pytest.raises(ValueError, match="difficulty"):
+        BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+            difficulty="impossible",  # type: ignore[arg-type]
+        )
+
+
+def test_declaration_requires_difficulty_with_no_default() -> None:
+    # INVARIANT: a defaulted tier is a tier nobody assigned — every board's difficulty is a
+    # reviewed judgment call, so the field is required exactly like its two siblings (OME-1257).
+    with pytest.raises(TypeError):
+        BenchmarkDeclaration(  # type: ignore[call-arg]
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+        )
+
+
+def test_declaration_requires_every_field_with_no_defaults() -> None:
     # INVARIANT: no value on this record may fall back to a default — a defaulted
     # policy is exactly the hidden-default failure OME-1039 exists to prevent.
     with pytest.raises(TypeError):
@@ -95,16 +123,20 @@ def test_wrong_declaration_type_is_refused() -> None:
         Benchmark(**values)  # type: ignore[arg-type]
 
 
-def test_catalog_entry_names_both_declared_values() -> None:
+def test_catalog_entry_names_every_declared_value() -> None:
     entry = Benchmark(**_benchmark_values()).catalog_entry()  # type: ignore[arg-type]
     assert entry["failure_policy"] == "coverage_declare"
     assert entry["interaction"] == "single_shot"
+    # OME-1257: the tier rides the same declaration block, so every catalogue row
+    # carries it without a serving change.
+    assert entry["difficulty"] == "easy"
 
 
-def test_resource_names_both_declared_values() -> None:
+def test_resource_names_every_declared_value() -> None:
     resource = Benchmark(**_benchmark_values()).resource(limit=1)  # type: ignore[arg-type]
     assert resource["failure_policy"] == "coverage_declare"
     assert resource["interaction"] == "single_shot"
+    assert resource["difficulty"] == "easy"
 
 
 def test_every_builtin_board_declares_its_actual_policy() -> None:
@@ -125,46 +157,52 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         # 2026-09-17, and landed with `--skip-append-only` — the append-only gate cannot tell
         # a new row in a registry table from an edited assertion. Recorded here because the
         # next reader of THIS file will not open the work ledger (OME-1148).
-        "contracteval": ("coverage_declare", "single_shot"),
-        "draco": ("coverage_declare", "single_shot"),
-        "draco-3pass": ("coverage_declare", "single_shot"),
-        "gdpval-text": ("coverage_declare", "single_shot"),
-        "healthbench-professional": ("coverage_declare", "single_shot"),
-        "healthbench-worst30": ("coverage_declare", "single_shot"),
-        "ifeval": ("coverage_declare", "single_shot"),
+        # OME-1257 third element: the hand-assigned difficulty tier. The rationale for
+        # each assignment lives as a comment at the board's own declaration site; this
+        # table pins the reviewed outcome so a silent tier change trips loudly.
+        "contracteval": ("coverage_declare", "single_shot", "medium"),
+        "draco": ("coverage_declare", "single_shot", "hard"),
+        "draco-3pass": ("coverage_declare", "single_shot", "hard"),
+        "gdpval-text": ("coverage_declare", "single_shot", "hard"),
+        "healthbench-professional": ("coverage_declare", "single_shot", "hard"),
+        "healthbench-worst30": ("coverage_declare", "single_shot", "hard"),
+        "ifeval": ("coverage_declare", "single_shot", "medium"),
         # MedXpertQA invokes the Candidate twice per Case: turn 1 reasons, turn 2 commits against
         # a bare trigger. Its ungradeable Cases still go to the shared finalizer, hence
         # coverage_declare.
-        "medxpert": ("coverage_declare", "multi_turn"),
+        "medxpert": ("coverage_declare", "multi_turn", "hard"),
     }
     # Plugin-contributed boards (OME-1115) are present only when their extra is
     # installed; their rows are still explicit, so a new imported board — or a changed
     # declaration — trips here exactly like a home-grown one.
     expected_plugin = {
-        "inspect-gsm8k": ("coverage_declare", "single_shot"),
-        "inspect-mmlu": ("coverage_declare", "single_shot"),
+        "inspect-gsm8k": ("coverage_declare", "single_shot", "easy"),
+        "inspect-mmlu": ("coverage_declare", "single_shot", "medium"),
         # OME-1116 milestone C: the eight generated boards, every one single-shot
         # through the shared row machine.
-        "inspect-arc_easy": ("coverage_declare", "single_shot"),
-        "inspect-arc_challenge": ("coverage_declare", "single_shot"),
-        "inspect-commonsense_qa": ("coverage_declare", "single_shot"),
-        "inspect-mmlu_pro": ("coverage_declare", "single_shot"),
-        "inspect-winogrande": ("coverage_declare", "single_shot"),
-        "inspect-race_h": ("coverage_declare", "single_shot"),
-        "inspect-paws": ("coverage_declare", "single_shot"),
-        "inspect-boolq": ("coverage_declare", "single_shot"),
-        "inspect-aime24": ("coverage_declare", "single_shot"),
-        "inspect-aime25": ("coverage_declare", "single_shot"),
-        "inspect-musr": ("coverage_declare", "single_shot"),
-        "inspect-wmdp_bio": ("coverage_declare", "single_shot"),
-        "inspect-wmdp_chem": ("coverage_declare", "single_shot"),
-        "inspect-wmdp_cyber": ("coverage_declare", "single_shot"),
-        "inspect-hellaswag": ("coverage_declare", "single_shot"),
+        "inspect-arc_easy": ("coverage_declare", "single_shot", "easy"),
+        "inspect-arc_challenge": ("coverage_declare", "single_shot", "medium"),
+        "inspect-commonsense_qa": ("coverage_declare", "single_shot", "easy"),
+        "inspect-mmlu_pro": ("coverage_declare", "single_shot", "medium"),
+        "inspect-winogrande": ("coverage_declare", "single_shot", "easy"),
+        "inspect-race_h": ("coverage_declare", "single_shot", "easy"),
+        "inspect-paws": ("coverage_declare", "single_shot", "easy"),
+        "inspect-boolq": ("coverage_declare", "single_shot", "easy"),
+        # OME-1238 landed these two mid-stack; tiers assigned in the OME-1257 rebase.
+        "inspect-aime24": ("coverage_declare", "single_shot", "medium"),
+        "inspect-aime25": ("coverage_declare", "single_shot", "medium"),
+        # OME-1253 batch 1 landed mid-stack too; tiers assigned in the same rebase.
+        "inspect-musr": ("coverage_declare", "single_shot", "medium"),
+        "inspect-wmdp_bio": ("coverage_declare", "single_shot", "medium"),
+        "inspect-wmdp_chem": ("coverage_declare", "single_shot", "medium"),
+        "inspect-wmdp_cyber": ("coverage_declare", "single_shot", "medium"),
+        "inspect-hellaswag": ("coverage_declare", "single_shot", "easy"),
     }
     actual = {
         benchmark.id: (
             benchmark.declaration.failure_policy,
             benchmark.declaration.interaction,
+            benchmark.declaration.difficulty,
         )
         for benchmark in BUILTIN_BENCHMARKS
     }

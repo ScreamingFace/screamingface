@@ -4,6 +4,7 @@
 
 ### Features
 
+* **screamingface:** carry the catalogue's two grouping axes on `Benchmark` — `interaction` and the new hand-assigned `difficulty` tier (`easy`/`medium`/`hard`; served values verbatim, any non-blank string; `None` when an older Engine omits the key)
 * **screamingface:** show the benchmark catalogue as one tab per origin, each linking to its source collection (`Benchmark.origin` — any non-blank string, `"screamingface"` when an older Engine omits it; the benchmark card links the origin to its source)
 * **screamingface:** declare an answer seed per evaluation and name the sitting in the report (`evaluate(answer_seed=…)` sends `X-Answer-Seed`; `CandidateResult.answer_seed` serializes into report.json, null when unseeded)
 * **screamingface:** expose `ModelDetails.execution_access` (`configured`, `missing`, or `None` for older Gateways).

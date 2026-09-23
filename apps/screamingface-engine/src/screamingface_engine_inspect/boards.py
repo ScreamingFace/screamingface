@@ -23,6 +23,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.definition import DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine_inspect.prepare import (
     SNAPSHOTS,
@@ -52,6 +53,9 @@ class BoardSpec:
     description: str
     focus: str
     dataset_url: str
+    #: The catalogue's hand-assigned easy→hard tier (OME-1257) — authored here because
+    #: this row IS the imported board's authoring site; reviewed in the PR that lands it.
+    difficulty: DifficultyTier
     scorer: str
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
     #: §4 dual registration; False for MCQ boards — pass/fail feedback over a
@@ -75,6 +79,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Grade-school math word problems",
         dataset_url="https://huggingface.co/datasets/openai/gsm8k",
+        # Grade-school material frontier models saturate — quick, cheap signal (OME-1257).
+        difficulty="easy",
         # Provenance: inspect_evals.gsm8k.gsm8k's Task declares scorer=match(numeric=True).
         scorer="inspect_ai.scorer:match",
         scorer_kwargs={"numeric": True},
@@ -97,6 +103,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Broad multi-subject knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/mmlu",
+        # Broad knowledge with real headroom, but no expert-frontier stakes (OME-1257).
+        difficulty="medium",
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
     ),
@@ -114,6 +122,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Grade-school science (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
+        # Grade-school material frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_easy. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
@@ -132,6 +142,9 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Hard science reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
+        # Built as the subset simple baselines get wrong — still differentiates the
+        # small/local models a fusion draws on, unlike its saturated Easy sibling (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_challenge. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
@@ -151,6 +164,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Everyday commonsense reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/tau/commonsense_qa",
+        # Everyday commonsense frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa. License: mit.
         scorer="inspect_ai.scorer:choice",
@@ -171,6 +186,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Paraphrase adjudication (yes/no)",
         dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
+        # Binary adjudication frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.paws.paws:paws. License: other.
         scorer="inspect_ai.scorer:includes",
@@ -193,6 +210,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Yes/no reading comprehension",
         dataset_url="https://huggingface.co/datasets/google/boolq",
+        # Passage-grounded yes/no frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
         scorer="inspect_ai.scorer:pattern",
@@ -215,6 +234,9 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Harder multi-discipline knowledge, ten options (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
+        # Harder than MMLU but still curated exam knowledge, not expert-written
+        # frontier work (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro. License: mit.
         scorer="inspect_ai.scorer:choice",
@@ -234,6 +256,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Commonsense pronoun resolution (binary choice)",
         dataset_url="https://huggingface.co/datasets/allenai/winogrande",
+        # Binary commonsense frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.winogrande.winogrande:winogrande. License: UNKNOWN.
         scorer="inspect_ai.scorer:choice",
@@ -253,6 +277,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Long-passage reading comprehension (multiple choice)",
         dataset_url="https://huggingface.co/datasets/ehovy/race",
+        # High-school reading exams frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.race_h.race_h:race_h. License: other.
         scorer="inspect_ai.scorer:choice",
@@ -274,6 +300,10 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Competition mathematics (AIME 2024)",
         dataset_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
+        # Competition-exam mathematics: hard for non-reasoning models, high but
+        # unsaturated for frontier reasoning models — headroom without expert
+        # professional stakes (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.aime2024.aime2024:aime2024.
         # License: mit.
@@ -299,6 +329,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Competition mathematics (AIME 2025)",
         dataset_url="https://huggingface.co/datasets/math-ai/aime25",
+        # Same tier as aime24 — the sibling year of one competition (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.aime2025.aime2025:aime2025.
         # License: apache-2.0.
@@ -324,6 +356,9 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Long-narrative multi-step reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TAUR-Lab/MuSR",
+        # Multi-step narrative reasoning frontier models handle well but do not
+        # saturate — headroom without expert stakes (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.musr.musr:musr.
         # License: cc-by-4.0.
@@ -344,6 +379,9 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Hazardous biosecurity knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Expert-written knowledge probe with real headroom; an MCQ capability
+        # measure, not expert work models visibly fail (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.wmdp.wmdp:wmdp_bio.
         # License: mit.
@@ -364,6 +402,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Hazardous chemical-security knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Same family and rubric as wmdp_bio (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.wmdp.wmdp:wmdp_chem.
         # License: mit.
@@ -384,6 +424,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Hazardous cybersecurity knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
+        # Same family and rubric as wmdp_bio (OME-1257).
+        difficulty="medium",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.wmdp.wmdp:wmdp_cyber.
         # License: mit.
@@ -411,6 +453,8 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Commonsense sentence continuation (multiple choice)",
         dataset_url="https://huggingface.co/datasets/Rowan/hellaswag",
+        # Everyday commonsense continuation frontier models saturate (OME-1257).
+        difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.hellaswag.hellaswag:hellaswag.
         # License: UNKNOWN on the HF card; MIT per the upstream source repo
@@ -448,6 +492,7 @@ def _assemble(spec: BoardSpec) -> ImportedBoard:
         description=spec.description,
         focus=spec.focus,
         dataset_url=spec.dataset_url,
+        difficulty=spec.difficulty,
         case_count=snapshot.case_count,
         revision_pins=_revision_pins(snapshot),
         scorer_factory=_scorer_factory(spec),

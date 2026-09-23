@@ -33,6 +33,7 @@ def _board(
         prepare=lambda out: {},
         install=lambda node, assets: None,
         with_check_surface=False,
+        difficulty="easy",
     )
 
 
@@ -59,6 +60,7 @@ def test_revision_is_deterministic_and_pin_sensitive() -> None:
         prepare=lambda out: {},
         install=lambda node, assets: None,
         with_check_surface=False,
+        difficulty="easy",
     )
     assert other.benchmark.revision != _board().benchmark.revision
 

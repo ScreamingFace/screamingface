@@ -88,6 +88,8 @@ def test_board_identity_and_mcq_declaration() -> None:
     assert board.declaration.as_block() == {
         "failure_policy": "coverage_declare",
         "interaction": "single_shot",
+        # OME-1257: broad knowledge with headroom, no expert-frontier stakes.
+        "difficulty": "medium",
     }
     assert board.case_count == 14042
 

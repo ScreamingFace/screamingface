@@ -215,6 +215,8 @@ MEDXPERT = Benchmark(
         # Declared because it doubles the invocation cost and changes what a Fusion entrant is
         # asked to do (the exchange wraps the ensemble, not each member).
         interaction="multi_turn",
+        # Expert-level medical questions frontier models still visibly fail (OME-1257).
+        difficulty="hard",
     ),
     # AIDEV-NOTE: no check_surface — deliberately. The declaration is a promise the SDK trusts
     # BEFORE spend: with one present, a corrective-loop run passes the pre-spend gate, burns paid
