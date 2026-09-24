@@ -110,6 +110,13 @@ class TaskFacts:
     #: the upstream seed when the eval has one, else a --shuffle-seed policy seed.
     upstream_shuffle: bool = False
     upstream_shuffle_seed: int | None = None
+    #: The eval shuffles each case's CHOICE order (hf_dataset shuffle_choices).
+    #: Same conservation story as the row shuffle, one level down: unseeded
+    #: (True) is random per run, so the import must pin one choice order —
+    #: the upstream seed when shuffle_choices is an int, else a
+    #: --choice-shuffle-seed policy seed (OME-1264).
+    upstream_shuffle_choices: bool = False
+    upstream_choice_shuffle_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -198,7 +205,26 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         system_message=system_message_ref,
         upstream_shuffle=bool(kwargs.get("shuffle")),
         upstream_shuffle_seed=kwargs.get("seed") if kwargs.get("shuffle") else None,
+        upstream_shuffle_choices=_shuffles_choices(kwargs.get("shuffle_choices")),
+        upstream_choice_shuffle_seed=_choice_shuffle_seed_fact(kwargs.get("shuffle_choices")),
     )
+
+
+def _shuffles_choices(raw: Any) -> bool:
+    """Whether hf_dataset's ``shuffle_choices`` value shuffles at all (False/None: no)."""
+
+    return raw is not None and raw is not False
+
+
+def _choice_shuffle_seed_fact(raw: Any) -> int | None:
+    """The upstream choice-shuffle seed, when ``shuffle_choices`` carries one.
+
+    WHY the bool guard: inspect reads ``shuffle_choices: bool | int | None`` and
+    checks bool BEFORE int because ``True`` IS an int — reading it as seed 1
+    would pin an order upstream never meant. Same precedence here.
+    """
+
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
 
 
 def _binding_signature(binding: Any) -> _inspect.Signature:
@@ -315,11 +341,11 @@ def _dataset_holds_the_stub(dataset: Any) -> bool:
 
 
 #: hf_dataset parameters the bake either reproduces (path/name/split/revision/
-#: sample_fields, shuffle via a pinned seed) or that cannot change the exam's
-#: content (auto_id renumbers ids the bake reassigns anyway; trust/cached/retry
-#: only affect how loading happens).
+#: sample_fields; shuffle and shuffle_choices via a pinned seed each) or that
+#: cannot change the exam's content (auto_id renumbers ids the bake reassigns
+#: anyway; trust/cached/retry only affect how loading happens).
 _REPRODUCED_DATASET_KWARGS: frozenset[str] = frozenset(
-    {"path", "name", "split", "revision", "sample_fields", "shuffle", "seed"}
+    {"path", "name", "split", "revision", "sample_fields", "shuffle", "seed", "shuffle_choices"}
 )
 _BENIGN_DATASET_KWARGS: frozenset[str] = frozenset({"auto_id", "trust", "cached", "retry"})
 
@@ -562,7 +588,11 @@ def _pin_prefix(key: str) -> str:
 
 
 def render_fragments(
-    key: str, facts: TaskFacts, observations: Observations, shuffle_seed: int | None = None
+    key: str,
+    facts: TaskFacts,
+    observations: Observations,
+    shuffle_seed: int | None = None,
+    choice_shuffle_seed: int | None = None,
 ) -> Fragments:
     """Render the three row fragments in the target files' own style."""
 
@@ -590,9 +620,11 @@ def render_fragments(
         f"{prefix}_DATASET_REVISION",
         f"{prefix}_SPLIT",
     ]
-    if shuffle_seed is not None:
-        pin_lines.append(f"{prefix}_SHUFFLE_SEED = {shuffle_seed}")
-        import_names.append(f"{prefix}_SHUFFLE_SEED")
+    seed_pins, seed_imports, seed_snapshot_lines = _seed_fragments(
+        prefix, shuffle_seed, choice_shuffle_seed
+    )
+    pin_lines.extend(seed_pins)
+    import_names.extend(seed_imports)
 
     snapshot_lines: list[str] = [
         f'    "{key}": SnapshotSpec(',
@@ -618,8 +650,7 @@ def render_fragments(
         )
         snapshot_lines.append("        # address a candidate's system role).")
         snapshot_lines.append(f'        system_message="{facts.system_message}",')
-    if shuffle_seed is not None:
-        snapshot_lines.append(f"        shuffle_seed={prefix}_SHUFFLE_SEED,")
+    snapshot_lines.extend(seed_snapshot_lines)
     for solver_name in facts.custom_solvers:
         snapshot_lines.append(
             f"        # TODO(review): solver {solver_name} is not reproduced by "
@@ -633,6 +664,31 @@ def render_fragments(
         board="\n".join(_board_lines(key, facts, license_note)) + "\n",
         import_names=tuple(import_names),
     )
+
+
+def _seed_fragments(
+    prefix: str, shuffle_seed: int | None, choice_shuffle_seed: int | None
+) -> tuple[list[str], list[str], list[str]]:
+    """The two conditional exam-identity seeds' fragment lines, in one place.
+
+    Returns (pin lines, import names, SnapshotSpec kwarg lines) — each seed
+    contributes to all three lists or to none, so the pin-name contract
+    (imported ⇔ referenced) cannot drift per seed.
+    """
+
+    pin_lines: list[str] = []
+    import_names: list[str] = []
+    snapshot_lines: list[str] = []
+    for constant_stem, seed in (
+        ("SHUFFLE_SEED", shuffle_seed),
+        ("CHOICE_SHUFFLE_SEED", choice_shuffle_seed),
+    ):
+        if seed is not None:
+            constant: str = f"{prefix}_{constant_stem}"
+            pin_lines.append(f"{constant} = {seed}")
+            import_names.append(constant)
+            snapshot_lines.append(f"        {constant_stem.lower()}={constant},")
+    return pin_lines, import_names, snapshot_lines
 
 
 def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
@@ -681,6 +737,7 @@ def generate_rows(
     *,
     engine_src: Path,
     shuffle_seed: int | None = None,
+    choice_shuffle_seed: int | None = None,
 ) -> Fragments:
     """Insert one board's generated rows into the three files, in place.
 
@@ -704,7 +761,9 @@ def generate_rows(
             "the diff review is the gate.",
             file=sys.stderr,
         )
-    fragments: Fragments = render_fragments(key, facts, observations, shuffle_seed)
+    fragments: Fragments = render_fragments(
+        key, facts, observations, shuffle_seed, choice_shuffle_seed
+    )
     # WHY compute-then-write: every insertion point is validated while building the
     # new texts, so a broken anchor refuses the WHOLE import — never a half-imported
     # tree that a retry then rejects as "already exists" (review finding on PR 966).
@@ -866,6 +925,13 @@ def main(
         help="seeded shuffle for grouped splits (the seed becomes exam identity)",
     )
     parser.add_argument(
+        "--choice-shuffle-seed",
+        type=int,
+        default=None,
+        help="pin one per-case choice order for an eval whose shuffle_choices is "
+        "unseeded (the seed becomes exam identity)",
+    )
+    parser.add_argument(
         "--engine-src",
         type=Path,
         default=Path(__file__).resolve().parent,
@@ -877,8 +943,12 @@ def main(
         facts: TaskFacts = introspect_task(args.task_ref, _parse_task_args(args.task_arg))
         # WHY: shuffle=True without a seed means the upstream order is random per
         # run — the import must pin ONE order. An explicit --shuffle-seed (policy)
-        # wins; otherwise the eval's own seed reproduces its order (the seeded
-        # shuffle applies the same permutation to an equal-length list).
+        # wins; otherwise the eval's own seed is pinned AS EXAM IDENTITY.
+        # AIDEV-NOTE: pinning upstream's seed does NOT reproduce upstream's row
+        # order — the bake shuffles with random.Random, upstream with HF's
+        # Dataset.shuffle (different algorithm, same seed). Harmless while rows
+        # are the only shuffle (any pinned order is a valid exam); combined with
+        # a choice shuffle it is refused below (review blocker on PR #1031).
         shuffle_seed: int | None = (
             args.shuffle_seed if args.shuffle_seed is not None else facts.upstream_shuffle_seed
         )
@@ -887,6 +957,11 @@ def main(
                 f"{args.task_ref}: the eval shuffles its exam order with no seed — "
                 "pass --shuffle-seed to pin one order as exam identity"
             )
+        # Same conservation one level down (choice order); the full refusal
+        # matrix lives in the helper's docstring.
+        choice_shuffle_seed: int | None = _resolved_choice_shuffle_seed(
+            args.task_ref, facts, args.choice_shuffle_seed, shuffle_seed
+        )
         observations: Observations = capture_observations(
             facts, dataset_info=dataset_info, count_rows=count_rows
         )
@@ -896,6 +971,7 @@ def main(
             observations,
             engine_src=args.engine_src,
             shuffle_seed=shuffle_seed,
+            choice_shuffle_seed=choice_shuffle_seed,
         )
     except ImporterError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -908,6 +984,59 @@ def main(
         "every TODO(review), then run the gates — a human must review the diff before merge."
     )
     return 0
+
+
+def _resolved_choice_shuffle_seed(
+    task_ref: str, facts: TaskFacts, flag_seed: int | None, row_shuffle_seed: int | None
+) -> int | None:
+    """The one pinned choice-order seed this import bakes with, or None.
+
+    The policy flag exists for exactly one situation: the eval shuffles choices
+    UNSEEDED, so someone must pick the order. Everywhere else the flag would
+    silently deviate from the exam upstream defines, so it refuses by name —
+    over a seeded upstream (upstream already picked ONE order; review finding
+    on PR #1031) and over an eval that does not shuffle choices at all. An
+    unseeded shuffle with no flag refuses too: conserved, never dropped.
+
+    One more cell refuses (review blocker on PR #1031): a choice shuffle
+    COMBINED with a row shuffle when upstream seeded either one. The bake's row
+    shuffle is Python's, upstream's is HF's ``Dataset.shuffle`` — same seed,
+    different order — and the choice shuffle draws each case's permutation from
+    one stream in row order, so the upstream-seeded exam cannot be reproduced.
+    With both seeds OURS (lab_bench) there is no fixed upstream exam to miss,
+    so the combination stays importable as pinned policy.
+    """
+
+    if facts.upstream_shuffle_choices:
+        if flag_seed is not None and facts.upstream_choice_shuffle_seed is not None:
+            raise ImporterError(
+                f"{task_ref}: the eval pins its own choice-shuffle seed "
+                f"({facts.upstream_choice_shuffle_seed}) — --choice-shuffle-seed would "
+                "bake a different exam than upstream ever produces; drop the flag"
+            )
+        if flag_seed is None and facts.upstream_choice_shuffle_seed is None:
+            raise ImporterError(
+                f"{task_ref}: the eval shuffles each case's choice order with no seed — "
+                "pass --choice-shuffle-seed to pin one choice order as exam identity"
+            )
+        if row_shuffle_seed is not None and (
+            facts.upstream_shuffle_seed is not None
+            or facts.upstream_choice_shuffle_seed is not None
+        ):
+            raise ImporterError(
+                f"{task_ref}: upstream seeds its shuffle, and a row shuffle combined "
+                "with a choice shuffle cannot reproduce that exam — the bake's row "
+                "shuffle is not HF's algorithm, and each case's choice order depends "
+                "on its row position; import this eval by hand or extend the bake to "
+                "replay HF's row permutation"
+            )
+        return flag_seed if flag_seed is not None else facts.upstream_choice_shuffle_seed
+    if flag_seed is not None:
+        raise ImporterError(
+            f"{task_ref}: --choice-shuffle-seed was passed but the eval does not "
+            "shuffle choices — the policy seed would bake a different exam; drop the flag"
+        )
+    return None
 
 
 def _parse_task_args(pairs: list[str]) -> dict[str, Any]:

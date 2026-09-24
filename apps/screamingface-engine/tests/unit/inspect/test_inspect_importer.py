@@ -841,13 +841,36 @@ def test_introspect_refuses_a_limit_the_bake_would_ignore(
         introspect_task(f"{_FAKE_MODULE}:limited")
 
 
-def test_introspect_refuses_shuffled_choices(monkeypatch: pytest.MonkeyPatch) -> None:
-    """shuffle_choices reorders the answer options — grading identity, not baked."""
+def test_introspect_records_an_unseeded_choice_shuffle_as_a_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1264 replaces the former refusal: shuffle_choices is now CONSERVED —
+    introspection records the fact, and main() demands a pinned seed before any
+    row is emitted (the unseeded refusal moved there, next to shuffle's).
+
+    WHY True must not become a seed: bool is an int subtype — reading
+    shuffle_choices=True as seed 1 would silently pin an order upstream never
+    meant (inspect itself checks bool before int for exactly this reason)."""
 
     _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
 
-    with pytest.raises(ImporterError, match="shuffle_choices"):
-        introspect_task(f"{_FAKE_MODULE}:shuffled")
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:shuffled")
+
+    assert facts.upstream_shuffle_choices is True
+    assert facts.upstream_choice_shuffle_seed is None
+
+
+def test_introspect_records_a_seeded_choice_shuffle_as_a_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An int shuffle_choices is inspect's seeded form — the seed is a fact."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:seeded")
+
+    assert facts.upstream_shuffle_choices is True
+    assert facts.upstream_choice_shuffle_seed == 9
 
 
 def test_introspect_refuses_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -966,6 +989,219 @@ def test_an_upstream_shuffle_seed_is_reproduced_in_the_rows(
 
     assert exit_code == 0
     assert "SEEDED_SHUFFLE_SEED = 42" in (engine_src_copy / "pins.py").read_text()
+
+
+def test_choice_shuffling_eval_requires_a_pinned_seed(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """shuffle_choices=True with no seed means each case's choice order is random
+    per run upstream; an import must pin ONE order (--choice-shuffle-seed) or
+    refuse — conserved, never dropped (OME-1264)."""
+
+    _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:shuffled", "--key", "shuffled", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    # By the derived constant stem — prose in pins.py already says "shuffled".
+    assert "SHUFFLED_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_upstream_row_seed_with_a_choice_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """Review blocker on PR #1031: the bake's row shuffle is Python's, upstream's
+    is HF's — same seed, different order — and the choice shuffle draws each
+    case's permutation from ONE stream in row order. So when upstream SEEDS a
+    shuffle (it defined one exam) and both shuffles combine, the bake cannot
+    reproduce that exam and must refuse, never ship a different one silently."""
+
+    _install_fake_eval(
+        monkeypatch, both=_task_with_dataset_kwargs(shuffle=True, seed=42, shuffle_choices=True)
+    )
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:both",
+            "--key",
+            "both",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "BOTH_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_upstream_choice_seed_with_a_row_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The symmetric bad cell: upstream pinned the CHOICE seed over the dataset's
+    own row order, so adding any row shuffle (here a policy --shuffle-seed) moves
+    every case's position and changes each permutation — refused, not shipped."""
+
+    _install_fake_eval(monkeypatch, seededchoices=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:seededchoices",
+            "--key",
+            "seededchoices",
+            "--shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "SEEDEDCHOICES_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_policy_seeded_double_shuffle_is_allowed(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The lab_bench cell stays importable: upstream seeds NEITHER shuffle, so
+    there is no fixed upstream exam to miss — both policy seeds pin one, and
+    both pins land in the rows."""
+
+    _install_fake_eval(
+        monkeypatch, policyboth=_task_with_dataset_kwargs(shuffle=True, shuffle_choices=True)
+    )
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:policyboth",
+            "--key",
+            "policyboth",
+            "--shuffle-seed",
+            "7",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    pins_text = (engine_src_copy / "pins.py").read_text()
+    assert "POLICYBOTH_SHUFFLE_SEED = 7" in pins_text
+    assert "POLICYBOTH_CHOICE_SHUFFLE_SEED = 7" in pins_text
+
+
+def test_a_policy_choice_shuffle_seed_is_reproduced_in_the_rows(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """--choice-shuffle-seed pins one choice order as exam identity: the pin row
+    and the SnapshotSpec field both land in the generated files."""
+
+    _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:shuffled",
+            "--key",
+            "shuffled",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert "SHUFFLED_CHOICE_SHUFFLE_SEED = 7" in (engine_src_copy / "pins.py").read_text()
+    assert (
+        "choice_shuffle_seed=SHUFFLED_CHOICE_SHUFFLE_SEED,"
+        in (engine_src_copy / "prepare.py").read_text()
+    )
+
+
+def test_an_upstream_choice_shuffle_seed_is_reproduced_in_the_rows(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """An eval that seeds its own choice shuffle is reproducible — the row carries
+    that seed with no flag needed (same resolution order as shuffle/seed)."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:seeded", "--key", "seeded", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert "SEEDED_CHOICE_SHUFFLE_SEED = 9" in (engine_src_copy / "pins.py").read_text()
+
+
+def test_choice_shuffle_seed_flag_is_refused_when_the_eval_pins_its_own(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """A seeded upstream (shuffle_choices=N) defines ONE exam — overriding it with
+    a policy seed would silently bake an exam upstream never produces (review
+    finding on PR #1031). The flag is refused, same rationale as the stray-flag
+    refusal one test down."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:seeded",
+            "--key",
+            "seeded",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "SEEDED_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_choice_shuffle_seed_flag_without_an_upstream_choice_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """Shuffling choices the eval does NOT shuffle would bake a different exam —
+    the stray policy flag refuses instead of silently deviating from upstream."""
+
+    _install_fake_eval(monkeypatch, plain=_task_with_dataset_kwargs())
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:plain",
+            "--key",
+            "plain",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "plain" not in (engine_src_copy / "pins.py").read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -1132,6 +1368,36 @@ def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
     assert snapshot.prompt_template is None
     assert snapshot.choice_template is None
     assert snapshot.shuffle_seed is None
+    assert snapshot.choice_shuffle_seed is None
+
+
+def test_emitted_choice_shuffled_snapshot_row_constructs_the_real_snapshot_spec(
+    engine_src_copy: Path,
+) -> None:
+    """The choice_shuffle_seed arm of the template: its pin must be emitted, be in
+    import_names, and construct the real SnapshotSpec (OME-1264)."""
+
+    from screamingface_engine_inspect.prepare import SnapshotSpec
+
+    fragments = generate_rows(
+        "quiz",
+        _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+        engine_src=engine_src_copy,
+        choice_shuffle_seed=7,
+    )
+
+    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+
+    snapshot: Any = namespace["SNAPSHOTS"]["quiz"]
+    assert isinstance(snapshot, SnapshotSpec)
+    assert snapshot.choice_shuffle_seed == 7
+    assert snapshot.shuffle_seed is None
+    # Both directions of the pin-name contract (same check as the maximal row).
+    referenced: set[str] = set(re.findall(r"\bQUIZ_[A-Z_]+\b", fragments.snapshot))
+    assert referenced == set(fragments.import_names)
 
 
 def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:

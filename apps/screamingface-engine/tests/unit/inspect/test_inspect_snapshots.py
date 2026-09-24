@@ -119,6 +119,151 @@ def test_mmlu_snapshot_shuffles_deterministically(tmp_path: Path) -> None:
     assert questions != [mcq_prompt(row["question"], row["choices"]) for row in _MMLU_ROWS]
 
 
+def _inspects_own_choice_shuffle(
+    spec: SnapshotSpec, rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    """The expected bake, computed through inspect's OWN mechanism: the
+    row-shuffled rows and their choice-shuffled Samples, in baked case order."""
+
+    import random
+    from importlib import import_module
+
+    from inspect_ai.dataset import MemoryDataset
+
+    ordered = list(rows)
+    if spec.shuffle_seed is not None:
+        random.Random(spec.shuffle_seed).shuffle(ordered)
+    module_name, _, attribute = spec.record_to_sample.partition(":")
+    record_to_sample = getattr(import_module(module_name), attribute)
+    samples = [record_to_sample(row) for row in ordered]
+    MemoryDataset(samples).shuffle_choices(seed=spec.choice_shuffle_seed)
+    return ordered, samples
+
+
+def test_choice_shuffle_bakes_inspects_own_order_and_remaps_the_target(tmp_path: Path) -> None:
+    """INVARIANT: a pinned choice_shuffle_seed applies inspect's OWN choice
+    shuffle over THE BAKE'S pinned row order — one random stream across the
+    whole dataset, target letter remapped.
+
+    Scope of the claim (review blocker on PR #1031): the expected values below
+    replay the bake's own Python row shuffle, so this test pins that the CHOICE
+    stage is inspect's mechanism over our row order — not that the combined
+    result matches what inspect would produce for the same seeds (it doesn't
+    when a row shuffle is active; the importer refuses that combination for
+    upstream-seeded evals, and ``test_hf_row_shuffle_is_not_pythons_row_shuffle``
+    is the witness)."""
+
+    from dataclasses import replace
+
+    spec = replace(SNAPSHOTS["mmlu"], choice_shuffle_seed=7)
+    emit_snapshot(spec, _MMLU_ROWS, tmp_path)
+    ordered, samples = _inspects_own_choice_shuffle(spec, _MMLU_ROWS)
+
+    shuffled_any = False
+    for case_id, (row, sample) in enumerate(zip(ordered, samples, strict=True), start=1):
+        baked = json.loads((tmp_path / "targets" / f"{case_id}.json").read_text(encoding="utf-8"))
+        assert baked["choices"] == [str(choice) for choice in sample.choices or []]
+        assert baked["target"] == sample.target
+        # Grading identity conserved: the baked letter still keys the row's own
+        # correct answer text, wherever the shuffle moved it.
+        assert baked["choices"][ord(baked["target"]) - ord("A")] == row["choices"][row["answer"]]
+        shuffled_any = shuffled_any or baked["choices"] != row["choices"]
+    # And the shuffle visibly reordered at least one case (seed 7 does, pinned).
+    assert shuffled_any
+
+
+def test_choice_shuffle_failure_is_a_named_bake_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bake's failure contract is uniform: eval code blowing up inside
+    inspect's choice shuffle (a non-letter target meeting the letter remap) must
+    surface as a PrepareError naming the stage, never a raw TypeError (review
+    finding on PR #1031)."""
+
+    import sys
+    import types
+
+    from inspect_ai.dataset import Sample
+
+    def bad_target_sample(row: dict[str, Any]) -> Sample:
+        return Sample(input="q", target="yes", choices=["a", "b"])
+
+    module = types.ModuleType("fake_bake_eval")
+    module.bad_target_sample = bad_target_sample  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "fake_bake_eval", module)
+    spec = SnapshotSpec(
+        dataset="acme/quiz",
+        config="",
+        split="test",
+        dataset_revision="c" * 40,
+        case_count=1,
+        record_to_sample="fake_bake_eval:bad_target_sample",
+        choice_shuffle_seed=7,
+    )
+
+    with pytest.raises(PrepareError, match="choice shuffle"):
+        emit_snapshot(spec, [{"q": "?"}], tmp_path)
+
+
+def test_choice_shuffled_bake_is_deterministic(tmp_path: Path) -> None:
+    """INVARIANT: the pinned choice order is exam identity — same rows, same
+    seed, byte-identical assets across bakes (OME-1264)."""
+
+    from dataclasses import replace
+
+    spec = replace(SNAPSHOTS["mmlu"], choice_shuffle_seed=7)
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    emit_snapshot(spec, _MMLU_ROWS, first_dir)
+    emit_snapshot(spec, _MMLU_ROWS, second_dir)
+
+    assert (first_dir / "cases.json").read_text(encoding="utf-8") == (
+        second_dir / "cases.json"
+    ).read_text(encoding="utf-8")
+    assert (first_dir / "targets" / "1.json").read_text(encoding="utf-8") == (
+        second_dir / "targets" / "1.json"
+    ).read_text(encoding="utf-8")
+
+
+def test_hf_row_shuffle_is_not_pythons_row_shuffle() -> None:
+    """The witness behind the importer's combined-shuffle refusal (review blocker
+    on PR #1031): upstream shuffles rows with HF's ``Dataset.shuffle(seed)``, the
+    bake with ``random.Random(seed)`` — same seed, DIFFERENT order. The choice
+    shuffle draws each case's permutation from one stream in row order, so an
+    upstream-seeded exam combined with any row shuffle cannot be reproduced.
+    Asserted through the real datasets API, never a copy of production's shuffle
+    — if the two orders ever converged, the refusal could be revisited."""
+
+    import random
+
+    datasets = pytest.importorskip("datasets")
+
+    rows = [{"i": i} for i in range(8)]
+    hf_order = [row["i"] for row in datasets.Dataset.from_list(rows).shuffle(seed=42)]
+    python_order = list(range(8))
+    random.Random(42).shuffle(python_order)
+
+    assert hf_order != python_order
+
+
+def test_without_a_choice_shuffle_seed_the_choice_order_is_upstreams(tmp_path: Path) -> None:
+    """The new field defaults to None — boards without it keep baking the
+    dataset's own choice order (append-only behavior for every existing board)."""
+
+    emit_snapshot(SNAPSHOTS["mmlu"], _MMLU_ROWS, tmp_path)
+    baked_choices = {
+        tuple(
+            json.loads((tmp_path / "targets" / f"{case_id}.json").read_text(encoding="utf-8"))[
+                "choices"
+            ]
+        )
+        for case_id in (1, 2, 3)
+    }
+    assert baked_choices == {tuple(row["choices"]) for row in _MMLU_ROWS}
+
+
 def test_mmlu_snapshot_refuses_a_row_without_a_question(tmp_path: Path) -> None:
     """A malformed row fails the whole bake by case number, never a raw KeyError."""
 
