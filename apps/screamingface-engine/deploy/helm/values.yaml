@@ -622,6 +622,17 @@ node:
     #         matchLabels:
     #           app.kubernetes.io/name: prometheus
     scrapeFrom: []
+  # The chart's own App-only NetworkPolicy for the node (`networkpolicy-node.yaml`). It is the
+  # node's AUTHENTICATION BOUNDARY, not hardening: the node trusts the `X-User-Email` the App
+  # injects, so any pod that reaches the node port can impersonate any caller.
+  #
+  # Set `enabled: false` ONLY when the platform renders an equivalent policy itself — e.g. a
+  # GitOps project that denies the NetworkPolicy kind to tenant charts, where the chart's copy
+  # would fail the whole sync. The replacement must admit ONLY the App (`name` AND
+  # `component: control-plane`) to `node.port`. `metrics.scrapeFrom` rides this same policy, so
+  # it renders nothing while this is off.
+  networkPolicy:
+    enabled: true
 
 # Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6). The node SIGNS the
 # 303 `Location`; the App VERIFIES that signature on `GET /artifacts/{id}` as an alternative to

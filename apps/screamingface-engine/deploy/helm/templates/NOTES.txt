@@ -16,7 +16,15 @@ The control plane holds no RBAC: it cannot create Pods, and the ServiceAccount
 The node tier (sync surface, unit 3) is running as:
   Deployment/{{ include "screamingface-engine.nodeName" . }} ({{ .Values.node.replicas }} replicas)
   Service/{{ include "screamingface-engine.nodeName" . }} (port {{ .Values.node.service.port }}, reachable only from the App)
+{{- if .Values.node.networkPolicy.enabled }}
   NetworkPolicy/{{ include "screamingface-engine.nodeName" . }} (App-only ingress; see the chart README's "The node tier" section for the label set an external aigateway policy must admit)
+{{- else }}
+
+WARNING: node.networkPolicy.enabled=false — the chart renders NO NetworkPolicy for the node.
+The node trusts the X-User-Email the App injects, so your platform MUST admit only the App
+(app.kubernetes.io/component: control-plane) to port {{ .Values.node.port }}, or any pod can
+impersonate any caller.
+{{- end }}
 {{- if not (or .Values.artifactSigning.existingSecret .Values.artifactSigning.signingKey) }}
 
 WARNING: the artifact-signing key is chart-generated (FX-91). It stays the same only when
