@@ -239,6 +239,16 @@ What to check, and why each check exists:
   reproduced, proven content-neutral, or refused/flagged. A guard scoped to one layer
   of that path just moves the silent gap to the next layer; and a complex source that
   imports with *no* flags is suspicious, not reassuring.
+- **Guards over unknown input: a list of what's allowed, never a list of what's
+  forbidden.** When code must catch settings it cannot honour (a config object, a
+  kwargs dict, an upstream enum), a forbidden-list silently admits every field it
+  forgot and goes stale each time the upstream library grows one. Confirmed on the
+  judge provider (OME-1240, PR #1051): the guard listed 10 forbidden sampling fields
+  out of GenerateConfig's ~50 — an eval setting only `reasoning_effort="high"` passed,
+  was dropped by the wire, and the judge graded at the gateway's default effort, a
+  silently different exam. Your check: any refusal guard over an open or growing input
+  surface must enumerate what it ACCEPTS and refuse the rest by name — a new upstream
+  field must fail loud by default. Fire at Action required.
 
 ## Lane 2 · The sealed envelope — grading integrity
 
