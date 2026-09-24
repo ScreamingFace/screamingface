@@ -490,14 +490,16 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: apache-2.0.
         scorer="inspect_evals.frontierscience.frontierscience:frontierscience_scorer",
         # The eval's default judge is "the active model" (model=None) — outside
-        # inspect's own eval loop that is nothing, so the import pins OUR judge:
-        # the house judge model HealthBench's judge also dials. NAMED DEVIATION:
-        # the FrontierScience paper grades with GPT-5 at high reasoning effort
-        # (publicly callable — see the eval's README), so scores from this board
-        # are NOT comparable to the published numbers; gpt-5.4 is chosen for
-        # house-judge consistency across our judged boards.
+        # inspect's own eval loop that is nothing, so the import pins OUR judge
+        # (the deviation note on JudgeSpec below says what the paper used).
         scorer_kwargs={"model": "screamingface/openrouter/openai/gpt-5.4"},
         judge=JudgeSpec(
+            # NAMED DEVIATION: the original FrontierScience paper uses GPT-5 at
+            # HIGH reasoning effort as the model judge
+            # (https://openai.com/index/frontierscience/). This board pins the
+            # house judge HealthBench's judge also dials, for judge consistency
+            # across our judged boards — so its scores are NOT comparable to the
+            # paper's published numbers.
             model="openrouter/openai/gpt-5.4",
             # HealthBench's judge-params precedent: grading is retrieval-free, the
             # token cap is an engine-side safety bound, and temperature is
