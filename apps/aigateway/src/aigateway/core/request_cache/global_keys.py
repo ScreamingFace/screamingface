@@ -14,9 +14,9 @@ auth-mode or credential parameter anywhere in this module, and the provider
 projection port is a function of the request body alone. That is what makes one
 row safe to share globally.
 
-INVARIANT: built from the hardened effective request after profile defaults are
-merged body-wins, and before auth-mode resolution, the auth-specific classifier,
-``prepare_chat_body`` and credential injection.
+INVARIANT: built from the caller's hardened request — no stored Profile default is
+merged into it since OME-1323 (D2) — and before auth-mode resolution, the
+auth-specific classifier, ``prepare_chat_body`` and credential injection.
 
 INVARIANT: fail safe, never fail loud. Every path that cannot be represented
 EXACTLY — an unknown parameter, a rule that declares ``bypass``, a value that

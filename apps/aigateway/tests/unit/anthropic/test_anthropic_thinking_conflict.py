@@ -30,7 +30,6 @@ combinations that predicate has to get right.
 from __future__ import annotations
 
 import json
-import logging
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -397,31 +396,3 @@ async def test_the_refusal_precedes_credential_access(
 
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "incompatible_parameters"
-
-
-# --- profile defaults participate ---------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_conflicting_profile_default_still_refuses_and_names_the_profile(
-    credential_blobs, authenticated_client, caplog
-) -> None:
-    # max_tokens can arrive from the stored profile (OME-638 merges defaults
-    # before classification, so the seam sees the same body dispatch would).
-    # The caller keeps ONE code — reasoning_effort is opted out of profile
-    # defaulting on this provider, so their own field always participates and
-    # they can fix either side — while the operator gets the profile named.
-    account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id, defaults=ProfileDefaults(max_tokens=128))
-
-    captured: dict[str, Any] = {}
-    with caplog.at_level(logging.WARNING), patch(_DISPATCH, _capture(captured)):
-        resp = _post(authenticated_client, _MANUAL, reasoning_effort="high")
-
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "incompatible_parameters"
-    assert captured == {}
-    assert any(
-        "profile=default" in record.getMessage() and "max_tokens" in record.getMessage()
-        for record in caplog.records
-    )

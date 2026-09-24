@@ -164,13 +164,11 @@ def test_a_hit_reads_no_huggingface_provider_credential(
 ) -> None:
     """The inversion this feature is FOR — stated precisely, not aspirationally.
 
-    AIDEV-NOTE: the claim is deliberately narrow. A hit DOES perform one profile-index read,
-    and that index is itself a ``credential_blobs`` row, so a hit costs one master-key
-    decryption — documented as the accepted pre-cache cost in the AIDEV-NOTE at
-    ``routes/chat_profile_defaults.py:68-71``. What must NOT happen is any
-    ``aigateway:huggingface:*`` credential read, auth-mode resolution, key injection or
-    provider dispatch. An earlier draft of this plan claimed "no credential work", which is
-    false and would have failed here.
+    AIDEV-NOTE: a hit must perform no ``aigateway:huggingface:*`` credential read, auth-mode
+    resolution, key injection or provider dispatch. Since OME-1323 (D2) it reads no profile
+    index either: the request that reaches the cache is exactly the caller's body, so no
+    Profile read runs ahead of the lookup and a hit touches ``credential_blobs`` not at all.
+    Before that cutover a hit still paid one profile-index read (one master-key decryption).
     """
     from aigateway.core.credential_blob.store import ORMStore
 
@@ -200,9 +198,9 @@ def test_a_hit_reads_no_huggingface_provider_credential(
     assert not [s for s in services if "huggingface" in s], (
         f"a hit read an aigateway:huggingface:* credential: {services}"
     )
-    # The accepted pre-cache cost, asserted POSITIVELY so the claim above stays honest: a hit
-    # does still touch the credential table once, for the profile index.
-    assert services, "expected the profile-index read, which is the accepted pre-cache cost"
+    # INVARIANT: a hit touches credential_blobs not at all — no provider credential and, since
+    # the D2 cutover, no profile index. The miss control above keeps this from being vacuous.
+    assert not services, f"a hit read a credential row: {services}"
     assert len(store.rows) == 1
 
 

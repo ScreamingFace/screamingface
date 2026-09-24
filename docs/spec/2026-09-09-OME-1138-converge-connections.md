@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
 created: 2026-09-09
-updated: 2026-09-16
+updated: 2026-09-24
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)
@@ -123,7 +123,8 @@ URL, authorization, dispatch failure), `profile_defaults.py` (legacy-defaults re
   `prof:`/`conn:`/`anon` strings in the window); `reauth_url`; `defaults` (window-only); a private
   backing handle that only the producing implementation reads. No `Profile`, `ProfileState`,
   `OAuthConnection`, UUID, slot or locator reaches a consumer.
-- `RequestDefaults`: structurally today's six-field `ProfileDefaults`; window-only; deleted with D2.
+- `RequestDefaults`: structurally today's six-field `ProfileDefaults`; window-only; unused once
+  the D2 cutover (stage C) lands, deleted with the Profile vocabulary at stage E.
 - Refusals (typed, core): `TargetMissing`, `TargetPending`, `TargetReauthRequired(reauth_url)`,
   `SelectorAmbiguous(provider)`, `SelectorUnknown(provider, requested, valid_labels)`,
   `WriteConflict(kind ∈ {retry_exhausted, superseded})` (admin interface; rendered 503
@@ -163,10 +164,12 @@ URL, authorization, dispatch failure), `profile_defaults.py` (legacy-defaults re
 `ProviderCredentialAdmin` (mutations, `app.state.provider_credential_admin`):
 
 7. `list(account_id, provider=None) -> tuple[CredentialSummary, ...]`.
-8. `set_api_key(account_id, provider, *, raw_api_key, legacy_name, defaults)` — Profile-backed:
-   `upsert_api_key_profile` with `legacy_name or "default"`; wholesale defaults replacement and
-   delete-wins preserved; both conflict contracts unchanged in the window: retry exhaustion → 503
-   `profile_index_conflict`, superseded publish (delete-wins) → 409 `profile_conflict`.
+8. `set_api_key(account_id, provider, *, raw_api_key, legacy_name)` — Profile-backed:
+   `upsert_api_key_profile` with `legacy_name or "default"`; delete-wins preserved; both conflict
+   contracts unchanged in the window: retry exhaustion → 503 `profile_index_conflict`, superseded
+   publish (delete-wins) → 409 `profile_conflict`. Until the D2 cutover the operation also took
+   `defaults` (wholesale replacement, `None` preserving); at stage C (`OME-1323`) that parameter
+   is removed, so the operation never writes defaults and stored values stay as they are.
 9. `delete(account_id, provider, *, legacy_name)` — Profile-backed: `delete_profile_for_account`
    (index CAS first, blob second, one transaction).
 
@@ -197,8 +200,11 @@ read path performs today, named so that consumers stop touching rows.
 
 Window: `POST /v1/chat/completions`, `GET /v1/model-parameters`, `POST /v1/models/admit` keep
 byte-identical contracts (header semantics, codes, `reauth_url` shapes, `scope`, `Vary`); all
-tenant and admin Profile routes and `/v1/oauth/connections*` are unchanged. Nothing outside the
-gateway process has to change to introduce the adapter.
+tenant and admin Profile routes and `/v1/oauth/connections*` are unchanged, with one deliberate
+exception at the D2 cutover (stage C, §3.7, `OME-1323`): the five writers — tenant and admin API-key
+PUT, OAuth start, tenant and admin PATCH — no longer declare `defaults` and answer a present
+`defaults` (`null` included) with 422 `defaults_not_accepted`; their response DTOs are unchanged.
+Nothing outside the gateway process has to change to introduce the adapter.
 
 Successors (each an owner decision, published only when the consumer that needs it is scheduled):
 
@@ -212,10 +218,12 @@ Successors (each an owner decision, published only when the consumer that needs 
 - Admin successor (D18): a pair-addressed, API-key-only, masked resource without a name segment and
   without defaults (`409` when a pair holds more than the single compatible record; the legacy
   routes remain the way to act on named records). Its final shape depends on D11/D12; the in-process
-  admin interface lands first so the HTTP shape changes once. The Admin UI cannot move its
-  attach/replace call before the D2 cutover because that call carries defaults.
-- Legacy Profile routes: unchanged behaviour in the window; OpenAPI deprecation flags and any
-  `schema.d.ts` regeneration are coordinated changes recorded with the gateway revision.
+  admin interface lands first so the HTTP shape changes once. The Admin UI's attach/replace call
+  has sent only the key since the UI half of the D2 cutover (`OME-1322`); it moves to this successor
+  with D18.
+- Legacy Profile routes: unchanged behaviour in the window, except the five writers' `defaults`
+  refusal from stage C (above); OpenAPI deprecation flags and any `schema.d.ts` regeneration are
+  coordinated changes recorded with the gateway revision.
 
 ### 3.6 Legacy selector handling
 
@@ -240,16 +248,23 @@ the policy. Hosted listing routes retire with a code, never with an empty list.
 `defaults_for` stays on the interface as a distinct never-raising operation, but its Profile-backed
 body is a separately composable legacy-defaults reader (window-only) that the Profile-backed
 implementation delegates to and that any later backing composes unchanged until stage C, so
-switching the backing and cutting over defaults remain independent switches (D16); chat keeps its
-order: defaults → merge → cache lookup → resolve. No defaults enter Connections, slots, presets, jobs or any new HTTP
-resource; the successor admin request forbids a `defaults` key (422) instead of ignoring it; the
-Profile-backed `set_api_key` passes `defaults=None` from any defaults-free caller so stored values
-are preserved, never wiped. At the explicit cutover: `defaults_for`, `apply_defaults`,
-`CredentialTarget.defaults`, the chat merge, `invalid_profile_defaults` attribution and the request
-fields go together; legacy writes carrying defaults are rejected; the UI fieldset and its tests
-retire; cache-key impact is tested, not assumed. A backing switch performed before the cutover must
-keep reading the encrypted legacy index for defaults only (D16), otherwise defaults would silently
-stop applying.
+switching the backing and cutting over defaults remain independent switches (D16); until the
+cutover chat keeps its order: defaults → merge → cache lookup → resolve. No defaults enter Connections, slots, presets, jobs or any new HTTP
+resource; the successor admin request forbids a `defaults` key (422) instead of ignoring it; until
+the cutover the Profile-backed `set_api_key` passes `defaults=None` from any defaults-free caller so
+stored values are preserved, never wiped. At the explicit cutover (stage C; the UI fieldset first in
+`OME-1322`, then the gateway in `OME-1323`): chat stops calling `defaults_for` and `apply_defaults`
+and its order becomes cache lookup → resolve, so request parameters are the caller's and system
+instructions arrive as system-role messages; the chat merge, `invalid_profile_defaults` attribution
+and the request fields go together; `set_api_key` loses its `defaults` parameter and never writes
+defaults, so stored values stay as they are; legacy writes carrying a `defaults` property, `null`
+included, are rejected with a secret-safe 422 `defaults_not_accepted` before any side effect; the UI
+fieldset and its tests retire; cache-key impact is tested, not assumed — a request without stored
+defaults keys byte-identically before and after, with no key-version or contract-revision bump and
+no cache reset. `defaults_for`, `apply_defaults`, the plugin veto `should_apply_profile_default` and
+`CredentialTarget.defaults` stay declared, with no production caller, until stage E removes the
+Profile vocabulary. A backing switch performed before the cutover must keep reading the encrypted
+legacy index for defaults only (D16), otherwise defaults would silently stop applying.
 
 ### 3.8 Connection-native paths and the dual write
 
@@ -264,12 +279,12 @@ Connections could otherwise resurrect a deleted credential.
 
 | Path | Before (17048f5d) | After A1/A2 (window) |
 | --- | --- | --- |
-| Chat | `chat.py:242` parse → `:306` `profile_defaults_for_key` → merge → cache → `:361` `_credential_target_for_chat` → `resolved_auth_mode(profile, connection)` → `:461` `_inject_credentials(profile, connection)` → dispatch → `chat_dispatch.py:45` marks Profile/Connection | `Selector.from_header` → `defaults_for` → `apply_defaults` → cache (unchanged) → `resolve(DISPATCH)` → `auth_mode(target)` → `authorize(target)` + `apply_authorization` → dispatch → `record_dispatch_failure(target)`; same order, same codes |
+| Chat | `chat.py:242` parse → `:306` `profile_defaults_for_key` → merge → cache → `:361` `_credential_target_for_chat` → `resolved_auth_mode(profile, connection)` → `:461` `_inject_credentials(profile, connection)` → dispatch → `chat_dispatch.py:45` marks Profile/Connection | `Selector.from_header` → `defaults_for` → `apply_defaults` → cache (unchanged) → `resolve(DISPATCH)` → `auth_mode(target)` → `authorize(target)` + `apply_authorization` → dispatch → `record_dispatch_failure(target)`; same order, same codes. From C (`OME-1323`): `Selector.from_header` → cache on the caller's body → `resolve(DISPATCH)` → …, no `defaults_for` / `apply_defaults` |
 | Model parameters | `:134` parse → `:140` resolver with `missing_target_ok` → `_contract_auth_mode(plugin, profile, connection)` → `_context_identity` reads fields → scope/Vary | `Selector` → `resolve(DATASHEET)` → `contract_auth_mode(target)` → `target.context_stamp` → scope/Vary literals unchanged |
 | Admission | `:106` parse → resolver → string-match codes → presence | `Selector` → `resolve(DISPATCH)` → catch `TargetReauthRequired`/`TargetPending` → same relayed pairs → `target.kind == "stored"` |
 | Hosted Engine | `app.py:404` profiles → `GET /v1/auth/profiles` → 3-state aggregation → Connection DTO | window: identical; after D17: one adapter-internal switch to the successor listing, `listing_source` → a hosted/local mutability flag, DTO unchanged (SDK decoder untouched) |
 | Local Engine | `/v1/oauth/connections*`, label `screamingface` | unchanged; label rule reconciled with the effective rule only at Stage B (D3) |
-| Admin UI | admin Profile routes; PUT with six-field defaults | window: identical; list/delete may move after D18; attach/replace moves only with the D2 cutover |
+| Admin UI | admin Profile routes; PUT with six-field defaults | window: identical; list/delete may move after D18; attach/replace waited for the D2 cutover — since C (`OME-1322`) the defaults fieldset is gone and the key-only call stays on the legacy route until D18 publishes a successor |
 | SDK | relayed codes, scope literal, strict decoder | unchanged until the sunset renames codes (same release train as the gateway change) |
 | Carrier chain | REST → `schedule(profile=)` → env → runner → header → gateway | unchanged; retired at Stage D after disposition |
 
@@ -286,7 +301,7 @@ otherwise.
 | Admission | `routes/model_admission.py:106-131` | D/W | typed refusals; same relayed codes | A2 | yes |
 | Dispatch failure marking | `routes/chat_dispatch.py:30-35,45-94` | D | `record_dispatch_failure`; module imports no row types | A1/A2 | yes |
 | Resolver cluster | `routes/chat_credentials.py:33-483` | D | becomes the Profile-backed implementation; shim keeps names | A1 | implementation |
-| Pre-cache defaults read | `routes/chat_profile_defaults.py:37-85,88-142` | D | `defaults_for`; rejection helper stays; both retire at C | A1 / C | implementation |
+| Pre-cache defaults read | `routes/chat_profile_defaults.py:37-85,88-142` | D | `defaults_for`; rejection helper stays; at C chat stops calling both, and the shims stay without a production caller until E | A1 / C / E | implementation |
 | Composition root | `main.py:406-408,295-307` | — | wire `provider_access` (A1) and `provider_credential_admin` (A3); conflict handler unchanged in window | A1/A3 | yes |
 | Tenant Profile routes | `routes/auth.py:498-518,1158-1424` | D | list/get render `availability`/`list`; PUT/DELETE become shells over the admin interface; PATCH/OAuth/refresh untouched; retire at E | A3 / E | yes (sunset) |
 | Admin Profile routes | `routes/admin.py:243-258,285-337` | D | shells over the admin interface; PATCH stays direct; DTO unchanged | A3 / E | yes |
@@ -301,9 +316,9 @@ otherwise.
 | Engine carrier chain | Engine `rest/routes.py:485-488,524`; `ports.py:68`; `adapters/inprocess.py:179-185`; `runner_queue.py:227-228`; `worker/supervisor.py:741-742`; `runner/main.py:281`; `runner/connector.py:885-886`; `catalog/aigateway.py:239-240`; `connections/aigateway.py:410-411` | S | unchanged; Stage 0 pins ambient inheritance; retire at D after disposition and env audit | D | selector-only |
 | URL4 `schedule(profile=)` | `packages/url4/src/url4/streaming/interfaces/jobs.py:79-89` | S | unchanged; retire after Engine (S9 after S6) | D | selector-only |
 | Admin UI list/delete | `client.ts:249-251,271-280`; `actions.ts:219-237`; `detail.tsx:127-143` | D | unchanged in window; moves after D18 | D18 | yes |
-| Admin UI attach/replace + defaults | `actions.ts:161-217`; `client.ts:259-269`; `form.tsx:170-192` | D | stays on the legacy route until the D2 cutover; then defaults controls drop and the call moves | C | yes |
+| Admin UI attach/replace + defaults | `actions.ts:161-217`; `client.ts:259-269`; `form.tsx:170-192` | D | stays on the legacy route until the D2 cutover; at C (`OME-1322`) the defaults controls dropped and the call sends only the key; the call moves once D18 publishes a successor | C / D18 | yes |
 | Admin UI error classification | `client.ts:105-123`; `lib/auth.ts:66-70` | W | unchanged while 503 `profile_index_conflict` and 409 `profile_conflict` are emitted; successor codes mapped at D18/C | D18 | yes |
-| Admin UI schema | `lib/aigateway/schema.d.ts` | G | regenerate when OpenAPI changes; record the gateway revision | D18 / C | yes |
+| Admin UI schema | `lib/aigateway/schema.d.ts` | G | regenerate when OpenAPI changes; record the gateway revision; regenerated at C by `OME-1323` (the five writer request models lose `defaults`) | D18 / C | yes |
 | SDK diagnostics, scope, decoder, e2e pin | `_engine/catalog.py:233-313`; `discovery.py:162-223`; `_engine/connections.py:56-63`; `tests/e2e/test_replay_plumbing.py:89-93` | W | no change while today's codes are emitted; mapping edit in the same release train as any rename | D | no (window) |
 | Desktop tracked bundles | `apps/desktop/out/*` | unrelated | untouched (D9) | — | no |
 | Test layer: HTTP pins | `test_chat_x_profile.py`, `test_model_parameters_route.py:99-148`, `test_chat_global_cache_effective_request.py:351,497`, `test_chat_request_cache.py`, openrouter admission | — | acceptance suite for A1–A4; green unmodified | A1 | no |
@@ -324,7 +339,7 @@ Each stage is its own gate; later stages inherit nothing from an earlier approva
 | **A3** admin interface + shells | facade bodies relocated; tenant/admin PUT/DELETE/list become shells; `availability` implemented | OME-307 suites and PostgreSQL races green unmodified; wholesale-replacement pin; JSON parity for tenant listing; no secret build on availability; both conflict contracts preserved (503 retry-exhausted, 409 delete-wins); `availability` equals Engine `decode_profile_statuses` per fixture | admin adapter tests; listing parity; availability golden |
 | **A4** Hosted Engine on the successor listing (needs D17; two units — gateway route and Engine adapter, rule 8) | successor route; Engine hosted branch switched; `listing_source` → mutability flag; decoder replaced | per-fixture equality with today's aggregation; hosted mutations still refused before I/O; Engine `/v1/connections` DTO field set unchanged; SDK suites untouched and green; e2e replay lane green | gateway route tests (scoping, no defaults/ids/labels, no-store); Engine adapter tests incl. malformed body; layering gate |
 | **B** backing transition (needs D11, D14, Q01–Q04) | option (a): S1 slot store + pair-marker authority + S4 backfill + R1 rehearsal + Connection-backed implementations; option (b): internal aggregate and its migration, still publishing Connections as the credential resource; bootstrap through the admin interface; fixture swap of the 18 feature suites; the 2 facade suites split (HTTP contract kept, storage assertions moved); the bootstrap suite re-targeted; the 4 storage-invariant suites untouched and new-store invariant suites added | port contract suites pass against the new implementation with consumers unedited; commit-time authority checks on every writer; quarantine keeps legacy authority; rollback rehearsed | §11 storage/authority/mapping/backfill/rollback matrices |
-| **C** D2 cutover | §3.7 removals; legacy writes with defaults rejected; UI fieldset drops; attach/replace moves | saved defaults never influence requests; explicit parameters validate; no ignored writes; no wrong cache hits across the transition | REMOVE matrix; retired defaults tests with recorded mapping |
+| **C** D2 cutover | §3.7 removals; legacy writes with defaults rejected; UI fieldset drops (the attach/replace call moves with D18, not in C) | saved defaults never influence requests; explicit parameters validate; no ignored writes; no wrong cache hits across the transition | REMOVE matrix; retired defaults tests with recorded mapping |
 | **D** D4 selector sunset + carriers + vocabulary | reject policy; Engine stops emitting (S6), URL4 retires (S9); Vary/scope; neutral codes if adopted; SDK/e2e/UI copy in the same train | accepted work drained or dispositioned; ambient env audited; no silent retarget anywhere | 400 tests; carrier matrix; SDK mapping incl. retryable pending |
 | **E** retirement and cleanup (G6, D6) | legacy Profile routes, classes, index store, bootstrap path, shims, hooks rename; tooling retirement list; guarded blob cleanup | named rollback build reads all it needs; no referenced blob deleted; catalog checks green after M0 | reference-fencing tests; tooling tests |
 
@@ -405,7 +420,7 @@ Conflicts are presented, not resolved.
 | D5 | Rollback | tested R1 after the first canonical write; R0 needs proof | preserved (Stage B) |
 | D6 | Retention | API sunset separate from data retention | preserved (Stage E) |
 | D7 | Units | first units were S1–S3 | **re-approved 2026-09-14:** Stage 0 then A1 are the first units; U0/U0e/U1 authorised and filed; stop after A1 for review; A2–A4 and any backing migration need a new authorisation |
-| D8 | Admin API | API-key only, masked, no OAuth start, no defaults editor | preserved; correction: the UI has a defaults fieldset on attach today (no PATCH editor) |
+| D8 | Admin API | API-key only, masked, no OAuth start, no defaults editor | preserved; correction: the UI had a defaults fieldset on attach (no PATCH editor), dropped at C by `OME-1322` (PR #1043) |
 | D9 | Desktop output | untouched | preserved |
 | D10 | Catalog retirement | built-in `supersedes`, deprecate without deletion | preserved |
 | D11 | Backing model | (a) transfer to Connections + slot, remove Profiles; (b) rework the current Profile mechanisms into an internal aggregate that still publishes Connections as the credential resource | **decided 2026-09-22 (owner; design PR #23): (a), conservatively** — one deterministic effective credential per `(account, provider)` pair, no selectable accounts or credentials per provider; Stage B moves credential authority to Connections through the `provider_credential_slots` pair marker and locator-authoritative reads without secret re-entry (`OME-1208`); Profile storage, routes and schemas are retained until Stage E (`OME-1209`); D17/D18 shapes follow from it; whether `Selector` survives is D12 (Stage D) |
@@ -415,9 +430,9 @@ Conflicts are presented, not resolved.
 | D15 | Hosted read-only rule | (a) explicit mutability flag; (b) gateway-side policy | **decided 2026-09-14: (a)** explicit flag on the Engine connections adapter, Hosted `mutable=False`, Local `mutable=True`; any Hosted mutation refused before network or storage I/O; applied at A4 |
 | D16 | Defaults during transition | (a) legacy index read-only for defaults until cutover; (b) cutover precedes the switch | **decided 2026-09-22 (owner; design PR #23): (a)** — a migrated pair's legacy index entry remains a defaults-only compatibility document during the transition; Stage B creates no Connection defaults, presets or hidden saved defaults; the full REMOVE at Stage C (D2) is unchanged |
 | D17 | Availability successor | (a) neutral `GET /v1/provider-access` (recommended); (b) `?effective=true`; plus whether Connection-only accounts fold into the window listing | **decided 2026-09-14: (a)** caller-scoped read-only `GET /v1/provider-access` returning only `provider` and `status` ∈ {not_connected, pending, connected, needs_reauth, error}; the Profile-backed implementation never emits `needs_reauth` in the window; no ids, labels, defaults, `auth_method`, `account_label` or secrets; `private, no-store`; `X-Profile` non-selecting; A3 reproduces the Engine aggregation with golden-equivalence tests; the Hosted Engine switch is A4, separately |
-| D18 | Admin HTTP successor | pair-addressed neutral resource: publish after D11, or now beside the legacy routes | **open**; the UI attach call cannot move before C regardless; the UI defaults fieldset stays until C unless the owner drops it earlier; conflict codes on the successor to confirm — the legacy contract has two (503 retry-exhausted, 409 superseded-by-delete) |
+| D18 | Admin HTTP successor | pair-addressed neutral resource: publish after D11, or now beside the legacy routes | **open**; the UI defaults fieldset dropped at C (`OME-1322`, PR #1043), so the key-only attach/replace call now waits only on this successor; conflict codes on the successor to confirm — the legacy contract has two (503 retry-exhausted, 409 superseded-by-delete) |
 | D19 | Module naming | no file introduced by the provider-access unit has a name beginning with `_`; `__init__.py` is the required Python exception; underscores between words in `snake_case` names are allowed | **decided 2026-09-15**; applied by `OME-1204` (A1 follow-up: five package modules and two test helpers renamed, rename-only); binds A3's `profile_admin.py` and every later module of the package |
-| D20 | Provider identity naming | final product/API/domain noun is `Connection`; `provider access` is the boundary/successor family; `Profile` is legacy compatibility/current backing only; `Provider Account` is not a resource/API/UI noun | **decided 2026-09-16** by `OME-1210`; binds OME-1207 wording and every successor API/doc/UI change; D11 remains open for backing mechanics |
+| D20 | Provider identity naming | final product/API/domain noun is `Connection`; `provider access` is the boundary/successor family; `Profile` is legacy compatibility/current backing only; `Provider Account` is not a resource/API/UI noun | **decided 2026-09-16** by `OME-1210`; binds OME-1207 wording and every successor API/doc/UI change; it settles naming only — the backing mechanics are D11, decided separately on 2026-09-22 |
 
 Q01–Q07 and M0 stand as in the previous revision (versions and external callers; authorised census
 and key access; writer fencing; rollback rehearsal; D3/D4 compatibility; clean branch; catalog
@@ -436,7 +451,7 @@ mechanism survives in §7. No owner decision is contradicted.
 | S4 backfill | necessary for D11(a), unchanged in content; after D14 | option (b) needs the same discipline for its own migration |
 | S5 Hosted Engine | reordered to A4 (after D17), before any storage work | one switch only |
 | S6/S9 carrier retirement | unchanged; Stage D | disposition-gated |
-| S7 Admin UI | later than before: list/delete after D18, attach/replace with C | the attach call carries defaults |
+| S7 Admin UI | later than before: the defaults fieldset dropped at C (`OME-1322`); list/delete and the key-only attach/replace move with D18 | the attach call carried defaults until C |
 | S8 SDK | no work in the window; mapping edit only at D | codes unchanged |
 | S11 cutover, S12 cleanup, S13 catalog | unchanged in content; S13 gains additive text at A1 | as before |
 | Route-level "facade in chat_credentials.py" | redundant | the cluster itself becomes the implementation |
@@ -454,8 +469,9 @@ mechanism survives in §7. No owner decision is contradicted.
   silently weaken the CAS, locking, delete-wins and bootstrap checks; only the 18 feature suites are
   fixture candidates. The facade suites carry a second risk: leaving their storage-specific
   assertions unsplit at B either breaks them or lets them silently stop covering the new backing.
-- Two independent index reads per chat request must stay independent; a persistent index fault is
-  an unhandled exception today; both pinned, neither changed.
+- Until C a chat request made two independent index reads; since C (`OME-1323`) the pre-cache
+  defaults read is gone and only the resolver's remains; a persistent index fault there is an
+  unhandled exception today; pinned, not changed.
 - Relocating a 483-line module carrying SF-282/SF-244/OME-1167 invariants; shims and parity tests
   are the guard; three test modules import by path, one scans the module object, two patch the
   `routes.chat` namespace (re-expressed at A2) and one patches the class method.

@@ -38,7 +38,6 @@ from ..core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..core.profile_models import (
     AuthType,
     Profile,
-    ProfileDefaults,
     ProfileState,
     credential_name_for,
     profile_id_for,
@@ -67,6 +66,7 @@ from .provider_access_http import (
     refusals_as_http,
     render_refusal,
 )
+from .saved_defaults_refusal import AccountRefusingSavedDefaults
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -553,7 +553,6 @@ async def get_profile(provider: str, name: str, request: Request, current: Curre
 
 class StartAuthRequest(BaseModel):
     name: str
-    defaults: ProfileDefaults | None = None
     redirect_uri: str | None = None
 
 
@@ -562,7 +561,10 @@ async def start_oauth(
     provider: str,
     body: StartAuthRequest,
     request: Request,
-    current: CurrentAccount,
+    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency, after
+    # authentication and before the body is validated, the loopback listener, the pending flow
+    # or any index write exists.
+    current: AccountRefusingSavedDefaults,
 ) -> dict:
     plugin = _registry(request).get(provider)
     if plugin is None:
@@ -603,7 +605,6 @@ async def start_oauth(
                 provider=provider,
                 name=body.name,
                 scopes=cfg.scopes,
-                defaults=body.defaults,
             )
         generation = (
             None
@@ -680,8 +681,6 @@ async def _begin_legacy_pending(
         )
     profile.scopes = list(cfg.scopes)
     profile.state = ProfileState.PENDING
-    if body.defaults is not None:
-        profile.defaults = body.defaults
     # begin_pending is what assigns the ownership generation the callback later presents to
     # authenticate_pending (OME-307 Blocker 1).
     return await _index_store(request).begin_pending(profile)
@@ -1295,7 +1294,6 @@ async def profile_status(
 
 
 class PatchProfileRequest(BaseModel):
-    defaults: ProfileDefaults | None = None
     account_label: str | None = None
 
 
@@ -1305,7 +1303,9 @@ async def patch_profile(
     name: str,
     body: PatchProfileRequest,
     request: Request,
-    current: CurrentAccount,
+    # INVARIANT (OME-1323, D2): only the label is editable; a `defaults` member is refused by
+    # this dependency before the body is validated, and historical defaults stay as stored.
+    current: AccountRefusingSavedDefaults,
 ) -> dict:
     # FEATURE (OME-1208 S2'b3): metadata stays on the compatibility document (D16 (a)); the
     # response renders a migrated pair's state from its effective Connection.
@@ -1315,9 +1315,7 @@ async def patch_profile(
     if target is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     try:
-        p = await patch_facade(
-            request.app, target, defaults=body.defaults, account_label=body.account_label
-        )
+        p = await patch_facade(request.app, target, account_label=body.account_label)
     except ProfileTransitionConflict as exc:
         raise HTTPException(
             status_code=409,
@@ -1330,7 +1328,6 @@ class SetApiKeyRequest(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     api_key: SecretStr
-    defaults: ProfileDefaults | None = None
 
 
 @router.put("/v1/auth/{provider}/profiles/{name}/api-key")
@@ -1339,7 +1336,9 @@ async def set_profile_api_key(
     name: str,
     body: SetApiKeyRequest,
     request: Request,
-    current: CurrentAccount,
+    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency before the
+    # body is validated or the key is.
+    current: AccountRefusingSavedDefaults,
 ) -> dict:
     """Create or update the CALLER's own API-key profile.
 
@@ -1352,7 +1351,6 @@ async def set_profile_api_key(
         name=name,
         account_id=str(current.id),
         raw_api_key=body.api_key,
-        defaults=body.defaults,
     )
 
 
@@ -1363,7 +1361,6 @@ async def upsert_api_key_profile(
     name: str,
     account_id: str,
     raw_api_key: SecretStr,
-    defaults: ProfileDefaults | None,
 ) -> dict:
     """Create or update a profile that authenticates with a raw API key — the ONE shared shell.
 
@@ -1387,7 +1384,7 @@ async def upsert_api_key_profile(
 
     with refusals_as_http():
         summary = await _credential_admin(request).set_api_key(
-            account_id, provider, raw_api_key=api_key, legacy_name=name, defaults=defaults
+            account_id, provider, raw_api_key=api_key, legacy_name=name
         )
     # INVARIANT (OME-307 Unit 5): only after the API-key publication COMMITS do we
     # irreversibly cancel any in-flight OAuth flow for this profile. A late OAuth callback is

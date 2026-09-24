@@ -117,11 +117,11 @@ class SetAdminApiKeyRequest(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     api_key: SecretStr
-    defaults: ProfileDefaults | None = None
 
 
 class PatchAdminProfileRequest(BaseModel):
-    defaults: ProfileDefaults | None = None
+    # WHY no `defaults` (OME-1323, D2): saved defaults are no longer written; a body that still
+    # carries the member is refused by the route before this model matters.
     account_label: str | None = None
 
 

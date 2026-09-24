@@ -38,7 +38,7 @@ from ..oauth.store import OAuthConnectionStore, credential_locator_for
 from ..pending_auth import PendingAuthEntry
 from ..plugin_base import credential_service_provider_for, credential_strategy_from
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import Profile, ProfileDefaults, ProfileState, profile_id_for
+from ..profile_models import Profile, ProfileState, profile_id_for
 from . import profile_admin
 from .auth_mode import auth_type_of
 from .connection_authority import LEGACY_STATE_FOR_STATUS
@@ -67,7 +67,6 @@ async def begin_connection_oauth(
     provider: str,
     name: str,
     scopes: Sequence[str],
-    defaults: ProfileDefaults | None,
 ) -> MigratedFlow | None:
     """Open the flow on a MIGRATED pair, or answer `None` when the legacy Profile owns the pair.
 
@@ -85,8 +84,7 @@ async def begin_connection_oauth(
     document = await index.get(account_id, provider, name)
     mirror = _document(document, account_id=account_id, provider=provider, name=name)
     mirror.scopes = list(scopes)
-    if defaults is not None:
-        mirror.defaults = defaults
+    # INVARIANT (OME-1323, D2): the mirror keeps the document's historical defaults as stored.
     if reuse is None:
         mirror.state = ProfileState.PENDING
     else:

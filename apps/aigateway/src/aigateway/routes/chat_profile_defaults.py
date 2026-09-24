@@ -1,26 +1,15 @@
-"""Profile defaults at the chat route: what enters the KEY, and who is BLAMED.
+"""Retained shims from the saved-defaults era: no production caller since OME-1323 (Stage C).
 
-Both members here exist for the same reason — a stored profile default is merged into
-the caller's request and then travels through the gateway as if the caller had sent
-it. ``profile_defaults_for_key`` puts those values inside the global cache key
-(OME-305 §57); ``_parameter_rejection_exception`` attributes a classification failure
-back to the profile that really caused it (OME-638). Split out of ``routes/chat.py``,
-which was at its size limit.
+``profile_defaults_for_key`` read a caller's stored Profile defaults ahead of the cache so the
+global key could cover the EFFECTIVE request (OME-305 §57); ``_parameter_rejection_exception``
+attributed a classification failure to a stored default (OME-638). Stage C (D2) retired both
+behaviours: request parameters are the caller's, the chat route reads no stored default and
+merges nothing, and a parameter rejection is always the caller's own.
 
-FEATURE: one globally shared exact-request cache, keyed on the EFFECTIVE request,
-plus one parameter contract that treats a stored default exactly like a sent value.
-
-STORY: as an operator I keep a per-profile ``system_prompt`` so my callers can send a
-bare body. The cache must treat my two profiles' bare bodies as the two DIFFERENT
-requests they really are, while still sharing a row with anyone whose request happens
-to be identical once defaults are applied.
-
-AIDEV-NOTE (OME-1200): ``profile_defaults_for_key`` is now a compatibility shim over the
-provider-access port's ``defaults_for`` (``core/provider_access/profile_defaults.py`` holds the
-read and its invariants). It stays deliberately separate from ``chat_credentials``: that path
-resolves a dispatchable credential by RAISING — 404 ``profile_not_found``, 409
-``profile_pending_auth``, 401 ``auth_required`` — while this read runs BEFORE the cache lookup,
-where any of those raises would refuse a request the cache could have served.
+AIDEV-NOTE: both names stay importable and behave exactly as before until Stage E removes them
+together with ``defaults_for`` / ``apply_defaults`` (OME-1209). Do not wire either back into the
+chat route: a stored value merged ahead of the key re-opens the wrong-hit and the
+refuse-a-value-the-caller-never-sent classes Stage C closed.
 """
 
 from __future__ import annotations

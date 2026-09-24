@@ -145,10 +145,13 @@ def test_an_unreadable_marker_store_propagates_instead_of_guessing_the_owner(
 def test_set_api_key_writes_the_effective_connection_and_mirrors_the_document(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
+    # The document carries HISTORICAL defaults; op 8 takes none and must keep them (D2).
+    migrated.seed_document(
+        name="default", auth_type="oauth", defaults=ProfileDefaults(max_tokens=7)
+    )
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
 
-    summary = set_api_key(migrated, "default", defaults=ProfileDefaults(max_tokens=7))
+    summary = set_api_key(migrated, "default")
 
     # The ONE blob of the pair sits at the Connection's locator (the Profile address); nothing
     # is written at the UUID-derived address a Connection-native write would use.

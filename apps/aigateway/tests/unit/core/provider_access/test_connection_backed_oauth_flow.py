@@ -137,20 +137,37 @@ def test_a_pair_without_an_effective_connection_starts_a_pending_one(migrated) -
     assert marker(h).generation == claimed.generation + 1
 
 
-def test_start_with_defaults_replaces_the_documents_defaults_only(migrated) -> None:
+def test_start_with_defaults_on_a_migrated_pair_is_refused_and_changes_nothing(
+    migrated, monkeypatch
+) -> None:
+    """OME-1323 (D2): OAuth start takes no `defaults` — not even `null` — on a migrated pair.
+
+    The refusal precedes everything the flow would claim: the document keeps its historical
+    defaults (D16 (a)), no pending entry is published, and neither the Connection nor the
+    marker moves.
+    """
     h = migrated
     h.seed_profile(defaults=ProfileDefaults(max_tokens=3))
     effective = h.migrated["default"]
+    before = marker(h)
+    published: list[str] = []
+    monkeypatch.setattr(
+        h.client.app.state.pending_auth, "put", lambda state, _entry: published.append(state)
+    )
 
-    assert start(h, defaults={"max_tokens": 7}).status_code == 201
+    for submitted in ({"max_tokens": 7}, None):
+        refused = start(h, defaults=submitted)
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["detail"]["code"] == "defaults_not_accepted"
 
     doc = document(h)
     assert doc is not None
-    # D16 (a): defaults live in the compatibility document; the authority row is untouched and
-    # the mirror stays faithful to it (active → AUTHENTICATED).
-    assert (doc.defaults.max_tokens, doc.state) == (7, ProfileState.AUTHENTICATED)
+    assert (doc.defaults.max_tokens, doc.state) == (3, ProfileState.AUTHENTICATED)
+    assert published == []
     assert connection(h, effective).status == "active"
     assert [str(c.id) for c in connections(h)] == [effective]
+    after = marker(h)
+    assert (after.migration_state, after.generation) == (before.migration_state, before.generation)
 
 
 def test_a_connection_only_pair_reauthenticates_at_its_own_locator(migrated) -> None:

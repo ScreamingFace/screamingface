@@ -710,6 +710,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/provider-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Provider Access
+         * @description List, for the signed-in caller, each registered provider and whether it can be used.
+         *
+         *     `status` is one of `not_connected`, `pending`, `connected`, `needs_reauth` or `error`; a row
+         *     carries nothing else. The listing is private to the caller and never cached. The `X-Profile`
+         *     header is ignored: the listing is per caller, not per selection.
+         */
+        get: operations["list_provider_access_v1_provider_access_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model-parameters": {
         parameters: {
             query?: never;
@@ -1194,7 +1218,6 @@ export interface components {
         };
         /** PatchAdminProfileRequest */
         PatchAdminProfileRequest: {
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
             /** Account Label */
             account_label?: string | null;
         };
@@ -1205,7 +1228,6 @@ export interface components {
         };
         /** PatchProfileRequest */
         PatchProfileRequest: {
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
             /** Account Label */
             account_label?: string | null;
         };
@@ -1233,6 +1255,27 @@ export interface components {
          */
         ProfileState: "pending" | "authenticated" | "error";
         /**
+         * ProviderAccessAvailability
+         * @description The listing body: `{"providers": [{"provider": ..., "status": ...}]}`.
+         */
+        ProviderAccessAvailability: {
+            /** Providers */
+            providers: components["schemas"]["ProviderAccessAvailabilityRow"][];
+        };
+        /**
+         * ProviderAccessAvailabilityRow
+         * @description One registered provider and the caller's standing with it.
+         */
+        ProviderAccessAvailabilityRow: {
+            /** Provider */
+            provider: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_connected" | "pending" | "connected" | "needs_reauth" | "error";
+        };
+        /**
          * SetAdminApiKeyRequest
          * @description Attach or replace a provider API key on a tenant's profile.
          *
@@ -1245,7 +1288,6 @@ export interface components {
              * Format: password
              */
             api_key: string;
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
         };
         /** SetApiKeyRequest */
         SetApiKeyRequest: {
@@ -1254,7 +1296,6 @@ export interface components {
              * Format: password
              */
             api_key: string;
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
         };
         /**
          * SetConnectionApiKeyRequest
@@ -1271,7 +1312,6 @@ export interface components {
         StartAuthRequest: {
             /** Name */
             name: string;
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
             /** Redirect Uri */
             redirect_uri?: string | null;
         };
@@ -2723,6 +2763,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    list_provider_access_v1_provider_access_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccessAvailability"];
                 };
             };
         };

@@ -37,7 +37,6 @@ def admin_of(harness: Any) -> Any:
 
 
 def set_api_key(harness: Any, name: str | None = "default", key: str = KEY, **kwargs: Any) -> Any:
-    kwargs.setdefault("defaults", None)
     return harness.call(
         admin_of(harness).set_api_key,
         harness.account_id,

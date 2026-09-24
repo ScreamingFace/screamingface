@@ -37,7 +37,6 @@ from .profile_admin import DEFAULT_LEGACY_NAME, ProfileBackedCredentialAdmin, su
 from .profile_authorize import oauth_connection_store
 from .types import (
     CredentialSummary,
-    RequestDefaults,
     TargetMissing,
     UnsupportedAuthMode,
     WriteConflict,
@@ -66,17 +65,18 @@ def api_key_mirror(
     provider: str,
     name: str,
     raw_api_key: str,
-    defaults: RequestDefaults | None,
 ) -> Profile:
-    """What today's `set_api_key` would leave in the index — the rollback-coherent mirror."""
+    """What today's `set_api_key` would leave in the index — the rollback-coherent mirror.
+
+    # INVARIANT (OME-1323, D2): the mirror never writes `defaults` — a document keeps its
+    # historical ones byte-identical, and a new document gets the empty model default.
+    """
     profile = document or Profile(
         id=profile_id_for(account_id, provider, name),
         account_id=account_id,
         provider=provider,
         name=name,
     )
-    if defaults is not None:
-        profile.defaults = defaults
     profile.auth_type = "api_key"
     profile.state = ProfileState.AUTHENTICATED
     profile.last_refreshed_at = datetime.now(UTC)
@@ -133,7 +133,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         *,
         raw_api_key: str,
         legacy_name: str | None,
-        defaults: RequestDefaults | None,
     ) -> CredentialSummary:
         name = legacy_name or DEFAULT_LEGACY_NAME
         plugin = self._plugin(provider)
@@ -144,7 +143,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                 provider,
                 raw_api_key=raw_api_key,
                 legacy_name=legacy_name,
-                defaults=defaults,
             )
         current = await self._effective(account_id, pair)
         # WHY start over: a revoked or absent effective Connection is the post-delete state; the
@@ -176,7 +174,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
             provider=provider,
             name=name,
             raw_api_key=raw_api_key,
-            defaults=defaults,
         )
         store = oauth_connection_store(self._app)
         try:
@@ -301,7 +298,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                 provider=provider,
                 name=document.name,
                 raw_api_key=raw_api_key,
-                defaults=None,
             )
             await self._index.upsert(sibling, require_present=True)
 

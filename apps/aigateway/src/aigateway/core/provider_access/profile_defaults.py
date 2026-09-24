@@ -5,6 +5,8 @@ its name and delegates here through `ProfileBackedProviderAccess.defaults_for`.
 
 # FEATURE: one globally shared exact-request cache, keyed on the EFFECTIVE request (OME-305
 # ruling 57) — stored defaults must enter the key, so they are read BEFORE any credential.
+# AIDEV-NOTE (OME-1323, Stage C): the chat route no longer calls this read — request
+# parameters are the caller's (D2). It stays, with its contract intact, until Stage E.
 """
 
 from __future__ import annotations

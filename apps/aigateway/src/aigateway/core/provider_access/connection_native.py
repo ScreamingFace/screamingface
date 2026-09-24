@@ -136,7 +136,6 @@ async def republish_effective_api_key(
             provider=pair.provider,
             name=document.name,
             raw_api_key=raw_api_key,
-            defaults=None,
         )
         try:
             await index.upsert(mirror, require_present=True)

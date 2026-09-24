@@ -1,0 +1,32 @@
+---
+id: OME-1323
+linear_url: https://linear.app/openmined/issue/OME-1323/aigateway-remove-saved-profile-defaults-while-preserving-global-cache
+status: in_progress
+type: task
+priority: high
+labels: [aigateway, agentic, autonomous]
+parent: OME-1138
+blocked_by: [OME-1322]
+created: 2026-09-23
+closed:
+---
+
+# AIGateway: remove saved Profile defaults while preserving global cache keys
+
+Second, Gateway-only unit of the OME-1138 saved-defaults removal. Wait for OME-1322 so Admin UI stops sending `defaults` before the Gateway rejects it. Remove the Profile defaults read/merge from the pre-cache chat path and reject legacy writes containing a `defaults` property (including `null`) with an explicit, secret-safe 422. Preserve explicit client parameters, provider/adapter behaviour for omitted parameters, compatibility routes, credential blobs, tenant isolation, and rollback data.
+
+**Owner invariant:** do not change the global cache key version, parameter-contract revision, provider adapter revisions, key algorithm, projection, or existing rows; do not reset the cache. First pin pre-change key hashes for empty defaults, then prove the same hardened caller body reaches the existing planner while its provider projection still describes the normalized dispatched call (the two dictionaries are not literally identical). Test explicit parameters, missing parameters, old clients attempting to save defaults, and wrong-hit protection. Run the AIGateway gates and relevant PostgreSQL coverage. Decide response DTO compatibility deliberately; D18 admin successor, D4 selector sunset and OME-1209 Profile deletion are separate.
+
+Spec: `docs/spec/2026-09-09-OME-1138-converge-connections.md` §3.7/§5. Plan: `docs/plan/2026-09-09-OME-1138-converge-connections.md` §2/§3. Record/obtain acceptance of UI-first staging relative to the existing cutover plan before code if required. Work only in this dedicated branch; create the ledger when work starts. Do not stage/commit/push without owner authorisation, including approval of this Markdown path.
+
+## Progress
+
+- 2026-09-24: `OME-1322` merged as PR #1043 (`21832443`). In Linear it is still In Progress, so this issue stays formally blocked until it is closed with its close comment. This branch was fast-forwarded to `origin/main` `634f8e7e`.
+- 2026-09-24: first gate. The Stage C metamodel target is drafted on a design-catalog branch: `component/provider-access` v5 carries the target, and eight cards point to it (`datamodel/profile-defaults`, `protocol/chat-processing`, `protocol/chat-streaming`, `component/request-cache`, `component/parameter-contracts`, `protocol/provider-credential-admin`, `protocol/administration`, `protocol/provider-access`). The catalog check reports 0 errors and 3 pre-existing warnings; `--since origin/main` reports 9 entities changed, all version-bumped. Waiting for owner acceptance and merge of that design change. No gateway code, test or ledger has been written yet.
+- 2026-09-24: the design change was accepted and merged (`screamingface-design` PR #24). `OME-1322` is Done in Linear, and this issue moved to In Progress. The work ledger is `docs/work/2026-09-24-OME-1323-remove-profile-defaults.md`.
+- 2026-09-24: gateway implemented locally, test first. The N2 key-parity baseline is green on the unchanged gateway and byte-identical afterwards. The RED tests (N1a, N1c, N3, N4, N5) failed for the stated reason before the change and pass after it; the baselines (N1b, N5o, N6, N7) are green before and after. The test mapping is applied: 22 retire / 24 adapt / 33 keep, 79 tests in 30 files. The map was accepted as 22 / 23 / 33, and A24 (the HuggingFace hit test, which pinned the retired pre-cache index read) was added on the owner's decision. Chat no longer reads or merges stored defaults. The five writers answer a present `defaults` (even `null`) with 422 `defaults_not_accepted` before any side effect. Cache keys, revisions and rows are unchanged, and there is no reset. The Admin UI source sends only `{ "api_key" }`. The running dev console must be checked before the refusal reaches dev. Not committed, no PR.
+- 2026-09-24: review fixes. The `defaults_not_accepted` refusal now runs before the request model is validated. It is a dependency nested under authentication, and it names the admin actor for the audit line. So a body with `defaults` and a missing `api_key` or `name` (or a mistyped PATCH label) gets the refusal rather than FastAPI's generic 422. New tests: N8 (RED before the fix), N9 (authentication still answers first) and N10 (a non-JSON body keeps its ordinary 422, never a 500). OpenAPI is byte-identical before and after the move. Stale source comments, spec §3.2/§3.3/§3.9/§4/§5 and the plan's preservation checks were reconciled with Stage C.
+- 2026-09-24: second review, docs only (the code was accepted). The plan's stage table now records A2–B as merged (PRs #981, #992, #1006/#1007, #1029). The spec's admin-successor, D8, D18, D20, S7 and §10 wording, and the plan's S7 row (split into S7a at C and S7 at D18), now match Stage C. The `updated:` dates are 2026-09-24.
+- 2026-09-24: third review. The Admin UI's generated `schema.d.ts` is regenerated from this change's OpenAPI. The five writer request models lose `defaults`, and the `GET /v1/provider-access` types that A4 never generated are folded in, on the owner's choice. The UI gates are green (238 tests). Spec §3.5 now names the writers' `defaults` refusal as the one deliberate Profile-route change in the window.
+- 2026-09-24: fourth review, against the task prompt, in four lanes with each finding re-checked. A non-JSON body nested too deeply to parse made every writer answer 500; the refusal now also catches `RecursionError`, and N11 pins the ordinary 422 (RED ×10 before the fix). `apps/aigateway/DEPLOYMENT.md` now describes the Stage C cache behaviour: the key covers the caller's body, a hit reads no profile index, and an unreadable index no longer bypasses the cache. One code comment now uses the anchor vocabulary, and spec §3.9's chat row gives the path from C. Chat path, cache invariants, the writers, the test map and scope were confirmed.
+- 2026-09-24: final review clarified that the global key combines the caller body with the provider's declared projection rather than treating the pre-cache body as the literal upstream request. N11 passes for all writers (49 tests in the file), the complete AIGateway gate is green, and the change set is authorised for one atomic commit and PR.

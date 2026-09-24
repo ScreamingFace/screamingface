@@ -229,12 +229,12 @@ discover. Set `config.requestCache.enabled=false` to opt out.
 
 ### What it does
 
-- **Cross-user replay of the *effective* request.** The key is built from the call as the gateway
-  will actually send it — **after** the caller's own profile defaults have been resolved and merged,
-  with explicit body values winning. Two callers share a stored response when their requests are
-  identical *once each has had their own defaults applied*. So two callers whose profiles carry
-  different system prompts or sampling parameters correctly do **not** share one, and a caller whose
-  profile default happens to equal another caller's explicit parameter correctly **does**. Profile
+- **Cross-user replay of the *effective* request.** The key combines the caller's own request body
+  with the cacheable provider's declared projection of the output-affecting normalization it will
+  apply later; stored profile defaults are no longer merged into requests (OME-1323). Callers send
+  model parameters with each request and system instructions as system-role messages. Two callers
+  share a stored response when both the request and provider projection are identical, so callers
+  who send different system messages or sampling parameters correctly do **not** share one. Profile
   name and account identity never enter the key, and neither do auth mode, provider credentials, API
   keys or OAuth tokens. On a hit no provider request is made and no provider credential is read.
   There is no per-user or per-account partition; that is the feature, not a leak.
@@ -251,8 +251,8 @@ discover. Set `config.requestCache.enabled=false` to opt out.
 
 The access-control question the cross-user replay raises is not "who may read
 `request_cache_entries`" — it is **who may send a request that is answered from it**. Those are
-different sets and the second is larger, because reproducing a cached request needs only the request
-and the asker's own profile defaults, which may legitimately be empty — never a provider credential.
+different sets and the second is larger, because reproducing a cached request needs only the
+request itself — never a provider credential.
 
 **The boundary is the edge, not the gateway.** In `cloudflare_headers` mode the gateway *trusts*
 `X-User-Email` as already-verified identity; it does not authenticate the caller itself. Cloudflare
@@ -260,18 +260,14 @@ Access, plus `allowedNetworks` and the NetworkPolicy that keep the gateway inter
 decide who may ask. Review those before enabling the cache — there is no gateway-side setting that
 narrows who a hit may be served to.
 
-**A caller needs no provider credential — but the profile index must be readable.** A hit reads
-no provider API key and no OAuth token, and makes no provider request. It does resolve the
-caller's own profile defaults, because the key is built from the effective request, and that
-means a hit reads this account's profile index.
+**A caller needs no provider credential, and a hit reads no credential data at all.** A hit reads
+no provider API key and no OAuth token, makes no provider request, and does not read the caller's
+profile index: the key is built from the request body alone.
 
-Read that precisely: it is the index *read* that has to succeed, not the profile that has to
-exist. A caller with no profile configured for this provider has empty defaults and is served
-from cache normally — and so is a caller whose profile is still pending authorization or already
-errored, because the pre-cache read never inspects profile state
-(`routes/chat_profile_defaults.py`). What stands the cache down is a failed read: if the index
-cannot be fetched or decrypted, the request bypasses the cache and is dispatched with the
-defaults resolved further down, rather than keyed without them.
+So a caller with no profile configured for this provider is served from cache normally, and so is
+a caller whose profile is still pending authorization or already errored, because the lookup runs
+before any credential is resolved. An unreadable profile index no longer stands the cache down;
+on a miss the same fault can still fail credential resolution, exactly as before.
 
 What survives is the part that matters for access control: **a principal who has never configured a
 usable provider credential is still served responses another account paid for.** Treat this as a
@@ -285,8 +281,8 @@ The cached response is plaintext compact JSON in `response_json`. Reading it doe
 secret provider, validate an encryption canary or decrypt the response body.
 
 The caller's profile index is still a credential blob (`aigateway:index`) and remains encrypted under
-the credential master key. A hit reads that index to merge profile defaults before key construction,
-but it never reads the selected provider API key or OAuth token and never dispatches to the provider.
+the credential master key. A hit does not read it, never reads the selected provider API key or OAuth
+token, and never dispatches to the provider.
 
 ### A hit replays the first caller's credential *type*, not only their answer
 

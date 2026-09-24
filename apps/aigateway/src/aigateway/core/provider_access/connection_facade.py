@@ -24,7 +24,7 @@ from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore
 from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import Profile, ProfileDefaults, ProfileState
+from ..profile_models import Profile, ProfileState
 from .auth_mode import auth_type_of
 from .connection_admin import legacy_view
 from .connection_authority import LEGACY_STATE_FOR_STATUS
@@ -76,17 +76,19 @@ async def patch_facade(
     app: Any,
     target: FacadeTarget,
     *,
-    defaults: ProfileDefaults | None,
     account_label: str | None,
 ) -> Profile:
-    """Edit metadata on the compatibility document only (D16 (a)); raises on a vanished document.
+    """Edit the label on the compatibility document only (D16 (a)); raises on a vanished document.
+
+    # INVARIANT (OME-1323, D2): historical `defaults` are never written here — they stay readable
+    # on the document for the compatibility window, and no request edits them.
 
     # WHY no marker advance: a metadata edit changes no credential authority (D-S2b3-3), so a
     # flow in flight is not fenced by it — exactly as the legacy route never bumped the OAuth
     # generation. The Connection row is not touched either.
     """
     updated = await app.state.profile_index.update_metadata(
-        target.document.id, defaults=defaults, account_label=account_label
+        target.document.id, account_label=account_label
     )
     return FacadeTarget(updated, target.connection).view
 
