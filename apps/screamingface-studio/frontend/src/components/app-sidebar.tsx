@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Boxes,
   Cpu,
-  FileCode,
   Flame,
   Hash,
   Key,
@@ -40,13 +39,11 @@ import {
   OPENMINED_BUDGET_TOTAL,
   useOpenMinedStore,
 } from "@/lib/openmined-store";
-import { useScriptStore } from "@/lib/script-store";
 
 const navigation = [
   { label: "Fusions", href: "/ensembles/", Icon: Boxes },
   { label: "Models", href: "/models/", Icon: Layers },
   { label: "Leaderboard", href: "/leaderboard/", Icon: Trophy },
-  { label: "Scripts", href: "/scripts/", Icon: FileCode },
 ];
 
 function MonsterFusionCard() {
@@ -104,7 +101,6 @@ export function AppSidebar() {
       state.providers.filter((provider) => provider.connected).length,
   );
   const omConnected = useOpenMinedStore((state) => state.connected);
-  const scriptCount = useScriptStore((state) => state.scripts.length);
   const authOpen = useOpenMinedStore((state) => state.authOpen);
   const authorizing = useOpenMinedStore((state) => state.authorizing);
   const setAuthOpen = useOpenMinedStore((state) => state.setAuthOpen);
@@ -131,9 +127,7 @@ export function AppSidebar() {
               const visibleBadge =
                 label === "Models" && connectedProviders > 0
                   ? String(connectedProviders)
-                  : label === "Scripts" && scriptCount > 0
-                    ? String(scriptCount)
-                    : undefined;
+                  : undefined;
               return (
                 <SidebarMenuItem key={label}>
                   <SidebarMenuButton
