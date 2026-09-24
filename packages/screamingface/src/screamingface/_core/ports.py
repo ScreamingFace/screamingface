@@ -60,6 +60,7 @@ class _RunOutcome:
     # A user quoting it must be quoting the value that actually travelled on the wire —
     # including for a run whose frames never arrived.
     trace_id: str | None = None
+    client_version: str | None = None
 
 
 class SyncRunTransport(Protocol):

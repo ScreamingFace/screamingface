@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from screamingface import events
+from screamingface._client_provenance import valid_client_version
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
@@ -58,6 +59,8 @@ class _RunState:
         # nothing", and the run-level status derivation reads exactly that difference.
         self._saved_cost_usd: Decimal | None = None
         self._saved_cost_archive_usd: Decimal | None = None
+        self._client_version: str | None = None
+        self._version_conflict = False
         self._last_sequence = 0
         self._event_ids: OrderedDict[str, int] = OrderedDict()
         self._event_id_bytes = 0
@@ -185,7 +188,15 @@ class _RunState:
         return _Accepted(event=event)
 
     def _log(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        return _Accepted(event=_log(envelope, data))
+        event = _log(envelope, data)
+        # INVARIANT: only ordered root evidence may identify this run's caller. Never
+        # substitute the exporting installation or a child endpoint's version.
+        version = valid_client_version(event.attributes.get("screamingface.client.version"))
+        if envelope["source"] == self._root_source and version is not None:
+            if self._client_version is not None and self._client_version != version:
+                self._version_conflict = True
+            self._client_version = version
+        return _Accepted(event=event)
 
     def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
         span = _span(envelope, data)
@@ -259,6 +270,7 @@ class _RunState:
                 cache_saved_cost_usd=self._saved_cost_usd,
                 cache_saved_cost_archive_usd=self._saved_cost_archive_usd,
                 artifact=self._result[2],
+                client_version=None if self._version_conflict else self._client_version,
             ),
         )
 
