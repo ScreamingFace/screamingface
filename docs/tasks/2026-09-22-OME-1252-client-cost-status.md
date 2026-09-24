@@ -1,13 +1,13 @@
 ---
 id: OME-1252
 linear_url: https://linear.app/openmined/issue/OME-1252/send-the-run-cost-its-status-and-the-cache-saved-cost-totals
-status: in_review
+status: done
 type: task
 priority: high
 labels: [py-screamingface, agentic, autonomous]
 parent: OME-1251
 created: 2026-09-21
-closed:
+closed: 2026-09-24
 ---
 
 # Send the run cost and its status
