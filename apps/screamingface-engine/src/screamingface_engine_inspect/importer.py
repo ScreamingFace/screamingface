@@ -832,10 +832,12 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         f'        scorer="{facts.scorer}",',
     ]
     if facts.scorer_kwargs:
-        # WHY json.dumps for str values: repr's single quotes fail the emitted
-        # file's ruff-format gate; json escaping is as injection-safe as repr's.
+        # WHY json.dumps for str values AND names: repr's single quotes fail the
+        # emitted file's ruff-format gate; json escaping is as injection-safe as
+        # repr's. Names are registry_params keys — identifiers in practice, but
+        # a **kwargs-taking scorer could carry arbitrary upstream strings.
         rendered_kwargs: str = ", ".join(
-            f'"{name}": {_scorer_kwarg_literal(value)}'
+            f"{json.dumps(name)}: {_scorer_kwarg_literal(value)}"
             for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
