@@ -194,9 +194,9 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     kwargs: dict[str, Any] = _exam_dataset_kwargs(task, recorded, task_ref)
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
-    scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
-    template_ref, choice_template_ref, system_message_ref, custom_solvers = _solver_facts(
-        task, module, task_ref
+    scorer_ref, scorer_kwargs, _ = _scorer_reference(task, module)
+    template_ref, choice_template_ref, system_message_ref, custom_solvers, uses_multiple_choice = (
+        _solver_facts(task, module, task_ref)
     )
     return TaskFacts(
         task_ref=task_ref,
@@ -206,7 +206,7 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         pinned_revision=kwargs.get("revision"),
         record_to_sample=f"{sample_fields.__module__}:{sample_fields.__name__}",
         prompt_template=template_ref,
-        mcq=scorer_name == "choice",
+        mcq=uses_multiple_choice,
         scorer=scorer_ref,
         scorer_kwargs=scorer_kwargs,
         custom_solvers=custom_solvers,
@@ -468,9 +468,9 @@ def _scorer_reference(task: Any, module: Any) -> tuple[str, dict[str, Any], str]
 
 def _solver_facts(
     task: Any, module: Any, task_ref: str
-) -> tuple[str | None, str | None, str | None, tuple[str, ...]]:
+) -> tuple[str | None, str | None, str | None, tuple[str, ...], bool]:
     """The template references (prompt_template / custom multiple_choice / module-level
-    system message) + unknowns."""
+    system message) + unknowns + whether the chain declares an MCQ exam."""
 
     from inspect_ai._util.registry import registry_info, registry_params
 
@@ -479,6 +479,7 @@ def _solver_facts(
     choice_template_ref: str | None = None
     system_message_ref: str | None = None
     custom: list[str] = []
+    uses_multiple_choice: bool = False
     for solver in solvers:
         registry_name: str = registry_info(solver).name
         name: str = registry_name.rpartition("/")[2]
@@ -502,20 +503,32 @@ def _solver_facts(
                 custom,
                 f"{registry_name} (system instructions are not baked)",
             )
-        elif name == "multiple_choice" and registry_params(solver).get("template") is not None:
-            # A custom choice template the bake CAN reproduce — when it resolves to
-            # one module attribute the row points at (the family renderer, OME-1116
-            # milestone C); an unresolvable one still earns the review flag.
-            choice_template_ref = _resolved_or_flagged(
-                module,
-                solver,
-                task_ref,
-                custom,
-                f"{registry_name} (custom choice template is not baked)",
-            )
+        elif name == "multiple_choice":
+            # WHY the flag: MCQ-ness is the exam's SHAPE (options + letter answer),
+            # declared by this solver — never inferred from the scorer's name; an
+            # eval grading MCQ with its own scorer (lab_bench's precision_choice)
+            # must still be refused the check surface (OME-796).
+            uses_multiple_choice = True
+            if registry_params(solver).get("template") is not None:
+                # A custom choice template the bake CAN reproduce — when it resolves
+                # to one module attribute the row points at (the family renderer,
+                # OME-1116 milestone C); an unresolvable one still earns the flag.
+                choice_template_ref = _resolved_or_flagged(
+                    module,
+                    solver,
+                    task_ref,
+                    custom,
+                    f"{registry_name} (custom choice template is not baked)",
+                )
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
-    return template_ref, choice_template_ref, system_message_ref, tuple(custom)
+    return (
+        template_ref,
+        choice_template_ref,
+        system_message_ref,
+        tuple(custom),
+        uses_multiple_choice,
+    )
 
 
 def _resolved_or_flagged(
@@ -812,8 +825,11 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         f'        scorer="{facts.scorer}",',
     ]
     if facts.scorer_kwargs:
+        # WHY json.dumps for str values: repr's single quotes fail the emitted
+        # file's ruff-format gate; json escaping is as injection-safe as repr's.
         rendered_kwargs: str = ", ".join(
-            f'"{name}": {value!r}' for name, value in sorted(facts.scorer_kwargs.items())
+            f'"{name}": {_scorer_kwarg_literal(value)}'
+            for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
     if not facts.mcq:
@@ -824,6 +840,12 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         board_lines.append("        with_check_surface=True,")
     board_lines.append("    ),")
     return board_lines
+
+
+def _scorer_kwarg_literal(value: Any) -> str:
+    """One scorer kwarg value as source text the emitted file's gates accept."""
+
+    return json.dumps(value) if isinstance(value, str) else repr(value)
 
 
 def generate_rows(
