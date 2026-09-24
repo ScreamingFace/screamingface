@@ -246,3 +246,38 @@ async def test_the_olympic_judge_prompt_is_upstreams_template_verbatim(
         found = prompt.find(chunk, position)
         assert found >= 0, f"template chunk missing from the wire prompt: {chunk[:60]!r}"
         position = found + len(chunk)
+
+
+@pytest.mark.asyncio
+async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
+    tmp_path: Path,
+) -> None:
+    """Upstream's research scorer scores an unparseable verdict 0.0 — ITS OWN
+    semantics, kept faithfully — and says so in its explanation. Pin that the
+    explanation ("Could not parse verdict") survives into the report's evidence,
+    so a 0.0 can be told from a genuinely worthless answer when reading the
+    live run (review follow-up, 2026-09-24)."""
+
+    class _VerdictlessOnResearch(_FormatAwareJudge):
+        async def __call__(self, request: Request) -> str:
+            reply = await super().__call__(request)
+            # The research case gets a reply with no VERDICT: line at all.
+            return "Rubric coverage unclear, no number." if "VERDICT" in reply else reply
+
+    judge = _VerdictlessOnResearch()
+    node = Url4Node("test")
+    node.endpoint(_JUDGE_ROUTE)(judge)
+    _bake_by_hand(tmp_path)
+    BOARD.benchmark.install(node, tmp_path)
+
+    rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
+    result = json.loads(await _call(node, BOARD.aggregate_route, rows, "aggregate:2"))
+
+    research = result["cases"][1]
+    # Faithful to upstream: 0.0 is a published score, not a failure...
+    assert research["grade"]["score"] == 0.0
+    # ...but the judge's own words make it auditable, and upstream's raw_points
+    # metadata (JSON-safe) rides along, so a reader can count these cases.
+    rendered = json.dumps(research["grade"]["checks"])
+    assert "Could not parse verdict" in rendered
+    assert '"raw_points": 0' in rendered

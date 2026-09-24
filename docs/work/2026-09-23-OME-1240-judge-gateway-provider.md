@@ -161,3 +161,27 @@ the PR where its cause lives, merged forward through the stack:
 Accepted, not implemented: truncated judge replies can read as real zeros
 (watch finish reasons in the live run before touching the max_tokens cap);
 per-case judge accounting stays run-level.
+
+### PR 6 (judge observability, 2026-09-24 — owner-approved scope)
+
+- **Item 1 (per-case judge accounting):** the judged path joins the run's
+  EXISTING payload-free grading join (`grading_accounting.py` — the capture is
+  already run-scoped and the reconcile already rides the shared finalizer): the
+  shim raises a new core `grading_call_scope(case_id)` around the scorer, the
+  transport carries `benchmark_id`, and the provider registers each judge call's
+  request identity against its Case's evidence → tokens/USD/latency/attempts in
+  `evidence.accounting`. String-match boards stay None (pinned).
+- **Item 3 (log tags):** the connector's three model-call lifecycle lines gain
+  ` role=judge case=<id>` from the same scope — a judge sharing the candidate's
+  model id is now distinguishable, and finish_reason is grep-able per Case.
+- **Item 4 (scoped down):** no new fields — pinned instead that upstream's own
+  parse-failure markers reach the evidence (research fallback's "Could not parse
+  verdict" explanation + raw_points 0). `verdict_parsed` would need per-scorer
+  vocabulary; publishing sample metadata generically risks leaking answer-adjacent
+  fields (gsm8k's metadata IS the worked solution).
+- **Item 2 (finish reason in evidence): DEFERRED with a named blocker** — the
+  response sink has no public tee (url4-private binding) and `RequestAccounting`
+  is deliberately payload-free; `OperationCall` DOES carry finish_reason, so a
+  follow-up can join it without new capture. Mitigation for the live run: item
+  3's tagged log line already carries finish_reason per Case.
+- **Gates:** run_gates.py ALL GREEN; inspect lane + scope suite green (319).

@@ -661,7 +661,12 @@ def _judged_aggregate(
             return await node.fetch(target, relative=True)
 
         assert board.judge is not None  # the endpoint wiring picks this face
-        with bound_judge_transport(JudgeTransport(fetch=fetch, params=board.judge.params)):
+        transport = JudgeTransport(
+            fetch=fetch,
+            params=board.judge.params,
+            benchmark_id=board.benchmark.id,
+        )
+        with bound_judge_transport(transport):
             return await board_aggregate_async(
                 board,
                 case_evaluations,

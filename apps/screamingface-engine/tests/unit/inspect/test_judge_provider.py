@@ -248,3 +248,53 @@ async def test_eval_supplied_sampling_settings_are_refused() -> None:
                 [ChatMessageUser(content="grade this")],
                 config=GenerateConfig(temperature=0.7),
             )
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_generate_config_field_is_refused_by_default() -> None:
+    """INVARIANT: the guard ALLOWS known-harmless transport fields and refuses
+    everything else by name — a forbidden-list would silently admit any field it
+    forgot (reasoning_effort graded persistbench at the gateway's default effort)
+    and would go stale every time inspect adds a field."""
+
+    from inspect_ai.model import GenerateConfig
+
+    model = get_model("screamingface/judge-4", memoize=False)
+    with bound_judge_transport(JudgeTransport(fetch=_RecordingFetch())):
+        with pytest.raises(Exception, match="reasoning_effort"):
+            await model.generate(
+                [ChatMessageUser(content="grade this")],
+                config=GenerateConfig(reasoning_effort="high"),
+            )
+
+
+@pytest.mark.asyncio
+async def test_transport_level_config_fields_are_allowed() -> None:
+    """Retry/timeout knobs change delivery, never the grade — they pass."""
+
+    from inspect_ai.model import GenerateConfig
+
+    fetch = _RecordingFetch()
+    model = get_model("screamingface/judge-4", memoize=False)
+    with bound_judge_transport(JudgeTransport(fetch=fetch)):
+        output = await model.generate(
+            [ChatMessageUser(content="grade this")],
+            config=GenerateConfig(max_retries=3, timeout=10),
+        )
+    assert output.completion == "GRADE: C"
+
+
+@pytest.mark.asyncio
+async def test_a_tool_bearing_judge_call_is_refused() -> None:
+    """A judge that asks for tools would grade WITHOUT them silently — the eval
+    assumed it could call them. Judge prompts are plain chat; refuse by name."""
+
+    from inspect_ai.tool import ToolInfo, ToolParams
+
+    model = get_model("screamingface/judge-4", memoize=False)
+    with bound_judge_transport(JudgeTransport(fetch=_RecordingFetch())):
+        with pytest.raises(Exception, match="tool"):
+            await model.generate(
+                [ChatMessageUser(content="grade this")],
+                tools=[ToolInfo(name="search", description="web", parameters=ToolParams())],
+            )

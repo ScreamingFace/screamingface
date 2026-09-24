@@ -63,6 +63,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeCase,
     GradeRequest,
 )
+from screamingface_engine.grading_call_scope import grading_call_scope
 
 #: Score string verdicts → floats, per inspect's own vocabulary: CORRECT / INCORRECT /
 #: PARTIAL / NOANSWER. Closed on purpose (see the module invariant).
@@ -89,9 +90,12 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
     async def grade(request: GradeRequest) -> CaseGradeOutcome:
         # Stage 1-2 — unpack our envelope, build their exam-office forms.
         state, target = _task_state(request, multiple_correct)
-        # Stage 3 — their examiner marks the script.
+        # Stage 3 — their examiner marks the script, under the Case's grading
+        # scope: a judge call made inside resolves to THIS Case for the run's
+        # accounting join and for the connector's log tags (OME-1240).
         try:
-            score: Score | None = await scorer(state, target)
+            with grading_call_scope(request.case_id):
+                score: Score | None = await scorer(state, target)
         except Exception as exc:  # noqa: BLE001 — WHY broad: the scorer is stranger
             # code from any of ~94 community evals; ANY raise must become this board's
             # named failure, not an aborted aggregate for the other 49 Cases.

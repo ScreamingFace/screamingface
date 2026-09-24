@@ -20,6 +20,7 @@ import httpx
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
+from screamingface_engine.grading_call_scope import grading_call_log_suffix
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
@@ -113,9 +114,10 @@ async def _in_flight_heartbeat(model_id: str, started: float) -> None:
     while True:
         await asyncio.sleep(wait)
         logger.info(
-            "model call in flight model=%s elapsed=%.0fs",
+            "model call in flight model=%s elapsed=%.0fs%s",
             model_id,
             time.monotonic() - started,
+            grading_call_log_suffix(),
         )
         wait = min(wait * 2, _IN_FLIGHT_HEARTBEAT_MAX_S)
 
@@ -190,10 +192,11 @@ async def _observed_round_trip(
     except (RunnerRequestError, ResolutionError) as exc:
         observation.failed(exc.code)
         logger.warning(
-            "model call failed model=%s duration=%.1fs code=%s",
+            "model call failed model=%s duration=%.1fs code=%s%s",
             real_model_id,
             time.monotonic() - started,
             exc.code,
+            grading_call_log_suffix(),
         )
         raise
     except asyncio.CancelledError:
@@ -211,10 +214,13 @@ async def _observed_round_trip(
         heartbeat.cancel()
         await asyncio.gather(heartbeat, return_exceptions=True)
     logger.info(
-        "model call completed model=%s duration=%.1fs finish_reason=%s",
+        "model call completed model=%s duration=%.1fs finish_reason=%s%s",
         real_model_id,
         time.monotonic() - started,
         choice.finish_reason,
+        # WHY the tag (OME-1240): a judge may share the candidate's model id; the
+        # grading scope is the only thing that tells their round trips apart.
+        grading_call_log_suffix(),
     )
     observation.completed(choice.finish_reason)
     return choice
