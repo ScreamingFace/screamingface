@@ -62,15 +62,15 @@ url4-cloud-runner = "screamingface_engine.runner.main:main"
 [project.optional-dependencies]
 # What a DEPLOYED Engine needs to register the imported boards and run them.
 inspect = [
-    "inspect-ai==0.3.263",
-    "inspect-evals==0.20.0",
+    "inspect-ai==0.3.266",
+    "inspect-evals==0.21.0",
     # WHY declared here although inspect-evals already requires it: inspect-evals does NOT
     # pin it, so resolving this extra alone floats `datasets` to whatever is newest. The
     # preparer's extraction is part of the answer key, so a float means two builds of the
     # same board revision can ask different questions. Pinning it here is what makes the
     # version a reviewable decision instead of a resolution accident. Keep in step with
     # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
-    "datasets==5.0.0",
+    "datasets==5.0.1",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
