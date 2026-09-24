@@ -119,7 +119,7 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status
-# (`aigateway_http_{status}`, runner/connector.py) and the number is load-bearing —
+# (`aigateway_http_{status}`, world/connector.py) and the number is load-bearing —
 # 429 vs 500 drives retryability, and ifeval/grade.py already branches on this exact
 # shape. A closed family, not an open axis.
 _AIGATEWAY_HTTP_CODE = re.compile(r"aigateway_http_[1-5][0-9]{2}")

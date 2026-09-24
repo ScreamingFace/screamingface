@@ -39,7 +39,7 @@ from .core.parameter_discovery_cache import (
 )
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
-from .core.provider_access import ProfileBackedCredentialAdmin, ProfileBackedProviderAccess
+from .core.provider_access import ConnectionBackedCredentialAdmin, ConnectionBackedProviderAccess
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -414,10 +414,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
     # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
-    app.state.provider_access = ProfileBackedProviderAccess(app)
+    # OME-1208 (Stage B, D14): the Connection-backed authority serves a pair whose marker is
+    # `migrated` from its effective Connection and inherits the Profile-backed path for the rest.
+    app.state.provider_access = ConnectionBackedProviderAccess(app)
     # OME-1230: the provider-credential admin interface (writes + listings); the Profile management
     # routes are shells over it. Stage B swaps both backings here, without touching a route.
-    app.state.provider_credential_admin = ProfileBackedCredentialAdmin(app)
+    app.state.provider_credential_admin = ConnectionBackedCredentialAdmin(app)
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
     )

@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from screamingface_engine.runner.connector import _json_or_raise
+from screamingface_engine.world.connector import _json_or_raise
 from url4.core.errors import ResolutionError
 
 

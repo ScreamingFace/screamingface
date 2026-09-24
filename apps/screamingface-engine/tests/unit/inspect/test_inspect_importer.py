@@ -524,6 +524,100 @@ def test_mcq_fragments_refuse_the_check_surface() -> None:
     assert "prompt_template" not in fragments.snapshot
 
 
+def test_mcq_detection_follows_the_solver_not_the_scorer_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """lab_bench grades its MCQ exams with its OWN scorer (precision_choice), so
+    keying mcq on the scorer name reads them as free-text and hands an MCQ board
+    the check surface — an elimination attack (OME-796). MCQ-ness is the exam's
+    SHAPE, declared by the multiple_choice solver, and is detected there."""
+
+    from inspect_ai.scorer import Score, Target, accuracy, scorer
+    from inspect_ai.solver import TaskState
+
+    @scorer(metrics=[accuracy()])
+    def house_grader(no_answer: str | None = None) -> Any:
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value="C")
+
+        return score
+
+    def custom_graded_mcq() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=multiple_choice(),
+            scorer=house_grader(no_answer="Insufficient information to answer the question."),
+        )
+
+    module = _install_fake_eval(monkeypatch, custom_graded_mcq=custom_graded_mcq)
+    # The eval exports its own scorer constructor — the row must resolve it there.
+    module.house_grader = house_grader  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:custom_graded_mcq")
+
+    assert facts.mcq is True
+    assert facts.scorer.endswith(":house_grader")
+
+
+def test_mcq_detection_sees_through_a_custom_solver_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detects MCQ when a custom wrapper hides the multiple_choice solver but the
+    choice scorer proves the shape (the mmlu family case, OME-796 guard): mmlu's
+    mmlu_multiple_choice calls multiple_choice() INSIDE its own @solver, so the
+    registry walk never meets it — reading such an exam as free-text would hand
+    an MCQ board the check surface (the elimination attack)."""
+
+    from inspect_ai.solver import Generate, TaskState, solver
+
+    @solver
+    def wrapped_mcq() -> Any:
+        inner: Any = multiple_choice()
+
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            return await inner(state, generate)
+
+        return solve
+
+    def wrapper_graded_mcq() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=wrapped_mcq(),
+            scorer=choice(),
+        )
+
+    _install_fake_eval(monkeypatch, wrapper_graded_mcq=wrapper_graded_mcq)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:wrapper_graded_mcq")
+
+    assert facts.mcq is True
+
+
+def test_board_row_renders_str_scorer_kwargs_format_safe() -> None:
+    """The first str scorer kwarg (lab_bench's no_answer) must emit DOUBLE-quoted
+    — repr's single quotes would fail the ruff-format gate on the emitted file."""
+
+    fragments = render_fragments(
+        "quiz",
+        _facts(
+            mcq=True,
+            prompt_template=None,
+            scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+            scorer_kwargs={"no_answer": "Insufficient information."},
+        ),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+
+    assert '"no_answer": "Insufficient information."' in fragments.board
+    ast.parse(f"BOARDS = (\n{fragments.board})")
+
+
 def test_custom_solver_gets_a_review_flag() -> None:
     """A solver the importer cannot classify must be pointed out, not papered over."""
 
@@ -841,13 +935,36 @@ def test_introspect_refuses_a_limit_the_bake_would_ignore(
         introspect_task(f"{_FAKE_MODULE}:limited")
 
 
-def test_introspect_refuses_shuffled_choices(monkeypatch: pytest.MonkeyPatch) -> None:
-    """shuffle_choices reorders the answer options — grading identity, not baked."""
+def test_introspect_records_an_unseeded_choice_shuffle_as_a_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1264 replaces the former refusal: shuffle_choices is now CONSERVED —
+    introspection records the fact, and main() demands a pinned seed before any
+    row is emitted (the unseeded refusal moved there, next to shuffle's).
+
+    WHY True must not become a seed: bool is an int subtype — reading
+    shuffle_choices=True as seed 1 would silently pin an order upstream never
+    meant (inspect itself checks bool before int for exactly this reason)."""
 
     _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
 
-    with pytest.raises(ImporterError, match="shuffle_choices"):
-        introspect_task(f"{_FAKE_MODULE}:shuffled")
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:shuffled")
+
+    assert facts.upstream_shuffle_choices is True
+    assert facts.upstream_choice_shuffle_seed is None
+
+
+def test_introspect_records_a_seeded_choice_shuffle_as_a_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An int shuffle_choices is inspect's seeded form — the seed is a fact."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:seeded")
+
+    assert facts.upstream_shuffle_choices is True
+    assert facts.upstream_choice_shuffle_seed == 9
 
 
 def test_introspect_refuses_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -968,6 +1085,288 @@ def test_an_upstream_shuffle_seed_is_reproduced_in_the_rows(
     assert "SEEDED_SHUFFLE_SEED = 42" in (engine_src_copy / "pins.py").read_text()
 
 
+def test_choice_shuffling_eval_requires_a_pinned_seed(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """shuffle_choices=True with no seed means each case's choice order is random
+    per run upstream; an import must pin ONE order (--choice-shuffle-seed) or
+    refuse — conserved, never dropped (OME-1264)."""
+
+    _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:shuffled", "--key", "shuffled", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    # By the derived constant stem — prose in pins.py already says "shuffled".
+    assert "SHUFFLED_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_upstream_row_seed_with_a_choice_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """Review blocker on PR #1031: the bake's row shuffle is Python's, upstream's
+    is HF's — same seed, different order — and the choice shuffle draws each
+    case's permutation from ONE stream in row order. So when upstream SEEDS a
+    shuffle (it defined one exam) and both shuffles combine, the bake cannot
+    reproduce that exam and must refuse, never ship a different one silently."""
+
+    _install_fake_eval(
+        monkeypatch, both=_task_with_dataset_kwargs(shuffle=True, seed=42, shuffle_choices=True)
+    )
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:both",
+            "--key",
+            "both",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "BOTH_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_upstream_choice_seed_with_a_row_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The symmetric bad cell: upstream pinned the CHOICE seed over the dataset's
+    own row order, so adding any row shuffle (here a policy --shuffle-seed) moves
+    every case's position and changes each permutation — refused, not shipped."""
+
+    _install_fake_eval(monkeypatch, seededchoices=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:seededchoices",
+            "--key",
+            "seededchoices",
+            "--shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "SEEDEDCHOICES_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_policy_seeded_double_shuffle_is_allowed(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The lab_bench cell stays importable: upstream seeds NEITHER shuffle, so
+    there is no fixed upstream exam to miss — both policy seeds pin one, and
+    both pins land in the rows."""
+
+    _install_fake_eval(
+        monkeypatch, policyboth=_task_with_dataset_kwargs(shuffle=True, shuffle_choices=True)
+    )
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:policyboth",
+            "--key",
+            "policyboth",
+            "--shuffle-seed",
+            "7",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    pins_text = (engine_src_copy / "pins.py").read_text()
+    assert "POLICYBOTH_SHUFFLE_SEED = 7" in pins_text
+    assert "POLICYBOTH_CHOICE_SHUFFLE_SEED = 7" in pins_text
+
+
+def test_a_policy_choice_shuffle_seed_is_reproduced_in_the_rows(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """--choice-shuffle-seed pins one choice order as exam identity: the pin row
+    and the SnapshotSpec field both land in the generated files."""
+
+    _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:shuffled",
+            "--key",
+            "shuffled",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert "SHUFFLED_CHOICE_SHUFFLE_SEED = 7" in (engine_src_copy / "pins.py").read_text()
+    assert (
+        "choice_shuffle_seed=SHUFFLED_CHOICE_SHUFFLE_SEED,"
+        in (engine_src_copy / "prepare.py").read_text()
+    )
+
+
+def test_an_upstream_choice_shuffle_seed_is_reproduced_in_the_rows(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """An eval that seeds its own choice shuffle is reproducible — the row carries
+    that seed with no flag needed (same resolution order as shuffle/seed)."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:seeded", "--key", "seeded", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert "SEEDED_CHOICE_SHUFFLE_SEED = 9" in (engine_src_copy / "pins.py").read_text()
+
+
+def test_choice_shuffle_seed_flag_is_refused_when_the_eval_pins_its_own(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """A seeded upstream (shuffle_choices=N) defines ONE exam — overriding it with
+    a policy seed would silently bake an exam upstream never produces (review
+    finding on PR #1031). The flag is refused, same rationale as the stray-flag
+    refusal one test down."""
+
+    _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:seeded",
+            "--key",
+            "seeded",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "SEEDED_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_choice_shuffle_seed_flag_without_an_upstream_choice_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """Shuffling choices the eval does NOT shuffle would bake a different exam —
+    the stray policy flag refuses instead of silently deviating from upstream."""
+
+    _install_fake_eval(monkeypatch, plain=_task_with_dataset_kwargs())
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:plain",
+            "--key",
+            "plain",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "plain" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_introspect_records_data_files_and_a_features_pointer_as_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1264 extension 2: data_files is a literal fact; features is a
+    Features SCHEMA living in a module constant (infinite_bench's `ft`), so the
+    fact is a dotted POINTER at the eval's own attribute — the row points,
+    never copies (same pattern as record_to_sample/system_message)."""
+
+    schema = object()
+    module = _install_fake_eval(
+        monkeypatch,
+        filed=_task_with_dataset_kwargs(data_files={"test": "test.jsonl"}, features=schema),
+    )
+    module.FEATURES = schema  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:filed")
+
+    assert facts.data_files == {"test": "test.jsonl"}
+    assert facts.features == f"{_FAKE_MODULE}:FEATURES"
+
+
+def test_introspect_refuses_a_features_value_with_no_module_attribute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An inline Features(...) has no attribute the row could point at — refuse
+    by name rather than serialize a schema the diff reviewer cannot anchor."""
+
+    _install_fake_eval(monkeypatch, inlined=_task_with_dataset_kwargs(features=object()))
+
+    with pytest.raises(ImporterError, match="features"):
+        introspect_task(f"{_FAKE_MODULE}:inlined")
+
+
+def test_introspect_refuses_an_exotic_data_files_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the shape the bake reproduces (dict[str, str]) is conserved;
+    anything else — even a bare str — refuses by name, never dropped."""
+
+    _install_fake_eval(monkeypatch, exotic=_task_with_dataset_kwargs(data_files=123))
+
+    with pytest.raises(ImporterError, match="data_files"):
+        introspect_task(f"{_FAKE_MODULE}:exotic")
+
+
+def test_data_files_and_features_are_reproduced_in_the_rows(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The emitted rows carry the data_files pin and the features pointer, so
+    the bake loads exactly the files and schema the eval declares."""
+
+    schema = object()
+    module = _install_fake_eval(
+        monkeypatch,
+        filed=_task_with_dataset_kwargs(data_files={"test": "test.jsonl"}, features=schema),
+    )
+    module.FEATURES = schema  # type: ignore[attr-defined]
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:filed", "--key", "filed", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert 'FILED_DATA_FILES = {"test": "test.jsonl"}' in (engine_src_copy / "pins.py").read_text()
+    assert f'features="{_FAKE_MODULE}:FEATURES"' in (engine_src_copy / "prepare.py").read_text()
+
+
 # ---------------------------------------------------------------------------
 # generated code is an injection sink (review should-fix 4): Hub-controlled
 # strings must never be able to land an executable line in the emitted files
@@ -993,6 +1392,16 @@ def test_generate_refuses_a_hostile_dataset_name(engine_src_copy: Path) -> None:
             Observations(revision="c" * 40, case_count=42, license="mit"),
             engine_src=engine_src_copy,
         )
+
+
+def test_generate_refuses_a_hostile_data_files_entry(engine_src_copy: Path) -> None:
+    """data_files strings land in a generated dict literal — same injection
+    sink, same charset guard (OME-1264 extension 2)."""
+
+    hostile_facts = _facts(data_files={"test": 'x"\nimport os\nZ = "'})
+    hostile_observations = Observations(revision="d" * 40, case_count=7, license="apache-2.0")
+    with pytest.raises(ImporterError, match="data_files"):
+        generate_rows("quiz", hostile_facts, hostile_observations, engine_src=engine_src_copy)
 
 
 def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: Path) -> None:
@@ -1132,6 +1541,63 @@ def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
     assert snapshot.prompt_template is None
     assert snapshot.choice_template is None
     assert snapshot.shuffle_seed is None
+    assert snapshot.choice_shuffle_seed is None
+
+
+def test_emitted_choice_shuffled_snapshot_row_constructs_the_real_snapshot_spec(
+    engine_src_copy: Path,
+) -> None:
+    """The choice_shuffle_seed arm of the template: its pin must be emitted, be in
+    import_names, and construct the real SnapshotSpec (OME-1264)."""
+
+    from screamingface_engine_inspect.prepare import SnapshotSpec
+
+    fragments = generate_rows(
+        "quiz",
+        _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+        engine_src=engine_src_copy,
+        choice_shuffle_seed=7,
+    )
+
+    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+
+    snapshot: Any = namespace["SNAPSHOTS"]["quiz"]
+    assert isinstance(snapshot, SnapshotSpec)
+    assert snapshot.choice_shuffle_seed == 7
+    assert snapshot.shuffle_seed is None
+    # Both directions of the pin-name contract (same check as the maximal row).
+    referenced: set[str] = set(re.findall(r"\bQUIZ_[A-Z_]+\b", fragments.snapshot))
+    assert referenced == set(fragments.import_names)
+
+
+def test_emitted_data_files_snapshot_row_constructs_the_real_snapshot_spec(
+    engine_src_copy: Path,
+) -> None:
+    """The data_files/features arm of the template: the pin plus the pointer
+    must construct the real SnapshotSpec (OME-1264 extension 2)."""
+
+    from screamingface_engine_inspect.prepare import SnapshotSpec
+
+    fragments = generate_rows(
+        "filed",
+        _facts(data_files={"test": "test.jsonl"}, features=f"{_FAKE_MODULE}:FEATURES"),
+        Observations(revision="c" * 40, case_count=42, license="mit"),
+        engine_src=engine_src_copy,
+    )
+
+    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+
+    snapshot: Any = namespace["SNAPSHOTS"]["filed"]
+    assert isinstance(snapshot, SnapshotSpec)
+    assert snapshot.data_files == {"test": "test.jsonl"}
+    assert snapshot.features == f"{_FAKE_MODULE}:FEATURES"
+    referenced: set[str] = set(re.findall(r"\bFILED_[A-Z_]+\b", fragments.snapshot))
+    assert referenced == set(fragments.import_names)
 
 
 def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:

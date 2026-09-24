@@ -13,7 +13,7 @@ import logging
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Request, Response
@@ -27,12 +27,13 @@ from screamingface_engine.auth import (
     JwtCodec,
     ProblemException,
     VerifiedClaims,
+    default_clock,
     new_topic,
 )
+from screamingface_engine.cache_intent import parse_cache_control
 from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
 from screamingface_engine.ports import IdentityAwareJobRunner
-from screamingface_engine.rest.cache_header import parse_cache_control
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
 from screamingface_engine.rest.sessions import RunSessions
@@ -53,10 +54,6 @@ _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "timed_out": (504, "Gateway Timeout", "the run exceeded its deadline"),
     "stopped": (409, "Conflict", "the run was stopped"),
 }
-
-
-def _default_clock() -> datetime:
-    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -409,7 +406,7 @@ async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
 async def mint_token(request: Request) -> dict[str, str]:
     """Mint a fresh topic and its HS256 capability JWT. Unauthenticated (see route summary)."""
     settings: Settings = request.app.state.settings
-    clock = getattr(request.app.state, "clock", _default_clock)
+    clock = getattr(request.app.state, "clock", default_clock)
     codec = JwtCodec(
         secret=settings.jwt_secret,
         iat_window_s=settings.iat_window_s,
@@ -522,7 +519,7 @@ async def start_run(
     ] = None,
     # DECLARED HERE, RESOLVED IN `_converge_cache`. The run's cache intent has two carriers — this
     # header and the WS attach frame — and the header wins when both speak. Reading it into a
-    # policy is therefore not this handler's business alone: `cache_header.parse_cache_control`
+    # policy is therefore not this handler's business alone: `cache_intent.parse_cache_control`
     # turns the field into intent, and convergence reconciles it with the frame's declaration
     # before the run is scheduled. The parameter lands here so the ingress contract and its
     # OpenAPI documentation are one thing, not two.
@@ -550,7 +547,7 @@ async def start_run(
     # optional forwarded value uses — one representation rather than an empty mapping meaning it.
     identity = job_env.identity_from_headers(request.headers) or None
     answer_seed = _parse_answer_seed(x_answer_seed)
-    clock = getattr(request.app.state, "clock", _default_clock)
+    clock = getattr(request.app.state, "clock", default_clock)
     await _schedule(
         deps,
         topic,

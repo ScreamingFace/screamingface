@@ -279,3 +279,26 @@ describe("responses", () => {
     expect(requestedHeaders()["content-type"]).toBe("application/json");
   });
 });
+
+// --- the key write carries no saved defaults (OME-1322) -----------------------------------------
+
+describe("setApiKey", () => {
+  // INVARIANT (OME-1138 Stage C, UI-first): the console never authors saved Profile defaults. The
+  // body is exactly `{ "api_key": … }` — no `defaults` property, not even `null` — so the gateway's
+  // later rejection of defaults-carrying writes cannot trip on this console.
+  it("sends a body whose only key is api_key, on the unchanged legacy endpoint", async () => {
+    fetchMock.mockImplementation(() => respond(200, { id: "p1" }));
+    // WHY a non-literal: a stale caller object can still carry the old property at runtime, and
+    // the wire must not follow it.
+    const stale = { api_key: "sk-live-secret-value", defaults: null };
+
+    await setApiKey("acc-1", "openai", "default", stale);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new URL(url).pathname).toBe("/v1/admin/accounts/acc-1/profiles/openai/default/api-key");
+    expect(init.method).toBe("PUT");
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual(["api_key"]);
+    expect(body).toEqual({ api_key: "sk-live-secret-value" });
+  });
+});

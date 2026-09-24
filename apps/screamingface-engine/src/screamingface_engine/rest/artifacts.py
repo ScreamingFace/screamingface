@@ -22,20 +22,70 @@ all three (review finding on OME-892). Artifacts die by TTL alone: the periodic 
 import asyncio
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Request, Response
+from fastapi import APIRouter, Depends, Path, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 
 from screamingface_engine.artifacts import LocalFile
-from screamingface_engine.auth.dependencies import VerifiedClaims
+from screamingface_engine.artifacts.signing import (
+    EXPIRY_PARAM,
+    SIGNATURE_PARAM,
+    verify_artifact_signature,
+)
+from screamingface_engine.auth.dependencies import default_clock, verified_claims
 from screamingface_engine.auth.problem import ProblemException
 
 router = APIRouter()
+
+
+def _authorize_artifact(request: Request) -> None:
+    """Accept a capability token OR a valid unexpired signed URL (OQ-3.2, contracts.md C6).
+
+    FEATURE: the sync caller D9 redirects here holds no capability token, so the spill path
+    issues a short-lived signature over the artifact id and its expiry. This route verifies it
+    as an ALTERNATIVE credential.
+
+    INVARIANT: the bare route is NOT loosened. A request offering no signature of any kind falls
+    straight through to `verified_claims` — the same check, and the same 401, as before this
+    unit. An invalid or expired signature ALSO falls through, so with no valid token it is
+    refused exactly as a bad token is today.
+    """
+    settings = request.app.state.settings
+    artifact_id = str(request.path_params.get("artifact_id", ""))
+    exp = request.query_params.get(EXPIRY_PARAM)
+    sig = request.query_params.get(SIGNATURE_PARAM)
+    if exp is not None and sig is not None:
+        clock = getattr(request.app.state, "clock", default_clock)
+        now = clock().timestamp()
+        if verify_artifact_signature(
+            artifact_id,
+            exp=exp,
+            sig=sig,
+            key=settings.artifact_signing_key,
+            now=now,
+        ):
+            return
+    verified_claims(request)
+
+
+# A dependency that authorizes EITHER credential; injected so the failure path is the same
+# uniform 401 problem the token path already produces.
+ArtifactAccess = Annotated[None, Depends(_authorize_artifact)]
 
 
 @router.get(
     "/artifacts/{artifact_id}",
     tags=["Runs"],
     summary="Fetch one complete spilled result by its claim ticket",
+    # OQ-3.1/OQ-3.2, description only: this is the one engine path a sync caller reaches (the
+    # spill `303` redirects here), so it states both credentials AND which envelope it speaks.
+    description=(
+        "Redeem a run's claim ticket and return the stored bytes. A bare request needs the "
+        "capability token. A sync caller holds no token, so the spill path's ``303`` carries a "
+        "short-lived signature (``exp``/``sig`` query parameters); a valid, unexpired signature "
+        "is accepted as an alternative credential. Errors here are RFC 9457 "
+        "``application/problem+json`` — the sync mount surface is the origin's only "
+        "url4-envelope exception (see the Error envelopes section of the API description)."
+    ),
     # WHY both (OME-929): the handler now returns one of TWO response classes, and FastAPI
     # tries to build a Pydantic response field from the return annotation — which a union of
     # Starlette responses is not. `response_model=None` disables that inference; declaring
@@ -46,7 +96,7 @@ router = APIRouter()
 )
 async def get_artifact(
     request: Request,
-    claims: VerifiedClaims,
+    _access: ArtifactAccess,
     artifact_id: Annotated[
         str, Path(description="Content address from the result frame's artifact reference.")
     ],

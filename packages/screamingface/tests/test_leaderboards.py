@@ -1339,6 +1339,11 @@ def test_the_submission_payload_gains_only_the_cost_key() -> None:
         "url4_expression",
         "score",
         "total_questions",
+        # OME-1181/OME-1180: the declared model routes. Added here as an approved
+        # Confidence-Gate exception (2026-09-11) — this guard exists so a DELIBERATE payload
+        # change is recorded rather than absorbed, which is exactly what this line does. The set
+        # stays exhaustive; nothing is removed and no assertion is loosened.
+        "models",
         "ran_with_providers",
         "ran_at_local",
         "run_cost_usd",
@@ -1735,3 +1740,184 @@ def test_revision_mismatch_card_identity_uses_the_persisted_revision() -> None:
 
     assert "draco · rev submitted-revision" in html
     assert "draco · rev fixture-revision" not in html
+
+
+# --- OME-1180: the declared model routes reach the submission payload -------------------------
+# `_providers` truncates each route to its first path segment, so a fusion of deepseek, kimi and
+# qwen is submitted as ["openrouter"] and the Scoreboard publishes it as closed. OME-1181 is the
+# Scoreboard half that accepts these; it must be DEPLOYED before this Client is released.
+
+
+def test_the_declared_routes_are_sent_whole() -> None:
+    # INVARIANT: verbatim. A regression to `_providers`-style truncation is the entire bug this
+    # unit exists to fix, and it is invisible to any assertion that only checks the key is there.
+    payload = _submission(_candidate_result())
+
+    assert payload["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+
+
+def test_models_and_providers_describe_the_same_set() -> None:
+    # INVARIANT: the two fields are one fact at two resolutions. If they ever disagree the board
+    # has to choose, and OME-1181 resolves that by deriving providers from these routes
+    # server-side — which only holds while the Client sends a consistent pair.
+    payload = _submission(_candidate_result())
+    models = cast(list[str], payload["models"])
+    providers = cast(list[str], payload["ran_with_providers"])
+
+    assert {route.split("/", 1)[0] for route in models} == set(providers)
+
+
+def test_the_providers_field_is_unchanged_by_this_unit() -> None:
+    # GUARD: `ran_with_providers` is required on ScoreSubmission, the portal's Backends column
+    # reads it, and the Scoreboard's `_content_hash` hashes the WIRE value — so changing it here
+    # would rewrite recipe identity for every existing row and break dedup across the board.
+    payload = _submission(_candidate_result())
+
+    assert payload["ran_with_providers"] == ["openrouter", "gemini-cli"]
+
+
+def test_a_fusion_declares_its_synthesizer_as_well_as_its_members() -> None:
+    """INVARIANT: the synthesizer is part of what the system is made of.
+
+    A fusion's answer passes through its synthesizer, so omitting it would let a closed
+    synthesizer hide behind open members — under OME-1179 D1 that flips the entry's published
+    verdict from closed to open. This asserts the property at its source,
+    `CandidateResult.models`, because that is where an upstream change would silently drop it.
+    """
+    from screamingface._evaluation.candidate import compile_candidate
+
+    member_a = "openrouter/meta-llama/Llama-3.1-70B-Instruct"
+    member_b = "openrouter/qwen/qwen3.6-plus"
+    synthesizer = "anthropic/claude-opus-4.8"
+
+    compiled = compile_candidate(sf.Fusion([member_a, member_b], synthesizer=synthesizer))
+
+    assert set(compiled.models) == {member_a, member_b, synthesizer}
+
+
+def test_the_routes_survive_json_serialisation() -> None:
+    # The payload is handed to `json=`; a tuple would encode fine but would not round-trip to the
+    # list the Scoreboard's `list[ModelRoute]` expects.
+    import json
+
+    encoded = json.loads(json.dumps(_submission(_candidate_result())))
+
+    assert encoded["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+    assert isinstance(encoded["models"], list)
+
+
+# --- OME-1247: the Client enforces the board's bounds on `models` -----------------------------
+# The Scoreboard caps this field at 32 routes / 255 characters each / 4096 serialized bytes
+# (`validate_bounded_models`). Without a matching guard the mismatch surfaces only in the field,
+# after a release, as a 422 on the WHOLE submission — `models` fails validation and takes
+# `ScoreSubmission` with it. The route grammar was deliberately mirrored across the two ends for
+# exactly this reason; the bounds were not.
+
+
+def _routes(count: int, *, length: int = 12) -> tuple[str, ...]:
+    """`count` distinct, grammar-valid routes of exactly `length` characters each."""
+    routes = []
+    for index in range(count):
+        suffix = str(index)
+        # "owner/" is 6 characters; pad so every route is exactly `length` long and distinct.
+        routes.append("owner/" + "a" * (length - 6 - len(suffix)) + suffix)
+    return tuple(routes)
+
+
+def _result_declaring(models: tuple[str, ...]) -> sf.CandidateResult:
+    # Rebuilt rather than `replace`d, for the reason `_result_costing` records above.
+    base = _candidate_result()
+    return sf.CandidateResult(
+        benchmark=base.benchmark,
+        run_id=base.run_id,
+        started_at=base.started_at,
+        completed_at=base.completed_at,
+        name=base.name,
+        kind=base.kind,
+        url4=base.url4,
+        models=models,
+        operations=base.operations,
+        score=base.score,
+        coverage=base.coverage,
+        metrics=dict(base.metrics),
+        cases=base.cases,
+        members=base.members,
+        failures=base.failures,
+        usage=base.usage,
+    )
+
+
+def test_the_route_count_cap_admits_the_boundary_and_refuses_one_past_it() -> None:
+    # INVARIANT: 32 is the board's limit, not 31 and not 33. An off-by-one here is a 422 in the
+    # field after a release, which is the failure this whole unit exists to make impossible.
+    assert len(cast(list[str], _submission(_result_declaring(_routes(32)))["models"])) == 32
+
+    with pytest.raises(ValueError, match="32"):
+        _submission(_result_declaring(_routes(33)))
+
+
+def test_the_route_length_cap_admits_the_boundary_and_refuses_one_past_it() -> None:
+    at_limit = _routes(1, length=255)
+    assert cast(list[str], _submission(_result_declaring(at_limit))["models"]) == list(at_limit)
+
+    with pytest.raises(ValueError, match="255"):
+        _submission(_result_declaring(_routes(1, length=256)))
+
+
+def test_a_payload_within_both_other_caps_can_still_exceed_the_byte_cap() -> None:
+    # WHY this case is not redundant: 20 routes is well inside the count cap and 250 characters is
+    # inside the length cap, yet together they serialize past 4096 bytes. A guard that checked only
+    # count and length would pass this and the board would still refuse it.
+    models = _routes(20, length=250)
+
+    with pytest.raises(ValueError, match="4096"):
+        _submission(_result_declaring(models))
+
+
+def test_the_byte_cap_is_measured_the_way_the_board_measures_it() -> None:
+    """INVARIANT: compact separators, `ensure_ascii=False`, then `.encode()`.
+
+    The board computes `json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()`.
+    Measuring the Python strings instead, or letting `json.dumps` use its default `", "` /
+    `": "` separators, makes the two ends disagree about what 4096 bytes means — and the
+    disagreement only shows up as a field failure on a payload near the limit.
+
+    Pinned at the EXACT boundary rather than by comparing the two spellings, because the gap
+    between them is `len(models) - 2` bytes while one character of route moves the total by
+    `len(models)` — so for a uniform payload no length straddles them. A payload measuring
+    exactly 4096 by the board's spelling measures 4115 by the default one, so an implementation
+    using the wrong separators refuses this and fails here.
+    """
+    import json
+
+    def board_bytes(routes: list[str]) -> int:
+        return len(json.dumps(routes, ensure_ascii=False, separators=(",", ":")).encode())
+
+    models = list(_routes(20, length=200))
+    while board_bytes(models) < 4096:
+        models[-1] += "a"
+    assert board_bytes(models) == 4096, "fixture no longer lands on the cap exactly"
+    assert len(models[-1]) <= 255, "the tuning route must stay inside the length cap"
+
+    assert cast(list[str], _submission(_result_declaring(tuple(models)))["models"]) == models
+
+    one_past = [*models[:-1], models[-1] + "a"]
+    with pytest.raises(ValueError, match="4096"):
+        _submission(_result_declaring(tuple(one_past)))
+
+
+def test_the_refusal_names_the_offending_value_not_just_the_limit() -> None:
+    # A user told "at most 32 routes", with no idea they built 41, cannot act on it without
+    # reading the Scoreboard's source. Name both numbers.
+    with pytest.raises(ValueError) as excinfo:
+        _submission(_result_declaring(_routes(41)))
+
+    assert "41" in str(excinfo.value)
+
+
+def test_a_candidate_inside_every_cap_submits_exactly_as_before() -> None:
+    # GUARD: this unit adds a refusal, not a transformation. The ordinary payload is untouched.
+    payload = _submission(_candidate_result())
+
+    assert payload["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+    assert payload["ran_with_providers"] == ["openrouter", "gemini-cli"]

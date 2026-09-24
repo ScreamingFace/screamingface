@@ -1,0 +1,267 @@
+"""u3-local — the node mounted inside the local App, behind every literal route (C8, AC17/T3).
+
+# WHY this file exists, and why route precedence is first. ``serve --local`` fuses the control
+# plane and the node tier into ONE FastAPI app, so the node's catch-all ASGI mount and the
+# engine's literal routes share one route table. FastAPI resolves the FIRST match: a mount
+# registered before ``/v1/models`` silently swallows it and the node answers the catalog's path
+# with url4's ``endpoint_not_found``. T3 pins both halves of the resulting contract — the engine
+# keeps ``/v1/models`` and the node keeps bare ``/v1?q=`` — and T3's refactor note is the
+# composition root's own ordering assertion, which a future route insertion must trip.
+
+These tests drive the REAL ``create_local_app`` through its lifespan; the world is a read-side
+declaration only (a ``[data]`` value route), so the eval-path assertion makes no model call and
+the suite stays offline.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Mapping
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from starlette.routing import Route
+
+from screamingface_engine import job_env
+from screamingface_engine.benchmarks.registry import BENCHMARK_ASSETS_ENV
+from screamingface_engine.catalog.port import Credential, ModelCatalog, compute_etag
+from screamingface_engine.config import Settings
+from screamingface_engine.local import create_local_app
+from screamingface_engine.runner.fair_share import FairShareIOLayer
+from screamingface_engine.world.serving import NodeMountRoute, assert_node_route_last
+
+_READ_SIDE_ONLY = '[data]\n"/corpus" = { value = "rows", media_type = "text/plain" }\n'
+
+
+class _FakeCatalog:
+    """The engine catalog stand-in: proves ``/v1/models`` reached the ENGINE route, not the node.
+
+    A stub rather than the real service because the real one dials aigateway — and a test that
+    dials anything, even loopback, is not offline.
+    """
+
+    def __init__(self) -> None:
+        self.seen: list[Credential] = []
+
+    async def fetch(self, credential: Credential) -> ModelCatalog:
+        self.seen.append(credential)
+        body: dict[str, object] = {
+            "object": "list",
+            "data": [{"id": "declared-model", "object": "model"}],
+        }
+        return ModelCatalog(body=body, etag=compute_etag(body))
+
+    def max_age_s(self, credential: Credential) -> int:
+        return 60
+
+
+def _config_file(tmp_path: Path, text: str = _READ_SIDE_ONLY) -> str:
+    path = tmp_path / "url4.toml"
+    path.write_text(text)
+    return str(path)
+
+
+def _app(config_path: str, **kwargs: object) -> FastAPI:
+    return create_local_app(
+        Settings(jwt_secret="s" * 32, **kwargs),  # type: ignore[arg-type]
+        env={job_env.RUNNER_CONFIG: config_path},
+    )
+
+
+def _client(app: FastAPI) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://app.test")
+
+
+# --- T3 / AC17: literal routes win; the eval path reaches the node ----------------------------
+
+
+@pytest.mark.asyncio
+async def test_engine_catalog_answers_v1_models_while_bare_v1_reaches_the_node(
+    tmp_path: Path,
+) -> None:
+    """The exact AC17 pair: ``/v1/models`` is the catalog's, ``/v1?q=`` is the node's.
+
+    ``/v1`` is not an engine route and is not a declared mount: the node answers it because its
+    catch-all mount was registered AFTER every literal route. Reverse the order and the node's
+    own dispatch would answer ``/v1/models`` with url4's ``endpoint_not_found`` instead.
+    """
+    app = _app(_config_file(tmp_path))
+    app.state.catalog = _FakeCatalog()
+
+    async with app.router.lifespan_context(app):
+        async with _client(app) as client:
+            catalog = await client.get("/v1/models")
+            evaluated = await client.get("/v1", params={"q": "'hello'"})
+
+    assert catalog.status_code == 200
+    assert catalog.json()["object"] == "list"
+    assert catalog.headers["content-type"].startswith("application/json")
+
+    assert evaluated.status_code == 200
+    assert evaluated.headers["content-type"] == "text/plain; charset=utf-8"
+    assert evaluated.text == "hello"
+
+
+@pytest.mark.asyncio
+async def test_a_declared_mount_answers_through_the_mounted_node(
+    tmp_path: Path,
+) -> None:
+    """A ``[data]`` mount is served by the node's ASGI surface, in-process (no forwarder)."""
+    app = _app(_config_file(tmp_path, _READ_SIDE_ONLY))
+
+    async with app.router.lifespan_context(app):
+        async with _client(app) as client:
+            mounted = await client.get("/corpus")
+
+    assert mounted.status_code == 200
+    assert mounted.text == "rows"
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_answer_seed_is_a_400_in_the_mount_envelope(
+    tmp_path: Path,
+) -> None:
+    """The node tier maps ``AnswerSeedError`` to 400 before dispatch; the local mount does too.
+
+    Local mode calls the sync scope producer itself, so the same malformed-seed refusal must not
+    escape as a 500 (OME-1038: a declared sitting must not run without its seed).
+    """
+    app = _app(_config_file(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        async with _client(app) as client:
+            response = await client.get("/corpus", headers={"X-Answer-Seed": "not-an-int"})
+
+    assert response.status_code == 400
+    # item 3 (B6 review): the same shared code the node tier answers with (`MALFORMED_HEADER`),
+    # not `malformed_source` — the two tiers must not drift onto different codes for one refusal.
+    assert response.json()["error"]["code"] == "malformed_header"
+
+
+# --- T3 refactor note: the composition root asserts the ordering -------------------------------
+
+
+def test_the_node_mount_is_the_final_route(tmp_path: Path) -> None:
+    """INVARIANT (D3): the node route is last, so every literal route precedes it.
+
+    FX-31/FX-32: the last route is the `NodeMountRoute` (not a catch-all `Mount`), installed by
+    the one install function both shapes share.
+    """
+    app = _app(_config_file(tmp_path))
+    route = app.router.routes[-1]
+
+    # `BaseRoute` has no `.app`, so narrow first — the assertion IS the type proof that the last
+    # route is the node route.
+    assert isinstance(route, NodeMountRoute)
+    assert route.app is app.state.node_mount
+    # AND: the guard itself passes on the shape the composition root built.
+    assert_node_route_last(app, route)
+
+
+def test_the_ordering_guard_rejects_a_route_registered_after_the_mount(
+    tmp_path: Path,
+) -> None:
+    """A future insertion after the node route must trip the guard (D3).
+
+    Simulated by appending a literal route directly, which is exactly what an errant
+    ``include_router`` after the install would do.
+    """
+    app = _app(_config_file(tmp_path))
+    route = app.router.routes[-1]
+    assert isinstance(route, NodeMountRoute)
+    app.router.routes.append(Route("/late", lambda _request: None))
+
+    with pytest.raises(AssertionError):
+        assert_node_route_last(app, route)
+
+
+# --- the shared IOLayer: one node for the mount AND every in-process run -----------------------
+
+
+@pytest.mark.asyncio
+async def test_the_in_process_run_path_shares_the_mounted_nodes_io_layer(
+    tmp_path: Path,
+) -> None:
+    """C8: the mount and the runs resolve ONE node, so the surfaces cannot disagree.
+
+    The mount proves the node exists; the executor factory (what a local run builds) must then
+    hand that SAME instance to its executor rather than constructing a second world.
+    """
+    app = _app(_config_file(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        shared = app.state.node_world
+        assert shared is not None
+        run_env: Mapping[str, str] = {
+            **app.state.job_runner._base_env,  # noqa: SLF001 - the production run env shape
+            job_env.TOPIC: "t-shared",
+            job_env.EXPRESSION: "'hello'",
+        }
+        executor = app.state.job_runner._factory(run_env)  # noqa: SLF001
+        inner = executor._inner  # noqa: SLF001 - the wrapped Url4Executor
+
+        # B2 review (FX-40): the shared world is handed over by the run's world factory, which
+        # first applies the seed refusal, so it is the run's io once the world is resolved.
+        # F2 + OME-908: it is wrapped PER RUN for fair-share I/O, and the wrapper's inner layer
+        # is still the one shared node — identity IS the invariant.
+        await inner._resolve_world()  # noqa: SLF001
+        assert isinstance(inner._io, FairShareIOLayer)  # noqa: SLF001
+        assert inner._io._inner is shared  # noqa: SLF001
+        assert inner._world_aclose is None  # noqa: SLF001 - a run never closes the shared node
+
+
+# --- item 2 (B6 review): the direct-mount set excludes benchmark endpoints --------------------
+
+
+@pytest.mark.asyncio
+async def test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`/benchmarks/candidate` is installed on the shared node, but is not a direct mount.
+
+    WHY: the connector applies the run's X-Answer-Seed to every model call it makes. A judge
+    call a benchmark issues OUTSIDE a candidate invocation must stay unseeded (OME-1038) — a
+    direct loopback hit on a judge/candidate endpoint has no candidate invocation around it, so
+    the direct-mount set must exclude benchmark endpoints, exactly as the deployed shape does
+    (which never mounts them for the forwarder at all).
+
+    Also pins B6 review round 2 (items 3/4): the direct-mount set is computed from the ONE
+    shared world, not a second world build — so a `[holdings]` declaration logs its "readable by
+    EVERY caller" INFO line exactly ONCE at startup, not twice.
+    """
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    config = (
+        '[aigateway]\nbase_url = "http://aigateway.test"\n'
+        'default_route = "/anthropic/claude-haiku-4-5"\n'
+        '[data]\n"/corpus" = { value = "rows", media_type = "text/plain" }\n'
+        '[holdings]\ndefault = { value = "global notes" }\n'
+    )
+    # Any (even empty) asset root installs BUILTIN_BENCHMARKS lazily — install() never reads an
+    # asset eagerly (see test_benchmark_asset_isolation.py).
+    with caplog.at_level(logging.INFO):
+        app = create_local_app(
+            Settings(jwt_secret="s" * 32),
+            env={
+                job_env.RUNNER_CONFIG: _config_file(tmp_path, config),
+                BENCHMARK_ASSETS_ENV: str(assets),
+            },
+        )
+        app.state.catalog = _FakeCatalog()
+
+        async with app.router.lifespan_context(app):
+            async with _client(app) as client:
+                benchmark_hit = await client.get("/benchmarks/candidate")
+                mount_hit = await client.get("/corpus")
+
+    assert benchmark_hit.status_code == 404
+    # AND: the ENGINE's own 404 body, byte-for-byte — FastAPI's default for an unmatched route,
+    # not url4's error envelope (a route the App never declared a mount for reaches neither).
+    assert benchmark_hit.json() == {"detail": "Not Found"}
+    assert mount_hit.status_code == 200
+    assert mount_hit.text == "rows"
+
+    shelf_lines = [r for r in caplog.records if "holdings shelf" in r.getMessage()]
+    assert len(shelf_lines) == 1, shelf_lines

@@ -53,7 +53,7 @@ class BenchmarkRegistry:
 
         for benchmark in self:
             benchmark.install(node, assets_root)
-        declared = frozenset(node.processor_routes()) | _data_routes(node)
+        declared = served_routes(node)
         for benchmark in self:
             protocol = benchmark.protocol(benchmark.case_count)
             # Rendering at installation catches malformed hand-built ASTs before discovery can
@@ -66,7 +66,21 @@ class BenchmarkRegistry:
                 )
 
 
-def _data_routes(node: Url4Node) -> frozenset[str]:
+def served_routes(node: Url4Node) -> frozenset[str]:
+    """Every URL path ``node`` serves directly: its endpoints and its data routes.
+
+    FX-55 / B3 review R8: the ONE accessor for this union. `world.serving.node_mount_paths` (the
+    collision guard), `world.factory.build_world` (the direct-mount route set it captures before
+    Benchmarks install) and :meth:`BenchmarkRegistry.install` (the endpoint check) all call it,
+    so none of the three can disagree about what a node serves. It lives here, not in
+    `world`: `benchmarks` is a shared leaf (`.claude/scripts/check_layering.py`) that the world
+    may import and that may not import the world.
+    """
+
+    return frozenset(node.processor_routes()) | data_routes(node)
+
+
+def data_routes(node: Url4Node) -> frozenset[str]:
     """The node's data paths, which are servable relative targets too.
 
     WHY read privately: `processor_routes()` lists endpoints only, and `Url4Node` publishes no
@@ -136,4 +150,6 @@ __all__ = [
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",
     "assets_root",
+    "data_routes",
+    "served_routes",
 ]

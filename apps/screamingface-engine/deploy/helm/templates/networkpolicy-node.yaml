@@ -1,0 +1,57 @@
+{{- if .Values.node.enabled }}
+{{/*
+Who may reach the node tier: the App, and nothing else. THIS POLICY IS THE AUTHENTICATION
+BOUNDARY. The node trusts the `X-User-Email` header the App injects, exactly as aigateway trusts
+it from the App — so without this policy any pod in the cluster could set the header freely and
+impersonate any caller (contracts.md §10, AC5). That makes it a correctness requirement, not
+hardening.
+
+INVARIANT: the peer's `namespaceSelector` and `podSelector` MUST stay in ONE `from` element.
+Selectors within an element are ANDed; elements are ORed. Split across two elements the rule
+would read "any pod in this namespace OR any pod with that label anywhere" — the whole namespace,
+which is the hole this policy closes.
+
+INVARIANT: the peer matches on `component: control-plane`, which the App pod template carries.
+Matching on `name` alone would also admit the node's OWN pods (they share name with the App) and
+the aigateway-visible pool. `instance` now differs too (FX-80, §2.5) for the same reason the
+node's Service selector does — the App's name+instance pair is otherwise a superset match for
+the node's own pods. The App is the only workload with the `control-plane` component.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "screamingface-engine.nodeName" . }}
+  labels:
+    {{- include "screamingface-engine.nodeLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "screamingface-engine.nodeSelectorLabels" . | nindent 6 }}
+  # Ingress only. The node dials aigateway and object storage on unrestricted egress; only
+  # who may reach ITS surface is the security property.
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.node.port }}
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- include "screamingface-engine.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: control-plane
+    {{- with .Values.node.metrics.scrapeFrom }}
+    {{- /* FX-82/RD2: a SECOND, INDEPENDENT ingress rule — a scraper is admitted to the metrics
+    port ONLY, never to the request port `node.port` above. Empty (the default) renders no rule
+    at all, so metrics stays unreachable from anywhere but the pod itself until an operator names
+    a peer. */}}
+    - ports:
+        - protocol: TCP
+          port: {{ $.Values.node.metrics.port }}
+      from:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }}

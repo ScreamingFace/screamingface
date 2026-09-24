@@ -18,8 +18,8 @@ from __future__ import annotations
 import pytest
 
 from screamingface_engine.benchmarks.aggregation import public_error
-from screamingface_engine.runner.errors import RunnerRequestError
-from screamingface_engine.runner.model_response import parse_choice, raise_if_unusable
+from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.model_response import parse_choice, raise_if_unusable
 
 
 def _payload(message: dict, finish_reason: str = "stop") -> dict:

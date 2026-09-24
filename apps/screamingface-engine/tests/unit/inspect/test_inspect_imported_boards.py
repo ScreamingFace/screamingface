@@ -51,6 +51,15 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "wmdp_chem": "mcq",
     "wmdp_cyber": "mcq",
     "hellaswag": "mcq",
+    # LAB-Bench text subsets (OME-1264 batch 1): MCQ graded by the eval's OWN
+    # precision_choice scorer — still the MCQ family (check surface refused);
+    # FigQA/TableQA are image-based and stay out of the text-only bake.
+    "lab_bench_litqa": "mcq",
+    "lab_bench_suppqa": "mcq",
+    "lab_bench_dbqa": "mcq",
+    "lab_bench_protocolqa": "mcq",
+    "lab_bench_seqqa": "mcq",
+    "lab_bench_cloning_scenarios": "mcq",
     "frontierscience": "judged",
 }
 
@@ -169,6 +178,8 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     # hellaswag: OURS policy seed (review finding on PR #1018) — the pinned
     # validation split is domain-grouped (3,243 ActivityNet rows then 6,799
     # WikiHow), so an unshuffled limit ≤ 3243 run would examine zero WikiHow.
+    # lab_bench_*: upstream shuffles rows per run (shuffle=True, no seed), so
+    # the import pins one order (OURS policy seed, OME-1264 batch 1).
     assert seeded == {
         "mmlu",
         "commonsense_qa",
@@ -180,10 +191,51 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "aime25",
         "musr",
         "hellaswag",
+        "lab_bench_litqa",
+        "lab_bench_suppqa",
+        "lab_bench_dbqa",
+        "lab_bench_protocolqa",
+        "lab_bench_seqqa",
+        "lab_bench_cloning_scenarios",
         # frontierscience: mixed formats/subjects in dataset order — OURS policy
         # seed so a limited run spans both formats (sweep 2026-09-22, OME-1240).
         "frontierscience",
     }
+
+
+def test_lab_bench_boards_pin_a_choice_order() -> None:
+    """LAB-Bench builds every case with the correct answer FIRST and shuffles
+    choices per run (shuffle_choices=True, unseeded) — without a pinned choice
+    order every baked answer would be 'A'. The six text boards must carry the
+    policy choice-shuffle seed, and it must ride exam identity."""
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    lab_bench_keys = {key for key in SNAPSHOTS if key.startswith("lab_bench_")}
+    assert lab_bench_keys == {
+        "lab_bench_litqa",
+        "lab_bench_suppqa",
+        "lab_bench_dbqa",
+        "lab_bench_protocolqa",
+        "lab_bench_seqqa",
+        "lab_bench_cloning_scenarios",
+    }
+    for key in sorted(lab_bench_keys):
+        assert SNAPSHOTS[key].choice_shuffle_seed is not None, key
+        assert f"choice_shuffle_seed={SNAPSHOTS[key].choice_shuffle_seed}" in _revision_pins(
+            SNAPSHOTS[key]
+        )
+
+
+def test_lab_bench_pins_track_upstreams_own_revision_constant() -> None:
+    """Same drift guard as aime24/25/hellaswag, once for the whole family: every
+    lab_bench sha is COPIED from the eval's own pinned constant — a dependency
+    bump that moves upstream's pin must fail here."""
+
+    from inspect_evals.lab_bench.lab_bench import LAB_BENCH_DATASET_REVISION as UPSTREAM
+
+    for key in (k for k in SNAPSHOTS if k.startswith("lab_bench_")):
+        assert SNAPSHOTS[key].dataset_revision == UPSTREAM, key
 
 
 def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
@@ -219,6 +271,40 @@ def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
     from screamingface_engine_inspect.pins import HELLASWAG_DATASET_REVISION
 
     assert HELLASWAG_DATASET_REVISION == UPSTREAM
+
+
+def test_choice_shuffle_seed_rides_exam_identity() -> None:
+    """OME-1264: the pinned choice order is part of the exam a candidate sits —
+    a re-import that gains or loses the choice-shuffle seed cannot keep the
+    board's revision identity."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    pins = _revision_pins(replace(SNAPSHOTS["mmlu"], choice_shuffle_seed=7))
+    assert "choice_shuffle_seed=7" in pins
+    # And a board without one carries no such pin (the field is conditional).
+    assert not any(p.startswith("choice_shuffle_seed=") for p in _revision_pins(SNAPSHOTS["mmlu"]))
+
+
+def test_data_files_and_features_ride_exam_identity() -> None:
+    """OME-1264 extension 2: data_files selects WHICH files load and features
+    fixes their schema — both change the exam, so both ride the board's
+    revision identity."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    spec = replace(SNAPSHOTS["mmlu"], data_files={"t": "t.jsonl"}, features="fake_mod:FT")
+    pins = _revision_pins(spec)
+    assert 'data_files={"t": "t.jsonl"}' in pins
+    assert "features=fake_mod:FT" in pins
+    # And a board without them carries neither pin (the fields are conditional).
+    assert not any(
+        p.startswith(("data_files=", "features=")) for p in _revision_pins(SNAPSHOTS["mmlu"])
+    )
 
 
 def test_system_message_pointer_rides_exam_identity() -> None:

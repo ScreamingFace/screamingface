@@ -27,7 +27,7 @@ INVARIANT — **no counter is labelled by cache key, prompt or credential** (spe
 Enforced structurally rather than by review: :meth:`RunCacheCounters.record` accepts
 a status and a reason and nothing else, so there is no slot a key could occupy. The
 gateway's entry key IS parsed, one seam upstream
-(:class:`screamingface_engine.runner.cache_readback.CacheOutcome`), and deliberately
+(:class:`screamingface_engine.world.cache_readback.CacheOutcome`), and deliberately
 stops there.
 """
 
@@ -38,8 +38,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, localcontext
 from typing import Literal
 
-from screamingface_engine.runner.accounting import AMOUNT_PRECISION
-from screamingface_engine.runner.cache_readback import CacheStatus
+from screamingface_engine.world.accounting import AMOUNT_PRECISION
+from screamingface_engine.world.cache_readback import CacheStatus
 
 SavedCostProvenance = Literal["reported", "archive_matched"]
 """How a saved-cost amount was established.

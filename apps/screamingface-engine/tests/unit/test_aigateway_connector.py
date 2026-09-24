@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.runner.connector import AigatewayConfig, _messages, build_aigateway_world
-from screamingface_engine.world_config import ModelSpec, WorldConfigError
+from screamingface_engine.world.config import ModelSpec, WorldConfigError
+from screamingface_engine.world.connector import AigatewayConfig, _messages, build_aigateway_world
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
@@ -421,9 +421,9 @@ async def test_aigateway_transport_errors_map_to_retryable_resolution_error() ->
         world = await build_aigateway_world(cfg, client=client)
 
         with (
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
         ):
             with pytest.raises(ResolutionError) as exc_info:
                 await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
@@ -467,9 +467,9 @@ async def test_aigateway_transport_error_is_retried_then_succeeds() -> None:
         world = await build_aigateway_world(cfg, client=client)
 
         with (
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
         ):
             result = await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
 
@@ -1037,7 +1037,7 @@ async def test_tavily_key_never_sent_to_aigateway() -> None:
 async def test_a_tool_result_is_capped_before_it_re_enters_the_prompt() -> None:
     """A tool result is appended to `messages` and re-sent on EVERY later iteration, so an
     uncapped one is paid for repeatedly and can exceed the model's context outright."""
-    from screamingface_engine.runner.connector import _truncate_tool_result
+    from screamingface_engine.world.connector import _truncate_tool_result
 
     out = _truncate_tool_result("x" * 100_000, 1000)
 
@@ -1046,7 +1046,7 @@ async def test_a_tool_result_is_capped_before_it_re_enters_the_prompt() -> None:
 
 
 async def test_a_short_tool_result_is_left_exactly_alone() -> None:
-    from screamingface_engine.runner.connector import _truncate_tool_result
+    from screamingface_engine.world.connector import _truncate_tool_result
 
     assert _truncate_tool_result("small", 1000) == "small"
 
@@ -1054,7 +1054,7 @@ async def test_a_short_tool_result_is_left_exactly_alone() -> None:
 async def test_truncation_never_splits_a_multibyte_character() -> None:
     """The cap is in BYTES but the value must stay valid UTF-8 — a split character would raise on
     encode at the next request rather than at the cut."""
-    from screamingface_engine.runner.connector import _truncate_tool_result
+    from screamingface_engine.world.connector import _truncate_tool_result
 
     out = _truncate_tool_result("é" * 5000, 137)
 

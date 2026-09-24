@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 import pytest
 
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_counters import (
     CACHE_HITS,
     SAVED_COST_ARCHIVE_USD,
@@ -28,10 +29,10 @@ from screamingface_engine.runner.cache_counters import (
     RunCacheCounters,
     SavedCostTotals,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.summary import RunSummary
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.streaming.protocol import CachePolicy
 
 _MODEL = "anthropic/claude-haiku-4-5"
@@ -106,12 +107,14 @@ async def _run(responses: list[httpx.Response]) -> tuple[RunSummary | None, int]
     )
     cfg = AigatewayConfig(models=(ModelSpec(id=_MODEL),), default_model=_MODEL)
     async with client:
-        world = await build_aigateway_world(
-            cfg, client=client, cache=CachePolicy(participate=True, max_age=0)
-        )
+        world = await build_aigateway_world(cfg, client=client)
         executor = Url4Executor(world.node)
-        async for _frame in executor.execute(f"/{_MODEL}(ctx)!go"):
-            pass
+        # F2: the policy travels in the request scope; the executor inherits it from this task.
+        with request_scope(
+            RequestScope(origin="run", cache=CachePolicy(participate=True, max_age=0))
+        ):
+            async for _frame in executor.execute(f"/{_MODEL}(ctx)!go"):
+                pass
         return executor.last_summary(), seen
 
 

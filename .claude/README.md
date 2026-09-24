@@ -61,13 +61,17 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
 - Transport: **the Linear MCP plugin only** (`/mcp` to activate). API tokens/GraphQL are
   forbidden; what MCP can't do (label/team/state admin) is an owner action in the Linear UI.
 - IDs: `OME-N` (Engineering team, one sequence). Every item attaches to
-  **😱 ScreamingFace V1** and carries: workstream (`Epic` group: url4 Engine, AI Gateway,
-  Desktop App, Python SDK, Leaderboard, …) when applicable · landing (`app/aigateway`,
-  `app/scoreboard`, `pkg/url4-python-sdk`, or `repo`) · one `who-acts`
-  (design-session/autonomous/deferred) · **one `actor` (agentic|human — mandatory)**.
-- Cross-cutting (≥2 app/pkg labels) → epic + one sub-issue per affected app/package.
-- STOPs are labels (`blocked ⛔`, `needs-owner`) + a comment — never new states.
-- Sprints = the project's milestones (S0–S5), owned by the project lead.
+  **😱 ScreamingFace V1**. An **epic** (a parent issue) is the organizing unit and carries
+  the priority. Every other issue sets `parentId` to an epic and carries: a landing leaf
+  (`app/*`, `pkg/*`, or `repo`) · one `who-acts` (design-session/autonomous/deferred) ·
+  **one `actor` (agentic|human — mandatory)**.
+- No fitting epic → a human authors it (rationale in the body; product reviewer + Kevin
+  for a new priority, or Irina + Kevin for scope review). Agents do not file orphans.
+- Cross-cutting (≥2 landings) → one sub-issue per affected app/package under the epic.
+- The no-epic park state is **Triage** plus a comment. The old `blocked` / `needs-owner`
+  labels are not live. Do not add workflow states.
+- Milestones are optional. They group a phase of epics when the project lead wants that.
+  The legacy sprint milestones are not the backbone.
 
 ## docs/ — the artifact trail
 

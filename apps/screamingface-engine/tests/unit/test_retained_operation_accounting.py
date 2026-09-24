@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from screamingface_engine.operation_accounting import combine_operation_accounting
-from screamingface_engine.runner.accounting import retained_operation_accounting
-from screamingface_engine.runner.cache_readback import CacheOutcome, CacheStatus
+from screamingface_engine.world.accounting import retained_operation_accounting
+from screamingface_engine.world.cache_readback import CacheOutcome, CacheStatus
 
 
 def _attempt(

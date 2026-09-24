@@ -20,7 +20,7 @@ import asyncio
 import importlib.util
 from screamingface_engine.config import Settings
 from screamingface_engine.local import create_local_app
-from screamingface_engine.world_config import WorldConfig
+from screamingface_engine.world.config import WorldConfig
 assert importlib.util.find_spec('screamingface_engine.activity') is None
 app = create_local_app(settings=Settings(activity_level='full'), env={})
 executor = app.state.job_runner._factory({}, config=WorldConfig())

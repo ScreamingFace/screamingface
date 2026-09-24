@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
@@ -56,6 +56,7 @@ from screamingface_engine.rest import (
     connection_router,
 )
 from screamingface_engine.rest import router as rest_router
+from screamingface_engine.rest.forwarder import install_forwarder
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
@@ -80,7 +81,14 @@ _ROUTERS = (
 
 
 @router.get("/healthz", include_in_schema=False)
-def healthz() -> dict[str, str]:
+def healthz(request: Request) -> dict[str, str]:
+    # FEATURE (unit 3, erd.md §2): when the sync forwarder is wired, report the digest of the
+    # config its mount set came from, so a rolling deploy where the App and the node tier briefly
+    # read different worlds is visible (R11). An App with no sync surface keeps the exact
+    # `{"status": "ok"}` contract it had before.
+    digest = getattr(request.app.state, "config_digest", None)
+    if digest:
+        return {"status": "ok", "config_digest": digest}
     return {"status": "ok"}
 
 
@@ -139,12 +147,17 @@ def create_app(
     _install_max_deliveries_advisor(app, settings)
     if clock is not None:
         app.state.clock = clock
+    _install_surfaces(app)
+    return app
+
+
+def _install_surfaces(app: FastAPI) -> None:
+    """Register every engine HTTP surface; `install_forwarder` appends the node route after them."""
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     customize_openapi(app)
-    return app
 
 
 def _register_runner_metrics(app: FastAPI) -> None:
@@ -172,6 +185,9 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
     the DEFAULT before OME-929, reachable by configuring nothing, and nothing in the setup said
     so. It fails at boot now.
 
+    INVARIANT (FX-38): a node tier (`node_base_url`) with filesystem storage is refused too: the
+    node pod spills an over-cap sync result to ITS disk and redirects the caller here — a 404.
+
     AIDEV-NOTE: if a shared RWX volume is ever mounted into both pods, THIS is the check to
     relax — deliberately, and with the mount as evidence. Do not relax it to quiet a startup
     error; that restores the bug.
@@ -187,6 +203,12 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
                     job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
                 }
             )
+        )
+    if settings.node_base_url:
+        raise ValueError(
+            "a node tier is configured (node_base_url), and the node pod's disk is not this "
+            "App's (OME-929): a spilled sync result redirected here would 404. Set "
+            f"{job_env.ARTIFACT_STORE}=s3 and the {job_env.ARTIFACT_S3_BUCKET} settings."
         )
     if settings.runner == "queue":
         # WHY: `queue` (OME-1090) runs each run in a worker pod — either way the run executes in
@@ -424,4 +446,5 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
+    install_forwarder(app, settings, env=os.environ)
     return app

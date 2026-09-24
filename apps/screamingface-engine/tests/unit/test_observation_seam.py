@@ -261,11 +261,17 @@ def test_bind_receives_step_exception_but_cannot_suppress_it(outcome, monkeypatc
 
 
 def test_execution_modules_do_not_import_activity():
-    root = Path(__file__).resolve().parents[2] / "src/screamingface_engine/runner"
-    for name in ("connector.py", "executor.py", "operation_capture.py"):
-        tree = ast.parse((root / name).read_text())
+    # prd/01 F1 moved `connector.py` into the shared world package; the assertion is unchanged —
+    # no execution module may reach into the activity (observer) half.
+    src = Path(__file__).resolve().parents[2] / "src/screamingface_engine"
+    for path in (
+        src / "world/connector.py",
+        src / "runner/executor.py",
+        src / "runner/operation_capture.py",
+    ):
+        tree = ast.parse(path.read_text())
         imports = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
-        assert not [m for m in imports if m and ".activity" in m], name
+        assert not [m for m in imports if m and ".activity" in m], path.name
 
 
 @pytest.mark.asyncio
@@ -288,9 +294,9 @@ async def test_failed_observer_factory_does_not_prevent_execution(caplog):
 async def test_composition_injects_observer_for_real_model_retry_and_outcome(monkeypatch):
     import httpx
 
-    from screamingface_engine.runner import connector
     from screamingface_engine.runner.main import build_executor
-    from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+    from screamingface_engine.world import connector
+    from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 
     events, requests = [], []
 

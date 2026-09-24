@@ -17,10 +17,15 @@ One image ships two modes, and the whole point of that shape is a rule about wha
 
   Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · reaper
                  schemas · adapters.factory  (FastAPI, uvicorn)
-  Run mode:      runner.executor (the url4 engine) · runner.connector · runner.main
+  Run mode:      runner.executor (the url4 engine) · runner.main
   Worker:        worker (the claim loop, the supervisor, the exec wrapper)
 
-  Shared leaves, importable by BOTH: job_env · subjects · adapters.jetstream · world_config
+  World (prd/01): world — importable by BOTH halves, importing NEITHER. One exception, one
+                  direction: the run half may not import `world.serving` (the F4 composition
+                  helper) — it compiles the App's route table and imports Starlette, which no
+                  Job's cold start should pay for. The serving half imports it freely.
+  Shared leaves:  job_env · subjects · adapters.jetstream · request_scope · candidate_scope ·
+                  model_outcomes · observations — importable by BOTH, importing NEITHER.
 
 WHY this rule outlived the package split it was born in: it used to be proved structurally — the
 two halves were separate distributions with separate images, so a cross-import could not even be
@@ -31,7 +36,12 @@ prove it.
 
 What it buys concretely: a Kubernetes Job's cold start stays the engine + httpx + nats-py, which
 is what the separate slim runner image used to guarantee by construction. The serving half
-likewise never gains the ability to evaluate an expression in-process.
+likewise never runs an ENSEMBLE in-process. That wording is a DELIBERATE, RECORDED narrowing of
+the old whole-expression rule, not an exemption: the control plane still never evaluates an
+arbitrary expression, but it MAY import the shared `world` package and serve a direct mount from
+one node (unit 3). The recorded change is
+apps/screamingface-engine/docs/plans/prd/01-foundation-world-module.md — read it before widening
+this rule again.
 
 SCOPE NOTE: the wire contract lives inside the url4 engine distribution (`url4.streaming`), so
 importing it loads the engine as well. That much is unenforceable by construction; what is
@@ -50,8 +60,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 SRC = ROOT / "apps/screamingface-engine/src/screamingface_engine"
 
-# Submodules of `screamingface_engine` that belong to each half. Anything not named in either — `job_env`,
-# `subjects`, `adapters.jetstream`, `testing` — is a shared leaf both halves may import.
+# Submodules of `screamingface_engine` that belong to each mode. Anything not named in any of
+# them — `job_env`, `subjects`, `adapters.jetstream`, `testing` — is a shared leaf both halves may
+# import.
 CONTROL_PLANE = {
     "app",
     "auth",
@@ -74,6 +85,10 @@ CONTROL_PLANE = {
 }
 RUN_MODE = {"runner"}
 WORKER_MODE = {"worker"}
+# The shared world builder (prd/01 F1): importable by the control plane AND the run mode, importing
+# NEITHER. It is not a shared leaf because the dependency arrow is one-way — the world imports
+# shared leaves such as `job_env`, so a shared leaf importing the world would close a cycle.
+WORLD = {"world"}
 
 # (subtree under screamingface_engine/, forbidden screamingface_engine submodules, why)
 RULES: list[tuple[str, set[str], str]] = [
@@ -84,10 +99,29 @@ RULES: list[tuple[str, set[str], str]] = [
         "the kubernetes client) it will never call",
     ),
     (
+        "runner",
+        {"world.serving"},
+        "world.serving composes a SERVING world — Starlette route compilation against the App's "
+        "route table (prd/02 F4) — and no Job ever composes one. Everything else in `world` is the "
+        "run mode's to import; this one module would drag Starlette back into a Job's cold start, "
+        "which is exactly what rule 1 above keeps out",
+    ),
+    (
         "",  # every control-plane module, listed below
         RUN_MODE,
-        "the control plane schedules runs and reads their log over NATS; it never evaluates an "
-        "expression in-process, so it must not reach into the engine-bearing half",
+        "the control plane never runs an ENSEMBLE in-process: it schedules runs and reads their "
+        "log over NATS, so it must not reach into the engine-bearing half. This narrower wording "
+        "is a deliberate, recorded change of rule (prd/01-foundation-world-module.md), not an "
+        "exemption — the control plane may import screamingface_engine.world and serve a direct "
+        "mount from one node. `local.py` (declared in `_EXEMPT` below) is the sole control-plane "
+        "module that also evaluates an arbitrary expression, serving `/v1?q=` in-process for "
+        "`serve --local`; every other control-plane module still does not",
+    ),
+    (
+        "world",
+        CONTROL_PLANE | RUN_MODE | WORKER_MODE,
+        "the world is the foundation BOTH halves build over; importing a caller would invert the "
+        "dependency arrow and re-create the coupling F1 exists to remove",
     ),
     (
         "",  # every control-plane module, listed below
@@ -106,6 +140,9 @@ RULES: list[tuple[str, set[str], str]] = [
     ),
 ]
 
+# INVARIANT (FX-70): an exemption is a PATH relative to the package root (`SRC`), never a bare
+# file name. Matching on the name exempted every `local.py`/`cli.py` at any depth — a future
+# `world/local.py` would have skipped every rule in silence. See `_is_exempt`.
 _EXEMPT = {
     # WHY: `cli` is the composition root for BOTH modes — dispatching to them is its entire job.
     # It imports each lazily, inside the branch that runs it, so neither mode pays for the other.
@@ -117,6 +154,11 @@ _EXEMPT = {
     # inside `create_local_app`, so a deployed App never pays for the engine.
     "local.py",
 }
+
+
+def _is_exempt(path: pathlib.Path) -> bool:
+    """Whether ``path`` is one of the declared exemptions, compared by its path under ``SRC``."""
+    return path.relative_to(SRC).as_posix() in _EXEMPT
 
 
 def _package_of(path: pathlib.Path) -> list[str]:
@@ -153,24 +195,24 @@ def imported_screamingface_engine_submodules(path: pathlib.Path) -> set[str]:
                 record(alias.name)
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
-                record(node.module)
-                # `from screamingface_engine import job_env` — the submodule is the imported NAME, not the
-                # module path, so it would otherwise read as a bare `screamingface_engine` import.
-                if node.module == "screamingface_engine":
-                    for alias in node.names:
-                        record(f"screamingface_engine.{alias.name}")
-                continue
-            # Relative: level 1 is this module's own package, each extra level walks up one.
-            package = _package_of(path)
-            base = package[: len(package) - (node.level - 1)]
-            if not base or base[0] != "screamingface_engine":
-                continue
-            if node.module:
-                record(".".join([*base, node.module]))
+                module = node.module
             else:
-                # `from . import runner` — the submodule is the imported name.
-                for alias in node.names:
-                    record(".".join([*base, alias.name]))
+                # Relative: level 1 is this module's own package, each extra level walks up one.
+                package = _package_of(path)
+                base = package[: len(package) - (node.level - 1)]
+                if not base or base[0] != "screamingface_engine":
+                    continue
+                module = ".".join([*base, node.module] if node.module else base)
+            record(module)
+            # WHY every imported NAME, not only the root package's: `from screamingface_engine.world
+            # import serving` imports the submodule `world.serving` by name. Reading the module
+            # path alone recorded `world` and let a two-part rule (`world.serving`,
+            # `adapters.factory`) be passed by moving one segment into the name (FX-94).
+            # AIDEV-NOTE: a name that is NOT a submodule records `pkg.name` too, so a function
+            # named like a forbidden submodule (`serving` in `world/__init__`) would be flagged —
+            # the safe direction for a boundary gate.
+            for alias in node.names:
+                record(f"{module}.{alias.name}")
     return found
 
 
@@ -203,14 +245,16 @@ def _half_of(path: pathlib.Path) -> str | None:
         return "run-mode"
     if top in WORKER_MODE:
         return "worker-mode"
+    if top in WORLD:
+        return "world"
     if top in CONTROL_PLANE or two in CONTROL_PLANE:
         return "control-plane"
     return None
 
 
 def shared_leaf_files() -> list[pathlib.Path]:
-    """Every module belonging to NEITHER half — `job_env`, `subjects`, `adapters.jetstream`,
-    `adapters.memory`, `adapters.inprocess`, `testing`.
+    """Every module belonging to NO mode — `job_env`, `subjects`, `adapters.jetstream`,
+    `adapters.memory`, `adapters.inprocess`, `testing` — and NOT the world.
 
     These were scanned by no rule at all: rule 1 walks `runner/` and rule 2 walks the named
     control-plane modules, so a cross-half import added to `adapters/memory.py` passed cleanly —
@@ -227,7 +271,7 @@ def check_layers() -> list[str]:
     offenders: list[str] = []
     for subtree, forbidden, why in RULES:
         for path in files_for(subtree):
-            if path.name in _EXEMPT:
+            if _is_exempt(path):
                 continue
             for module in sorted(
                 imported_screamingface_engine_submodules(path) & forbidden
@@ -238,15 +282,17 @@ def check_layers() -> list[str]:
     # A shared leaf is shared precisely BECAUSE it depends on neither half; one that reaches into
     # either stops being a leaf and silently couples every importer to that half.
     shared_why = (
-        "a shared leaf is importable by BOTH halves, so importing either one couples every "
-        "module that depends on it to that half — move it into the half that needs it, or lift "
-        "what both need into url4.streaming"
+        "a shared leaf is importable by BOTH halves, so importing either a mode or the world "
+        "couples every module that depends on it to that dependency — and importing the world "
+        "closes a cycle, because the world already imports shared leaves such as job_env. Move "
+        "it into the half that needs it, or lift what both need into url4.streaming"
     )
     for path in shared_leaf_files():
-        if path.name in _EXEMPT:
+        if _is_exempt(path):
             continue
         for module in sorted(
-            imported_screamingface_engine_submodules(path) & (CONTROL_PLANE | RUN_MODE)
+            imported_screamingface_engine_submodules(path)
+            & (CONTROL_PLANE | RUN_MODE | WORLD)
         ):
             offenders.append(
                 f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n      {shared_why}"
@@ -267,8 +313,8 @@ def main() -> int:
         )
         return 1
     print(
-        "LAYERING OK: screamingface_engine.runner, the worker, and the control plane stay "
-        "disjoint."
+        "LAYERING OK: screamingface_engine.runner, the worker, the world, and the control plane "
+        "stay disjoint."
     )
     return 0
 

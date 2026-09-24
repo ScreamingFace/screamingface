@@ -55,6 +55,16 @@ uv run python -m screamingface_engine_inspect.importer \
 - `--shuffle-seed N` pins a serving order. Required when the eval shuffles without
   its own seed, and useful for grouped splits (mmlu's subjects) — the seed becomes
   exam identity and rides the revision hash.
+- `--choice-shuffle-seed N` pins one per-case **choice order**. Required when the
+  eval passes `shuffle_choices=True` (unseeded — lab_bench, truthfulqa); refused
+  when the eval doesn't shuffle choices at all, and refused when the eval seeds
+  its own choice shuffle (upstream already defines ONE order). The bake applies
+  inspect's own `MemoryDataset.shuffle_choices`, and the seed rides the revision
+  hash too.
+- `data_files` + `features` (infinite_bench) need no flag — both are conserved
+  automatically: `data_files` as a literal pin (dict of str to str only), and
+  `features` as a dotted pointer at the eval's own `Features` constant, resolved
+  and type-checked at bake. Both ride the revision hash.
 
 The command edits `pins.py`, `prepare.py`, and `boards.py` in place at their anchor
 comments, all-or-nothing, and `git diff` is the artifact everything downstream
@@ -119,6 +129,11 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 | not a 40-hex commit sha | the revision resolved to a mutable ref | let the tool resolve it; never hand-write a branch/tag (the bake and board assembly refuse it too) |
 | hf_dataset kwarg(s) … not reproduced | the eval uses a dataset option the bake doesn't carry (`limit`, `trust`, …) | decide per kwarg: neutralize via `--task-arg`, or the eval isn't row-importable |
 | shuffles with no seed | upstream order is random per run; an import must pin ONE order | pass `--shuffle-seed` |
+| shuffles each case's choice order with no seed | `shuffle_choices=True` randomizes the answer options per run; an import must pin ONE choice order | pass `--choice-shuffle-seed` |
+| upstream seeds its shuffle, and a row shuffle combined with a choice shuffle cannot reproduce that exam | the bake's row shuffle is not HF's algorithm, and each case's choice order depends on its row position — upstream's seeded exam would silently differ | import by hand, or extend the bake to replay HF's row permutation |
+| eval pins its own choice-shuffle seed | upstream already defines ONE choice order; a policy seed would bake an exam upstream never produces | drop `--choice-shuffle-seed` |
+| data_files has a shape the importer does not conserve | only a dict of str to str round-trips through the generated literal | extend the importer for this family |
+| features does not resolve to one module attribute | an inline `Features(...)` has nothing the row can point at | extend the importer or add the row by hand |
 | fewshot/extra load is not the exam | the Task's dataset isn't the HF load the tool saw | pass task args that disable the extras |
 | key already exists / colliding stem | board imported, or two keys derive the same `PREFIX_*` | pick a distinct key |
 | stem is not a valid identifier | e.g. a leading digit | rename the key (`wiki2` not `2wiki`) |

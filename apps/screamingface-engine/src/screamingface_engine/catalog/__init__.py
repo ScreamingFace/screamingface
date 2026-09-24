@@ -35,7 +35,7 @@ from screamingface_engine.catalog.port import (
     compute_etag,
 )
 from screamingface_engine.config import Settings
-from screamingface_engine.world_config import WorldConfigError, declared_model_ids
+from screamingface_engine.world.config import WorldConfigError, declared_model_ids
 
 logger = logging.getLogger(__name__)
 

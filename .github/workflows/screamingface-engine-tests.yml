@@ -39,6 +39,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      # WHY pin helm: the chart tests run `helm install --dry-run=client` to read NOTES.txt.
+      # The runner's preinstalled Helm v3 still dials a cluster for that ("Kubernetes cluster
+      # unreachable"); Helm v4 renders it offline. Same action as the `chart` job below.
+      - uses: azure/setup-helm@v5.0.1
       # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
       # longer matches pyproject.toml is invisible to every later step. That exact defect shipped
       # once already (a package rename left the lock stale) and CI could not see it.

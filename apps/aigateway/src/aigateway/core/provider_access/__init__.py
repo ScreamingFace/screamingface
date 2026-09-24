@@ -20,7 +20,27 @@ from .auth_mode import (
     profileless_auth_mode,
     provider_name_of,
 )
+from .backfill_apply import BackfillReport, all_account_ids, run_backfill
+from .backfill_classify import BackfillContext, PairPlan, classify_account
+from .connection_admin import ConnectionBackedCredentialAdmin
+from .connection_backed import ConnectionBackedProviderAccess
+from .connection_facade import FacadeTarget, facade_target, patch_facade, refresh_facade
+from .connection_native import (
+    credential_has_other_owner,
+    credential_name_of,
+    effective_pair_of,
+    lock_lower_addressers,
+    republish_effective_api_key,
+    retire_effective,
+)
+from .connection_oauth import (
+    MigratedFlow,
+    begin_connection_oauth,
+    complete_connection_oauth,
+    fail_connection_oauth,
+)
 from .defaults import apply_defaults
+from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
 from .ports import ProviderAccess, ProviderCredentialAdmin
 from .profile_admin import (
     ProfileBackedCredentialAdmin,
@@ -66,13 +86,26 @@ from .types import (
 )
 
 __all__ = [
+    "BackfillContext",
+    "BackfillReport",
+    "PairPlan",
+    "all_account_ids",
+    "classify_account",
+    "run_backfill",
     "DEFAULT_SELECTOR_NAME",
     "Authorization",
     "AvailabilityRow",
     "AvailabilityStatus",
+    "ConnectionBackedCredentialAdmin",
+    "ConnectionBackedProviderAccess",
     "CredentialStoreUnavailable",
     "CredentialSummary",
     "CredentialTarget",
+    "FacadeTarget",
+    "MigratedFlow",
+    "PairAuthority",
+    "PairAuthorityConflict",
+    "PairAuthorityStore",
     "ProfileBackedCredentialAdmin",
     "ProfileBackedProviderAccess",
     "ProviderAccess",
@@ -99,18 +132,30 @@ __all__ = [
     "auth_mode_for",
     "auth_type_of",
     "available_auth_modes",
+    "begin_connection_oauth",
+    "complete_connection_oauth",
     "context_stamp",
     "contract_auth_mode",
+    "credential_has_other_owner",
+    "lock_lower_addressers",
+    "credential_name_of",
+    "effective_pair_of",
+    "facade_target",
+    "fail_connection_oauth",
     "invalidate_session",
     "legacy_target_parts",
     "mark_profile_error_fresh",
     "oauth_connection_store",
+    "patch_facade",
     "profileless_auth_mode",
     "provider_access_for",
     "provider_credential_admin_for",
     "provider_name_of",
     "read_defaults",
+    "refresh_facade",
     "reauth_url_for",
+    "republish_effective_api_key",
+    "retire_effective",
     "summary_of",
     "target_from_legacy",
 ]

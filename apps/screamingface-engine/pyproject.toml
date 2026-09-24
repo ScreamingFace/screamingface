@@ -25,8 +25,8 @@ dependencies = [
     "pydantic-settings>=2.14.1",
     # --- both modes ---
     "pydantic>=2.13.4",
-    # The catalog's upstream aigateway client (`screamingface_engine.catalog`), and the run mode's
-    # aigateway + Tavily clients (`screamingface_engine.runner.connector`).
+    # The catalog's upstream aigateway client (`screamingface_engine.catalog`), and the shared
+    # world's aigateway + Tavily clients (`screamingface_engine.world.connector`).
     "httpx>=0.28.1",
     # Both directions of the run log: the App consumes (`adapters.jetstream.JetStreamConsumer`),
     # the run mode publishes (`JetStreamPublisher`) — one adapter module, shared.
@@ -137,6 +137,9 @@ asyncio_mode = "strict"
 testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:screamingface_engine",
+]
+markers = [
+    "no_default_scope: turn off the autouse request scope (tests/conftest.py), so the test proves a production producer bound one (FX-61)",
 ]
 
 [tool.coverage.run]

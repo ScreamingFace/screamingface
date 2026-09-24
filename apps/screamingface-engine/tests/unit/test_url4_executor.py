@@ -18,9 +18,9 @@ from screamingface_engine.runner.executor import (
     _Bridge,
     _closing_logs,
     _RunState,
-    deny_by_default_world,
 )
 from screamingface_engine.testing import InMemoryEventStream
+from screamingface_engine.world.factory import deny_by_default_world
 from url4.core.errors import ParseError, ResolutionError
 from url4.dag.nodes import TextNode
 from url4.io.static import StaticIOLayer
@@ -647,10 +647,37 @@ def _imports_url4_engine(py_file: Path) -> bool:
 _ALLOWED_RUNNER_IMPORTERS = frozenset(
     {
         Path("screamingface_engine/runner/executor.py"),
-        Path("screamingface_engine/runner/connector.py"),
         # OME-908: the fair-share io wrapper binds a run into the shared gate — an io-port
         # adapter in exactly connector's sense, so it shares the engine-import allowance.
         Path("screamingface_engine/runner/fair_share.py"),
+        # prd/01 F1: the shared world is the engine-importing half now. `connector` builds the
+        # `Url4Node`, `factory` types the world over `url4.io`, and the candidate/corrective
+        # installers register endpoints on the node. The control plane may import `world`, so
+        # the allowance is listed here by its new home rather than by its old `benchmarks` one.
+        # prd/02 F3: `config` now delegates the `[data]`/`[holdings]`/`[identities]` sections to
+        # url4's own resolvers, so the engine keeps no competing provider semantics — that
+        # delegation is exactly why the engine imports url4 here rather than parsing again.
+        Path("screamingface_engine/world/config.py"),
+        Path("screamingface_engine/world/connector.py"),
+        Path("screamingface_engine/world/factory.py"),
+        Path("screamingface_engine/world/candidate_adapter.py"),
+        # FX-56 (04-review-fixes.md B3): the F4 collision guard now checks `isinstance(io,
+        # Url4Node)` rather than duck-typing an `Any` — a non-node layer (StaticIOLayer) has no
+        # mounts or eval path to protect, and an isinstance check says so directly instead of
+        # relying on an object happening to expose the same method names. That is the same
+        # engine-adapter shape `node_tier` has (below): the guard is the serving shape of the
+        # shared world, and it names the ONE type it composes against.
+        Path("screamingface_engine/world/serving.py"),
+        Path("screamingface_engine/world/corrective.py"),
+        # unit 3 (prd/03): the node tier is the serving shape of the shared world. It speaks the
+        # url4 ENGINE directly because that IS its product — `node.asgi()` wrapped in url4's own
+        # `build_asgi_app` admission/timeout middleware, plus the wire subrequest decoder used to
+        # explain a missing `q`. It is an engine adapter in exactly `connector`'s sense, and the
+        # control plane may import `world`, so it belongs in this allowance (not a new one).
+        # FX-21 split the one module into a package; these are its modules that speak url4.
+        Path("screamingface_engine/world/node_tier/build.py"),
+        Path("screamingface_engine/world/node_tier/send.py"),
+        Path("screamingface_engine/world/node_tier/tier.py"),
     }
 )
 

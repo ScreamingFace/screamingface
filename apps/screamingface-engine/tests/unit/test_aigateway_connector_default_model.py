@@ -1,4 +1,4 @@
-from screamingface_engine.runner.connector import AigatewayConfig
+from screamingface_engine.world.connector import AigatewayConfig
 
 
 def test_default_model_matches_aigateways_unprefixed_anthropic_catalog_shape() -> None:

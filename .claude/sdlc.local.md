@@ -185,9 +185,11 @@ ledger_dir: docs/work/
 
 ## ledger naming (D8)
 
-`docs/work/YYYY-MM-DD-<ticket-id>-<short-description>.md` — created at work START
-(date = start), frontmatter `status: planned|in_progress|done|blocked` + `finished:` filled
-at close. Template: copy `docs/work/TEMPLATE.md`.
+`docs/work/YYYY-MM-DD-<slug>.md` — created at work START (date = start; `<slug>` = the branch
+description, NOT a ticket id, since no `OME-N` exists until PR-open). Frontmatter
+`ticket: unfiled` (backfilled to `OME-N` when the issue is filed at PR-open),
+`status: planned|in_progress|done|blocked`, `finished:` filled at close. Template: copy
+`docs/work/TEMPLATE.md`.
 
 ## analytics (python)
 
