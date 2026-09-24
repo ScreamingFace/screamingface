@@ -121,7 +121,7 @@ class TaskFacts:
     #: hf_dataset's data_files selection, forwarded to datasets.load_dataset —
     #: conserved as a literal dict[str, str] (infinite_bench's
     #: {"passkey": "passkey.jsonl"}); any other shape refuses (OME-1264 ext 2).
-    data_files: Any = None
+    data_files: dict[str, str] | None = None
     #: hf_dataset's Features schema as a dotted POINTER at the eval's own
     #: module constant (infinite_bench's constants:ft) — the row points, never
     #: copies; resolved and type-checked at bake time (OME-1264 ext 2).
@@ -225,7 +225,7 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     )
 
 
-def _conserved_data_files(raw: Any, task_ref: str) -> Any:
+def _conserved_data_files(raw: Any, task_ref: str) -> dict[str, str] | None:
     """data_files in a shape the bake reproduces verbatim, or a named refusal.
 
     Only the shape seen upstream is conserved: a dict of str split names to str

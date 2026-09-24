@@ -1334,8 +1334,8 @@ def test_introspect_refuses_a_features_value_with_no_module_attribute(
 def test_introspect_refuses_an_exotic_data_files_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only the shapes the bake reproduces (str, dict[str, str]) are conserved;
-    anything else refuses by name — never dropped."""
+    """Only the shape the bake reproduces (dict[str, str]) is conserved;
+    anything else — even a bare str — refuses by name, never dropped."""
 
     _install_fake_eval(monkeypatch, exotic=_task_with_dataset_kwargs(data_files=123))
 
