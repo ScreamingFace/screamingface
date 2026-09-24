@@ -177,3 +177,72 @@ async def test_both_judge_formats_grade_through_the_gateway_route(tmp_path: Path
     # The judge's words survive per Case (audit trail).
     rendered = json.dumps(result["cases"][0]["grade"]["checks"])
     assert "Matches the reference answer." in rendered
+
+
+def test_the_boards_revision_is_pinned() -> None:
+    """The judged board's exam identity, frozen — the published-revisions test
+    covers the string-match boards; this literal is FrontierScience's."""
+
+    assert BOARD.benchmark.revision == "34155c32aec9841b"
+
+
+@pytest.mark.asyncio
+async def test_a_gradeless_judge_reply_fails_one_case_not_the_run(tmp_path: Path) -> None:
+    """INVARIANT (review finding, 2026-09-24): a judge reply with no parseable
+    grade loses THAT case as invalid_score_value — never the whole aggregate.
+    inspect returns Score(value=NaN) there, and an unguarded NaN aborted grading
+    for all cases after every candidate call was already paid for."""
+
+    class _GradelessOnOlympic(_FormatAwareJudge):
+        async def __call__(self, request: Request) -> str:
+            reply = await super().__call__(request)
+            # The olympiad case gets a reply with no GRADE: line at all.
+            return "I really cannot decide." if "GRADE" in reply else reply
+
+    judge = _GradelessOnOlympic()
+    node = Url4Node("test")
+    node.endpoint(_JUDGE_ROUTE)(judge)
+    _bake_by_hand(tmp_path)
+    BOARD.benchmark.install(node, tmp_path)
+
+    rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
+    result = json.loads(await _call(node, BOARD.aggregate_route, rows, "aggregate:2"))
+
+    olympic, research = result["cases"]
+    assert olympic["grade"]["score"] is None
+    assert olympic["failures"][0]["code"] == "invalid_score_value"
+    assert research["grade"]["score"] == 0.75
+    assert result["metrics"]["scored_cases"] == 1
+
+
+@pytest.mark.asyncio
+async def test_the_olympic_judge_prompt_is_upstreams_template_verbatim(
+    tmp_path: Path,
+) -> None:
+    """The prompt on the wire IS the eval's own grading prompt — every static
+    chunk of the upstream template, in order, not merely a keyword."""
+
+    from inspect_evals.frontierscience.frontierscience import OLYMPIC_GRADING_TEMPLATE
+
+    judge = _FormatAwareJudge()
+    node = Url4Node("test")
+    node.endpoint(_JUDGE_ROUTE)(judge)
+    _bake_by_hand(tmp_path)
+    BOARD.benchmark.install(node, tmp_path)
+
+    rows = json.dumps([_row(1, "2.2 microseconds")])
+    await _call(node, BOARD.aggregate_route, rows, "aggregate:1")
+
+    prompt = json.loads(str(judge.requests[0].context))["messages"][-1]["content"]
+    # Split the template on its {placeholders}; each static chunk must appear in
+    # order in the sent prompt — a rewrapped or edited prompt breaks the chain.
+    import re as _re
+
+    position = 0
+    for chunk in _re.split(r"\{[a-z_]+\}", OLYMPIC_GRADING_TEMPLATE):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        found = prompt.find(chunk, position)
+        assert found >= 0, f"template chunk missing from the wire prompt: {chunk[:60]!r}"
+        position = found + len(chunk)

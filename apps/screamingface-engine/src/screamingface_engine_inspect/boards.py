@@ -491,8 +491,11 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.frontierscience.frontierscience:frontierscience_scorer",
         # The eval's default judge is "the active model" (model=None) — outside
         # inspect's own eval loop that is nothing, so the import pins OUR judge:
-        # the same gateway model HealthBench's judge dials (its pins document the
-        # OpenRouter deviation from the official OpenAI-internal snapshot).
+        # the house judge model HealthBench's judge also dials. NAMED DEVIATION:
+        # the FrontierScience paper grades with GPT-5 at high reasoning effort
+        # (publicly callable — see the eval's README), so scores from this board
+        # are NOT comparable to the published numbers; gpt-5.4 is chosen for
+        # house-judge consistency across our judged boards.
         scorer_kwargs={"model": "screamingface/openrouter/openai/gpt-5.4"},
         judge=JudgeSpec(
             model="openrouter/openai/gpt-5.4",
