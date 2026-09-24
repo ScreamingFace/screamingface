@@ -188,6 +188,8 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-race_h": ("coverage_declare", "single_shot", "easy"),
         "inspect-paws": ("coverage_declare", "single_shot", "easy"),
         "inspect-boolq": ("coverage_declare", "single_shot", "easy"),
+        # OME-1240: the judged proof board — frontier-research material, hard tier.
+        "inspect-frontierscience": ("coverage_declare", "single_shot", "hard"),
         # OME-1238 landed these two mid-stack; tiers assigned in the OME-1257 rebase.
         "inspect-aime24": ("coverage_declare", "single_shot", "medium"),
         "inspect-aime25": ("coverage_declare", "single_shot", "medium"),

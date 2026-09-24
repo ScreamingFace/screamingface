@@ -30,26 +30,28 @@ from screamingface_engine_inspect.boards import (  # noqa: E402
 )
 from screamingface_engine_inspect.prepare import SNAPSHOTS  # noqa: E402
 
-#: Every imported board key and its family: True = MCQ (choice scorer, check
-#: surface refused per OME-796), False = free-text (check surface ON, spec §4).
-_EXPECTED_FAMILIES: dict[str, bool] = {
-    "gsm8k": False,
-    "mmlu": True,
-    "arc_easy": True,
-    "arc_challenge": True,
-    "commonsense_qa": True,
-    "mmlu_pro": True,
-    "winogrande": True,
-    "race_h": True,
-    "paws": False,
-    "boolq": False,
-    "aime24": False,
-    "aime25": False,
-    "musr": True,
-    "wmdp_bio": True,
-    "wmdp_chem": True,
-    "wmdp_cyber": True,
-    "hellaswag": True,
+#: Every imported board key and its family: "mcq" (choice scorer, check surface
+#: refused per OME-796), "free_text" (check surface ON, spec §4), or "judged"
+#: (LLM-judged — check surface refused until the check-cost knob, OME-1116/OME-1240).
+_EXPECTED_FAMILIES: dict[str, str] = {
+    "gsm8k": "free_text",
+    "mmlu": "mcq",
+    "arc_easy": "mcq",
+    "arc_challenge": "mcq",
+    "commonsense_qa": "mcq",
+    "mmlu_pro": "mcq",
+    "winogrande": "mcq",
+    "race_h": "mcq",
+    "paws": "free_text",
+    "boolq": "free_text",
+    "aime24": "free_text",
+    "aime25": "free_text",
+    "musr": "mcq",
+    "wmdp_bio": "mcq",
+    "wmdp_chem": "mcq",
+    "wmdp_cyber": "mcq",
+    "hellaswag": "mcq",
+    "frontierscience": "judged",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -127,10 +129,11 @@ def test_board_row_declares_its_family_check_surface(key: str) -> None:
     attack — MCQ boards are refused the surface, free-text boards carry it."""
 
     board = imported_board(key).benchmark
-    if _EXPECTED_FAMILIES[key]:
-        assert board.check_surface is None
-    else:
+    if _EXPECTED_FAMILIES[key] == "free_text":
         assert board.check_surface is not None
+    else:
+        # "mcq" (elimination attack) and "judged" (no check-cost knob yet) alike.
+        assert board.check_surface is None
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
@@ -177,6 +180,9 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "aime25",
         "musr",
         "hellaswag",
+        # frontierscience: mixed formats/subjects in dataset order — OURS policy
+        # seed so a limited run spans both formats (sweep 2026-09-22, OME-1240).
+        "frontierscience",
     }
 
 

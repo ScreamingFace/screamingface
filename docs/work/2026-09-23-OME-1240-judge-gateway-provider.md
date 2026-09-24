@@ -113,3 +113,20 @@ Stacked PRs (~500 LoC cap each), in `apps/screamingface-engine`:
   TODO(review) — refused at assembly until resolved), tests appended to shim /
   snapshots / importer suites (9 new).
 - **Gates:** run_gates.py ALL GREEN; inspect lane 241 passed.
+
+### PR 4 (the frontierscience board — first judged import)
+
+- **Actual files:** importer-generated rows in `pins.py` / `prepare.py` /
+  `boards.py` (160 cases, apache-2.0, dataset revision `25ed67db…`, shuffle seed
+  20260923), TODOs resolved by hand: prose, difficulty=hard, judge pinned to
+  `openrouter/openai/gpt-5.4` (HealthBench's judge; params mirror its
+  web_search=false + max_tokens=4096, temperature deliberately unpinned),
+  `keep_sample_metadata=True`, check surface off (judged);
+  `tests/unit/inspect/test_inspect_frontierscience_board.py` (new — both judge
+  formats grade end-to-end through the node route); catalogue-table extensions
+  in `test_inspect_imported_boards.py` (family label "judged") and
+  `test_benchmark_declaration.py` (one row) — **owner approved
+  --skip-append-only for these on 2026-09-23**.
+- **Gates:** run_gates.py --skip-append-only ALL GREEN; inspect lane 250 passed.
+- **Deviations:** proof board is frontierscience, not the ticket's xstest
+  (gated dataset) — recorded in the PR-3 section above.
