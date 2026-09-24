@@ -1204,6 +1204,75 @@ def test_choice_shuffle_seed_flag_without_an_upstream_choice_shuffle_is_refused(
     assert "plain" not in (engine_src_copy / "pins.py").read_text()
 
 
+def test_introspect_records_data_files_and_a_features_pointer_as_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1264 extension 2: data_files is a literal fact; features is a
+    Features SCHEMA living in a module constant (infinite_bench's `ft`), so the
+    fact is a dotted POINTER at the eval's own attribute — the row points,
+    never copies (same pattern as record_to_sample/system_message)."""
+
+    schema = object()
+    module = _install_fake_eval(
+        monkeypatch,
+        filed=_task_with_dataset_kwargs(data_files={"test": "test.jsonl"}, features=schema),
+    )
+    module.FEATURES = schema  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:filed")
+
+    assert facts.data_files == {"test": "test.jsonl"}
+    assert facts.features == f"{_FAKE_MODULE}:FEATURES"
+
+
+def test_introspect_refuses_a_features_value_with_no_module_attribute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An inline Features(...) has no attribute the row could point at — refuse
+    by name rather than serialize a schema the diff reviewer cannot anchor."""
+
+    _install_fake_eval(monkeypatch, inlined=_task_with_dataset_kwargs(features=object()))
+
+    with pytest.raises(ImporterError, match="features"):
+        introspect_task(f"{_FAKE_MODULE}:inlined")
+
+
+def test_introspect_refuses_an_exotic_data_files_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the shapes the bake reproduces (str, dict[str, str]) are conserved;
+    anything else refuses by name — never dropped."""
+
+    _install_fake_eval(monkeypatch, exotic=_task_with_dataset_kwargs(data_files=123))
+
+    with pytest.raises(ImporterError, match="data_files"):
+        introspect_task(f"{_FAKE_MODULE}:exotic")
+
+
+def test_data_files_and_features_are_reproduced_in_the_rows(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The emitted rows carry the data_files pin and the features pointer, so
+    the bake loads exactly the files and schema the eval declares."""
+
+    schema = object()
+    module = _install_fake_eval(
+        monkeypatch,
+        filed=_task_with_dataset_kwargs(data_files={"test": "test.jsonl"}, features=schema),
+    )
+    module.FEATURES = schema  # type: ignore[attr-defined]
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:filed", "--key", "filed", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    assert 'FILED_DATA_FILES = {"test": "test.jsonl"}' in (engine_src_copy / "pins.py").read_text()
+    assert f'features="{_FAKE_MODULE}:FEATURES"' in (engine_src_copy / "prepare.py").read_text()
+
+
 # ---------------------------------------------------------------------------
 # generated code is an injection sink (review should-fix 4): Hub-controlled
 # strings must never be able to land an executable line in the emitted files
@@ -1229,6 +1298,16 @@ def test_generate_refuses_a_hostile_dataset_name(engine_src_copy: Path) -> None:
             Observations(revision="c" * 40, case_count=42, license="mit"),
             engine_src=engine_src_copy,
         )
+
+
+def test_generate_refuses_a_hostile_data_files_entry(engine_src_copy: Path) -> None:
+    """data_files strings land in a generated dict literal — same injection
+    sink, same charset guard (OME-1264 extension 2)."""
+
+    hostile_facts = _facts(data_files={"test": 'x"\nimport os\nZ = "'})
+    hostile_observations = Observations(revision="d" * 40, case_count=7, license="apache-2.0")
+    with pytest.raises(ImporterError, match="data_files"):
+        generate_rows("quiz", hostile_facts, hostile_observations, engine_src=engine_src_copy)
 
 
 def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: Path) -> None:
@@ -1397,6 +1476,33 @@ def test_emitted_choice_shuffled_snapshot_row_constructs_the_real_snapshot_spec(
     assert snapshot.shuffle_seed is None
     # Both directions of the pin-name contract (same check as the maximal row).
     referenced: set[str] = set(re.findall(r"\bQUIZ_[A-Z_]+\b", fragments.snapshot))
+    assert referenced == set(fragments.import_names)
+
+
+def test_emitted_data_files_snapshot_row_constructs_the_real_snapshot_spec(
+    engine_src_copy: Path,
+) -> None:
+    """The data_files/features arm of the template: the pin plus the pointer
+    must construct the real SnapshotSpec (OME-1264 extension 2)."""
+
+    from screamingface_engine_inspect.prepare import SnapshotSpec
+
+    fragments = generate_rows(
+        "filed",
+        _facts(data_files={"test": "test.jsonl"}, features=f"{_FAKE_MODULE}:FEATURES"),
+        Observations(revision="c" * 40, case_count=42, license="mit"),
+        engine_src=engine_src_copy,
+    )
+
+    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
+    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+
+    snapshot: Any = namespace["SNAPSHOTS"]["filed"]
+    assert isinstance(snapshot, SnapshotSpec)
+    assert snapshot.data_files == {"test": "test.jsonl"}
+    assert snapshot.features == f"{_FAKE_MODULE}:FEATURES"
+    referenced: set[str] = set(re.findall(r"\bFILED_[A-Z_]+\b", fragments.snapshot))
     assert referenced == set(fragments.import_names)
 
 

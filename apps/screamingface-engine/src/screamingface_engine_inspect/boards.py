@@ -16,6 +16,7 @@ never hand-built, from the same notebook as any home-grown board.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
@@ -526,6 +527,15 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
         # pointers predate revision-pin coverage and cannot join without
         # moving every published board's revision.)
         pins.append(f"system_message={snapshot.system_message}")
+    if snapshot.data_files is not None:
+        # WHY: data_files selects WHICH files of the pinned revision load —
+        # a different selection is a different exam (OME-1264 extension 2).
+        # json.dumps(sort_keys=True) keeps the pin deterministic across bakes.
+        pins.append(f"data_files={json.dumps(snapshot.data_files, sort_keys=True)}")
+    if snapshot.features is not None:
+        # WHY: the schema fixes how the selected files parse into rows, so the
+        # pointer rides exam identity like system_message's does.
+        pins.append(f"features={snapshot.features}")
     return tuple(pins)
 
 

@@ -46,6 +46,7 @@ import argparse
 import ast
 import datetime as _datetime
 import inspect as _inspect
+import json
 import re
 import sys
 from collections.abc import Callable, Mapping
@@ -117,6 +118,14 @@ class TaskFacts:
     #: --choice-shuffle-seed policy seed (OME-1264).
     upstream_shuffle_choices: bool = False
     upstream_choice_shuffle_seed: int | None = None
+    #: hf_dataset's data_files selection, forwarded to datasets.load_dataset —
+    #: conserved as a literal dict[str, str] (infinite_bench's
+    #: {"passkey": "passkey.jsonl"}); any other shape refuses (OME-1264 ext 2).
+    data_files: Any = None
+    #: hf_dataset's Features schema as a dotted POINTER at the eval's own
+    #: module constant (infinite_bench's constants:ft) — the row points, never
+    #: copies; resolved and type-checked at bake time (OME-1264 ext 2).
+    features: str | None = None
 
 
 @dataclass(frozen=True)
@@ -207,7 +216,53 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         upstream_shuffle_seed=kwargs.get("seed") if kwargs.get("shuffle") else None,
         upstream_shuffle_choices=_shuffles_choices(kwargs.get("shuffle_choices")),
         upstream_choice_shuffle_seed=_choice_shuffle_seed_fact(kwargs.get("shuffle_choices")),
+        data_files=_conserved_data_files(kwargs.get("data_files"), task_ref),
+        features=_features_reference(module, kwargs.get("features"), task_ref),
     )
+
+
+def _conserved_data_files(raw: Any, task_ref: str) -> Any:
+    """data_files in a shape the bake reproduces verbatim, or a named refusal.
+
+    Only the shape seen upstream is conserved: a dict of str split names to str
+    file names (infinite_bench's {"passkey": "passkey.jsonl"}). Everything else
+    — a bare str, lists, nested mappings, Path objects — refuses by name rather
+    than guessing how it round-trips through a generated literal (YAGNI: extend
+    when an eval actually ships another shape).
+    """
+
+    if raw is None:
+        return None
+    if isinstance(raw, dict) and all(
+        isinstance(key, str) and isinstance(value, str) for key, value in raw.items()
+    ):
+        return dict(raw)
+    raise ImporterError(
+        f"{task_ref}: hf_dataset data_files has a shape the importer does not conserve "
+        f"({type(raw).__name__}) — only a dict of str to str is reproduced by the bake; "
+        "extend the importer for this family"
+    )
+
+
+def _features_reference(module: Any, features: Any, task_ref: str) -> str | None:
+    """The Features schema as a dotted pointer at the eval's own constant.
+
+    WHY a pointer and not a serialized schema: the row must POINT at the eval's
+    code (the record_to_sample/system_message convention) so the diff reviewer
+    can anchor it and a dependency bump moves it with the eval. A features
+    value with no module attribute (an inline Features(...)) refuses — a
+    dropped schema would load different data with every guard green.
+    """
+
+    if features is None:
+        return None
+    try:
+        return _template_attribute(module, features, task_ref)
+    except ImporterError as exc:
+        raise ImporterError(
+            f"{task_ref}: hf_dataset features does not resolve to one module attribute "
+            "the row could point at — extend the importer or add the row by hand"
+        ) from exc
 
 
 def _shuffles_choices(raw: Any) -> bool:
@@ -345,7 +400,18 @@ def _dataset_holds_the_stub(dataset: Any) -> bool:
 #: cannot change the exam's content (auto_id renumbers ids the bake reassigns
 #: anyway; trust/cached/retry only affect how loading happens).
 _REPRODUCED_DATASET_KWARGS: frozenset[str] = frozenset(
-    {"path", "name", "split", "revision", "sample_fields", "shuffle", "seed", "shuffle_choices"}
+    {
+        "path",
+        "name",
+        "split",
+        "revision",
+        "sample_fields",
+        "shuffle",
+        "seed",
+        "shuffle_choices",
+        "data_files",
+        "features",
+    }
 )
 _BENIGN_DATASET_KWARGS: frozenset[str] = frozenset({"auto_id", "trust", "cached", "retry"})
 
@@ -620,6 +686,11 @@ def render_fragments(
         f"{prefix}_DATASET_REVISION",
         f"{prefix}_SPLIT",
     ]
+    selection_pins, selection_imports, selection_snapshot_lines = _dataset_selection_fragments(
+        prefix, facts
+    )
+    pin_lines.extend(selection_pins)
+    import_names.extend(selection_imports)
     seed_pins, seed_imports, seed_snapshot_lines = _seed_fragments(
         prefix, shuffle_seed, choice_shuffle_seed
     )
@@ -637,6 +708,7 @@ def render_fragments(
         f"        #   {facts.task_ref};\n        # verify against the eval's task.",
         f'        record_to_sample="{facts.record_to_sample}",',
     ]
+    snapshot_lines.extend(selection_snapshot_lines)
     if facts.prompt_template is not None:
         snapshot_lines.append(f'        prompt_template="{facts.prompt_template}",')
     if facts.choice_template is not None:
@@ -664,6 +736,30 @@ def render_fragments(
         board="\n".join(_board_lines(key, facts, license_note)) + "\n",
         import_names=tuple(import_names),
     )
+
+
+def _dataset_selection_fragments(
+    prefix: str, facts: TaskFacts
+) -> tuple[list[str], list[str], list[str]]:
+    """Fragment lines for the two conditional dataset-selection facts.
+
+    Returns (pin lines, import names, SnapshotSpec kwarg lines). ``data_files``
+    becomes a pin constant (a literal, like the dataset pins — json.dumps keeps
+    double quotes for the format gate); ``features`` stays an inline dotted
+    pointer (like ``record_to_sample``), so there is no pin for it.
+    """
+
+    pin_lines: list[str] = []
+    import_names: list[str] = []
+    snapshot_lines: list[str] = []
+    if facts.data_files is not None:
+        constant: str = f"{prefix}_DATA_FILES"
+        pin_lines.append(f"{constant} = {json.dumps(facts.data_files, sort_keys=True)}")
+        import_names.append(constant)
+        snapshot_lines.append(f"        data_files={constant},")
+    if facts.features is not None:
+        snapshot_lines.append(f'        features="{facts.features}",')
+    return pin_lines, import_names, snapshot_lines
 
 
 def _seed_fragments(
@@ -806,12 +902,25 @@ def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> Non
         "choice_template": facts.choice_template,
         "scorer": facts.scorer,
         "task_ref": facts.task_ref,
+        "features": facts.features,
     }
     for name, value in references.items():
         if value is not None and not _REFERENCE_CHARSET.match(value):
             raise ImporterError(
                 f"{name} {value!r} contains characters that cannot be written into "
                 "generated code — refusing (injection guard)"
+            )
+    # data_files strings land in a generated dict literal — same sink, same guard.
+    data_files_strings: list[str] = (
+        [text for pair in facts.data_files.items() for text in pair]
+        if isinstance(facts.data_files, dict)
+        else []
+    )
+    for text in data_files_strings:
+        if not _REFERENCE_CHARSET.match(text):
+            raise ImporterError(
+                f"data_files entry {text!r} contains characters that cannot be written "
+                "into generated code — refusing (injection guard)"
             )
     if observations.license is not None and not _LICENSE_CHARSET.match(observations.license):
         raise ImporterError(

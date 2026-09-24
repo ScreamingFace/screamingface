@@ -230,6 +230,25 @@ def test_choice_shuffle_seed_rides_exam_identity() -> None:
     assert not any(p.startswith("choice_shuffle_seed=") for p in _revision_pins(SNAPSHOTS["mmlu"]))
 
 
+def test_data_files_and_features_ride_exam_identity() -> None:
+    """OME-1264 extension 2: data_files selects WHICH files load and features
+    fixes their schema — both change the exam, so both ride the board's
+    revision identity."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    spec = replace(SNAPSHOTS["mmlu"], data_files={"t": "t.jsonl"}, features="fake_mod:FT")
+    pins = _revision_pins(spec)
+    assert 'data_files={"t": "t.jsonl"}' in pins
+    assert "features=fake_mod:FT" in pins
+    # And a board without them carries neither pin (the fields are conditional).
+    assert not any(
+        p.startswith(("data_files=", "features=")) for p in _revision_pins(SNAPSHOTS["mmlu"])
+    )
+
+
 def test_system_message_pointer_rides_exam_identity() -> None:
     """Review finding on PR #1018: adding or dropping the leading instruction
     changes the exam a candidate sits, so the pointer must move the board's
