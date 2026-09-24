@@ -14,8 +14,8 @@ from url4.peer.server import Url4Node
 
 @pytest.mark.asyncio
 async def test_native_index_supplies_one_based_position_without_selector(monkeypatch):
-    from screamingface_engine.benchmarks import candidate_adapter
     from screamingface_engine.benchmarks.case_selection import install_cases
+    from screamingface_engine.world import candidate_adapter
 
     seen = []
 

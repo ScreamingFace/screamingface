@@ -3,10 +3,10 @@ import asyncio
 import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.case_context import case_scope, current_case_id
 from screamingface_engine.benchmarks.definition import candidate_call
 from screamingface_engine.observations import ModelCall, RunObservations
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from url4 import Text, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -14,7 +14,7 @@ from url4.peer.server import Url4Node
 @pytest.mark.asyncio
 @pytest.mark.parametrize("structured", [False, True])
 async def test_case_envelope_preserves_actual_candidate_input(monkeypatch, structured):
-    from screamingface_engine.benchmarks import candidate_adapter
+    from screamingface_engine.world import candidate_adapter
 
     inputs = []
 
@@ -188,7 +188,7 @@ async def test_real_candidate_execution_emits_case_metadata_without_prompt_metad
 async def test_transport_case_identity_joins_results_by_string_without_numeric_coercion(
     monkeypatch, case_id
 ):
-    from screamingface_engine.benchmarks import candidate_adapter
+    from screamingface_engine.world import candidate_adapter
 
     observed = []
 

@@ -253,8 +253,8 @@ async def test_check_surface_refuses_an_unusable_target_in_the_plugins_voice(
 @pytest.mark.asyncio
 async def test_imported_board_emits_model_activity_with_case_identity(tmp_path: Path) -> None:
     from screamingface_engine.activity.observer import ActivityObserver
-    from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
     from screamingface_engine.observations import ModelCall, RunObservations
+    from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 
     node = _node(tmp_path)
     install_candidate_invocation(node)

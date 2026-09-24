@@ -5,18 +5,18 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.case_context import current_case_id, current_case_position
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.definition import candidate
 from screamingface_engine.benchmarks.protocol import build_evaluation_protocol
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from url4 import render
 from url4.peer.server import Url4Node
 
 
 @pytest.mark.asyncio
 async def test_selected_positions_repeat_per_candidate_without_changing_input(monkeypatch):
-    from screamingface_engine.benchmarks import candidate_adapter
+    from screamingface_engine.world import candidate_adapter
 
     seen = []
 
@@ -140,7 +140,7 @@ async def test_contracteval_supplies_case_metadata_without_changing_answer_input
 ):
     from test_contracteval_resolution import _GOLD, _run
 
-    from screamingface_engine.benchmarks import candidate_adapter
+    from screamingface_engine.world import candidate_adapter
 
     original = candidate_adapter.evaluate_candidate_recipe
     seen = []
