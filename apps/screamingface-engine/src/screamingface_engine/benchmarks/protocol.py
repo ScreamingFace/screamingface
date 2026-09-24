@@ -100,11 +100,11 @@ def build_evaluation_protocol(
 
     # INVARIANT: Case admission covers the complete spawned row; nested Case work keeps its cap.
     case_evaluations = iterate(
-        cases_route,
+        RelExpr(path=cases_route, intent=Text(str(selected_case_count))),
         body=(src(case_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
         concurrency=1,
-        slice=(None if selected_case_count == available_case_count else (0, selected_case_count)),
+        slice=(0, selected_case_count),
         on_error="collect",
     )
     selected_case_evaluations = expr(

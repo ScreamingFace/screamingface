@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, CaseResult
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
@@ -364,8 +365,7 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
         "case_evaluation": board.case_evaluation_route,
         "aggregate": board.aggregate_route,
     }
-    if routes["cases"] not in getattr(node, "_data", {}):
-        node.data(routes["cases"], _cases(root), media_type="application/json")
+    install_cases(node, routes["cases"], _cases(root))
     installed = frozenset(node.processor_routes())
     endpoints: list[tuple[str, Callable[[Request], str | Awaitable[str]]]] = [
         (routes["check"], _check(root)),
@@ -411,7 +411,13 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
     """The canonical one-invocation expression — one answer per Case, graded once."""
 
     def build(case_count: int) -> Node:
-        candidate_invocation = candidate("$item.input", web_search=_CANDIDATE_WEB_SEARCH)
+        candidate_invocation = candidate(
+            "$item.input",
+            web_search=_CANDIDATE_WEB_SEARCH,
+            case_id="$item.id",
+            case_index="$index",
+            case_count=str(case_count),
+        )
         checked = expr(
             src(
                 RelExpr(

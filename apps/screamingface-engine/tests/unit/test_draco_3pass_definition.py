@@ -151,6 +151,8 @@ def test_the_three_pass_limit_slices_cases_not_judging_strength() -> None:
     assert full.count("/" + JUDGE_MODEL) == 3
     assert one_case.count("/" + JUDGE_MODEL) == 3
     assert one_case.count("iteration.slice=0:1") == 1
+    assert ")!'1'" in one_case
+    assert "/benchmarks/selected-cases" not in one_case
 
 
 # ── installation --------------------------------------------------------------------
@@ -194,10 +196,9 @@ def test_both_boards_install_and_validate_on_one_world(tmp_path: Path) -> None:
         THREE_PASS_EXAM.routes.check_surface,
     ):
         assert route in registered
-    # The cases routes are DATA routes, not endpoints — same accessor the registry uses.
-    data = getattr(node, "_data", {})
-    assert CANONICAL_EXAM.routes.cases in data
-    assert THREE_PASS_EXAM.routes.cases in data
+    # Cases validate the selected count before iteration starts.
+    assert CANONICAL_EXAM.routes.cases in registered
+    assert THREE_PASS_EXAM.routes.cases in registered
 
 
 def test_the_three_pass_install_rejects_evidence_that_is_not_three_wide(

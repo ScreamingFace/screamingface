@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.draco import assets as protocol_assets
 from screamingface_engine.benchmarks.draco import grade as grading
 from screamingface_engine.benchmarks.draco import records, tasks
@@ -62,7 +63,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     memoized, so a missing asset fails identically — and loudly — on every resolution.
     """
     assets = _lazy_protocol_assets(root)
-    node.data(exam.routes.cases, _cases(assets), media_type="application/json")
+    install_cases(node, exam.routes.cases, _cases(assets))
     node.endpoint(exam.routes.tasks)(_task_rows(root, exam))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds

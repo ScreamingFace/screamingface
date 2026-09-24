@@ -158,7 +158,13 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
     scheduling a full run.
     """
 
-    candidate_invocation = candidate("$item.input", web_search=False)
+    candidate_invocation = candidate(
+        "$item.input",
+        case_id="$item.id",
+        case_index="$index",
+        case_count=str(case_count),
+        web_search=False,
+    )
     # Stage 3a — one pre-rendered grader prompt to the judge.
     # INVARIANT: the judge call's intent is EMPTY (`!''`). A non-empty intent becomes a SYSTEM
     # message; the whole grader prompt is meant to arrive as one user message.

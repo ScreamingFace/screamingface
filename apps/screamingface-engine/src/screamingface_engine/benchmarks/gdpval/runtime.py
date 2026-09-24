@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
@@ -67,8 +68,7 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
     into ONE Runner world over ONE ``root`` without colliding.
     """
 
-    if exam.routes.cases not in getattr(node, "_data", {}):
-        node.data(exam.routes.cases, _cases(root, exam.case_ids), media_type="application/json")
+    install_cases(node, exam.routes.cases, _cases(root, exam.case_ids))
     installed = frozenset(node.processor_routes())
     endpoints = (
         (exam.routes.tasks, _rubric_tasks(root, exam.case_ids, exam.id)),

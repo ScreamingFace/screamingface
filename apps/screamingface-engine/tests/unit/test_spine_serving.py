@@ -431,14 +431,9 @@ class TestInstallBoard:
         install_board(node, root, board)
 
         routes = board_routes("toy", _REVISION)
-        assert routes.cases in getattr(node, "_data", {})
-        # INVARIANT: the booklet's Content-Type is declared, not sniffed — without
-        # "application/json" url4 falls back to sniffing the served collection.
-        # White-box: url4 folded the parallel `_data_media_types` dict into the
-        # `_data` route record (OME-1263), so the declared type now rides with
-        # its provider. The invariant did not move.
-        assert getattr(node, "_data", {})[routes.cases].media_type == "application/json"
         installed = frozenset(node.processor_routes())
+        # INVARIANT: cases validate the requested count before native iteration runs.
+        assert routes.cases in installed
         assert routes.check in installed
         assert routes.case_evaluation in installed
         assert routes.aggregate in installed

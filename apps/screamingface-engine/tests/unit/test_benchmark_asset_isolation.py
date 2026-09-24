@@ -17,14 +17,14 @@ import pytest
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
 from screamingface_engine.benchmarks.draco.definition import CANONICAL_EXAM, CASES_ROUTE
 from screamingface_engine.benchmarks.draco.runtime import install as install_draco
-from url4 import RelUrl, Text, expr, render, src
+from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 
 
 async def _resolve_data(node: Url4Node, path: str) -> str:
     expression = expr(
-        src(RelUrl(path), name="result", weight=0.0),
+        src(RelExpr(path=path, intent=Text("100")), name="result", weight=0.0),
         intent=Text("$result"),
     )
     return (await node.evaluate(render(expression))).text
