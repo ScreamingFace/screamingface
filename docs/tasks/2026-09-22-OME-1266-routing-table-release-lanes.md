@@ -1,12 +1,12 @@
 ---
 id: OME-1266
 linear_url: https://linear.app/openmined/issue/OME-1266/correct-the-release-lanes-in-the-working-in-this-repo-routing-table
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [repo, agentic, autonomous]
 created: 2026-09-22
-closed:
+closed: 2026-09-24
 ---
 
 # Correct the release lanes in the working-in-this-repo routing table
