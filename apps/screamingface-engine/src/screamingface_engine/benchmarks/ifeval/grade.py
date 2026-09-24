@@ -22,7 +22,6 @@ cannot be trusted, and scoring the wrong Case is worse than reporting a failed o
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -34,6 +33,7 @@ from screamingface_engine.benchmarks.aggregation import (
     public_error,
 )
 from screamingface_engine.benchmarks.contract import CaseResult, Failure
+from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.ifeval.case_evaluation import CHECK_SCHEMA, graded_record
 from screamingface_engine.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 from screamingface_engine.benchmarks.spine.rows import RowReader
@@ -320,7 +320,7 @@ def _collected_failure_result(
         selected_case=selected_case,
         failures=[
             {
-                "stage": "candidate" if _is_gateway_call_failure(error) else "grading",
+                "stage": "candidate" if _is_candidate_execution_failure(error) else "grading",
                 "code": diagnostic.code,
                 "message": diagnostic.message,
                 "retryable": diagnostic.retryable,
@@ -331,16 +331,10 @@ def _collected_failure_result(
     )
 
 
-def _is_gateway_call_failure(error: Mapping[str, Any]) -> bool:
-    # WHY: these codes are emitted by world/connector.py at the model-call boundary.
-    # IFEval's checker is deterministic; its protected failures never take this path.
-    # Do not infer provenance from a message, a broad prefix, or a sanitized code:
-    # unknown and legacy kind/message-only rows remain the grading fallback.
-    code = error.get("code")
-    return isinstance(code, str) and (
-        code in {"aigateway_transport_error", "aigateway_empty_response", "aigateway_bad_response"}
-        or re.fullmatch(r"aigateway_http_[45][0-9]{2}", code) is not None
-    )
+def _is_candidate_execution_failure(error: Mapping[str, Any]) -> bool:
+    # WHY: only the candidate boundary assigns this kind; codes do not establish
+    # provenance. Protected grading failures are handled before this fallback.
+    return error.get("kind") == CandidateExecutionError.__name__
 
 
 def _ifeval_score(cases: Sequence[CaseResult]) -> CandidateScore:
