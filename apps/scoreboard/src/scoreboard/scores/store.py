@@ -170,6 +170,7 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "ran_with_providers",
     "run_cost_usd",
     "run_cost_status",
+    "cache_saved_cost_usd",
 )
 
 
@@ -242,6 +243,22 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
         # recoverable without asking the client, because an amount IS the claim `complete` makes.
         # Healing it here means the population `OME-1258` inherits is already correct.
         updates["run_cost_status"] = "complete"
+    # FEATURE: OME-1325 — how a row stored before this field ever gains a saved cost.
+    #
+    # INVARIANT: FILL ONLY, never replace, for the reason `models` and the cost pair record
+    # above. Once phase 2 ranks on `run_cost_usd + cache_saved_cost_usd`, this value is half a
+    # frontier position, and a replay must not be able to move one.
+    #
+    # WHY this gates on its OWN null and not on the amount, unlike the pair above: that gate
+    # exists because migration `0014` left `run_cost_status` null on rows carrying published
+    # money, so the status was the wrong sentinel (review of PR #841, P1-2). Here the field IS
+    # the amount and NO row has ever held one — migration `0015` adds it empty — so null is
+    # unambiguous and nothing published can be overwritten.
+    #
+    # The remaining conflation, that null means both "no cache hits" and "client did not
+    # report", is harmless on this path: filling either from a null submission value is a no-op.
+    if submission.cache_saved_cost_usd is not None and existing.cache_saved_cost_usd is None:
+        updates["cache_saved_cost_usd"] = submission.cache_saved_cost_usd
     return updates
 
 
@@ -288,6 +305,11 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         # `complete`, so storing both verbatim keeps the column consistent with the wire.
         # Deliberately absent from _content_hash for the same reason as the amount.
         "run_cost_status": submission.run_cost_status,
+        # FEATURE (OME-1325 / OME-1251 D5): stored beside the spend, never folded into it. The
+        # reproduction cost is derived at the point of use; pre-summing here would destroy the
+        # submitter's real bill and leave a figure nothing could recompute.
+        # Deliberately absent from _content_hash for the same reason as the amount.
+        "cache_saved_cost_usd": submission.cache_saved_cost_usd,
         "content_hash": content_hash,
     }
 

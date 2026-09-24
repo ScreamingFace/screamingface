@@ -461,6 +461,33 @@ class ScoreSubmission(BaseModel):
     # version submitters actually run. Until then silence is accepted, which is precisely the
     # thing OME-822 exists to stop — so the flip is a ticket, not a maybe.
     run_cost_status: RunCostStatus | None = None
+    # FEATURE: OME-1325 / OME-1251 D5 — what this run's cache hits would have cost.
+    #
+    # WHY a second field and not a correction to `run_cost_usd`: the amount above is what the run
+    # SPENT, and a cache hit costs nothing upstream. The cost to REPRODUCE is
+    # `run_cost_usd + cache_saved_cost_usd`, derived at the point of use. D5 keeps the parts
+    # separate so the board can store real data now and choose the basis later; a pre-summed
+    # number would be silently low until `OME-1287` lands, with no way to tell how low.
+    #
+    # INVARIANT: PROVIDER-AUTHORED money only. `cache_saved_cost_archive_usd` is measured from a
+    # DIFFERENT call of the same model and kind, so `OME-1251` D3 keeps it off the wire entirely.
+    # Never accept it here and never sum the two.
+    #
+    # INVARIANT: there is deliberately NO pairing rule against `run_cost_status`. A `partial` run
+    # has a reported saved-cost sum by definition, so `partial` beside a null here LOOKS
+    # incoherent — but `OME-1252` ships the status and NOT this field, and `OME-1326` adds it
+    # later. Between those releases every `partial` submission legitimately carries a status with
+    # no saved cost. Enforcing the final contract before clients can satisfy it is the exact
+    # deadlock review found in PR #841 (P1-1). If the rule is ever wanted it belongs beside
+    # `OME-1258`'s flip.
+    cache_saved_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+    @field_validator("cache_saved_cost_usd")
+    @classmethod
+    def validate_cache_saved_cost(cls, value: Decimal | None) -> Decimal | None:
+        # Money's domain is already defined once, by the amount this figure sits beside. A second
+        # money field with its own rules is how the two drift apart.
+        return _validate_run_cost(value)
 
     @model_validator(mode="after")
     def validate_cost_matches_its_status(self) -> ScoreSubmission:
@@ -676,6 +703,24 @@ class ScoreSchema(BaseModel):
     # client looked and could not determine the cost. Collapsing the two would lose the
     # distinction the Pareto frontier depends on.
     run_cost_status: RunCostStatus | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    # FEATURE: OME-1325 / OME-1251 D5 — what this row's cache hits would have cost.
+    #
+    # WHY it is exported at all when nothing reads it yet: the private JSONL export is how a
+    # board is restored, so a stored-but-unexported column is a column that does not survive a
+    # round trip. Phase 2 (`OME-1287`-gated) is what starts RANKING on
+    # `run_cost_usd + cache_saved_cost_usd`; the value has to already be in the exports by then.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for exactly the reason `models` and `run_cost_status`
+    # above record. Emitting `"cache_saved_cost_usd": null` on every legacy row would change
+    # every export saved before this field existed, with no row having changed, and a previously
+    # certified export could no longer authorize its own purge. That is the `OME-1181` Q2 trap.
+    #
+    # INVARIANT: null is NOT 0. Null means not reported; 0 means a client looked and the run
+    # genuinely saved nothing.
+    cache_saved_cost_usd: RunCostUsd = Field(
         default=None,
         exclude_if=lambda value: value is None,
     )
