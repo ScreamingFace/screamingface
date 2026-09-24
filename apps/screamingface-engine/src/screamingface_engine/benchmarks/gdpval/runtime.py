@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
@@ -51,7 +52,9 @@ from screamingface_engine.benchmarks.gdpval.exam import Exam, ExamMean
 from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
 from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -139,6 +142,7 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     # payload is cached, so a broken asset re-checks (and re-fails loudly) on every call.
     memo: dict[str, str] = {}
 
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         if "payload" not in memo:
             raw = preflight(root, case_ids)
@@ -160,9 +164,11 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     text_memo: dict[int, str] = {}
     items_memo: dict[int, list[dict[str, Any]]] = {}
 
+    @observe_stage(ActivityKind.GRADING)
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = candidate_answer(request.context)
             if "cases" not in raw_memo:
                 raw_memo["cases"] = _read(root / "cases.json", "GDPval cases")
@@ -172,10 +178,9 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
             work_request = text_memo[case_id]
             if case_id not in items_memo:
                 items_memo[case_id] = _rubric_items(root, case_id)
-            items = items_memo[case_id]
             case_record = records.bind_case(raw_cases, case_id=case_id, candidate=answer)
             tasks: list[dict[str, str]] = []
-            for item in items:
+            for item in items_memo[case_id]:
                 rendered = render_rubric_item(item["points"], item["criterion"])
                 grader_prompt = build_grader_prompt(work_request, answer.text, rendered)
                 register_grading_request(
@@ -225,6 +230,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
 def _rubric_verdict(benchmark_id: str):
     """The parse gate between "the judge said something" and "we have a verdict"."""
 
+    @observe_stage(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
             case_id, rubric_id = binding_key(request.intent)
@@ -262,6 +268,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
+@observe_stage(ActivityKind.GRADING)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)

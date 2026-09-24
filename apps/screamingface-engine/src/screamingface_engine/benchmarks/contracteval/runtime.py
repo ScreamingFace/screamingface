@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.contracteval import aggregate as reducing
 from screamingface_engine.benchmarks.contracteval.case_evaluation import (
     CHECK_SCHEMA,
@@ -33,6 +34,7 @@ from screamingface_engine.benchmarks.evaluation import (
     compact_json,
     positive_case_id,
 )
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.spine.serving import (
     ServedBoard,
     board_preflight,
@@ -40,6 +42,7 @@ from screamingface_engine.benchmarks.spine.serving import (
     install_board,
     serve_cases,
 )
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -78,9 +81,11 @@ def _build_rows(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a verdict"."""
 
+    @observe_stage(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = reducing.load_answer(root, case_id)
             if answer is None:
                 raise ValueError(f"answer record for case {case_id} missing or invalid")

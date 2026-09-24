@@ -1,8 +1,8 @@
 """Safe v1 activity vocabulary and explicit producer facts (OME-1161).
 
 The shared v1 contract reserves stage kinds, count facts, public identifiers and
-failure codes for future producers. Only model-call activity is produced today;
-accepted vocabulary does not imply instrumentation or stage coverage.
+failure codes for producers. Model calls and explicitly wrapped benchmark stages
+produce activity; accepted vocabulary alone does not imply instrumentation.
 This module stays standard-library-only, including its structural Emitter protocol.
 """
 
@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Protocol
 
+from screamingface_engine.activity_kinds import ActivityKind as ActivityKind
+
 Scalar = str | int | float | bool | None
 PREFIX = "sf.activity."
 SCHEMA = "screamingface.activity.v1"
@@ -23,16 +25,6 @@ MAX_INTEGER = 9_007_199_254_740_991
 class ActivityLevel(StrEnum):
     OFF = "off"
     FULL = "full"
-
-
-class ActivityKind(StrEnum):
-    CASE_LOADING = "case_loading"
-    ANSWERING = "answering"
-    MODEL_CALL = "model_call"
-    GRADING_PREPARE = "grading_prepare"
-    GRADING_CHECK = "grading_check"
-    GRADING_REDUCE = "grading_reduce"
-    AGGREGATION = "aggregation"
 
 
 class Emitter(Protocol):
@@ -100,8 +92,12 @@ def safe_fact(name: str, value: object) -> Scalar:
         result = _identifier(value)
         if name != "case_id" and not isinstance(result, str):
             raise ValueError("text identifier required")
-    elif name in _COUNTS or name == "attempt":
-        result = _number(value, integer=True, minimum=1 if name == "attempt" else 0)
+    elif name in _COUNTS or name in {"attempt", "case_position", "case_count"}:
+        result = _number(
+            value,
+            integer=True,
+            minimum=1 if name in {"attempt", "case_position", "case_count"} else 0,
+        )
     elif name == "retry_delay_ms":
         result = _number(value)
     elif name == "finish_reason":
@@ -123,5 +119,15 @@ def facts(values: Mapping[str, object]) -> dict[str, Scalar]:
     return result
 
 
+# WHY: producer kinds retain diagnostic detail; researcher stage labels stay simple.
+_LABELS = {
+    ActivityKind.CASE_LOADING: "Loading cases",
+    ActivityKind.ANSWERING: "Answering",
+    ActivityKind.MODEL_CALL: "Model call",
+    ActivityKind.GRADING: "Grading",
+    ActivityKind.AGGREGATION: "Aggregating",
+}
+
+
 def message(kind: ActivityKind, state: str) -> str:
-    return f"{kind.value.replace('_', ' ').capitalize()} {state}"
+    return f"{_LABELS[kind]} {state}"

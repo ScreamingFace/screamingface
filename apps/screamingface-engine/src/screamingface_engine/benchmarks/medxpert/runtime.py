@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import (
     candidate_answer,
@@ -28,6 +29,7 @@ from screamingface_engine.benchmarks.evaluation import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.medxpert import aggregate as reducing
 from screamingface_engine.benchmarks.medxpert.answering import (
     extract_choice_letter,
@@ -49,6 +51,7 @@ from screamingface_engine.benchmarks.spine.serving import (
     install_board,
     serve_cases,
 )
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -113,9 +116,11 @@ def _cot_prompt(question: str) -> str:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a committed letter"."""
 
+    @observe_stage(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             payload = json_object(request.context, "MedXpertQA check")
             if tuple(payload) != ("reasoning", "commit"):
                 raise ValueError("MedXpertQA check fields must be reasoning, commit")

@@ -56,6 +56,7 @@ from inspect_ai.solver._multiple_choice import (
     set_choices_based_on_generated_response,
 )
 
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.spine.payloads import CasePayload
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
@@ -98,7 +99,17 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
         # Stage 4 — copy their mark back onto our form.
         return _outcome(score)
 
-    return grade
+    async def observed(request: GradeRequest) -> CaseGradeOutcome:
+        grading_activity(request.case_id, "started")
+        try:
+            outcome = await grade(request)
+        except Exception:
+            grading_activity(request.case_id, "failed")
+            raise
+        grading_activity(request.case_id, "failed" if outcome.failure_code else "completed")
+        return outcome
+
+    return observed
 
 
 def _outcome(score: Score | None) -> CaseGradeOutcome:
