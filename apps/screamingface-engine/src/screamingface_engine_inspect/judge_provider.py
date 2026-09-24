@@ -118,6 +118,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
                 "no judge transport is bound — a judge call may only leave the "
                 "engine through the node's declared model route (OME-1240)"
             )
+        _refuse_sampling_overrides(config)
         # Stage 2-3 — envelope the messages, dial the route.
         context: str = json.dumps(
             {
@@ -130,8 +131,47 @@ class _GatewayJudgeModelAPI(ModelAPI):
             "/" + self.model_name, context, None, tuple(transport.params)
         )
         completion: str = await transport.fetch(target)
+        if not completion.strip():
+            # A blank completion can never be a grade — refuse loudly; a scorer
+            # coercing silence into a score is a silently wrong exam.
+            raise RuntimeError(f"the gateway judge at {self.model_name!r} returned an empty reply")
         # Stage 4 — their output form, the text verbatim.
         return ModelOutput.from_content(model=self.model_name, content=completion)
+
+
+#: GenerateConfig sampling fields an eval might set — the judge's sampling identity
+#: is the ROW's pinned params, so an eval-supplied value would be silently dropped.
+_SAMPLING_FIELDS = (
+    "temperature",
+    "top_p",
+    "top_k",
+    "max_tokens",
+    "seed",
+    "stop_seqs",
+    "frequency_penalty",
+    "presence_penalty",
+    "logit_bias",
+    "num_choices",
+)
+
+
+def _refuse_sampling_overrides(config: GenerateConfig) -> None:
+    """Refuse eval-supplied sampling settings by name — never drop them silently.
+
+    WHY: the transport sends only the JudgeSpec's pinned params; accepting a config
+    the wire never carries would grade with different sampling than the eval asked
+    for, silently. None of the pinned evals sets one today.
+    """
+
+    overridden: list[str] = [
+        name for name in _SAMPLING_FIELDS if getattr(config, name, None) is not None
+    ]
+    if overridden:
+        raise RuntimeError(
+            f"the eval supplies judge sampling settings {overridden} — the judge's "
+            "sampling identity is the board row's pinned params (JudgeSpec.params); "
+            "pin them there instead (OME-1240)"
+        )
 
 
 def _message(message: ChatMessage) -> dict[str, str]:
