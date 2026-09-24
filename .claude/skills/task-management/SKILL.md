@@ -146,7 +146,7 @@ not add workflow states.
 **If GitHub status automation is enabled** (see the card): opening the PR moves the issue to
 *in-review*, merging moves it to *done* (branch names follow `…/<issue-id>-…`;
 `Fixes <issue-id>` in the PR body also closes it). In that case you manually set only the
-*queued-next* and *in-progress* states (in-progress at ledger creation) and the STOP states —
+*queued-next* and *in-progress* states (in-progress when the issue is filed at PR-open) and the STOP states —
 don't hand-move the in-review/done transitions the PR will drive.
 
 ## Close discipline

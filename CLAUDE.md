@@ -40,8 +40,9 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    unassigned, with Irina and Kevin tagged for review. Everything else goes under an epic and
    self-assigns.
    Close status in BOTH Linear and the mirror at finish.
-2. **Work ledger.** Every unit has `docs/work/YYYY-MM-DD-<ticket-id>-<desc>.md` — created
-   at work START from `docs/work/TEMPLATE.md`, outcome filled at finish.
+2. **Work ledger.** Every unit has `docs/work/YYYY-MM-DD-<slug>.md` (slug, not a ticket id —
+   no `OME-N` exists until PR-open) — created at work START from `docs/work/TEMPLATE.md`,
+   `ticket: unfiled` backfilled to `OME-N` at PR-open, outcome filled at finish.
 3. **Spec before plan, plan before code.** `docs/spec/` then `docs/plan/` artifacts are
    hard prerequisites (superpowers brainstorming → writing-plans; scratch in gitignored
    `.docs/`). Implementation starts only on explicit approval in plain words.
@@ -50,15 +51,20 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
 5. **Worktree per unit — never edit in the shared checkout.** Always:
    ```sh
    git fetch origin
-   git worktree add .claude/worktrees/OME-N-<desc> -b OME-N-<desc> origin/main
+   git worktree add .claude/worktrees/<slug> -b <slug> origin/main
    ```
-   Branch from **`origin/main`**, never from whatever happens to be checked out. Sessions
-   run concurrently against one clone, and a branch switch **silently relocates
-   uncommitted work** onto the new branch — this has already happened here (see
-   `docs/work/2026-08-04-OME-743-*`). Remove with `git worktree remove` once merged.
-6. **Branches/commits/PR.** `OME-N-<desc>`; conventional commits; body `Refs: OME-N`;
-   never `Co-Authored-By`; never commit to `main` (`.githooks/pre-commit` + protection).
-   Every change lands via **PR** — green CI first, then squash-merge; never `--admin`.
+   Use the `<slug>` (branch description) at work start — no `OME-N` exists until PR-open. At
+   PR-open, after filing the issue, rename the branch to `OME-N-<desc>` (`git branch -m`) so
+   the branch-name GitHub/Linear automation links. Branch from **`origin/main`**, never from
+   whatever happens to be checked out. Sessions run concurrently against one clone, and a
+   branch switch **silently relocates uncommitted work** onto the new branch — this has
+   already happened here (see `docs/work/2026-08-04-OME-743-*`). Remove with
+   `git worktree remove` once merged.
+6. **Branches/commits/PR.** Branch `<slug>` at work start, renamed to `OME-N-<desc>` at
+   PR-open once the issue is filed; conventional commits; `Refs: OME-N` in the PR body (not
+   required on commits); never `Co-Authored-By`; never commit to `main` (`.githooks/pre-commit`
+   + protection). Every change lands via **PR** — green CI first, then squash-merge; never
+   `--admin`.
 7. **Asana is READ-ONLY** product/marketing input (`asana-product` skill). Technical work
    never goes to Asana.
 8. **Cross-cutting** (≥2 apps/packages) → one sub-issue per affected app/package under the
