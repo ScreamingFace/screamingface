@@ -1,9 +1,9 @@
 ---
 ticket: OME-1264
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-23
-finished:
+finished: 2026-09-24
 ---
 
 # OME-1264 — Importer detects MCQ by solver family, renders str scorer kwargs format-safe
