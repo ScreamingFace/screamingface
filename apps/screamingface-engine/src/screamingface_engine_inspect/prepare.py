@@ -229,7 +229,7 @@ class SnapshotSpec:
     #: {"passkey": "passkey.jsonl"}), forwarded verbatim to
     #: ``datasets.load_dataset`` — it selects WHICH files load, so it rides the
     #: board's revision pins. OME-1264 extension 2.
-    data_files: Any = None
+    data_files: dict[str, str] | None = None
     #: The eval's Features schema as a dotted POINTER at its own module constant
     #: (infinite_bench's ``constants:ft``) — same convention as
     #: ``record_to_sample``; resolved at bake time and required to be a
