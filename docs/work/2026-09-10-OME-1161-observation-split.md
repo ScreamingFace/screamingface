@@ -71,6 +71,7 @@ async cleanup responsibilities; add a caller-task/ordering test. No runtime enfo
 Validate focused tests and full gates, then rebase PR 931 onto the updated integration head.
 Characterization test passes without runtime changes; full Engine gates pass. Review found
 no issues. OME-1201 remains open until PR 915 merges.
+Outcome: PR 915 merged 2026-09-14 (`c9c6761f5`); OME-1201 closed Done 2026-09-24.
 
 ## Plugin split — contract and admission (2026-09-14)
 

@@ -1,9 +1,10 @@
 ---
 id: OME-1201
 linear_url: https://linear.app/openmined/issue/OME-1201
-status: In Review
+status: Done
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-14
+closed: 2026-09-24
 ---
 
 Clarify prompt-return observer hooks in PR 915, with an inline-dispatch test and no runtime
