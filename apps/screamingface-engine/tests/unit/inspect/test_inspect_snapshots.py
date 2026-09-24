@@ -674,3 +674,78 @@ def test_system_message_resolving_to_a_non_string_refuses_the_bake(
     )
     with pytest.raises(PrepareError, match="must resolve to text"):
         emit_snapshot(spec, _HELLASWAG_ROWS, tmp_path)
+
+
+# ── sample metadata rides the private target (OME-1240, opt-in) ──────────────
+
+
+def test_opted_in_sample_metadata_is_baked_into_the_target(tmp_path: Path) -> None:
+    """A metadata-dispatching scorer (frontierscience) reads sample metadata at
+    grade time — a row that opts in bakes it into the private target record."""
+
+    from dataclasses import replace
+
+    spec = replace(SNAPSHOTS["gsm8k"], keep_sample_metadata=True)
+    emit_snapshot(spec, _GSM8K_ROWS, tmp_path)
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    # gsm8k's record_to_sample attaches {"reasoning": ...} to every Sample.
+    assert target["metadata"] == {"reasoning": "6 * 7 = 42"}
+
+
+def test_without_the_opt_in_no_metadata_is_baked(tmp_path: Path) -> None:
+    """INVARIANT (published-snapshot immutability): a default row bakes byte-identical
+    assets to the pre-OME-1240 bake — metadata lands only behind the opt-in."""
+
+    emit_snapshot(SNAPSHOTS["gsm8k"], _GSM8K_ROWS, tmp_path)
+    target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
+    assert "metadata" not in target
+
+
+def test_the_metadata_opt_in_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Flipping the opt-in changes what the bake ships, so the revision must move."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect import boards, single_shot
+
+    monkeypatch.setattr(boards, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
+    base = boards.imported_board("gsm8k").benchmark.revision
+
+    monkeypatch.setitem(SNAPSHOTS, "gsm8k", replace(SNAPSHOTS["gsm8k"], keep_sample_metadata=True))
+    monkeypatch.setattr(boards, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
+    assert boards.imported_board("gsm8k").benchmark.revision != base
+
+
+def test_non_json_sample_metadata_refuses_the_bake(tmp_path: Path) -> None:
+    """The target file is JSON — an unserializable metadata value must fail the bake
+    by case number, never truncate or coerce an exam asset silently."""
+
+    import sys
+    import types
+    from dataclasses import replace
+
+    from inspect_ai.dataset import Sample
+
+    module = types.ModuleType("fake_metadata_eval")
+
+    def record_to_sample(record: dict[str, Any]) -> Sample:
+        return Sample(
+            input=record["question"],
+            target="42",
+            metadata={"weird": object()},
+        )
+
+    module.record_to_sample = record_to_sample  # type: ignore[attr-defined]
+    sys.modules["fake_metadata_eval"] = module
+    try:
+        spec = replace(
+            SNAPSHOTS["gsm8k"],
+            record_to_sample="fake_metadata_eval:record_to_sample",
+            keep_sample_metadata=True,
+        )
+        with pytest.raises(PrepareError, match="case 1"):
+            emit_snapshot(spec, _GSM8K_ROWS[:1], tmp_path)
+    finally:
+        del sys.modules["fake_metadata_eval"]

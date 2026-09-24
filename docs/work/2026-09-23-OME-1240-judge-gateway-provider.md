@@ -75,3 +75,58 @@ Stacked PRs (~500 LoC cap each), in `apps/screamingface-engine`:
     the acceptance; the endpoint seam returns text only. Follow-up noted.
   - Transport BINDING in the aggregate path ships with PR 2 (it needs the
     board-declared judge params from the importer).
+
+### PR 2 (judge declaration: exam identity + binding + assembly guards)
+
+- **Actual files:** `single_shot.py` (JudgeSpec, revision pins for judge
+  model/params, check-surface guard, `_aggregate` binds the transport via
+  `node.fetch`), `boards.py` (BoardSpec.judge, `_check_judge_declaration`
+  cross-checks, `_judge_prompt_pins` — scorer + kwargs hashed for judged boards
+  only), `shim.py` (two latent wire bugs fixed: non-JSON Score.metadata filtered;
+  invalid failure evidence no longer claims an outcome),
+  `tests/unit/inspect/test_judged_board_assembly.py` (new, 13 tests).
+- **Gates:** run_gates.py ALL GREEN; inspect lane 232 passed; spine suite green.
+- **Deviations:**
+  - Importer flag moved from PR 2 to PR 3 (rides with the xstest import) to
+    respect the ~500 LoC PR cap.
+  - Two pre-existing shim defects surfaced by the first wire-crossing judged
+    aggregate: (1) `model_graded_qa` attaches its grading transcript (non-JSON
+    objects) to `Score.metadata`, which the shim spread verbatim into wire
+    evidence; (2) `_failure` evidence claimed `outcome: FAIL` with
+    `valid: False`, which the wire model refuses — meaning a `scorer_error`
+    could never publish on ANY imported board. Both fixed, both pinned by the
+    end-to-end tests.
+
+### PR 3 (sample-metadata plumbing + importer judge flag)
+
+- **Proof board re-picked: frontierscience replaces xstest.** The sweep (PR #1018
+  Appendix A) + a live probe settled it: xstest's dataset (walledai/XSTest) is
+  GATED on the HF Hub → `OME-1270`'s lane; uccb bakes clean but carries the
+  cc-by-nc-sa-4.0 licence the owner refused for sec_qa; coconot/sosbench fail
+  the bake (empty targets). frontierscience: clean bake, apache-2.0, explicit
+  `model` kwarg (our path), 160 cases, needs shuffle-seed + sample metadata.
+- **Actual files:** `prepare.py` (`SnapshotSpec.keep_sample_metadata` opt-in —
+  bakes Sample metadata into the private target; JSON-refusal by case; default
+  False keeps published snapshots byte-identical), `boards.py` (the opt-in is a
+  revision pin), `shim.py` (material metadata → TaskState.metadata),
+  `importer.py` (model_graded_* scorers emit `judge=JudgeSpec(model="TODO")` +
+  TODO(review) — refused at assembly until resolved), tests appended to shim /
+  snapshots / importer suites (9 new).
+- **Gates:** run_gates.py ALL GREEN; inspect lane 241 passed.
+
+### PR 4 (the frontierscience board — first judged import)
+
+- **Actual files:** importer-generated rows in `pins.py` / `prepare.py` /
+  `boards.py` (160 cases, apache-2.0, dataset revision `25ed67db…`, shuffle seed
+  20260923), TODOs resolved by hand: prose, difficulty=hard, judge pinned to
+  `openrouter/openai/gpt-5.4` (HealthBench's judge; params mirror its
+  web_search=false + max_tokens=4096, temperature deliberately unpinned),
+  `keep_sample_metadata=True`, check surface off (judged);
+  `tests/unit/inspect/test_inspect_frontierscience_board.py` (new — both judge
+  formats grade end-to-end through the node route); catalogue-table extensions
+  in `test_inspect_imported_boards.py` (family label "judged") and
+  `test_benchmark_declaration.py` (one row) — **owner approved
+  --skip-append-only for these on 2026-09-23**.
+- **Gates:** run_gates.py --skip-append-only ALL GREEN; inspect lane 250 passed.
+- **Deviations:** proof board is frontierscience, not the ticket's xstest
+  (gated dataset) — recorded in the PR-3 section above.

@@ -76,6 +76,12 @@ from screamingface_engine_inspect.pins import (
     COMMONSENSE_QA_DATASET_REVISION,
     COMMONSENSE_QA_SHUFFLE_SEED,
     COMMONSENSE_QA_SPLIT,
+    FRONTIERSCIENCE_CASE_COUNT,
+    FRONTIERSCIENCE_CONFIG,
+    FRONTIERSCIENCE_DATASET,
+    FRONTIERSCIENCE_DATASET_REVISION,
+    FRONTIERSCIENCE_SHUFFLE_SEED,
+    FRONTIERSCIENCE_SPLIT,
     GSM8K_CASE_COUNT,
     GSM8K_DATA_DIR,
     GSM8K_DATASET,
@@ -235,6 +241,11 @@ class SnapshotSpec:
     #: ``record_to_sample``; resolved at bake time and required to be a
     #: ``datasets.Features``. Rides the board's revision pins too.
     features: str | None = None
+    #: OME-1240 opt-in: bake each Sample's metadata into its private target record —
+    #: needed by metadata-dispatching scorers (frontierscience's format field).
+    #: Default False keeps every published board's baked assets byte-identical
+    #: (snapshots are immutable at their revision); flipping it moves the revision.
+    keep_sample_metadata: bool = False
 
 
 #: Every imported board's bake. Importing another eval = one more entry here
@@ -562,6 +573,21 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
         choice_shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
     ),
+    "frontierscience": SnapshotSpec(
+        dataset=FRONTIERSCIENCE_DATASET,
+        config=FRONTIERSCIENCE_CONFIG,
+        split=FRONTIERSCIENCE_SPLIT,
+        dataset_revision=FRONTIERSCIENCE_DATASET_REVISION,
+        case_count=FRONTIERSCIENCE_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.frontierscience.frontierscience:frontierscience;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.frontierscience.frontierscience:record_to_sample",
+        # The scorer dispatches each case to its format's judge prompt via the
+        # Sample's metadata (format/subject) — bake it into the private target.
+        keep_sample_metadata=True,
+        shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
+    ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
 
@@ -693,9 +719,12 @@ def emit_snapshot(
                 "input": input_text,
             }
         )
-        targets[case_id] = (
+        record: dict[str, Any] = (
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
+        if spec.keep_sample_metadata and sample.metadata:
+            record["metadata"] = _validated_metadata(sample.metadata, case_id)
+        targets[case_id] = record
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
 
 
@@ -807,6 +836,19 @@ def _validated_target(sample: Sample, case_id: int) -> tuple[str, list[str] | No
             f"case {case_id}: target {target!r} is not a letter within {len(choices)} choices"
         )
     return target, choices
+
+
+def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any]:
+    """The target file is JSON — refuse an unserializable metadata value by case
+    number; truncating or coercing an exam asset silently is never an option."""
+
+    try:
+        json.dumps(metadata)
+    except (TypeError, ValueError) as exc:
+        raise PrepareError(
+            f"case {case_id}: sample metadata is not JSON-serializable ({exc})"
+        ) from exc
+    return metadata
 
 
 def _require_case_count(rows: list[dict[str, Any]], expected: int | None) -> None:

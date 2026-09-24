@@ -34,6 +34,7 @@ from screamingface_engine_inspect.prepare import (
 )
 from screamingface_engine_inspect.single_shot import (
     ImportedBoard,
+    JudgeSpec,
     install_imported_board,
     single_shot_board,
 )
@@ -63,6 +64,10 @@ class BoardSpec:
     #: handful of options is an elimination attack (OME-796).
     with_check_surface: bool = False
     multiple_correct: bool = False
+    #: The board's judge declaration (OME-1240): required exactly when the scorer
+    #: dials a gateway judge (a ``screamingface/<id>`` kwarg) — assembly refuses a
+    #: mismatch either way, so a judged board can never ship with an unpinned judge.
+    judge: JudgeSpec | None = None
 
 
 #: Every imported board, in catalogue order. Importing another eval = one row here
@@ -614,6 +619,47 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
+    BoardSpec(
+        key="frontierscience",
+        title="FrontierScience",
+        description=(
+            "160 expert-authored frontier science problems (the FrontierScience test "
+            "split from OpenAI), imported from inspect_evals: olympiad-style short "
+            "answers and open research questions across physics, chemistry, and "
+            "biology. Grading is the eval's own LLM judge — olympiad answers against "
+            "the official grading prompt, research answers against a per-case rubric — "
+            "with every judge call routed and metered through our gateway, so judge "
+            "tokens count in the run's cost. Cases are served in a fixed seeded "
+            "shuffle so a limited run spans formats and subjects. Benchmark score = "
+            "mean judge grade over the cases run."
+        ),
+        focus="Frontier-level physics, chemistry, and biology problems",
+        dataset_url="https://huggingface.co/datasets/openai/frontierscience",
+        # Frontier-research material — the hard end of the catalogue (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.frontierscience.frontierscience:frontierscience.
+        # License: apache-2.0.
+        scorer="inspect_evals.frontierscience.frontierscience:frontierscience_scorer",
+        # The eval's default judge is "the active model" (model=None) — outside
+        # inspect's own eval loop that is nothing, so the import pins OUR judge:
+        # the house judge model HealthBench's judge also dials. NAMED DEVIATION:
+        # the FrontierScience paper grades with GPT-5 at high reasoning effort
+        # (publicly callable — see the eval's README), so scores from this board
+        # are NOT comparable to the published numbers; gpt-5.4 is chosen for
+        # house-judge consistency across our judged boards.
+        scorer_kwargs={"model": "screamingface/openrouter/openai/gpt-5.4"},
+        judge=JudgeSpec(
+            model="openrouter/openai/gpt-5.4",
+            # HealthBench's judge-params precedent: grading is retrieval-free, the
+            # token cap is an engine-side safety bound, and temperature is
+            # deliberately unpinned — a retry must be able to draw a fresh sample.
+            params=(("web_search", "false"), ("max_tokens", "4096")),
+        ),
+        # Judged board: no check surface until the check-cost knob (OME-1116) —
+        # a judged mid-run check would spend judge tokens while advertising free.
+        with_check_surface=False,
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 
@@ -638,6 +684,7 @@ def board_registrations() -> tuple[BenchmarkRegistration, ...]:
 def _assemble(spec: BoardSpec) -> ImportedBoard:
     """Row pair in, registered board out — the whole per-board 'code' path."""
 
+    _check_judge_declaration(spec)
     snapshot: SnapshotSpec = SNAPSHOTS[spec.key]
     return single_shot_board(
         board_key=spec.key,
@@ -647,13 +694,109 @@ def _assemble(spec: BoardSpec) -> ImportedBoard:
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
         case_count=snapshot.case_count,
-        revision_pins=_revision_pins(snapshot),
+        revision_pins=_revision_pins(snapshot) + _judge_prompt_pins(spec),
         scorer_factory=_scorer_factory(spec),
         prepare=partial(prepare_snapshot, snapshot),
         install=_installer(f"inspect-{spec.key}"),
         with_check_surface=spec.with_check_surface,
         multiple_correct=spec.multiple_correct,
+        judge=spec.judge,
     )
+
+
+#: The gateway judge spelling a scorer kwarg uses — its presence IS the "this
+#: scorer dials a judge" signal the declaration cross-check reads.
+_GATEWAY_MODEL_PREFIX = "screamingface/"
+
+
+#: Kwarg names evals use to take their judge model — the judged-row detector keys
+#: on the KWARG, not the scorer's name: a custom eval-module scorer (frontierscience)
+#: carries its judge under `model` while matching no `model_graded_*` name
+#: (review finding, 2026-09-24).
+_JUDGE_MODEL_KWARGS = frozenset({"model", "grader_model", "judge_model", "scorer_model"})
+
+
+def _check_judge_declaration(spec: BoardSpec) -> None:
+    """Refuse every judge misdeclaration at ASSEMBLY (CI), never at grade time.
+
+    The contract has two sides: a row whose scorer takes a judge (a judge-model
+    kwarg, a gateway-spelled value, or a ``model_graded_*`` name) must declare a
+    :class:`JudgeSpec` (or it would grade with a judge outside exam identity),
+    and a declared judge must be the exact gateway model the scorer dials (or
+    the pinned judge and the called judge drift apart — and any OTHER provider's
+    model would dial that provider directly, unmetered).
+    """
+
+    dialed: list[str] = [
+        value
+        for value in spec.scorer_kwargs.values()
+        if isinstance(value, str) and value.startswith(_GATEWAY_MODEL_PREFIX)
+    ]
+    judge_kwargs: dict[str, Any] = {
+        name: value for name, value in spec.scorer_kwargs.items() if name in _JUDGE_MODEL_KWARGS
+    }
+    foreign: list[str] = [
+        value
+        for value in judge_kwargs.values()
+        if isinstance(value, str) and not value.startswith(_GATEWAY_MODEL_PREFIX)
+    ]
+    if foreign:
+        raise ValueError(
+            f"{spec.key}: judge-model kwarg names another provider's model "
+            f"({foreign[0]!r}) — that call would dial the provider directly, "
+            f"unmetered and outside the gateway; spell it "
+            f"{_GATEWAY_MODEL_PREFIX}<gateway-model-id> (OME-1240)"
+        )
+    scorer_name: str = spec.scorer.rpartition(":")[2]
+    if spec.judge is None:
+        if dialed:
+            raise ValueError(
+                f"{spec.key}: scorer kwargs dial a gateway judge ({dialed[0]!r}) but the "
+                "row declares no judge — add judge=JudgeSpec(...) so the judge joins "
+                "exam identity (OME-1240)"
+            )
+        if judge_kwargs:
+            raise ValueError(
+                f"{spec.key}: scorer kwarg(s) {sorted(judge_kwargs)} take a judge model "
+                "but the row declares no judge — pin the gateway judge in the kwarg AND "
+                "declare judge=JudgeSpec(...) so it joins exam identity (OME-1240)"
+            )
+        if scorer_name.startswith("model_graded_"):
+            raise ValueError(
+                f"{spec.key}: {scorer_name} grades with an LLM judge; declare "
+                "judge=JudgeSpec(...) and pin the judge model in scorer_kwargs — the "
+                "grader-ROLE path (no explicit model) is not supported yet (OME-1240)"
+            )
+        return
+    if spec.judge.model == "TODO":
+        raise ValueError(
+            f"{spec.key}: the judge model is an unresolved TODO — resolve the "
+            "TODO(review) with the declared gateway model id before this row can ship"
+        )
+    expected: str = _GATEWAY_MODEL_PREFIX + spec.judge.model
+    if expected not in dialed:
+        raise ValueError(
+            f"{spec.key}: the declared judge {spec.judge.model!r} does not match the "
+            f"scorer kwargs — expected a kwarg value {expected!r}, found {dialed!r}"
+        )
+
+
+def _judge_prompt_pins(spec: BoardSpec) -> tuple[str, ...]:
+    """The judge's PROMPT identity — scorer + kwargs (template/instructions) — for
+    judged boards only.
+
+    WHY judged-only: scorer kwargs were never exam identity before OME-1240, and
+    hashing them for every board would move all published string-match revisions.
+    ``json.dumps`` escapes newlines inside kwarg strings, so a multiline judge
+    template survives the factory's no-newline pin rule.
+    """
+
+    if spec.judge is None:
+        return ()
+    canonical_kwargs: str = json.dumps(
+        dict(spec.scorer_kwargs), sort_keys=True, separators=(",", ":"), default=repr
+    )
+    return (f"judge_scorer={spec.scorer}", f"judge_kwargs={canonical_kwargs}")
 
 
 def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
@@ -673,6 +816,9 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
         # sits (and the letter that grades correct), so the seed rides exam
         # identity exactly like the row-shuffle seed (OME-1264).
         pins.append(f"choice_shuffle_seed={snapshot.choice_shuffle_seed}")
+    if snapshot.keep_sample_metadata:
+        # Flipping the opt-in changes what the bake ships — exam identity moves.
+        pins.append("keep_sample_metadata=1")
     if snapshot.system_message is not None:
         # WHY: adding or dropping the leading instruction changes the exam a
         # candidate sits, so the pointer rides exam identity. (The template
