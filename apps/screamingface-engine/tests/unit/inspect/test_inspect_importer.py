@@ -1011,6 +1011,97 @@ def test_choice_shuffling_eval_requires_a_pinned_seed(
     assert "SHUFFLED_DATASET" not in (engine_src_copy / "pins.py").read_text()
 
 
+def test_upstream_row_seed_with_a_choice_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """Review blocker on PR #1031: the bake's row shuffle is Python's, upstream's
+    is HF's — same seed, different order — and the choice shuffle draws each
+    case's permutation from ONE stream in row order. So when upstream SEEDS a
+    shuffle (it defined one exam) and both shuffles combine, the bake cannot
+    reproduce that exam and must refuse, never ship a different one silently."""
+
+    _install_fake_eval(
+        monkeypatch, both=_task_with_dataset_kwargs(shuffle=True, seed=42, shuffle_choices=True)
+    )
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:both",
+            "--key",
+            "both",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "BOTH_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_upstream_choice_seed_with_a_row_shuffle_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The symmetric bad cell: upstream pinned the CHOICE seed over the dataset's
+    own row order, so adding any row shuffle (here a policy --shuffle-seed) moves
+    every case's position and changes each permutation — refused, not shipped."""
+
+    _install_fake_eval(monkeypatch, seededchoices=_task_with_dataset_kwargs(shuffle_choices=9))
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:seededchoices",
+            "--key",
+            "seededchoices",
+            "--shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 1
+    assert "SEEDEDCHOICES_DATASET" not in (engine_src_copy / "pins.py").read_text()
+
+
+def test_policy_seeded_double_shuffle_is_allowed(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """The lab_bench cell stays importable: upstream seeds NEITHER shuffle, so
+    there is no fixed upstream exam to miss — both policy seeds pin one, and
+    both pins land in the rows."""
+
+    _install_fake_eval(
+        monkeypatch, policyboth=_task_with_dataset_kwargs(shuffle=True, shuffle_choices=True)
+    )
+
+    exit_code = importer_module.main(
+        [
+            f"{_FAKE_MODULE}:policyboth",
+            "--key",
+            "policyboth",
+            "--shuffle-seed",
+            "7",
+            "--choice-shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 42,
+    )
+
+    assert exit_code == 0
+    pins_text = (engine_src_copy / "pins.py").read_text()
+    assert "POLICYBOTH_SHUFFLE_SEED = 7" in pins_text
+    assert "POLICYBOTH_CHOICE_SHUFFLE_SEED = 7" in pins_text
+
+
 def test_a_policy_choice_shuffle_seed_is_reproduced_in_the_rows(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:

@@ -943,8 +943,12 @@ def main(
         facts: TaskFacts = introspect_task(args.task_ref, _parse_task_args(args.task_arg))
         # WHY: shuffle=True without a seed means the upstream order is random per
         # run — the import must pin ONE order. An explicit --shuffle-seed (policy)
-        # wins; otherwise the eval's own seed reproduces its order (the seeded
-        # shuffle applies the same permutation to an equal-length list).
+        # wins; otherwise the eval's own seed is pinned AS EXAM IDENTITY.
+        # AIDEV-NOTE: pinning upstream's seed does NOT reproduce upstream's row
+        # order — the bake shuffles with random.Random, upstream with HF's
+        # Dataset.shuffle (different algorithm, same seed). Harmless while rows
+        # are the only shuffle (any pinned order is a valid exam); combined with
+        # a choice shuffle it is refused below (review blocker on PR #1031).
         shuffle_seed: int | None = (
             args.shuffle_seed if args.shuffle_seed is not None else facts.upstream_shuffle_seed
         )
@@ -956,7 +960,7 @@ def main(
         # Same conservation one level down (choice order); the full refusal
         # matrix lives in the helper's docstring.
         choice_shuffle_seed: int | None = _resolved_choice_shuffle_seed(
-            args.task_ref, facts, args.choice_shuffle_seed
+            args.task_ref, facts, args.choice_shuffle_seed, shuffle_seed
         )
         observations: Observations = capture_observations(
             facts, dataset_info=dataset_info, count_rows=count_rows
@@ -983,7 +987,7 @@ def main(
 
 
 def _resolved_choice_shuffle_seed(
-    task_ref: str, facts: TaskFacts, flag_seed: int | None
+    task_ref: str, facts: TaskFacts, flag_seed: int | None, row_shuffle_seed: int | None
 ) -> int | None:
     """The one pinned choice-order seed this import bakes with, or None.
 
@@ -993,6 +997,14 @@ def _resolved_choice_shuffle_seed(
     over a seeded upstream (upstream already picked ONE order; review finding
     on PR #1031) and over an eval that does not shuffle choices at all. An
     unseeded shuffle with no flag refuses too: conserved, never dropped.
+
+    One more cell refuses (review blocker on PR #1031): a choice shuffle
+    COMBINED with a row shuffle when upstream seeded either one. The bake's row
+    shuffle is Python's, upstream's is HF's ``Dataset.shuffle`` — same seed,
+    different order — and the choice shuffle draws each case's permutation from
+    one stream in row order, so the upstream-seeded exam cannot be reproduced.
+    With both seeds OURS (lab_bench) there is no fixed upstream exam to miss,
+    so the combination stays importable as pinned policy.
     """
 
     if facts.upstream_shuffle_choices:
@@ -1006,6 +1018,17 @@ def _resolved_choice_shuffle_seed(
             raise ImporterError(
                 f"{task_ref}: the eval shuffles each case's choice order with no seed — "
                 "pass --choice-shuffle-seed to pin one choice order as exam identity"
+            )
+        if row_shuffle_seed is not None and (
+            facts.upstream_shuffle_seed is not None
+            or facts.upstream_choice_shuffle_seed is not None
+        ):
+            raise ImporterError(
+                f"{task_ref}: upstream seeds its shuffle, and a row shuffle combined "
+                "with a choice shuffle cannot reproduce that exam — the bake's row "
+                "shuffle is not HF's algorithm, and each case's choice order depends "
+                "on its row position; import this eval by hand or extend the bake to "
+                "replay HF's row permutation"
             )
         return flag_seed if flag_seed is not None else facts.upstream_choice_shuffle_seed
     if flag_seed is not None:

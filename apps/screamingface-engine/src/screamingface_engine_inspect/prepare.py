@@ -176,9 +176,12 @@ class SnapshotSpec:
     shuffle_seed: int | None = None
     #: Pins one per-case CHOICE order for an eval whose hf_dataset call shuffles
     #: choices (shuffle_choices) — applied via inspect's own
-    #: ``MemoryDataset.shuffle_choices``, so the baked order is exactly what the
-    #: eval family produces for this seed. The pinned order is exam identity
-    #: (it rides the board's revision pins). OME-1264.
+    #: ``MemoryDataset.shuffle_choices`` over THIS BAKE'S pinned row order. The
+    #: pinned order is exam identity (it rides the board's revision pins); it is
+    #: NOT the order inspect would produce for the same seeds when a row shuffle
+    #: is also active, because the bake's row shuffle is not HF's algorithm —
+    #: the importer refuses that combination whenever upstream seeded either
+    #: shuffle (review blocker on PR #1031). OME-1264.
     choice_shuffle_seed: int | None = None
 
 

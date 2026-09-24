@@ -126,6 +126,7 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 | hf_dataset kwarg(s) … not reproduced | the eval uses a dataset option the bake doesn't carry (`limit`, `trust`, …) | decide per kwarg: neutralize via `--task-arg`, or the eval isn't row-importable |
 | shuffles with no seed | upstream order is random per run; an import must pin ONE order | pass `--shuffle-seed` |
 | shuffles each case's choice order with no seed | `shuffle_choices=True` randomizes the answer options per run; an import must pin ONE choice order | pass `--choice-shuffle-seed` |
+| upstream seeds its shuffle, and a row shuffle combined with a choice shuffle cannot reproduce that exam | the bake's row shuffle is not HF's algorithm, and each case's choice order depends on its row position — upstream's seeded exam would silently differ | import by hand, or extend the bake to replay HF's row permutation |
 | eval pins its own choice-shuffle seed | upstream already defines ONE choice order; a policy seed would bake an exam upstream never produces | drop `--choice-shuffle-seed` |
 | fewshot/extra load is not the exam | the Task's dataset isn't the HF load the tool saw | pass task args that disable the extras |
 | key already exists / colliding stem | board imported, or two keys derive the same `PREFIX_*` | pick a distinct key |

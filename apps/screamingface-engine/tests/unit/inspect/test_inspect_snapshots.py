@@ -141,14 +141,17 @@ def _inspects_own_choice_shuffle(
 
 
 def test_choice_shuffle_bakes_inspects_own_order_and_remaps_the_target(tmp_path: Path) -> None:
-    """INVARIANT: a pinned choice_shuffle_seed reproduces inspect's OWN choice
-    shuffle — one random stream across the whole dataset, target letter remapped.
+    """INVARIANT: a pinned choice_shuffle_seed applies inspect's OWN choice
+    shuffle over THE BAKE'S pinned row order — one random stream across the
+    whole dataset, target letter remapped.
 
-    WHY inspect's own mechanism and not a per-sample shuffle: upstream's
-    ``MemoryDataset.shuffle_choices`` draws every sample's permutation from ONE
-    ``random.Random(seed)``, so each case's order depends on its position; any
-    reimplementation would pin a different exam than the eval family means
-    (OME-1264)."""
+    Scope of the claim (review blocker on PR #1031): the expected values below
+    replay the bake's own Python row shuffle, so this test pins that the CHOICE
+    stage is inspect's mechanism over our row order — not that the combined
+    result matches what inspect would produce for the same seeds (it doesn't
+    when a row shuffle is active; the importer refuses that combination for
+    upstream-seeded evals, and ``test_hf_row_shuffle_is_not_pythons_row_shuffle``
+    is the witness)."""
 
     from dataclasses import replace
 
@@ -222,6 +225,27 @@ def test_choice_shuffled_bake_is_deterministic(tmp_path: Path) -> None:
     assert (first_dir / "targets" / "1.json").read_text(encoding="utf-8") == (
         second_dir / "targets" / "1.json"
     ).read_text(encoding="utf-8")
+
+
+def test_hf_row_shuffle_is_not_pythons_row_shuffle() -> None:
+    """The witness behind the importer's combined-shuffle refusal (review blocker
+    on PR #1031): upstream shuffles rows with HF's ``Dataset.shuffle(seed)``, the
+    bake with ``random.Random(seed)`` — same seed, DIFFERENT order. The choice
+    shuffle draws each case's permutation from one stream in row order, so an
+    upstream-seeded exam combined with any row shuffle cannot be reproduced.
+    Asserted through the real datasets API, never a copy of production's shuffle
+    — if the two orders ever converged, the refusal could be revisited."""
+
+    import random
+
+    datasets = pytest.importorskip("datasets")
+
+    rows = [{"i": i} for i in range(8)]
+    hf_order = [row["i"] for row in datasets.Dataset.from_list(rows).shuffle(seed=42)]
+    python_order = list(range(8))
+    random.Random(42).shuffle(python_order)
+
+    assert hf_order != python_order
 
 
 def test_without_a_choice_shuffle_seed_the_choice_order_is_upstreams(tmp_path: Path) -> None:
