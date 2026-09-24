@@ -45,6 +45,7 @@ from screamingface_engine.benchmarks.deployment import (
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
+    async_aggregate_endpoint,
     attempt_records_endpoint,
     candidate_answer,
     compact_json,
@@ -366,7 +367,7 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
     if routes["cases"] not in getattr(node, "_data", {}):
         node.data(routes["cases"], _cases(root), media_type="application/json")
     installed = frozenset(node.processor_routes())
-    endpoints: list[tuple[str, Callable[[Request], str]]] = [
+    endpoints: list[tuple[str, Callable[[Request], str | Awaitable[str]]]] = [
         (routes["check"], _check(root)),
         (
             routes["case_evaluation"],
@@ -378,10 +379,22 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
         ),
         (
             routes["aggregate"],
-            aggregate_endpoint(
+            # WHY two faces: a judged aggregate awaits model calls through the
+            # run's shared HTTP client, whose pooled connections are bound to the
+            # run's OWN loop — httpx raises "bound to a different event loop" on a
+            # worker thread's second loop (reproduced, review 2026-09-24). url4
+            # awaits async handlers natively, so the judged face never leaves the
+            # run's loop; string-match boards keep the sync face byte-identically.
+            async_aggregate_endpoint(
                 label=board.benchmark.title,
                 available_case_count=board.benchmark.case_count,
-                aggregate=_aggregate(board, root, node),
+                aggregate=_judged_aggregate(board, root, node),
+            )
+            if board.judge is not None
+            else aggregate_endpoint(
+                label=board.benchmark.title,
+                available_case_count=board.benchmark.case_count,
+                aggregate=_aggregate(board, root),
             ),
         ),
     ]
@@ -602,13 +615,45 @@ def board_aggregate(
     )
 
 
-def _aggregate(
-    board: ImportedBoard, root: Path, node: Url4Node
-) -> Callable[[str, int], dict[str, Any]]:
+async def board_aggregate_async(
+    board: ImportedBoard,
+    raw_rows: str,
+    root: Path,
+    *,
+    case_ids: tuple[int, ...],
+) -> dict[str, Any]:
+    """:func:`board_aggregate`, awaited on the caller's loop (the judged face)."""
+
+    return await board.scored_path().aggregate_async(
+        raw_rows,
+        benchmark_id=board.benchmark.id,
+        benchmark_revision=board.benchmark.revision,
+        selected_cases=read_selected_cases(
+            root,
+            case_ids,
+            benchmark_label=board.benchmark.title,
+            error_type=AggregateError,
+        ),
+        grading_material=lambda case_id: _target(root, case_id),
+        scorer=_accuracy,
+    )
+
+
+def _aggregate(board: ImportedBoard, root: Path) -> Callable[[str, int], dict[str, Any]]:
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        case_ids: tuple[int, ...] = tuple(range(1, selected_case_count + 1))
-        if board.judge is None:
-            return board_aggregate(board, case_evaluations, root, case_ids=case_ids)
+        return board_aggregate(
+            board, case_evaluations, root, case_ids=tuple(range(1, selected_case_count + 1))
+        )
+
+    return aggregate_handler
+
+
+def _judged_aggregate(
+    board: ImportedBoard, root: Path, node: Url4Node
+) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
+    """The judged face: bind the judge transport, grade on the CALLER's loop."""
+
+    async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         # WHY the lazy import: judge_provider drags in inspect_ai; board
         # registration happens at engine import in every mode, and only a judged
         # board's GRADING needs the provider (the shim's own lazy-import rule).
@@ -623,8 +668,14 @@ def _aggregate(
             # identity-stamps every candidate call serves the judge's.
             return await node.fetch(target, relative=True)
 
+        assert board.judge is not None  # the endpoint wiring picks this face
         with bound_judge_transport(JudgeTransport(fetch=fetch, params=board.judge.params)):
-            return board_aggregate(board, case_evaluations, root, case_ids=case_ids)
+            return await board_aggregate_async(
+                board,
+                case_evaluations,
+                root,
+                case_ids=tuple(range(1, selected_case_count + 1)),
+            )
 
     return aggregate_handler
 
@@ -727,6 +778,7 @@ __all__ = [
     "ImportedBoard",
     "JudgeSpec",
     "board_aggregate",
+    "board_aggregate_async",
     "install_imported_board",
     "single_shot_board",
 ]

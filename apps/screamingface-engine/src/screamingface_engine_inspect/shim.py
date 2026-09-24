@@ -44,6 +44,7 @@ mode the named codes exist to prevent, so the mapping here is explicit and close
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -185,7 +186,11 @@ def _score_as_float(value: object) -> float | None:
     if isinstance(value, bool):
         mapped = 1.0 if value else 0.0
     elif isinstance(value, int | float):
-        mapped = float(value)
+        # INVARIANT: a grade is a finite number. inspect returns Score(value=NaN)
+        # for an unscored model_graded reply; the wire model rejects non-finite
+        # values, and letting NaN through would abort the WHOLE aggregate after
+        # every candidate call is already paid for (review finding, 2026-09-24).
+        mapped = float(value) if math.isfinite(value) else None
     elif isinstance(value, str):
         mapped = _STRING_VALUES.get(value)
     else:

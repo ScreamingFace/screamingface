@@ -516,13 +516,22 @@ def _assemble(spec: BoardSpec) -> ImportedBoard:
 _GATEWAY_MODEL_PREFIX = "screamingface/"
 
 
+#: Kwarg names evals use to take their judge model — the judged-row detector keys
+#: on the KWARG, not the scorer's name: a custom eval-module scorer (frontierscience)
+#: carries its judge under `model` while matching no `model_graded_*` name
+#: (review finding, 2026-09-24).
+_JUDGE_MODEL_KWARGS = frozenset({"model", "grader_model", "judge_model", "scorer_model"})
+
+
 def _check_judge_declaration(spec: BoardSpec) -> None:
     """Refuse every judge misdeclaration at ASSEMBLY (CI), never at grade time.
 
-    The contract has two sides: a row whose scorer dials a gateway judge must
-    declare a :class:`JudgeSpec` (or it would grade with a judge outside exam
-    identity), and a declared judge must be the exact model the scorer dials
-    (or the pinned judge and the called judge drift apart).
+    The contract has two sides: a row whose scorer takes a judge (a judge-model
+    kwarg, a gateway-spelled value, or a ``model_graded_*`` name) must declare a
+    :class:`JudgeSpec` (or it would grade with a judge outside exam identity),
+    and a declared judge must be the exact gateway model the scorer dials (or
+    the pinned judge and the called judge drift apart — and any OTHER provider's
+    model would dial that provider directly, unmetered).
     """
 
     dialed: list[str] = [
@@ -530,6 +539,21 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
         for value in spec.scorer_kwargs.values()
         if isinstance(value, str) and value.startswith(_GATEWAY_MODEL_PREFIX)
     ]
+    judge_kwargs: dict[str, Any] = {
+        name: value for name, value in spec.scorer_kwargs.items() if name in _JUDGE_MODEL_KWARGS
+    }
+    foreign: list[str] = [
+        value
+        for value in judge_kwargs.values()
+        if isinstance(value, str) and not value.startswith(_GATEWAY_MODEL_PREFIX)
+    ]
+    if foreign:
+        raise ValueError(
+            f"{spec.key}: judge-model kwarg names another provider's model "
+            f"({foreign[0]!r}) — that call would dial the provider directly, "
+            f"unmetered and outside the gateway; spell it "
+            f"{_GATEWAY_MODEL_PREFIX}<gateway-model-id> (OME-1240)"
+        )
     scorer_name: str = spec.scorer.rpartition(":")[2]
     if spec.judge is None:
         if dialed:
@@ -537,6 +561,12 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
                 f"{spec.key}: scorer kwargs dial a gateway judge ({dialed[0]!r}) but the "
                 "row declares no judge — add judge=JudgeSpec(...) so the judge joins "
                 "exam identity (OME-1240)"
+            )
+        if judge_kwargs:
+            raise ValueError(
+                f"{spec.key}: scorer kwarg(s) {sorted(judge_kwargs)} take a judge model "
+                "but the row declares no judge — pin the gateway judge in the kwarg AND "
+                "declare judge=JudgeSpec(...) so it joins exam identity (OME-1240)"
             )
         if scorer_name.startswith("model_graded_"):
             raise ValueError(
