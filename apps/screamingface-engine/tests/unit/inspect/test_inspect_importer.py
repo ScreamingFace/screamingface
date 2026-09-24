@@ -562,6 +562,43 @@ def test_mcq_detection_follows_the_solver_not_the_scorer_name(
     assert facts.scorer.endswith(":house_grader")
 
 
+def test_mcq_detection_sees_through_a_custom_solver_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detects MCQ when a custom wrapper hides the multiple_choice solver but the
+    choice scorer proves the shape (the mmlu family case, OME-796 guard): mmlu's
+    mmlu_multiple_choice calls multiple_choice() INSIDE its own @solver, so the
+    registry walk never meets it — reading such an exam as free-text would hand
+    an MCQ board the check surface (the elimination attack)."""
+
+    from inspect_ai.solver import Generate, TaskState, solver
+
+    @solver
+    def wrapped_mcq() -> Any:
+        inner: Any = multiple_choice()
+
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            return await inner(state, generate)
+
+        return solve
+
+    def wrapper_graded_mcq() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=wrapped_mcq(),
+            scorer=choice(),
+        )
+
+    _install_fake_eval(monkeypatch, wrapper_graded_mcq=wrapper_graded_mcq)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:wrapper_graded_mcq")
+
+    assert facts.mcq is True
+
+
 def test_board_row_renders_str_scorer_kwargs_format_safe() -> None:
     """The first str scorer kwarg (lab_bench's no_answer) must emit DOUBLE-quoted
     — repr's single quotes would fail the ruff-format gate on the emitted file."""

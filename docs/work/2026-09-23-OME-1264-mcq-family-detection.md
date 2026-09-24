@@ -59,3 +59,7 @@ ahead of it in their own PR (stacked on #1033):
 - **Deviations:** first attempt put the conditional inside an f-string
   replacement field ending `!r` — the conversion applied to the WHOLE field,
   wrapping json output in repr; fixed via the explicit helper.
+- Review finding — solver-only detection misclassified the mmlu wrapper family
+  (`mmlu_multiple_choice` hides `multiple_choice()` from the registry walk);
+  fixed with the or-rule (`uses_multiple_choice or scorer_name == "choice"`) +
+  regression test.
