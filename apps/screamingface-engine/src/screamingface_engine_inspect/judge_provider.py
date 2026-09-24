@@ -72,6 +72,10 @@ class JudgeTransport:
 
     fetch: JudgeFetch
     params: Sequence[tuple[str, str]] = ()
+    #: The board the judge grades for (OME-1240 observability): with it set, every
+    #: judge call registers against its Case's evidence, so the run's payload-free
+    #: grading join attributes the judge's tokens/cost/latency per Case.
+    benchmark_id: str | None = None
 
 
 _transport: contextvars.ContextVar[JudgeTransport | None] = contextvars.ContextVar(
@@ -130,6 +134,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
         target: str = encode_subrequest(
             "/" + self.model_name, context, None, tuple(transport.params)
         )
+        _register_against_the_case(transport, "/" + self.model_name, context)
         completion: str = await transport.fetch(target)
         if not completion.strip():
             # A blank completion can never be a grade — refuse loudly; a scorer
@@ -172,6 +177,41 @@ def _refuse_sampling_overrides(config: GenerateConfig) -> None:
             "sampling identity is the board row's pinned params (JudgeSpec.params); "
             "pin them there instead (OME-1240)"
         )
+
+
+def _register_against_the_case(transport: JudgeTransport, path: str, context: str) -> None:
+    """Key this judge call to its Case's evidence for the run's accounting join.
+
+    The identity must be byte-identical to what the connector records
+    (``operation_call_identity`` on the decoded Request): the path, the decoded
+    params, the envelope context, and the empty intent the wire carries when
+    ``encode_subrequest`` is given none. The owner names the shim's fixed
+    evidence shape (one check "1", sequence 1). A no-op outside a run's capture
+    or when the transport carries no board — tests and the check surface stay
+    join-free.
+    """
+
+    from screamingface_engine.grading_accounting import (
+        GradingEvidenceOwner,
+        register_grading_request,
+    )
+    from screamingface_engine.grading_call_scope import current_grading_case
+
+    case_id: int | str | None = current_grading_case()
+    if transport.benchmark_id is None or case_id is None:
+        return
+    register_grading_request(
+        GradingEvidenceOwner(
+            benchmark_id=transport.benchmark_id,
+            case_id=case_id,
+            check_id="1",
+            sequence=1,
+        ),
+        path=path,
+        params=dict(transport.params),
+        context=context,
+        intent="",
+    )
 
 
 def _message(message: ChatMessage) -> dict[str, str]:
