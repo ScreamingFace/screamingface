@@ -194,7 +194,7 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     kwargs: dict[str, Any] = _exam_dataset_kwargs(task, recorded, task_ref)
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
-    scorer_ref, scorer_kwargs, _ = _scorer_reference(task, module)
+    scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
     template_ref, choice_template_ref, system_message_ref, custom_solvers, uses_multiple_choice = (
         _solver_facts(task, module, task_ref)
     )
@@ -206,7 +206,11 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         pinned_revision=kwargs.get("revision"),
         record_to_sample=f"{sample_fields.__module__}:{sample_fields.__name__}",
         prompt_template=template_ref,
-        mcq=uses_multiple_choice,
+        # Two witnesses, either proves the MCQ shape: the multiple_choice solver
+        # in the chain, OR the choice scorer (mmlu hides multiple_choice inside
+        # its own @solver wrapper, so only the scorer testifies there; choice()
+        # only grades states WITH choices, so its name proves the shape).
+        mcq=uses_multiple_choice or scorer_name == "choice",
         scorer=scorer_ref,
         scorer_kwargs=scorer_kwargs,
         custom_solvers=custom_solvers,
@@ -505,9 +509,12 @@ def _solver_facts(
             )
         elif name == "multiple_choice":
             # WHY the flag: MCQ-ness is the exam's SHAPE (options + letter answer),
-            # declared by this solver — never inferred from the scorer's name; an
-            # eval grading MCQ with its own scorer (lab_bench's precision_choice)
-            # must still be refused the check surface (OME-796).
+            # and this solver is one of its two witnesses (the other is the choice
+            # scorer — see the mcq fact). The solver witness covers an eval grading
+            # MCQ with its own scorer (lab_bench's precision_choice), which must
+            # still be refused the check surface (OME-796); the scorer witness
+            # covers an eval hiding multiple_choice inside a custom @solver
+            # wrapper (mmlu's mmlu_multiple_choice), invisible to this walk.
             uses_multiple_choice = True
             if registry_params(solver).get("template") is not None:
                 # A custom choice template the bake CAN reproduce — when it resolves
@@ -825,10 +832,12 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         f'        scorer="{facts.scorer}",',
     ]
     if facts.scorer_kwargs:
-        # WHY json.dumps for str values: repr's single quotes fail the emitted
-        # file's ruff-format gate; json escaping is as injection-safe as repr's.
+        # WHY json.dumps for str values AND names: repr's single quotes fail the
+        # emitted file's ruff-format gate; json escaping is as injection-safe as
+        # repr's. Names are registry_params keys — identifiers in practice, but
+        # a **kwargs-taking scorer could carry arbitrary upstream strings.
         rendered_kwargs: str = ", ".join(
-            f'"{name}": {_scorer_kwarg_literal(value)}'
+            f"{json.dumps(name)}: {_scorer_kwarg_literal(value)}"
             for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
