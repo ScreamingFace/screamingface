@@ -33,7 +33,25 @@ check:
 - The dataset's license permits public redistribution — the tool *warns* on an
   uncleared license and still emits (the diff review is the gate), so check early,
   not after the work is done.
-- Agentic, multi-turn, and model-graded evals are out of scope for this pipeline.
+- Agentic and multi-turn evals are out of scope for this pipeline.
+- **Model-graded (LLM-judged) evals are importable since OME-1240**, with three extra
+  conditions:
+  - The scorer takes its judge as an explicit model argument (xstest's `model=`,
+    frontierscience's `model=`). A scorer that only resolves inspect's grader *role*
+    (`get_model(role="grader")` with no model kwarg) is not supported yet — assembly
+    refuses it by name.
+  - The scorer must not carry its own generation settings or tools into the judge
+    call. The wire carries ONLY the row's `JudgeSpec.params`; at grading, the
+    provider refuses by name any `GenerateConfig` field the eval sets beyond
+    transport plumbing, and any non-empty `tools` (persistbench's
+    `GenerateConfig(temperature=0, reasoning_effort="high")` is the real shape that
+    makes an eval not row-importable as-is). There is no silent drop: an eval that
+    grades only at specific sampling settings either isn't imported, or ships
+    without them as a NAMED DEVIATION (below).
+  - Every case has a non-empty text target. A judged eval whose rubric IS the target
+    (coconot, sosbench — the target is empty and the judge carries the whole rule)
+    fails the deterministic bake today; the bake extension is an unfiled follow-up,
+    not a knob you can flip.
 
 ## Step 1 — run the importer
 
@@ -78,7 +96,9 @@ flags. The importing agent (not a human) resolves all of them:
 - **`title` / `description` / `focus`** — catalogue prose, written from the eval's own
   README/docstring and the dataset card, in the voice of the existing rows (open the
   gsm8k/mmlu rows in `boards.py`; state case count, split, what the model does, how
-  grading works, that no judge tokens are spent, and how the score is computed).
+  grading works, and how the score is computed — string-match boards say that no judge
+  tokens are spent, judged boards say judge calls are routed and metered through our
+  gateway).
 - **`TODO(review)` flags** — each names a setting the bake does not reproduce (a
   custom solver, a system message, an unreproduced dataset option). For each one:
   either confirm it does not change the exam (and say why in the comment), or stop —
@@ -87,11 +107,15 @@ flags. The importing agent (not a human) resolves all of them:
 
 ## Step 3 — decide the check surface
 
-`with_check_surface=True` **only for free-text boards** (spec §4): the eval's own
-scorer then also answers the corrective loop's mid-run checks with sealed
+`with_check_surface=True` **only for string-match free-text boards** (spec §4): the
+eval's own scorer then also answers the corrective loop's mid-run checks with sealed
 pass/fail-only feedback. **MCQ boards never get one** — pass/fail feedback over a
-handful of options is an elimination attack (OME-796). The generated row defaults
-correctly from the scorer family; treat changing it as an owner decision.
+handful of options is an elimination attack (OME-796). **Judged boards never get one
+either (yet)** — a judged mid-run check spends judge tokens per attempt while the
+surface still advertises `free`; assembly refuses the combination until the check-cost
+knob lands (OME-1116). The generated row defaults correctly from the scorer family —
+judged rows are generated with NO surface; treat changing any of it as an owner
+decision.
 
 ### Live activity comes from the shared adapter
 
@@ -140,7 +164,37 @@ checklist (minutes, not hours):
 - The license in the pins comment is genuinely cleared for a public catalogue.
 - Every `TODO(review)` is resolved with a reason, and the prose honestly describes
   the exam.
-- The check-surface flag matches the scorer family (free text ⇔ surface on).
+- The check-surface flag matches the scorer family (string-match free text ⇔ surface
+  on; MCQ and judged ⇔ surface off).
+- **Judged rows only** (the model-graded lane, OME-1240):
+  - The judge model is a DECLARED gateway model: its route (`/<gateway-model-id>`)
+    exists in the engine's builtin model world (`models/builtins.py` seeds) — an
+    undeclared judge 404s only at run time (the new-model three-registrations rule).
+  - `judge=JudgeSpec(model=..., params=...)` is declared, and the SAME model appears as
+    a `screamingface/<model>` value in `scorer_kwargs` — assembly cross-checks both
+    directions, but the reviewer confirms the chosen judge is the intended house judge
+    (precedent: HealthBench's judge model and params, `benchmarks/healthbench/pins.py`).
+  - The judge model, its params, and the judge prompt (template/instructions kwargs)
+    are exam identity — expect the revision to move if any of them changes.
+  - If the scorer dispatches on sample metadata (frontierscience's `format`), the
+    snapshot row sets `keep_sample_metadata=True` — otherwise the scorer grades blind.
+  - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
+    `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
+    calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.
+  - Check the eval's README/paper for ITS judge. If the pinned house judge differs
+    from the one the paper graded with, the row carries a `NAMED DEVIATION` comment
+    with the link, and the catalogue prose says scores are not comparable to the
+    published numbers (precedent: frontierscience — the paper grades with GPT-5 at
+    high reasoning effort; the row pins the house judge and says so).
+  - Know the bad-reply semantics before reading a low score: a judge reply the
+    eval's parser cannot grade becomes a per-case `invalid_score_value` rejection
+    (it never aborts the whole aggregate), but a TRUNCATED reply that still parses
+    keeps upstream's 0.0 silently — on the first live run, check the judge calls'
+    finish reasons before trusting zeros.
+  - Judged runs are auditable per case: each case's judge call lands in its
+    evidence `accounting` (tokens/USD/latency/attempts) and the engine log tags the
+    judge round trip `role=judge case=N` — the owner's small paid run verifies both,
+    plus judge cost in the report's `cost_usd`.
 
 ## When the tool refuses
 

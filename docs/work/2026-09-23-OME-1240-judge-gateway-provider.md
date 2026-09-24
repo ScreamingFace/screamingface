@@ -30,10 +30,10 @@ Stacked PRs (~500 LoC cap each), in `apps/screamingface-engine`:
 2. **PR 2 — revision pins + importer flag:** `single_shot.py` / `boards.py` hash scorer
    reference + kwargs (judge model, template, instructions) for model-graded boards only;
    `importer.py` detects `model_graded_*` / judge kwargs and emits TODO(review).
-3. **PR 3 — xstest import:** standard three rows via the importer; judge pinned.
-4. **PR 4 — docs:** runbook (`docs/adding-an-imported-benchmark.md` Step 0/2/refusal
-   table), spec §3.3 (`docs/spec/2026-09-09-OME-1113-inspect-evals-import.md`), package
-   docstring.
+3. **PR 3 — sample-metadata plumbing + importer judge flag** (plan updated: the
+   proof board moved to frontierscience; see the PR-3 outcome below).
+4. **PR 4 — FrontierScience import;** **PR 5 — docs** (runbook Step 0/2/refusal
+   table, spec §3.3, package docstring).
 
 ## Test plan
 
@@ -130,3 +130,34 @@ Stacked PRs (~500 LoC cap each), in `apps/screamingface-engine`:
 - **Gates:** run_gates.py --skip-append-only ALL GREEN; inspect lane 250 passed.
 - **Deviations:** proof board is frontierscience, not the ticket's xstest
   (gated dataset) — recorded in the PR-3 section above.
+
+### Review round (2026-09-24) — 5 blockers verified and fixed
+
+All five external findings CONFIRMED (NaN abort reproduced; httpx
+"bound to a different event loop" reproduced on the deployed shape; the
+importer gap matched this ledger's own frontierscience run). Fixes, each in
+the PR where its cause lives, merged forward through the stack:
+
+- #1032: non-finite Score → `invalid_score_value` (one Case, never the run);
+  provider refuses empty replies and eval-supplied sampling settings; the spine
+  gains an async aggregate face (`aggregate_async` + `async_aggregate_endpoint`)
+  so judged grading stays on the run's own loop.
+- #1034: judged detection keys on judge-model KWARGS (not scorer names), foreign
+  provider models refused; the judged aggregate registers the async face; the 17
+  published revisions frozen as literals; `_run_sync` twins parity-pinned.
+- #1037: the importer detects judged rows by kwarg and never emits a check
+  surface for them.
+- #1040: honest comparability note (paper judge = GPT-5 high reasoning effort;
+  ours not comparable); board revision literal (`34155c32aec9841b`); gradeless
+  reply loses one case; olympiad prompt asserted chunk-for-chunk vs upstream.
+- #1041: runbook — judge-model-is-declared checklist item, judged-row default
+  wording; this ledger refresh. Second pass (2026-09-24, owner-requested): the
+  four learnings that postdate the first draft — Step 0 now refuses evals whose
+  scorer carries its own GenerateConfig/tools (allowlist, persistbench shape) or
+  an empty target (coconot/sosbench); reviewer checklist gains the NAMED
+  DEVIATION pattern, the bad-judge-reply semantics (invalid_score_value vs
+  silently-parsed truncation), and the per-case audit surface from #1051.
+
+Accepted, not implemented: truncated judge replies can read as real zeros
+(watch finish reasons in the live run before touching the max_tokens cap);
+per-case judge accounting stays run-level.

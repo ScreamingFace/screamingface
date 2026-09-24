@@ -1505,18 +1505,78 @@ for case in boolq_report.candidates.only.cases:
     grade = case.grade
     print(case.case_id, case.status, grade.score if grade else None)"""),
         nbformat.v4.new_markdown_cell("""\
-## 7. The rest of the shelf
+## 7. An LLM-judged board — grading is a model call too
 
-Three boards, three scorer families, one set of calls — that is the whole point of the
-import. The remaining seven work the same way; pick an id from the inspect_evals group in
-section 1 and match the synthesiser's prompt to how that board is graded:
+`inspect-frontierscience` is 160 frontier-level physics, chemistry and biology problems
+([FrontierScience](https://openai.com/index/frontierscience/), by OpenAI) in two formats:
+olympiad-style short answers and open research questions. There is no answer key to
+string-match — grading is the eval's own **LLM judge**, reading each reply against the
+official grading prompt (olympiad) or a per-case rubric (research).
 
-- **A final number**, graded by numeric match — `inspect-gsm8k`.
+Three things change when the judge is a model:
+
+- **Grading costs tokens.** Every judge call is routed and metered through the same
+  gateway as the panel's own calls, so the report's cost covers answering *and* grading —
+  a judged score that omitted judge cost would be wrong by construction.
+- **The judge is exam identity.** The judge model, its pinned params, and its grading
+  prompt are hashed into the board's `revision` — swap any of them and it is a different
+  exam, published under a different revision. (This board pins the same house judge our
+  own judged boards use; its scores are therefore **not comparable** to the paper's
+  published numbers, which were graded by a different judge.)
+- **Partial credit exists.** Research answers earn rubric points (normalised to 0–1), so
+  a fusion can genuinely merge partial solutions here — the opposite of the MCQ family.
+
+Judged boards carry **no check surface**: a mid-run check would spend judge tokens on
+every attempt. And `limit` matters twice now — each case below pays for the panel's
+answers *and* one judge call."""),
+        nbformat.v4.new_code_cell("""\
+SCIENCE_SYNTHESIS_PROMPT = (
+    "You are given several models' step-by-step solutions to a frontier-level science "
+    "problem. Check each derivation, resolve any disagreement by re-deriving the disputed "
+    "step, and commit to one final answer, stated precisely."
+)
+
+science_synth = sf.Model(
+    model="openrouter/anthropic/claude-haiku-4.5",
+    params=PANEL_PARAMS,
+    prompt=SCIENCE_SYNTHESIS_PROMPT,
+)
+science_panel = sf.Fusion(
+    name="science_panel", members=[member1, member2], synthesizer=science_synth
+)
+
+frontierscience_report = sf.evaluate(science_panel, benchmark="inspect-frontierscience", limit=2)
+frontierscience_report"""),
+        nbformat.v4.new_markdown_cell("""\
+### The judge's reasoning rides the report
+
+A judged grade is not a bare number: each case's check evidence carries the judge's own
+explanation verbatim, so a surprising score can be read, not just counted — which judge
+prompt the case got, what the judge said, and what grade it committed."""),
+        nbformat.v4.new_code_cell("""\
+for case in frontierscience_report.candidates.only.cases:
+    grade = case.grade
+    print(case.case_id, case.status, grade.score if grade else None)
+
+first = frontierscience_report.candidates.only.cases[0].grade
+() if first is None or not first.checks else first.checks[0].evidence"""),
+        nbformat.v4.new_markdown_cell("""\
+## 8. The rest of the shelf
+
+Four sections, four grading families, one set of calls — that is the whole point of the
+import. The rest of the shelf works the same way; pick an id from the inspect_evals group
+in section 1 and match the synthesiser's prompt to how that board is graded:
+
+- **A final number**, graded by numeric match — `inspect-gsm8k`, `inspect-aime24`,
+  `inspect-aime25`.
 - **A letter**, graded by the `choice` scorer — `inspect-mmlu`, `inspect-mmlu_pro`,
   `inspect-arc_easy`, `inspect-arc_challenge`, `inspect-commonsense_qa`,
-  `inspect-winogrande`, `inspect-race_h`.
+  `inspect-winogrande`, `inspect-race_h`, `inspect-musr`, `inspect-hellaswag`,
+  `inspect-wmdp_bio`, `inspect-wmdp_chem`, `inspect-wmdp_cyber`.
 - **Yes / No as the last word**, graded by an anchored pattern — `inspect-boolq`.
 - **yes / no anywhere in the reply**, graded by `includes` — `inspect-paws`.
+- **An open science answer**, graded by the eval's own LLM judge through our gateway —
+  `inspect-frontierscience` (section 7).
 
 A `limit=N` run is a smoke test, not a ranking: on small subsamples a point or two between
 two systems is noise. Run the whole set before quoting a comparison, and read `coverage`
