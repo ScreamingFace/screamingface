@@ -294,6 +294,51 @@ def test_the_node_network_policy_excludes_the_runner_pool() -> None:
             )
 
 
+def _kinds(docs: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    return {(doc["kind"], doc["metadata"]["name"]) for doc in docs}
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_node_network_policy_is_on_by_default() -> None:
+    """The policy is the node's authentication boundary, so the default must render it: only an
+    operator who supplies an equivalent policy may turn it off."""
+    assert _values()["node"]["networkPolicy"]["enabled"] is True
+    assert ("NetworkPolicy", _NODE_NAME) in _kinds(_render())
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_a_platform_owned_policy_switches_off_only_the_charts_copy() -> None:
+    """WHY the switch exists: a GitOps project that denies the NetworkPolicy kind to tenant charts
+    fails the WHOLE sync on the chart's copy, so the platform renders the wall instead. Turning it
+    off must drop the policy and nothing else — the node must still deploy and be served."""
+    on = _kinds(_render())
+    off_docs = _render("--set", "node.networkPolicy.enabled=false")
+    off = _kinds(off_docs)
+
+    assert on - off == {("NetworkPolicy", _NODE_NAME)}
+    assert not [doc for doc in off_docs if doc["kind"] == "NetworkPolicy"], (
+        "a scrape peer rides the same policy; no other NetworkPolicy may appear in its place"
+    )
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_policy_switch_is_a_boolean_in_the_schema() -> None:
+    """The node block is `additionalProperties: false`, so a typo or a string must fail the render
+    rather than silently leave the boundary in an unexpected state."""
+    result = _render_raw(
+        "--set",
+        "node.enabled=true",
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set-string",
+        "artifactStorage.s3.endpointUrl=http://garage:3900",
+        "--set-string",
+        "node.networkPolicy.enabled=false",
+    )
+    assert result.returncode != 0
+    assert "networkPolicy" in result.stderr
+
+
 # --- the PodDisruptionBudget -----------------------------------------------------------------
 
 
