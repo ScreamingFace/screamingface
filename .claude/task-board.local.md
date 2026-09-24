@@ -49,15 +49,20 @@ labels:  # Snapshot of live Linear labels (team Engineering). Reconciled 2026-09
   type:  # Linear group "type" — optional tagging (replaced the former Bug/Feature/Improvement)
     "decision": "89f24a1e-50fe-43c6-8ba9-bcf0f25d6ab7"  # a LOCKED decision (contract frozen), not code
     "task": "5fc84240-25d2-4893-85b7-9e12bb0db207"       # mechanical/housekeeping/research — no product behavior change
-  epic:  # standalone workspace label (NOT under the type group) — MANDATORY on every epic
-    "epic": "fa574829-3329-4c84-831f-42a23cb74164"  # created 2026-09-23; apply via addLabels to every epic (parent) issue
-  classification:  # EPIC-ONLY labels — exactly ONE per epic (process/meta epics may skip). standalone workspace labels
+  # `epic` is a Linear GROUP (id 0526f2b4-4d8f-4b5a-ab16-6ba43b7e4539, single-select). An epic is
+  # marked by carrying exactly ONE classification leaf below (a member of this group) — there is NO
+  # separate boolean "epic" label. The old standalone marker (fa574829) was renamed `epic2` and
+  # retired 2026-09-24.
+  classification:  # leaves of the `epic` group — EPIC-ONLY, exactly ONE per epic (each parent: epic)
     "tech-debt": "76c260e6-73c2-41a5-9f69-b226a4c2810f"        # work that is tech debt
     "product-feature": "7a4418fd-1ceb-4822-b342-4d4e56cd096f"  # a new product feature
     "infra": "22a133e3-7844-4d62-bfe1-a449baa785ed"            # internal infrastructure
+  stop:  # applied ONLY with a named blocker (see body) — also set the Linear blocked-by relation
+    "blocked": "69045661-e284-4aed-aa61-b70878145a6e"  # team-scoped; created 2026-09-24
   # ── Notes ─────────────────────────────────────────────────────────────────────────────────
-  #   STOP labels `blocked ⛔` / `needs-owner` are NOT live: a no-epic stop parks the issue in Triage
-  #   with a comment (D18, OME-1259), never a label; never add workflow states. This card is a live
+  #   `blocked` is a live team label, applied ONLY with a named blocker + a blocked-by relation
+  #   (see body). `needs-owner` is not live; the no-epic stop parks in Triage with a comment. This
+  #   card is a live
   #   snapshot, not a changelog — full label history (renames, deletions) is in git.
   # who_acts/actor `group:` parent IDs from the prior card were dropped (unverified + unused for
   # filing, which resolves by member label). Re-add if a group-level operation ever needs them.
@@ -82,14 +87,16 @@ close_template: |
 
 - An epic is a Linear **parent issue**, attached to the project (`{{project}}`). It carries
   priority, one landing leaf, one actor, and a rationale in the body. It **must** carry the
-  standalone `epic` label (`labels.epic` above) — apply it via `addLabels`.
+  epic-group classification leaf (`labels.classification`) — apply it via `addLabels`; the `epic`
+  group is single-select, so that one leaf IS the epic marker (there is no separate `epic` label).
 - **Epic title ends with ` [EPIC]`** (a suffix). Do NOT use an `EPIC:` prefix or an
   `(epic)` suffix — normalize to ` [EPIC]`.
-- **Every epic carries exactly ONE classification label** from `labels.classification`:
-  `tech-debt`, `product-feature`, or `infra` (EPIC-only). Pure process/meta epics
-  (e.g. `OME-1259`) may skip it. Agents apply the existing label; they do not mint it.
-- Demoting an epic to a sub-issue reverses all three: remove `epic` + the classification
-  label, strip the ` [EPIC]` suffix, and set `parentId` to the new epic.
+- **Every epic carries exactly ONE epic-classification** from the `epic` group — `tech-debt`,
+  `product-feature`, or `infra`. That single leaf IS the epic marker. **Only epics carry an epic
+  classification; every non-epic issue instead carries a component/landing leaf (see below) — the
+  two are different axes and must not be conflated.** Agents apply an existing leaf; never mint one.
+- Demoting an epic to a sub-issue: remove the epic-classification leaf, add the sub-issue's
+  component/landing leaf, strip the ` [EPIC]` suffix, and set `parentId` to the new epic.
 - Every other open issue has `parentId` set to an epic. Agents do not file orphans and never
   auto-create epics.
 - **The one exception is a `bug`.** An issue labeled `bug` need not belong to an epic — file
@@ -113,8 +120,11 @@ close_template: |
   an epic.
 - Saved view **Epics by priority** (filter `label = epic`, group by priority then status)
   is an owner UI action (`OME-1260`). It is the at-a-glance board.
-- No-epic park state is **Triage** (`states.triage`) plus a comment. Do not apply
-  `blocked` or `needs-owner`.
+- No-epic park state is **Triage** (`states.triage`) plus a comment — never the `blocked` label.
+- **`blocked` is allowed, but only with a named blocker.** Marking an issue blocked MUST name the
+  blocking ticket/epic; doing so BOTH applies the `blocked` label (`labels.stop.blocked`) AND sets
+  the Linear blocked-by relation to it (`save_issue {id, blockedBy: ["OME-N"]}`). A bare `blocked`
+  with no blocker is a validation failure. `needs-owner` remains not live.
 
 - Every work item: team Engineering + project 😱 ScreamingFace V1 (D11) + a **component/landing
   label — MANDATORY** (exactly one leaf from `landing:` — `app/*`/`pkg/*`, or `repo` for pure
@@ -133,8 +143,8 @@ close_template: |
   deliberate act.
 - D9 still holds for cross-cutting work: ≥2 landings → one sub-issue per landing under the
   epic. Never one mega-ticket. Single-landing work is a leaf under an epic as well.
-- D12 labels `blocked ⛔` and `needs-owner` are **not live** (reconciliation note above).
-  Never add workflow states to the shared team. The no-epic stop uses Triage, not those
+- `blocked` IS a live label but only with a named blocker + blocked-by relation (above);
+  `needs-owner` is **not live**. Never add workflow states to the shared team. The no-epic stop uses Triage, not those
   labels.
 - MCP quirks: `save_issue.labels` REPLACES the whole set — read current labels and resend
   the union. Relations (blockedBy/relatedTo) are append-only. Send raw markdown with real

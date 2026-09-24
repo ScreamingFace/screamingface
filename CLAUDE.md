@@ -40,6 +40,9 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    `bug`:** an issue labeled `bug` may be filed with no parent epic — in Triage, left
    unassigned, with Irina and Kevin tagged for review. Everything else goes under an epic and
    self-assigns.
+   Every epic also carries exactly one **epic-classification** (`tech-debt`/`product-feature`/
+   `infra` — the `epic` group's single-select leaves, and the epic marker); non-epics never carry
+   it. `blocked` is applied only with a named blocking ticket/epic + a Linear blocked-by relation.
    Close status in BOTH Linear and the mirror at finish.
 2. **Work ledger.** Every unit has `docs/work/YYYY-MM-DD-<slug>.md` (slug, not a ticket id —
    no `OME-N` exists until PR-open) — created at work START from `docs/work/TEMPLATE.md`,
