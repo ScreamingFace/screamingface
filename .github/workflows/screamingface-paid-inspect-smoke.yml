@@ -18,7 +18,9 @@ permissions:
 jobs:
   paid-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 90, not 60: a cold cache means 17 dataset downloads before boot + 17 paid
+    # evaluations, and a deadline death would also lose the freshly built asset cache.
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: packages/screamingface
@@ -56,30 +58,39 @@ jobs:
       # (uncoinstallable with the SDK's runtime extra), and their bundles come from
       # the engine's own preparer — `screamingface prepare --all` covers only the
       # ScreamingFace-authored boards.
+      # WHY the temp file, not `done < <(...)` (PR #1035 review): a failed
+      # --list-bundles inside process substitution does NOT trip `set -e` — the loop
+      # would see an empty list, prepare nothing, and the pytest step would then have
+      # skipped green without SCREAMINGFACE_PAID_REQUIRED below.
       - name: Prepare imported benchmark assets
         working-directory: apps/screamingface-engine
         run: |
           uv sync --extra benchmarks
           assets=/tmp/screamingface-data/benchmark-assets
+          bundles_file="$(mktemp)"
+          uv run python -m screamingface_engine.benchmarks.prepare --list-bundles > "$bundles_file"
           missing=()
           while read -r bundle; do
             case "$bundle" in inspect-*) ;; *) continue ;; esac
+            case "$bundle" in */*|*..*) echo "::error::suspicious bundle id '$bundle'"; exit 1 ;; esac
             if uv run python -c "import json,sys;json.load(open(sys.argv[1]))" \
                 "$assets/$bundle/cases.json" >/dev/null 2>&1; then
               continue
             fi
             rm -rf "$assets/${bundle:?}"
             missing+=("--bundle" "$bundle")
-          done < <(uv run python -m screamingface_engine.benchmarks.prepare --list-bundles)
+          done < "$bundles_file"
           if [ ${#missing[@]} -gt 0 ]; then
             uv run python -m screamingface_engine.benchmarks.prepare --root "$assets" "${missing[@]}"
           fi
 
-      # -rs so any skip (gate mis-set, assets missing) prints its loud reason in the
-      # log instead of hiding inside a green run.
+      # SCREAMINGFACE_PAID_REQUIRED: this workflow IS the paid button, so an
+      # unavailable stack must FAIL the run — a pytest skip exits 0, and a green
+      # no-op run would tell the owner 17 boards were re-proven when zero ran.
       - name: Run the paid smoke over every imported board
         env:
           SCREAMINGFACE_TEST_PAID: "1"
+          SCREAMINGFACE_PAID_REQUIRED: "1"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
         run: uv run pytest tests/paid -m paid -rs -v

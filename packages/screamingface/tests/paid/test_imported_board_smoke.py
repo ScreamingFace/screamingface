@@ -84,12 +84,28 @@ def _smoke_one_board(client: _sf.Client, board: str) -> list[str]:
         # The run never produced a report — a preflight refusal, a dead route, a
         # transport failure. Always a smoke failure; the message names the cause.
         return [f"{board}: evaluate raised — {exc}"]
+    except Exception as exc:  # noqa: BLE001
+        # WHY the broad catch (PR #1035 review): this loop's contract is "one broken
+        # board never hides the rest". An exception that leaks past the SDK's own
+        # error type would otherwise abort the loop and silently discard the other
+        # 16 verdicts — it is still recorded as this board's failure, never swallowed.
+        return [f"{board}: evaluate raised unexpectedly — {exc!r}"]
 
     candidate = report.candidates.only
     problems: list[str] = []
     if len(candidate.cases) != CASE_LIMIT:
         problems.append(
             f"{board}: expected {CASE_LIMIT} cases in the report, got {len(candidate.cases)}"
+        )
+    # WHY strict (PR #1035 review): with every Case lost to tolerated model-side codes
+    # (e.g. two 429s), the board's GRADING path ran zero times — a pass would claim a
+    # pipe this run never exercised. Flash models at temperature 0 on benign benchmark
+    # prompts essentially never doubly refuse, so the rare flake costs a cents-level
+    # rerun; the silent alternative costs trust in every green run.
+    if not any(case.status == "scored" for case in candidate.cases):
+        problems.append(
+            f"{board}: no Case was graded — every attempt died on a tolerated "
+            f"model-side code, so this run proved nothing about the board; rerun"
         )
     for case in candidate.cases:
         for failure in case.failures:

@@ -266,18 +266,30 @@ test-paid-inspect:
     # Prepare any missing imported bundle. Same resumable rule as local-stack-notebooks:
     # a bundle counts as finished only when its cases.json PARSES; anything else is
     # debris from a dead run and is cleared before re-preparing.
-    # AIDEV-NOTE: verbatim copy of that recipe's loop, narrowed to inspect-* bundles —
-    # fold both into a shared [private] recipe when a third copy appears.
+    # AIDEV-NOTE: near-copy of that recipe's loop, narrowed to inspect-* bundles —
+    # fold both (and the workflow's third copy) into one place when any of them
+    # changes again; candidate home: a --only-missing flag on the engine preparer.
+    #
+    # WHY a temp file, not `done < <(...)` (PR #1035 review): a failed --list-bundles
+    # inside process substitution does NOT trip `set -e` — the loop would see an empty
+    # list, prepare nothing, and the run would end as a green no-op.
+    bundles_file="$(mktemp)"
+    trap 'rm -f "$bundles_file"' EXIT
+    ( cd "{{ engine_dir }}" \
+        && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles ) > "$bundles_file"
     missing=()
     while read -r bundle; do
         case "$bundle" in inspect-*) ;; *) continue ;; esac
+        # A bundle id is a flat directory name; anything path-like would make the
+        # rm -rf below reach outside the assets root. Refuse, never sanitize.
+        case "$bundle" in */*|*..*) echo "error: suspicious bundle id '$bundle' from --list-bundles" >&2; exit 1 ;; esac
         if "$UV" run python -c "import json,sys;json.load(open(sys.argv[1]))" \
             "{{ assets }}/$bundle/cases.json" >/dev/null 2>&1; then
             continue
         fi
         rm -rf "{{ assets }}/${bundle:?}"
         missing+=("--bundle" "$bundle")
-    done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
+    done < "$bundles_file"
     if [ ${#missing[@]} -gt 0 ]; then
         echo "==> downloading $((${#missing[@]} / 2)) imported dataset(s) into {{ assets }} — slow, once"
         ( cd "{{ engine_dir }}" \
@@ -285,6 +297,8 @@ test-paid-inspect:
                 --root "{{ assets }}" "${missing[@]}" )
     fi
 
-    # -rs so a skip (mis-set gate, missing assets) prints its loud reason.
-    SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_E2E_ASSETS="{{ assets }}" \
+    # REQUIRED: this recipe IS the paid button — an unavailable stack must FAIL the
+    # run (a pytest skip exits 0 and would report a green no-op). -rs still prints
+    # any skip reason from non-button contexts.
+    SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_PAID_REQUIRED=1 SCREAMINGFACE_E2E_ASSETS="{{ assets }}" \
         "$UV" run pytest tests/paid -m paid -rs -v

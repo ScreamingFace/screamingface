@@ -56,6 +56,18 @@ from harness._local_proc import (  # noqa: E402
 PAID_ENV: Final = "SCREAMINGFACE_TEST_PAID"
 KEY_ENV: Final = "OPENROUTER_API_KEY"
 _ASSETS_ENV: Final = "SCREAMINGFACE_E2E_ASSETS"
+# INVARIANT (PR #1035 review): set ONLY by the just recipe and the workflow — the two
+# "paid button" surfaces. There, an unavailable stack must FAIL the run: a pytest skip
+# exits 0, so without this flag a broken gate or empty assets would show the owner a
+# green run that re-proved nothing. Plain `pytest tests/paid` keeps skipping politely.
+REQUIRED_ENV: Final = "SCREAMINGFACE_PAID_REQUIRED"
+
+
+def _refuse(reason: str) -> None:
+    """Skip in ordinary runs; FAIL when the paid button was pressed (REQUIRED set)."""
+    if os.environ.get(REQUIRED_ENV) == "1":
+        pytest.fail(f"paid smoke was REQUIRED but cannot run: {reason}", pytrace=False)
+    pytest.skip(f"paid smoke stack unavailable: {reason}")
 
 
 def paid_unavailable_reason() -> str | None:
@@ -73,10 +85,11 @@ def paid_unavailable_reason() -> str | None:
 
 
 def require_paid_stack() -> None:
-    """Skip — loudly, with the reason — when the paid stack cannot run here."""
+    """Skip (or FAIL under the button flag) — loudly, with the reason — when the
+    paid stack cannot run here."""
     reason: str | None = paid_unavailable_reason()
     if reason is not None:
-        pytest.skip(f"paid smoke stack unavailable: {reason}")
+        _refuse(reason)
 
 
 def assets_root() -> Path:
@@ -94,7 +107,7 @@ def _require_imported_assets() -> Path:
     root: Path = assets_root()
     has_imported: bool = root.is_dir() and any(root.glob("inspect-*/cases.json"))
     if not has_imported:
-        pytest.skip(
+        _refuse(
             f"no prepared imported-board assets under {root} — run "
             f"`just screamingface test-paid-inspect` (it prepares them), or point "
             f"{_ASSETS_ENV} at a prepared root"
