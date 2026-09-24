@@ -943,3 +943,37 @@ def test_the_hook_sees_the_callers_context_under_a_running_loop() -> None:
     result = asyncio.run(run_with_bound_sink())
     assert result["cases"][0]["grade"]["score"] == 0.5
     assert seen == ["the-run-usage-sink"]
+
+
+def test_the_async_aggregate_face_runs_hooks_on_the_callers_loop() -> None:
+    """INVARIANT (OME-1240): `aggregate_async` never spawns a second loop — a
+    judged board's hook awaits model calls through the run's shared HTTP client,
+    whose pooled connections are bound to the run's OWN loop; httpx raises
+    "bound to a different event loop" on any other (reproduced, 2026-09-24).
+    """
+
+    seen_loops: list[Any] = []
+
+    class _LoopRecordingHook(_Hook):
+        async def __call__(self, request: GradeRequest) -> CaseGradeOutcome:
+            seen_loops.append(asyncio.get_running_loop())
+            return await super().__call__(request)
+
+    hook = _LoopRecordingHook()
+    path = _path(hook)
+
+    async def run() -> dict[str, Any]:
+        outer = asyncio.get_running_loop()
+        result = await path.aggregate_async(
+            json.dumps([_envelope(1, _grading(1))]),
+            benchmark_id="test-board",
+            benchmark_revision="rev",
+            selected_cases=_selected(1),
+            grading_material=lambda case_id: (5, -3),
+            scorer=exam_scorer(_mean),
+        )
+        assert seen_loops == [outer]
+        return result
+
+    result = asyncio.run(run())
+    assert result["cases"][0]["grade"]["score"] == 0.5

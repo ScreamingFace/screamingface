@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +23,9 @@ from url4.peer.server import Request
 JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
 AggregateAdapter = Callable[[str, int], JsonObject]
+#: The async face (OME-1240): a judged board's adapter awaits model calls, so its
+#: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
+AsyncAggregateAdapter = Callable[[str, int], Awaitable[JsonObject]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +147,33 @@ def aggregate_endpoint(
         selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
         try:
             result = aggregate(request.context, selected_case_count)
+        except (OSError, ValueError) as exc:
+            raise benchmark_unavailable(str(exc)) from exc
+        return compact_json(result)
+
+    return endpoint
+
+
+def async_aggregate_endpoint(
+    *,
+    label: str,
+    available_case_count: int,
+    aggregate: AsyncAggregateAdapter,
+) -> Callable[[Request], Awaitable[str]]:
+    """:func:`aggregate_endpoint`'s async face — awaited by the node on the run's loop.
+
+    WHY (OME-1240): a judged board's aggregate awaits model calls through the run's
+    shared HTTP client; that client's pooled connections are bound to the run's own
+    event loop, so the handler must be awaited there — never driven on a worker
+    thread's second loop. url4 awaits async endpoint handlers natively.
+    """
+
+    positive_count(available_case_count, "available_case_count")
+
+    async def endpoint(request: Request) -> str:
+        selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
+        try:
+            result = await aggregate(request.context, selected_case_count)
         except (OSError, ValueError) as exc:
             raise benchmark_unavailable(str(exc)) from exc
         return compact_json(result)

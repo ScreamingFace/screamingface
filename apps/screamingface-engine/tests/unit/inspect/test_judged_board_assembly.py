@@ -330,3 +330,88 @@ def test_the_judge_declaration_rides_the_assembled_board(
         monkeypatch,
     )
     assert unjudged.judge is None
+
+
+def test_a_judge_model_kwarg_without_a_declaration_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detection must key on the KWARG, not the scorer's name: a custom eval-module
+    scorer (frontierscience's shape) carries its judge under a model kwarg while
+    matching no model_graded_* name — importing it undeclared shipped a judge
+    outside exam identity (review finding, 2026-09-24)."""
+
+    for kwargs in ({"model": None}, {"model": "openai/gpt-4o"}, {"grader_model": "openai/gpt-4o"}):
+        spec = _judged_spec(
+            scorer="inspect_evals.frontierscience.frontierscience:frontierscience_scorer",
+            scorer_kwargs=kwargs,
+            judge=None,
+        )
+        with pytest.raises(ValueError, match="judge"):
+            _assembled(spec, monkeypatch)
+
+
+def test_a_non_gateway_judge_model_value_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A judge-model kwarg naming another provider would dial OpenAI directly —
+    unmetered, outside the gateway, outside exam identity. Refused by name."""
+
+    spec = _judged_spec(
+        scorer_kwargs={"model": "screamingface/judge-4", "grader_model": "openai/gpt-4o"},
+    )
+    with pytest.raises(ValueError, match="openai/gpt-4o"):
+        _assembled(spec, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_the_judged_aggregate_runs_its_judge_fetch_on_the_runs_loop(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """INVARIANT (OME-1240): no second loop for judged grading — the run's shared
+    HTTP client's pooled connections are bound to the run's own loop, and httpx
+    raises "bound to a different event loop" anywhere else (reproduced 2026-09-24)."""
+
+    import asyncio
+
+    seen_loops: list[Any] = []
+
+    class _LoopRecordingJudge(_JudgeEndpoint):
+        async def __call__(self, request: Request) -> str:
+            seen_loops.append(asyncio.get_running_loop())
+            return await super().__call__(request)
+
+    board = _assembled(_judged_spec(), monkeypatch)
+    judge = _LoopRecordingJudge()
+    node = Url4Node("test")
+    node.endpoint("/judge-4")(judge)
+    _bake_by_hand(tmp_path, board.benchmark.id)
+    board.benchmark.install(node, tmp_path)
+
+    outer = asyncio.get_running_loop()
+    rows = json.dumps([_row(1, "Paris.")])
+    result = json.loads(await _call(node, board.aggregate_route, rows, "aggregate:1"))
+    assert result["cases"][0]["grade"]["score"] == 1.0
+    assert seen_loops == [outer]
+
+
+def test_the_run_sync_twins_stay_verbatim_identical() -> None:
+    """The spine's `_run_sync` and single_shot's copy must not diverge — the copy
+    exists only because the spine's is private, and a one-sided fix (the context
+    copy, the loop discipline) would silently split behavior between the aggregate
+    and the check surface."""
+
+    import ast
+    import inspect as pyinspect
+
+    from screamingface_engine.benchmarks.spine import scored as spine_scored
+
+    def body_dump(fn: Any) -> str:
+        tree = ast.parse(pyinspect.getsource(fn).strip())
+        function = tree.body[0]
+        assert isinstance(function, ast.FunctionDef)
+        # Drop the docstring — wording differs; the CODE must not.
+        if isinstance(function.body[0], ast.Expr):
+            function.body = function.body[1:]
+        return ast.dump(function, include_attributes=False)
+
+    assert body_dump(single_shot._run_sync) == body_dump(spine_scored._run_sync)
