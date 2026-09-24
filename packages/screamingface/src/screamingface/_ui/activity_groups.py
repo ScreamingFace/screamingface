@@ -18,15 +18,19 @@ def _parent_stage(
 ) -> tuple[str, str] | None:
     seen: set[str] = {row.record.id}
     parent = dict(row.record.facts).get("parent_id")
-    while isinstance(parent, str) and parent not in seen:
+    nearest: tuple[str, str] | None = None
+    while isinstance(parent, str):
+        if parent in seen:
+            return None
         seen.add(parent)
         ancestor = index.get((row.run, parent))
         if ancestor is None:
-            break
-        if ancestor.record.kind != "model_call":
-            return row.run, ancestor.record.id
+            return None
+        if nearest is None and ancestor.record.kind != "model_call":
+            nearest = row.run, ancestor.record.id
         parent = dict(ancestor.record.facts).get("parent_id")
-    return None
+    # INVARIANT: a nearest stage owns calls only after its whole ancestry is validated.
+    return nearest
 
 
 def groups(log: ActivityLog, candidate: int) -> list[ActivityGroup]:
