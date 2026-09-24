@@ -203,7 +203,8 @@ def _receipt_html(progress: _EvaluationProgress) -> str:
         output_tokens = _compact(progress.output_tokens)
         parts.append(f"{input_tokens} in / {output_tokens} out")
     if not parts:
-        return ""
+        # WHY: Keep the table below the same summary row before usage arrives.
+        parts.append("0 model calls")
     return f"<div class='sf-eval__receipt'>{' · '.join(parts)}</div>"
 
 
