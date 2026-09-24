@@ -111,3 +111,61 @@ them at the point of use. This unit builds the second field and nothing else.
 
   5. **Two gate failures, both mine, both fixed not suppressed** — a 103-character line, and a
      test helper typed `str` where the schema wants the `RunCostStatus` literal.
+
+## Review round 1 (PR #1055, 2026-09-24)
+
+Three findings, all verified against the code before fixing. The two P1s were mine.
+
+### P1 — the saved cost never left the database
+
+`_score_to_schema()` (`store.py:83`) is the only path from a row to a receipt, a list, or the
+private export, and it never copied `cache_saved_cost_usd`. So the field was stored and then
+dropped everywhere it was read — including `collect_submissions()`, which means **a
+purge-certifying export would have omitted data the purge deletes**.
+
+My `exclude_if` work protected a path production never uses. Both export tests called
+`ScoreSchema.model_validate(row, …)` on the ORM row directly, testing the schema rather than the
+store. **Fixed**, and the tests now go through `store.submit()` and through
+`format_jsonl_bytes(collect_submissions(...))` — the exact bytes the purge certifies.
+
+### P1 — replay could combine costs from two executions
+
+The first version filled the saving on its own null. Original run: spent $2, no saving. Later fully
+cached replay of the same recipe: spent $0, saved $2. Result: old spend + new saving = **$4, a
+figure neither run produced**.
+
+**Two of my own tests asserted this as correct.** `test_filling_the_saved_cost_does_not_disturb…`
+was literally the $4 case, with a docstring opening *"The three cost fields are independent on the
+replay path"* — the wrong premise, stated as an invariant. Both were written in this unit, not on
+`main`, so rewriting them does not touch the append-only rule; recorded here because a test that
+encodes a bug is worse than no test.
+
+Spec §5.1 argued the fill was safe because nothing published could be overwritten. True, and the
+wrong question — the risk was mixing, not overwriting. **Fixed:** spend, status and saving fill as
+one snapshot, only when all three were absent. The existing status-label heal gained
+`and existing.run_cost_usd is not None` to keep its original meaning, since the widened first
+branch would otherwise have let it heal a row with no amount to `complete`.
+
+### P2 — the "no pairing rule" was broader than the rollout needed
+
+Accepted. `partial` + null saving stays accepted (rollout). `unavailable` + a saving is now refused
+— tightened from the review's "> 0" to **any non-null value**, because the SDK derives `partial`
+whenever the sum is present, including 0.
+
+### RED, then GREEN
+
+All four new tests failed against the previous implementation, each for its stated reason — the
+two-executions test failed on `Decimal('2') is None`, reproducing the $4 case. That prior code is
+the mutation.
+
+One assertion was wrong, not the code: I expected the export to show `"1.800000"` and it shows
+`"1.8"`. **The existing `run_cost_usd` exports as `"2"` in the same row** — the private export
+dumps in python mode with `default=str`, so a cost appears as `str(Decimal)` of what the database
+returned. The new field matches the old one exactly. The test now compares values. Worth noting
+separately: that means the purge-certified bytes may differ between SQLite and Postgres for the
+same data — pre-existing, and not this unit's to change.
+
+### Gates
+
+`run_gates.py scoreboard --base origin/main` — **ALL GATES GREEN**, without `--skip-append-only`.
+One lint fix: `ScoreSchema` became an unused import once the tests stopped bypassing the store.

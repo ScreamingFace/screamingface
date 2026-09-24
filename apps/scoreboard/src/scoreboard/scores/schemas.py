@@ -473,13 +473,14 @@ class ScoreSubmission(BaseModel):
     # DIFFERENT call of the same model and kind, so `OME-1251` D3 keeps it off the wire entirely.
     # Never accept it here and never sum the two.
     #
-    # INVARIANT: there is deliberately NO pairing rule against `run_cost_status`. A `partial` run
-    # has a reported saved-cost sum by definition, so `partial` beside a null here LOOKS
-    # incoherent — but `OME-1252` ships the status and NOT this field, and `OME-1326` adds it
-    # later. Between those releases every `partial` submission legitimately carries a status with
-    # no saved cost. Enforcing the final contract before clients can satisfy it is the exact
-    # deadlock review found in PR #841 (P1-1). If the rule is ever wanted it belongs beside
-    # `OME-1258`'s flip.
+    # INVARIANT: ONE-WAY pairing only. `partial` beside a null here stays ACCEPTED: a `partial`
+    # run has a saved-cost sum by definition, but `OME-1252` ships the status and NOT this field,
+    # and `OME-1326` adds it later, so between those releases every `partial` submission
+    # legitimately lacks it. Refusing that would be the deadlock review found in PR #841 (P1-1).
+    #
+    # The other direction is refused (`validate_saved_cost_matches_its_status` below):
+    # `unavailable` means NO cost evidence, so any saving beside it is a contradiction. Older
+    # clients never send this field, so nothing deployed can trip it (review of PR #1055, P2).
     cache_saved_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     @field_validator("cache_saved_cost_usd")
@@ -488,6 +489,22 @@ class ScoreSubmission(BaseModel):
         # Money's domain is already defined once, by the amount this figure sits beside. A second
         # money field with its own rules is how the two drift apart.
         return _validate_run_cost(value)
+
+    @model_validator(mode="after")
+    def validate_saved_cost_matches_its_status(self) -> ScoreSubmission:
+        """INVARIANT: a saving is cost evidence, so it cannot sit beside `unavailable`.
+
+        Any non-null value, including 0 — not just a positive one. The SDK derives `partial`
+        whenever the reported sum is present, so a correct client can never send `unavailable`
+        with a saving of any value. The reverse (`partial` without a saving) is deliberately
+        allowed for the staged rollout; see the field comment.
+        """
+        if self.run_cost_status == "unavailable" and self.cache_saved_cost_usd is not None:
+            raise ValueError(
+                "cache_saved_cost_usd must be absent when run_cost_status is 'unavailable': "
+                "a saving is cost evidence"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_cost_matches_its_status(self) -> ScoreSubmission:

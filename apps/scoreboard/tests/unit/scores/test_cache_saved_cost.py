@@ -14,13 +14,15 @@ phase 2 and is gated on OME-1287; the frontier is deliberately untouched here.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
 
+from scoreboard.export_private_submissions import collect_submissions, format_jsonl_bytes
 from scoreboard.scores.models import Score
-from scoreboard.scores.schemas import RunCostStatus, ScoreSchema, ScoreSubmission
+from scoreboard.scores.schemas import RunCostStatus, ScoreSubmission
 from scoreboard.scores.store import ScoreStore
 
 
@@ -29,7 +31,7 @@ def _saved_submission(
     spec_id: str,
     saved: str | None,
     cost: str | None = "2.000000",
-    status: RunCostStatus = "complete",
+    status: RunCostStatus | None = "complete",
 ) -> ScoreSubmission:
     return ScoreSubmission(
         benchmark_id="hle",
@@ -137,36 +139,83 @@ def test_a_partial_run_without_a_saved_cost_is_still_accepted() -> None:
     assert submission.cache_saved_cost_usd is None
 
 
-# --- replay ------------------------------------------------------------------------------------
+# --- review round 1 (PR #1055): one execution, one snapshot -------------------------------------
+#
+# The first version of this module filled `cache_saved_cost_usd` on its own at replay, and two of
+# its tests asserted that as correct. Review showed it combines figures from two DIFFERENT runs:
+# an original that spent $2 with no saved figure, then a fully cached replay that spent $0 and
+# saved $2, left the old $2 spend beside the new $2 saving — a $4 reproduction cost that never
+# existed. Spend, status and saving describe ONE execution and move as one snapshot.
+
+
+def test_unavailable_beside_a_saved_cost_is_refused() -> None:
+    """INVARIANT: `unavailable` means NO cost evidence, so a saving beside it is a contradiction.
+
+    This is the one-way rule the staged rollout does allow. `partial` + null saving must stay
+    accepted (the SDK released before OME-1326 sends the status without this field), but
+    `unavailable` + a saving can never come from a correct client: the SDK derives `partial`
+    whenever the reported sum is present — including when it is 0 — so the rule is "any non-null
+    saving", not "> 0". Older clients never send the field, so nothing deployed can trip it.
+    """
+    for saved in ("1.800000", "0.000000"):
+        with pytest.raises(ValidationError, match="unavailable"):
+            _saved_submission(
+                spec_id=f"contradiction-{saved}", saved=saved, cost=None, status="unavailable"
+            )
 
 
 @pytest.mark.asyncio
-async def test_a_replay_fills_a_saved_cost_the_row_lacks(tortoise_db: None) -> None:
-    """`_content_hash` excludes cost (`OME-770` D8), so a row stored before this field gains one
-    only here. Without the fill, a submitter who re-runs is deduplicated to their old row and the
-    figure is discarded — leaving a permanent population the reproduction cost cannot be computed
-    for.
+async def test_a_replay_fills_the_whole_cost_snapshot_when_none_was_stored(
+    tortoise_db: None,
+) -> None:
+    """A legacy-shaped row — no amount, no status, no saving — gains all three from ONE replay.
+
+    `_content_hash` excludes cost (`OME-770` D8), so this is the only way such a row gains a
+    cost at all. All three come from the same submission, so they describe the same execution.
     """
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE")
 
-    first, _ = await store.submit(_saved_submission(spec_id="fillable", saved=None))
-    assert (await Score.get(id=first.id)).cache_saved_cost_usd is None
-
-    _, created = await store.submit(_saved_submission(spec_id="fillable", saved="1.800000"))
+    first, _ = await store.submit(
+        _saved_submission(spec_id="snapshot", saved=None, cost=None, status=None)
+    )
+    _, created = await store.submit(
+        _saved_submission(spec_id="snapshot", saved="1.800000", cost="0.200000")
+    )
     row = await Score.get(id=first.id)
 
     assert created is False
+    assert row.run_cost_usd == Decimal("0.200000")
+    assert row.run_cost_status == "complete"
     assert row.cache_saved_cost_usd == Decimal("1.800000")
 
 
 @pytest.mark.asyncio
-async def test_a_replay_cannot_replace_a_stored_saved_cost(tortoise_db: None) -> None:
-    """FILL ONLY, never replace — the rule `models` and the cost pair already carry.
+async def test_a_replay_never_combines_costs_from_two_executions(tortoise_db: None) -> None:
+    """INVARIANT: the reproduction cost is never assembled from two different runs.
 
-    Once phase 2 ranks on `run_cost_usd + cache_saved_cost_usd`, this value is half a frontier
-    position. Enrichment fills a gap; it does not arbitrate between two claims.
+    The review's reproduction, verbatim. The original spent $2 and reported no saving; a later
+    fully cached run of the same recipe spent $0 and saved $2. Filling the saving alone would
+    leave `run_cost_usd + cache_saved_cost_usd` at $4 — a figure neither run produced, and one
+    phase 2 would rank on.
+
+    Consequence accepted: a row that already holds a spend never gains a saving by replay. The
+    saving arrives on FIRST submission, from clients that send all three fields together.
     """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    first, _ = await store.submit(_saved_submission(spec_id="two-runs", saved=None))
+    await store.submit(_saved_submission(spec_id="two-runs", saved="2.000000", cost="0.000000"))
+    row = await Score.get(id=first.id)
+
+    assert row.run_cost_usd == Decimal("2.000000")
+    assert row.cache_saved_cost_usd is None
+
+
+@pytest.mark.asyncio
+async def test_a_replay_cannot_replace_a_stored_saved_cost(tortoise_db: None) -> None:
+    """FILL ONLY, never replace — the rule `models` and the cost pair already carry."""
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE")
 
@@ -178,62 +227,56 @@ async def test_a_replay_cannot_replace_a_stored_saved_cost(tortoise_db: None) ->
     assert row.cache_saved_cost_usd == Decimal("1.800000")
 
 
+# --- through the PRODUCTION projection -------------------------------------------------------
+#
+# The first version asserted export behaviour with `ScoreSchema.model_validate(row, ...)` on the
+# ORM row. Production never does that: every receipt, list and export goes through
+# `_score_to_schema()`, which did not copy this field — so it was stored and never left the
+# database, and a purge-certifying export would omit data the purge deletes. These go through the
+# real paths.
+
+
 @pytest.mark.asyncio
-async def test_filling_the_saved_cost_does_not_disturb_the_amount_or_its_status(
+async def test_the_submit_receipt_carries_the_saved_cost(tortoise_db: None) -> None:
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    stored, _ = await store.submit(_saved_submission(spec_id="receipt", saved="1.800000"))
+
+    assert stored.cache_saved_cost_usd == Decimal("1.800000")
+    assert stored.model_dump(mode="json")["cache_saved_cost_usd"] == "1.800000"
+
+
+@pytest.mark.asyncio
+async def test_the_private_export_carries_the_saved_cost(tortoise_db: None) -> None:
+    """INVARIANT: the bytes a purge certifies contain the data the purge deletes."""
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    await store.submit(_saved_submission(spec_id="exported", saved="1.800000"))
+
+    row = json.loads(format_jsonl_bytes(await collect_submissions("hle")))
+
+    # Compared as a VALUE, not a string. The private export dumps in python mode and serialises
+    # with `default=str`, so a cost appears as `str(Decimal)` of what the database returned —
+    # `run_cost_usd` beside it exports as "2", not "2.000000". The new field matches the existing
+    # one exactly; the textual form is a pre-existing property of this export, not of this field.
+    assert Decimal(row["cache_saved_cost_usd"]) == Decimal("1.800000")
+    assert Decimal(row["run_cost_usd"]) == Decimal("2.000000")
+
+
+@pytest.mark.asyncio
+async def test_the_private_export_omits_the_key_when_no_saving_is_stored(
     tortoise_db: None,
 ) -> None:
-    """The three cost fields are independent on the replay path.
+    """INVARIANT: `exclude_if`, not a null value — through the real export this time.
 
-    `OME-822` P1-2 was exactly this class of bug from the other side: a fill gated on the wrong
-    sentinel moved a neighbouring published value. A row with a published amount must keep it
-    while this field is filled beside it.
-    """
-    store = ScoreStore()
-    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
-
-    first, _ = await store.submit(_saved_submission(spec_id="neighbour", saved=None))
-    await store.submit(_saved_submission(spec_id="neighbour", saved="1.800000"))
-    row = await Score.get(id=first.id)
-
-    assert row.cache_saved_cost_usd == Decimal("1.800000")
-    assert row.run_cost_usd == Decimal("2.000000")
-    assert row.run_cost_status == "complete"
-
-
-# --- the export digest -------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_row_without_the_saved_cost_exports_without_the_key(tortoise_db: None) -> None:
-    """INVARIANT: `exclude_if`, not merely a null value.
-
-    `ScoreSchema` feeds the byte-exact JSONL export whose digest authorises a private-board purge.
     An always-present key changes EVERY historical digest, so a previously certified export stops
-    authorising its own purge — with no row having changed. That is the `OME-1181` Q2 trap, and
-    it has bitten this codebase once already.
+    authorising its own purge with no row having changed. The `OME-1181` Q2 trap.
     """
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    await store.submit(_saved_submission(spec_id="legacy-shaped", saved=None))
 
-    stored, _ = await store.submit(_saved_submission(spec_id="legacy-shaped", saved=None))
-    row = await Score.get(id=stored.id)
-    exported = ScoreSchema.model_validate(row, from_attributes=True).model_dump(mode="json")
+    exported = format_jsonl_bytes(await collect_submissions("hle")).decode()
 
     assert "cache_saved_cost_usd" not in exported
-
-
-@pytest.mark.asyncio
-async def test_a_row_with_the_saved_cost_exports_it_as_a_decimal_string(
-    tortoise_db: None,
-) -> None:
-    """Money crosses the wire as a fixed-scale STRING, never a float — `OME-770` 2.4, so the form
-    is identical on SQLite and Postgres.
-    """
-    store = ScoreStore()
-    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
-
-    stored, _ = await store.submit(_saved_submission(spec_id="exported", saved="1.800000"))
-    row = await Score.get(id=stored.id)
-    exported = ScoreSchema.model_validate(row, from_attributes=True).model_dump(mode="json")
-
-    assert exported["cache_saved_cost_usd"] == "1.800000"

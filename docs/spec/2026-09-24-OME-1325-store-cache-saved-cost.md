@@ -40,19 +40,20 @@ Bounds mirror `run_cost_usd` exactly, reusing `_validate_run_cost`: `ge=0`,
 `allow_inf_nan=False`, `DECIMAL(12, 6)` — `0.000001` through `999999.999999`. Money already has a
 validated domain here and this is money.
 
-### §3.1 There is NO pairing rule, deliberately
+### §3.1 A ONE-WAY pairing rule — amended at review, 2026-09-24
 
-A run whose `run_cost_status` is `partial` has, by definition, a reported saved-cost sum — that is
-what makes it `partial`. So `partial` beside a null saved cost looks incoherent, and a validator
-refusing it looks correct.
+*First written as "there is NO pairing rule". Review of PR #1055 (P2) showed that was broader
+than the rollout requires.*
 
-**It would 422 the SDK released today.** `OME-1252` ships `run_cost_status` and *not* this field;
-`OME-1326` adds it later. Between those two releases every `partial` submission carries a status
-with no saved cost, and that is the normal, correct state of the world for weeks.
+**Accepted: `partial` beside a null saving.** A `partial` run has a reported saved-cost sum by
+definition, but `OME-1252` ships the status and NOT this field, and `OME-1326` adds it later.
+Between those releases every `partial` submission legitimately lacks it. Refusing it would 422
+the released SDK — the `OME-822` P1-1 deadlock exactly.
 
-This is the `OME-822` P1-1 finding exactly: a rule that is true of the final contract, enforced
-before the clients can satisfy it, deadlocks the rollout. **Expand first. The pairing rule, if it
-is ever wanted, belongs beside `OME-1258`'s flip.**
+**Refused: `unavailable` beside any saving.** `unavailable` means no cost evidence, and a saving is
+cost evidence. It can never come from a correct client: the SDK derives `partial` whenever the
+reported sum is present, **including when it is 0** — so the rule is "any non-null saving", not
+"> 0". Older clients never send this field, so nothing deployed can trip it.
 
 ## §4 Storage
 
@@ -75,17 +76,25 @@ through `_replay_updates`.
 **Fill only, never replace**, gated on `existing.cache_saved_cost_usd is None`. A populated value
 is retained — enrichment fills a gap, it does not arbitrate between two claims.
 
-### §5.1 Why the `OME-822` P1-2 trap does not apply here
+### §5.1 One execution, one snapshot — amended at review, 2026-09-24
 
-That bug was: migration `0014` left `run_cost_status` null on **every** pre-existing row including
-priced ones, so gating the fill on the status treated a migrated priced row as empty and let a
-replay erase published money. The amount was the correct sentinel, not the label.
+*First written as "why the `OME-822` P1-2 trap does not apply here", arguing the saving could be
+filled on its own null because nothing published could be overwritten. **That reasoning answered
+the wrong question.** The risk was never overwriting; it was COMBINING figures from two different
+runs.*
 
-Here the field **is** the amount and no row has ever held one, so `NULL` is unambiguous: nothing
-has been published that a fill could overwrite. The gate on its own null is sound.
+Review of PR #1055 (P1) reproduced it: an original run spent $2 and reported no saving; a later
+fully cached run of the same recipe spent $0 and saved $2. `content_hash` excludes cost, so the
+second dedups to the first. Filling the saving alone kept the old $2 spend beside the new $2
+saving — a **$4 reproduction cost neither run produced**, and one phase 2 would rank on.
 
-The one conflation that remains — null means both "no cache hits" and "client did not report" — is
-harmless on this path, because filling either with a null submission value is a no-op.
+**Spend, status and saving describe ONE execution and move as one snapshot.** All three are filled
+together from a single replay, and only when all three were absent. The existing heal of a
+missing status label beside a stored amount is unchanged — it relabels the row's own amount and
+mixes nothing.
+
+**Accepted consequence:** a row already holding a spend never gains a saving by replay. The saving
+arrives on FIRST submission, from clients that send all three fields together.
 
 ## §6 What this deliberately does NOT do
 
