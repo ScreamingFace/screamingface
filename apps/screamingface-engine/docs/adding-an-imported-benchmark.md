@@ -90,8 +90,9 @@ pass/fail-only feedback. **MCQ boards never get one** — pass/fail feedback ove
 handful of options is an elimination attack (OME-796). **Judged boards never get one
 either (yet)** — a judged mid-run check spends judge tokens per attempt while the
 surface still advertises `free`; assembly refuses the combination until the check-cost
-knob lands (OME-1116). The generated row defaults correctly from the scorer family;
-treat changing it as an owner decision.
+knob lands (OME-1116). The generated row defaults correctly from the scorer family —
+judged rows are generated with NO surface; treat changing any of it as an owner
+decision.
 
 ## Step 4 — verify
 
@@ -119,6 +120,9 @@ checklist (minutes, not hours):
 - The check-surface flag matches the scorer family (string-match free text ⇔ surface
   on; MCQ and judged ⇔ surface off).
 - **Judged rows only** (the model-graded lane, OME-1240):
+  - The judge model is a DECLARED gateway model: its route (`/<gateway-model-id>`)
+    exists in the engine's builtin model world (`models/builtins.py` seeds) — an
+    undeclared judge 404s only at run time (the new-model three-registrations rule).
   - `judge=JudgeSpec(model=..., params=...)` is declared, and the SAME model appears as
     a `screamingface/<model>` value in `scorer_kwargs` — assembly cross-checks both
     directions, but the reviewer confirms the chosen judge is the intended house judge
