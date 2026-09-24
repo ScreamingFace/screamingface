@@ -254,13 +254,47 @@ class ScoredPath:
             failure, the exam score, and the run's factual coverage.
         """
 
+        # WHY the sync face stays: every existing board's aggregate handler is a
+        # sync url4 endpoint; only the async face below changes who drives the loop.
+        return _run_sync(
+            self.aggregate_async(
+                raw_rows,
+                benchmark_id=benchmark_id,
+                benchmark_revision=benchmark_revision,
+                selected_cases=selected_cases,
+                grading_material=grading_material,
+                scorer=scorer,
+                case_metadata=case_metadata,
+            )
+        )
+
+    async def aggregate_async(
+        self,
+        raw_rows: str,
+        *,
+        benchmark_id: str,
+        benchmark_revision: str,
+        selected_cases: Sequence[SelectedCase],
+        grading_material: Callable[[int], object | None],
+        scorer: Callable[[Sequence[CaseResult]], CandidateScore],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """:meth:`aggregate`, awaited on the CALLER's loop — same args, same result.
+
+        WHY it exists (OME-1240): a hook that makes model calls (a judged imported
+        board) must run on the loop that owns the run's HTTP client — httpx refuses
+        a pooled connection created on another loop ("bound to a different event
+        loop"), so the sync face's worker-thread loop cannot carry it. url4 awaits
+        async endpoint handlers natively, so a judged aggregate registers an async
+        handler over this face and no second loop ever exists.
+        """
+
         # Stage 1-2 — roll call and row filing (position is identity; see rows.py).
         case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
         indexed: RowIndex = self.reader.index(raw_rows, case_ids)
-        # Stage 3-4 — the hook is async (an enclave call is a network hop); the
-        # surrounding url4 handler is sync.
-        case_results: list[CaseResult] = _run_sync(
-            self._case_results(selected_cases, indexed, grading_material, case_metadata)
+        # Stage 3-4 — the hook is async (an enclave call is a network hop).
+        case_results: list[CaseResult] = await self._case_results(
+            selected_cases, indexed, grading_material, case_metadata
         )
         # Stage 5 — fold the marks into the class results.
         return finalize_candidate_result(

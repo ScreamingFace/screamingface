@@ -1238,3 +1238,37 @@ def test_a_string_match_scorer_emits_no_judge_lines() -> None:
         "sums", _facts(), Observations(revision="c" * 40, case_count=42, license="mit")
     )
     assert "JudgeSpec" not in fragments.board
+
+
+def test_a_custom_scorer_with_a_judge_model_kwarg_gets_the_judge_flag() -> None:
+    """Detection keys on the KWARG, not the scorer name — frontierscience's custom
+    scorer carries its judge under `model` and matched no model_graded_* name, so
+    the importer emitted a silently-unjudged row (review finding, 2026-09-24)."""
+
+    fragments = render_fragments(
+        "judged",
+        _facts(
+            scorer=f"{_FAKE_MODULE}:custom_scorer",
+            scorer_kwargs={"model": None},
+        ),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+    assert 'judge=JudgeSpec(model="TODO")' in fragments.board
+    assert "TODO(review)" in fragments.board
+
+
+def test_a_judged_row_never_advertises_a_check_surface() -> None:
+    """Assembly refuses judged rows with a check surface (no check-cost knob yet) —
+    the importer emitting both would strand the next import on a red gate it was
+    told is already correct (review finding, 2026-09-24)."""
+
+    fragments = render_fragments(
+        "judged",
+        _facts(
+            scorer="inspect_ai.scorer:model_graded_qa",
+            scorer_kwargs={"model": "openai/gpt-4o"},
+        ),
+        Observations(revision="c" * 40, case_count=7, license="mit"),
+    )
+    assert "with_check_surface" not in fragments.board
+    assert "keep_sample_metadata" in fragments.board  # the reviewer reminder rides the flag
