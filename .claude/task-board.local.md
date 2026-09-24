@@ -57,11 +57,14 @@ labels:  # Snapshot of live Linear labels (team Engineering). Reconciled 2026-09
     "tech-debt": "76c260e6-73c2-41a5-9f69-b226a4c2810f"        # work that is tech debt
     "product-feature": "7a4418fd-1ceb-4822-b342-4d4e56cd096f"  # a new product feature
     "infra": "22a133e3-7844-4d62-bfe1-a449baa785ed"            # internal infrastructure
-  stop:  # applied ONLY with a named blocker (see body) — also set the Linear blocked-by relation
-    "blocked": "69045661-e284-4aed-aa61-b70878145a6e"  # team-scoped; created 2026-09-24
+  stop:  # standalone marker labels (NOT a single-select group) — applied additively; see body
+    "blocked": "69045661-e284-4aed-aa61-b70878145a6e"           # team-scoped; created 2026-09-24
+    "improvement-ideas": "fb1131ea-6e7e-4037-90b5-24ec48a10017" # team-scoped; created 2026-09-24
   # ── Notes ─────────────────────────────────────────────────────────────────────────────────
   #   `blocked` is a live team label, applied ONLY with a named blocker + a blocked-by relation
-  #   (see body). `needs-owner` is not live; the no-epic stop parks in Triage with a comment. This
+  #   (see body). `improvement-ideas` is a live team label with the lightest contract — no epic,
+  #   no relation, component optional (see body). `needs-owner` is not live; the no-epic stop
+  #   parks in Triage with a comment. This
   #   card is a live
   #   snapshot, not a changelog — full label history (renames, deletions) is in git.
   # who_acts/actor `group:` parent IDs from the prior card were dropped (unverified + unused for
@@ -125,6 +128,12 @@ close_template: |
   blocking ticket/epic; doing so BOTH applies the `blocked` label (`labels.stop.blocked`) AND sets
   the Linear blocked-by relation to it (`save_issue {id, blockedBy: ["OME-N"]}`). A bare `blocked`
   with no blocker is a validation failure. `needs-owner` remains not live.
+- **`improvement-ideas` is allowed with the lightest contract — the second epic-first exception
+  (after `bug`).** Applying `improvement-ideas` (`labels.stop.improvement-ideas`) captures an
+  enhancement/parking-lot idea, and — unlike every other issue — such an issue may be filed with
+  **no epic parent, no blocker relation, and no component/landing leaf** (all three are optional
+  for it). It is parked like a `bug`: filed in **Triage**, **left unassigned**, awaiting triage.
+  Unlike `blocked` it names no blocker and sets no relation. `actor` is still applied.
 
 - Every work item: team Engineering + project 😱 ScreamingFace V1 (D11) + a **component/landing
   label — MANDATORY** (exactly one leaf from `landing:` — `app/*`/`pkg/*`/`cross-unit/*`, e.g.
@@ -134,14 +143,16 @@ close_template: |
   epic + a **self-assigned `assignee`** (`assignee: "me"`, MANDATORY — see below).
 - **Component label is not optional and has no default.** Filing an issue with no landing leaf
   is a validation failure — the filer/executor rejects it rather than guessing. Pick the leaf
-  from the issue's affected `apps/*`/`packages/*` paths (see `working-in-this-repo`).
+  from the issue's affected `apps/*`/`packages/*` paths (see `working-in-this-repo`). **The one
+  exception is an `improvement-ideas` issue**, where the component/landing leaf is optional —
+  landing is decided at triage.
 - **Multi-component work → one component per label via the epic split (D9), never two leaves on
   one issue.** The landing group is single-select, so ≥2 components ⇒ an epic carrying each
   component leaf + one sub-issue per component, each with its single leaf.
-- **Self-assign on creation (MANDATORY, except bugs).** Every issue and every epic is assigned
-  to its creator at creation (`assignee: "me"`); nothing is filed unassigned — **except a
-  `bug`-labeled issue, which is left unassigned.** Reassigning to another owner is a later,
-  deliberate act.
+- **Self-assign on creation (MANDATORY, except bugs & improvement-ideas).** Every issue and every
+  epic is assigned to its creator at creation (`assignee: "me"`); nothing is filed unassigned —
+  **except a `bug`- or `improvement-ideas`-labeled issue, which is left unassigned** (both park in
+  Triage). Reassigning to another owner is a later, deliberate act.
 - D9 still holds for cross-cutting work: ≥2 landings → one sub-issue per landing under the
   epic. Never one mega-ticket. Single-landing work is a leaf under an epic as well.
 - `blocked` IS a live label but only with a named blocker + blocked-by relation (above);
