@@ -10,6 +10,7 @@ import pytest
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.ifeval.grade import AggregateError, aggregate
+from screamingface_engine.world import connector
 from screamingface_engine.world.connector import _raise_for_status
 from url4.core.errors import ResolutionError
 from url4.dag.nodes._shared import _error_payload
@@ -52,12 +53,30 @@ def test_connector_http_error_survives_collection_as_candidate_failure(status: i
 @pytest.mark.parametrize(
     "code", ["aigateway_transport_error", "aigateway_empty_response", "aigateway_bad_response"]
 )
-def test_known_connector_failures_are_candidate_stage(code: str) -> None:
-    result = _aggregate(
-        _error_payload(ResolutionError("Model call failed", code=code, permanent=False))
-    )
+@pytest.mark.asyncio
+async def test_known_connector_failures_are_candidate_stage(code: str, monkeypatch) -> None:
+    # Exercise the actual boundary so origin cannot be fabricated by this fixture.
+    with pytest.raises(ResolutionError) as caught:
+        if code == "aigateway_transport_error":
+            monkeypatch.setattr(connector, "_TRANSPORT_RETRIES", 0)
+
+            def unavailable(request):
+                raise httpx.ConnectError("unreachable", request=request)
+
+            async with httpx.AsyncClient(
+                base_url="https://gateway.test", transport=httpx.MockTransport(unavailable)
+            ) as client:
+                await connector._post_completion(client, headers={}, body={})
+        else:
+            body = b"" if code == "aigateway_empty_response" else b"not JSON"
+            connector._json_or_raise(httpx.Response(200, content=body))
+    result = _aggregate(_error_payload(caught.value))
     failure = result["cases"][0]["failures"][0]
-    assert (failure["stage"], failure["code"], failure["retryable"]) == ("candidate", code, True)
+    assert (failure["stage"], failure["code"], failure["retryable"]) == (
+        "candidate",
+        code,
+        code != "aigateway_bad_response",
+    )
 
 
 @pytest.mark.parametrize(

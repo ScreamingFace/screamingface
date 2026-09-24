@@ -315,3 +315,12 @@ No messages, attribute keys/values, exception text or identities enter this diag
 state. Updates use a short in-memory lock; no logging handlers, observers, tasks or I/O
 are invoked by diagnostics. These counters diagnose integrations, not authoritative
 run outcomes. `WARNING` remains invalid; use the documented severity `WARN`.
+
+### Collected error origin
+
+Adapters may raise `ResolutionError(..., origin="boundary_name")` to identify the boundary
+that produced a failure independently of its diagnostic code. The optional label is a
+lowercase ASCII identifier of 1–64 characters (letters, digits, underscores; starts with a
+letter). Collected error rows preserve it as `error.origin`; unmarked rows keep their existing
+shape. URL4 assigns no domain semantics to labels. This field describes collected resolution
+errors, not a new expression operator or general remote-error transport guarantee.

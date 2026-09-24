@@ -23,6 +23,7 @@ overridden per instance for spec codes that share a Python type — e.g.
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 
 
@@ -110,6 +111,25 @@ class ResolutionError(Url4Error):
 
     code = ErrorCode.RESOLUTION_FAILED
     permanent = False
+
+    origin: str | None = None
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        permanent: bool | None = None,
+        origin: str | None = None,
+    ) -> None:
+        # INVARIANT: origin is an explicit boundary label, never inferred from a
+        # diagnostic code or message. URL4 gives the label no application semantics.
+        if origin is not None and (
+            not isinstance(origin, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", origin) is None
+        ):
+            raise ValueError("origin must be a bounded lowercase ASCII identifier or None")
+        super().__init__(message, code=code, permanent=permanent)
+        self.origin = origin
 
 
 class CollectionError(Url4Error):

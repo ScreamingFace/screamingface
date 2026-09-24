@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* Attribute collected IFEval model-call failures using explicit connector origin, including Gateway-rewritten diagnostic codes. Unmarked errors and protected checker failures retain grading attribution.
+
 ## [1.5.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.4.0...screamingface-engine-v1.5.0) (2026-08-27)
 
 

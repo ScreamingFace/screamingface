@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* Preserve optional bounded `ResolutionError.origin` in collected error rows; unmarked error rows retain their existing shape.
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 

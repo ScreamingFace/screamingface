@@ -22,7 +22,6 @@ cannot be trusted, and scoring the wrong Case is worse than reporting a failed o
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -332,15 +331,9 @@ def _collected_failure_result(
 
 
 def _is_gateway_call_failure(error: Mapping[str, Any]) -> bool:
-    # WHY: these codes are emitted by world/connector.py at the model-call boundary.
-    # IFEval's checker is deterministic; its protected failures never take this path.
-    # Do not infer provenance from a message, a broad prefix, or a sanitized code:
-    # unknown and legacy kind/message-only rows remain the grading fallback.
-    code = error.get("code")
-    return isinstance(code, str) and (
-        code in {"aigateway_transport_error", "aigateway_empty_response", "aigateway_bad_response"}
-        or re.fullmatch(r"aigateway_http_[45][0-9]{2}", code) is not None
-    )
+    # INVARIANT: the connector records where the failure arose independently of
+    # its code. Protected checker failures never enter this orphan path.
+    return error.get("origin") == "model_call"
 
 
 def _ifeval_score(cases: Sequence[CaseResult]) -> CandidateScore:
