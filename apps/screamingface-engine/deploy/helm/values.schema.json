@@ -328,6 +328,19 @@
             "scrapeFrom"
           ],
           "additionalProperties": false
+        },
+        "networkPolicy": {
+          "type": "object",
+          "description": "The chart's own App-only NetworkPolicy for the node tier. It is the node's authentication boundary: set enabled=false ONLY when the platform supplies an equivalent policy (e.g. a GitOps project that denies the NetworkPolicy kind to the chart).",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -349,7 +362,8 @@
         "livenessProbe",
         "readinessProbe",
         "startupProbe",
-        "metrics"
+        "metrics",
+        "networkPolicy"
       ],
       "additionalProperties": false
     },

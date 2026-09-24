@@ -202,6 +202,14 @@ changes to fix this; the node's own instance value is what breaks the match.
 > that also matches on `instance` denies the node tier's calls, because the node's instance is
 > never the App's.
 
+**A platform that owns its NetworkPolicies.** Some GitOps projects deny the NetworkPolicy kind
+to tenant charts; there the chart's node policy fails the whole sync. Set
+`node.networkPolicy.enabled=false` and render the equivalent policy on the platform side: admit
+ONLY the App (`app.kubernetes.io/name: url4-cloud` AND `app.kubernetes.io/component:
+control-plane`) to `node.port`, and let the App reach the node pods (`component: node`) on that
+port. The policy is the node's authentication boundary — never turn it off without that
+replacement. `node.metrics.scrapeFrom` rides the same policy, so it renders nothing while off.
+
 **Verifying the App-only NetworkPolicy on a real cluster.** `tests/unit/test_chart_render_node_tier.py`
 and `verify_chart_wiring.py` prove the policy is CORRECTLY SHAPED at render time; neither proves a
 CNI actually enforces it — `kind`'s default CNI does not enforce `NetworkPolicy` at all (test-plan

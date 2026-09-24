@@ -1,4 +1,4 @@
-{{- if .Values.node.enabled }}
+{{- if and .Values.node.enabled .Values.node.networkPolicy.enabled }}
 {{/*
 Who may reach the node tier: the App, and nothing else. THIS POLICY IS THE AUTHENTICATION
 BOUNDARY. The node trusts the `X-User-Email` header the App injects, exactly as aigateway trusts
