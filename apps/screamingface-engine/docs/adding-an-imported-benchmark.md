@@ -34,11 +34,24 @@ check:
   uncleared license and still emits (the diff review is the gate), so check early,
   not after the work is done.
 - Agentic and multi-turn evals are out of scope for this pipeline.
-- **Model-graded (LLM-judged) evals are importable since OME-1240**, with one extra
-  condition: the scorer must take its judge as an explicit model argument (xstest's
-  `model=`, frontierscience's `model=`). A scorer that only resolves inspect's grader
-  *role* (`get_model(role="grader")` with no model kwarg) is not supported yet —
-  assembly refuses it by name.
+- **Model-graded (LLM-judged) evals are importable since OME-1240**, with three extra
+  conditions:
+  - The scorer takes its judge as an explicit model argument (xstest's `model=`,
+    frontierscience's `model=`). A scorer that only resolves inspect's grader *role*
+    (`get_model(role="grader")` with no model kwarg) is not supported yet — assembly
+    refuses it by name.
+  - The scorer must not carry its own generation settings or tools into the judge
+    call. The wire carries ONLY the row's `JudgeSpec.params`; at grading, the
+    provider refuses by name any `GenerateConfig` field the eval sets beyond
+    transport plumbing, and any non-empty `tools` (persistbench's
+    `GenerateConfig(temperature=0, reasoning_effort="high")` is the real shape that
+    makes an eval not row-importable as-is). There is no silent drop: an eval that
+    grades only at specific sampling settings either isn't imported, or ships
+    without them as a NAMED DEVIATION (below).
+  - Every case has a non-empty text target. A judged eval whose rubric IS the target
+    (coconot, sosbench — the target is empty and the judge carries the whole rule)
+    fails the deterministic bake today; the bake extension is an unfiled follow-up,
+    not a knob you can flip.
 
 ## Step 1 — run the importer
 
@@ -134,6 +147,20 @@ checklist (minutes, not hours):
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.
+  - Check the eval's README/paper for ITS judge. If the pinned house judge differs
+    from the one the paper graded with, the row carries a `NAMED DEVIATION` comment
+    with the link, and the catalogue prose says scores are not comparable to the
+    published numbers (precedent: frontierscience — the paper grades with GPT-5 at
+    high reasoning effort; the row pins the house judge and says so).
+  - Know the bad-reply semantics before reading a low score: a judge reply the
+    eval's parser cannot grade becomes a per-case `invalid_score_value` rejection
+    (it never aborts the whole aggregate), but a TRUNCATED reply that still parses
+    keeps upstream's 0.0 silently — on the first live run, check the judge calls'
+    finish reasons before trusting zeros.
+  - Judged runs are auditable per case: each case's judge call lands in its
+    evidence `accounting` (tokens/USD/latency/attempts) and the engine log tags the
+    judge round trip `role=judge case=N` — the owner's small paid run verifies both,
+    plus judge cost in the report's `cost_usd`.
 
 ## When the tool refuses
 

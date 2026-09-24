@@ -151,7 +151,12 @@ the PR where its cause lives, merged forward through the stack:
   ours not comparable); board revision literal (`34155c32aec9841b`); gradeless
   reply loses one case; olympiad prompt asserted chunk-for-chunk vs upstream.
 - #1041: runbook — judge-model-is-declared checklist item, judged-row default
-  wording; this ledger refresh.
+  wording; this ledger refresh. Second pass (2026-09-24, owner-requested): the
+  four learnings that postdate the first draft — Step 0 now refuses evals whose
+  scorer carries its own GenerateConfig/tools (allowlist, persistbench shape) or
+  an empty target (coconot/sosbench); reviewer checklist gains the NAMED
+  DEVIATION pattern, the bad-judge-reply semantics (invalid_score_value vs
+  silently-parsed truncation), and the per-case audit surface from #1051.
 
 Accepted, not implemented: truncated judge replies can read as real zeros
 (watch finish reasons in the live run before touching the max_tokens cap);
