@@ -18,12 +18,20 @@ run has no legal value to send, so it would send `0` — publishing an unknown c
 ranking it cheapest on the Pareto frontier. That is `OME-1143` reintroduced by its own fix.
 
 This unit completes the contract. A submission carries a real amount **or** a status saying the
-amount is unknowable. Omission is still rejected, which is what this ticket exists to enforce.
+amount is unknowable. ~~Omission is still rejected, which is what this ticket exists to
+enforce.~~
+
+> **SUPERSEDED by Review round 2 below (P1-1).** Omission is **accepted** on what shipped. A
+> required status was undeployable, so the contract was split and `OME-1258` owns the flip. Read
+> round 2 before acting on anything above it — the round-1 narrative in this ledger is kept as
+> the record of what was believed at the time, not as the contract. (`OME-1265`.)
 
 ## Decisions this implements (recorded on `OME-1251`)
 
-* **D1** — required on the wire; the board stores `null` for the amount whenever the status is
-  not `complete`. Required-on-the-wire is not non-null-in-the-column.
+* **D1** — ~~required on the wire~~ **optional on the wire, expand phase** (see round 2 P1-1);
+  the board stores `null` for the amount whenever the status is not `complete`. The
+  wire-vs-column half of this decision is unaffected: required-on-the-wire was never
+  non-null-in-the-column, and `OME-1258` inherits it intact.
 * **D2** — an unpriced row ranks on score and leaves every cost-bearing surface.
 * **D4** — `run_cost_status: "complete" | "partial" | "unavailable"`.
 
@@ -130,8 +138,9 @@ line 34 is untouched — the read DTO keeps its nullable cost, as designed.
    on `origin/main` were not touched by these:
    - `test_post_score_requires_a_non_null_run_cost` → `…_requires_a_cost_or_a_reason_it_is_absent`.
      It asserted the earlier contract (cost required, full stop), which would have forced an
-     unpriceable run to send `0`. It now pins what this ticket actually enforces: silence is
-     rejected.
+     unpriceable run to send `0`. It then pinned that silence is rejected — ~~what this ticket
+     actually enforces~~, **superseded in round 2**, where it became
+     `…_still_accepts_a_deployed_client_payload`.
    - a new `test_post_score_accepts_a_run_whose_cost_is_not_derivable` beside it — the state the
      earlier contract had no legal spelling for.
    - the OpenAPI assertion moved from `run_cost_usd` to `run_cost_status` in `required`, because
