@@ -1,0 +1,70 @@
+# OME-1135 — Live activity within evaluation rows
+
+Owner approved a Client implementation against Engine #980 with no older-Engine compatibility. The approved layout is one Candidate table, with stage-aware Status and independently expandable rows. There are no Evaluation/Logs tabs or compact/detailed switches.
+
+## Researcher experience
+Status uses Loading cases, Answering, Grading and Aggregating when received activity establishes the phase. Concurrent fresh phases are listed together. Stale observations are labelled Last observed; operation completion never implies a Case passed or the run succeeded. Authoritative final status, scores, Case counts and cost retain their existing meanings.
+
+A keyboard-operable disclosure beside each Candidate opens a stable scroll box directly beneath its summary. All retained activity transitions are available with explicit case/model identity, parent stage, outcome and actionable supplied details. Groups are explicit stage occurrences; parent chains are resolved only within the same Candidate/run. Missing, evicted or cyclic parents remain Activity not identified. Late parent arrival may establish grouping. Never infer ownership from route names, model names, prose or timing.
+
+The projection stores only allowlisted screamingface.activity.v1 fields, never raw Log bodies or private payloads. Supported kinds are case_loading, answering, grading, aggregation and model_call. Unsupported/malformed records do not affect callbacks or execution. The view discloses producer suppression, bridge loss, revision gaps and local truncation. Silence is no structured activity received, not proof of disabled policy or idle work.
+
+## Bounded live state
+A rolling history plus occurrence index retains at most 2,000 records / 8 MiB serialized data. Older routine history is evicted before unresolved or failure summaries; every category remains bounded. Each expansion renders a page of at most 100 retained events in receive order, with stage labels resolved from explicit parentage. Pagination and disclosure controls survive updates; scroll roots are never replaced. Fixed 200 ms update coalescing and a one-second quiet tick continue for the run lifetime, with no six-hour cutoff.
+
+The decoder collision window retains at most 4,096 IDs / 1 MiB. Sequence cursors still reject old replay; ID uniqueness detection applies only within that bounded window. No durable archive, server storage, new URL4 capability or older-schema aliases.
+
+Retained durations stay measured, never extrapolated provider progress; routine timing is omitted from the display. Stage freshness uses the approved conservative 30-second allowance / 180-second observation window; historical state is labelled rather than timed out. Missing completion is outcome not observed, and root termination ends incomplete displays without fabricated outcomes.
+
+## Validation
+Group interleaved calls, nested calls, late/missing parents, cycles and distinct Candidate/runs. Preserve expanded controls and bounded rendering on updates. Test malformed records, rolling decoder/history bounds, losses and days-long UI updates. Validate the widget in Jupyter using labelled simulated records, and keep real-provider runs under user control.
+
+Expanded activity is flat terminal-style output: compact monospace stage and model-call lines in receive order, with no inner table, columns or grid.
+
+The output sits in one bordered 280px-high scrolling well. Stage and model lines use the same compact rhythm, with status inline and no report headings or separated columns. Console-specific classes prevent older notebook-output styles changing the layout.
+
+Presentation update: all log lines are flush left, with consistent compact text and no decorative separators. Model lines identify the supplied Case, explicit parent stage and model. Unknown Case stays explicitly unknown. Routine durations and normal stop reasons are omitted from the display; retries, failures, truncation and loss remain visible. Records retain safe structured details. Case ID display uses str(), preserving leading zeros, not an inferred ordinal.
+
+## Approved chronological wording
+The target log is a chronological sequence of lifecycle events, not only latest-operation summaries. Use “Synthesising with [model]” for an explicitly identified synthesis role. Case identity, execution stage and model role are separate facts: synthesis can occur within answering or grading and is not a fifth stage. Retain the four stages. Never infer roles from prompts, routes or model names; an unknown role falls back to “Calling [model]”. Programmatic grading must not claim a model call. Member identity and corrective-round number may enrich lines when explicitly supplied. Selected-case positions/totals require authoritative selection metadata, not arrival order or numeric parsing of case IDs. Whole-case completion must not be inferred from one grading endpoint returning. These are target presentation requirements; current producer attribution is incomplete.
+
+
+## Selected-case numbering — 2026-09-18
+
+Display authoritative case_position/case_count as [Case n/N]. Both must be positive integer facts with position <= count. Unknown positions retain existing Case ID fallback; never derive from event arrival order. Existing chronology, bounded history and safe payload rendering remain unchanged.
+
+
+## Dynamic operation lines — approved implementation
+
+Approved dynamic presentation replaces the chronological transition projection: one latest-state line per run/operation, ordered by first observation. Hide routine Answering stages only when explicitly parented model calls represent them; retain failed/cancelled/refused/unknown stages. No role inference. Fixed marker slot shows a spinner while fresh/running, neutral check on completion, and explicit retry/failure/unknown text. Preserve bounded raw event history, loss notices, case prefixes and stage-aware summary. Pagination counts visible operations. The persistent widget owns scrolling so HTML refreshes do not recreate the scroll viewport. Respect reduced motion.
+
+
+The Status cell keeps stage-only wording. While a fresh stage supplies explicit case_position/case_count, Cases displays that active position (3 / 5), not the completed count (2 / 5). Internal completion accounting and final results remain unchanged. Concurrent active positions stay distinct; missing numbering retains the existing count fallback. Tests cover fresh, missing, concurrent, terminal and stale activity.
+
+Candidate disclosure: the chevron sits inside the row before its name. The full summary row is a native keyboard-operable toggle. Expanded logs stay within the same candidate border, directly below the summary; they do not toggle when clicked or scrolled.
+
+
+Owner requested timestamps: show a quiet HH:MM:SS UTC first-observed time per operation, fixed across updates. Full date and timezone in tooltip; bounded index evicts with latest operation. Invalid calendar dates must not break rendering. Duplicate Grading lines remain distinct operations pending Engine case-level grouping.
+
+Owner requested completed wording: Answered, Graded and Scores aggregated on success; active and failure wording remain distinct. Same dynamic operation line and timestamp.
+
+
+Owner approved discrete case Grading lines: consume scope=case grading records, join numbering only by explicit candidate/run/case ID from retained answering facts, preserve ID-only fallback. Hide routine endpoint grading rows once case-phase records exist in that run; keep model calls, failures, unknown outcomes and raw history. Terminal revision wins over delayed starts; no execution or timing inference.
+
+## Copy displayed activity — 2026-09-18
+Owner requested a Copy control at the top right of each log box. Add a native keyboard-accessible button within the log viewport, pinned above its displayed page. Copy only rendered, safe text (timestamps, messages and partial-history notices), never raw event payloads or other candidates. Show Copied only on successful browser clipboard write; show an actionable failure label if unavailable. Reuse existing notebook HTML/clipboard pattern, no dependencies or Engine changes. Test button semantics and candidate isolation, then verify actual clipboard output in Jupyter and run Client gates.
+
+## Neutral call wording — 2026-09-21
+Owner approved Calling MODEL → Completed MODEL call on the same logical line, Retrying MODEL call and MODEL call failed. Retain first-observed timestamps, icons, operation identity, case numbering and stage status. Avoid implying member/synthesiser/judge roles. Client-only presentation change in #983. Migrate only the existing wording assertions authorized by this request; preserve behavioral assertions. Add lifecycle/role-neutral regression coverage, run full gates with the explicit append-only migration exception, and keep draft/In Progress.
+
+
+## Compact spacing and candidate overflow — 2026-09-22
+Owner requested less empty space around activity and single-line horizontally scrollable candidate names. Use content-sized logs capped at 280px, 8px inner padding, and a constrained name scroll region that preserves row expansion. Validate in Jupyter without model calls and run Client gates. Existing fixed-height assertions migrate to the explicitly requested content-sized behavior.
+
+
+## Candidate status and alignment — 2026-09-22
+Owner requested one-word nonwrapping status, independently stopped candidate timers, and aligned contiguous table headers/rows. Root Terminated events establish execution completion and freeze duration from event timestamps; final reports remain score authority. Multiple simultaneous stages show Running, inactive stages show Waiting. Normalize widget wrapper margins and equal header/row borders. Verify concurrent candidate completion, nested terminal isolation, final report reconciliation, and rendered alignment.
+
+
+## Per-candidate final result — 2026-09-22
+Reconcile each completed candidate row from its validated CandidateResult before siblings finish. Notify from each transport completion in both sync and async execution; preserve final report ordering, validation and public event callbacks. UI completion remains fault-contained. Final Report still reconciles the whole view; no provisional scores or inferred cache totals. Test fast-second/slow-first completion and independent row values.
