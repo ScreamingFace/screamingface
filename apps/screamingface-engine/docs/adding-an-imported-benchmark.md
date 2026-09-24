@@ -93,6 +93,24 @@ pass/fail-only feedback. **MCQ boards never get one** — pass/fail feedback ove
 handful of options is an elimination attack (OME-796). The generated row defaults
 correctly from the scorer family; treat changing it as an owner decision.
 
+### Live activity comes from the shared adapter
+
+Boards created through `single_shot_board` inherit loading, answering, grading and
+aggregation observations. The shared Inspect scorer emits case-grading start and
+terminal facts around actual scoring, including judge-backed scoring; merely recording
+an answer is not grading completion. Candidate-internal corrective checks do not emit
+benchmark case-grading facts.
+
+No per-board logging decorator or custom stage name is needed. Keep the installed async
+aggregation route: it awaits scoring in the owning observation context. Do not replace
+it with a synchronous wrapper or worker-thread hop that loses that context. The adapter
+also supplies Case ID and selected-case numbering outside model input.
+
+If you bypass the shared adapter, follow the
+[manual guide's activity contract](adding-a-benchmark-manually.md#live-activity-what-the-benchmark-owns).
+Logs must not contain prompts, responses, private grading data or raw exception text,
+and scoring must be identical with observation disabled.
+
 ## Step 4 — verify
 
 ```sh
@@ -103,6 +121,12 @@ The row machinery's shared tests already cover registration, revision identity, 
 the extra-less catalogue; add the per-board definition assertions to the imported
 boards' test module (follow the existing boards' entries). Sanity-check the bake on a
 handful of rows if the eval's `record_to_sample` has any unusual shape.
+
+The shared activity integration tests live in
+`tests/unit/inspect/test_inspect_aggregation_activity.py` and
+`test_inspect_grading_activity.py`. For a new scorer/execution path, verify events through
+the actual installed aggregation route, including failure and observation-disabled
+parity; a direct-scorer test alone misses async/context boundaries.
 
 ## Step 5 — open the PR; a human verifies the diff
 
