@@ -387,6 +387,11 @@ parent directories, replaces an existing selected file for deterministic reruns,
 `Path`. A Report remains one JSON document even when it contains multiple Candidates; JSONL is
 reserved for a future collection of independent Reports.
 
+`CandidateResult.client_version` records the caller-reported Client version retained by the
+Engine for that run. It is also present in each candidate in `report.json`; missing or ambiguous
+evidence is `null`. It is not the version of the Client later exporting the report, nor the
+version that originally generated cached model answers.
+
 Each entry in `CandidateResult.operations` is a public immutable `sf.OperationInfo` value.
 
 Authentication, validation, transport, execution, protocol, and invalid-result failures raise

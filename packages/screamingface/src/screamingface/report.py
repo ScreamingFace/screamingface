@@ -13,6 +13,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, cast, overload
 
+from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._named_values import _NamedValues
@@ -186,6 +187,7 @@ class CandidateResult:
     run_id: str
     trace_id: str | None
     answer_seed: int | None
+    client_version: str | None
     started_at: datetime
     completed_at: datetime
     name: str
@@ -227,6 +229,7 @@ class CandidateResult:
         run_cost_status: RunCostStatus | None = None,
         trace_id: str | None = None,
         answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -274,6 +277,7 @@ class CandidateResult:
             # unlabeled. None = unseeded, and the key still appears (null) per the
             # report's stable-key convention.
             "answer_seed": _answer_seed(answer_seed),
+            "client_version": _client_version(client_version),
             "started_at": start,
             "completed_at": end,
             "name": _nonblank(name, "Candidate name"),
@@ -311,6 +315,7 @@ class CandidateResult:
             "benchmark": self.benchmark._result_dict(self.benchmark.case_count),
             "run_id": self.run_id,
             "answer_seed": self.answer_seed,
+            "client_version": self.client_version,
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
             "name": self.name,

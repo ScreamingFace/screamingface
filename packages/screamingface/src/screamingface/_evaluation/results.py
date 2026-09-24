@@ -134,6 +134,7 @@ def _candidate_result(
             # user quoting it is quoting what actually travelled — including for a run whose
             # frames never arrived. Do not re-derive it here.
             trace_id=outcome.trace_id,
+            client_version=outcome.client_version,
             # FEATURE (OME-1193): the sitting stamped on the compiled Candidate at
             # evaluate() time — the same value the transport sent as X-Answer-Seed.
             answer_seed=candidate.answer_seed,
