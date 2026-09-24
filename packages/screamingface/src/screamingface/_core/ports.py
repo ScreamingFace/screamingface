@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -45,6 +46,15 @@ class _RunOutcome:
     result_body: str | None
     media_type: str | None
     root_usage: Usage | None
+    # FEATURE (OME-1252): what this run's cache hits avoided, summed per provenance across its
+    # spans. Two fields, never a third holding their sum — url4 keeps them apart so a consumer
+    # cannot "add the labels away", and `reported` money is evidence about THIS row while
+    # `archive_matched` is measured from a different call of the same model and kind.
+    #
+    # None means nothing priceable was observed, which is not the same as zero. The run-level
+    # status derivation reads exactly that difference to tell `partial` from `unavailable`.
+    cache_saved_cost_usd: Decimal | None = None
+    cache_saved_cost_archive_usd: Decimal | None = None
     artifact: _ResultArtifact | None = None
     # WHY (OME-967): the id the CLIENT minted for this run, not one read back off a frame.
     # A user quoting it must be quoting the value that actually travelled on the wire —

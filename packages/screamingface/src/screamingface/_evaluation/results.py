@@ -28,6 +28,7 @@ from screamingface.report import (
     Failure,
     MemberResult,
     Report,
+    RunCostStatus,
     Usage,
 )
 
@@ -161,9 +162,34 @@ def _candidate_result(
             ),
             failures=failures,
             usage=outcome.root_usage or Usage(),
+            run_cost_status=_run_cost_status(outcome),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
+
+
+def _run_cost_status(outcome: _RunOutcome) -> RunCostStatus:
+    """What this run's cost is worth, per `OME-1251` D4.
+
+    INVARIANT: `partial` is decided by the REPORTED sum alone. `archive_matched` money is a real
+    amount measured from a different call of the same model and kind, not from this row, and
+    `OME-1251` D3 decided it is not published. A run whose only evidence is archive-matched has
+    nothing publishable about its own cost, so it is `unavailable` — not `partial`.
+
+    INVARIANT: the two sums are never added. url4 keeps them as two differently-named fields
+    "precisely so the two can never be summed — a single amount plus a label invites a consumer
+    to add the labels away" (PRD S5), and the engine carries a structural test forbidding a third
+    accumulator. Doing it here would defeat both.
+
+    A cost is absent exactly when the Engine reported `pricing_version == "unpriced"`, which is
+    what `contract.py` turns into a null `cost_usd`.
+    """
+    usage = outcome.root_usage
+    if usage is not None and usage.cost_usd is not None:
+        return "complete"
+    if outcome.cache_saved_cost_usd is not None:
+        return "partial"
+    return "unavailable"
 
 
 def _candidate_payload(
