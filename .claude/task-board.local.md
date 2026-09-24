@@ -127,8 +127,9 @@ close_template: |
   with no blocker is a validation failure. `needs-owner` remains not live.
 
 - Every work item: team Engineering + project 😱 ScreamingFace V1 (D11) + a **component/landing
-  label — MANDATORY** (exactly one leaf from `landing:` — `app/*`/`pkg/*`, or `repo` for pure
-  process work; epics and `bug`s carry one too) + one `who-acts` label + one `actor` label
+  label — MANDATORY** (exactly one leaf from `landing:` — `app/*`/`pkg/*`/`cross-unit/*`, e.g.
+  `cross-unit/repo-dev-processes` for repo/process work; epics and `bug`s carry one too) + one
+  `who-acts` label + one `actor` label
   (agentic|human — D13, MANDATORY) + `parentId` of an epic unless the issue itself is the
   epic + a **self-assigned `assignee`** (`assignee: "me"`, MANDATORY — see below).
 - **Component label is not optional and has no default.** Filing an issue with no landing leaf
