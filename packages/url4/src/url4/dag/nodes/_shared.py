@@ -179,8 +179,6 @@ def _error_payload(exc: BaseException) -> dict:
     permanent = getattr(exc, "permanent", None)
     if isinstance(permanent, bool):
         payload["retryable"] = not permanent
-    if isinstance(exc, ResolutionError) and exc.origin is not None:
-        payload["origin"] = exc.origin
     return {"error": payload}
 
 

@@ -11,9 +11,12 @@ from screamingface_engine.benchmarks.case_execution import case_execution_payloa
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.ifeval.grade import AggregateError, aggregate
 from screamingface_engine.world import connector
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.connector import _raise_for_status
+from url4 import RelExpr, expr, iterate, render, src, text
 from url4.core.errors import ResolutionError
 from url4.dag.nodes._shared import _error_payload
+from url4.peer.server import Url4Node
 
 _SPEC = {
     153: {
@@ -28,11 +31,49 @@ def _aggregate(row: dict):
     return aggregate(json.dumps([row]), _SPEC, "ifeval", [153], selected_case_count=1)
 
 
+async def _collect_candidate_error(error: BaseException) -> dict:
+    """Exercise the actual candidate boundary and URL4 collect serialization."""
+    node = Url4Node("candidate-failure-test")
+    node.endpoint("/passthrough")(lambda request: request.intent)
+    install_candidate_invocation(node)
+
+    @node.endpoint("/fail")
+    def fail(_request):
+        raise error
+
+    call = RelExpr(
+        path="/benchmarks/candidate",
+        context="question",
+        intent=text(
+            render(
+                expr(
+                    src(
+                        RelExpr(path="/fail", context="question", intent=text("answer")),
+                        name="value",
+                        weight=0.0,
+                    ),
+                    intent=text("$value"),
+                )
+            )
+        ),
+        params=(("web_search", "false"),),
+    )
+    result = await node.evaluate(
+        render(
+            iterate(
+                [text("case")], body=src(call, name="result", weight=0.0), intent=text("$result")
+            )
+        )
+    )
+    return json.loads(result.text)[0]
+
+
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500, 503, 599])
-def test_connector_http_error_survives_collection_as_candidate_failure(status: int) -> None:
+@pytest.mark.asyncio
+async def test_connector_http_error_survives_collection_as_candidate_failure(status: int) -> None:
     with pytest.raises(ResolutionError) as caught:
         _raise_for_status(httpx.Response(status))
-    result = _aggregate(_error_payload(caught.value))
+    result = _aggregate(await _collect_candidate_error(caught.value))
     case = result["cases"][0]
     failure = case["failures"][0]
     assert failure == {
@@ -41,7 +82,7 @@ def test_connector_http_error_survives_collection_as_candidate_failure(status: i
         "message": f"aigateway request failed with status {status}",
         "retryable": status == 429 or status >= 500,
         "case_id": 153,
-        "metadata": {"row_index": 0, "error_kind": "ResolutionError"},
+        "metadata": {"row_index": 0, "error_kind": "CandidateExecutionError"},
     }
     assert case["status"] == "failed"
     assert case["grade"] is None
@@ -70,7 +111,7 @@ async def test_known_connector_failures_are_candidate_stage(code: str, monkeypat
         else:
             body = b"" if code == "aigateway_empty_response" else b"not JSON"
             connector._json_or_raise(httpx.Response(200, content=body))
-    result = _aggregate(_error_payload(caught.value))
+    result = _aggregate(await _collect_candidate_error(caught.value))
     failure = result["cases"][0]["failures"][0]
     assert (failure["stage"], failure["code"], failure["retryable"]) == (
         "candidate",

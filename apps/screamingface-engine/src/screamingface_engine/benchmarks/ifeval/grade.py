@@ -33,6 +33,7 @@ from screamingface_engine.benchmarks.aggregation import (
     public_error,
 )
 from screamingface_engine.benchmarks.contract import CaseResult, Failure
+from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.ifeval.case_evaluation import CHECK_SCHEMA, graded_record
 from screamingface_engine.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 from screamingface_engine.benchmarks.spine.rows import RowReader
@@ -319,7 +320,7 @@ def _collected_failure_result(
         selected_case=selected_case,
         failures=[
             {
-                "stage": "candidate" if _is_gateway_call_failure(error) else "grading",
+                "stage": "candidate" if _is_candidate_execution_failure(error) else "grading",
                 "code": diagnostic.code,
                 "message": diagnostic.message,
                 "retryable": diagnostic.retryable,
@@ -330,10 +331,10 @@ def _collected_failure_result(
     )
 
 
-def _is_gateway_call_failure(error: Mapping[str, Any]) -> bool:
-    # INVARIANT: the connector records where the failure arose independently of
-    # its code. Protected checker failures never enter this orphan path.
-    return error.get("origin") == "model_call"
+def _is_candidate_execution_failure(error: Mapping[str, Any]) -> bool:
+    # WHY: only the candidate boundary assigns this kind; codes do not establish
+    # provenance. Protected grading failures are handled before this fallback.
+    return error.get("kind") == CandidateExecutionError.__name__
 
 
 def _ifeval_score(cases: Sequence[CaseResult]) -> CandidateScore:

@@ -25,3 +25,6 @@ Owner approved both boundary and test migration on 2026-09-24. No new ticket.
 - Wisdom review: no new dependency or benchmark-specific import in URL4; origin omitted for legacy errors; codes/messages/retryability unchanged. Protected checker envelope wins. Successful expression generation untouched; no golden fixtures repinned. All ten connector ResolutionError constructions explicitly stamped. Other boards can consume the field separately, per ticket scope.
 - Deviation: single cross-package PR under existing OME-1197 at owner's explicit request. The migrated bad-response test now follows the real connector's permanent=True instead of fabricating retryability.
 - Commit: fix(engine): retain model-call origin through URL4 collection (see git history). Draft only; no merge, no Linear comments.
+
+## Superseded design
+The owner approved replacing the origin extension with Engine-owned CandidateExecutionError using existing URL4 error.kind. See 2026-09-24-OME-1197-candidate-boundary.md; the earlier outcome above records the original iteration only.

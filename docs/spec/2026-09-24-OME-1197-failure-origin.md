@@ -1,7 +1,7 @@
-# OME-1197 — Explicit collected error origin
+# OME-1197 — Candidate failure boundary
 
-ResolutionError gains optional origin: a bounded ASCII identifier (lowercase letter followed by up to 63 lowercase letters, digits or underscores). URL4 assigns no domain semantics. Collection includes origin only when explicitly present and valid; old unmarked error JSON remains byte-identical.
+The Engine candidate adapter wraps URL4 errors escaping recipe execution in an Engine-owned CandidateExecutionError (a ResolutionError subclass). Preserve code, message and permanence. Candidate input/policy validation remains outside that execution boundary; refusal results retain their existing handling. Cancellation and unexpected programming exceptions are not caught.
 
-The Engine stamps model_call at every connector ResolutionError construction, including conversion of RunnerRequestError. IFEval orphan classification reads this mark instead of error code vocabulary. Protected checker envelopes still classify as grading regardless of the inner origin. Unknown/unmarked origins retain grading fallback. Public error codes/messages/retryability, denominator, successful output, prompts and recipes are unchanged. Other boards may adopt the marker separately.
+URL4 already serializes exception type in error.kind. No URL4 changes or new wire fields are required. IFEval recognizes CandidateExecutionError for otherwise-unattributed collected failures. Protected checker envelopes still take precedence; unmarked failures retain the existing fallback. Successful outputs, prompts, recipe expressions and scores are unchanged.
 
-Owner explicitly approved one cross-package draft under OME-1197, no new ticket, and migrating three legacy tests from hand-built code-only exceptions to actual connector errors. Preserve remaining tests.
+This supersedes the draft's origin extension following owner-approved spec/SDK review. The existing SDK probe demonstrated kind preservation through real collection; integration tests must cover the Engine boundary. Source-envelope attribution described by the spec is not yet exposed through this SDK's collected-error payload, so this reuses its existing kind contract rather than adding a protocol feature.

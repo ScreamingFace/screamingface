@@ -376,9 +376,7 @@ class _ModelEndpoint:
                     retrieval_policy=retrieval_policy,
                 )
         except RunnerRequestError as exc:
-            error = ResolutionError(
-                str(exc), code=exc.code, permanent=exc.permanent, origin="model_call"
-            )
+            error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
             if exc.outcome is not None:
                 bind_model_outcome(error, exc.outcome)
             raise error from exc
@@ -684,7 +682,6 @@ async def _post_completion(
         f"aigateway request failed at the transport layer: {_transport_detail(last)}",
         code="aigateway_transport_error",
         permanent=False,
-        origin="model_call",
     ) from last
 
 
@@ -731,7 +728,6 @@ def _deadline_exceeded(cause: httpx.TransportError | None) -> ResolutionError:
         f"aigateway request ran out of the request budget: {detail}",
         code="aigateway_deadline_exceeded",
         permanent=False,
-        origin="model_call",
     )
 
 
@@ -891,7 +887,6 @@ async def _chat_completion_loop(
         f"web tool loop exceeded {cfg.web_tool_max_iterations} iterations",
         code="web_tool_loop_limit",
         permanent=False,
-        origin="model_call",
     )
 
 
@@ -959,7 +954,6 @@ def _retrieval_request(
             f"model route {spec.id!r} declares web_search = false",
             code="benchmark_retrieval_unavailable",
             permanent=True,
-            origin="model_call",
         )
     wants_search = wants_web_search(params, spec)
     tools = build_runtime(
@@ -1048,7 +1042,6 @@ def _invalid_candidate_input(detail: str) -> NoReturn:
         f"invalid Candidate chat input: {detail}",
         code="invalid_candidate_input",
         permanent=True,
-        origin="model_call",
     )
 
 
@@ -1104,14 +1097,12 @@ def _json_or_raise(resp: httpx.Response) -> dict:
                 "model request returned an empty response body; the request may be retried",
                 code="aigateway_empty_response",
                 permanent=False,
-                origin="model_call",
             ) from exc
         raise ResolutionError(
             "aigateway returned a non-JSON response body — a proxy or access gateway in front "
             "of aigateway is intercepting the request",
             code="aigateway_bad_response",
             permanent=True,
-            origin="model_call",
         ) from exc
 
 
@@ -1129,7 +1120,6 @@ def _raise_for_status(resp: httpx.Response) -> None:
             "or access gateway in front of aigateway is intercepting the request",
             code="aigateway_bad_response",
             permanent=True,
-            origin="model_call",
         )
     if resp.status_code < 400:
         return
@@ -1145,7 +1135,7 @@ def _raise_for_status(resp: httpx.Response) -> None:
             code = detail.get("code", code)
             message = detail.get("message", message)
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
-    raise ResolutionError(message, code=code, permanent=permanent, origin="model_call")
+    raise ResolutionError(message, code=code, permanent=permanent)
 
 
 __all__ = ["AigatewayConfig", "AigatewayWorld", "build_aigateway_world"]

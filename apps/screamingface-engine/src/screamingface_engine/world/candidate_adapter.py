@@ -9,6 +9,7 @@ from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_execution import install_case_execution
 from screamingface_engine.benchmarks.case_request import candidate_input, candidate_position
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
+from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.candidate_scope import candidate_invocation_scope
@@ -18,7 +19,7 @@ from screamingface_engine.retrieval_policy import (
     normalize_excluded_domains,
     retrieval_scope,
 )
-from url4.core.errors import ResolutionError
+from url4.core.errors import ResolutionError, Url4Error
 from url4.peer.server import Request, Url4Node
 
 _POLICY_PARAMS = frozenset({"web_search", "web_search_exclude"})
@@ -65,9 +66,14 @@ class _CandidateInvocation:
     async def _evaluate(self, expression: str, input_text: str) -> str:
         # WHY: stage entry must occur inside the decoded Case scope, so its start,
         # terminal record and nested calls all share the explicit identity.
-        return await evaluate_candidate_recipe(
-            self._node, expression, input_text, isolate_operation_calls=True
-        )
+        try:
+            return await evaluate_candidate_recipe(
+                self._node, expression, input_text, isolate_operation_calls=True
+            )
+        except Url4Error as exc:
+            # WHY: attribute at the recipe boundary, before collection drops scope.
+            # Codes remain diagnostic; URL4 already preserves this exception's kind.
+            raise CandidateExecutionError(str(exc), code=exc.code, permanent=exc.permanent) from exc
 
 
 def install_candidate_invocation(node: Url4Node) -> None:
