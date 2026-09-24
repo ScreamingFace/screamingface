@@ -197,6 +197,14 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-wmdp_chem": ("coverage_declare", "single_shot", "medium"),
         "inspect-wmdp_cyber": ("coverage_declare", "single_shot", "medium"),
         "inspect-hellaswag": ("coverage_declare", "single_shot", "easy"),
+        # OME-1264 batch 1: the six text LAB-Bench subsets — expert biology
+        # research MCQ, all hard, all single-shot through the shared row machine.
+        "inspect-lab_bench_litqa": ("coverage_declare", "single_shot", "hard"),
+        "inspect-lab_bench_suppqa": ("coverage_declare", "single_shot", "hard"),
+        "inspect-lab_bench_dbqa": ("coverage_declare", "single_shot", "hard"),
+        "inspect-lab_bench_protocolqa": ("coverage_declare", "single_shot", "hard"),
+        "inspect-lab_bench_seqqa": ("coverage_declare", "single_shot", "hard"),
+        "inspect-lab_bench_cloning_scenarios": ("coverage_declare", "single_shot", "hard"),
     }
     actual = {
         benchmark.id: (

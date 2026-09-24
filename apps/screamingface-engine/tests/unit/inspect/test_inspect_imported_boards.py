@@ -50,6 +50,15 @@ _EXPECTED_FAMILIES: dict[str, bool] = {
     "wmdp_chem": True,
     "wmdp_cyber": True,
     "hellaswag": True,
+    # LAB-Bench text subsets (OME-1264 batch 1): MCQ graded by the eval's OWN
+    # precision_choice scorer — still the MCQ family (check surface refused);
+    # FigQA/TableQA are image-based and stay out of the text-only bake.
+    "lab_bench_litqa": True,
+    "lab_bench_suppqa": True,
+    "lab_bench_dbqa": True,
+    "lab_bench_protocolqa": True,
+    "lab_bench_seqqa": True,
+    "lab_bench_cloning_scenarios": True,
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -166,6 +175,8 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     # hellaswag: OURS policy seed (review finding on PR #1018) — the pinned
     # validation split is domain-grouped (3,243 ActivityNet rows then 6,799
     # WikiHow), so an unshuffled limit ≤ 3243 run would examine zero WikiHow.
+    # lab_bench_*: upstream shuffles rows per run (shuffle=True, no seed), so
+    # the import pins one order (OURS policy seed, OME-1264 batch 1).
     assert seeded == {
         "mmlu",
         "commonsense_qa",
@@ -177,7 +188,48 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "aime25",
         "musr",
         "hellaswag",
+        "lab_bench_litqa",
+        "lab_bench_suppqa",
+        "lab_bench_dbqa",
+        "lab_bench_protocolqa",
+        "lab_bench_seqqa",
+        "lab_bench_cloning_scenarios",
     }
+
+
+def test_lab_bench_boards_pin_a_choice_order() -> None:
+    """LAB-Bench builds every case with the correct answer FIRST and shuffles
+    choices per run (shuffle_choices=True, unseeded) — without a pinned choice
+    order every baked answer would be 'A'. The six text boards must carry the
+    policy choice-shuffle seed, and it must ride exam identity."""
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    lab_bench_keys = {key for key in SNAPSHOTS if key.startswith("lab_bench_")}
+    assert lab_bench_keys == {
+        "lab_bench_litqa",
+        "lab_bench_suppqa",
+        "lab_bench_dbqa",
+        "lab_bench_protocolqa",
+        "lab_bench_seqqa",
+        "lab_bench_cloning_scenarios",
+    }
+    for key in sorted(lab_bench_keys):
+        assert SNAPSHOTS[key].choice_shuffle_seed is not None, key
+        assert f"choice_shuffle_seed={SNAPSHOTS[key].choice_shuffle_seed}" in _revision_pins(
+            SNAPSHOTS[key]
+        )
+
+
+def test_lab_bench_pins_track_upstreams_own_revision_constant() -> None:
+    """Same drift guard as aime24/25/hellaswag, once for the whole family: every
+    lab_bench sha is COPIED from the eval's own pinned constant — a dependency
+    bump that moves upstream's pin must fail here."""
+
+    from inspect_evals.lab_bench.lab_bench import LAB_BENCH_DATASET_REVISION as UPSTREAM
+
+    for key in (k for k in SNAPSHOTS if k.startswith("lab_bench_")):
+        assert SNAPSHOTS[key].dataset_revision == UPSTREAM, key
 
 
 def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:

@@ -462,6 +462,158 @@ BOARDS: tuple[BoardSpec, ...] = (
         # (owner-approved 2026-09-22 — see pins.py).
         scorer="inspect_ai.scorer:choice",
     ),
+    BoardSpec(
+        key="lab_bench_litqa",
+        title="LAB-Bench LitQA2",
+        description=(
+            "199 multiple-choice questions answerable only from specific recent "
+            "biology papers (the LAB-Bench LitQA2 subset), imported from "
+            "inspect_evals. Every question offers the distractors plus an "
+            "explicit 'insufficient information' opt-out; grading is the eval's "
+            "own precision-aware choice scorer (opting out counts as no answer, "
+            "not wrong), so no judge tokens are spent. Serving order and choice "
+            "order are pinned by policy seeds (upstream shuffles both per run). "
+            "Benchmark score = plain accuracy over the cases run. No mid-run "
+            "check surface (elimination attack over few options)."
+        ),
+        focus="Biology literature research QA (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology-research material — the LAB-Bench paper reports frontier
+        # models well below human-expert accuracy across subsets (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_litqa.
+        # License: cc-by-sa-4.0.
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BoardSpec(
+        key="lab_bench_suppqa",
+        title="LAB-Bench SuppQA",
+        description=(
+            "82 multiple-choice questions about the supplementary materials of "
+            "named biology papers (the LAB-Bench SuppQA subset — each prompt "
+            "carries the paper title and DOI), imported from inspect_evals. "
+            "Every question offers an explicit 'insufficient information' "
+            "opt-out; grading is the eval's own precision-aware choice scorer "
+            "(opting out counts as no answer, not wrong), so no judge tokens "
+            "are spent. Serving order and choice order are pinned by policy "
+            "seeds. Benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Paper supplementary-material QA (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology-research material — the LAB-Bench paper reports frontier
+        # models well below human-expert accuracy across subsets (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_suppqa.
+        # License: cc-by-sa-4.0.
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BoardSpec(
+        key="lab_bench_dbqa",
+        title="LAB-Bench DbQA",
+        description=(
+            "520 multiple-choice questions whose answers live in biological "
+            "databases — gene, protein and sequence records (the LAB-Bench DbQA "
+            "subset), imported from inspect_evals. Every question offers an "
+            "explicit 'insufficient information' opt-out; grading is the eval's "
+            "own precision-aware choice scorer (opting out counts as no answer, "
+            "not wrong), so no judge tokens are spent. Serving order and choice "
+            "order are pinned by policy seeds. Benchmark score = plain accuracy "
+            "over the cases run. No mid-run check surface (elimination attack "
+            "over few options)."
+        ),
+        focus="Biological database knowledge (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology-research material — the LAB-Bench paper reports frontier
+        # models well below human-expert accuracy across subsets (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_dbqa.
+        # License: cc-by-sa-4.0.
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BoardSpec(
+        key="lab_bench_protocolqa",
+        title="LAB-Bench ProtocolQA",
+        description=(
+            "108 multiple-choice questions that present a written lab protocol "
+            "and ask what is wrong with it or what a step should be (the "
+            "LAB-Bench ProtocolQA subset), imported from inspect_evals. Every "
+            "question offers an explicit 'insufficient information' opt-out; "
+            "grading is the eval's own precision-aware choice scorer (opting "
+            "out counts as no answer, not wrong), so no judge tokens are "
+            "spent. Serving order and choice order are pinned by policy seeds. "
+            "Benchmark score = plain accuracy over the cases run. No mid-run "
+            "check surface (elimination attack over few options)."
+        ),
+        focus="Lab-protocol troubleshooting (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology-research material — the LAB-Bench paper reports frontier
+        # models well below human-expert accuracy across subsets (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa.
+        # License: cc-by-sa-4.0.
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BoardSpec(
+        key="lab_bench_seqqa",
+        title="LAB-Bench SeqQA",
+        description=(
+            "600 multiple-choice questions about DNA and protein sequences — "
+            "reading frames, translation, restriction sites and similar "
+            "manipulations (the LAB-Bench SeqQA subset), imported from "
+            "inspect_evals. Every question offers an explicit 'insufficient "
+            "information' opt-out; grading is the eval's own precision-aware "
+            "choice scorer (opting out counts as no answer, not wrong), so no "
+            "judge tokens are spent. Serving order and choice order are pinned "
+            "by policy seeds. Benchmark score = plain accuracy over the cases "
+            "run. No mid-run check surface (elimination attack over few "
+            "options)."
+        ),
+        focus="DNA/protein sequence reasoning (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology-research material — the LAB-Bench paper reports frontier
+        # models well below human-expert accuracy across subsets (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_seqqa.
+        # License: cc-by-sa-4.0.
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BoardSpec(
+        key="lab_bench_cloning_scenarios",
+        title="LAB-Bench CloningScenarios",
+        description=(
+            "33 multiple-choice questions over multi-step molecular cloning "
+            "workflows — plasmids, primers and assembly steps reasoned through "
+            "end to end (the LAB-Bench CloningScenarios subset), imported from "
+            "inspect_evals. Every question offers an explicit 'insufficient "
+            "information' opt-out; grading is the eval's own precision-aware "
+            "choice scorer (opting out counts as no answer, not wrong), so no "
+            "judge tokens are spent. Serving order and choice order are pinned "
+            "by policy seeds. Benchmark score = plain accuracy over the cases "
+            "run. No mid-run check surface (elimination attack over few "
+            "options)."
+        ),
+        focus="Molecular-cloning workflow reasoning (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology-research material — the LAB-Bench paper reports frontier
+        # models well below human-expert accuracy across subsets (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios.
+        # License: cc-by-sa-4.0.
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 

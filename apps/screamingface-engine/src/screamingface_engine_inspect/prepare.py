@@ -87,6 +87,48 @@ from screamingface_engine_inspect.pins import (
     HELLASWAG_DATASET_REVISION,
     HELLASWAG_SHUFFLE_SEED,
     HELLASWAG_SPLIT,
+    LAB_BENCH_CLONING_SCENARIOS_CASE_COUNT,
+    LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_CLONING_SCENARIOS_CONFIG,
+    LAB_BENCH_CLONING_SCENARIOS_DATASET,
+    LAB_BENCH_CLONING_SCENARIOS_DATASET_REVISION,
+    LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
+    LAB_BENCH_CLONING_SCENARIOS_SPLIT,
+    LAB_BENCH_DBQA_CASE_COUNT,
+    LAB_BENCH_DBQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_DBQA_CONFIG,
+    LAB_BENCH_DBQA_DATASET,
+    LAB_BENCH_DBQA_DATASET_REVISION,
+    LAB_BENCH_DBQA_SHUFFLE_SEED,
+    LAB_BENCH_DBQA_SPLIT,
+    LAB_BENCH_LITQA_CASE_COUNT,
+    LAB_BENCH_LITQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_LITQA_CONFIG,
+    LAB_BENCH_LITQA_DATASET,
+    LAB_BENCH_LITQA_DATASET_REVISION,
+    LAB_BENCH_LITQA_SHUFFLE_SEED,
+    LAB_BENCH_LITQA_SPLIT,
+    LAB_BENCH_PROTOCOLQA_CASE_COUNT,
+    LAB_BENCH_PROTOCOLQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_PROTOCOLQA_CONFIG,
+    LAB_BENCH_PROTOCOLQA_DATASET,
+    LAB_BENCH_PROTOCOLQA_DATASET_REVISION,
+    LAB_BENCH_PROTOCOLQA_SHUFFLE_SEED,
+    LAB_BENCH_PROTOCOLQA_SPLIT,
+    LAB_BENCH_SEQQA_CASE_COUNT,
+    LAB_BENCH_SEQQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_SEQQA_CONFIG,
+    LAB_BENCH_SEQQA_DATASET,
+    LAB_BENCH_SEQQA_DATASET_REVISION,
+    LAB_BENCH_SEQQA_SHUFFLE_SEED,
+    LAB_BENCH_SEQQA_SPLIT,
+    LAB_BENCH_SUPPQA_CASE_COUNT,
+    LAB_BENCH_SUPPQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_SUPPQA_CONFIG,
+    LAB_BENCH_SUPPQA_DATASET,
+    LAB_BENCH_SUPPQA_DATASET_REVISION,
+    LAB_BENCH_SUPPQA_SHUFFLE_SEED,
+    LAB_BENCH_SUPPQA_SPLIT,
     MMLU_CASE_COUNT,
     MMLU_CONFIG,
     MMLU_DATASET,
@@ -435,6 +477,90 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # WHY the seed: the split is domain-grouped (ActivityNet then
         # WikiHow) — see the pin's comment; OURS by policy.
         shuffle_seed=HELLASWAG_SHUFFLE_SEED,
+    ),
+    "lab_bench_litqa": SnapshotSpec(
+        dataset=LAB_BENCH_LITQA_DATASET,
+        config=LAB_BENCH_LITQA_CONFIG,
+        split=LAB_BENCH_LITQA_SPLIT,
+        dataset_revision=LAB_BENCH_LITQA_DATASET_REVISION,
+        case_count=LAB_BENCH_LITQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_litqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_LITQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_LITQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_suppqa": SnapshotSpec(
+        dataset=LAB_BENCH_SUPPQA_DATASET,
+        config=LAB_BENCH_SUPPQA_CONFIG,
+        split=LAB_BENCH_SUPPQA_SPLIT,
+        dataset_revision=LAB_BENCH_SUPPQA_DATASET_REVISION,
+        case_count=LAB_BENCH_SUPPQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_suppqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_suppqa",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_SUPPQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_SUPPQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_dbqa": SnapshotSpec(
+        dataset=LAB_BENCH_DBQA_DATASET,
+        config=LAB_BENCH_DBQA_CONFIG,
+        split=LAB_BENCH_DBQA_SPLIT,
+        dataset_revision=LAB_BENCH_DBQA_DATASET_REVISION,
+        case_count=LAB_BENCH_DBQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_dbqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_DBQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_DBQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_protocolqa": SnapshotSpec(
+        dataset=LAB_BENCH_PROTOCOLQA_DATASET,
+        config=LAB_BENCH_PROTOCOLQA_CONFIG,
+        split=LAB_BENCH_PROTOCOLQA_SPLIT,
+        dataset_revision=LAB_BENCH_PROTOCOLQA_DATASET_REVISION,
+        case_count=LAB_BENCH_PROTOCOLQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_protocolqa",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_PROTOCOLQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_PROTOCOLQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_seqqa": SnapshotSpec(
+        dataset=LAB_BENCH_SEQQA_DATASET,
+        config=LAB_BENCH_SEQQA_CONFIG,
+        split=LAB_BENCH_SEQQA_SPLIT,
+        dataset_revision=LAB_BENCH_SEQQA_DATASET_REVISION,
+        case_count=LAB_BENCH_SEQQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_seqqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_SEQQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_SEQQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_cloning_scenarios": SnapshotSpec(
+        dataset=LAB_BENCH_CLONING_SCENARIOS_DATASET,
+        config=LAB_BENCH_CLONING_SCENARIOS_CONFIG,
+        split=LAB_BENCH_CLONING_SCENARIOS_SPLIT,
+        dataset_revision=LAB_BENCH_CLONING_SCENARIOS_DATASET_REVISION,
+        case_count=LAB_BENCH_CLONING_SCENARIOS_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
