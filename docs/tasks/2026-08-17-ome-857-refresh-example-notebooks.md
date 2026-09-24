@@ -1,12 +1,12 @@
 ---
 id: OME-857
 linear_url: https://linear.app/openmined/issue/OME-857/refresh-the-example-notebooks-credits-helper-protocol-grid-corrective
-status: Backlog
+status: done
 type: task
 priority: Medium
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-17
-closed:
+closed: 2026-08-24
 ---
 
 # Refresh the example notebooks: credits helper, protocol grid, corrective-loops walkthrough

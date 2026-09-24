@@ -1,9 +1,9 @@
 ---
 ticket: OME-1097
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-07
-finished:
+finished: 2026-09-09
 ---
 
 # OME-1097 — Share the scored path and scorer for rubric benchmarks behind a `grade_case` hook
@@ -104,3 +104,17 @@ All paths relative to `apps/screamingface-engine/`.
     net −50 lines and 857 of the added lines are tests — single PR kept (owner call).
   - Pre-existing, unrelated: 4 setup errors in `tests/e2e/test_replay_plumbing.py`
     (missing local tracer fixtures), present independent of this change.
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `ce31f071`
+(`Merge pull request #847 from ScreamingFace/OME-1097-shared-scored-path`), authored 2026-09-09. `finished: 2026-09-09` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.

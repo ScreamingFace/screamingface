@@ -1,7 +1,7 @@
 ---
 ticket: OME-566
 stack: url4-cloud
-status: in_progress
+status: done
 started: 2026-07-22
 finished: 2026-07-22
 ---
@@ -54,3 +54,17 @@ switcher; `run_gates.py url4-cloud` green.
   (livez/readyz/metrics) were already hidden. Browser-verified on `:9108`: `/scalar` sidebar =
   Introduction / Token / Execution / Models (no Stream / Ops / Healthz); `/asyncapi` renders the WS
   channel + messages directly; `/docs` switcher intact. `/healthz` still responds `200`.
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `bccb5ee0`
+(`feat(url4-cloud): declutter REST docs + document Prefer sync/async`), authored 2026-07-22. `finished: 2026-07-22` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.
