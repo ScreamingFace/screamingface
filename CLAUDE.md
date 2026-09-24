@@ -25,8 +25,9 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
 0. **95% confidence gate — TOP RULE.** Below 95% confident it's correct AND wanted →
    STOP and ask. Applies to everything: code, work items, docs, diagrams.
 1. **Epic first.** Every unit of work is a Linear issue under an epic (`OME-N`, Engineering
-   team, 😱 ScreamingFace V1) with its labels (`app/*`/`pkg/*` or `repo`; one `who-acts`;
-   one `actor` — agentic|human, mandatory), a **self-assigned assignee** (`assignee: "me"` —
+   team, 😱 ScreamingFace V1) with its labels (a **component/landing** label — `app/*`/`pkg/*`
+   or `repo` — MANDATORY, no default; one `who-acts`; one `actor` — agentic|human, mandatory), a
+   **self-assigned assignee** (`assignee: "me"` —
    mandatory on every issue and epic; nothing is filed unassigned), and a mirror in
    `docs/tasks/`. The issue is
    created when the PR is opened — not at work start, and not on a commit or a new branch —
@@ -39,6 +40,9 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    `bug`:** an issue labeled `bug` may be filed with no parent epic — in Triage, left
    unassigned, with Irina and Kevin tagged for review. Everything else goes under an epic and
    self-assigns.
+   Every epic also carries exactly one **epic-classification** (`tech-debt`/`product-feature`/
+   `infra` — the `epic` group's single-select leaves, and the epic marker); non-epics never carry
+   it. `blocked` is applied only with a named blocking ticket/epic + a Linear blocked-by relation.
    Close status in BOTH Linear and the mirror at finish.
 2. **Work ledger.** Every unit has `docs/work/YYYY-MM-DD-<slug>.md` (slug, not a ticket id —
    no `OME-N` exists until PR-open) — created at work START from `docs/work/TEMPLATE.md`,

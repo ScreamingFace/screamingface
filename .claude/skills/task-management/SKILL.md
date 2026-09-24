@@ -41,13 +41,16 @@ Linear — and are **two levels deep**; a sub-component is a slash inside the le
 **Agents never mint labels.** Need a new leaf? Propose it to the project lead, who creates it
 in the UI and registers it in the card in the same change — then apply it to issues.
 
-- **Landing — WHERE the work lands.** One or more top-level groups partition work by landing
-  type (application vs package vs cross-cutting vs research, etc.). Pick **exactly one leaf**,
-  normally from one group. Leaves carry UI descriptions — trust them.
+- **Landing — WHERE the work lands. MANDATORY on every issue and epic.** One or more top-level
+  groups partition work by landing type (application vs package vs cross-cutting, etc.). Pick
+  **exactly one leaf**, normally from one group — there is no default: an issue filed with no
+  landing/component leaf is a validation failure, not a guess. Leaves carry UI descriptions —
+  trust them. Work spanning ≥2 components is an epic + one sub-issue per component (each with its
+  single leaf), never two leaves on one issue.
 
-  > **Example (this workspace's card):** groups `app` / `pkg` / `extra` / `research`, e.g.
-  > `app › desktop`, `app › desktop/eval-runner`, `app › aigateway`, `pkg › <lib>`,
-  > `extra › <cross-cutting>`, `research › <spike>`. Your card defines the real set.
+  > **Example (this workspace's card):** groups `app` / `pkg` / `cross-unit`, e.g.
+  > `app › desktop`, `app › aigateway`, `app › screamingface-engine`, `pkg › client-sf`,
+  > `pkg › url4-sdk`, `cross-unit › repo-dev-processes`. Your card defines the real set.
 
 - **`actor` — `agentic` | `human`.** Who executes. Required on **agent-executed / SDLC**
   items; human-owned roadmap tickets may carry just the landing leaf + assignee (actor = the
@@ -60,8 +63,9 @@ in the UI and registers it in the card in the same change — then apply it to i
 - **STOP is a STATUS, not a label:** move to the **Blocked** state (hard question pending) or
   **Needs Owner** state (only a decision/visual check pending) + comment the exact question;
   move back when resolved.
-- **Blockers are RELATIONS, not prose:** if a ticket waits on another, set a **blocked-by**
-  relation (not just a "Gate:" line) so the dependency graph is real and ordering surfaces.
+- **Blockers are RELATIONS + the `blocked` label:** if a ticket waits on another, set a
+  **blocked-by** relation to the named blocker AND apply the `blocked` label. Never bare — a
+  `blocked` with no named blocker is a validation failure. The dependency graph must be real.
 - **Priority** (Linear ints): 1 Urgent (launch-blocking) · 2 High · 3 Medium · 4 Low. If the
   workflow has a dedicated "queued next" state, use that for ordering — not priority — and
   keep the two distinct. Agent proposes; owner's setting wins.
@@ -77,7 +81,7 @@ An **epic** is a Linear parent issue. It is the unit of prioritization. Priority
 - **Epics are human-authored — the agent proposes, never creates one on its own initiative.** When no existing epic fits, the agent drafts a **proposed epic** (title, rationale, scope) and says plainly: *"I'm not allowed to create an epic on your behalf. This is a proposed epic for this work — suggest edits, or confirm and I'll create it."* The agent creates the epic **only with the user's direct consent**, never automatically.
 - **On consent, create the proposed epic in the card's `Triage` state** (with the rationale in its body and the `[EPIC]` title suffix), then **tag Irina (`irina@openmined.org`) and Kevin (`kevin@openmined.org`) in a comment** for scope review and approval. The product reviewer is Irina (she doubles as product), so both the not-yet-prioritized and already-prioritized paths tag Irina and Kevin.
 - **The work is not blocked on that approval.** File the leaf under the proposed epic and open the PR now; Irina/Kevin's scope sign-off is asynchronous. If they reject or redirect the scope, reparent the leaf later.
-- **Every agent-filed leaf sets `parentId` to an epic** — an existing one, or the proposed one the user just consented to. No orphan tickets. Do not invent a `blocked` or `needs-owner` label; those leaves are not live.
+- **Every agent-filed leaf sets `parentId` to an epic** — an existing one, or the proposed one the user just consented to. No orphan tickets. (`blocked` is a real label, applied only with a named blocker + a blocked-by relation; `needs-owner` is not live.)
 - **The one exception — bugs.** An issue labeled `bug` is exempt from epic-first: a bug fix may be filed with **no parent epic**. It is filed in the `Triage` state with **Irina + Kevin tagged in a comment for review**, and — unlike every other issue — is **left unassigned** (`bug`s do not self-assign). It still carries a landing leaf + `actor` and gets a `docs/tasks` mirror. Everything that is not a `bug` goes under an epic and self-assigns.
 
 Cross-cutting work (≥2 landings) is still an epic plus one sub-issue per landing. Single-landing work is a leaf under an epic too.
@@ -106,8 +110,9 @@ Cross-cutting work (≥2 landings) is still an epic plus one sub-issue per landi
 - **Epic title ends with ` [EPIC]`** — a suffix, never an `EPIC:` prefix or `(epic)`.
 - Every issue: one landing leaf + priority. An epic also (a) is attached to the project,
   (b) carries a rationale in the body, (c) carries the mandatory `epic` label, and
-  (d) carries exactly **one classification** label — `tech-debt` / `product-feature` /
-  `infra` (EPIC-only; a pure process/meta epic may skip it). See `labels.classification`
+  (d) carries exactly **one epic-classification** — `tech-debt` / `product-feature` / `infra`,
+  the single-select leaves of the `epic` group; that leaf IS the epic marker. Only epics carry it —
+  non-epics carry a component/landing leaf instead. See `labels.classification`
   in the card.
 - **Self-assign on creation — mandatory (except bugs).** Every issue **and** every epic is
   assigned to its creator at creation time (`assignee: "me"`); nothing is filed unassigned —
@@ -140,8 +145,8 @@ that approval.
 
 **No-epic stop:** do not file. The card is authoritative for how an already-filed orphan is
 parked. On this board that park state is **Triage** plus a comment naming the missing epic.
-Do not apply `blocked` or `needs-owner` — those labels are not live, and this change does
-not add workflow states.
+Do not use `blocked` for the no-epic case — `blocked` is for a real named blocker (label +
+blocked-by relation); `needs-owner` is not live. This change does not add workflow states.
 
 **If GitHub status automation is enabled** (see the card): opening the PR moves the issue to
 *in-review*, merging moves it to *done* (branch names follow `…/<issue-id>-…`;
@@ -198,7 +203,7 @@ YouTube/Loom/Figma/Docs URLs auto-embed; `[text](url)` keeps a link.
 | "One big issue for the plan." | Epic parent + SDLC-unit sub-issues. |
 | "Two landings, one leaf." | Group is single-select — epic + one sub-issue per landing. |
 | "Prefix the title with the issue ID." | Don't — Linear shows the ID; title is the summary. |
-| "Add a `blocked` label." | STOP is a STATUS (Blocked / Needs Owner); waits are blocked-by relations. |
+| "Add a bare `blocked` label." | `blocked` is allowed only WITH a named blocker: apply the label AND set the blocked-by relation. |
 | "I'll hand-set in-review / done." | If GitHub automation is on, the PR does that — set only queued-next / in-progress / STOP. |
 | "Close it, code's merged." | Merge ≠ close-comment. File commits+gates+ledger. |
 | "design-session, answer's obvious." | Prepare a proposal; owner decides. |
