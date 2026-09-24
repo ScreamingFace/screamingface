@@ -14,9 +14,12 @@ run. FEATURE: model-graded imported benchmarks grade through our gateway (OME-12
 
 Stages, in execution order (see :meth:`_GatewayJudgeModelAPI.generate`):
 
-    Stage 1 — read the bound :class:`JudgeTransport` (a ContextVar the aggregate
-              wiring binds around grading). Unbound → refuse loudly: a judge call
-              may NEVER leave the engine except through the node's model route.
+    Stage 1 — scope checks: the bound :class:`JudgeTransport` (a ContextVar the
+              aggregate wiring binds around grading) must exist — unbound refuses
+              loudly, a judge call may NEVER leave the engine except through the
+              node's model route; a tool-bearing call refuses (plain chat only);
+              and any config field outside the transport allowlist refuses by
+              name — the wire carries only the row's pinned params.
     Stage 2 — fold the judge's chat messages into the candidate input envelope
               (``screamingface.candidate-input.v1``), the exact shape the
               connector's ``_messages`` decoder reads. Tool messages refuse —
@@ -115,14 +118,35 @@ class _GatewayJudgeModelAPI(ModelAPI):
         tool_choice: ToolChoice,
         config: GenerateConfig,
     ) -> ModelOutput:
-        # Stage 1 — the wall socket must be plugged in.
+        """Send one judge call through the node's model route.
+
+        Args:
+            input: the judge's chat messages (plain chat only — see Stage 2).
+            tools: refused when non-empty — a judge that asked for tools would
+                otherwise grade WITHOUT them, silently.
+            tool_choice: ignored; meaningless once ``tools`` is refused.
+            config: inspect's per-call settings; only transport-level fields are
+                allowed (Stage 1) — grade-affecting ones belong in the row's
+                pinned params.
+
+        Returns:
+            The completion text as inspect's ``ModelOutput``.
+        """
+        # Stage 1 — the wall socket must be plugged in, and the call must be
+        # within scope: no tools, no grade-affecting config outside the pins.
         transport: JudgeTransport | None = _transport.get()
         if transport is None:
             raise RuntimeError(
                 "no judge transport is bound — a judge call may only leave the "
                 "engine through the node's declared model route (OME-1240)"
             )
-        _refuse_sampling_overrides(config)
+        if tools:
+            raise RuntimeError(
+                "the judge asked for tools — judge prompts are plain chat (§7 "
+                "scope); a call graded without its requested tools would be a "
+                "silently different exam (OME-1240)"
+            )
+        _refuse_config_overrides(config)
         # Stage 2-3 — envelope the messages, dial the route.
         context: str = json.dumps(
             {
@@ -144,38 +168,44 @@ class _GatewayJudgeModelAPI(ModelAPI):
         return ModelOutput.from_content(model=self.model_name, content=completion)
 
 
-#: GenerateConfig sampling fields an eval might set — the judge's sampling identity
-#: is the ROW's pinned params, so an eval-supplied value would be silently dropped.
-_SAMPLING_FIELDS = (
-    "temperature",
-    "top_p",
-    "top_k",
-    "max_tokens",
-    "seed",
-    "stop_seqs",
-    "frequency_penalty",
-    "presence_penalty",
-    "logit_bias",
-    "num_choices",
+#: GenerateConfig fields that change DELIVERY, never the grade — the only ones an
+#: eval may set. Everything else is ALLOWLIST-refused by name: the wire carries only
+#: the JudgeSpec's pinned params, so any other field would be dropped silently and
+#: the judge would grade a different exam (persistbench's reasoning_effort="high"
+#: is the live example). A forbidden-list here would go stale on every inspect
+#: field addition; the allowlist refuses new fields by default.
+_TRANSPORT_CONFIG_FIELDS = frozenset(
+    {
+        "max_retries",
+        "timeout",
+        "attempt_timeout",
+        "stream_idle_timeout",
+        "max_connections",
+        "adaptive_connections",
+        "batch",
+    }
 )
 
 
-def _refuse_sampling_overrides(config: GenerateConfig) -> None:
-    """Refuse eval-supplied sampling settings by name — never drop them silently.
+def _refuse_config_overrides(config: GenerateConfig) -> None:
+    """Refuse any eval-supplied setting outside the transport allowlist, by name.
 
-    WHY: the transport sends only the JudgeSpec's pinned params; accepting a config
-    the wire never carries would grade with different sampling than the eval asked
-    for, silently. None of the pinned evals sets one today.
+    WHY allow-then-refuse (never a forbidden list): the transport sends only the
+    JudgeSpec's pinned params, so an unlisted field is a field the judge silently
+    ignores — and inspect adds fields over time. A plain ``model.generate(...)``
+    delivers zero set fields (verified 2026-09-24), so defaults never trip this.
     """
 
-    overridden: list[str] = [
-        name for name in _SAMPLING_FIELDS if getattr(config, name, None) is not None
-    ]
+    overridden: list[str] = sorted(
+        name
+        for name, value in config.model_dump().items()
+        if value is not None and name not in _TRANSPORT_CONFIG_FIELDS
+    )
     if overridden:
         raise RuntimeError(
-            f"the eval supplies judge sampling settings {overridden} — the judge's "
-            "sampling identity is the board row's pinned params (JudgeSpec.params); "
-            "pin them there instead (OME-1240)"
+            f"the eval supplies judge settings {overridden} the wire does not carry — "
+            "grade-affecting settings belong in the board row's pinned params "
+            "(JudgeSpec.params); pin them there instead (OME-1240)"
         )
 
 
