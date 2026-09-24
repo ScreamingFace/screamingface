@@ -73,8 +73,8 @@ Bring whatever stack fits; satisfy this **invariant contract** so the coordinati
 
 ## 6. Branch / commit / PR / merge
 
-- **Branch:** `OME-N-<description>`, `N` = the Linear work-item number (file the item per the `task-management` skill; registry `.claude/task-board.local.md`). Never commit to `main`.
-- **Commit:** conventional (`feat: …`, `fix: …`); body carries `Refs: OME-N`; **no `Co-Authored-By`** lines.
+- **Branch:** `<slug>` at work start (no `OME-N` until PR-open), renamed to `OME-N-<description>` at PR-open after the issue is filed per the `task-management` skill (registry `.claude/task-board.local.md`) — the rename lets the branch-name automation link. Never commit to `main`.
+- **Commit:** conventional (`feat: …`, `fix: …`); `Refs: OME-N` goes in the PR body (commits need no ticket); **no `Co-Authored-By`** lines.
 - **Keep current:** rebase on `origin/main` (don't merge `main` into your branch); force-push only your own branch.
 - **Merge:** squash-merge; the author merges after review approval + green required checks.
 - **Checks are path-dependent.** Live tests (`AIGW_LIVE=1`) are opt-in diagnostics, **not** merge gates.
