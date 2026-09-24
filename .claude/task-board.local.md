@@ -10,38 +10,35 @@ states:
   in_review: "62b4c1a3-752f-456b-bdf6-7ce484959e5d"
   done: "699b96ac-cd89-42db-a717-4f8b291a7388"
   triage: "a6fc6a19-f6fd-4fda-baf6-2d26cc54adae"
-labels:  # RECONCILED 2026-07-15 (OME-443) vs live Linear (list_issue_labels). See reconciliation note at bottom.
-  # Product/landing axis — live Linear groups product areas under parent labels (app/pkg/research/extra).
-  # There is NO live "Epic" workstream group anymore; the product area IS the app/* (or research/*) landing label.
+labels:  # Snapshot of live Linear labels (team Engineering). Reconciled 2026-09-24; see git log for deltas.
+  # Landing axis: Linear groups product areas under parent groups (app / pkg / cross-unit).
+  # There is NO "Epic" workstream group; the component IS the app/* or pkg/* landing label.
   landing:
-    "analytics": "ff4eeff4-5bca-48c7-bd7c-28702e39855a"  # owner-created, verified via Linear MCP 2026-09-09
+    # ── app ──
     "aigateway": "f92de050-b7ec-41fe-a14a-d30c0d0be267"              # parent: app
-    "aigateway/deployment": "874aa881-360e-4362-b80a-39c2ae823d97"  # parent: app
     "scoreboard": "3f8aa7fc-e9a0-461f-8a6b-0bf2dd7cf4d9"            # parent: app
-    # RECONCILED 2026-08-18 (OME-876) against live Linear via `linear label list --all`:
-    # this ID's label was RENAMED in Linear from "url4-engine" to "url4-sdk". Same label, new name.
-    "url4-sdk": "b9bdd9c0-b03b-47e0-86c9-b3f45305212a"             # parent: app — url4 grammar/parser/DAG exec
-    # The Engine app (apps/screamingface-engine). This is the label to APPLY for that app's work;
-    # live issues already carry it (e.g. OME-676, OME-304).
     "screamingface-engine": "cc1ac9b3-45af-4bec-a112-560ad1f52680"  # parent: app — the ScreamingFace Engine
-    # LEGACY, retained: the Engine app's previous name. Still exists in Linear and still applied to
-    # issues filed before the rename, so it must stay resolvable for reading history. Do NOT apply
-    # it to new work — the landing group is single-select, so it would collide.
-    "url4-cloud": "295a9fe1-826e-49f8-8f11-e4f438aa27a1"           # parent: app — legacy (pre-OME-876)
+    "url4-engine": "b9bdd9c0-b03b-47e0-86c9-b3f45305212a"           # parent: app — url4 grammar/parser/DAG exec
     "desktop": "cef9d753-9675-4f7d-8ae7-afc7af802887"              # parent: app
-    "desktop/benchmarks": "53bb9d19-95a2-4479-9acd-6ea6423ae251"    # parent: app
-    "desktop/ensemble": "d55512f6-389d-4fc4-877a-6a6be434c4c1"      # parent: app
-    "desktop/eval-runner": "543fbbde-bdd5-430b-8ecd-26f33628bdc3"   # parent: app
-    "desktop/results-runs": "d0e1871e-db73-4ba6-bc7a-fcbfde515e40"  # parent: app
-    "py-screamingface": "8d3dd8bd-5365-4ab7-90d5-9e5317cf3157"      # parent: pkg
-    "url4-python-sdk": "05d3d132-d508-4540-be46-4d10303e117a"       # parent: pkg
-    "multi-turn": "b6926d8f-8693-45a1-bf08-0847bc516e04"            # parent: research
-    "sota": "fad181c4-2834-47e1-9d4d-5b36c9000a49"                  # parent: research
-    "repo-dev-processes": "220d479a-98b5-4b94-95ee-92635db5f0ae"    # parent: extra
-    "auth+subsidies": "8c34e37b-f78f-4983-ae62-8f97ba26c28f"        # parent: extra
+    # ── pkg ──
+    # NOTE: app `url4-engine` (b9bdd9c0) and pkg `url4-sdk` (05d3d132) are DIFFERENT labels — the two
+    # names were swapped historically; resolve by id, never conflate.
+    "client-sf": "8d3dd8bd-5365-4ab7-90d5-9e5317cf3157"            # parent: pkg — screamingface Python client + notebooks
+    "url4-sdk": "05d3d132-d508-4540-be46-4d10303e117a"             # parent: pkg — url4 engine client package
+    # ── cross-unit ──
+    "repo-dev-processes": "220d479a-98b5-4b94-95ee-92635db5f0ae"    # parent: cross-unit
+    "auth+subsidies": "8c34e37b-f78f-4983-ae62-8f97ba26c28f"        # parent: cross-unit
+    "analytics": "ff4eeff4-5bca-48c7-bd7c-28702e39855a"            # parent: cross-unit
+    # ── ungrouped ──
     "repo": "89353e43-30b4-4e4b-b0a6-d781f9dcfebc"                  # ungrouped (process; coexists with repo-dev-processes)
-    "pkg/url4-python-sdk": "65e0b370-12c8-45e4-9b9d-0fb5fe72bac8"   # ungrouped (coexists with url4-python-sdk under pkg)
+    "syft-station": "af936751-944c-439e-a460-33b8107cc57f"          # ungrouped
     "syft-space": "55b0b894-9717-4a82-9e40-aba3d01922cd"           # ungrouped
+    # ── retired (still in Linear, applied to old issues → resolvable, do NOT apply to new work) ──
+    "url4-cloud": "295a9fe1-826e-49f8-8f11-e4f438aa27a1"           # parent: app — legacy Engine name; issues merged onto screamingface-engine
+    "desktop/benchmarks": "53bb9d19-95a2-4479-9acd-6ea6423ae251"    # parent: app — RETIRED (merged onto desktop)
+    "desktop/ensemble": "d55512f6-389d-4fc4-877a-6a6be434c4c1"      # parent: app — RETIRED (merged onto desktop)
+    "desktop/eval-runner": "543fbbde-bdd5-430b-8ecd-26f33628bdc3"   # parent: app — RETIRED (merged onto desktop)
+    "desktop/results-runs": "d0e1871e-db73-4ba6-bc7a-fcbfde515e40"  # parent: app — RETIRED (merged onto desktop)
   who_acts:  # Linear group "who-acts" — one per issue (members verified 2026-07-15)
     "design-session": "b23148b7-7779-415d-b1c8-5480fa967067"
     "autonomous": "6c277f7f-e4b3-41c6-b1ba-406781bb84ed"
@@ -58,19 +55,10 @@ labels:  # RECONCILED 2026-07-15 (OME-443) vs live Linear (list_issue_labels). S
     "tech-debt": "76c260e6-73c2-41a5-9f69-b226a4c2810f"        # work that is tech debt
     "product-feature": "7a4418fd-1ceb-4822-b342-4d4e56cd096f"  # a new product feature
     "infra": "22a133e3-7844-4d62-bfe1-a449baa785ed"            # internal infrastructure
-  # ── Reconciliation note (2026-07-15, OME-443) ─────────────────────────────────────────────
-  # Labels present in the PRIOR card but ABSENT from live Linear (verified via list_issue_labels):
-  #   - epic_group workstreams (url4 Engine, AI Gateway, Eval Runner & Datasets, Results & Runs,
-  #     Leaderboard, Auth & Subsidized Compute, Desktop App, Python SDK, Multi-turn Ensembles,
-  #     SOTA Hunt, Compute Budgeting): the "Epic"/workstream axis no longer exists; product area
-  #     folded into the app/* + research/* landing labels above.
-  #   - type_ish Bug / Feature / Improvement: replaced by type decision / task.
-  #   - STOP labels "blocked ⛔" and "needs-owner": DO NOT EXIST. The D12 STOP mechanism below is
-  #     currently unbacked. 2026-09-22 (D18, OME-1259): the no-epic stop does not file. An
-  #     already-filed issue with no parent epic parks in Triage plus a comment. Do not
-  #     recreate those labels for that case, and do not add workflow states.
-  #   - landing app/aigateway, app/scoreboard IDs were stale; live labels are aigateway / scoreboard
-  #     (parent "app"). repo and pkg/url4-python-sdk IDs were correct and are retained.
+  # ── Notes ─────────────────────────────────────────────────────────────────────────────────
+  #   STOP labels `blocked ⛔` / `needs-owner` are NOT live: a no-epic stop parks the issue in Triage
+  #   with a comment (D18, OME-1259), never a label; never add workflow states. This card is a live
+  #   snapshot, not a changelog — full label history (renames, deletions) is in git.
   # who_acts/actor `group:` parent IDs from the prior card were dropped (unverified + unused for
   # filing, which resolves by member label). Re-add if a group-level operation ever needs them.
 priority: { P1: 2, P2: 3, P3: 4 }  # Linear ints; 1 (Urgent) reserved for incidents
@@ -128,10 +116,17 @@ close_template: |
 - No-epic park state is **Triage** (`states.triage`) plus a comment. Do not apply
   `blocked` or `needs-owner`.
 
-- Every work item: team Engineering + project 😱 ScreamingFace V1 (D11) + a landing label
-  (`app/*`/`pkg/*`, or `repo` for process work) + one `who-acts` label + one `actor` label
+- Every work item: team Engineering + project 😱 ScreamingFace V1 (D11) + a **component/landing
+  label — MANDATORY** (exactly one leaf from `landing:` — `app/*`/`pkg/*`, or `repo` for pure
+  process work; epics and `bug`s carry one too) + one `who-acts` label + one `actor` label
   (agentic|human — D13, MANDATORY) + `parentId` of an epic unless the issue itself is the
   epic + a **self-assigned `assignee`** (`assignee: "me"`, MANDATORY — see below).
+- **Component label is not optional and has no default.** Filing an issue with no landing leaf
+  is a validation failure — the filer/executor rejects it rather than guessing. Pick the leaf
+  from the issue's affected `apps/*`/`packages/*` paths (see `working-in-this-repo`).
+- **Multi-component work → one component per label via the epic split (D9), never two leaves on
+  one issue.** The landing group is single-select, so ≥2 components ⇒ an epic carrying each
+  component leaf + one sub-issue per component, each with its single leaf.
 - **Self-assign on creation (MANDATORY, except bugs).** Every issue and every epic is assigned
   to its creator at creation (`assignee: "me"`); nothing is filed unassigned — **except a
   `bug`-labeled issue, which is left unassigned.** Reassigning to another owner is a later,

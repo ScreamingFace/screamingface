@@ -25,8 +25,9 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
 0. **95% confidence gate — TOP RULE.** Below 95% confident it's correct AND wanted →
    STOP and ask. Applies to everything: code, work items, docs, diagrams.
 1. **Epic first.** Every unit of work is a Linear issue under an epic (`OME-N`, Engineering
-   team, 😱 ScreamingFace V1) with its labels (`app/*`/`pkg/*` or `repo`; one `who-acts`;
-   one `actor` — agentic|human, mandatory), a **self-assigned assignee** (`assignee: "me"` —
+   team, 😱 ScreamingFace V1) with its labels (a **component/landing** label — `app/*`/`pkg/*`
+   or `repo` — MANDATORY, no default; one `who-acts`; one `actor` — agentic|human, mandatory), a
+   **self-assigned assignee** (`assignee: "me"` —
    mandatory on every issue and epic; nothing is filed unassigned), and a mirror in
    `docs/tasks/`. The issue is
    created when the PR is opened — not at work start, and not on a commit or a new branch —

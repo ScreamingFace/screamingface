@@ -41,13 +41,16 @@ Linear — and are **two levels deep**; a sub-component is a slash inside the le
 **Agents never mint labels.** Need a new leaf? Propose it to the project lead, who creates it
 in the UI and registers it in the card in the same change — then apply it to issues.
 
-- **Landing — WHERE the work lands.** One or more top-level groups partition work by landing
-  type (application vs package vs cross-cutting vs research, etc.). Pick **exactly one leaf**,
-  normally from one group. Leaves carry UI descriptions — trust them.
+- **Landing — WHERE the work lands. MANDATORY on every issue and epic.** One or more top-level
+  groups partition work by landing type (application vs package vs cross-cutting, etc.). Pick
+  **exactly one leaf**, normally from one group — there is no default: an issue filed with no
+  landing/component leaf is a validation failure, not a guess. Leaves carry UI descriptions —
+  trust them. Work spanning ≥2 components is an epic + one sub-issue per component (each with its
+  single leaf), never two leaves on one issue.
 
-  > **Example (this workspace's card):** groups `app` / `pkg` / `extra` / `research`, e.g.
-  > `app › desktop`, `app › desktop/eval-runner`, `app › aigateway`, `pkg › <lib>`,
-  > `extra › <cross-cutting>`, `research › <spike>`. Your card defines the real set.
+  > **Example (this workspace's card):** groups `app` / `pkg` / `cross-unit`, e.g.
+  > `app › desktop`, `app › aigateway`, `app › screamingface-engine`, `pkg › client-sf`,
+  > `pkg › url4-sdk`, `cross-unit › repo-dev-processes`. Your card defines the real set.
 
 - **`actor` — `agentic` | `human`.** Who executes. Required on **agent-executed / SDLC**
   items; human-owned roadmap tickets may carry just the landing leaf + assignee (actor = the
