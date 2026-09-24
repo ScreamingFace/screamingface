@@ -201,3 +201,50 @@ def test_the_fabricated_task_state_satisfies_the_qa_template() -> None:
     assert state.input_text == "What is the capital of France?"
     assert state.metadata is not None or state.metadata == {}
     assert isinstance(Target("Paris").text, str)
+
+
+@pytest.mark.asyncio
+async def test_an_unparseable_judge_reply_fails_the_case_by_name() -> None:
+    """INVARIANT: a judge reply with no parseable grade is that CASE's named
+    failure, never an aborted aggregate. inspect returns Score(value=NaN) for an
+    unscored model_graded reply; NaN must map to invalid_score_value — the wire
+    model rejects non-finite scores, and the raise would escape past all 160
+    already-paid cases (review finding, 2026-09-24)."""
+
+    fetch = _RecordingFetch(reply="I cannot decide.")
+    scorer = model_graded_qa(model="screamingface/judge-4")
+    with bound_judge_transport(JudgeTransport(fetch=fetch)):
+        outcome = await inspect_grade_case(scorer)(_request())
+    assert outcome.score is None
+    assert outcome.failure_code == "invalid_score_value"
+
+
+@pytest.mark.asyncio
+async def test_an_empty_judge_reply_fails_the_case_by_name() -> None:
+    """A blank completion can never be a grade — the provider refuses it loudly
+    instead of letting a scorer coerce silence into a score."""
+
+    fetch = _RecordingFetch(reply="   ")
+    scorer = model_graded_qa(model="screamingface/judge-4")
+    with bound_judge_transport(JudgeTransport(fetch=fetch)):
+        outcome = await inspect_grade_case(scorer)(_request())
+    assert outcome.score is None
+    assert outcome.failure_code == "scorer_error"
+    assert "empty reply" in str(outcome.checks)
+
+
+@pytest.mark.asyncio
+async def test_eval_supplied_sampling_settings_are_refused() -> None:
+    """The judge's sampling identity is the ROW's pinned params — an eval that
+    passes its own GenerateConfig sampling would be silently dropped otherwise,
+    so it must refuse by name instead."""
+
+    from inspect_ai.model import GenerateConfig
+
+    model = get_model("screamingface/judge-4", memoize=False)
+    with bound_judge_transport(JudgeTransport(fetch=_RecordingFetch())):
+        with pytest.raises(Exception, match="pinned"):
+            await model.generate(
+                [ChatMessageUser(content="grade this")],
+                config=GenerateConfig(temperature=0.7),
+            )
