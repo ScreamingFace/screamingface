@@ -65,7 +65,7 @@ async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, reg
 
 @pytest.mark.asyncio
 async def test_real_url4_candidate_stage_is_node_attached_and_output_unchanged():
-    from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
+    from screamingface_engine.world.candidate_adapter import install_candidate_invocation
     from url4.dag import run as execute
     from url4.observe import Log, NodeStarted
 

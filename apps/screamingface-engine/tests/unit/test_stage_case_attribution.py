@@ -60,9 +60,9 @@ def test_unknown_or_unsafe_case_does_not_suppress_stage(monkeypatch, case):
 
 @pytest.mark.asyncio
 async def test_candidate_answering_stage_starts_inside_decoded_case_scope(monkeypatch):
-    from screamingface_engine.benchmarks import candidate_adapter
-    from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
     from screamingface_engine.benchmarks.definition import candidate
+    from screamingface_engine.world import candidate_adapter
+    from screamingface_engine.world.candidate_adapter import install_candidate_invocation
     from url4 import render
     from url4.peer.server import Url4Node
 

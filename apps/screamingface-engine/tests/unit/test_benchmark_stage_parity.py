@@ -10,9 +10,9 @@ from test_medxpert_protocol_turns import _assets as medxpert_assets
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.builtins import BUILTIN_REGISTRATIONS
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.observations import RunObservations
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from url4.dag import run as execute
 from url4.observe import Log
 from url4.peer.server import Url4Node
