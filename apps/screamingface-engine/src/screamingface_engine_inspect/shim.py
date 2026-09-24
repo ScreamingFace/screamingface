@@ -128,6 +128,10 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
         messages=[ChatMessageUser(content=input_text)],
         choices=choices,
         output=ModelOutput.from_content(model=_CANDIDATE_MODEL, content=completion),
+        # WHY: metadata-dispatching scorers (frontierscience's format field) read
+        # the Sample's metadata off the state; the bake delivers it in the target
+        # record behind SnapshotSpec.keep_sample_metadata (OME-1240).
+        metadata=_sample_metadata(material),
     )
     if choices:
         # WHY: their choice() scorer reads marks the multiple_choice SOLVER leaves on
@@ -152,6 +156,17 @@ def _material(material: object) -> Mapping[str, Any]:
             "inspect grading material must be a mapping carrying the imported Sample's 'target'"
         )
     return material
+
+
+def _sample_metadata(material: Mapping[str, Any]) -> dict[str, Any]:
+    """The baked Sample metadata off the target record; absence stays an empty dict."""
+
+    metadata: object = material.get("metadata")
+    if metadata is None:
+        return {}
+    if not isinstance(metadata, Mapping):
+        raise TypeError("inspect grading material 'metadata' must be a mapping")
+    return dict(metadata)
 
 
 def _choices(material: Mapping[str, Any]) -> list[str] | None:

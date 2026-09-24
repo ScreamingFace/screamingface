@@ -618,6 +618,9 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
     ]
     if snapshot.shuffle_seed is not None:
         pins.append(f"shuffle_seed={snapshot.shuffle_seed}")
+    if snapshot.keep_sample_metadata:
+        # Flipping the opt-in changes what the bake ships — exam identity moves.
+        pins.append("keep_sample_metadata=1")
     if snapshot.system_message is not None:
         # WHY: adding or dropping the leading instruction changes the exam a
         # candidate sits, so the pointer rides exam identity. (The template

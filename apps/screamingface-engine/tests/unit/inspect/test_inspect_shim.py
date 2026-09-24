@@ -191,3 +191,45 @@ async def test_choices_material_replays_inspects_answer_marking() -> None:
     wrong = await _graded(choice(), _request(answer="ANSWER: C", material=material))
     assert (right.score, right.failure_code) == (1.0, None)
     assert (wrong.score, wrong.failure_code) == (0.0, None)
+
+
+@pytest.mark.asyncio
+async def test_sample_metadata_reaches_the_scorers_task_state() -> None:
+    """Judged evals dispatch on sample metadata (frontierscience's format field) —
+    material metadata must reach the fabricated TaskState verbatim."""
+
+    seen: dict[str, Any] = {}
+
+    async def recording(state: TaskState, target: Target) -> Score:
+        seen["metadata"] = state.metadata
+        return Score(value=CORRECT)
+
+    outcome = await _graded(
+        recording,
+        _request(material={"target": "42", "metadata": {"format": "research"}}),
+    )
+    assert outcome.score == 1.0
+    assert seen["metadata"] == {"format": "research"}
+
+
+@pytest.mark.asyncio
+async def test_material_without_metadata_builds_a_metadata_free_state() -> None:
+    """Absence stays absence: no metadata in the material, none invented."""
+
+    seen: dict[str, Any] = {}
+
+    async def recording(state: TaskState, target: Target) -> Score:
+        seen["metadata"] = state.metadata
+        return Score(value=CORRECT)
+
+    await _graded(recording, _request())
+    assert not seen["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_non_mapping_material_metadata_is_rejected() -> None:
+    with pytest.raises(TypeError, match="metadata"):
+        await _graded(
+            match(numeric=True),
+            _request(material={"target": "42", "metadata": "research"}),
+        )

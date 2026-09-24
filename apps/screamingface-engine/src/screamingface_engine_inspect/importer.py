@@ -664,7 +664,22 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
             f'"{name}": {value!r}' for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
-    if not facts.mcq:
+    judged: bool = _is_judged(facts)
+    if judged:
+        # OME-1240: a judged row must never land silently — the TODO model is
+        # refused at assembly by name, so an unreviewed judge cannot ship.
+        board_lines.append(
+            "        # TODO(review): this scorer grades with an LLM judge. Pin the judge"
+        )
+        board_lines.append("        # through our gateway: replace the judge-model kwarg with")
+        board_lines.append(
+            '        # "screamingface/<gateway-model-id>" and declare the SAME id (plus'
+        )
+        board_lines.append("        # pinned params) here — both join the board's exam identity.")
+        board_lines.append("        # If the scorer dispatches on sample metadata, also set")
+        board_lines.append("        # keep_sample_metadata=True on the SnapshotSpec row.")
+        board_lines.append('        judge=JudgeSpec(model="TODO"),')
+    if not facts.mcq and not judged:
         board_lines.append(
             "        # Free-form answers make mid-run feedback legitimate (spec §4);"
         )
@@ -672,6 +687,26 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         board_lines.append("        with_check_surface=True,")
     board_lines.append("    ),")
     return board_lines
+
+
+#: Kwarg names evals use to take their judge model — mirrored by the assembly
+#: guard's _JUDGE_MODEL_KWARGS in boards.py; the two lists move together.
+_JUDGE_MODEL_KWARG_NAMES = frozenset({"model", "grader_model", "judge_model", "scorer_model"})
+
+
+def _is_judged(facts: TaskFacts) -> bool:
+    """A row is judged when its scorer takes a judge — by builtin NAME or by KWARG.
+
+    WHY the kwarg check: a custom eval-module scorer (frontierscience) carries its
+    judge under `model` while matching no `model_graded_*` name; a name-only check
+    emitted it as a silently-unjudged row (review finding, 2026-09-24). No check
+    surface is emitted for a judged row: assembly refuses the pair until the
+    check-cost knob (OME-1116), so the generated row stays green-by-construction.
+    """
+
+    if facts.scorer.rpartition(":")[2].startswith("model_graded_"):
+        return True
+    return any(name in _JUDGE_MODEL_KWARG_NAMES for name in facts.scorer_kwargs)
 
 
 def generate_rows(
