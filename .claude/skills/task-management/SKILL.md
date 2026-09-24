@@ -66,6 +66,11 @@ in the UI and registers it in the card in the same change — then apply it to i
 - **Blockers are RELATIONS + the `blocked` label:** if a ticket waits on another, set a
   **blocked-by** relation to the named blocker AND apply the `blocked` label. Never bare — a
   `blocked` with no named blocker is a validation failure. The dependency graph must be real.
+- **`improvement-ideas` — a lightweight parking marker:** applied to capture an enhancement/
+  parking-lot idea. Like `blocked` it is a standalone marker, but unlike `blocked` it names no
+  blocker and sets no relation, and — as the second exception to epic-first (after `bug`) — its
+  issue may be filed with **no epic parent, no blocker relation, and no landing leaf** (all
+  optional). Parked like a `bug`: `Triage` state, left unassigned. `actor` is still applied.
 - **Priority** (Linear ints): 1 Urgent (launch-blocking) · 2 High · 3 Medium · 4 Low. If the
   workflow has a dedicated "queued next" state, use that for ordering — not priority — and
   keep the two distinct. Agent proposes; owner's setting wins.
@@ -82,7 +87,7 @@ An **epic** is a Linear parent issue. It is the unit of prioritization. Priority
 - **On consent, create the proposed epic in the card's `Triage` state** (with the rationale in its body and the `[EPIC]` title suffix), then **tag Irina (`irina@openmined.org`) and Kevin (`kevin@openmined.org`) in a comment** for scope review and approval. The product reviewer is Irina (she doubles as product), so both the not-yet-prioritized and already-prioritized paths tag Irina and Kevin.
 - **The work is not blocked on that approval.** File the leaf under the proposed epic and open the PR now; Irina/Kevin's scope sign-off is asynchronous. If they reject or redirect the scope, reparent the leaf later.
 - **Every agent-filed leaf sets `parentId` to an epic** — an existing one, or the proposed one the user just consented to. No orphan tickets. (`blocked` is a real label, applied only with a named blocker + a blocked-by relation; `needs-owner` is not live.)
-- **The one exception — bugs.** An issue labeled `bug` is exempt from epic-first: a bug fix may be filed with **no parent epic**. It is filed in the `Triage` state with **Irina + Kevin tagged in a comment for review**, and — unlike every other issue — is **left unassigned** (`bug`s do not self-assign). It still carries a landing leaf + `actor` and gets a `docs/tasks` mirror. Everything that is not a `bug` goes under an epic and self-assigns.
+- **The exceptions — bugs and improvement-ideas.** An issue labeled `bug` is exempt from epic-first: a bug fix may be filed with **no parent epic**. It is filed in the `Triage` state with **Irina + Kevin tagged in a comment for review**, and — unlike every other issue — is **left unassigned** (`bug`s do not self-assign). It still carries a landing leaf + `actor` and gets a `docs/tasks` mirror. An issue labeled `improvement-ideas` is exempt even further: it may be filed with **no parent epic, no blocker relation, and no landing leaf**, parked in `Triage` and **left unassigned** (it captures a parking-lot idea; `actor` still applies). Everything that is not a `bug` or `improvement-ideas` goes under an epic, carries a landing leaf, and self-assigns.
 
 Cross-cutting work (≥2 landings) is still an epic plus one sub-issue per landing. Single-landing work is a leaf under an epic too.
 
@@ -163,7 +168,7 @@ Then close the `docs/tasks/` mirror. A merge without the close-comment is an inc
 
 ## Command crib (Linear MCP)
 
-- **Create a leaf:** `save_issue {team: "{{team}}", project: "{{project.slug}}", title: "<imperative summary>", description, labels: ["<landing leaf>", ("agentic"|"human")?, ("autonomous"|"deferred"|"design-session")?], priority, assignee: "me", parentId: "<epic id>"}` → returns the issue ID + URL. NO id on create; NO issue-ID in the title. **`parentId` and `assignee` are required** — self-assign (`assignee: "me"`), never file unassigned. **Exception:** a `bug`-labeled issue may omit **both** `parentId` and `assignee`; file it `state: "Triage"` (unassigned) and comment-tag Irina + Kevin. Omit milestone unless the card's project lead has named an optional phase milestone. Agents do not create the parent epic.
+- **Create a leaf:** `save_issue {team: "{{team}}", project: "{{project.slug}}", title: "<imperative summary>", description, labels: ["<landing leaf>", ("agentic"|"human")?, ("autonomous"|"deferred"|"design-session")?], priority, assignee: "me", parentId: "<epic id>"}` → returns the issue ID + URL. NO id on create; NO issue-ID in the title. **`parentId` and `assignee` are required** — self-assign (`assignee: "me"`), never file unassigned. **Exceptions:** a `bug`-labeled issue may omit **both** `parentId` and `assignee`; file it `state: "Triage"` (unassigned) and comment-tag Irina + Kevin. An `improvement-ideas`-labeled issue may omit `parentId`, `assignee`, **and the landing leaf**; file it `state: "Triage"` (unassigned), no blocker relation. Omit milestone unless the card's project lead has named an optional phase milestone. Agents do not create the parent epic.
 - **Move state (only the non-automated ones):** `save_issue {id, state: "<queued-next>"|"<in-progress>"|"<Blocked>"|"<Needs Owner>"}` (use the card's exact state names)
 - **STOP:** `save_issue {id, state: "<Blocked>"|"<Needs Owner>"}` + `save_comment {issueId, body: "<exact question>"}`
 - **Blocker relation:** `save_issue {id, blockedBy: ["<issue-id>"]}` (append-only; `removeBlockedBy` to clear)
@@ -204,6 +209,7 @@ YouTube/Loom/Figma/Docs URLs auto-embed; `[text](url)` keeps a link.
 | "Two landings, one leaf." | Group is single-select — epic + one sub-issue per landing. |
 | "Prefix the title with the issue ID." | Don't — Linear shows the ID; title is the summary. |
 | "Add a bare `blocked` label." | `blocked` is allowed only WITH a named blocker: apply the label AND set the blocked-by relation. |
+| "An idea needs an epic + component first." | `improvement-ideas` is exempt: file it standalone — no epic, no relation, landing leaf optional — parked in Triage, unassigned. |
 | "I'll hand-set in-review / done." | If GitHub automation is on, the PR does that — set only queued-next / in-progress / STOP. |
 | "Close it, code's merged." | Merge ≠ close-comment. File commits+gates+ledger. |
 | "design-session, answer's obvious." | Prepare a proposal; owner decides. |

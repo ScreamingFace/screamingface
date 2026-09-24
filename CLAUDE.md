@@ -37,13 +37,16 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    behalf) and, only with the user's direct consent, creates it in the Triage state with the
    rationale in the body and Irina plus Kevin tagged in a comment for scope approval; the leaf
    is then filed under it and the PR proceeds without blocking on that approval. Agents do not
-   file orphan tickets and never auto-create epics. **The only exception to epic-first is a
-   `bug`:** an issue labeled `bug` may be filed with no parent epic — in Triage, left
-   unassigned, with Irina and Kevin tagged for review. Everything else goes under an epic and
-   self-assigns.
+   file orphan tickets and never auto-create epics. **Two labels are exempt from epic-first:**
+   (a) a `bug` may be filed with no parent epic — in Triage, left unassigned, with Irina and
+   Kevin tagged for review; (b) an `improvement-ideas` issue (a captured enhancement/parking-lot
+   item) may be filed with **no epic parent, no blocker relation, and no component/landing leaf**
+   — parked in Triage, left unassigned. Everything else goes under an epic, carries a component,
+   and self-assigns.
    Every epic also carries exactly one **epic-classification** (`tech-debt`/`product-feature`/
    `infra` — the `epic` group's single-select leaves, and the epic marker); non-epics never carry
-   it. `blocked` is applied only with a named blocking ticket/epic + a Linear blocked-by relation.
+   it. `blocked` is applied only with a named blocking ticket/epic + a Linear blocked-by relation;
+   `improvement-ideas` needs neither.
    Close status in BOTH Linear and the mirror at finish.
 2. **Work ledger.** Every unit has `docs/work/YYYY-MM-DD-<slug>.md` (slug, not a ticket id —
    no `OME-N` exists until PR-open) — created at work START from `docs/work/TEMPLATE.md`,
