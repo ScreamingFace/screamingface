@@ -93,4 +93,19 @@ jobs:
           SCREAMINGFACE_PAID_REQUIRED: "1"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
+          SCREAMINGFACE_PAID_LOG_DIR: /tmp/screamingface-paid-logs
         run: uv run pytest tests/paid -m paid -rs -v
+
+      # The stack's own logs (gateway request lines, engine model-call lifecycle) are
+      # the debugging material a failure code alone cannot replace. Safe to upload:
+      # the OpenRouter key never appears in any child's environment or log — it
+      # travels only inside the SDK's connect request body, and neither app logs
+      # request bodies at info level.
+      - name: Upload stack logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: paid-smoke-stack-logs
+          path: /tmp/screamingface-paid-logs
+          if-no-files-found: ignore
+          retention-days: 14

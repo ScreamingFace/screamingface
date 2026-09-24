@@ -61,6 +61,21 @@ _ASSETS_ENV: Final = "SCREAMINGFACE_E2E_ASSETS"
 # exits 0, so without this flag a broken gate or empty assets would show the owner a
 # green run that re-proved nothing. Plain `pytest tests/paid` keeps skipping politely.
 REQUIRED_ENV: Final = "SCREAMINGFACE_PAID_REQUIRED"
+# Where child logs (aigateway.log, engine.log) land. The workflow pins this to a fixed
+# path and uploads it with if:always(), so a failed CI run's stack logs outlive the
+# runner — a pytest tmp dir dies with it, and the failure code alone rarely debugs a
+# mid-run 500.
+LOG_DIR_ENV: Final = "SCREAMINGFACE_PAID_LOG_DIR"
+
+
+def work_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The stack's log directory: the pinned CI path when set, else a session tmp dir."""
+    configured: str | None = os.environ.get(LOG_DIR_ENV)
+    if configured:
+        pinned = Path(configured)
+        pinned.mkdir(parents=True, exist_ok=True)
+        return pinned
+    return tmp_path_factory.mktemp("paid-stack")
 
 
 def _refuse(reason: str) -> None:
@@ -223,8 +238,11 @@ class _PaidStackBoot:
                 "127.0.0.1",
                 "--port",
                 str(port),
+                # WHY info (the replay lane uses warning): this lane exists to debug
+                # real runs — info carries the engine's model-call lifecycle lines and
+                # the gateway's request lines, and the logs are uploaded on CI failure.
                 "--log-level",
-                "warning",
+                "info",
             ],
             env=env,
             cwd=gateway_dir,
@@ -263,8 +281,11 @@ class _PaidStackBoot:
                 "127.0.0.1",
                 "--port",
                 str(port),
+                # WHY info (the replay lane uses warning): this lane exists to debug
+                # real runs — info carries the engine's model-call lifecycle lines and
+                # the gateway's request lines, and the logs are uploaded on CI failure.
                 "--log-level",
-                "warning",
+                "info",
             ],
             env=env,
             cwd=engine_dir,
@@ -302,7 +323,7 @@ def paid_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PaidStack]:
     """One real-key stack for the whole paid session — boot is minutes, spend is real."""
     require_paid_stack()
     assets: Path = _require_imported_assets()
-    boot = _PaidStackBoot(work_dir=tmp_path_factory.mktemp("paid-stack"), assets_dir=assets)
+    boot = _PaidStackBoot(work_dir=work_dir(tmp_path_factory), assets_dir=assets)
     stack: PaidStack = boot.start()
     try:
         yield stack
