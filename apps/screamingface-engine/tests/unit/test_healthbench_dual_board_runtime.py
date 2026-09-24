@@ -74,8 +74,10 @@ async def test_both_boards_serve_one_answer_key_from_separate_addresses(tmp_path
     professional_routes = PROFESSIONAL_EXAM.routes
     assert professional_routes.cases != WORST30_EXAM.routes.cases
 
-    worst30_cases = json.loads(await node.fetch(WORST30_EXAM.routes.cases, relative=True))
-    professional_cases = json.loads(await node.fetch(professional_routes.cases, relative=True))
+    worst30_cases = json.loads((await node.evaluate(f"{WORST30_EXAM.routes.cases}()!'157'")).text)
+    professional_cases = json.loads(
+        (await node.evaluate(f"{professional_routes.cases}()!'525'")).text
+    )
     assert [case["id"] for case in worst30_cases] == list(WORST30_CASE_IDS)
     assert [case["id"] for case in professional_cases] == list(range(1, 526))
     # The hard subset is a strict subset of the full exam — same ids, same answer key.

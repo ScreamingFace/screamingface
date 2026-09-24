@@ -87,7 +87,7 @@ class S3ArtifactStore:
         # WHY factories rather than clients: the write side runs inside `asyncio.to_thread`
         # (see `ports.ArtifactWriter`) and the read side streams on the event loop, so the two
         # cannot share one client. Injectable so tests can assert on the request actually
-        # sent — the same seam `runner.connector.build_aigateway_world` uses.
+        # sent — the same seam `world.connector.build_aigateway_world` uses.
         self._config = config
         self._client_factory = client_factory or self._default_client
         self._async_client_factory = async_client_factory or self._default_async_client

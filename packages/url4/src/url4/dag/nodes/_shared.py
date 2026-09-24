@@ -72,6 +72,7 @@ def _frame(inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Context:
 # stray "(" or "!" would otherwise desync the paren/intent scanners when the row
 # expression is re-compiled. The NUL prefix keeps it out of the $name namespace.
 _ITEM_KEY = "\x00item"
+_INDEX_KEY = "\x00index"
 
 # WHY: the default per-MapNode fan-out cap when ``;iteration.concurrency`` is not
 # given. Without a default bound, a collection with no directive spawns one
@@ -100,6 +101,10 @@ def _substitute(text: str, scope: Context, ctx: ExecutionContext) -> str:
     item = _current_item(scope)
     if item is not None:
         text = substitute_item(text, item, strict=ctx.strict_fields)
+    # INVARIANT: the native row index wins over author bindings only inside a map.
+    index = scope.get(_INDEX_KEY)
+    if index is not None:
+        scope = scope.child(index=index)
     return substitute_env_vars(text, scope, strict=ctx.strict_fields)
 
 

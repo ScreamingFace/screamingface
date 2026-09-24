@@ -42,13 +42,15 @@ from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
-from screamingface_engine.runner.cache import policy_to_body_field
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.cache import policy_to_body_field
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.dag import run as url4_run
+from url4.io.layer import IOLayer
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 from url4.streaming.protocol import CachePolicy
 
@@ -370,8 +372,13 @@ async def _bodies(cache: CachePolicy | None, *, expression: str = f"/{MODEL}('ct
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, client=client, cache=cache)
-        await url4_run(expression, io=world.node)
+        world = await build_aigateway_world(cfg, client=client)
+        # F2: the policy is per-REQUEST now, bound in the scope. `None` means nothing was stated,
+        # which is expressed by an unstated policy — no `cache` field on the wire at all.
+        with request_scope(
+            RequestScope(origin="run", cache=cache if cache is not None else CachePolicy())
+        ):
+            await url4_run(expression, io=world.node)
     return gw
 
 
@@ -432,13 +439,18 @@ async def test_two_concurrent_runs_with_different_policies_do_not_contaminate_ea
     gw = _MockAigateway()
     shared_cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
 
+    async def _policed(policy: CachePolicy, node: IOLayer, context: str) -> None:
+        # Each run binds its own scope: F2's concurrency guarantee rests on this.
+        with request_scope(RequestScope(origin="run", cache=policy)):
+            await url4_run(f"/{MODEL}('{context}')!'go'", io=node)
+
     async with gw.client() as client:
-        opted_out = await build_aigateway_world(shared_cfg, client=client, cache=OPT_OUT)
-        participating = await build_aigateway_world(shared_cfg, client=client, cache=OPT_IN)
+        opted_out = await build_aigateway_world(shared_cfg, client=client)
+        participating = await build_aigateway_world(shared_cfg, client=client)
 
         await asyncio.gather(
-            url4_run(f"/{MODEL}('run-a')!'go'", io=opted_out.node),
-            url4_run(f"/{MODEL}('run-b')!'go'", io=participating.node),
+            _policed(OPT_OUT, opted_out.node, "run-a"),
+            _policed(OPT_IN, participating.node, "run-b"),
         )
 
     by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
@@ -491,11 +503,11 @@ async def test_the_tool_calling_loop_applies_the_policy_on_every_round_trip() ->
         world = await build_aigateway_world(
             cfg,
             client=client,
-            cache=OPT_OUT,
             tavily_api_key=TAVILY_TOKEN,
             tavily_client=tavily,
         )
-        await url4_run(f"/{MODEL}('ctx')!'go'", io=world.node)
+        with request_scope(RequestScope(origin="run", cache=OPT_OUT)):
+            await url4_run(f"/{MODEL}('ctx')!'go'", io=world.node)
 
     assert len(gw.bodies) == 2, "the tool loop must have made a second round trip"
     assert all(body["cache"] == {"use-cache": False} for body in gw.bodies)

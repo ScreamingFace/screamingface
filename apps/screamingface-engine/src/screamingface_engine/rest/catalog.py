@@ -15,7 +15,7 @@ profile-bound detail. Every response is private and varies by the identity input
 change it.
 
 BOTH surfaces are bounded by the same declared execution world
-(``screamingface_engine.world_config``):
+(``screamingface_engine.world.config``):
 the summary omits models this Engine has not declared, and the detail refuses them with 404
 before any upstream request. Neither reshapes what it does return. When the declared world is
 unusable the composition root wires no service at all, and both answer 503.

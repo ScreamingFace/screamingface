@@ -508,6 +508,142 @@ runnerPool:
   # The worker's Prometheus /metrics port (prometheus_client.start_http_server).
   metricsPort: 9109
 
+# The node tier (unit 3, prd/03 §2.1): the sync surface, deployed separately from the App so a
+# slow or crashing sync call cannot take down the WebSocket relays that in-flight ensemble runs
+# depend on. It runs `screamingface-engine node`: the declared world built ONCE and served over
+# url4's own admission and timeout guards.
+#
+# STATELESS and horizontally scalable — it holds one world and one httpx client to aigateway,
+# never per-caller state. It is reachable ONLY from the App (the NetworkPolicy this stanza
+# renders), because it trusts the `X-User-Email` the App injects; without that policy any pod in
+# the cluster could set it freely and impersonate a caller (contracts.md §10, AC5).
+node:
+  # OFF by default (FX-86, HL-H1). The spill path (§2.2) writes an over-cap sync result to the
+  # SAME object store the App reads it back from across pods — a filesystem store makes every
+  # spilled result unservable (OME-929's exact failure mode, one tier over). The chart REFUSES
+  # `node.enabled: true` paired with any `artifactStorage.backend` other than `s3` (the `fail`
+  # guard at the top of `deployment-node.yaml`), so turning this on also means setting
+  # `artifactStorage.backend: s3` (and usually `garage.enabled: true`, or a real S3 endpoint).
+  enabled: false
+  # More than one so a rolling update and a node drain have somewhere to go. Unlike the App,
+  # the node tier holds no WebSocket-affinity state, so scaling it is safe (the App's
+  # `replicaCount: 1` constraint does not apply here).
+  replicas: 2
+  # The single port the tier serves on: mounts, /readyz and /livez share one ASGI app.
+  # Mirrors `world.node_tier.NodeTierSettings.port`; keep the two in step. `/metrics` moved to
+  # its own port below (FX-82, RD2) — a scrape must not compete with request handling on the
+  # same listener, and a metrics-only NetworkPolicy rule needs a port of its own to admit.
+  port: 9109
+  service:
+    port: 9109
+  # The timeout/admission ladder (contracts.md, ans:Q5). The request wrapper fails at 30 s;
+  # aigateway at 28 s so the INNER failure wins and the caller gets a 502 naming the cause;
+  # the in-flight cap is 2 × workers. No literal for any of these appears in a template — they
+  # are rendered from here into the tier's own URL4_CLOUD_NODE_* env.
+  #
+  # INVARIANT (FX-83): the chart FAILS to render when `aigatewayTimeoutS >= requestTimeoutS` —
+  # see the guard in `deployment-node.yaml`.
+  requestTimeoutS: 30
+  aigatewayTimeoutS: 28
+  maxInflightPerWorker: 2
+  workers: 1
+  retryAfterS: 1
+  # §2.2: the spill write's OWN bound, after `inner(...)` returns and OUTSIDE url4's own
+  # `asyncio.timeout`. Rendered as `URL4_CLOUD_NODE_SPILL_TIMEOUT_S`. It also feeds the App's
+  # derived forward budget (`requestTimeoutS + spillTimeoutS + 1`, rendered in configmap.yaml)
+  # and the grace-period guard below.
+  spillTimeoutS: 4
+  # OQ-3.2 / contracts.md C6: how long a spilled artifact's short-lived signed URL stays valid.
+  # Centralized here with the ladder numbers; the App enforces the same expiry from the
+  # signature, and the node refuses to sign without a key rather than emitting a bare redirect.
+  artifactUrlTtlS: 600
+  # The node's own hard cap on a response body (FX-85, mirrors NT-M9's
+  # `NODE_DEFAULT_RESULT_HARD_CAP_BYTES`), rendered as `URL4_CLOUD_RESULT_HARD_CAP_BYTES`. A
+  # body over 512 KiB spills to the artifact store (D9); a body over this cap fails `413` rather
+  # than spilling at all. Default 64 MiB.
+  resultHardCapBytes: 67108864
+  # Graceful shutdown: SIGTERM removes the pod from endpoints while in-flight sync calls (max
+  # `requestTimeoutS`) finish, and the spill write (`spillTimeoutS`) runs AFTER that.
+  #
+  # INVARIANT (FX-83): the chart FAILS to render unless
+  # `terminationGracePeriodSeconds > preStopSleepSeconds + requestTimeoutS + spillTimeoutS` — see
+  # the guard in `deployment-node.yaml`. A rollout that violates it SIGKILLs an in-flight spill.
+  preStopSleepSeconds: 5
+  terminationGracePeriodSeconds: 45
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      # Memory only, matching the App: a CPU limit would CFS-throttle the event loop in
+      # latency spikes even on an idle node.
+      memory: 512Mi
+  # Liveness is /livez, which answers unconditionally. It must NOT probe a downstream: if it
+  # did, aigateway blipping would restart every healthy node pod and turn one outage into two
+  # (AC19's rationale). Readiness is /readyz — world built AND the collision guard passed (AC18).
+  livenessProbe:
+    httpGet:
+      path: /livez
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 20
+    timeoutSeconds: 5
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+  # FX-88: covers the world build, which can take longer than liveness's own restart window on a
+  # large declared world. `/livez` answers unconditionally once the process is up, so this only
+  # bounds how long the kubelet waits before the OTHER probes start counting at all — it does not
+  # gate on the collision guard the way readiness does. `periodSeconds x failureThreshold` must
+  # stay >= 120 s; the default (10 x 12) hits that exactly.
+  startupProbe:
+    httpGet:
+      path: /livez
+      port: http
+    periodSeconds: 10
+    failureThreshold: 12
+  # FX-82 / RD2: `/metrics` moved off the request port so a scrape can never compete with a sync
+  # call for the same listener, and so the NetworkPolicy can admit a scraper to ONLY this port —
+  # `scrapeFrom` is empty by default, which renders NO second ingress rule at all (metrics is then
+  # unreachable from anywhere but the pod itself, the safe default for a tier nothing scrapes yet).
+  metrics:
+    port: 9110
+    # A list of NetworkPolicy peer objects (the same shape as an ingress rule's `from:` entries),
+    # e.g.:
+    #   scrapeFrom:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: monitoring
+    #       podSelector:
+    #         matchLabels:
+    #           app.kubernetes.io/name: prometheus
+    scrapeFrom: []
+
+# Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6). The node SIGNS the
+# 303 `Location`; the App VERIFIES that signature on `GET /artifacts/{id}` as an alternative to
+# the capability token, leaving the bare route token-only.
+#
+# ONE Secret reaches BOTH tiers: a key that lands on only one half makes every redirect
+# unfetchable (the App cannot verify) or every spill a 502 (the node has no signer). INVARIANT:
+# it travels by Secret only — a holder can mint a fetch credential for any artifact id, so it
+# must never appear in a ConfigMap or a log.
+artifactSigning:
+  # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
+  # / Sealed Secrets flow). Empty + node.enabled => the chart creates one and reuses it across
+  # upgrades via `lookup`, so a values-less `helm upgrade` does not invalidate in-flight URLs.
+  # GitOps (ArgoCD, any offline `helm template`): `lookup` is empty there, so each sync makes a
+  # NEW key and no pod restarts for it — set this or `signingKey` (FX-91).
+  # It must key the value `URL4_CLOUD_ARTIFACT_SIGNING_KEY`: both tiers attach it with
+  # `envFrom.secretRef`, which injects keys under their own names and cannot rename.
+  existingSecret: ""
+  # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
+  # pass it with `--set` / `--set-file`, or use `existingSecret`.
+  signingKey: ""
+
 # Runner image (spec §9). The pool Deployment runs this image in `worker` mode; the worker
 # forks each run as a child from its own image, so this is the image that must carry the
 # benchmark datasets and private grading assets the control plane must not.

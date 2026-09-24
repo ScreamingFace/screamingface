@@ -407,9 +407,15 @@ class ScoreSubmission(BaseModel):
     # (D-SCORE-006). Persisted onto the flat client_* columns by the store.
     client: ClientInfo | None = None
     metadata: dict[str, Any] | None = None
-    # INVARIANT (OME-822): every direct submission reports a cost. A fully
-    # cache-served run genuinely costing nothing is represented by 0; omission or
-    # null is a client bug and is rejected by this non-nullable required field.
+    # GOAL (OME-822): every direct submission reports a cost. A fully cache-served
+    # run genuinely costing nothing is represented by 0; a client that can determine
+    # its cost and stays silent is a client bug.
+    #
+    # NOT ENFORCED YET — this is the EXPAND phase. The field below is optional and
+    # nullable, and a submission omitting BOTH it and `run_cost_status` is accepted.
+    # `OME-1258` is what turns the goal into a 422, once `OME-1252` is live in the SDK
+    # version submitters actually run. See the note on `run_cost_status` below.
+    #
     # Database and read DTOs deliberately remain nullable because imported and
     # legacy rows can still have no known cost. Decimal, not float — this is money.
     # INVARIANT: the request contract mirrors the column exactly — DECIMAL(12, 6).
@@ -428,9 +434,15 @@ class ScoreSubmission(BaseModel):
     # which fails the comparison); allow_inf_nan=False stops +Infinity, which
     # would pass ge=0 and then raise inside quantize().
     #
-    # OME-822/OME-1251 D1: OPTIONAL again, but only because `run_cost_status` now carries the
-    # obligation. An absent amount is legal ONLY beside a status that says it is unknowable, and
-    # the model validator below enforces that pairing. Omitting both is still rejected.
+    # OME-822/OME-1251 D1: OPTIONAL. An absent amount is legal beside a status that says it is
+    # unknowable, and the model validator below enforces that pairing in both directions.
+    #
+    # AIDEV-NOTE: omitting BOTH this and `run_cost_status` is ACCEPTED, and stores an unlabelled
+    # row indistinguishable from a legacy one. Read `validate_cost_matches_its_status` below — it
+    # returns early on a null status. An earlier revision of this comment claimed the pair was
+    # rejected; that was never true on this head, and
+    # `test_a_submission_with_neither_amount_nor_status_stays_unlabelled` pins the real
+    # behaviour. `OME-1258` is what starts refusing it.
     run_cost_usd: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
     # INVARIANT (OME-1251 D4): a RUN-level vocabulary, deliberately not the gateway's per-call
     # `DirectCostStatus`. A run has many calls, and no member of that vocabulary can express

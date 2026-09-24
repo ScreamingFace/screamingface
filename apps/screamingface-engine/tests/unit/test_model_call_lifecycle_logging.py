@@ -22,10 +22,11 @@ from typing import cast
 import httpx
 import pytest
 
-from screamingface_engine.runner import connector as connector_module
-from screamingface_engine.runner.connector import AigatewayConfig, _chat_completion_loop
-from screamingface_engine.runner.errors import RunnerRequestError
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.request_scope import RequestScope
+from screamingface_engine.world import connector as connector_module
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, _chat_completion_loop
+from screamingface_engine.world.errors import RunnerRequestError
 
 pytestmark = pytest.mark.asyncio
 
@@ -51,20 +52,19 @@ def _completion(content: str = "4") -> dict:
 
 async def _run_loop(monkeypatch: pytest.MonkeyPatch, fetch) -> str:
     monkeypatch.setattr(connector_module, "_fetch_completion", fetch)
-    # WHY the casts: the loop never touches the client or cache once `_fetch_completion`
-    # is stubbed — the fields exist only to be forwarded to the stub.
+    # WHY the cast: the loop never touches the client once `_fetch_completion` is stubbed — the
+    # client exists only to be forwarded to the stub. F2: the per-request values travel in the
+    # scope, so an anonymous scope is exactly the pre-F2 `profile=None, identity_headers=None`.
     return await _chat_completion_loop(
         http_client=cast(httpx.AsyncClient, None),
         cfg=AigatewayConfig(default_model=_MODEL, models=(ModelSpec(id=_MODEL),)),
-        profile=None,
+        scope=RequestScope(origin="run"),
         messages=[{"role": "user", "content": _PROMPT}],
         params={},
         spec=ModelSpec(id=_MODEL),
         tavily_http=None,
         tavily_api_key=None,
         retrieval_policy=None,
-        identity_headers=None,
-        cache=cast("connector_module.CachePolicy", None),
     )
 
 
@@ -233,3 +233,34 @@ async def test_post_completion_reports_a_retry_when_the_first_attempt_fails_tran
     assert isinstance(result[0], httpx.Response)
     assert result[1] is True
     assert flaky.calls == 2
+
+
+async def test_a_cancelled_call_logs_cancelled_and_reraises_without_failing_the_observation(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """FX-18 (NT-L9): a sync timeout cancels the call; before this the log said nothing."""
+    from screamingface_engine.observations import ModelCall
+
+    failed: list[str] = []
+    monkeypatch.setattr(ModelCall, "failed", lambda self, code: failed.append(code))
+    entered = asyncio.Event()
+
+    async def fetch(client, *, headers, body, cache):
+        entered.set()
+        await asyncio.Event().wait()
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        task = asyncio.create_task(_run_loop(monkeypatch, fetch))
+        await asyncio.wait_for(entered.wait(), timeout=1.0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    records = [r for r in caplog.records if "cancelled" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert records[0].name == _LOGGER
+    message = records[0].getMessage()
+    assert message.startswith(f"model call cancelled model={_MODEL} duration=")
+    assert message.endswith("s")
+    assert failed == []
+    assert not [r for r in caplog.records if "failed" in r.getMessage()]

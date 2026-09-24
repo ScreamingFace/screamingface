@@ -173,7 +173,7 @@ async def test_the_worst30_cases_route_preflights_all_157(tmp_path: Path) -> Non
     node = Url4Node("test")
     install(node, tmp_path, WORST30_EXAM)
     with pytest.raises(ResolutionError, match="failed preflight"):
-        await node.fetch(WORST30_EXAM.routes.cases, relative=True)
+        (await node.evaluate(f"{WORST30_EXAM.routes.cases}()!'157'")).text
 
 
 @pytest.mark.asyncio
@@ -181,7 +181,7 @@ async def test_the_cases_route_serves_the_frozen_subset(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
     install(node, tmp_path, WORST30_EXAM)
-    cases = json.loads(await node.fetch(WORST30_EXAM.routes.cases, relative=True))
+    cases = json.loads((await node.evaluate(f"{WORST30_EXAM.routes.cases}()!'157'")).text)
     assert [case["id"] for case in cases] == list(WORST30_CASE_IDS)
     # Privacy: the public rows carry the chat envelope and NOTHING of the rubric.
     assert "rubric" not in json.dumps(cases)

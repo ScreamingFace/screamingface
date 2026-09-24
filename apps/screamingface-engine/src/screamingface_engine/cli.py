@@ -1,8 +1,9 @@
-"""``screamingface-engine`` console entrypoint — one image, three modes.
+"""``screamingface-engine`` console entrypoint — one image, four modes.
 
     screamingface-engine serve    # the control plane: mint tokens, bridge WS, schedule Runner Jobs
     screamingface-engine run      # one url4 evaluation, streamed to NATS, then exit
     screamingface-engine worker   # claim runs from the durable queue, supervise each as a child
+    screamingface-engine node     # serve the sync surface: one world, direct mount hits (unit 3)
 
 WHY one artifact with a mode argument rather than two images: the two halves already shared
 their whole wire vocabulary (`job_env`, `subjects`, the JetStream binding), and keeping them in
@@ -92,6 +93,21 @@ def _worker() -> None:
     run_worker()
 
 
+def _node() -> None:
+    """Serve the node tier: the declared world built once, over url4's ASGI surface (unit 3).
+
+    The sync surface's deployed shape (prd/03 §2.1). It is a sibling of `_serve` rather than a
+    flag on it: the control plane schedules runs and owns identity, the node tier executes one
+    direct mount hit and holds no caller state. They resolve different factories on different
+    ports and share only the word "serve".
+    """
+    # WHY: lazy — the node tier imports the shared world and url4's serving wrapper, and the
+    # control plane's boot must not pay for either when the mode is not running.
+    from screamingface_engine.world.node_tier import serve as serve_node
+
+    serve_node()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
@@ -123,6 +139,13 @@ def main(argv: list[str] | None = None) -> None:
             "(the fixed worker pool of OME-1086)"
         ),
     )
+    sub.add_parser(
+        "node",
+        help=(
+            "serve the sync surface: one declared world, one direct mount call per request "
+            "(the url4 node tier of unit 3)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     # BEFORE dispatch, and for every mode: a Job's logs are as load-bearing as the control
@@ -131,6 +154,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.mode == "worker":
         _worker()
+    elif args.mode == "node":
+        _node()
     elif args.mode == "run":
         _run()
     elif args.local:

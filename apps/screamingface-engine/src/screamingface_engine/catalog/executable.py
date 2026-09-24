@@ -21,7 +21,7 @@ from screamingface_engine.catalog.port import (
     ModelParameterSource,
     compute_etag,
 )
-from screamingface_engine.models.registry import decode_route_id, encode_route_id
+from screamingface_engine.world.models.registry import decode_route_id, encode_route_id
 
 
 class ExecutableCatalogSource(CatalogService, Protocol):

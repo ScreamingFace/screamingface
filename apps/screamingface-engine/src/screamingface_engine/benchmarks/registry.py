@@ -12,6 +12,7 @@ from screamingface_engine.benchmarks.definition import Benchmark
 from url4 import Iteration, Node, RelExpr, RelUrl, build, render
 from url4.core.errors import ParseError
 from url4.core.nodes import walk
+from url4.core.parser import split_top_level_commas
 from url4.peer.server import Url4Node
 
 BENCHMARK_ASSETS_ENV = "URL4_BENCHMARK_ASSETS"
@@ -53,7 +54,7 @@ class BenchmarkRegistry:
 
         for benchmark in self:
             benchmark.install(node, assets_root)
-        declared = frozenset(node.processor_routes()) | _data_routes(node)
+        declared = served_routes(node)
         for benchmark in self:
             protocol = benchmark.protocol(benchmark.case_count)
             # Rendering at installation catches malformed hand-built ASTs before discovery can
@@ -66,7 +67,21 @@ class BenchmarkRegistry:
                 )
 
 
-def _data_routes(node: Url4Node) -> frozenset[str]:
+def served_routes(node: Url4Node) -> frozenset[str]:
+    """Every URL path ``node`` serves directly: its endpoints and its data routes.
+
+    FX-55 / B3 review R8: the ONE accessor for this union. `world.serving.node_mount_paths` (the
+    collision guard), `world.factory.build_world` (the direct-mount route set it captures before
+    Benchmarks install) and :meth:`BenchmarkRegistry.install` (the endpoint check) all call it,
+    so none of the three can disagree about what a node serves. It lives here, not in
+    `world`: `benchmarks` is a shared leaf (`.claude/scripts/check_layering.py`) that the world
+    may import and that may not import the world.
+    """
+
+    return frozenset(node.processor_routes()) | data_routes(node)
+
+
+def data_routes(node: Url4Node) -> frozenset[str]:
     """The node's data paths, which are servable relative targets too.
 
     WHY read privately: `processor_routes()` lists endpoints only, and `Url4Node` publishes no
@@ -114,18 +129,31 @@ def _relative_endpoint_paths(protocol: Node) -> set[str]:
             )
             if reference is not None and (path := _literal_path(reference)) is not None:
                 found.add(path)
-            if isinstance(child, Iteration):
-                for template in (child.body, child.intent, child.reducer):
-                    if not template:
-                        continue
-                    try:
-                        pending.append(build(template))
-                    except ParseError:
-                        # A row template is URL4 only once `$item` is substituted, so one that
-                        # cannot be parsed here carries no route to check. Skipping narrows the
-                        # check; raising would fail the world for a legal Benchmark.
-                        continue
+            pending.extend(_embedded_protocols(child))
     return found
+
+
+def _embedded_protocols(node: Node) -> Iterator[Node]:
+    templates: tuple[str | None, ...] = ()
+    if isinstance(node, Iteration):
+        templates = (node.body, node.intent, node.reducer)
+    elif isinstance(node, RelExpr) and node.context and "@" not in node.context:
+        # INVARIANT: local call contexts execute source lists, including the selector's
+        # dataset. Holdings contexts stay opaque in URL4; remote contexts execute elsewhere.
+        # WHY empty intent: build() requires a complete expression around a source list.
+        # This wrapper is inspected only, never evaluated or published.
+        # URL4 ignores empty source slots (for example a trailing comma) before parsing.
+        context = ",".join(filter(str.strip, split_top_level_commas(node.context)))
+        templates = (f"({context})!''",)
+    for template in templates:
+        if not template:
+            continue
+        try:
+            yield build(template)
+        except ParseError:
+            # WHY: unresolved iteration templates and free-prose contexts may be legal at
+            # runtime without being parseable here; do not invent routes from that text.
+            continue
 
 
 EMPTY_BENCHMARKS = BenchmarkRegistry()
@@ -136,4 +164,6 @@ __all__ = [
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",
     "assets_root",
+    "data_routes",
+    "served_routes",
 ]

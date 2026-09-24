@@ -8,6 +8,10 @@ the same REST sync-hold and WS pump a deployed App reads from JetStream. Everyth
 swapped adapters — auth, the 428 subscriber gate, sequencing, replay-from, the model catalog — is
 the production code path, unmodified.
 
+The one exception is the in-process sync surface (unit 3, contracts.md C8). A local sync call gets
+none of the deployed node tier's guards: no 30 s timeout ladder, no admission cap, no missing-``q``
+400 and no fair-share gate — only the in-process runs are gated. See `_LocalNodeMount`.
+
 # INVARIANT: this module is the ONLY place the control plane and the run mode meet, which is why
 # `.claude/scripts/check_layering.py` lists it in BOTH `CONTROL_PLANE` and `_EXEMPT` — exactly as
 # it does `cli.py`, and for the same reason. Being exempt is not the same as being unexamined:
@@ -25,10 +29,13 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
+from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
+from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
@@ -44,7 +51,25 @@ from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
+from screamingface_engine.request_scope import AnswerSeedError, bind_sync_request
+from screamingface_engine.rest.forwarder import forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
+from screamingface_engine.world.config import load_config
+from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
+from screamingface_engine.world.serving import (
+    NodeMountRoute,
+    compose_serving_world,
+    engine_route_paths,
+    install_node_route,
+    node_eval_path,
+)
+from screamingface_engine.world.wire import (
+    MALFORMED_HEADER,
+    AsgiReceive,
+    AsgiScope,
+    AsgiSend,
+    send_url4_error,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -106,7 +131,7 @@ def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
     Deliberately narrow: an explicit ``URL4_RUNNER_CONFIG`` always wins, and so does a real
     ``/etc/url4/url4.toml`` — this only fills a gap that exists nowhere but a source checkout.
     """
-    from screamingface_engine.world_config import DEFAULT_CONFIG_PATH
+    from screamingface_engine.world.config import DEFAULT_CONFIG_PATH
 
     if job_env.RUNNER_CONFIG in env or Path(DEFAULT_CONFIG_PATH).is_file():
         return env
@@ -166,6 +191,181 @@ def _local_activity_configuration(
     return settings, level
 
 
+_NODE_MOUNT_NAME = "node"
+
+
+class _LocalNodeMount:
+    """Serve the shared node's ASGI surface in-process, behind the App's identity boundary (C8).
+
+    FEATURE (unit 3, prd/03 §2.3): ``serve --local`` has no forwarder and no network hop, so the
+    node's ASGI app is served directly by the App. It sits behind the SAME `NodeMountRoute` the
+    deployed forwarder uses, installed last by the same `install_node_route`: only the node's
+    mounts and its eval path reach it, and every other path keeps the engine's own answer.
+
+    # INVARIANT: identity is BUILT, never copied. This wrapper runs the SAME strip-and-reset
+    # helper the deployed forwarder uses (``forwarded_headers``): only the allowlisted request
+    # headers plus the identity survive, so a client's Cookie, Authorization or URL4-Capability
+    # never reaches the node. Local mode has no edge to verify against, so the header it reads IS
+    # the caller's claim — the bind is loopback-only precisely because there is no trust boundary
+    # here, which is also why this shape must never be deployed (C8).
+
+    # INVARIANT: the caller's state is bound by the SAME sync producer the node tier uses
+    # (``request_scope.bind_sync_request``), so a mount call reads its identity, profile, seed
+    # and cache policy from the ContextVar exactly as a deployed node does — and, since FX-6,
+    # its log lines now carry the same ``origin="sync"`` (+ trace id) identity the tier's do.
+    # F2's per-request binding is what lets this one node serve both the mount and every
+    # in-process run without mixing them.
+
+    NOT a deployment option (C8). A local sync call gets none of the node tier's guards: no 30 s
+    timeout ladder, no admission cap, no missing-``q`` 400 and no fair-share gate — only the
+    in-process RUNS are gated. There is no forwarder and no NetworkPolicy either. It is the
+    development shape of the sync surface.
+    """
+
+    __slots__ = ("_holder",)
+
+    def __init__(self, holder: dict[str, Any]) -> None:
+        # The holder is filled by the App's startup hook. A dict rather than a built node because
+        # ``create_local_app`` is synchronous and building the world is not, and because the
+        # executor factory (created before startup) must read the same world at run time.
+        self._holder = holder
+
+    async def __call__(self, scope: AsgiScope, receive: AsgiReceive, send: AsgiSend) -> None:
+        # INVARIANT: the `NodeMountRoute` is the ONE place that decides "is this a mount". It
+        # passes only `http` scopes on a path the built node serves, and its path set is empty
+        # until startup has built a node — so a node always exists by the time this runs.
+        node_asgi = self._holder["asgi"]
+        raw_headers = Headers(scope=scope)
+        with ExitStack() as stack:
+            try:
+                # `bind_sync_request` is the ONE binding both this mount and the node tier's
+                # own `_request` use — the request scope, the trace (FX-64), and now the
+                # run-context log identity too (FX-6), so a local sync log line carries
+                # ``origin="sync"`` (+ trace id) exactly as the deployed tier's does.
+                bound = stack.enter_context(bind_sync_request(raw_headers))
+            except AnswerSeedError as exc:
+                # A declared sitting must not silently run without its seed (OME-1038). The node
+                # tier maps this to 400 before dispatch; local mode calls the same producer
+                # itself, so it owns the same mapping — the same shared code,
+                # ``MALFORMED_HEADER`` (item 3, B6 review) — rather than letting a malformed seed
+                # escape as a 500. Narrowed to the binding itself (R4): only entering the scope
+                # may raise this, so a later `AnswerSeedError` reaching the node's own dispatch is
+                # never mistaken for it.
+                await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
+                return
+            cleaned = forwarded_headers(
+                (
+                    (name.decode("latin-1"), value.decode("latin-1"))
+                    for name, value in scope.get("headers") or ()
+                ),
+                verified_identity=bound.identity_headers,
+            )
+            child_scope = {
+                **scope,
+                "headers": [
+                    (name.encode("latin-1"), value.encode("latin-1")) for name, value in cleaned
+                ],
+            }
+            await node_asgi(child_scope, receive, send)
+
+
+def _install_local_node(
+    app: FastAPI,
+    *,
+    holder: dict[str, Any],
+    run_env: Mapping[str, str],
+    benchmarks: BenchmarkRegistry,
+) -> None:
+    """Install the shared node's route LAST and register its build/teardown hooks (prd/03 C8).
+
+    Extracted from :func:`create_local_app` so the composition root stays a readable sequence of
+    wiring steps; the mount, the world build and the ordered teardown belong together.
+
+    # INVARIANT: the shutdown hook is registered HERE, so the caller must call this AFTER the
+    # runner's and the gate's own shutdown hooks. That ordering is the correctness property: the
+    # world is the io the runs were using, so it is closed once they have drained and released
+    # their gate permits.
+
+    # WHY no node-tier aigateway overrides and no url4 admission/timeout wrapper. Local is a
+    # DEVELOPMENT shape (C8), and ONE node serves both the sync mount and the in-process runs.
+    # The run path is the regression oracle, so the shared node keeps the DECLARED aigateway
+    # config (its timeout and ``allow_outbound``) rather than the deployed tier's 30 s/28 s ladder
+    # and forced-off outbound layer — those are properties of a stateless public tier, not of a
+    # loopback dev process that also evaluates arbitrary expressions.
+    """
+    node_mount = _LocalNodeMount(holder)
+    app.state.node_mount = node_mount
+    # WHY a provider over `holder`: the path set exists only once startup has built the world.
+    install_node_route(
+        app,
+        NodeMountRoute(
+            node_mount, paths=lambda: holder.get("paths", frozenset()), name=_NODE_MOUNT_NAME
+        ),
+    )
+
+    async def _build_shared_node() -> None:
+        """Compose the ONE world both surfaces use, guarded against the App's real route table."""
+        # AIDEV-NOTE (item 1, B6 review): parsed here, ONCE, rather than left for
+        # `compose_serving_world`/`build_world` to parse internally, so `holder["shared_world"]`
+        # and the world it builds are the SAME read. A run on the shared node then logs from
+        # `holder["shared_world"].section` (see `runner.main._seeded_world`'s section expression)
+        # instead of re-reading `url4.toml` — a file broken or changed after startup must not
+        # fail or misreport a run that never needed to read it again.
+        resolved_config = load_config(run_env, include_extra_models=True)
+        world, aclose = await compose_serving_world(
+            env=run_env,
+            config=resolved_config,
+            # F4/D3: run the collision guard against the routes the mount actually joins, so a
+            # declared mount shadowed by an engine literal fails startup instead of vanishing.
+            engine_routes=engine_route_paths(app),
+            benchmarks=benchmarks,
+        )
+        # item 2 (B6 review round 2): ONE object for both halves of the shared world — see
+        # `SharedWorld`'s own docstring for why two independent optional providers are not this.
+        holder["shared_world"] = SharedWorld(io=world, section=resolved_config.aigateway)
+        holder["aclose"] = aclose
+        # WHY duck-typed, not `isinstance(world, Url4Node)`: this module may not import the url4
+        # engine (test_only_engine_extensions_import_url4).
+        asgi = getattr(world, "asgi", None)
+        holder["asgi"] = asgi() if callable(asgi) else None
+        # No node means no mounts and no eval path: every path is then the engine's.
+        if holder["asgi"] is not None:
+            # The direct-mount route set — model + data mounts, WITHOUT benchmark/candidate/
+            # corrective/judge endpoints — is CAPTURED by `world.factory.build_world` itself,
+            # right after the declared read-side mounts register and before any Benchmark or the
+            # shared candidate/corrective adapters ever exist on this node (see `build_world`'s
+            # own comment). `direct_mount_paths` reads that capture back, so this mount's path
+            # set matches the DEPLOYED shape's exactly: model + data mounts only.
+            #
+            # WHY excluding a benchmark endpoint matters: a connector applies the run's
+            # X-Answer-Seed to every model call it makes. Inside a candidate invocation that is
+            # correct (the candidate call and its downstream model calls share the seed); a JUDGE
+            # call a benchmark endpoint issues OUTSIDE a candidate invocation must NOT be seeded.
+            # A direct loopback hit on a judge/candidate/corrective ENDPOINT has no candidate
+            # invocation around it, so excluding these from the direct-mount set is what keeps
+            # that call unseeded here, as it is on the deployed shape (which never mounts them).
+            #
+            # AIDEV-NOTE (item 6, B6 review): this does NOT close the residual for a judge MODEL
+            # route reached through the eval path. `/{eval_path}?q=` still reaches
+            # `/benchmarks/candidate` and every judge/corrective endpoint inside an expression —
+            # the dev shape, loopback only — and the connector seeds every call whose scope has
+            # `origin == "sync"` regardless of a candidate-invocation flag, so a judge model call
+            # issued THROUGH the eval path is still seeded. Closing that would mean the eval path
+            # stops evaluating arbitrary expressions, which is the whole point of `serve --local`.
+            holder["paths"] = direct_mount_paths(world) | {node_eval_path(world)}
+        else:
+            holder["paths"] = frozenset()
+        app.state.node_world = world
+
+    async def _close_shared_node() -> None:
+        aclose = holder.get("aclose")
+        if aclose is not None:
+            await aclose()
+
+    app.router.on_startup.append(_build_shared_node)
+    app.router.on_shutdown.append(_close_shared_node)
+
+
 def create_local_app(
     settings: Settings | None = None,
     *,
@@ -188,9 +388,10 @@ def create_local_app(
 
     # WHY the import is function-local: it is THE line that crosses the layering boundary, and
     # keeping it here means the crossing happens when a local App is actually built rather than on
-    # any import of this module. What it defers is `runner.connector`/`runner.executor` and httpx
-    # — not the engine itself, which `url4/__init__` has already pulled in via any `url4.streaming`
-    # import (see the SCOPE NOTE in `check_layering.py`).
+    # any import of this module. What it defers is the RUN mode — `runner.main`, `runner.executor`
+    # and the observation plugins. It does NOT defer `world.connector` or httpx: the module-level
+    # `world.serving` import (the shared node) already loads both, and `url4/__init__` loads the
+    # engine itself via any `url4.streaming` import (see the SCOPE NOTE in `check_layering.py`).
     from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.runner.main import build_executor
 
@@ -215,9 +416,22 @@ def create_local_app(
     # `io_gate`) and closed AFTER the runner on shutdown, so cancelled runs release their
     # permits into a gate that still accepts the releases.
     io_gate = FairShareGate(settings.local_io_capacity)
+    # FEATURE (unit 3, C8): ONE world serves both the mounted node's ASGI surface and every
+    # in-process run. The world is built in the App's startup hook (building is async; this
+    # function is not) and parked here, so the executor factory below can read it at run time.
+    # Empty until startup completes; a run scheduled without the App's lifespan falls back to the
+    # per-run world builder.
+    holder: dict[str, Any] = {}
     job_runner = InProcessJobRunner(
         stream,
-        partial(build_executor, benchmarks=benchmarks, io_gate=io_gate, observers=observers),
+        partial(
+            build_executor,
+            benchmarks=benchmarks,
+            io_gate=io_gate,
+            observers=observers,
+            # Read AT RUN TIME so the shared node exists by the time a run is scheduled.
+            shared_world_provider=lambda: holder.get("shared_world"),
+        ),
         base_env=run_env,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
@@ -245,10 +459,14 @@ def create_local_app(
     # cancelled fetch releases its permit in a `finally` — closing the gate before those
     # releases land would drop them on a dead object instead of the books.
     app.router.on_shutdown.append(io_gate.aclose)
-    if catalog is not None:
-        app.router.on_shutdown.append(catalog.aclose)
-    if connections is not None:
-        app.router.on_shutdown.append(connections.aclose)
+    # FEATURE (unit 3, prd/03 §2.3 / C8): the local node route, installed after ALL routes and
+    # after the runner/gate shutdown hooks whose ordering it depends on. `install_node_route`
+    # asserts the route order rather than trusting it; there is NO forwarder and NO NetworkPolicy
+    # here — this is the development shape of the sync surface, never a deployment option.
+    _install_local_node(app, holder=holder, run_env=run_env, benchmarks=benchmarks)
+    for adapter in (catalog, connections):
+        if adapter is not None:
+            app.router.on_shutdown.append(adapter.aclose)
     return app
 
 

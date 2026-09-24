@@ -19,6 +19,7 @@ from screamingface_engine.benchmarks.evaluation import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from url4.peer.server import Request, Url4Node
 
 CASE_EXECUTION_ROUTE = "/benchmarks/case-execution"
@@ -143,7 +144,10 @@ def _case_execution(request: Request) -> str:
             raise ValueError("Case execution grading must contain exactly one outcome")
     except (TypeError, ValueError) as exc:
         raise _contract_error(str(exc)) from exc
-    return compact_json(case_execution_payload(case_id, invocation, grading))
+    result = compact_json(case_execution_payload(case_id, invocation, grading))
+    failed = isinstance(grading[0], Mapping) and "error" in grading[0]
+    grading_activity(case_id, "failed" if failed else "completed")
+    return result
 
 
 __all__ = [

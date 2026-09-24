@@ -19,7 +19,7 @@ from screamingface_engine.runner.main import (
 )
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from url4.core.errors import ResolutionError
 from url4.streaming.interfaces import (
     Completed,

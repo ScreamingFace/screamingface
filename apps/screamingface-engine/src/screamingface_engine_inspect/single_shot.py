@@ -28,7 +28,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, CaseResult
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
@@ -44,7 +46,6 @@ from screamingface_engine.benchmarks.deployment import (
 )
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
     async_aggregate_endpoint,
     attempt_records_endpoint,
     candidate_answer,
@@ -68,6 +69,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeRequest,
     ScoredPath,
 )
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -364,8 +366,7 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
         "case_evaluation": board.case_evaluation_route,
         "aggregate": board.aggregate_route,
     }
-    if routes["cases"] not in getattr(node, "_data", {}):
-        node.data(routes["cases"], _cases(root), media_type="application/json")
+    install_cases(node, routes["cases"], _cases(root))
     installed = frozenset(node.processor_routes())
     endpoints: list[tuple[str, Callable[[Request], str | Awaitable[str]]]] = [
         (routes["check"], _check(root)),
@@ -379,19 +380,14 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
         ),
         (
             routes["aggregate"],
-            # WHY two faces: a judged aggregate awaits model calls through the
-            # run's shared HTTP client, whose pooled connections are bound to the
-            # run's OWN loop — httpx raises "bound to a different event loop" on a
-            # worker thread's second loop (reproduced, review 2026-09-24). url4
-            # awaits async handlers natively, so the judged face never leaves the
-            # run's loop; string-match boards keep the sync face byte-identically.
+            # WHY: both scorer families stay on the owning loop for logs and model I/O.
             async_aggregate_endpoint(
                 label=board.benchmark.title,
                 available_case_count=board.benchmark.case_count,
                 aggregate=_judged_aggregate(board, root, node),
             )
             if board.judge is not None
-            else aggregate_endpoint(
+            else async_aggregate_endpoint(
                 label=board.benchmark.title,
                 available_case_count=board.benchmark.case_count,
                 aggregate=_aggregate(board, root),
@@ -411,7 +407,13 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
     """The canonical one-invocation expression — one answer per Case, graded once."""
 
     def build(case_count: int) -> Node:
-        candidate_invocation = candidate("$item.input", web_search=_CANDIDATE_WEB_SEARCH)
+        candidate_invocation = candidate(
+            "$item.input",
+            web_search=_CANDIDATE_WEB_SEARCH,
+            case_id="$item.id",
+            case_index="$index",
+            case_count=str(case_count),
+        )
         checked = expr(
             src(
                 RelExpr(
@@ -449,6 +451,7 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
 
 
 def _cases(root: Path) -> Callable[[], str]:
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         try:
             return (root / "cases.json").read_text(encoding="utf-8")
@@ -466,6 +469,7 @@ def _check(root: Path) -> Callable[[Request], str]:
     preserved for re-grading.
     """
 
+    @observe_stage(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
@@ -506,6 +510,7 @@ def _check(root: Path) -> Callable[[Request], str]:
 
 
 def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]:
+    @observe_stage(ActivityKind.GRADING)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
@@ -600,19 +605,7 @@ def board_aggregate(
 ) -> dict[str, Any]:
     """Score every selected Case on the shared spine, then mean accuracy."""
 
-    return board.scored_path().aggregate(
-        raw_rows,
-        benchmark_id=board.benchmark.id,
-        benchmark_revision=board.benchmark.revision,
-        selected_cases=read_selected_cases(
-            root,
-            case_ids,
-            benchmark_label=board.benchmark.title,
-            error_type=AggregateError,
-        ),
-        grading_material=lambda case_id: _target(root, case_id),
-        scorer=_accuracy,
-    )
+    return _run_sync(board_aggregate_async(board, raw_rows, root, case_ids=case_ids))
 
 
 async def board_aggregate_async(
@@ -622,8 +615,7 @@ async def board_aggregate_async(
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
-    """:func:`board_aggregate`, awaited on the caller's loop (the judged face)."""
-
+    # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
     return await board.scored_path().aggregate_async(
         raw_rows,
         benchmark_id=board.benchmark.id,
@@ -639,9 +631,9 @@ async def board_aggregate_async(
     )
 
 
-def _aggregate(board: ImportedBoard, root: Path) -> Callable[[str, int], dict[str, Any]]:
-    def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return board_aggregate(
+def _aggregate(board: ImportedBoard, root: Path) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
+    async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+        return await board_aggregate_async(
             board, case_evaluations, root, case_ids=tuple(range(1, selected_case_count + 1))
         )
 

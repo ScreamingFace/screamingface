@@ -44,7 +44,7 @@ flowchart TD
     queue -->|"the worker forks each run as a child of its own image:<br>screamingface-engine run (env from job_env.py, never a credential)"| main
     main --> lifecycle
     lifecycle -->|"async for step in executor.execute(url4, trace=…)"| executor
-    executor -->|"declared route (runner/connector.py world)"| aigw
+    executor -->|"declared route (world/connector.py world)"| aigw
     lifecycle -->|"bus.publish(topic, CloudEvent)<br>one per frame, monotonic sequence"| jetstream
     jetstream -->|same stream, independent consumer| bridge
     jetstream -->|"sync scanner (_run_sync)"| routes
@@ -73,8 +73,8 @@ Notes the boxes can't carry:
 ```mermaid
 flowchart TD
     main["runner/main.py — entrypoint<br>(screamingface-engine run, via cli.py, lazily)<br>params_from_env() → topic/url4 · build_executor()"]
-    config["world_config.py<br>load_config(url4.toml)"]
-    connector["runner/connector.py<br>build_aigateway_world() → Url4Node world<br>(routes DECLARED by url4.toml → POST /v1/chat/completions, + Tavily tools)"]
+    config["world/config.py<br>load_config(url4.toml)"]
+    connector["world/connector.py<br>build_aigateway_world() → Url4Node world<br>(routes DECLARED by url4.toml → POST /v1/chat/completions, + Tavily tools)"]
     deny["runner/executor.deny_by_default_world()"]
     executor["runner/executor.py<br>Url4Executor.execute()<br>_Bridge (sync Observer → async generator)<br>_RunState (engine events → Traced Span/Cost/Log)<br>drives url4.dag.run(io)"]
     lifecycle["url4.streaming.lifecycle.run() — orchestrator<br>(shared, in packages/url4)<br>establish root trace (trace.parse_traceparent)<br>Started → telemetry… → CostUsage{subtree} → Result → Terminated"]
@@ -92,7 +92,7 @@ flowchart TD
     executor -. typed by .- port
 ```
 
-`world_config.py` is the single parser for the DECLARED model world. The control plane uses it to
+`world/config.py` is the single parser for the DECLARED model world. The control plane uses it to
 project discovery and the run mode uses it to build routes, so the two cannot disagree.
 `url4.toml` ships in the image at `/etc/url4/url4.toml`, baked from
 `apps/screamingface-engine/url4.toml`.
@@ -140,8 +140,8 @@ sequenceDiagram
 | entrypoint | `runner/main.py` | `screamingface-engine run` entrypoint: read env (names from `screamingface_engine/job_env.py`) → wire `JetStreamPublisher` + executor → call `lifecycle.run` |
 | orchestrator (shared: `url4.streaming`) | `lifecycle.py` | Drives the executor, wraps frames as CloudEvents, publishes the Started…Terminated lifecycle |
 | adapter (the **only** url4-engine importer) | `runner/executor.py` | `Url4Executor`: `_Bridge` (sync→async), `_RunState` (events→Traced), drives the DAG |
-| world builder | `runner/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
-| declared world | `world_config.py` | Parses `url4.toml` (`/etc/url4/url4.toml`) once for both control-plane discovery and Runner execution |
+| world builder | `world/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
+| declared world | `world/config.py` | Parses `url4.toml` (`/etc/url4/url4.toml`) once for both control-plane discovery and Runner execution |
 | boundary doc | `runner/__init__.py` | No re-exports — it carries the layering rule (what this half may and may not import) |
 
 ### Control plane (`src/screamingface_engine/`)
@@ -182,5 +182,5 @@ sequenceDiagram
 - **One image, three modes, chosen by argv.** The worker pool's Deployment pins `["screamingface-engine", "worker"]`, and the worker forks each run as a child that execs `screamingface-engine run` — so a pod missing its env fails loudly at boot instead of silently starting a web server nothing will dial. `serve` is the default, which is what keeps the image `CMD` and the chart's Deployment command unchanged.
 - **The import graph is the boundary.** Two distributions used to make a cross-import uninstallable; one venv makes it merely a typo that type-checks. `.claude/scripts/check_layering.py` replaces that structure: `screamingface_engine.runner.*` must not import the control plane and vice versa, `cli.py` excepted. Verified empirically — importing `screamingface_engine.runner.main` loads none of fastapi, uvicorn, starlette, kubernetes, jwt or prometheus_client, which is what holds a Job's cold start to the engine + httpx + nats-py.
 - `lifecycle.run` ↔ `runner/executor.py` talk **only** through the `Executor` port; the lifecycle never imports `url4`, which is why the control plane could run it in-process too.
-- Only `runner/connector.py` + `runner/main.py` construct a `Url4Executor`; everything else treats it as an opaque `Executor`.
+- Only `world/connector.py` + `runner/main.py` construct a `Url4Executor`; everything else treats it as an opaque `Executor`.
 - The run mode is a 4-layer pipeline: **entrypoint → orchestrator → adapter → (url4 engine + aigateway world)**, all typed by one `Executor` abstraction; the orchestrator is shared code in `url4.streaming`, only the ends are this app's own.

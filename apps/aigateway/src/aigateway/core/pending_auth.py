@@ -19,6 +19,11 @@ class PendingAuthEntry:
     # The callback presents it to authenticate_pending so a superseded flow loses inside the
     # durable CAS. None for connection flows (which do not publish a pending profile).
     oauth_generation: int | None = None
+    # WHY (OME-1208, D14): the pair-marker generation a MIGRATED pair's Profile-facade flow
+    # claimed at start. The callback compare-and-sets the marker from it, so a newer start, a
+    # delete or an API-key write in between rejects the stale callback at commit time. None for
+    # every flow the legacy Profile (or a Connection flow) owns.
+    pair_generation: int | None = None
 
 
 class PendingAuthTable:

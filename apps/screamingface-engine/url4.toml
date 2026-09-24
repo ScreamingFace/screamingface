@@ -4,7 +4,7 @@
 # Baked into the image at /etc/url4/url4.toml (see Dockerfile). The image decides what CAN exist;
 # env supplies only per-Job values (optional base_url / model overrides).
 #
-# THE MODEL LIST LIVES IN CODE: `screamingface_engine/models/builtins.py::BUILTIN_MODEL_WORLD`, seeded from
+# THE MODEL LIST LIVES IN CODE: `screamingface_engine/world/models/builtins.py::BUILTIN_MODEL_WORLD`, seeded from
 # every aigateway provider plugin and held to it by SET EQUALITY in
 # `tests/unit/test_declared_models_match_aigateway.py` (OME-859). It moved out of this file because
 # this array had drifted to 32 declared ids while the gateway served 117, and the guard of the day
@@ -34,7 +34,7 @@
 #   web_search = false
 #
 # `web_search` says only THAT a route searches, never HOW — the mechanism is derived from the
-# provider by `world_config.provider_of` against `world_config.WEB_SEARCH_NATIVE_PROVIDERS`. A
+# provider by `world.config.provider_of` against `world.config.WEB_SEARCH_NATIVE_PROVIDERS`. A
 # provider in that set delegates to its own server-side search; every other route runs the
 # Tavily-backed web_search/web_fetch tool loop. Defaults to TRUE, so declare it only to turn a
 # route OFF. It also enables nothing on its own where the tool loop is used: the deployment must
@@ -56,10 +56,20 @@ web_tool_max_iterations = 12
 # been able to fetch them. Set false to hand the node a denying outbound layer instead.
 allow_outbound = true
 
-# RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
-# parse them yet; declaring one is a loud config error, never a silent no-op:
+# READ-SIDE TABLES — live (F3, prd/02). These are `url4 serve`'s tables, parsed by the engine
+# and registered on the same node that serves model routes:
 #
 #   [data]        "/corpus/papers" = { file = "…", media_type = "application/json" }
-#   [commands]    "/python" = ["python3", "/opt/tools/run.py", "{intent}"]
 #   [holdings]    default = { file = "…" }
-#   [identities]
+#   [identities.alice]  default = { file = "…" }
+#
+# Providers may be `value` or `file` ONLY. A `command` provider is an exec surface the node
+# tier cannot sandbox, so declaring one anywhere on the read side is a LOUD config error that
+# names the offending declaration — never a silent no-op.
+#
+# D8 WARNING — [holdings] and [identities] are GLOBAL: every shelf declared here is readable
+# by EVERY caller of the sync surface. Put NOTHING here that any single caller must be able to
+# keep from the others; there is no per-caller scoping in v1.
+#
+# [commands] is still deferred deliberately (D2): argv-template exec mounts are deferred, not
+# forgotten, and declaring the section today is a loud config error.

@@ -47,7 +47,14 @@ from ..core.provider_access import (
     ProviderCredentialAdmin,
     ProviderUnknown,
     TargetMissing,
+    WriteConflict,
+    begin_connection_oauth,
+    complete_connection_oauth,
+    facade_target,
+    fail_connection_oauth,
+    patch_facade,
     provider_credential_admin_for,
+    refresh_facade,
 )
 from .api_key_validation import normalize_api_key, require_valid_api_key
 from .credential_persistence import (
@@ -136,7 +143,11 @@ def _credential_strategy_for_credential_name(
 
 
 def _invalidate_profile_session(app, plugin, account_id: str, name: str) -> None:
-    credential_name = credential_name_for(account_id, name)
+    _invalidate_credential(app, plugin, credential_name_for(account_id, name))
+
+
+def _invalidate_credential(app, plugin, credential_name: str) -> None:
+    """Evict one credential name — the Profile address, or a migrated Connection's locator."""
     invalidator = getattr(plugin, "invalidate_profile_session", None)
     if callable(invalidator):
         invalidator(credential_name)
@@ -577,31 +588,28 @@ async def start_oauth(
     if redirect_uri is None:
         redirect_uri = await _redirect_uri_for(request, provider, cfg, state)
 
-    # Update the existing profile in place instead of replacing it wholesale:
-    # an api_key profile keeps its auth_type/account_label/defaults until the
-    # OAuth flow actually COMPLETES (completion flips auth_type to "oauth" in
-    # _mark_profile_authenticated). A wholesale reset at flow start would
-    # desync the index from the still-stored API-key blob (SF-244 audit F08).
-    profile = await _index_store(request).get(account_id, provider, body.name)
-    if profile is None:
-        profile = Profile(
-            id=profile_id,
-            account_id=account_id,
-            provider=provider,
-            name=body.name,
-        )
-    profile.scopes = list(cfg.scopes)
-    profile.state = ProfileState.PENDING
-    if body.defaults is not None:
-        profile.defaults = body.defaults
-
-    # INVARIANT (OME-307 Blockers 1 & 5): durably publish THIS flow — its pending profile and a
-    # fresh ownership generation — in one atomic index CAS BEFORE irreversibly superseding any
-    # older flow. On failure, tear down only this flow's own loopback listener and re-raise; the
-    # older flow stays completable and no invisible pending flow is stranded. begin_pending is
-    # what assigns the ownership generation the callback later presents to authenticate_pending.
+    # INVARIANT (OME-307 Blockers 1 & 5): durably publish THIS flow — its pending state and a
+    # fresh ownership generation — in one atomic CAS BEFORE irreversibly superseding any older
+    # flow. On failure, tear down only this flow's own loopback listener and re-raise; the older
+    # flow stays completable and no invisible pending flow is stranded.
+    # FEATURE (OME-1208, D14): a MIGRATED pair claims its pair marker's generation and publishes
+    # on its effective Connection; every other pair claims today's index generation.
     try:
-        generation = await _index_store(request).begin_pending(profile)
+        with refusals_as_http():
+            flow = await begin_connection_oauth(
+                request.app,
+                plugin,
+                account_id=account_id,
+                provider=provider,
+                name=body.name,
+                scopes=cfg.scopes,
+                defaults=body.defaults,
+            )
+        generation = (
+            None
+            if flow is not None
+            else await _begin_legacy_pending(request, account_id, provider, body, cfg, profile_id)
+        )
     except Exception:
         await _close_loopback_callback(request.app, state)
         raise
@@ -616,6 +624,7 @@ async def start_oauth(
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,
             oauth_generation=generation,
+            pair_generation=None if flow is None else flow.generation,
         ),
     )
 
@@ -645,6 +654,37 @@ async def start_oauth(
         "state": state,
         "expires_in": 600,
     }
+
+
+async def _begin_legacy_pending(
+    request: Request,
+    account_id: str,
+    provider: str,
+    body: StartAuthRequest,
+    cfg: OAuthConfig,
+    profile_id: str,
+) -> int:
+    """Publish the pending profile of a pair the legacy Profile owns; returns its generation."""
+    # Update the existing profile in place instead of replacing it wholesale:
+    # an api_key profile keeps its auth_type/account_label/defaults until the
+    # OAuth flow actually COMPLETES (completion flips auth_type to "oauth" in
+    # _mark_profile_authenticated). A wholesale reset at flow start would
+    # desync the index from the still-stored API-key blob (SF-244 audit F08).
+    profile = await _index_store(request).get(account_id, provider, body.name)
+    if profile is None:
+        profile = Profile(
+            id=profile_id,
+            account_id=account_id,
+            provider=provider,
+            name=body.name,
+        )
+    profile.scopes = list(cfg.scopes)
+    profile.state = ProfileState.PENDING
+    if body.defaults is not None:
+        profile.defaults = body.defaults
+    # begin_pending is what assigns the ownership generation the callback later presents to
+    # authenticate_pending (OME-307 Blocker 1).
+    return await _index_store(request).begin_pending(profile)
 
 
 _CALLBACK_HTML = """<!doctype html>
@@ -782,7 +822,9 @@ async def _complete_oauth_for_app(
         except Exception:
             await _mark_oauth_completion_error(app, pending, "OAuth code exchange failed", state)
             raise
-        if pending.connection_id is None:
+        if pending.pair_generation is not None:
+            await _publish_migrated_oauth(app, plugin, pending, creds, state)
+        elif pending.connection_id is None:
             slot = cast(SupportsCredentialSlot, strategy)
             try:
                 # WHY: token exchange stays outside the transaction; only profile + credential
@@ -820,7 +862,10 @@ async def _complete_oauth_for_app(
             _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
         else:
             await _mark_profile_authenticated(app, pending, plugin, creds)
-        await _record_oauth_connection_completion(app, pending, plugin, creds)
+        if pending.pair_generation is None:
+            # D14: the shadow Connection write is today's behaviour for a pair the legacy Profile
+            # owns; a MIGRATED pair's effective Connection IS the Connection.
+            await _record_oauth_connection_completion(app, pending, plugin, creds)
         await _close_loopback_callback(app, state)
     except asyncio.CancelledError:
         # INVARIANT (OME-307 Blocker 5): a callback cancellation must never strand the profile
@@ -832,6 +877,40 @@ async def _complete_oauth_for_app(
         # AIDEV-NOTE: cleanup-then-re-raise — the cancellation is NEVER caught-and-suppressed.
         pending_table.put(state, pending)
         raise
+
+
+async def _publish_migrated_oauth(
+    app,
+    plugin,
+    pending: PendingAuthEntry,
+    creds: dict,
+    state: str,
+) -> None:
+    """FEATURE (OME-1208, D14): a MIGRATED pair's callback publishes its effective Connection.
+
+    The bodies on the wire are the legacy flow's: a superseded publication is
+    `409 profile_auth_conflict`, a failed blob write `503 credential_store_unavailable`.
+    """
+    try:
+        with refusals_as_http():
+            try:
+                credential_name = await complete_connection_oauth(app, plugin, pending, creds)
+            except WriteConflict as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "profile_auth_conflict",
+                        "provider": pending.provider,
+                        "profile": pending.profile_name,
+                    },
+                ) from exc
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            await _close_loopback_callback(app, state)
+        else:
+            await _mark_oauth_completion_error(app, pending, "credential_store_unavailable", state)
+        raise
+    _invalidate_credential(app, plugin, credential_name)
 
 
 def _pending_or_unknown(pending: PendingAuthEntry | None) -> PendingAuthEntry:
@@ -883,7 +962,9 @@ async def _mark_oauth_completion_error(
     # can own a pending profile. Mark its error CONDITIONALLY on that generation so a stale
     # failure cannot clobber a newer owner, overwrite a committed API-key profile, or resurrect
     # a deleted profile. Connection flows are handled separately by _mark_connection_error.
-    if pending.connection_id is None and pending.oauth_generation is not None:
+    if pending.pair_generation is not None:
+        await fail_connection_oauth(app, pending, connection_message)
+    elif pending.connection_id is None and pending.oauth_generation is not None:
         await _mark_profile_error(app, pending.profile_id, pending.oauth_generation)
     await _mark_connection_error(app, pending, connection_message)
     await _close_loopback_callback(app, state)
@@ -1195,12 +1276,16 @@ async def exchange_code(
 async def profile_status(
     provider: str, name: str, request: Request, current: CurrentAccount
 ) -> dict:
-    p = await _index_store(request).get(str(current.id), provider, name)
-    if p is None:
+    # FEATURE (OME-1208 S2'b3): a facade — a migrated pair renders from its effective Connection.
+    target = await facade_target(
+        request.app, account_id=str(current.id), provider=provider, name=name
+    )
+    if target is None:
         raise HTTPException(
             status_code=404,
             detail={"code": "profile_not_found", "provider": provider, "name": name},
         )
+    p = target.view
     return {
         "state": p.state.value,
         "auth_type": p.auth_type,
@@ -1222,15 +1307,16 @@ async def patch_profile(
     request: Request,
     current: CurrentAccount,
 ) -> dict:
-    idx = _index_store(request)
-    p = await idx.get(str(current.id), provider, name)
-    if p is None:
+    # FEATURE (OME-1208 S2'b3): metadata stays on the compatibility document (D16 (a)); the
+    # response renders a migrated pair's state from its effective Connection.
+    target = await facade_target(
+        request.app, account_id=str(current.id), provider=provider, name=name
+    )
+    if target is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     try:
-        p = await idx.update_metadata(
-            p.id,
-            defaults=body.defaults,
-            account_label=body.account_label,
+        p = await patch_facade(
+            request.app, target, defaults=body.defaults, account_label=body.account_label
         )
     except ProfileTransitionConflict as exc:
         raise HTTPException(
@@ -1346,9 +1432,17 @@ async def refresh_profile(
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
     account_id = str(current.id)
-    p = await _index_store(request).get(account_id, provider, name)
-    if p is None:
+    target = await facade_target(request.app, account_id=account_id, provider=provider, name=name)
+    if target is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
+    if target.connection is not None:
+        # FEATURE (OME-1208 S2'b3): a migrated pair refreshes THROUGH its effective Connection.
+        with refusals_as_http():
+            refreshed = await refresh_facade(
+                request.app, plugin, target, provider=provider, account_id=account_id, name=name
+            )
+        return refreshed.model_dump(mode="json")
+    p = target.document
     strategy = _credential_strategy_for_app(
         request.app, plugin, provider, account_id, name, auth_type=p.auth_type
     )

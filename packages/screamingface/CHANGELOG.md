@@ -7,10 +7,20 @@
 * **screamingface:** carry the catalogue's two grouping axes on `Benchmark` — `interaction` and the new hand-assigned `difficulty` tier (`easy`/`medium`/`hard`; served values verbatim, any non-blank string; `None` when an older Engine omits the key)
 * **screamingface:** render `sf.benchmarks.list()` as a faceted map — clickable chip rows (Difficulty: All/Easy/Medium/Hard · Interaction: All/Single-shot/Multi-turn/Agentic · Origin: All plus the origins present) over a listing grouped easy→hard with interaction lanes; chips and search compose, and a tier-less catalogue from an older Engine keeps the flat list
 * **screamingface:** show each benchmark's provenance in the listing and on its card, linked to its source collection (`Benchmark.origin` — any non-blank string, `"screamingface"` when an older Engine omits it; rendered as a per-row chip)
+* **screamingface:** report what a submitted run cost is worth. `CandidateResult.run_cost_status` is `complete`, `partial`, or `unavailable`, and rides on the leaderboard submission beside `run_cost_usd`. It is optional on construction and inferred from the cost when omitted, so no existing caller has to supply it; only `partial` must be named explicitly, because it needs cache evidence an amount alone cannot carry. It also serializes into report.json, so an exported report keeps the distinction between `partial` and `unavailable` — both carry a null cost, and a reader rebuilding the status from the amount alone would collapse them.
+* **screamingface:** `Span` carries `cache_saved_cost_usd` and `cache_saved_cost_archive_usd` — what that span's cache hits would have cost had they not been served from cache. **Never add the two together.** The first is money the provider itself priced for the call that filled the entry; the second is a real measured amount from a *different* call of the same model and kind, so it says nothing provable about this span. They are two fields rather than one amount plus a label precisely so the difference cannot be collapsed. `None` means nothing priceable was observed, which is not zero.
 * **screamingface:** declare an answer seed per evaluation and name the sitting in the report (`evaluate(answer_seed=…)` sends `X-Answer-Seed`; `CandidateResult.answer_seed` serializes into report.json, null when unseeded)
 * **screamingface:** expose `ModelDetails.execution_access` (`configured`, `missing`, or `None` for older Gateways).
 
 * **screamingface:** expose and render why a published score will not rank
+* **screamingface:** send the candidate's declared model routes on a leaderboard submission.
+  The payload gains a `models` array carrying `CandidateResult.models` verbatim, alongside the
+  existing `ran_with_providers`, which is unchanged. Previously each route was truncated to its
+  provider prefix, so a fusion of open-weight models submitted as `["openrouter"]` and was
+  published as closed.
+
+  **Requires a Scoreboard that accepts the field.** Submissions reject with HTTP 422 against a
+  Scoreboard deployed before `OME-1181`.
 
 ### Bug Fixes
 

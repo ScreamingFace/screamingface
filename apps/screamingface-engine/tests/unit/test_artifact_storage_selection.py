@@ -146,6 +146,7 @@ def test_the_runner_refuses_a_half_configured_object_store(missing: str) -> None
         ("artifact_s3_region", job_env.ARTIFACT_S3_REGION),
         ("artifact_s3_access_key", job_env.ARTIFACT_S3_ACCESS_KEY),
         ("artifact_s3_secret_key", job_env.ARTIFACT_S3_SECRET_KEY),
+        ("artifact_signing_key", job_env.ARTIFACT_SIGNING_KEY),
     ],
 )
 def test_the_app_setting_and_the_runner_env_name_are_the_same_variable(

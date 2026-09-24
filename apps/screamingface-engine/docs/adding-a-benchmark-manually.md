@@ -200,6 +200,68 @@ protocol references a route `install` never registered, so a missing route fails
 startup, not mid-run. Copy `medxpert/definition.py` + `medxpert/runtime.py`; the shapes
 are not summarized here on purpose — those two files are the source of truth.
 
+The cases route is now a validated collection producer. Shared `install_cases` in
+`benchmarks/case_selection.py` registers it; `build_evaluation_protocol` calls
+`/benchmarks/<id>/<revision>/cases()!'N'` to validate that at least N object rows exist
+before inference, then applies native `iteration.slice`. Bare data-route reads are no
+longer the cases contract. Candidate builders pass `case_index="$index"` and the selected
+`case_count` alongside the Case ID, outside model input. The adapter converts the index
+to the existing one-based activity position. Do not add synthetic fields to dataset rows.
+
+### Live activity: what the benchmark owns
+
+Use the same four stages for every board: `ActivityKind.CASE_LOADING`, `ANSWERING`,
+`GRADING` and `AGGREGATION`. `MODEL_CALL` is call detail, not another benchmark stage.
+Do not introduce board-specific stage names or infer activity from endpoint names.
+
+Shared implementations already observe their work:
+
+| Implementation | Activity supplied |
+| --- | --- |
+| `benchmarks/spine/serving.py` cases handler | Loading cases |
+| `world/candidate_adapter.py` | Answering, within the candidate's decoded case scope |
+| `benchmarks/evaluation.py` case/attempt reduction factories and `benchmarks/rubric_check.py` | Grading |
+| `benchmarks/evaluation.py` sync and async aggregation factories | Aggregating |
+
+Do not decorate these handlers again at registration. For a board-owned loader, checker
+or task preparer, decorate the function that actually performs the work:
+
+```python
+from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.stages import observe_stage
+
+
+@observe_stage(ActivityKind.GRADING)
+async def check(request):
+    return await check_answer(request)
+```
+
+Here `check_answer` represents your board's implementation. Use `def` for synchronous
+work or `async def` for awaited work; a synchronous function returning an awaitable is
+not supported by this decorator. Async stages include heartbeats and cleanup. The
+optional observer owns log formatting and delivery; benchmark code uses these ports,
+not the concrete activity plugin. With observation disabled, results must be unchanged.
+
+### One grading line per case
+
+A handler's stage completion does not mean the entire case has been graded. For native
+boards, call `grading_activity(case_id, "started")` from
+`benchmarks/grading_activity.py` after decoding the authoritative Case ID at the first
+benchmark grading handoff (checker or task preparer). Follow `medxpert/runtime.py` for
+a direct checker, or the rubric boards for task preparation. Keep the shared
+`preserve_candidate_outcome` / case-execution path: its outcome handler reports
+`"completed"` or `"failed"`. Do not emit completion at every intermediate checker.
+
+These are discrete handoff/outcome facts, not a continuous grading span or a claim that
+the answer passed. Candidate-internal corrective checks are suppressed by the helper;
+they must not mark benchmark grading as started. A custom path bypassing shared case
+execution must supply equivalent explicit terminal facts at its actual outcome boundary.
+
+Keep case metadata outside model input as described above. The Client joins case
+numbering by explicit identity, not event order. Do not put prompts, answers, private
+benchmark material or raw exception text into logs. Activity is best-effort and bounded;
+scores and reports must never depend on its delivery.
+
 ## Step 6 — register
 
 A flat, hand-edited list — no entry points, no discovery. Three edits in
@@ -225,6 +287,14 @@ Short shape: wire the board into the lane (it SKIPs loudly until fixtures exist)
 owner pays for exactly one recorded run, a dev blesses it with `just e2e-bless`, and CI
 thereafter replays with zero API keys, going red on any of five locks — expression sha,
 case statuses, failure codes, coverage, score.
+
+For activity coverage, follow `tests/unit/test_benchmark_stage_installation.py`
+(all registered built-ins), `test_benchmark_stage_parity.py` (observation on/off), and
+`test_case_grading_signals.py`. Verify loading, answering, grading and aggregation;
+case identity/numbering; success and failure; and unchanged model requests and results
+when observation is disabled. Exercise the installed URL4 route, not only a directly
+called helper, so execution-context boundaries are covered. A new bespoke execution
+path needs its own coverage; registration alone does not add observations.
 
 ## Decision — `grade_case` reviewed as a public seam (2026-09-14, OME-1102)
 

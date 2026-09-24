@@ -93,6 +93,48 @@ from screamingface_engine_inspect.pins import (
     HELLASWAG_DATASET_REVISION,
     HELLASWAG_SHUFFLE_SEED,
     HELLASWAG_SPLIT,
+    LAB_BENCH_CLONING_SCENARIOS_CASE_COUNT,
+    LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_CLONING_SCENARIOS_CONFIG,
+    LAB_BENCH_CLONING_SCENARIOS_DATASET,
+    LAB_BENCH_CLONING_SCENARIOS_DATASET_REVISION,
+    LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
+    LAB_BENCH_CLONING_SCENARIOS_SPLIT,
+    LAB_BENCH_DBQA_CASE_COUNT,
+    LAB_BENCH_DBQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_DBQA_CONFIG,
+    LAB_BENCH_DBQA_DATASET,
+    LAB_BENCH_DBQA_DATASET_REVISION,
+    LAB_BENCH_DBQA_SHUFFLE_SEED,
+    LAB_BENCH_DBQA_SPLIT,
+    LAB_BENCH_LITQA_CASE_COUNT,
+    LAB_BENCH_LITQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_LITQA_CONFIG,
+    LAB_BENCH_LITQA_DATASET,
+    LAB_BENCH_LITQA_DATASET_REVISION,
+    LAB_BENCH_LITQA_SHUFFLE_SEED,
+    LAB_BENCH_LITQA_SPLIT,
+    LAB_BENCH_PROTOCOLQA_CASE_COUNT,
+    LAB_BENCH_PROTOCOLQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_PROTOCOLQA_CONFIG,
+    LAB_BENCH_PROTOCOLQA_DATASET,
+    LAB_BENCH_PROTOCOLQA_DATASET_REVISION,
+    LAB_BENCH_PROTOCOLQA_SHUFFLE_SEED,
+    LAB_BENCH_PROTOCOLQA_SPLIT,
+    LAB_BENCH_SEQQA_CASE_COUNT,
+    LAB_BENCH_SEQQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_SEQQA_CONFIG,
+    LAB_BENCH_SEQQA_DATASET,
+    LAB_BENCH_SEQQA_DATASET_REVISION,
+    LAB_BENCH_SEQQA_SHUFFLE_SEED,
+    LAB_BENCH_SEQQA_SPLIT,
+    LAB_BENCH_SUPPQA_CASE_COUNT,
+    LAB_BENCH_SUPPQA_CHOICE_SHUFFLE_SEED,
+    LAB_BENCH_SUPPQA_CONFIG,
+    LAB_BENCH_SUPPQA_DATASET,
+    LAB_BENCH_SUPPQA_DATASET_REVISION,
+    LAB_BENCH_SUPPQA_SHUFFLE_SEED,
+    LAB_BENCH_SUPPQA_SPLIT,
     MMLU_CASE_COUNT,
     MMLU_CONFIG,
     MMLU_DATASET,
@@ -180,6 +222,25 @@ class SnapshotSpec:
     #: as ``prompt_template``.
     system_message: str | None = None
     shuffle_seed: int | None = None
+    #: Pins one per-case CHOICE order for an eval whose hf_dataset call shuffles
+    #: choices (shuffle_choices) — applied via inspect's own
+    #: ``MemoryDataset.shuffle_choices`` over THIS BAKE'S pinned row order. The
+    #: pinned order is exam identity (it rides the board's revision pins); it is
+    #: NOT the order inspect would produce for the same seeds when a row shuffle
+    #: is also active, because the bake's row shuffle is not HF's algorithm —
+    #: the importer refuses that combination whenever upstream seeded either
+    #: shuffle (review blocker on PR #1031). OME-1264.
+    choice_shuffle_seed: int | None = None
+    #: hf_dataset's data_files selection (a dict of str to str, infinite_bench's
+    #: {"passkey": "passkey.jsonl"}), forwarded verbatim to
+    #: ``datasets.load_dataset`` — it selects WHICH files load, so it rides the
+    #: board's revision pins. OME-1264 extension 2.
+    data_files: dict[str, str] | None = None
+    #: The eval's Features schema as a dotted POINTER at its own module constant
+    #: (infinite_bench's ``constants:ft``) — same convention as
+    #: ``record_to_sample``; resolved at bake time and required to be a
+    #: ``datasets.Features``. Rides the board's revision pins too.
+    features: str | None = None
     #: OME-1240 opt-in: bake each Sample's metadata into its private target record —
     #: needed by metadata-dispatching scorers (frontierscience's format field).
     #: Default False keeps every published board's baked assets byte-identical
@@ -428,6 +489,90 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # WikiHow) — see the pin's comment; OURS by policy.
         shuffle_seed=HELLASWAG_SHUFFLE_SEED,
     ),
+    "lab_bench_litqa": SnapshotSpec(
+        dataset=LAB_BENCH_LITQA_DATASET,
+        config=LAB_BENCH_LITQA_CONFIG,
+        split=LAB_BENCH_LITQA_SPLIT,
+        dataset_revision=LAB_BENCH_LITQA_DATASET_REVISION,
+        case_count=LAB_BENCH_LITQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_litqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_LITQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_LITQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_suppqa": SnapshotSpec(
+        dataset=LAB_BENCH_SUPPQA_DATASET,
+        config=LAB_BENCH_SUPPQA_CONFIG,
+        split=LAB_BENCH_SUPPQA_SPLIT,
+        dataset_revision=LAB_BENCH_SUPPQA_DATASET_REVISION,
+        case_count=LAB_BENCH_SUPPQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_suppqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_suppqa",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_SUPPQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_SUPPQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_dbqa": SnapshotSpec(
+        dataset=LAB_BENCH_DBQA_DATASET,
+        config=LAB_BENCH_DBQA_CONFIG,
+        split=LAB_BENCH_DBQA_SPLIT,
+        dataset_revision=LAB_BENCH_DBQA_DATASET_REVISION,
+        case_count=LAB_BENCH_DBQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_dbqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_DBQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_DBQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_protocolqa": SnapshotSpec(
+        dataset=LAB_BENCH_PROTOCOLQA_DATASET,
+        config=LAB_BENCH_PROTOCOLQA_CONFIG,
+        split=LAB_BENCH_PROTOCOLQA_SPLIT,
+        dataset_revision=LAB_BENCH_PROTOCOLQA_DATASET_REVISION,
+        case_count=LAB_BENCH_PROTOCOLQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_protocolqa",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_PROTOCOLQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_PROTOCOLQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_seqqa": SnapshotSpec(
+        dataset=LAB_BENCH_SEQQA_DATASET,
+        config=LAB_BENCH_SEQQA_CONFIG,
+        split=LAB_BENCH_SEQQA_SPLIT,
+        dataset_revision=LAB_BENCH_SEQQA_DATASET_REVISION,
+        case_count=LAB_BENCH_SEQQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_seqqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_SEQQA_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_SEQQA_CHOICE_SHUFFLE_SEED,
+    ),
+    "lab_bench_cloning_scenarios": SnapshotSpec(
+        dataset=LAB_BENCH_CLONING_SCENARIOS_DATASET,
+        config=LAB_BENCH_CLONING_SCENARIOS_CONFIG,
+        split=LAB_BENCH_CLONING_SCENARIOS_SPLIT,
+        dataset_revision=LAB_BENCH_CLONING_SCENARIOS_DATASET_REVISION,
+        case_count=LAB_BENCH_CLONING_SCENARIOS_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.lab_bench.record_to_sample_helpers:record_to_sample_base",
+        choice_template="inspect_evals.lab_bench.lab_bench:MULTIPLE_CHOICE_TEMPLATE",
+        shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
+        choice_shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
+    ),
     "frontierscience": SnapshotSpec(
         dataset=FRONTIERSCIENCE_DATASET,
         config=FRONTIERSCIENCE_CONFIG,
@@ -519,13 +664,16 @@ def emit_snapshot(
                   and a wrong-sized dataset (the pinned case count is, too).
         Stage 2 — shuffle when the spec pins a seed (the baked order is exam identity).
         Stage 3 — per row: the eval's ``record_to_sample`` builds the Sample; any raise
-                  fails the bake by case number. The Sample then crosses the one
-                  validated boundary (non-empty input/target, target letter within the
-                  choices for MCQ boards).
-        Stage 4 — render the prompt from the Sample's own shape: choices → the MCQ
-                  formatter; a template reference → its substitution; neither → the
-                  raw input.
-        Stage 5 — write the booklet (prompts only) and the private targets.
+                  fails the bake by case number.
+        Stage 4 — shuffle each Sample's CHOICE order when the spec pins a choice seed,
+                  via inspect's own ``MemoryDataset.shuffle_choices`` over the WHOLE
+                  dataset at once — upstream draws every case's permutation from one
+                  random stream, so a per-case shuffle would pin a different exam.
+        Stage 5 — per Sample: cross the one validated boundary (non-empty input/target,
+                  target letter within the choices for MCQ boards), then render the
+                  prompt from the Sample's own shape: choices → the MCQ formatter; a
+                  template reference → its substitution; neither → the raw input.
+        Stage 6 — write the booklet (prompts only) and the private targets.
 
     Args:
         spec: the board's bake declaration.
@@ -549,16 +697,12 @@ def emit_snapshot(
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
         random.Random(spec.shuffle_seed).shuffle(ordered)
+    samples: list[Sample] = _converted_samples(ordered, record_to_sample)
+    if spec.choice_shuffle_seed is not None:
+        _shuffle_choices(samples, spec.choice_shuffle_seed)
     cases: list[dict[str, Any]] = []
     targets: dict[int, dict[str, Any]] = {}
-    for case_id, row in enumerate(ordered, start=1):
-        try:
-            sample: Sample = record_to_sample(row)
-        except Exception as exc:  # noqa: BLE001 — WHY broad: the conversion is eval
-            # code over an untrusted row; ANY raise must fail the bake by case number.
-            raise PrepareError(
-                f"case {case_id}: record_to_sample refused the row ({type(exc).__name__}: {exc})"
-            ) from exc
+    for case_id, sample in enumerate(samples, start=1):
         target, choices = _validated_target(sample, case_id)
         input_text: str = _prompt(sample, choices, template, choice_template)
         if system_text is not None:
@@ -582,6 +726,44 @@ def emit_snapshot(
             record["metadata"] = _validated_metadata(sample.metadata, case_id)
         targets[case_id] = record
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
+
+
+def _converted_samples(ordered: list[dict[str, Any]], record_to_sample: Any) -> list[Sample]:
+    """Stage 3 — every row through the eval's own conversion, failing by case number."""
+
+    samples: list[Sample] = []
+    for case_id, row in enumerate(ordered, start=1):
+        try:
+            samples.append(record_to_sample(row))
+        except Exception as exc:  # noqa: BLE001 — WHY broad: the conversion is eval
+            # code over an untrusted row; ANY raise must fail the bake by case number.
+            raise PrepareError(
+                f"case {case_id}: record_to_sample refused the row ({type(exc).__name__}: {exc})"
+            ) from exc
+    return samples
+
+
+def _shuffle_choices(samples: list[Sample], seed: int) -> None:
+    """Stage 4 — pin each case's choice order with inspect's OWN shuffle, in place.
+
+    WHY the whole dataset at once: ``MemoryDataset.shuffle_choices`` draws every
+    sample's permutation (and target-letter remap) from ONE ``random.Random(seed)``
+    stream, so each case's order depends on its position — shuffling per case
+    would bake a different exam than the eval family produces for this seed.
+    """
+
+    from inspect_ai.dataset import MemoryDataset
+
+    try:
+        MemoryDataset(samples).shuffle_choices(seed=seed)
+    except Exception as exc:  # noqa: BLE001 — WHY broad: the shuffle runs inspect's
+        # letter remap over eval-produced Samples; ANY raise (a non-letter target
+        # hitting ord(), an out-of-range letter) must surface as the bake's own
+        # named refusal, never a raw TypeError/KeyError (review finding on PR #1031).
+        raise PrepareError(
+            f"choice shuffle refused the dataset ({type(exc).__name__}: {exc}) — "
+            "a sample's target/choices do not fit inspect's letter remap"
+        ) from exc
 
 
 def _resolved_system_text(spec: SnapshotSpec) -> str | None:
@@ -715,8 +897,22 @@ def _load_rows(spec: SnapshotSpec) -> list[dict[str, Any]]:
             "the `datasets` package is required to prepare a benchmark — "
             "`uv pip install datasets` in the build environment"
         ) from exc
+    selection: dict[str, Any] = {}
+    if spec.data_files is not None:
+        selection["data_files"] = spec.data_files
+    if spec.features is not None:
+        resolved_schema: Any = _resolve(spec.features)
+        # WHY the type check: a mispointed reference landing on a string or a
+        # function would corrupt every row silently or crash deep inside
+        # `datasets` — refuse the bake by name instead (OME-1264 extension 2).
+        if not isinstance(resolved_schema, datasets.Features):
+            raise PrepareError(
+                f"features {spec.features} must resolve to a datasets.Features "
+                f"schema, got {type(resolved_schema).__name__}"
+            )
+        selection["features"] = resolved_schema
     loaded = datasets.load_dataset(
-        spec.dataset, spec.config, revision=spec.dataset_revision, split=spec.split
+        spec.dataset, spec.config, revision=spec.dataset_revision, split=spec.split, **selection
     )
     return [dict(row) for row in loaded]
 

@@ -9,6 +9,11 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
+
+# WHY the aliased import rather than `import json`: `_sync_json` and `_async_json` both take a
+# parameter named `json`, so the module name is shadowed inside exactly the functions most
+# likely to want it. Importing the one callable under its own name removes the trap.
+from json import dumps as _json_dumps
 from typing import NoReturn
 from urllib.parse import quote
 from uuid import UUID
@@ -38,6 +43,15 @@ _SCORES_PATH = "/v1/scores"
 _AUTHOR_EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 _MAX_AUTHORS = 10
 _MAX_AUTHOR_LENGTH = 255
+# INVARIANT (OME-1247): these mirror the Scoreboard's `validate_bounded_models` and `ModelRoute`
+# exactly — 32 routes, 255 characters each, 4096 bytes serialized. The board already refuses a
+# payload past any of them, so without a matching guard here the mismatch surfaces only in the
+# field, after a release, as a 422 on the WHOLE submission: `models` fails validation and takes
+# `ScoreSubmission` with it. The route GRAMMAR was deliberately mirrored across the two ends for
+# this reason; the bounds were not, which is the gap this closes.
+_MAX_MODELS = 32
+_MAX_MODEL_LENGTH = 255
+_MAX_MODELS_BYTES = 4096
 
 
 class Leaderboards:
@@ -440,9 +454,15 @@ def _submission(
         "url4_expression": candidate_result.url4,
         "score": _score_value(candidate_result),
         "total_questions": len(candidate_result.cases),
+        "models": _submission_models(candidate_result.models),
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),
+        # INVARIANT (OME-1252 / OME-1251 D1): the amount and its status travel as a validated
+        # PAIR. The board refuses `complete` without an amount and an amount beside any other
+        # status, so sending a mismatched pair only moves a 422 from submit time into the field.
+        # `_run_cost_status` on the result already enforces the same rule at construction.
         "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
+        "run_cost_status": candidate_result.run_cost_status,
         "client": {
             "name": "screamingface",
             "version": _package_version(),
@@ -459,6 +479,40 @@ def _submission(
     if selected_authors is not None:
         payload["authors"] = list(selected_authors)
     return payload
+
+
+def _submission_models(models: Sequence[str]) -> list[str]:
+    """The declared routes, refused here rather than by the board's 422.
+
+    INVARIANT: raise, never silently drop the field. Omitting `models` when it is over-cap
+    would let the submission succeed and the entry be classified from `ran_with_providers` —
+    which is the `OME-1145` bug this whole chain exists to fix. A visible local failure beats
+    an invisible wrong answer on the public board.
+
+    WHY this lives at the submission boundary and not on `Pipeline`: the caps are the
+    leaderboard's, not the toolkit's. Composing a 40-model ensemble locally stays legal;
+    only publishing it to a board that will refuse it does not.
+
+    Each message names the offending value as well as the limit. "at most 32 routes" tells a
+    user nothing actionable when they do not know they built 41.
+    """
+    selected = list(models)
+    if len(selected) > _MAX_MODELS:
+        raise ValueError(f"models must name at most {_MAX_MODELS} routes, not {len(selected)}")
+    for route in selected:
+        if len(route) > _MAX_MODEL_LENGTH:
+            raise ValueError(
+                f"each model route must be at most {_MAX_MODEL_LENGTH} characters, not {len(route)}"
+            )
+    # INVARIANT: measured the way the board measures it — compact separators, `ensure_ascii=False`,
+    # then encoded. Any other spelling makes the two ends disagree about what a byte is, and the
+    # disagreement only appears on a payload near the limit.
+    encoded = len(_json_dumps(selected, ensure_ascii=False, separators=(",", ":")).encode())
+    if encoded > _MAX_MODELS_BYTES:
+        raise ValueError(
+            f"models must serialize to at most {_MAX_MODELS_BYTES} bytes, not {encoded}"
+        )
+    return selected
 
 
 def _submission_authors(authors: Sequence[str] | None) -> tuple[str, ...] | None:

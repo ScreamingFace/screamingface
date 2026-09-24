@@ -47,6 +47,20 @@ gateway:
 ingress:
   enabled: false
 
+# The node tier (unit 3) stays OFF here too, and deliberately: `node.enabled: true` needs
+# `artifactStorage.backend: s3` (FX-86, OME-929 — the chart REFUSES the render otherwise), and
+# this file does not set a backend, so the default (`filesystem`) still applies. Turning the
+# node tier on in a real cloud deployment therefore means ALSO setting, at minimum:
+#
+#   --set node.enabled=true \
+#   --set artifactStorage.backend=s3 \
+#   --set garage.enabled=true    # or point artifactStorage.s3.endpointUrl at storage you run
+#
+# Left unset here rather than defaulted to true-with-a-guess, for the same reason `gateway`
+# above stays off by default: a value this file cannot know (whether an S3-compatible store is
+# actually available) must be an explicit operator choice, not a chart default that only works
+# by coincidence.
+
 # Span export (OME-1131) is deliberately NOT enabled here, and left commented rather than set
 # with an empty endpoint: `tracing.enabled: true` with no endpoint is refused by the schema, so
 # turning it on in this file would break every cloud install until somebody supplied one.

@@ -35,6 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.evaluation import (
     CandidateAnswer,
     CaseEvaluationBinder,
@@ -42,6 +44,7 @@ from screamingface_engine.benchmarks.evaluation import (
     attempt_records_endpoint,
     benchmark_unavailable,
 )
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -142,8 +145,7 @@ def install_board(node: Url4Node, root: Path, board: ServedBoard) -> None:
     """
 
     routes = board.routes
-    if routes.cases not in getattr(node, "_data", {}):
-        node.data(routes.cases, serve_cases(root, board), media_type="application/json")
+    install_cases(node, routes.cases, serve_cases(root, board))
     installed = frozenset(node.processor_routes())
     endpoints = (
         (routes.check, board.check(root)),
@@ -214,6 +216,7 @@ def serve_cases(root: Path, board: ServedBoard) -> Callable[[], str]:
 
     preflighted = False
 
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         nonlocal preflighted
         rows = json.loads(read_asset(root / "cases.json", f"{board.label} cases"))

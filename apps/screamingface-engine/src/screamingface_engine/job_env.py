@@ -19,6 +19,7 @@ format.
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -143,7 +144,7 @@ A JSON array of gateway model ids. Per-run for the same reason the identity is: 
 does not exist until the gateway admits something, so Helm cannot supply it — the App writes
 the CURRENT overlay onto every scheduled run, which is what lets a model admitted a second
 ago reach the very next run. The run mode merges these ADDITIVELY into the declared world
-(:func:`screamingface_engine.world_config.parse_config`); an id already declared keeps its declared
+(:func:`screamingface_engine.world.config.parse_config`); an id already declared keeps its declared
 spec, so the overlay can never weaken a compiled route.
 """
 
@@ -189,7 +190,7 @@ def cache_policy_from_env(env: Mapping[str, str]) -> CachePolicy:
 
     Returns a policy rather than ``CachePolicy | None`` because an all-unstated
     policy already IS "nothing declared":
-    :func:`screamingface_engine.runner.cache.policy_to_body_field` renders it as an
+    :func:`screamingface_engine.world.cache.policy_to_body_field` renders it as an
     absent `cache` field, which the gateway reads as participation. So a Job whose env
     carries no policy behaves like every other one WITHOUT the run mode re-deciding
     what silence means.
@@ -259,6 +260,31 @@ def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
     return value if value >= 1 else None
 
 
+def number_from_env[N: (int, float)](
+    env: Mapping[str, str], name: str, default: N, *, log: logging.Logger
+) -> N:
+    """One tolerant env-number parser, shared by every deploy-time int/float knob.
+
+    ``type(default)`` decides whether this parses an ``int`` or a ``float``, so one function
+    serves both ladders (`runner.main`'s deploy-time knobs, the node tier's timeout ladder).
+
+    INVARIANT: never raises. These are typo'd-knob readers for boot-time settings, and the
+    shipped default is the safe answer to a typo — the alternative is a pod that cannot start.
+
+    Args:
+        log: the caller's own logger, required so the warning is attributed to the module that
+            owns the setting (`runner.main`, the node tier) rather than to `job_env` itself.
+    """
+    raw = env.get(name)
+    if raw is None:
+        return default
+    try:
+        return type(default)(raw)  # type: ignore[return-value]
+    except ValueError:
+        log.warning("ignoring unparseable %s=%r", name, raw)
+        return default
+
+
 # --- per-deploy: named by the chart, injected via envFrom ------------------------------------
 NATS_URL = "URL4_CLOUD_NATS_URL"
 AIGATEWAY_BASE_URL = "AIGATEWAY_BASE_URL"
@@ -284,7 +310,7 @@ DEFAULT_STREAM_GRACE_S = 60.0
 which any client can still hold a valid ticket and be attached to the run."""
 
 RUNNER_CONFIG = "URL4_RUNNER_CONFIG"
-"""Path to the declared world (:mod:`screamingface_engine.world_config`). Baked into
+"""Path to the declared world (:mod:`screamingface_engine.world.config`). Baked into
 the image; the App never writes it."""
 
 ARTIFACTS_DIR = "URL4_CLOUD_ARTIFACTS_DIR"
@@ -339,6 +365,20 @@ ARTIFACT_S3_ACCESS_KEY = "URL4_CLOUD_ARTIFACT_S3_ACCESS_KEY"
 ARTIFACT_S3_SECRET_KEY = "URL4_CLOUD_ARTIFACT_S3_SECRET_KEY"
 """Secret access key. INVARIANT: Secret only — never a ConfigMap, never logged. A ConfigMap is
 readable by anything with `get` on it and is printed in plain text by `helm get manifest`."""
+
+ARTIFACT_SIGNING_KEY = "URL4_CLOUD_ARTIFACT_SIGNING_KEY"
+"""Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6).
+
+The node tier SIGNS the 303's `Location`; the App VERIFIES it on `GET /artifacts/{id}`. Both
+halves read this one name, so the signer and the verifier cannot be pointed at different keys
+by a one-sided edit — the same one-name invariant :data:`ARTIFACTS_DIR` states.
+
+INVARIANT: Secret only — a signing key is authorization material (a holder can mint a fetch
+credential for any artifact id), so it must never travel by ConfigMap or be logged.
+
+AIDEV-NOTE: not yet in :data:`DEPLOY_TIME`, though the chart does render this Secret
+(`deploy/helm/templates/secret-artifact-signing.yaml`). An unset key means the tier refuses to
+sign (a 502 at spill time, never an unsigned redirect)."""
 
 RESULT_INLINE_CAP_BYTES = "URL4_CLOUD_RESULT_INLINE_CAP_BYTES"
 """Largest result body (UTF-8 bytes) that rides the result frame inline; anything larger is
@@ -413,7 +453,7 @@ holding — re-adding a per-run secret must go through it rather than around it.
 
 REQUIRED = frozenset({TOPIC, EXPRESSION})
 """Absent ⇒ run mode raises ``runner.main.RunnerConfigError`` at boot (the PER-RUN env error; a
-bad declared world is ``world_config.WorldConfigError``). Every adapter must write these."""
+bad declared world is ``world.config.WorldConfigError``). Every adapter must write these."""
 
 WRITTEN_BY_APP = frozenset(
     {
@@ -485,6 +525,7 @@ __all__ = [
     "ARTIFACT_S3_ENDPOINT_URL",
     "ARTIFACT_S3_REGION",
     "ARTIFACT_S3_SECRET_KEY",
+    "ARTIFACT_SIGNING_KEY",
     "ARTIFACT_STORE",
     "DEFAULT_ARTIFACT_S3_REGION",
     "DEPLOY_TIME",
@@ -511,4 +552,5 @@ __all__ = [
     "identity_from_env",
     "identity_from_headers",
     "identity_to_env",
+    "number_from_env",
 ]

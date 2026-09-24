@@ -9,16 +9,16 @@ from pathlib import Path
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.contract import CandidateResult
 from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.benchmarks.medxpert import runtime
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.medxpert.prepare import emit
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
-from screamingface_engine.runner import connector
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world import connector
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4 import RelExpr, text
 from url4.core.errors import ResolutionError
 from url4.dag import run

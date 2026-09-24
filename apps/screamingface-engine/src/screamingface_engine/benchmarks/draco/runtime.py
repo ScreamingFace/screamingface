@@ -12,6 +12,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.draco import assets as protocol_assets
 from screamingface_engine.benchmarks.draco import grade as grading
 from screamingface_engine.benchmarks.draco import records, tasks
@@ -43,7 +45,9 @@ from screamingface_engine.benchmarks.failure_classes import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -62,7 +66,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     memoized, so a missing asset fails identically — and loudly — on every resolution.
     """
     assets = _lazy_protocol_assets(root)
-    node.data(exam.routes.cases, _cases(assets), media_type="application/json")
+    install_cases(node, exam.routes.cases, _cases(assets))
     node.endpoint(exam.routes.tasks)(_task_rows(root, exam))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
@@ -119,6 +123,7 @@ def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
 
 
 def _cases(assets: Callable[[], ProtocolAssets]):
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         return assets()[0]
 
@@ -151,9 +156,11 @@ def _task_rows(
     root: Path,
     exam: DracoExam,
 ):
+    @observe_stage(ActivityKind.GRADING)
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = candidate_answer(request.context)
             evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "DRACO cases")
@@ -222,6 +229,7 @@ def _task_rows(
 
 
 def _criterion_verdict(benchmark_id: str):
+    @observe_stage(ActivityKind.GRADING)
     def criterion_verdict(request: Request) -> str:
         try:
             case_id, sequence, criterion_id = binding_key(request.intent)
@@ -256,6 +264,7 @@ def _criterion_evaluation(judge_passes: int):
     against a three-pass board's route and vice versa (every route is revision-pinned).
     """
 
+    @observe_stage(ActivityKind.GRADING)
     def handle(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)

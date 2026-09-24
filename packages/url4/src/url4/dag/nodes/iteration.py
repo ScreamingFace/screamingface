@@ -30,6 +30,7 @@ from url4.dag.node import (  # isort: skip
 from url4.dag.nodes._shared import (  # isort: skip
     DEFAULT_MAP_CONCURRENCY,
     _ITEM_KEY,
+    _INDEX_KEY,
     _as_text,
     _error_payload,
     _frame,
@@ -107,7 +108,7 @@ class MapNode:
         expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
         if self.directives.on_error == "fail":
             return await self._run_all(items, expr, sem, ctx, frame)
-        rows = [self._row(item, expr, sem, ctx, frame) for item in items]
+        rows = [self._row((index, item), expr, sem, ctx, frame) for index, item in enumerate(items)]
         raw = await asyncio.gather(*rows, return_exceptions=True)
         return self._skip(raw) if self.directives.on_error == "skip" else self._collect(raw, ctx)
 
@@ -136,14 +137,17 @@ class MapNode:
         # TaskGroup so the first failing row cancels its in-flight siblings.
         try:
             async with asyncio.TaskGroup() as tg:
-                tasks = [tg.create_task(self._row(item, expr, sem, ctx, frame)) for item in items]
+                tasks = [
+                    tg.create_task(self._row((index, item), expr, sem, ctx, frame))
+                    for index, item in enumerate(items)
+                ]
         except BaseExceptionGroup as group:
             reraise_first(group)
         return [task.result() for task in tasks]
 
     async def _row(
         self,
-        item: str,
+        row: tuple[int, str],
         expr: str,
         sem: asyncio.Semaphore,
         ctx: ExecutionContext,
@@ -154,7 +158,9 @@ class MapNode:
         # INVARIANT: the row shadows `frame` rather than merging into it — an enclosing binding
         # named `item` must never capture the row, which is why the row key is NUL-prefixed and
         # `_body_ref_edges` refuses to wire the reserved row names.
-        scope = Context(bindings={_ITEM_KEY: item}, parent=frame)
+        # INVARIANT: numbering happens after slicing and before concurrent scheduling.
+        index, item = row
+        scope = Context(bindings={_ITEM_KEY: item, _INDEX_KEY: str(index)}, parent=frame)
         async with sem:
             return await ctx.spawn(expr, scope)
 

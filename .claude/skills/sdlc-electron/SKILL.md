@@ -35,9 +35,11 @@ every cycle.
 ## Non-negotiable rules
 
 1. **Work-ledger first.** Before any code or test, create the ledger in `ledger_dir` from the
-   card (this repo: `docs/work/`, named `YYYY-MM-DD-<ticket-id>-<desc>.md` per D8; copy
-   `docs/work/TEMPLATE.md`) with Intent + Planned changes + Test plan + Acceptance. Fill the
-   Outcome at the end. **No code before its ledger.**
+   card (this repo: `docs/work/`, named `YYYY-MM-DD-<slug>.md` per D8 — the branch slug, not a
+   ticket id; copy `docs/work/TEMPLATE.md`) with Intent + Planned changes + Test plan +
+   Acceptance, and `ticket: unfiled`. The Linear issue is filed at PR-open (per
+   `task-management`); backfill `ticket: OME-N` then. Fill the Outcome at the end. **No code
+   before its ledger.**
 2. **One iteration = one focused unit.** Never batch unrelated changes.
 3. **Companion skills are binding.** Invoke every card `companion_skills` entry whose `when`
    condition matches this unit of work; skipping one marked `mandatory: true` is a process
@@ -140,8 +142,10 @@ QUALITY-GATE red path loops to GREEN only while `attempt < 10`.
 ## Checklist (one todo item per step, in order)
 
 1. **LEDGER (PLANNED)** — Intent + Planned files + Test plan + Acceptance. Flip to
-   IN_PROGRESS when coding. **Ticket first:** the unit's issue exists (file it per
-   `task-management` if missing) and moves to **In Progress**; the ledger names the issue.
+   IN_PROGRESS when coding. **Ledger first, ticket at PR-open:** no Linear issue is required
+   to start; the ledger carries `ticket: unfiled`. The issue is filed per `task-management`
+   when the PR is opened — under an epic, after the user confirms — and its `OME-N` is then
+   backfilled into the ledger.
 2. **FRAME** — restate task + acceptance; list exact files. *Intent <95%? ask.*
 3. **DESIGN** — interfaces, file placement, test approach; simplest wise design (DRY, SOLID,
    YAGNI); apply the card body's conventions. **Invoke every companion skill whose `when`
@@ -157,8 +161,9 @@ QUALITY-GATE red path loops to GREEN only while `attempt < 10`.
 10. **LEDGER OUTCOME** — actual vs planned files, commit sha/message, gate results,
     **Deviations**. Status DONE | BLOCKED.
 11. **COMMIT** — only when gates green and confidence ≥95% (or confirmed). Conventional
-    message; never append `Co-Authored-By`. Body carries the card's `commit_refs` with the
-    ticket number.
+    message; never append `Co-Authored-By`. Commits need no ticket; the `OME-N` reference
+    (card `commit_refs`) goes in the PR body at PR-open, and may be added to later commits
+    once the issue is filed.
 12. **NEXT** — re-enter the loop. All prior tests remain and keep passing. Close the ticket
     per `task-management` (commits + gates + ledger comment; state → Done).
 

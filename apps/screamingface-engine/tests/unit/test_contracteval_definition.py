@@ -65,10 +65,10 @@ def test_the_expression_uses_the_object_shaped_case_evaluation_payload() -> None
 
 
 def test_the_selected_case_count_reaches_the_iteration() -> None:
-    """A `limit=N` run must slice to N — the only brake on spend this board has."""
+    """A `limit=N` run must select N cases before admitting candidate calls."""
 
-    assert "iteration.slice=0:5" in render(board.CONTRACTEVAL.build(5))
-    assert "iteration.slice=0:50" in render(board.CONTRACTEVAL.build(50))
+    assert f"{board.CASES_ROUTE}()!'5'" in render(board.CONTRACTEVAL.build(5))
+    assert f"{board.CASES_ROUTE}()!'50'" in render(board.CONTRACTEVAL.build(50))
 
 
 def test_changing_the_prompt_bytes_changes_the_revision() -> None:

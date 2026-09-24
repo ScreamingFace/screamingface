@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     # AIDEV-NOTE: credential material. Never logged, never rendered into a ConfigMap — it
     # reaches the pod from a Secret, the same way `TAVILY_API_KEY` does.
     artifact_s3_secret_key: str = ""
+    # FEATURE (unit 3, OQ-3.2, contracts.md C6): the shared HMAC key the node tier signs a
+    # spilled artifact's short-lived URL with and this App verifies it against.
+    #
+    # WHY empty by default: an unconfigured key must DISABLE signed fetches, not become a
+    # universal credential. `artifacts.signing.verify_artifact_signature` refuses an empty key,
+    # and the node tier refuses to sign with one — so the bare capability-token path is
+    # unaffected until the secret is wired.
+    # INVARIANT: Secret only. A holder can mint a fetch credential for any artifact id.
+    artifact_signing_key: str = ""
     # WHY 48h: long enough for any client that survived its run to come back for the parcel
     # (a run itself is bounded by job_deadline_s = 16h), short enough that crashed runs
     # cannot pool disk for more than two days. Swept at App startup AND periodically.
@@ -154,6 +163,20 @@ class Settings(BaseSettings):
     # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY run, so a stale
     # copy left in the Helm ConfigMap can never reach a run through `envFrom`.
     runner_io_concurrency: int = Field(default=4, ge=1)
+    # --- sync surface (unit 3, D6/C2) ------------------------------------------------------
+    # WHERE the App forwards a known mount. Absent means this App serves no sync surface at all:
+    # the forwarder is not mounted, no world is derived, and `/healthz` keeps its original shape.
+    #
+    # WHY a plain base URL and not a Service DNS guess: only the composition root knows whether a
+    # node tier exists in this deployment (the Helm unit writes this from the Service name), and a
+    # wrong guess would silently forward to nothing.
+    node_base_url: str | None = None
+    # The App -> node forward budget (contracts.md ladder): above the node's request budget
+    # plus its spill write, so the node's own 504 wins the race. INVARIANT (FX-34): this is the
+    # ONLY source of the number — `NodeForwarder` has no default. The chart renders it as
+    # `requestTimeoutS + spillTimeoutS + 1` (35 s with the defaults).
+    node_forward_timeout_s: float = 35.0
+
     # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's
     # credential, so there is deliberately NO credential setting here:
     # screamingface-engine holds no aigateway secret. `aigateway_base_url` above is

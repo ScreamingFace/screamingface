@@ -34,11 +34,24 @@ check:
   uncleared license and still emits (the diff review is the gate), so check early,
   not after the work is done.
 - Agentic and multi-turn evals are out of scope for this pipeline.
-- **Model-graded (LLM-judged) evals are importable since OME-1240**, with one extra
-  condition: the scorer must take its judge as an explicit model argument (xstest's
-  `model=`, frontierscience's `model=`). A scorer that only resolves inspect's grader
-  *role* (`get_model(role="grader")` with no model kwarg) is not supported yet —
-  assembly refuses it by name.
+- **Model-graded (LLM-judged) evals are importable since OME-1240**, with three extra
+  conditions:
+  - The scorer takes its judge as an explicit model argument (xstest's `model=`,
+    frontierscience's `model=`). A scorer that only resolves inspect's grader *role*
+    (`get_model(role="grader")` with no model kwarg) is not supported yet — assembly
+    refuses it by name.
+  - The scorer must not carry its own generation settings or tools into the judge
+    call. The wire carries ONLY the row's `JudgeSpec.params`; at grading, the
+    provider refuses by name any `GenerateConfig` field the eval sets beyond
+    transport plumbing, and any non-empty `tools` (persistbench's
+    `GenerateConfig(temperature=0, reasoning_effort="high")` is the real shape that
+    makes an eval not row-importable as-is). There is no silent drop: an eval that
+    grades only at specific sampling settings either isn't imported, or ships
+    without them as a NAMED DEVIATION (below).
+  - Every case has a non-empty text target. A judged eval whose rubric IS the target
+    (coconot, sosbench — the target is empty and the judge carries the whole rule)
+    fails the deterministic bake today; the bake extension is an unfiled follow-up,
+    not a knob you can flip.
 
 ## Step 1 — run the importer
 
@@ -60,6 +73,16 @@ uv run python -m screamingface_engine_inspect.importer \
 - `--shuffle-seed N` pins a serving order. Required when the eval shuffles without
   its own seed, and useful for grouped splits (mmlu's subjects) — the seed becomes
   exam identity and rides the revision hash.
+- `--choice-shuffle-seed N` pins one per-case **choice order**. Required when the
+  eval passes `shuffle_choices=True` (unseeded — lab_bench, truthfulqa); refused
+  when the eval doesn't shuffle choices at all, and refused when the eval seeds
+  its own choice shuffle (upstream already defines ONE order). The bake applies
+  inspect's own `MemoryDataset.shuffle_choices`, and the seed rides the revision
+  hash too.
+- `data_files` + `features` (infinite_bench) need no flag — both are conserved
+  automatically: `data_files` as a literal pin (dict of str to str only), and
+  `features` as a dotted pointer at the eval's own `Features` constant, resolved
+  and type-checked at bake. Both ride the revision hash.
 
 The command edits `pins.py`, `prepare.py`, and `boards.py` in place at their anchor
 comments, all-or-nothing, and `git diff` is the artifact everything downstream
@@ -94,6 +117,24 @@ knob lands (OME-1116). The generated row defaults correctly from the scorer fami
 judged rows are generated with NO surface; treat changing any of it as an owner
 decision.
 
+### Live activity comes from the shared adapter
+
+Boards created through `single_shot_board` inherit loading, answering, grading and
+aggregation observations. The shared Inspect scorer emits case-grading start and
+terminal facts around actual scoring, including judge-backed scoring; merely recording
+an answer is not grading completion. Candidate-internal corrective checks do not emit
+benchmark case-grading facts.
+
+No per-board logging decorator or custom stage name is needed. Keep the installed async
+aggregation route: it awaits scoring in the owning observation context. Do not replace
+it with a synchronous wrapper or worker-thread hop that loses that context. The adapter
+also supplies Case ID and selected-case numbering outside model input.
+
+If you bypass the shared adapter, follow the
+[manual guide's activity contract](adding-a-benchmark-manually.md#live-activity-what-the-benchmark-owns).
+Logs must not contain prompts, responses, private grading data or raw exception text,
+and scoring must be identical with observation disabled.
+
 ## Step 4 — verify
 
 ```sh
@@ -104,6 +145,12 @@ The row machinery's shared tests already cover registration, revision identity, 
 the extra-less catalogue; add the per-board definition assertions to the imported
 boards' test module (follow the existing boards' entries). Sanity-check the bake on a
 handful of rows if the eval's `record_to_sample` has any unusual shape.
+
+The shared activity integration tests live in
+`tests/unit/inspect/test_inspect_aggregation_activity.py` and
+`test_inspect_grading_activity.py`. For a new scorer/execution path, verify events through
+the actual installed aggregation route, including failure and observation-disabled
+parity; a direct-scorer test alone misses async/context boundaries.
 
 ## Step 5 — open the PR; a human verifies the diff
 
@@ -134,6 +181,20 @@ checklist (minutes, not hours):
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.
+  - Check the eval's README/paper for ITS judge. If the pinned house judge differs
+    from the one the paper graded with, the row carries a `NAMED DEVIATION` comment
+    with the link, and the catalogue prose says scores are not comparable to the
+    published numbers (precedent: frontierscience — the paper grades with GPT-5 at
+    high reasoning effort; the row pins the house judge and says so).
+  - Know the bad-reply semantics before reading a low score: a judge reply the
+    eval's parser cannot grade becomes a per-case `invalid_score_value` rejection
+    (it never aborts the whole aggregate), but a TRUNCATED reply that still parses
+    keeps upstream's 0.0 silently — on the first live run, check the judge calls'
+    finish reasons before trusting zeros.
+  - Judged runs are auditable per case: each case's judge call lands in its
+    evidence `accounting` (tokens/USD/latency/attempts) and the engine log tags the
+    judge round trip `role=judge case=N` — the owner's small paid run verifies both,
+    plus judge cost in the report's `cost_usd`.
 
 ## When the tool refuses
 
@@ -146,6 +207,11 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 | not a 40-hex commit sha | the revision resolved to a mutable ref | let the tool resolve it; never hand-write a branch/tag (the bake and board assembly refuse it too) |
 | hf_dataset kwarg(s) … not reproduced | the eval uses a dataset option the bake doesn't carry (`limit`, `trust`, …) | decide per kwarg: neutralize via `--task-arg`, or the eval isn't row-importable |
 | shuffles with no seed | upstream order is random per run; an import must pin ONE order | pass `--shuffle-seed` |
+| shuffles each case's choice order with no seed | `shuffle_choices=True` randomizes the answer options per run; an import must pin ONE choice order | pass `--choice-shuffle-seed` |
+| upstream seeds its shuffle, and a row shuffle combined with a choice shuffle cannot reproduce that exam | the bake's row shuffle is not HF's algorithm, and each case's choice order depends on its row position — upstream's seeded exam would silently differ | import by hand, or extend the bake to replay HF's row permutation |
+| eval pins its own choice-shuffle seed | upstream already defines ONE choice order; a policy seed would bake an exam upstream never produces | drop `--choice-shuffle-seed` |
+| data_files has a shape the importer does not conserve | only a dict of str to str round-trips through the generated literal | extend the importer for this family |
+| features does not resolve to one module attribute | an inline `Features(...)` has nothing the row can point at | extend the importer or add the row by hand |
 | fewshot/extra load is not the exam | the Task's dataset isn't the HF load the tool saw | pass task args that disable the extras |
 | key already exists / colliding stem | board imported, or two keys derive the same `PREFIX_*` | pick a distinct key |
 | stem is not a valid identifier | e.g. a leading digit | rename the key (`wiki2` not `2wiki`) |

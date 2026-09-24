@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.models.builtins import BUILTIN_MODEL_WORLD
+from screamingface_engine.world.models.builtins import BUILTIN_MODEL_WORLD
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _PLUGINS = _REPO_ROOT / "apps/aigateway/src/aigateway/plugins"
