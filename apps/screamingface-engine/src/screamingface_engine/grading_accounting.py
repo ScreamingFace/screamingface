@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class GradingEvidenceOwner:
+    # INVARIANT (review finding, 2026-09-24): the owner has NO candidate dimension,
+    # so correctness rests on "one candidate per captured run" — the SDK dispatches
+    # one Engine run per candidate and OperationCapturingExecutor builds a fresh
+    # registry per execute(), so two candidates never share one. AIDEV-NOTE: any
+    # future in-run multi-candidate grading (or a replayed url4 that grades one
+    # board twice in a single run) must add the candidate to this key first, or one
+    # Case's evidence will combine both candidates' judge costs — and the
+    # identical-answer case dodges the collision warning below (one owner, two keys).
     benchmark_id: str
     case_id: int | str
     check_id: str
