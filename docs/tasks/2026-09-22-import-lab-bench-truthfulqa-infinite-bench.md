@@ -1,12 +1,12 @@
 ---
 id: OME-1264
 linear_url: https://linear.app/openmined/issue/OME-1264/shuffle-choices-data-files-features-for-hf-dataset-in-the-inspect
-status: pick-immediately
+status: done
 type: feature
 priority: P2
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-22
-closed:
+closed: 2026-09-24
 ---
 
 # `shuffle_choices`, `data_files` + `features` for `hf_dataset` in the inspect importer to import the lab_bench, truthfulqa and infinite_bench benchmark families

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1264
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-24
-finished:
+finished: 2026-09-24
 ---
 
 # OME-1264 — Restore two peer commits clobbered off the mcq-family branch
