@@ -39,10 +39,22 @@ from opentelemetry.sdk.util.instrumentation import InstrumentationScope
 from opentelemetry.trace import SpanContext, SpanKind, TraceFlags
 from opentelemetry.trace.status import Status, StatusCode
 
-from screamingface_engine.tracing.relay import otlp_configured
+from screamingface_engine.tracing.relay import OTLP_ENDPOINT_VARS, otlp_configured
 from screamingface_engine.tracing.span_tree import Span
 
 logger = logging.getLogger(__name__)
+
+FLUSH_TIMEOUT_MS = 5_000
+"""How long a FINISHED run will block trying to hand its spans over, in milliseconds.
+
+WHY not the SDK's own 30_000 default: the question at `close()` is "how long is it worth holding
+a completed run open to save its spans?", and 30 s answers it wrongly in both directions — long
+enough to read as a hang, and far longer than a reachable collector ever needs. 5 s clears a
+healthy collector carrying a queued batch by a wide margin.
+
+AIDEV-NOTE: this is a deliberate trade, not a tuned number. Raising it trades run latency for
+span retention on a slow collector; lowering it does the reverse. Argue about it here, in one
+place, rather than at the call site (OME-1213 ledger D2)."""
 
 DEFAULT_SERVICE_NAME = "screamingface-engine"
 """Used only when the deployment sets no `OTEL_SERVICE_NAME`. A service that reports itself as
@@ -66,9 +78,20 @@ class OtlpSpanSink:
     an in-memory exporter; :func:`sink_from_env` is the production constructor.
     """
 
-    def __init__(self, processor: SpanProcessor, resource: Resource | None = None) -> None:
+    def __init__(
+        self,
+        processor: SpanProcessor,
+        resource: Resource | None = None,
+        *,
+        endpoint: str = "",
+    ) -> None:
         self._processor = processor
         self._resource = resource if resource is not None else Resource.create()
+        # WHY the sink is TOLD its endpoint rather than asking: the exporter keeps it private
+        # (`_endpoint`) and reading the environment here would break the one property that makes
+        # this adapter testable — that it is handed every collaborator. `sink_from_env` is the
+        # composition seam that reads env, so it passes it down (OME-1213 ledger D1).
+        self._endpoint = endpoint
 
     def emit(self, span: Span) -> None:
         self._processor.on_end(_readable(span, self._resource))
@@ -78,10 +101,28 @@ class OtlpSpanSink:
 
         `force_flush` before `shutdown` is the load-bearing order: the run process exits
         immediately after this, and whatever is still queued would otherwise be dropped —
-        starting with the root span, which is emitted last (ledger D10).
+        starting with the root span, which is emitted last (OME-1130 ledger D10).
+
+        WHY the return value is read (OME-1213): `force_flush` reports whether it got everything
+        out, and discarding that answer is what made `OME-1190`'s unreachable collector invisible
+        for a day in `sf-fusion` — the failure existed only inside OTel's internal logger, so at
+        the engine's own log level the run read perfectly clean while every span was dropped.
+
+        INVARIANT: this never raises and never changes the run's outcome. A collector outage must
+        not fail a benchmark (OME-1130 ledger D4). It is now AUDIBLE, not fatal.
         """
-        self._processor.force_flush()
-        self._processor.shutdown()
+        try:
+            flushed = self._processor.force_flush(timeout_millis=FLUSH_TIMEOUT_MS)
+        finally:
+            # WHY `finally`: a raising flush used to leak the exporter thread on exactly the runs
+            # already going wrong.
+            self._processor.shutdown()
+        if not flushed:
+            logger.warning(
+                "otlp span export incomplete after %dms — spans were DROPPED endpoint=%s",
+                FLUSH_TIMEOUT_MS,
+                self._endpoint,
+            )
 
 
 def sink_from_env(env: Mapping[str, str]) -> OtlpSpanSink | None:
@@ -99,8 +140,28 @@ def sink_from_env(env: Mapping[str, str]) -> OtlpSpanSink | None:
     resource = Resource.create(
         {"service.name": env.get("OTEL_SERVICE_NAME") or DEFAULT_SERVICE_NAME}
     )
-    logger.info("otlp span export enabled service=%s", resource.attributes.get("service.name"))
-    return OtlpSpanSink(BatchSpanProcessor(OTLPSpanExporter()), resource)
+    endpoint = _endpoint(env)
+    # WHY "configured" and not "enabled": all that has been checked is that a string is
+    # non-blank. Nothing has spoken to the collector, so "enabled" reads as a success report for
+    # something never verified. Naming the endpoint is what makes a wrong one findable — notably
+    # the SigNoz UI hostname, which answers 200 text/html and discards every span while looking
+    # perfectly healthy (see the warning at the config site in values.yaml).
+    logger.info(
+        "otlp span export configured service=%s endpoint=%s",
+        resource.attributes.get("service.name"),
+        endpoint,
+    )
+    return OtlpSpanSink(BatchSpanProcessor(OTLPSpanExporter()), resource, endpoint=endpoint)
+
+
+def _endpoint(env: Mapping[str, str]) -> str:
+    """The endpoint actually in force, by `OTLP_ENDPOINT_VARS` precedence.
+
+    INVARIANT: agrees with :func:`otlp_configured`, which scans the same tuple in the same order.
+    Reporting a different variable than the exporter uses would send a debugging session after
+    the wrong address.
+    """
+    return next((value for name in OTLP_ENDPOINT_VARS if (value := env.get(name, "").strip())), "")
 
 
 def _readable(span: Span, resource: Resource) -> ReadableSpan:
@@ -156,4 +217,4 @@ def _nanos(when: datetime) -> int:
     return int(when.timestamp() * 1_000_000_000)
 
 
-__all__ = ["DEFAULT_SERVICE_NAME", "OtlpSpanSink", "sink_from_env"]
+__all__ = ["DEFAULT_SERVICE_NAME", "FLUSH_TIMEOUT_MS", "OtlpSpanSink", "sink_from_env"]

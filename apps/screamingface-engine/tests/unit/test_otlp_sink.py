@@ -16,12 +16,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from opentelemetry.sdk.trace import ReadableSpan
+import pytest
+from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 
-from screamingface_engine.tracing.otlp import OtlpSpanSink, sink_from_env
+from screamingface_engine.tracing.otlp import (
+    FLUSH_TIMEOUT_MS,
+    OtlpSpanSink,
+    sink_from_env,
+)
 from screamingface_engine.tracing.span_tree import Span
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -209,3 +214,157 @@ def test_the_traces_specific_endpoint_also_turns_it_on() -> None:
 
     assert sink is not None
     sink.close()
+
+
+# --- the flush says whether it worked, and we listen (OME-1213) ---------------------------------
+
+LOGGER = "screamingface_engine.tracing.otlp"
+ENDPOINT = "http://signoz-otel-collector.signoz.svc.cluster.local:4318"
+
+
+class StubProcessor(SpanProcessor):
+    """A processor whose `force_flush` answer is dictated by the test.
+
+    WHY a stub here, when the rest of this file insists on the REAL SDK path: what is under test
+    is OUR branch — do we read the return, do we warn, do we still shut down. Driving a real
+    `BatchSpanProcessor` to return False needs an exporter that sleeps past a deadline, which is
+    a race dressed up as a test. The real path keeps the success case below (ledger D4).
+    """
+
+    def __init__(self, *, flushed: bool) -> None:
+        self._flushed = flushed
+        self.flush_timeouts: list[int | None] = []
+        self.shutdowns = 0
+
+    def force_flush(self, timeout_millis: int | None = None) -> bool:
+        self.flush_timeouts.append(timeout_millis)
+        return self._flushed
+
+    def shutdown(self) -> None:
+        self.shutdowns += 1
+
+
+def warnings_of(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The resolved WARNING messages.
+
+    INVARIANT: assert on `record.levelname` and `record.getMessage()`, NEVER on `repr()` of the
+    records. `repr()` renders as `<... object at 0x...>` and makes an assertion pass against
+    almost anything — precisely how a security test survived mutation in `OME-1132`.
+    """
+    return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_a_failed_flush_warns_and_names_the_endpoint(caplog: pytest.LogCaptureFixture) -> None:
+    """The whole point of the unit: an unreachable collector must say so at the ENGINE's log
+    level. Before this, the only record was inside OTel's internal logger and the run read clean
+    — which is how `OME-1190` stayed invisible in `sf-fusion` for a day."""
+    processor = StubProcessor(flushed=False)
+    sink = OtlpSpanSink(processor, endpoint=ENDPOINT)
+
+    with caplog.at_level("WARNING", logger=LOGGER):
+        sink.close()
+
+    assert len(warnings_of(caplog)) == 1, "an unreachable collector must warn exactly once"
+    assert ENDPOINT in warnings_of(caplog)[0], (
+        "the warning must name the endpoint — it is the only clue distinguishing a blocked "
+        "NetworkPolicy from the SigNoz UI hostname that answers 200 text/html"
+    )
+
+
+def test_a_successful_flush_is_silent(caplog: pytest.LogCaptureFixture) -> None:
+    """Driven through the REAL SDK path. A warning that always fires teaches operators to
+    ignore it, which would undo the test above."""
+    exporter = InMemorySpanExporter()
+    sink = OtlpSpanSink(SimpleSpanProcessor(exporter), endpoint=ENDPOINT)
+    sink.emit(a_span())
+
+    with caplog.at_level("WARNING", logger=LOGGER):
+        sink.close()
+
+    assert warnings_of(caplog) == []
+    assert len(exporter.get_finished_spans()) == 1, "the span still reached the exporter"
+
+
+def test_the_exporter_is_shut_down_even_when_the_flush_fails() -> None:
+    """INVARIANT: `close()` always releases the exporter thread. A failed flush that skipped
+    shutdown would leak a background thread on exactly the runs already going wrong."""
+    processor = StubProcessor(flushed=False)
+
+    OtlpSpanSink(processor, endpoint=ENDPOINT).close()
+
+    assert processor.shutdowns == 1
+
+
+def test_the_flush_is_bounded_rather_than_left_to_the_sdk_default() -> None:
+    """The SDK's internal default is 30_000 ms. The process is EXITING: a finished run must not
+    block that long on a collector that is not answering."""
+    processor = StubProcessor(flushed=True)
+
+    OtlpSpanSink(processor, endpoint=ENDPOINT).close()
+
+    assert processor.flush_timeouts == [FLUSH_TIMEOUT_MS]
+    assert FLUSH_TIMEOUT_MS is not None and FLUSH_TIMEOUT_MS < 30_000
+
+
+def test_the_startup_line_names_the_endpoint_and_does_not_claim_enabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`sink_from_env` only checks that a string is non-blank — it has never spoken to the
+    collector. Saying "enabled" reads as a success report for something never verified."""
+    with caplog.at_level("INFO", logger=LOGGER):
+        sink = sink_from_env({"OTEL_EXPORTER_OTLP_ENDPOINT": ENDPOINT})
+
+    assert sink is not None
+    sink.close()
+
+    lines = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert len(lines) == 1
+    assert ENDPOINT in lines[0], "an operator cannot spot a wrong endpoint that is never printed"
+    assert "enabled" not in lines[0], "configured is not the same claim as working"
+
+
+def test_the_signal_specific_endpoint_is_the_one_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`OTLP_ENDPOINT_VARS` puts the traces-specific variable first, so it wins when both are
+    set. The log must report the endpoint actually in force, or it misdirects the search."""
+    traces = "http://traces-only:4318/v1/traces"
+
+    with caplog.at_level("INFO", logger=LOGGER):
+        sink = sink_from_env(
+            {"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": traces, "OTEL_EXPORTER_OTLP_ENDPOINT": ENDPOINT}
+        )
+
+    assert sink is not None
+    sink.close()
+
+    reported = [r.getMessage() for r in caplog.records if r.levelname == "INFO"][0]
+    assert traces in reported
+    assert ENDPOINT not in reported
+
+
+class ExplodingProcessor(StubProcessor):
+    """A processor whose flush RAISES rather than returning False.
+
+    Both are real: `force_flush` returns False on a timeout, but the exporter underneath can also
+    throw (a DNS failure resolving the collector host, a TLS handshake error). The two paths must
+    end the same way — the thread released.
+    """
+
+    def force_flush(self, timeout_millis: int | None = None) -> bool:
+        self.flush_timeouts.append(timeout_millis)
+        raise RuntimeError("collector host does not resolve")
+
+
+def test_the_exporter_is_shut_down_even_when_the_flush_raises() -> None:
+    """INVARIANT: `close()` releases the exporter thread on EVERY path.
+
+    Without the `finally`, a raising flush leaked a background thread on exactly the runs already
+    going wrong — and a leaked non-daemon thread can hold a finished run's process open.
+    """
+    processor = ExplodingProcessor(flushed=False)
+
+    with pytest.raises(RuntimeError):
+        OtlpSpanSink(processor, endpoint=ENDPOINT).close()
+
+    assert processor.shutdowns == 1, "the flush blew up and took the exporter thread with it"
