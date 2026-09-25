@@ -91,6 +91,10 @@ conflicts = [
         { extra = "runtime" },
     ],
 ]
+# WHY the build hook: it decides what an editable install ships (a .pth to the live
+# sources, never a copy). uv only rebuilds the editable install when a cache key changes,
+# so without this a hook fix would not reach existing dev venvs.
+cache-keys = [{ file = "pyproject.toml" }, { file = "scripts/runtime_build_hook.py" }]
 
 [build-system]
 requires = ["hatchling"]
@@ -139,6 +143,8 @@ omit = ["src/screamingface/_runtime/*"]
 
 [dependency-groups]
 dev = [
+    "editables>=0.5",
+    "hatchling>=1.31",
     "ipykernel>=6.29",
     "jupyterlab>=4.6.3",
     "nbclient>=0.10",
