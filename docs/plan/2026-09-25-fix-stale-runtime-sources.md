@@ -1,6 +1,6 @@
 ---
 title: A dev checkout's local stack always runs the live url4 and apps
-ticket: unfiled
+ticket: OME-1335
 status: approved
 date: 2026-09-25
 spec: ../spec/2026-09-25-fix-stale-runtime-sources.md
