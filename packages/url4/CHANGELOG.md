@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.6.0](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.1...url4-v1.6.0) (2026-09-25)
+
+
+### Features
+
+* **engine:** admit runs on queue depth and fair-schedule them per caller ([#821](https://github.com/ScreamingFace/screamingface/issues/821)) ([5263388](https://github.com/ScreamingFace/screamingface/commit/526338880a7eee573685134ba123c34d788b82e2))
+* standard metadata (cost, latency, tokens) on every cached response ([#930](https://github.com/ScreamingFace/screamingface/issues/930)) ([0d2c00f](https://github.com/ScreamingFace/screamingface/commit/0d2c00f829287b3d8fa1adc8dd380ff3e10b6b06))
+* **url4:** add safe node-scoped structured Log emission ([#877](https://github.com/ScreamingFace/screamingface/issues/877)) ([cfd3eb3](https://github.com/ScreamingFace/screamingface/commit/cfd3eb38de92c7dc9efc3222a5cbd34937a6f988))
+* **url4:** expose a native iteration index ([#1039](https://github.com/ScreamingFace/screamingface/issues/1039)) ([375b680](https://github.com/ScreamingFace/screamingface/commit/375b6803499a6f5d7473f4caeed82684fcbc0715))
+
+
+### Bug Fixes
+
+* **url4:** correct the JobRunner capacity contract ([#815](https://github.com/ScreamingFace/screamingface/issues/815)) ([ead1c84](https://github.com/ScreamingFace/screamingface/commit/ead1c849397930b9345504435411d5366ca07e93))
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 
