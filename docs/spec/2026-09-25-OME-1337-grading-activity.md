@@ -24,3 +24,5 @@ Pagination uses inline Older/Newer controls beside Copy inside the expanded log 
 with disabled boundary buttons and no visible numeric page-input box.
 
 User revision: remove pagination entirely; render all retained operations in the existing scroll panel with Copy.
+
+Timeline revision: calls retain their starting position/time; successful stage summaries use completion time/order. Hide routine recording only, retain errors. Evaluation completion requires a complete scored result.

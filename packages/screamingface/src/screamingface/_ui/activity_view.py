@@ -99,7 +99,7 @@ def _stage_label(row: ActivityRow, label: str, outcome: str) -> str:
     if row.record.kind == "aggregation":
         label = "Scores aggregated" if outcome == "completed" else "Aggregating scores"
     if outcome == "completed":
-        label = {"Answering": "Answered", "Grading": "Graded"}.get(label, label)
+        label = {"Answering": "Answered", "Grading": "Grading complete"}.get(label, label)
     return label
 
 
@@ -108,7 +108,7 @@ def _call_label(name: str, outcome: str) -> str:
     return {
         "started": f"Calling {name}",
         "running": f"Calling {name}",
-        "completed": f"Completed {name} call",
+        "completed": f"Call completed: {name}",
         "retrying": f"Retrying {name} call",
     }.get(outcome, f"{name} call {outcome}")
 
@@ -174,16 +174,52 @@ def visible_operations(log: ActivityLog, candidate: int) -> list[tuple[ActivityR
             and _outcome(stage) in {"started", "running", "completed"}
         ):
             hidden.add((stage.run, stage.record.id))
-    # INVARIANT: dict insertion order is first observation, not last update time.
-    return [
+    for row in rows:
+        if dict(row.record.facts).get("action") == "recording" and _outcome(row) in {
+            "started",
+            "running",
+            "completed",
+        }:
+            hidden.add((row.run, row.record.id))
+    # Equal timestamps retain observed event order, including nested terminal events.
+    order = {}
+    for index, event in enumerate(log.history()):
+        key = (event.run, event.record.id)
+        if event.candidate == candidate and (key not in order or _completion_summary(event)):
+            order[key] = index
+    visible = [
         (row, labels.get((row.run, row.record.id), LABELS[row.record.kind]))
         for row in log.rows(detailed=True)
         if row.candidate == candidate and (row.run, row.record.id) not in hidden
     ]
+    return sorted(
+        visible,
+        key=lambda entry: (
+            _display_time(entry[0]),
+            order.get((entry[0].run, entry[0].record.id), -1),
+        ),
+    )
+
+
+def _completion_summary(row: ActivityRow) -> bool:
+    return row.record.state == "completed" and row.record.kind in {
+        "case_loading",
+        "grading",
+        "aggregation",
+    }
+
+
+def _display_time(row: ActivityRow) -> int:
+    if _completion_summary(row) or row.first_observed_ms is None:
+        return row.record.observed_at_ms
+    return row.first_observed_ms
 
 
 def _marker(row: ActivityRow) -> str:
-    outcome = _outcome(row)
+    return _outcome_marker(_outcome(row))
+
+
+def _outcome_marker(outcome: str) -> str:
     if outcome in {"started", "running", "retrying"}:
         label = "Retrying" if outcome == "retrying" else "Running"
         icon = '<span class="sf-activity-spinner"></span>'
@@ -202,16 +238,19 @@ def _marker(row: ActivityRow) -> str:
 
 
 def _timestamp(row: ActivityRow) -> str:
-    observed = row.first_observed_ms
-    if observed is None:
-        observed = row.record.observed_at_ms
+    observed = _display_time(row)
+    description = "Completion observed" if _completion_summary(row) else "First observed"
+    return _time_html(observed, description)
+
+
+def _time_html(observed: int, description: str) -> str:
     try:
         stamp = datetime.fromtimestamp(observed / 1000, UTC)
     except (ValueError, OverflowError, OSError):
         return '<span class="sf-activity-time" title="Time unavailable">--:--:--</span>'
     return (
         f'<time class="sf-activity-time" datetime="{stamp.isoformat()}" '
-        f'title="First observed: {stamp:%Y-%m-%d %H:%M:%S} UTC">{stamp:%H:%M:%S}</time>'
+        f'title="{description}: {stamp:%Y-%m-%d %H:%M:%S} UTC">{stamp:%H:%M:%S}</time>'
     )
 
 
@@ -253,6 +292,7 @@ def activity_html(
     *,
     candidate: int = 0,
     finished: bool = False,
+    completed_at_ms: int | None = None,
 ) -> str:
     rows = visible_operations(log, candidate)
     notices = [
@@ -274,6 +314,13 @@ def activity_html(
                 else "No structured activity received yet."
             )
             + "</p>"
+        )
+    if finished and completed_at_ms is not None:
+        content += (
+            '<div class="sf-activity__stage">'
+            + _time_html(completed_at_ms, "Completion observed")
+            + _outcome_marker("completed")
+            + '<span class="sf-activity__completed">Evaluation complete</span></div>'
         )
     label = escape(candidates[candidate], quote=True)
     return (

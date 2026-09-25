@@ -18,8 +18,8 @@ def test_recording_and_judge_calls_use_existing_case_identity(monkeypatch):
         record(id="judge", case_id=42, role="judge", state="completed", model_id="provider/judge"),
     )
     html = activity_html(log, ("candidate",))
-    assert "[Case 1/2] Answer recorded" in html
-    assert "[Case 1/2] Completed judge provider/judge call" in html
+    assert "Answer recorded" not in html
+    assert "[Case 1/2] Call completed: judge provider/judge" in html
     assert "Graded" not in html
     assert log.invalid == 0
 

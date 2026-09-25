@@ -82,3 +82,8 @@ No premature Graded events; judge identity is explicit; no private payloads in e
 User requested removing pagination entirely. Render all retained operations in the stable bounded-height scroll panel; retain Copy and history eviction notices. Migrate pagination assertions to full retained-line visibility and preserve transition/scroll-root checks.
 
 Pagination removal outcome: 22 focused tests and full Client gates passed. Synthetic notebook confirms Copy remains and page controls are absent. Existing DRACO kernel left untouched.
+
+## Timeline clarity
+User approved completion-time ordering for summaries, inline call updates, explicit judge wording, hiding routine answer recording, and a verified evaluation completion footer. Test nested aggregation/judging, equal-time ordering, failure visibility and completion timestamps.
+
+Timeline outcome: focused activity tests and full Client gates passed. Added nested judge/aggregation ordering, equal-timestamp concurrent completion, recording-failure visibility and verified-completion footer coverage. Renderer orders completion summaries by completion observation, retains call first-observation timestamps and updates calls inline.
