@@ -4,6 +4,13 @@
   let active = null;
   let generation = 0;
   const commands = new Set(['state', 'accept', 'decline', 'id', 'events']);
+  function allowedOrigin(origin) {
+    if (allowedParents.includes(origin)) return true;
+    if (typeof colabParentPattern !== 'string' || !colabParentPattern) return false;
+    const match = new RegExp(colabParentPattern).exec(origin);
+    return match !== null && match[0] === origin &&
+      origin.slice('https://'.length).split('.')[0].length <= 63;
+  }
   function valid(message) {
     if (!message || typeof message !== 'object' || Array.isArray(message)) return false;
     const keys = message.command === 'events' ? ['version', 'nonce', 'command', 'batch'] :
@@ -22,7 +29,7 @@
     }
   }
   window.addEventListener('message', async event => {
-    if (event.source !== window.parent || !allowedParents.includes(event.origin) ||
+    if (event.source !== window.parent || !allowedOrigin(event.origin) ||
         !valid(event.data)) return;
     const message = event.data;
     const reply = data => event.source.postMessage({version:1, nonce:message.nonce,

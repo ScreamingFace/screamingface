@@ -87,19 +87,20 @@ tests included in the Python test suite; CI installs it explicitly.
 | Variable | Purpose |
 |---|---|
 | `ANALYTICS_BRIDGE_ENABLED` | `false`; register bridge routes only when enabled |
+| `ANALYTICS_BRIDGE_COLAB_ENABLED` | `false`; opt into the verified Colab output-host profile |
 | `ANALYTICS_BRIDGE_ORIGIN` | Exact public HTTPS analytics origin |
 | `ANALYTICS_BRIDGE_PARENT_ORIGINS` | Comma-separated exact permitted Colab output origins |
 | `ANALYTICS_BRIDGE_ANCESTOR_ORIGINS` | Comma-separated exact additional ancestors for CSP |
 | `ANALYTICS_BRIDGE_COOKIE_MAX_AGE` | 15552000 seconds (180 days), configurable from 1 to 365 days |
 
-Origins contain no path, wildcard, credentials, query or fragment. There is no
-permissive default. Operators must observe the actual Colab ancestor chain before
-enabling this deployment; this implementation does not assume its host pattern.
-If output origins change per notebook, the exact-origin configuration is insufficient
-for broad rollout: establish and validate the narrow host pattern in the browser
-spike before extending it. Users must not manually configure notebook origins.
+Custom origins contain no path, wildcard, credentials, query or fragment. For
+Colab, enable the optional profile instead of manually registering each output
+host. Its observed grammar is bounded to one DNS label of the form
+`<alphanumeric>-<16 lowercase hex digits>-<numeric index>-colab.googleusercontent.com`
+over canonical HTTPS without explicit ports. It is a tested integration rule,
+not a Google guarantee; future host changes fail closed until reviewed.
 
-Helm exposes these under `analytics.bridge.{enabled,origin,parentOrigins,
+Helm exposes these under `analytics.bridge.{enabled,colabEnabled,origin,parentOrigins,
 ancestorOrigins,cookieMaxAge}`. Enabling the bridge adds `/bridge` Prefix ingress
 beside `/v1/events` Exact; health routes remain internal. Allow unauthenticated access
 to bridge routes, strip no Set-Cookie/CSP headers, disable caching and raw request
@@ -161,3 +162,41 @@ They do not emulate browser partitioning. Before public activation, verify the
 real Colab ancestor chain, nonblocking SDK integration, blocked cookies, Chrome and
 Safari notebook/runtime/browser restarts, and two-notebook opt-out against dev
 PostHog. This implementation has not yet been deployed or passed that browser run.
+
+
+### Dev Colab profile (deployment owner applies)
+
+```yaml
+analytics:
+  bridge:
+    enabled: true
+    colabEnabled: true
+    origin: https://analytics.dev.screamingface.ai
+    parentOrigins: ""
+    ancestorOrigins: ""
+```
+
+Retain existing PostHog configuration. These are deployment values, not a change to
+the general disabled defaults. Ensure the updated chart or private ingress exposes
+`/bridge`; changing only the image is insufficient.
+
+The Colab adapter must construct the iframe URL in the notebook output frame:
+
+```javascript
+const bridge = new URL('/bridge/consent', 'https://analytics.dev.screamingface.ai');
+bridge.searchParams.set('parent_origin', location.origin);
+iframe.src = bridge.href;
+```
+
+The page endpoint validates that origin against the profile and generates an exact
+`frame-ancestors https://colab.research.google.com <validated-output-origin>` policy.
+It does not use `*.googleusercontent.com`. Duplicate/extra query parameters or
+invalid parents return 400. With no parent query and no custom origins, the page
+has `frame-ancestors 'none'`. The script independently enforces the bounded Colab
+origin grammar and parent-window source, and always replies to the exact origin.
+The query contains an output-frame origin, never an analytics ID; keep query logging
+redacted. The actual SDK integration and deployed browser tests remain separate.
+
+Live origin probe on 25 September verified a changing output host across a page
+reload and the Colab top-level ancestor. See the origin-policy spec/work ledger
+for evidence and remaining Chrome/Safari end-to-end acceptance.
