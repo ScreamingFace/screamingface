@@ -9,6 +9,7 @@ the selection matched exactly the count they stated. Every refusal leaves every 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
@@ -17,7 +18,7 @@ from decimal import Decimal
 import pytest
 from tortoise import BaseDBAsyncClient
 
-from scoreboard.delete_scores import DeletionRefused, delete_scores
+from scoreboard.delete_scores import Deletion, DeletionRefused, delete_scores
 from scoreboard.export_private_submissions import format_jsonl_bytes
 from scoreboard.scores.models import IdempotencyKey, Score
 from scoreboard.scores.schemas import ScoreSubmission
@@ -68,6 +69,27 @@ async def _seed() -> dict[str, uuid.UUID]:
     }
 
 
+async def _confirm(
+    benchmark_id: str,
+    *,
+    expected: int,
+    score_ids: list[uuid.UUID] | None = None,
+    submitted_before: datetime | None = None,
+) -> Deletion:
+    """Delete the way an operator must: dry run, then confirm with that run's backup digest."""
+    reviewed = await delete_scores(
+        benchmark_id, score_ids=score_ids, submitted_before=submitted_before, expected=expected
+    )
+    return await delete_scores(
+        benchmark_id,
+        score_ids=score_ids,
+        submitted_before=submitted_before,
+        expected=expected,
+        confirmed=True,
+        expected_sha256=reviewed.sha256(),
+    )
+
+
 async def _remaining() -> set[uuid.UUID]:
     return {score.id for score in await Score.all()}
 
@@ -97,7 +119,13 @@ async def test_a_count_mismatch_refuses_and_deletes_nothing_even_when_confirmed(
 
     for expected in (1, 3):
         with pytest.raises(DeletionRefused, match="matched 2"):
-            await delete_scores(BOARD, submitted_before=CUTOFF, expected=expected, confirmed=True)
+            await delete_scores(
+                BOARD,
+                submitted_before=CUTOFF,
+                expected=expected,
+                confirmed=True,
+                expected_sha256="0" * 64,
+            )
 
     assert await _remaining() == set(ids.values())
 
@@ -108,7 +136,7 @@ async def test_a_count_mismatch_refuses_and_deletes_nothing_even_when_confirmed(
 async def test_confirming_deletes_exactly_the_selection(tortoise_db: None) -> None:
     ids = await _seed()
 
-    result = await delete_scores(BOARD, submitted_before=CUTOFF, expected=2, confirmed=True)
+    result = await _confirm(BOARD, submitted_before=CUTOFF, expected=2)
 
     assert result.deleted
     # The same board's newer row and another board's equally old row both survive.
@@ -122,18 +150,22 @@ async def test_selection_by_id_is_scoped_to_the_named_board(tortoise_db: None) -
 
     with pytest.raises(DeletionRefused, match="matched 1"):
         await delete_scores(
-            BOARD, score_ids=[ids["old_a"], ids["other_old"]], expected=2, confirmed=True
+            BOARD,
+            score_ids=[ids["old_a"], ids["other_old"]],
+            expected=2,
+            confirmed=True,
+            expected_sha256="0" * 64,
         )
     assert await _remaining() == set(ids.values())
 
-    await delete_scores(BOARD, score_ids=[ids["old_a"]], expected=1, confirmed=True)
+    await _confirm(BOARD, score_ids=[ids["old_a"]], expected=1)
     assert await _remaining() == {ids["old_b"], ids["new"], ids["other_old"]}
 
 
 async def test_a_deleted_scores_idempotency_keys_go_with_it(tortoise_db: None) -> None:
     ids = await _seed()
 
-    await delete_scores(BOARD, score_ids=[ids["old_a"]], expected=1, confirmed=True)
+    await _confirm(BOARD, score_ids=[ids["old_a"]], expected=1)
 
     remaining_keys = {getattr(key, "score_id") for key in await IdempotencyKey.all()}
     assert ids["old_a"] not in remaining_keys
@@ -160,7 +192,7 @@ async def test_the_backup_is_the_export_format_of_exactly_the_selection(tortoise
 async def test_the_backup_is_taken_before_the_rows_are_gone(tortoise_db: None) -> None:
     await _seed()
 
-    result = await delete_scores(BOARD, submitted_before=CUTOFF, expected=2, confirmed=True)
+    result = await _confirm(BOARD, submitted_before=CUTOFF, expected=2)
 
     assert len(result.backup().decode().splitlines()) == 2
 
@@ -238,7 +270,7 @@ async def test_a_short_delete_rolls_back_every_row(
     monkeypatch.setattr(module, "_delete_rows", _deletes_only_the_first)
 
     with pytest.raises(DeletionRefused, match="deleted 1 of 2"):
-        await delete_scores(BOARD, submitted_before=CUTOFF, expected=2, confirmed=True)
+        await _confirm(BOARD, submitted_before=CUTOFF, expected=2)
 
     assert await _remaining() == set(ids.values())
 
@@ -266,9 +298,80 @@ async def test_the_public_check_locks_the_board_inside_the_deleting_transaction(
 
     monkeypatch.setattr(ScoreStore, "visibility_query", _recording)
 
-    await delete_scores(BOARD, submitted_before=CUTOFF, expected=2, confirmed=True)
+    await _confirm(BOARD, submitted_before=CUTOFF, expected=2)
 
-    assert len(calls) == 1
-    connection, lock = calls[0]
+    # The dry run and the confirmed run each check; the deleting one is the last.
+    assert len(calls) == 2
+    connection, lock = calls[-1]
     assert lock is True
     assert connection is not None
+
+
+# --- Review round 1 (2026-09-26): the delete is bound to the backup the operator reviewed -------
+#
+# The first version deleted, committed, and only then wrote the backup to stdout. A dropped
+# `kubectl exec`, a full disk or a failed write in that window lost the rows AND the backup. The
+# confirmed run now proves it is deleting exactly what the dry run showed: the SHA-256 of the
+# selected rows' JSONL must equal the digest of the reviewed backup, checked inside the deleting
+# transaction. The backup that matters is the one already on the operator's disk.
+
+
+async def test_the_dry_run_reports_the_digest_of_its_backup(tortoise_db: None) -> None:
+    await _seed()
+
+    result = await delete_scores(BOARD, submitted_before=CUTOFF, expected=2)
+
+    assert result.sha256() == hashlib.sha256(result.backup()).hexdigest()
+    assert result.sha256() in result.describe()
+
+
+async def test_confirming_without_the_reviewed_digest_is_refused(tortoise_db: None) -> None:
+    ids = await _seed()
+
+    with pytest.raises(ValueError, match="expected_sha256"):
+        await delete_scores(BOARD, submitted_before=CUTOFF, expected=2, confirmed=True)
+
+    assert await _remaining() == set(ids.values())
+
+
+async def test_a_malformed_digest_is_refused(tortoise_db: None) -> None:
+    await _seed()
+
+    with pytest.raises(ValueError, match="64 hexadecimal"):
+        await delete_scores(
+            BOARD, submitted_before=CUTOFF, expected=2, confirmed=True, expected_sha256="abc"
+        )
+
+
+async def test_a_selection_that_changed_since_review_is_refused(tortoise_db: None) -> None:
+    """INVARIANT: same count is not same rows. The digest catches a changed row the count cannot."""
+    ids = await _seed()
+    reviewed = await delete_scores(BOARD, submitted_before=CUTOFF, expected=2)
+    await Score.filter(id=ids["old_a"]).update(score=0.99)
+
+    with pytest.raises(DeletionRefused, match="changed since"):
+        await delete_scores(
+            BOARD,
+            submitted_before=CUTOFF,
+            expected=2,
+            confirmed=True,
+            expected_sha256=reviewed.sha256(),
+        )
+
+    assert await _remaining() == set(ids.values())
+
+
+async def test_the_digest_is_compared_case_insensitively(tortoise_db: None) -> None:
+    """`shasum` prints lower case; a pasted upper-case digest is the same statement."""
+    ids = await _seed()
+    reviewed = await delete_scores(BOARD, submitted_before=CUTOFF, expected=2)
+
+    await delete_scores(
+        BOARD,
+        submitted_before=CUTOFF,
+        expected=2,
+        confirmed=True,
+        expected_sha256=reviewed.sha256().upper(),
+    )
+
+    assert await _remaining() == {ids["new"], ids["other_old"]}

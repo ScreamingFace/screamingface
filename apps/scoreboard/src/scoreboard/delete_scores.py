@@ -11,11 +11,21 @@ written unless the selection matches EXACTLY the count the operator passed as `-
 count is their statement of what they reviewed; a filter that matches more is the mistake that
 matters.
 
-INVARIANT: the backup goes to STDOUT and nothing else does. A file written inside the pod is lost
-with the pod, while stdout survives `kubectl exec ... > backup.jsonl`. It is the
-`export_private_submissions` JSONL, so there is one format for "every field of a score". It is
-evidence, not a restore file: it carries no `content_hash` or idempotency keys, and recreating a
-score means resubmitting it.
+INVARIANT: the backup is taken BEFORE anything is deleted, and the delete is bound to it. The dry
+run writes the backup to STDOUT (a file inside the pod is lost with the pod) and its SHA-256 to
+stderr. `--yes` requires that digest as `--expect-sha256`, recomputes the selected rows' JSONL
+inside the deleting transaction, and refuses unless the two match. So the rows can only be deleted
+once a backup of exactly those rows is already on the operator's disk, and a row that changed
+since the review is not deleted unseen. The confirmed run writes nothing to stdout.
+
+WHY (review round 1, 2026-09-26): the first version deleted, committed, and only then wrote the
+backup. A dropped `kubectl exec`, a full disk or a failed write in that window lost the rows and
+the backup together, and the runbook's second `> backup.jsonl` truncated the reviewed file before
+the command even started. This mirrors `purge_private_benchmark`, which is gated the same way.
+
+The backup is the `export_private_submissions` JSONL, one format for "every field of a score". It
+is evidence, not a restore file: it carries no `content_hash` or idempotency keys, and recreating
+a score means resubmitting it.
 
 AIDEV-NOTE: private boards are refused. They have their own export-verified purge
 (`purge_private_benchmark`, OME-1027), and this must not become a way around it.
@@ -25,6 +35,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import hmac
+import re
 import sys
 import uuid
 from collections.abc import Sequence
@@ -40,6 +53,8 @@ from .export_private_submissions import format_jsonl_bytes
 from .scores.models import Score
 from .scores.schemas import ScoreSchema
 from .scores.store import ScoreStore, _score_to_schema
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class DeletionRefused(RuntimeError):
@@ -57,15 +72,34 @@ class Deletion:
     def backup(self) -> bytes:
         return format_jsonl_bytes(self.rows)
 
+    def sha256(self) -> str:
+        """The digest `--expect-sha256` must repeat: of exactly the bytes `backup()` returns."""
+        return hashlib.sha256(self.backup()).hexdigest()
+
     def describe(self) -> str:
         count = len(self.rows)
         noun = f"score{'s' if count != 1 else ''}"
         if self.deleted:
             return f"deleted {count} {noun} from {self.benchmark_id!r}"
         return (
-            f"would delete {count} {noun} from {self.benchmark_id!r}. "
-            "Check the backup on stdout, then re-run with --yes."
+            f"would delete {count} {noun} from {self.benchmark_id!r}. Backup sha256 "
+            f"{self.sha256()}. Keep the backup, then re-run with --yes --expect-sha256 "
+            f"{self.sha256()}."
         )
+
+
+def _validated_digest(expected_sha256: str | None, *, confirmed: bool) -> str | None:
+    if expected_sha256 is None:
+        if confirmed:
+            raise ValueError(
+                "confirming needs expected_sha256 (--expect-sha256): the digest the dry run "
+                "printed for the backup you kept"
+            )
+        return None
+    digest = expected_sha256.strip().lower()
+    if _SHA256.fullmatch(digest) is None:
+        raise ValueError("expected_sha256 must be exactly 64 hexadecimal characters")
+    return digest
 
 
 def _validate_selection(
@@ -125,6 +159,7 @@ async def delete_scores(
     submitted_before: datetime | None = None,
     expected: int,
     confirmed: bool = False,
+    expected_sha256: str | None = None,
 ) -> Deletion:
     """Select scores on one public board, and delete them only when ``confirmed``.
 
@@ -144,6 +179,7 @@ async def delete_scores(
     demands. `tests/unit/guards/test_visibility_exit_guard.py` enforces this for every exit.
     """
     _validate_selection(score_ids, submitted_before, expected)
+    reviewed = _validated_digest(expected_sha256, confirmed=confirmed)
 
     async with in_transaction() as connection:
         await _revalidate_visibility_for_delete(connection, benchmark_id)
@@ -160,9 +196,17 @@ async def delete_scores(
                 f"refusing to delete from {benchmark_id!r}: the selection matched "
                 f"{len(selected)} scores, not the {expected} expected. Nothing was deleted."
             )
-        rows = tuple(_score_to_schema(model) for model in selected)
+        selection = Deletion(benchmark_id, tuple(_score_to_schema(m) for m in selected), False)
         if not confirmed:
-            return Deletion(benchmark_id, rows, deleted=False)
+            return selection
+        # INVARIANT: bound to the reviewed backup, inside the transaction that deletes.
+        assert reviewed is not None
+        if not hmac.compare_digest(selection.sha256(), reviewed):
+            raise DeletionRefused(
+                f"refusing to delete from {benchmark_id!r}: the selection changed since the "
+                "reviewed backup (its sha256 no longer matches). Nothing was deleted; run the "
+                "dry run again and review the new backup."
+            )
 
         deleted = await _delete_rows(connection, [model.id for model in selected])
         if deleted != expected:
@@ -171,7 +215,7 @@ async def delete_scores(
                 f"refusing to report a delete from {benchmark_id!r}: deleted {deleted} of "
                 f"{expected}. The scores changed while this ran; nothing was kept deleted."
             )
-    return Deletion(benchmark_id, rows, deleted=True)
+    return Deletion(benchmark_id, selection.rows, deleted=True)
 
 
 def _aware_datetime(value: str) -> datetime:
@@ -218,6 +262,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Actually delete. Without it, write the backup and change nothing.",
     )
+    parser.add_argument(
+        "--expect-sha256",
+        help=(
+            "Required with --yes: the backup digest the dry run printed. The delete is refused "
+            "unless the selection still hashes to it."
+        ),
+    )
     return parser
 
 
@@ -232,6 +283,7 @@ async def _run(args: argparse.Namespace) -> Deletion:
             submitted_before=args.submitted_before,
             expected=args.expect,
             confirmed=args.yes,
+            expected_sha256=args.expect_sha256,
         )
     finally:
         await close_db()
@@ -244,9 +296,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         outcome = asyncio.run(_run(args))
     except (LookupError, ValueError, DeletionRefused) as exc:
         parser.error(str(exc))
-    # INVARIANT: stdout is the backup and nothing else; the operator redirects it to a file.
-    sys.stdout.write(outcome.backup().decode())
-    sys.stdout.flush()
+    # INVARIANT: only the dry run writes stdout, and it is the backup and nothing else. The
+    # confirmed run has already been bound to a backup on the operator's disk; writing here
+    # would only invite a second `> backup.jsonl` that truncates the reviewed one.
+    if not outcome.deleted:
+        sys.stdout.write(outcome.backup().decode())
+        sys.stdout.flush()
     print(outcome.describe(), file=sys.stderr)
 
 

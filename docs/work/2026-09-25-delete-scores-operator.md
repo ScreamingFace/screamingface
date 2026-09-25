@@ -70,3 +70,25 @@ No schema change, no migration.
      `ScoreStore.visibility_query(lock=True)`. One test pins that it is called locked, on the
      transaction's connection.
   3. **Filed before PR-open,** at the owner's request (2026-09-25).
+
+## Review round 1 (2026-09-26, owner's review)
+
+**Finding (High), verified:** the confirmed run deleted and committed, and only then wrote the
+backup to stdout (`main()` awaited `_run()` first). A dropped `kubectl exec`, a full disk or a failed
+write in that window lost the rows and the backup together. The runbook compounded it: both runs
+redirected to `backup.jsonl`, so the shell truncated the reviewed dry-run file as the confirmed
+command started. My test checked the backup's content, never that it existed before the delete.
+
+**Fix, as the review recommended, mirroring `purge_private_benchmark`:**
+
+- the dry run prints the backup to stdout and its SHA-256 to stderr
+- `--yes` requires `--expect-sha256`; the command recomputes the selected rows' JSONL digest inside
+  the deleting transaction and refuses on mismatch, so a changed row is caught even when the count
+  still matches
+- the confirmed run writes nothing to stdout
+- the runbook keeps the backup under its own name and checks it with `shasum -a 256`
+
+**Tests:** 8 added (digest reported, digest required, malformed digest, changed selection refused,
+case-insensitive digest, and three CLI paths). The tests in this PR's own new files were updated
+for the new `--yes` contract; they are not prior-cycle tests. Mutation: disabling the digest
+comparison fails 2 tests. Gates: ALL GREEN vs `origin/main`, no append-only exception.

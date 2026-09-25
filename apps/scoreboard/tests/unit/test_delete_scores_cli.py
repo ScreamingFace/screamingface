@@ -11,6 +11,7 @@ a clean JSONL file on the operator's disk. Every message goes to stderr.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 from collections.abc import Iterator
@@ -80,6 +81,13 @@ def _remaining_specs() -> set[str]:
     return asyncio.run(_go())
 
 
+def _dry_run_digest(capsys: pytest.CaptureFixture[str]) -> str:
+    """Run the dry run and return the digest of the backup it printed, as `shasum` would."""
+    main(_by_cutoff())
+    out = capsys.readouterr().out
+    return hashlib.sha256(out.encode()).hexdigest()
+
+
 def _by_cutoff(*extra: str) -> list[str]:
     return ["--benchmark", BOARD, "--submitted-before", CUTOFF, "--expect", "2", *extra]
 
@@ -97,13 +105,17 @@ def test_the_default_is_a_dry_run_whose_stdout_is_only_the_backup(
     assert _remaining_specs() == {"old-a", "old-b", "new"}
 
 
-def test_yes_deletes_and_still_writes_the_backup_first(
+def test_yes_with_the_reviewed_digest_deletes_and_writes_nothing_to_stdout(
     seeded_database: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    main(_by_cutoff("--yes"))
+    """Review round 1: the confirmed run is not where the backup comes from, so stdout stays
+    empty. An operator's `> backup.jsonl` on this run could only destroy the reviewed file."""
+    digest = _dry_run_digest(capsys)
+
+    main(_by_cutoff("--yes", "--expect-sha256", digest))
 
     captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) == 2
+    assert captured.out == ""
     assert "deleted 2" in captured.err
     assert _remaining_specs() == {"new"}
 
@@ -113,7 +125,11 @@ def test_ids_are_accepted_repeatedly(
 ) -> None:
     old_a, old_b, _new = seeded_database
 
-    main(["--benchmark", BOARD, "--id", old_a, "--id", old_b, "--expect", "2", "--yes"])
+    selection = ["--benchmark", BOARD, "--id", old_a, "--id", old_b, "--expect", "2"]
+    main(selection)
+    digest = hashlib.sha256(capsys.readouterr().out.encode()).hexdigest()
+
+    main([*selection, "--yes", "--expect-sha256", digest])
 
     assert _remaining_specs() == {"new"}
 
@@ -122,7 +138,19 @@ def test_a_count_mismatch_exits_two_and_leaves_stdout_empty(
     seeded_database: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
     with pytest.raises(SystemExit) as exit_info:
-        main(["--benchmark", BOARD, "--submitted-before", CUTOFF, "--expect", "3", "--yes"])
+        main(
+            [
+                "--benchmark",
+                BOARD,
+                "--submitted-before",
+                CUTOFF,
+                "--expect",
+                "3",
+                "--yes",
+                "--expect-sha256",
+                "0" * 64,
+            ]
+        )
 
     captured = capsys.readouterr()
     assert exit_info.value.code == 2
@@ -174,4 +202,36 @@ def test_the_two_selectors_cannot_be_combined(
         main(["--benchmark", BOARD, "--id", old_a, "--submitted-before", CUTOFF, "--expect", "1"])
 
     assert exit_info.value.code == 2
+    assert _remaining_specs() == {"old-a", "old-b", "new"}
+
+
+def test_the_dry_run_prints_the_digest_to_stderr(
+    seeded_database: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(_by_cutoff())
+
+    captured = capsys.readouterr()
+    assert hashlib.sha256(captured.out.encode()).hexdigest() in captured.err
+    assert "--expect-sha256" in captured.err
+
+
+def test_yes_without_a_digest_exits_two_and_deletes_nothing(
+    seeded_database: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(_by_cutoff("--yes"))
+
+    assert exit_info.value.code == 2
+    assert "--expect-sha256" in capsys.readouterr().err
+    assert _remaining_specs() == {"old-a", "old-b", "new"}
+
+
+def test_yes_with_a_wrong_digest_exits_two_and_deletes_nothing(
+    seeded_database: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(_by_cutoff("--yes", "--expect-sha256", "f" * 64))
+
+    assert exit_info.value.code == 2
+    assert "changed since" in capsys.readouterr().err
     assert _remaining_specs() == {"old-a", "old-b", "new"}
