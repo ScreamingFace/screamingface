@@ -108,20 +108,39 @@ def _call_label(name: str, outcome: str) -> str:
     return {
         "started": f"Calling {name}",
         "running": f"Calling {name}",
-        "completed": f"Call completed: {name}",
+        "completed": f"Called {name}",
         "retrying": f"Retrying {name} call",
     }.get(outcome, f"{name} call {outcome}")
 
 
-def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
+def _model_label(name: str, outcome: str, *, judge: bool, graded: bool) -> str:
+    if judge and outcome in {"started", "running"}:
+        return f"Grading with {name}"
+    if judge and outcome == "completed" and graded:
+        return f"Graded with {name}"
+    return _call_label(f"judge {name}" if judge else name, outcome)
+
+
+def _description(
+    row: ActivityRow,
+    label: str,
+    *,
+    model: bool = False,
+    graded: bool = False,
+    full_id: bool = False,
+) -> str:
     facts = dict(row.record.facts)
     prefix = _case_prefix(facts, model=model)
     name = facts.get("model_id")
     outcome = _outcome(row)
     label = _stage_label(row, label, outcome)
-    if model and name and facts.get("role") == "judge":
-        name = f"judge {name}"
-    subject = _call_label(str(name), outcome) if model and name else label
+    if model and name and not full_id:
+        name = str(name).removeprefix("openrouter/")
+    subject = (
+        _model_label(str(name), outcome, judge=facts.get("role") == "judge", graded=graded)
+        if model and name
+        else label
+    )
     details = []
     if failure := facts.get("failure_code"):
         details.append(str(failure).replace("_", " "))
@@ -254,13 +273,20 @@ def _time_html(observed: int, description: str) -> str:
     )
 
 
-def _line(row: ActivityRow, label: str) -> str:
+def _line(row: ActivityRow, label: str, *, graded: bool = False) -> str:
     model = row.record.kind == "model_call"
     kind = "call" if model else "stage"
+    full_name = str(dict(row.record.facts).get("model_id", ""))
+    copy = _description(row, label, model=model, graded=graded, full_id=True)
+    metadata = (
+        f' title="{escape(full_name, quote=True)}" data-copy="{escape(copy, quote=True)}"'
+        if model and full_name.startswith("openrouter/")
+        else ""
+    )
     return (
         f'<div class="sf-activity__{kind}">{_timestamp(row)}{_marker(row)}'
-        f'<span class="sf-activity__{row.record.state}">'
-        f"{escape(_description(row, label, model=model))}</span></div>"
+        f'<span class="sf-activity__{row.record.state}"{metadata}>'
+        f"{escape(_description(row, label, model=model, graded=graded))}</span></div>"
     )
 
 
@@ -270,7 +296,13 @@ def _copy_control() -> str:
       const button=this;
       const content=button.closest('.sf-activity-console').querySelector('.sf-activity-content');
       const text=Array.from(content.children)
-        .map(line=>line.innerText.replace(/\n+/g,' ')).join('\n');
+        .map(line=>{
+          const time=line.querySelector('time');
+          const message=line.querySelector('span[class^="sf-activity__"]');
+          if(message) return [time?.textContent, message.dataset.copy || message.textContent]
+            .filter(Boolean).join('  ');
+          return line.innerText.replace(/\n+/g,' ');
+        }).join('\n');
       try {
         await navigator.clipboard.writeText(text);
         button.textContent='Copied';
@@ -304,7 +336,20 @@ def activity_html(
         ("Engine bridge Logs dropped", log.bridge_loss.get(candidate, 0)),
     ]
     notice = "; ".join(f"{n} {label}" for label, n in notices if n)
-    content = "".join(_line(row, label) for row, label in rows)
+    graded_cases = {
+        (row.run, str(dict(row.record.facts)["case_id"]))
+        for row, _ in rows
+        if row.record.kind == "grading"
+        and row.record.state == "completed"
+        and dict(row.record.facts).get("scope") == "case"
+        and "case_id" in dict(row.record.facts)
+    }
+    content = "".join(
+        _line(
+            row, label, graded=(row.run, str(dict(row.record.facts).get("case_id"))) in graded_cases
+        )
+        for row, label in rows
+    )
     if not content:
         content = (
             "<p>"

@@ -87,3 +87,8 @@ Pagination removal outcome: 22 focused tests and full Client gates passed. Synth
 User approved completion-time ordering for summaries, inline call updates, explicit judge wording, hiding routine answer recording, and a verified evaluation completion footer. Test nested aggregation/judging, equal-time ordering, failure visibility and completion timestamps.
 
 Timeline outcome: focused activity tests and full Client gates passed. Added nested judge/aggregation ordering, equal-timestamp concurrent completion, recording-failure visibility and verified-completion footer coverage. Renderer orders completion summaries by completion observation, retains call first-observation timestamps and updates calls inline.
+
+## Sleek call wording
+User approved Calling/Called and Grading with/Graded with, hiding the OpenRouter routing prefix visually while retaining full IDs in hover/copy. Graded with requires an explicit successful same-run, same-case grading summary. Preserve failures and copy timestamp separation.
+
+Wording outcome: 102 focused activity checks and full Client gates passed. New tests pin routing-prefix display, full-ID metadata, active judge wording and same-case success requirement.

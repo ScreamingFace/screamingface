@@ -41,7 +41,7 @@ def test_nested_judging_precedes_completion_summaries():
     )
     html = activity_html(log, ("candidate",))
     assert (
-        html.index("Call completed: judge provider/judge")
+        html.index("Graded with provider/judge")
         < html.index("Grading complete")
         < html.index("Scores aggregated")
     )
