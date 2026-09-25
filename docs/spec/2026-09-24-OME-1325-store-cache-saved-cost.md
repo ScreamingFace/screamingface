@@ -55,6 +55,22 @@ cost evidence. It can never come from a correct client: the SDK derives `partial
 reported sum is present, **including when it is 0** — so the rule is "any non-null saving", not
 "> 0". Older clients never send this field, so nothing deployed can trip it.
 
+### §3.2 An absent status is derived — amended at review round 2, 2026-09-24
+
+When `run_cost_status` is absent, the board derives it from the evidence present, matching the
+SDK's own derivation:
+
+| status absent, and… | derived |
+| -- | -- |
+| `run_cost_usd` present | `complete` — an amount IS the claim `complete` makes |
+| only `cache_saved_cost_usd` present | `partial` — unpriced, with a reported saving |
+| neither | stays null — a legacy-shaped row |
+
+The middle row was missing. Without it, a submission carrying only a saving stored a null status,
+which reads as "predates cost reporting" on a row carrying a field only new clients send — and
+§5.1's snapshot rule meant replay could never repair it. Rollout-safe: older clients never send
+the saving, and new clients send the status explicitly.
+
 ## §4 Storage
 
 Nullable `DecimalField(max_digits=12, decimal_places=6)` on `Score`, migration `0015`, **no

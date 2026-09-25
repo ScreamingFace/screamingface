@@ -119,8 +119,8 @@ def test_the_saved_cost_mirrors_the_column_bounds_exactly() -> None:
 
 
 def test_a_partial_run_without_a_saved_cost_is_still_accepted() -> None:
-    """INVARIANT (spec 3.1): there is NO pairing rule between the status and this field, and
-    adding one would 422 the SDK released today.
+    """INVARIANT (spec 3.1): the pairing rule is ONE-WAY, and this is the direction it must NOT
+    enforce — refusing it would 422 the SDK released today.
 
     A `partial` run has a reported saved-cost sum by definition, so `partial` beside a null saved
     cost looks incoherent and a validator refusing it looks correct. But `OME-1252` ships the
@@ -128,8 +128,9 @@ def test_a_partial_run_without_a_saved_cost_is_still_accepted() -> None:
     `partial` submission legitimately carries a status with no saved cost, for weeks.
 
     This is the `OME-822` P1-1 finding exactly — a rule true of the final contract, enforced
-    before clients can satisfy it, deadlocks the rollout. If the rule is ever wanted it belongs
-    beside `OME-1258`'s flip, not here.
+    before clients can satisfy it, deadlocks the rollout. The OTHER direction is enforced:
+    `unavailable` beside a saving is refused — see
+    `test_unavailable_beside_a_saved_cost_is_refused`.
     """
     submission = _saved_submission(
         spec_id="partial-no-saved", saved=None, cost=None, status="partial"
@@ -280,3 +281,69 @@ async def test_the_private_export_omits_the_key_when_no_saving_is_stored(
     exported = format_jsonl_bytes(await collect_submissions("hle")).decode()
 
     assert "cache_saved_cost_usd" not in exported
+
+
+# --- review round 2 (PR #1055) -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity"])
+def test_a_non_finite_saved_cost_is_refused(bad: str) -> None:
+    """`allow_inf_nan=False` is on the field, and until now nothing pinned it.
+
+    A non-finite value reaching the store is the failure `OME-770` reproduced live for
+    `run_cost_usd`: it passes a `ge=0` comparison or fails it unpredictably, then raises inside
+    `quantize()` and surfaces as a 500 instead of a 422.
+    """
+    with pytest.raises(ValidationError):
+        _saved_submission(spec_id=f"non-finite-{bad}", saved=bad)
+
+
+def test_an_absent_status_beside_only_a_saving_derives_partial() -> None:
+    """INVARIANT: a saving is cost evidence, so an absent status beside one cannot stay absent.
+
+    Null status means "predates cost reporting" — a legacy-shaped row. A submission carrying this
+    field is by definition not legacy, so leaving the status null would write a row that lies
+    about its own age. Worse, replay could never repair it: the snapshot fill requires all three
+    existing fields to be null.
+
+    `partial` is exactly what the SDK derives for this shape — unpriced, with a reported saving —
+    so the board resolving it the same way keeps the two ends agreeing.
+    """
+    submission = _saved_submission(
+        spec_id="derive-partial", saved="1.250000", cost=None, status=None
+    )
+
+    assert submission.run_cost_status == "partial"
+    assert submission.run_cost_usd is None
+
+
+def test_an_absent_status_beside_an_amount_still_derives_complete() -> None:
+    """The existing rule is unchanged when a saving sits beside the amount: an amount IS the claim
+    `complete` makes, whatever the cache saved."""
+    submission = _saved_submission(spec_id="derive-complete", saved="1.250000", status=None)
+
+    assert submission.run_cost_status == "complete"
+
+
+def test_an_absent_status_with_neither_amount_stays_absent() -> None:
+    """Only a submission with NO cost evidence stays legacy-shaped."""
+    submission = _saved_submission(spec_id="derive-none", saved=None, cost=None, status=None)
+
+    assert submission.run_cost_status is None
+
+
+@pytest.mark.asyncio
+async def test_a_derived_partial_row_is_stored_coherently(tortoise_db: None) -> None:
+    """Through the store, the derived row carries a status, no amount, and its saving — the same
+    shape an explicit `partial` produces, so nothing downstream can tell them apart."""
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+
+    stored, _ = await store.submit(
+        _saved_submission(spec_id="stored-partial", saved="1.250000", cost=None, status=None)
+    )
+    row = await Score.get(id=stored.id)
+
+    assert row.run_cost_status == "partial"
+    assert row.run_cost_usd is None
+    assert row.cache_saved_cost_usd == Decimal("1.250000")

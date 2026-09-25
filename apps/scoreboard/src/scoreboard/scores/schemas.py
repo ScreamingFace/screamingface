@@ -522,12 +522,22 @@ class ScoreSubmission(BaseModel):
         and it keeps pre-OME-1252 clients producing correctly labelled rows instead of a
         population the flip in `OME-1258` would have to clean up afterwards.
 
-        An absent status with no amount stays absent: that is a legacy-shaped row, and the board
-        genuinely does not know whether the client looked. `OME-1258` is what starts refusing it.
+        INVARIANT (OME-1325): an ABSENT status beside only a SAVING resolves to `partial`. A saving
+        is cost evidence, so the row is not legacy-shaped, and `partial` is exactly what the SDK
+        derives for an unpriced run with a reported saving. Leaving it null would write a row that
+        claims to predate cost reporting while carrying a field only new clients send — and replay
+        could never repair it, since the snapshot fill needs all three stored fields null (review of
+        PR #1055, round 2).
+
+        An absent status with NEITHER amount stays absent: that is a legacy-shaped row, and the
+        board genuinely does not know whether the client looked. `OME-1258` is what starts
+        refusing it.
         """
         if self.run_cost_status is None:
             if self.run_cost_usd is not None:
                 self.run_cost_status = "complete"
+            elif self.cache_saved_cost_usd is not None:
+                self.run_cost_status = "partial"
             return self
         priced = self.run_cost_status == "complete"
         if priced and self.run_cost_usd is None:

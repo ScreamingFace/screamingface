@@ -169,3 +169,40 @@ same data — pre-existing, and not this unit's to change.
 
 `run_gates.py scoreboard --base origin/main` — **ALL GATES GREEN**, without `--skip-append-only`.
 One lint fix: `ScoreSchema` became an unused import once the tests stopped bypassing the store.
+
+## Review round 2 (PR #1055, 2026-09-24)
+
+One P2 and three cleanups, all verified before fixing.
+
+### P2 — a saving could be stored with no status
+
+`run_cost_usd=None, run_cost_status=None, cache_saved_cost_usd=1.25` passed validation unchanged
+and was stored unlabelled — reading as "predates cost reporting" on a row carrying a field only
+new clients send. Round 1's snapshot rule made it permanent: replay only fills when all three
+stored fields are null, so nothing could repair it.
+
+**I saw this edge during round 1 and left it as out of scope.** That was wrong: my own snapshot fix
+is what turned an odd row into an unrepairable one.
+
+**Fixed:** an absent status beside only a saving derives `partial`, which is exactly the SDK's
+derivation for an unpriced run with a reported saving. Spec §3.2 records the full table.
+
+### Cleanups
+
+- **Stale docstring** on `test_a_partial_run_without_a_saved_cost_is_still_accepted` still said
+  "there is NO pairing rule". Now describes the one-way rule and points at the enforcing test.
+- **The plan promised a non-finite test and none existed.** Added for `NaN`, `Infinity` and
+  `-Infinity`. These pass without code change — `allow_inf_nan=False` was already on the field —
+  so they PIN behaviour rather than drive it. The gap mattered anyway: an unpinned constraint is
+  the shape Keelan's mutation test exposed on the client side.
+- **PR description said 12 tests**; the file now collects **21**.
+
+### RED, then GREEN
+
+The two derivation tests failed on `None == 'partial'`, the reproduction. The `complete` and
+null cases passed before and after, pinning that the existing branches are unchanged.
+
+### Gates
+
+`run_gates.py scoreboard --base origin/main` — **ALL GATES GREEN**, without `--skip-append-only`.
+Two 101-character lines wrapped.
