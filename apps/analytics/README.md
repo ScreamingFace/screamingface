@@ -2,7 +2,8 @@
 
 Receives opted-in SDK evaluation/submission events at `POST /v1/events` and forwards
 validated events to PostHog. Implements the [OME-1152 contract](../../docs/spec/2026-09-09-OME-1152-analytics-service-spec.md).
-No SDK instrumentation, prompts, cookies, identity linking or database is included.
+No SDK instrumentation, prompts, identity linking or database is included.
+An optional Colab bridge adds consent and identifier cookies as described below.
 
 ## Run and configure
 
@@ -75,3 +76,88 @@ format, types, tests with 95% branch coverage, and distribution build. CI also b
 starts the container and renders both disabled/enabled Helm configurations. Tests never send
 live events. Code ownership follows the repository's shared service maintainers pending a
 specific deployment owner.
+
+
+## Optional Colab bridge
+
+The service-side bridge is implemented here; the Colab SDK adapter is a separate
+change. It is disabled by default. Node 24 is required to run the iframe protocol
+tests included in the Python test suite; CI installs it explicitly.
+
+| Variable | Purpose |
+|---|---|
+| `ANALYTICS_BRIDGE_ENABLED` | `false`; register bridge routes only when enabled |
+| `ANALYTICS_BRIDGE_ORIGIN` | Exact public HTTPS analytics origin |
+| `ANALYTICS_BRIDGE_PARENT_ORIGINS` | Comma-separated exact permitted Colab output origins |
+| `ANALYTICS_BRIDGE_ANCESTOR_ORIGINS` | Comma-separated exact additional ancestors for CSP |
+| `ANALYTICS_BRIDGE_COOKIE_MAX_AGE` | 15552000 seconds (180 days), configurable from 1 to 365 days |
+
+Origins contain no path, wildcard, credentials, query or fragment. There is no
+permissive default. Operators must observe the actual Colab ancestor chain before
+enabling this deployment; this implementation does not assume its host pattern.
+If output origins change per notebook, the exact-origin configuration is insufficient
+for broad rollout: establish and validate the narrow host pattern in the browser
+spike before extending it. Users must not manually configure notebook origins.
+
+Helm exposes these under `analytics.bridge.{enabled,origin,parentOrigins,
+ancestorOrigins,cookieMaxAge}`. Enabling the bridge adds `/bridge` Prefix ingress
+beside `/v1/events` Exact; health routes remain internal. Allow unauthenticated access
+to bridge routes, strip no Set-Cookie/CSP headers, disable caching and raw request
+logging, and apply edge rate/body limits. No new PostHog key or database is required.
+
+### HTTP and iframe protocol
+
+- `GET /bridge/consent`: minimal iframe page; no cookies minted or events sent.
+- `GET /bridge/consent/state`: choice/version only; no identifier creation.
+- `POST /bridge/consent`: exact JSON `{"choice":"accepted","consent_version":"1"}`
+  or `declined`. Choice has no unique value. Decline expires ID in the same response;
+  fresh consent also expires any orphan/stale ID. Repeated acceptance preserves ID.
+- `POST /bridge/id`: empty JSON object; accepted cookie required. Returns
+  `choice`, `consent_version`, `id_scope:browser`, `persistent_id`. Renews both
+  cookies without rotating a valid ID.
+- `POST /bridge/id/revoke`: empty JSON object; declined cookie required; idempotent
+  ID expiry. Normal decline already expires ID, so no second request is necessary.
+- `POST /bridge/id/events`: the existing four-event envelope. Requires accepted
+  consent and ID cookies; each event must be `origin:colab`, `surface:python_sdk`,
+  `id_scope:browser` with the matching `persistent_id`. Uses the same strict event
+  schema, dedup keys, admission and upstream acknowledgement as `/v1/events`.
+
+Mutations require the configured same-origin Origin header and, when present,
+`Sec-Fetch-Site: same-origin`. No CORS is enabled. Consent-control bodies are capped
+at 1 KiB with a 1.5-second deadline. They have a separate admission budget using the
+same configured limits so event delivery being disabled does not prevent opt-out.
+All successful/handled-error bridge responses have no-store/no-referrer/nosniff.
+The consent cookie is scoped to `/bridge`; the ID to `/bridge/id`. Both are Secure,
+HttpOnly, SameSite=None, Partitioned and host-only. Cookie retention is independent
+of the 90-day event retention; browser eviction may end continuity earlier.
+
+The parent waits for iframe load and sends `postMessage` to the exact service origin:
+`{version:1,nonce:<16–128 ASCII letters/digits/_/->,command:<command>}`. Commands are
+`state`, `accept`, `decline`, `id`, `events`; only `events` adds a `batch` field.
+The iframe checks exact allowed parent origin and source, rejects unknown fields,
+and responds to that origin with version/nonce/command plus `result` or a sanitized
+`error`. The parent must independently check source/origin/schema/nonce and discard
+late generations. There is no unsolicited ready message or wildcard target.
+
+Only one request is active per iframe. Additional calls return `busy`; decline
+aborts that frame's active request and suppresses late results. Requests time out
+after two seconds; no durable queue or automatic browser retry. The future SDK
+adapter must serialize/batch sends, preserve event IDs on bounded retry, recheck
+state on failure, and never block evaluation on iframe or kernel initialization.
+
+### Revocation and validation limits
+
+Other active notebooks send the browser's current shared partition cookies on each
+batch. After a decline response updates the cookie jar, subsequent requests are
+rejected by any replica. Requests already sent may complete; concurrent cookie
+responses are applied in browser order. This is not globally instantaneous
+revocation. No capability or product credential is copied into a Python runtime.
+The anonymous `/v1/events` endpoint still trusts explicit client consent affirmation;
+this system cannot prove human consent from a modified client.
+
+Automated tests cover synthetic cookie jars, two independent replicas, stale-ID
+rejection, request validation and the actual shipped script's message boundary.
+They do not emulate browser partitioning. Before public activation, verify the
+real Colab ancestor chain, nonblocking SDK integration, blocked cookies, Chrome and
+Safari notebook/runtime/browser restarts, and two-notebook opt-out against dev
+PostHog. This implementation has not yet been deployed or passed that browser run.

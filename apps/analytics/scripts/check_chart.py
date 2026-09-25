@@ -60,3 +60,39 @@ spec = next(
 assert spec["nodeSelector"] == {"pool": "tenant"}
 assert spec["tolerations"] == [{"key": "workload"}]
 print("PASS: chart wiring, secret references, ingress route, service links and placement")
+
+# FEATURE: bridge routes and settings are opt-in alongside existing intake.
+bridge_command = base + [
+    "--set",
+    "analytics.bridge.enabled=true",
+    "--set",
+    "analytics.bridge.origin=https://analytics.example",
+    "--set",
+    "analytics.bridge.parentOrigins=https://output.example",
+    "--set",
+    "analytics.bridge.ancestorOrigins=https://notebook.example",
+    "--set",
+    "ingress.enabled=true,ingress.className=test,ingress.host=analytics.example",
+    "--set",
+    "ingress.tlsSecretName=test-tls",
+]
+bridge_objects = {
+    doc["kind"]: doc
+    for doc in yaml.safe_load_all(subprocess.check_output(bridge_command, text=True))
+    if doc
+}
+bridge_env = {
+    e["name"]: e["value"]
+    for e in bridge_objects["Deployment"]["spec"]["template"]["spec"]["containers"][0]["env"]
+}
+assert bridge_env["ANALYTICS_BRIDGE_ENABLED"] == "true"
+assert bridge_env["ANALYTICS_BRIDGE_ORIGIN"] == "https://analytics.example"
+assert bridge_env["ANALYTICS_BRIDGE_PARENT_ORIGINS"] == "https://output.example"
+assert bridge_env["ANALYTICS_BRIDGE_ANCESTOR_ORIGINS"] == "https://notebook.example"
+assert bridge_env["ANALYTICS_BRIDGE_COOKIE_MAX_AGE"] == "15552000"
+paths = bridge_objects["Ingress"]["spec"]["rules"][0]["http"]["paths"]
+assert {(p["path"], p["pathType"]) for p in paths} == {
+    ("/v1/events", "Exact"),
+    ("/bridge", "Prefix"),
+}
+print("PASS: optional bridge configuration and ingress")

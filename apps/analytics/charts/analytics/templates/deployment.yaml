@@ -32,6 +32,11 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
           env:
+            - {name: ANALYTICS_BRIDGE_ENABLED, value: {{ .Values.analytics.bridge.enabled | quote }}}
+            - {name: ANALYTICS_BRIDGE_ORIGIN, value: {{ .Values.analytics.bridge.origin | quote }}}
+            - {name: ANALYTICS_BRIDGE_PARENT_ORIGINS, value: {{ .Values.analytics.bridge.parentOrigins | quote }}}
+            - {name: ANALYTICS_BRIDGE_ANCESTOR_ORIGINS, value: {{ .Values.analytics.bridge.ancestorOrigins | quote }}}
+            - {name: ANALYTICS_BRIDGE_COOKIE_MAX_AGE, value: {{ .Values.analytics.bridge.cookieMaxAge | int | quote }}}
             - {name: ANALYTICS_ENABLED, value: {{ .Values.analytics.enabled | quote }}}
             - {name: ANALYTICS_ENV, value: {{ .Values.analytics.environment | quote }}}
             - {name: ANALYTICS_POSTHOG_HOST, value: {{ .Values.analytics.posthogHost | quote }}}

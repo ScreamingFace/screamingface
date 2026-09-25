@@ -23,6 +23,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
       - run: uv run .claude/scripts/run_gates.py analytics
   image:
     runs-on: ubuntu-latest

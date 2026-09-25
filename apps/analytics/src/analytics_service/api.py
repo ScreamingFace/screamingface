@@ -1,6 +1,7 @@
 """Bounded HTTP intake with sanitized errors."""
 
 import asyncio
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -52,11 +53,15 @@ def error_response(status: int, code: str) -> JSONResponse:
     return JSONResponse({"code": code}, status_code=status, headers=headers)
 
 
-async def receive_events(request: Request, ingestion: Ingestion) -> JSONResponse:
+async def receive_events(
+    request: Request, ingestion: Ingestion, prepare: Callable[[object], object] | None = None
+) -> JSONResponse:
     try:
         # INVARIANT: intake and delivery share the SDK-compatible request deadline.
         async with asyncio.timeout(1.5):
             data = decode_body(await read_body(request))
+            if prepare is not None:
+                data = prepare(data)
             count = await forward_connected(request, ingestion, data)
         response = JSONResponse({"status": "upstream_accepted", "count": count}, status_code=202)
     except EventTooLarge:
@@ -107,15 +112,21 @@ def create_app(settings: Settings, delivery: EventDelivery, *, cleanup=None) -> 
     async def events(request: Request):
         return await handle_events(request, ingestion)
 
+    if settings.bridge_enabled:
+        from analytics_service.bridge import install_bridge
+
+        install_bridge(app, settings, ingestion, handle_events)
     return app
 
 
-async def handle_events(request: Request, ingestion: Ingestion):
+async def handle_events(
+    request: Request, ingestion: Ingestion, prepare: Callable[[object], object] | None = None
+):
     admitted = False
     try:
         ingestion.enter()
         admitted = True
-        response = await receive_events(request, ingestion)
+        response = await receive_events(request, ingestion, prepare)
     except AdmissionRejected as exc:
         response = error_response(exc.status, exc.code)
     except ClientDisconnect:

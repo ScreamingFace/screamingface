@@ -122,3 +122,16 @@ Release requires: zero event/ID creation before consent; bounded nonblocking rea
 - [MDN Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie): Path, HttpOnly and partitioned-cookie attributes; used for the proposed split-path protocol.
 - [PostHog Node documentation source](https://github.com/PostHog/posthog.com/blob/master/contents/docs/libraries/node/index.mdx): anonymous capture/person-profile control and GeoIP configuration. Implementation must pin and test the chosen SDK/API.
 - Linear OME-1060 and OME-1124 descriptions/comments; source files at the revision above; linked live experiment notebooks. Earlier statements of universal impossibility are superseded by the bounded positive server-set results.
+
+
+## 25 September bridge amendment
+
+Owner approved browser-mediated Colab delivery, superseding the proposed runtime
+capability/shared revocation-store design above. The iframe posts each batch to
+`/bridge/id/events`; the service checks current partitioned consent and ID cookies
+and rejects an event ID scope/identity mismatch. Browser cookie response order and
+already-sent requests bound opt-out, not a claim of global immediate revocation.
+See [bridge contract](2026-09-25-analytics-colab-bridge-spec.md) and the app README
+for the service protocol. SDK integration and actual browser acceptance remain
+separate. Exact origin configuration keeps the bridge closed until the real Colab
+ancestry is validated; no manual per-notebook setup is an acceptable rollout.
