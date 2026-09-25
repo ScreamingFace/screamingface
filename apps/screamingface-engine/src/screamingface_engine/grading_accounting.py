@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from screamingface_engine.observations import RunObservations, current_observations
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     combine_operation_accounting,
@@ -40,6 +41,7 @@ class GradingEvidenceOwner:
 
 @dataclass(slots=True)
 class _Registry:
+    observation_owner: RunObservations | None = field(default_factory=current_observations)
     keys_by_owner: dict[GradingEvidenceOwner, set[ModelRequestKey]] = field(default_factory=dict)
     owners_by_key: dict[ModelRequestKey, set[GradingEvidenceOwner]] = field(default_factory=dict)
     calls_by_key: dict[ModelRequestKey, list[RequestAccounting]] = field(default_factory=dict)
@@ -86,6 +88,20 @@ def register_grading_request(
     if len(owners) > 1 and not registry.collision_warned:
         registry.collision_warned = True
         logger.warning("grading accounting request key has multiple owners; attribution disabled")
+
+
+def grading_case_for_request(key: ModelRequestKey | None) -> int | str | None:
+    """Read Engine-authored ownership for this exact request, never infer from payloads.
+
+    INVARIANT: multiple owners cannot yield a guessed Case; nested observation runs
+    cannot borrow the outer run's registry. No prompt or response enters activity.
+    """
+    registry = _registry.get()
+    if key is None or registry is None or registry.observation_owner is not current_observations():
+        return None
+    owners = registry.owners_by_key.get(key, set())
+    cases = {owner.case_id for owner in owners}
+    return next(iter(cases)) if len(cases) == 1 else None
 
 
 def accounting_for_grading_evidence(
@@ -165,6 +181,7 @@ __all__ = [
     "GradingEvidenceOwner",
     "accounting_for_grading_evidence",
     "capture_grading_requests",
+    "grading_case_for_request",
     "reconcile_candidate_grading_accounting",
     "register_grading_request",
 ]

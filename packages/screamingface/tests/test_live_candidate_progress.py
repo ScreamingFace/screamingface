@@ -91,11 +91,16 @@ class _FakeControl:
     def observe(self, callback: Any, *, names: str) -> None:
         pass
 
+    def on_click(self, callback: Any) -> None:
+        pass
+
 
 def _fake_widgets() -> SimpleNamespace:
     return SimpleNamespace(
         HBox=_FakeBox,
         ToggleButton=_FakeControl,
+        Button=_FakeControl,
+        Label=_FakeControl,
         BoundedIntText=_FakeControl,
         Box=_FakeBox,
         HTML=_FakeHTML,

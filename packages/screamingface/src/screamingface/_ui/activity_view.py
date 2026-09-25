@@ -58,7 +58,17 @@ STYLE = """<style>
  outline-offset:-2px}
 .sf-candidate-row .sf-eval__table td:first-child,
 .sf-candidate-head .sf-eval__table th:first-child{padding-left:36px}
-.sf-candidate-details{border-top:1px solid var(--sf-line)}
+.sf-candidate-details{border-top:1px solid var(--sf-line);position:relative}
+.sf-activity-pagination{position:absolute;right:80px;top:4px;z-index:2;
+ gap:4px;align-items:center;background:var(--sf-surface)}
+.sf-activity-pagination .widget-button{width:auto;height:21px;margin:0;padding:0 8px;
+ font:12px/1.6 "IBM Plex Mono",monospace;color:var(--sf-ink-2);
+ background:var(--sf-surface);border:1px solid var(--sf-line);border-radius:0;box-shadow:none}
+.sf-activity-pagination .widget-button:disabled{opacity:.45;cursor:default}
+.sf-activity-pagination .widget-label{width:auto;margin:0;padding:0 4px;
+ font:12px/1.6 "IBM Plex Mono",monospace;color:var(--sf-ink-2)}
+.sf-candidate-details:has(.sf-activity-pagination:not([style*="display: none"]))
+ .sf-activity-content{padding-top:25px}
 .sf-candidate-details .widget-html{margin:0}
 .sf-candidate-details .sf-activity-console{border:0}
 .sf-candidate-row .sf-eval__table,.sf-candidate-head .sf-eval__table{min-width:820px}
@@ -87,6 +97,8 @@ def _case_prefix(facts: dict[str, str | int | float], *, model: bool) -> str:
 
 def _stage_label(row: ActivityRow, label: str, outcome: str) -> str:
     facts = dict(row.record.facts)
+    if facts.get("action") == "recording":
+        return "Answer recorded" if outcome == "completed" else "Recording answer"
     if row.record.kind == "case_loading":
         label = "Loading benchmark cases"
         if outcome == "completed":
@@ -117,6 +129,8 @@ def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
     name = facts.get("model_id")
     outcome = _outcome(row)
     label = _stage_label(row, label, outcome)
+    if model and name and facts.get("role") == "judge":
+        name = f"judge {name}"
     subject = _call_label(str(name), outcome) if model and name else label
     details = []
     if failure := facts.get("failure_code"):
