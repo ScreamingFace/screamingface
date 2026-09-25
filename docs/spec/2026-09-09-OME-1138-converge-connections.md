@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
 created: 2026-09-09
-updated: 2026-09-24
+updated: 2026-09-25
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)
@@ -233,10 +233,14 @@ still returns 404 with the requested label; nothing is ignored or retargeted. Am
 caller-supplied provenance is not expressible today (the gateway sees only the header); the
 implementation counts `explicit` vs default selectors without logging names to build the D4 census.
 
-Sunset (separate stage, owner-set): a boundary-level policy makes `Selector.from_header` raise
-`SelectorUnsupported` → 400 `x_profile_unsupported` for present, non-blank selectors the backing
-cannot honour; absent selectors resolve to the pair's effective target; an explicit literal
-`default` is accepted only with the equivalence proof D4 requires. Any implementation that cannot
+Sunset (separate stage, owner-set; contract decided 2026-09-25, `OME-1377`): a boundary-level
+policy makes `Selector.from_header` raise `SelectorUnsupported` → non-retryable 400
+`{code: x_profile_unsupported, message}` for every present, non-blank selector, literal `default`
+included; the requested value is neither echoed (today's dormant rendering returns
+`requested_label`, which the reject landing drops) nor logged. Absent, blank and whitespace-only
+headers stay selector-less and resolve the pair's effective target. A pair with two or more active
+Connections keeps `409 connection_ambiguous`, whose message then points to removing the extra
+Connections instead of suggesting `X-Profile`; nothing picks one. Any implementation that cannot
 honour a selector must refuse, never return a different target (a port contract test enforces
 this). The policy has one enforcement point — the parse step, configured at the composition root;
 implementations never consult it. Because the gateway is the sole interpreter, a rejected selector on a queued run surfaces as
@@ -408,7 +412,7 @@ mechanism for option (a) and as the semantic requirements for option (b):
 
 ## 8. Decision register
 
-D1–D10 are preserved as decided; D11–D20 are new (D11, D14, D15, D16, D17, D19 and D20 decided; D12 carries a decided Stage B rule and stays open for Stage D; D13 and D18 open).
+D1–D10 are preserved as decided; D11–D20 are new (D11, D12, D13, D14, D15, D16, D17, D19 and D20 decided — D12 and D13 for Stage D on 2026-09-25; D18 open).
 Conflicts are presented, not resolved.
 
 | ID | Decision | Contract | Status |
@@ -416,7 +420,7 @@ Conflicts are presented, not resolved.
 | D1 | Persistence | slot with single PK + UNIQUE pair, generation fence, no defaults | preserved; **conditional on D11(a)**; option (b) needs the same semantics in its own table |
 | D2 | Defaults | full REMOVE at an explicit cutover; no transfer anywhere; behaviour preserved until then | settled 2026-09-10; restated by the adapter-first input |
 | D3 | Collisions | only unambiguous, compatibility-safe automatic mappings; otherwise quarantine | preserved; applies at Stage B and to the admin successor's pair→record mapping |
-| D4 | Selector retirement | supported semantics in the window; reject unsupported after sunset; never silent | preserved; enforcement point is now the boundary's parse step; activation detail open: blank header treated as absent or rejected, literal `default` accepted only with the equivalence proof |
+| D4 | Selector retirement | supported semantics in the window; reject unsupported after sunset; never silent | preserved; enforcement point is now the boundary's parse step; **activation detail decided 2026-09-25 (owner, `OME-1377`):** blank and whitespace-only headers are absent; literal `default` is rejected like any other nonblank value (no window); rollout is two-phase — Engine producer-off, drain proof, then the gateway reject; rollback floor is the producer-off Engine build and the gateway may return to `HONOUR`; the evidence window and sunset date follow the privacy-safe census |
 | D5 | Rollback | tested R1 after the first canonical write; R0 needs proof | preserved (Stage B) |
 | D6 | Retention | API sunset separate from data retention | preserved (Stage E) |
 | D7 | Units | first units were S1–S3 | **re-approved 2026-09-14:** Stage 0 then A1 are the first units; U0/U0e/U1 authorised and filed; stop after A1 for review; A2–A4 and any backing migration need a new authorisation |
@@ -424,8 +428,8 @@ Conflicts are presented, not resolved.
 | D9 | Desktop output | untouched | preserved |
 | D10 | Catalog retirement | built-in `supersedes`, deprecate without deletion | preserved |
 | D11 | Backing model | (a) transfer to Connections + slot, remove Profiles; (b) rework the current Profile mechanisms into an internal aggregate that still publishes Connections as the credential resource | **decided 2026-09-22 (owner; design PR #23): (a), conservatively** — one deterministic effective credential per `(account, provider)` pair, no selectable accounts or credentials per provider; Stage B moves credential authority to Connections through the `provider_credential_slots` pair marker and locator-authoritative reads without secret re-entry (`OME-1208`); Profile storage, routes and schemas are retained until Stage E (`OME-1209`); D17/D18 shapes follow from it; whether `Selector` survives is D12 (Stage D) |
-| D12 | Selector after cutover | (a) selector-less pair → one target, multi-Connection pairs dispositioned (D3); (b) label disambiguation stays supported (today's 409) | **open** for Stage D; **Stage B rule decided 2026-09-22 (owner; design PR #23):** a Connection-only pair with several active Connections is not migrated (`none`) — today's label resolution and its 409 stand; the 2026-09-10 selector-less `resolve_effective` would change today's 409 behaviour, so it is not the consumer signature in the window |
-| D13 | Approved protocol surface | removing `X-Profile` from solution `completions` v6 / `model-catalog` v5: successor protocols vs prose bump | **open** (M0) |
+| D12 | Selector after cutover | (a) selector-less pair → one target, multi-Connection pairs dispositioned (D3); (b) label disambiguation stays supported (today's 409) | **decided for Stage D 2026-09-25 (owner, `OME-1377`): (a)** — selector-less `(account, provider)` resolves one effective target; every nonblank `X-Profile` gets non-retryable 400 `x_profile_unsupported` without the requested value; scope: gateway chat, model parameters, admission and provider-access availability, Engine execution, catalog, model parameters and connections (not health or unrelated admin); a pair with several active Connections keeps its 409 with a message that no longer suggests `X-Profile`; no replacement selector; existing codes are not renamed in Stage D. **Stage B rule decided 2026-09-22 (owner; design PR #23):** a Connection-only pair with several active Connections is not migrated (`none`) — today's label resolution and its 409 stand; the 2026-09-10 selector-less `resolve_effective` would change today's 409 behaviour, so it is not the consumer signature in the window |
+| D13 | Approved protocol surface | removing `X-Profile` from solution `completions` v7 / `model-catalog` v5: successor protocols vs prose bump | **decided 2026-09-25 (owner, `OME-1377`): version bump** of the existing cards with an explicit "Stage D target, not live" section; `supersedes`/`deprecated` only when an entity is actually replaced (Stage E); landing `OME-1380` merged 2026-09-25 (design PR #25, `3ba6a3d`) before any census instrumentation or runtime code |
 | D14 | Dual OAuth write owner | (a) gate the Profile flip and stop shadow Connections; (b) shadow Connection canonical, Profile a view; (c) both until B with a reconciliation rule | **decided 2026-09-22 (owner; design PR #23): per-pair authority marker** — for a `migrated` pair the Connection backing owns every write, including the OAuth callback publication (the Profile routes are facades over it); an unmigrated or `quarantined` pair keeps today's legacy behaviour, shadow Connection write included; never two independent write owners for one owned pair; applied by `OME-1208`; the census stays a Q02 item for the apply run |
 | D15 | Hosted read-only rule | (a) explicit mutability flag; (b) gateway-side policy | **decided 2026-09-14: (a)** explicit flag on the Engine connections adapter, Hosted `mutable=False`, Local `mutable=True`; any Hosted mutation refused before network or storage I/O; applied at A4 |
 | D16 | Defaults during transition | (a) legacy index read-only for defaults until cutover; (b) cutover precedes the switch | **decided 2026-09-22 (owner; design PR #23): (a)** — a migrated pair's legacy index entry remains a defaults-only compatibility document during the transition; Stage B creates no Connection defaults, presets or hidden saved defaults; the full REMOVE at Stage C (D2) is unchanged |
@@ -465,6 +469,8 @@ mechanism survives in §7. No owner decision is contradicted.
   backing switch unless deliberately reproduced (D17).
 - Post-sunset 400 on queued runs with `AIGATEWAY_PROFILE` and on workers with an ambient value
   (out-of-band injection unverified; chart supplies none).
+- After the sunset a pair with several active Connections has no selection escape: its 409 stands
+  and only removing the extra Connections recovers it; how many such pairs exist is unmeasured.
 - Re-pointing the 4 storage-invariant, 2 facade or 1 bootstrap suites to a shared seed fixture would
   silently weaken the CAS, locking, delete-wins and bootstrap checks; only the 18 feature suites are
   fixture candidates. The facade suites carry a second risk: leaving their storage-specific
@@ -511,7 +517,7 @@ or its history into the application repository.
   as a content bump on that card plus renamed workflow messages in `chat-processing`,
   `chat-streaming` and `model-discovery`, or as a new in-process protocol entity modelled on
   `plugin-contract` (owner choice, S13). Either is additive; M0 gates any write.
-- `X-Profile` is contract-grade in solution `completions` v6 and `model-catalog` v5 (D13);
+- `X-Profile` is contract-grade in solution `completions` v7 and `model-catalog` v5 (D13);
   `gateway-admin` v4 encodes Profile admin operations (successor at D/E); `token-delegation` v5
   draft is Connection-native.
 - Carriers `AIGATEWAY_PROFILE` and `schedule(profile=)` are absent from the catalog; the Engine card

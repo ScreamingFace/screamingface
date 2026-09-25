@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first re-plan; no execution, task or publication approval is inferred
 created: 2026-09-09
-updated: 2026-09-24
+updated: 2026-09-25
 spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 ---
 
@@ -37,10 +37,10 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 | A3 admin interface + management shells | G2c | **merged** as U3 (`OME-1230`, PR #992, `a78d58da`, 2026-09-21): the Profile management routes sit behind the provider-credential admin boundary |
 | A4 Hosted Engine on the availability successor | G3 | **merged** in two units (D15 and D17 decided 2026-09-14): U4 (`OME-1244`, PR #1006, `2da45896`, 2026-09-21) publishes the caller-scoped `GET /v1/provider-access` listing; U4e (`OME-1245`, PR #1007, `54fa8673`, 2026-09-22) moves the Hosted Engine listing onto it |
 | B backing transition | G4 | **merged** as `OME-1208` (PR #1029, `7cff8a56`, 2026-09-23) under D11 (a), D14 and D16, decided 2026-09-22 (design PR #23): the `provider_credential_slots` pair marker, the Connection-backed implementations and the backfill tooling (S1/S2'/S4); Profile storage, routes and schemas stay until Stage E (`OME-1209`) |
-| C defaults cutover (D2) | G5a | **UI done** as `OME-1322` (PR #1043, `21832443`): the console sends only `{ "api_key" }`. **Gateway implemented locally** as `OME-1323` (2026-09-24, branch `OME-1323-remove-profile-defaults`; not committed, no PR): chat no longer reads or merges stored defaults, the five writers answer a present `defaults` (even `null`) with 422 `defaults_not_accepted`, cache keys byte-identical (no revision bump, no reset). The running console must use the key-only payload before the gateway refusal reaches dev |
-| D selector sunset and carriers (D4) | G5b | not started; needs the date, disposition and env audit |
+| C defaults cutover (D2) | G5a | **UI done** as `OME-1322` (PR #1043, `21832443`): the console sends only `{ "api_key" }`. **Gateway merged** as `OME-1323` (PR #1061, `e8c7d262`, 2026-09-25): chat no longer reads or merges stored defaults, the five writers answer a present `defaults` (even `null`) with 422 `defaults_not_accepted`, cache keys byte-identical (no revision bump, no reset). The running console must use the key-only payload before the gateway refusal reaches dev |
+| D selector sunset and carriers (D4) | G5b | **contract decided** 2026-09-25 (`OME-1377`: D12, D4 rollout, D13 — spec §8); metamodel merged as `OME-1380` (design PR #25, `3ba6a3d`); then the privacy-safe census, Engine producer-off, drain proof and the gateway reject; the evidence window, sunset date and env audit are still open |
 | E retirement and cleanup | G6 | not started; needs D6 |
-| S13 catalog | M0 | additive text possible after M0; successors at D/E |
+| S13 catalog | M0 | additive text possible after M0; Stage D resolved by D13 (version bump, `OME-1380`, merged `3ba6a3d`); successors at E |
 
 ## 2. Unit decomposition (D7 re-approved 2026-09-14 for U0/U0e/U1; epic = OME-1138)
 
@@ -218,7 +218,7 @@ and the tooling retirement list.
 | D16 → G5a | defaults source during the transition decided; impact plan approved; rehearsed rollback includes the defaults mode |
 | D4 date, D12 → G5b | sunset date; selector semantics after cutover; provenance census; accepted-work disposition; worker env audit |
 | D6 → G6 | retention fulfilled; reference-safe cleanup proven; deletion approved |
-| D13, M0 | catalog write/version handling resolved; successor protocols decided for `X-Profile` removal; only then `--write` |
+| D13, M0 | catalog write/version handling resolved; successor protocols decided for `X-Profile` removal; only then `--write` — **D13/M0 closed 2026-09-25:** version bump of the existing cards, no successor protocols (`OME-1380`, merged `3ba6a3d`) |
 | D18 | admin successor timing and shape (may wait for D11) |
 
 Implementation details inside an approved contract belong to the agent. Escalate material new
