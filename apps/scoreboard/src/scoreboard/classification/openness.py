@@ -213,6 +213,38 @@ def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
     return "closed" if owner in _CLOSED_OWNERS else "unknown"
 
 
+EntryVerdict = Literal["open", "closed", "unidentified"]
+
+
+def classify_entry(
+    models: Sequence[str] | None, openness_override: Openness | None
+) -> tuple[EntryVerdict, tuple[str, ...]]:
+    """One frontier entry's verdict, and the routes the registry did not recognise (OME-1145).
+
+    INVARIANT (OME-1179 D1): open only when EVERY declared model is open. Any closed or unknown
+    route closes the whole entry: a fusion you cannot run end to end is not reproducible.
+
+    INVARIANT (D4): an unknown route fails closed AND is returned, so a stale registry is visible
+    rather than looking like a genuinely closed board.
+
+    WHY `unidentified` is a third verdict: an entry with no `models` (submitted before OME-1180)
+    says nothing about what it ran. Counting it closed would understate the open share for a
+    reason that has nothing to do with the models; counting it at all would be a guess.
+
+    FEATURE (D-Q4, owner 2026-09-25): `openness_override` still wins outright, now per entry. It
+    is the operator's correction path for a misclassified entry, set directly in the database.
+    """
+    if openness_override is not None:
+        return openness_override, ()
+    # WHY `not models` and not `is None`: `all()` over an empty list is True, so an empty list
+    # would read as open. Submissions refuse an empty list, but a stored row is not a submission.
+    if not models:
+        return "unidentified", ()
+    verdicts = [(route, classify_model(route)) for route in models]
+    unknown = tuple(route for route, verdict in verdicts if verdict == "unknown")
+    return ("open" if all(v == "open" for _, v in verdicts) else "closed"), unknown
+
+
 def classify_baseline_name(model_name: str) -> Openness:
     """Same fail-closed pattern as `classify_providers`, via substring match
     against a baseline's free-text `model_name`.

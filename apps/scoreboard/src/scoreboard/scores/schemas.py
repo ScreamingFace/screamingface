@@ -813,46 +813,50 @@ class BaselineSchema(BaseModel):
 
 
 class FrontierPoint(BaseModel):
-    """One step of the open/closed frontier trend (OME-323, spec §5/§6): the
-    running-best score at the moment it changed, and whether the entry holding
-    that position was open or closed."""
+    """One step of the open-share trend (OME-1145, D-L): the frontier's open share at the moment
+    a submission changed it. Replaces OME-323's score-holder walk."""
 
     model_config = ConfigDict(extra="forbid")
 
     at: datetime
-    score: float
-    openness: Literal["open", "closed"]
-    # INVARIANT: always "score" — a Baseline's imported_at isn't a trustworthy
-    # real-world timestamp, so it never participates in this walk (spec §6).
-    holder: Literal["score"]
-    label: str
+    # None when that frontier held nothing classifiable (D-S).
+    open_share: float | None
+    open_count: int
+    closed_count: int
 
 
 class FrontierResult(BaseModel):
-    """Return type of `compute_frontier` — no `benchmark_id`, since the pure
-    function itself has no notion of which benchmark it was called for. The route
-    adds that to build the public `FrontierResponse`."""
+    """What `compute_frontier_openness` returns: the open share of the cost/score Pareto frontier.
+
+    FEATURE: OME-1145 — the "N% open" card. Every field describes ONE population, the full-board
+    Pareto frontier the ranked table marks (D-L), so the card cannot contradict the table.
+
+    INVARIANT (D-S): `open_share` is None, never 0.0, when nothing was measured: no frontier
+    (`frontier_available` false, D12), an empty one, or one holding only unidentified entries.
+    0% asserts a closed frontier; nothing measured asserts nothing.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
+    # False on a board with no registered revision: the table makes no frontier claim there
+    # (D12), so neither does the card.
+    frontier_available: bool
+    # Entries on the frontier, before the unidentified ones are set aside.
+    frontier_size: int
     open_count: int
     closed_count: int
-    open_share: float
-    current: FrontierPoint | None
+    # Frontier entries with no `models` (submitted before OME-1180), excluded from the share.
+    unidentified_count: int
+    # D4: distinct routes the registry did not recognise, sorted, capped (D-T).
+    unrecognised_models: list[str]
+    open_share: float | None
     trend: list[FrontierPoint]
 
 
-class FrontierResponse(BaseModel):
-    """Read DTO for GET /v1/leaderboard/{benchmark_id}/frontier (OME-323, spec §5)."""
-
-    model_config = ConfigDict(extra="forbid")
+class FrontierResponse(FrontierResult):
+    """Read DTO for GET /v1/leaderboard/{benchmark_id}/frontier (OME-1145)."""
 
     benchmark_id: str
-    open_count: int
-    closed_count: int
-    open_share: float
-    current: FrontierPoint | None
-    trend: list[FrontierPoint]
 
 
 class BaselineImportRow(BaseModel):
