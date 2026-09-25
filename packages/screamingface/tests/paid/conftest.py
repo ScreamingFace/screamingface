@@ -132,10 +132,16 @@ def _require_imported_assets() -> Path:
 
 @dataclass(frozen=True, slots=True)
 class PaidStack:
-    """The two URLs a smoke test needs; the SDK talks only to ``engine_url``."""
+    """The two URLs a smoke test needs, plus where its debugging evidence lands.
+
+    The SDK talks only to ``engine_url``. ``log_dir`` holds the child logs, and the
+    smoke writes each board's Report under ``log_dir / "reports"`` — one directory
+    that CI uploads and the just recipe prints, so a run's evidence travels together.
+    """
 
     engine_url: str
     aigateway_url: str
+    log_dir: Path
 
 
 class _PaidStackBoot:
@@ -165,7 +171,7 @@ class _PaidStackBoot:
         except BaseException:
             self.stop()
             raise
-        return PaidStack(engine_url=engine_url, aigateway_url=aigateway_url)
+        return PaidStack(engine_url=engine_url, aigateway_url=aigateway_url, log_dir=self._work_dir)
 
     def stop(self) -> None:
         for process in (self._engine, self._gateway):

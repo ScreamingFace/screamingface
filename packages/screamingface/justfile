@@ -298,8 +298,19 @@ test-paid-inspect:
                 --root "{{ assets }}" "${missing[@]}" )
     fi
 
+    # One timestamped directory per press holds everything needed to debug it: the
+    # gateway/engine logs, one full Report per board under reports/, and the junit
+    # verdicts. Pinned here (not pytest's tmp dir, which keeps only the last three
+    # sessions under an unprinted path) and printed below on pass AND fail.
+    log_dir="{{ data_dir }}/paid-smoke-logs/$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$log_dir"
+
     # REQUIRED: this recipe IS the paid button — an unavailable stack must FAIL the
     # run (a pytest skip exits 0 and would report a green no-op). -rs still prints
     # any skip reason from non-button contexts.
+    status=0
     SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_PAID_REQUIRED=1 SCREAMINGFACE_E2E_ASSETS="{{ assets }}" \
-        "$UV" run pytest tests/paid -m paid -rs -v
+        SCREAMINGFACE_PAID_LOG_DIR="$log_dir" \
+        "$UV" run pytest tests/paid -m paid -rs -v --junitxml "$log_dir/junit.xml" || status=$?
+    echo "==> logs, per-board reports and verdicts: $log_dir"
+    exit "$status"

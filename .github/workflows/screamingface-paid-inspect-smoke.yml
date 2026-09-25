@@ -108,18 +108,24 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
           SCREAMINGFACE_PAID_LOG_DIR: /tmp/screamingface-paid-logs
-        run: uv run pytest tests/paid -m paid -rs -v
+        run: uv run pytest tests/paid -m paid -rs -v --junitxml /tmp/screamingface-paid-logs/junit.xml
 
-      # The stack's own logs (gateway request lines, engine model-call lifecycle) are
-      # the debugging material a failure code alone cannot replace. Safe to upload:
-      # the OpenRouter key never appears in any child's environment or log — it
-      # travels only inside the SDK's connect request body, and neither app logs
-      # request bodies at info level.
-      - name: Upload stack logs
+      # Everything needed to debug a press, in one download: the stack's own logs
+      # (gateway request lines, engine model-call lifecycle), one full Report per
+      # board under reports/ (member + synthesizer answers, grade, judge reasoning,
+      # run/trace ids to find the matching log lines), and junit.xml verdicts.
+      # The OpenRouter key never appears in any of it: it is in no child's environment
+      # and travels only inside the SDK's connect request body, which neither app
+      # logs at info level.
+      # Owner-accepted exposure: this repo is public, so any signed-in GitHub user can
+      # download the artifact for its retention window — the reports republish
+      # public-dataset questions, model answers and judge reasoning that can quote
+      # the reference answer.
+      - name: Upload debug bundle
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: paid-smoke-stack-logs
+          name: paid-smoke-debug-bundle
           path: /tmp/screamingface-paid-logs
           if-no-files-found: ignore
           retention-days: 14

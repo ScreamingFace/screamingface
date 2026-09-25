@@ -14,6 +14,7 @@ refused, or truncated model answer still passes, because model quality is not wi
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -71,7 +72,7 @@ def test_every_imported_board_runs_end_to_end(paid_stack: PaidStack) -> None:
 
         problems: list[str] = []
         for board in boards:
-            problems.extend(_smoke_one_board(client, board))
+            problems.extend(_smoke_one_board(client, board, paid_stack.log_dir / "reports"))
 
     assert not problems, (
         "imported boards failed the paid smoke (board: stage/code — message):\n"
@@ -79,8 +80,20 @@ def test_every_imported_board_runs_end_to_end(paid_stack: PaidStack) -> None:
     )
 
 
-def _smoke_one_board(client: _sf.Client, board: str) -> list[str]:
-    """Run one board's Fusion evaluation and describe its infrastructure failures."""
+def _smoke_one_board(client: _sf.Client, board: str, reports_dir: Path) -> list[str]:
+    """Run one board's Fusion evaluation, keep its Report on disk, and describe its
+    infrastructure failures.
+
+    Args:
+        client: the SDK client connected to the paid stack's engine.
+        board: the imported benchmark id (``inspect-<key>``).
+        reports_dir: where this board's full Report lands as ``<board>.json`` — the
+            per-case evidence (member + synthesizer answers, grade, judge reasoning,
+            run and trace ids) that the failure strings below only summarize.
+
+    Returns:
+        One human-readable line per problem; empty when the board's pipe is healthy.
+    """
     import screamingface as sf
 
     try:
@@ -93,9 +106,24 @@ def _smoke_one_board(client: _sf.Client, board: str) -> list[str]:
         # WHY the broad catch (PR #1035 review): this loop's contract is "one broken
         # board never hides the rest". An exception that leaks past the SDK's own
         # error type would otherwise abort the loop and silently discard the other
-        # 16 verdicts — it is still recorded as this board's failure, never swallowed.
+        # boards' verdicts — it is still recorded as this board's failure, never swallowed.
         return [f"{board}: evaluate raised unexpectedly — {exc!r}"]
 
+    problems: list[str] = []
+    # WHY export before judging: a failing board's Report IS the debugging evidence,
+    # and the smoke would otherwise read it for failure strings and discard the rest
+    # — so debugging a failed case meant paying for the run again. It lands in the
+    # stack's log dir, which CI uploads and the just recipe prints.
+    try:
+        report.export(reports_dir / f"{board}.json")
+    except OSError as exc:
+        problems.append(f"{board}: could not keep the report for debugging — {exc}")
+    return problems + _report_problems(board, report)
+
+
+def _report_problems(board: str, report: _sf.Report) -> list[str]:
+    """Read one board's Report like a referee: did the pipe carry every Case to a
+    grade, and did anything fail that was not the model misbehaving?"""
     candidate = report.candidates.only
     problems: list[str] = []
     if len(candidate.cases) != CASE_LIMIT:
