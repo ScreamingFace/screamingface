@@ -1,12 +1,12 @@
 ---
 id: OME-1335
 linear_url: https://linear.app/openmined/issue/OME-1335/screamingface-up-in-a-dev-checkout-runs-an-outdated-url4-and-crashes
-status: in_review   # Linear: Triage (bug, awaiting triage review)
+status: done
 type: bug
 priority: High
 labels: [bug, client-sf, agentic, autonomous]
 created: 2026-09-25
-closed:
+closed: 2026-09-25
 ---
 
 # `screamingface up` in a dev checkout runs an outdated url4 and crashes at boot
