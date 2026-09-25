@@ -22,3 +22,7 @@ no fact; hellaswag's plain constant keeps binding.
 Ledger: `docs/work/2026-09-25-OME-1272-system-message-placeholder-guard.md`.
 
 - 2026-09-25: work started in its own worktree, branched from `upstream/main` `1f1218ee`.
+- 2026-09-25: draft PR #1064 opened (`2b7fb6bf`). Review found three sibling gaps in the same
+  walk; owner asked to fix them on this PR: a `prompt_template` read from a file now refuses by
+  name, two or more system messages flag, and `Task(setup=...)` is walked. All 22 imported
+  boards introspect to facts identical to `upstream/main`.

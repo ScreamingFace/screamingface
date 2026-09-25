@@ -1749,6 +1749,118 @@ def test_introspect_flags_a_system_message_read_from_a_file(
     assert any("system_message" in flag for flag in facts.custom_solvers)
 
 
+def test_introspect_refuses_a_prompt_template_read_from_a_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """OME-1272 (PR #1064 review): prompt_template() also READS a path through
+    resource(), so the eval sends the file's template. The bake formats the
+    constant's own text — a path with no {prompt} slot — so every case would
+    become the path string. It refuses by name, like an unresolvable template."""
+
+    template_file: Path = tmp_path / "user.txt"
+    template_file.write_text("Solve: {prompt}")
+
+    def from_file() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[prompt_template(module.TEMPLATE_PATH), generate()],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, from_file=from_file)
+    module.TEMPLATE_PATH = str(template_file)  # type: ignore[attr-defined]
+
+    with pytest.raises(ImporterError, match="reads its template from a file"):
+        introspect_task(f"{_FAKE_MODULE}:from_file")
+
+
+def test_introspect_flags_a_chain_with_two_system_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1272 (PR #1064 review): inspect sends EVERY system message in the
+    chain, but the row holds one pointer — the last used to win silently, so
+    the bake dropped the first instruction. Now nothing binds and the flag
+    says why."""
+
+    from inspect_ai.solver import system_message
+
+    def twice_instructed() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[
+                system_message(module.PERSONA),
+                system_message(module.INSTRUCTIONS),
+                generate(),
+            ],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, twice_instructed=twice_instructed)
+    module.PERSONA = "You are a careful accountant."  # type: ignore[attr-defined]
+    module.INSTRUCTIONS = "Show your working."  # type: ignore[attr-defined]
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:twice_instructed")
+
+    assert facts.system_message is None
+    assert any("2 system messages" in flag for flag in facts.custom_solvers)
+
+
+def _introspect_setup_system_message(
+    monkeypatch: pytest.MonkeyPatch, instructions: str
+) -> TaskFacts:
+    """Introspect an eval whose system message lives in Task(setup=...)."""
+
+    from inspect_ai.solver import system_message
+
+    def set_up() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            setup=system_message(module.INSTRUCTIONS),
+            solver=[generate()],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, set_up=set_up)
+    module.INSTRUCTIONS = instructions  # type: ignore[attr-defined]
+    return introspect_task(f"{_FAKE_MODULE}:set_up")
+
+
+def test_introspect_sees_a_system_message_in_task_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1272 (PR #1064 review): inspect runs Task(setup=...) before the
+    solver chain, so a system message there reaches the candidate exactly like
+    one in the chain. The walk used to skip setup, so the instruction vanished
+    with no flag; a plain constant there now binds like any other."""
+
+    facts: TaskFacts = _introspect_setup_system_message(
+        monkeypatch, "Choose the most plausible continuation for the story."
+    )
+
+    assert facts.system_message == f"{_FAKE_MODULE}:INSTRUCTIONS"
+    assert facts.custom_solvers == ()
+
+
+def test_introspect_flags_a_rewritten_system_message_in_task_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The setup walk runs the same guard: a placeholder there flags, never binds."""
+
+    facts: TaskFacts = _introspect_setup_system_message(monkeypatch, "Answer as {persona}.")
+
+    assert facts.system_message is None
+    assert any("system_message" in flag for flag in facts.custom_solvers)
+
+
 # ---------------------------------------------------------------------------
 # model-graded scorers get the judge flag (OME-1240)
 # ---------------------------------------------------------------------------
