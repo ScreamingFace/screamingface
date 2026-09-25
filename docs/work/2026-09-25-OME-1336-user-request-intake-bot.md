@@ -43,9 +43,30 @@ Process/automation unit — no code, so no pytest. Verification is behavioural (
 - `user-request` label confirmed present.
 - Routine created + a successful on-demand run that files at least one correct ticket.
 
+## Backfill run — 2026-09-25
+
+Ran the bot manually over the FULL history (owner requested "do for all existing calls and
+messages"): 21 call folders (3 parallel extractors) + both Slack channels in full.
+
+- **Filed 28 user-request tickets:** `OME-1341` … `OME-1368` — all Triage / `user-request` /
+  assigned to Irina, each with a `source-fingerprint`.
+- **Granularity:** per-person (one ticket per person×distinct-ask) — owner's explicit choice
+  over theme-clustering.
+- **Cross-source dedup:** Slack contributed zero net-new requesters (its feedback posts are
+  forwarded summaries of the same calls) → collapsed into the call tickets.
+- **Skipped:** Emily Casleton 07-10, Ravi Madduri, Olivera Kotevska, Marija Sakota (no
+  user-originated ask); Peter Ide-Kostic Slack posts = internal-tester bugs already on GitHub
+  (#735–740); one anonymous on-prem signal (no identifiable requester).
+- **Flagged:** `OME-1360` name discrepancy (frontmatter "Roberto Medina" vs transcript "Diana
+  Buzaglo") — verify.
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <n/a — docs/process unit; behavioural verification per spec §Verification>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** as planned — spec, runnable prompt, ledger, task mirror (PR #1067).
+- **Commits:** `af7ff69a` spec + prompt; `0af3e23c` signal-filter attribution rule.
+- **Gates:** n/a — docs/process unit; behavioural verification per spec §Verification (backfill
+  run above is the live end-to-end proof: 28 tickets filed correctly).
+- **Deviations:** (1) backfill executed inline in-session rather than by the scheduled routine —
+  routine creation still pending owner go-live decision + remote MCP-connector validation.
+  (2) `user-request` label already existed (no owner action needed). (3) `repo` landing label ID
+  from the card has drifted; used `repo-dev-processes` alone.
