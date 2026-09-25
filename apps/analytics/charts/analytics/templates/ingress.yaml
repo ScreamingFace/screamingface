@@ -20,4 +20,12 @@ spec:
               service:
                 name: {{ .Release.Name }}-analytics
                 port: {name: http}
+          {{- if .Values.analytics.bridge.enabled }}
+          - path: /bridge
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-analytics
+                port: {name: http}
+          {{- end }}
 {{- end }}

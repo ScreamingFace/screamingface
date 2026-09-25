@@ -5,6 +5,12 @@ image:
   pullPolicy: IfNotPresent
 analytics:
   enabled: false
+  bridge:
+    enabled: false
+    origin: ""
+    parentOrigins: ""
+    ancestorOrigins: ""
+    cookieMaxAge: 15552000
   environment: test
   posthogHost: ""
   allowedHosts: ""

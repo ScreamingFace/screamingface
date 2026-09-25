@@ -9,6 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ANALYTICS_", extra="forbid")
+    bridge_enabled: bool = False
+    bridge_origin: str = ""
+    bridge_parent_origins: str = ""
+    bridge_ancestor_origins: str = ""
+    bridge_cookie_max_age: int = Field(default=15552000, ge=86400, le=31536000)
     enabled: bool = False
     env: Literal["test", "production"] = "test"
     posthog_host: str = ""
@@ -42,3 +47,31 @@ class Settings(BaseSettings):
                 "enabled delivery requires an allowlisted HTTPS origin and project token"
             )
         return self
+
+    @model_validator(mode="after")
+    def bridge_configuration(self) -> Self:
+        if self.bridge_enabled:
+            origins = [self.bridge_origin]
+            for field in (self.bridge_parent_origins, self.bridge_ancestor_origins):
+                origins.extend(field.split(","))
+            for origin in origins:
+                validate_origin(origin.strip())
+        return self
+
+
+def validate_origin(origin: str) -> None:
+    url = urlsplit(origin)
+    _ = url.port
+    if (
+        url.scheme != "https"
+        or not url.hostname
+        or url.username
+        or url.password
+        or url.path
+        or url.query
+        or url.fragment
+        or any(c in origin for c in "*; \n\r\t")
+    ):
+        raise ValueError("bridge requires exact HTTPS origins")
+    if url.netloc != url.hostname and url.netloc != f"{url.hostname}:{url.port}":
+        raise ValueError("invalid bridge origin")
