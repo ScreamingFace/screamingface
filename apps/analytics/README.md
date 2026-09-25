@@ -13,7 +13,7 @@ This port is an internal default, not a reserved public endpoint.
 
 | Variable | Default / purpose |
 |---|---|
-| ANALYTICS_ENABLED | false; disabled ingestion and readiness return 503 |
+| ANALYTICS_ENABLED | false; disabled ingestion returns 503; readiness also accounts for the optional bridge |
 | ANALYTICS_ENV | test; deployment classification, test/production |
 | ANALYTICS_POSTHOG_HOST | Explicit HTTPS capture origin, no path/query/userinfo |
 | ANALYTICS_POSTHOG_ALLOWED_HOSTS | Comma-separated deployment allowlist of destination hostnames |
@@ -25,8 +25,10 @@ This port is an internal default, not a reserved public endpoint.
 Choose a separate test project's host/token for development and smoke tests. The environment
 label does not prove which project a token belongs to; deployment must verify that mapping.
 No real destination or credentials are shipped. Startup rejects enabled forwarding with an
-invalid destination. `/healthz` is process liveness; `/readyz` means enabled and not draining,
-not current PostHog reachability. No access logs or browser CORS are enabled.
+invalid destination. `/healthz` is process liveness; `/readyz` means ingestion or the
+bridge is enabled, and the service is not draining. This keeps consent and opt-out
+reachable through Kubernetes while event delivery is disabled. It does not indicate
+current PostHog reachability. No access logs or browser CORS are enabled.
 
 ## Delivery and operations
 

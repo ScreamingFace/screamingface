@@ -103,9 +103,11 @@ def create_app(settings: Settings, delivery: EventDelivery, *, cleanup=None) -> 
 
     @app.get("/readyz")
     async def ready():
+        # WHY: Kubernetes must still route consent/opt-out when delivery is off.
+        available = (ingestion.enabled or settings.bridge_enabled) and not ingestion.draining
         return JSONResponse(
-            {"ready": ingestion.enabled and not ingestion.draining},
-            status_code=200 if ingestion.enabled and not ingestion.draining else 503,
+            {"ready": available},
+            status_code=200 if available else 503,
         )
 
     @app.post("/v1/events")
