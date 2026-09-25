@@ -132,6 +132,16 @@ The bot writes only the Linear ticket. The `docs/tasks/` mirror + `docs/work/` l
 normally requires are created by a human when the ticket is **promoted out of Triage** into real
 work — this avoids daily PR churn from raw, unreviewed intake.
 
+### D11 — Weekly digest report
+
+Once a week (Monday run), over a rolling 7-day window, the bot produces/refreshes a team-facing digest —
+**"What users requested this week"** — grouped by theme and tiered by the **Linear priority of the roadmap
+epic** each request maps to (Urgent → High → Medium), plus an **Out of scope** section (black-box-thesis
+conflicts / unplanned niche asks) and a full appendix table (ticket · requester · org · ask · epic). It is a
+Claude doc (the **Claude-Docs** connector is available to the routine); the bot **reuses/refreshes the same
+doc** each week rather than spawning a new one, and shares the link on `OME-1336` and in `#scream-updates`.
+Priorities are pulled fresh via `list_issues {label: "product-feature"}`.
+
 ## Ticket template (body the bot writes)
 
 ```
@@ -141,8 +151,8 @@ work — this avoids daily PR churn from raw, unreviewed intake.
 **Features requested:**
 - <feature 1>
 - <feature 2>
-**Exact quote:**
-> "<verbatim from transcript / Slack message>"   (mark "(paraphrased from notes)" if no transcript)
+**Verbatim excerpt (capture generously — more transcript beats a snippet):**
+> <the requester's full turn(s) + enough surrounding exchange to make the ask self-contained — several sentences, with transcript timestamp(s). Mark "(paraphrased from notes)" only if there is no transcript.>
 
 <!-- source-fingerprint: <calls/<path> | slack:<channel-id>:<ts>> -->
 cc @Irina — please review.
@@ -157,11 +167,13 @@ cc @Irina — please review.
 
 - **Calls:** read `notes.md` frontmatter for `researcher`/`caller`/`attendees`/`hubspot_card`; derive
   org from the external attendee's email domain when HubSpot org is absent; mine the summary bullets
-  + `Next steps` for the requested features; pull the exact quote from the matching `transcript.md`
-  passage (fallback: best notes bullet, flagged paraphrased).
+  + `Next steps` for the requested features; pull a **generous verbatim excerpt** from the matching
+  `transcript.md` passage — the requester's full turn(s) plus enough of the surrounding exchange that
+  the ask stands on its own (err toward more, several sentences, keep the timestamp). Fallback: the
+  best notes bullet(s), flagged paraphrased.
 - **Slack:** resolve author via `slack_read_user_profile`; read the full thread with
-  `slack_read_thread` for context; best-effort HubSpot match via `search_crm_objects`; the quote is
-  the verbatim message text.
+  `slack_read_thread` for context; best-effort HubSpot match via `search_crm_objects`; capture the
+  **full message and relevant thread reply/replies verbatim**, not a fragment.
 
 ## Config (kept at the top of the runnable prompt)
 
@@ -170,13 +182,15 @@ cc @Irina — please review.
 - Linear: team `Engineering`, project `😱 ScreamingFace V1` (slug `screamingface-v1-27666092fc7f`),
   state Triage, label `user-request`, assignee `irina@openmined.org`.
 - Windows: calls ≥ today−3d; Slack last 26h. Dedup lookback: `user-request` issues updated in 30d.
+- Weekly digest: Monday, rolling 7-day window (D11).
 
 ## MCP surface used
 
 Linear MCP (`list_issues`, `get_issue`, `save_issue`, `save_comment`) — never raw GraphQL. Slack MCP
 (`slack_read_channel`, `slack_read_thread`, `slack_read_user_profile`, `slack_search_*`). GitHub for
 the calls repo (`gh api .../contents` or GitHub MCP). HubSpot MCP (`search_crm_objects`) for
-Slack-side enrichment only — calls already carry HubSpot IDs.
+Slack-side enrichment only — calls already carry HubSpot IDs. Claude Docs (Claude-Docs connector) for
+the weekly digest (D11).
 
 ## Open risk — remote MCP-connector availability
 

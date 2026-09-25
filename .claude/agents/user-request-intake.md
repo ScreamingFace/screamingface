@@ -27,6 +27,7 @@ operational checklist; keep the two in sync.
   assignee **`irina@openmined.org`**.
 - **Windows:** call folders dated ≥ (today − 3 days); Slack messages from the last ~26h.
 - **Dedup lookback:** `user-request` issues updated in the last 30 days.
+- **Weekly digest:** on Monday runs, refresh the team report (step 7) over the last 7 days.
 
 ## Epic routing map (refresh each run)
 
@@ -51,6 +52,7 @@ Common targets (verify IDs each run — they change):
   `slack_search_public_and_private`). Read `#scream-lisbon`-style private channels via whichever
   connector the routine is authenticated with.
 - **HubSpot via MCP** (`search_crm_objects`) — best-effort, Slack-side only.
+- **Claude Docs via the Claude-Docs connector** — for the weekly digest doc (step 7).
 - **Calls repo via `gh api`** — URL-encode the space-bearing folder paths.
 
 ## Procedure
@@ -64,8 +66,10 @@ Common targets (verify IDs each run — they change):
   - **Requester email + org** ← the non-`@openmined.org` entry in `attendees`; org from its domain.
   - **HubSpot** ← `hubspot_card` if present, else "not linked".
   - **Features** ← the summary bullets + `Next steps` items that express what the requester wants.
-  - **Exact quote** ← the verbatim `transcript.md` passage that states the ask. If no transcript,
-    use the best `notes.md` bullet and mark it `(paraphrased from notes)`.
+  - **Verbatim excerpt** ← capture **generously**: the requester's full turn(s) plus enough of the
+    surrounding exchange that the ask stands on its own — several sentences, keep the transcript
+    timestamp(s). More transcript is better than a clipped line. If no transcript, use the best
+    `notes.md` bullet(s), marked `(paraphrased from notes)`.
 - A single call may raise **multiple distinct asks** → one candidate each (fingerprint suffixes
   `#ask1`, `#ask2`).
 
@@ -74,7 +78,8 @@ Common targets (verify IDs each run — they change):
   not requests.** Keep a message only if it relays a concrete request/interaction from a named
   external user (see Signal filter).
 - Resolve the author profile; read the full thread for context; best-effort HubSpot match by
-  name/company. Quote = the verbatim message text.
+  name/company. Capture the **full message and the relevant thread reply/replies verbatim**, not a
+  fragment.
 
 ### 3. Signal filter (what to file)
 File only a concrete, actionable **user-reported feature, interaction, or concern** that has both
@@ -116,8 +121,8 @@ rep's pitch is low-confidence: skip it (or comment on an existing ticket) rather
 **Features requested:**
 - <feature 1>
 - <feature 2>
-**Exact quote:**
-> "<verbatim quote>"
+**Verbatim excerpt (capture generously — more transcript beats a snippet):**
+> <the requester's full turn(s) + surrounding exchange, several sentences, with timestamp(s). One `>` line per paragraph. Mark "(paraphrased from notes)" only when there is no transcript.>
 
 <!-- source-fingerprint: <fingerprint> -->
 cc @Irina — please review.
@@ -137,6 +142,15 @@ comment tags `@Irina Bejan @Kevin McDonough`.
 ### 6. Report
 End the run with a compact summary: for each source item — filed (`OME-N` + title), commented
 (dedup), or skipped (reason). This is the run log, not a human message.
+
+### 7. Weekly digest (Monday runs only)
+Refresh the team-facing report **"What users requested this week"** over the last 7 days:
+- Group requests by theme; tier by the **Linear priority of each request's parent epic**
+  (Urgent → High → Medium), then an **Out of scope** section (black-box-thesis conflicts /
+  unplanned niche asks), then a full appendix table (ticket · requester · org · ask · epic).
+- Build it as a **Claude doc** via the Claude-Docs connector; **reuse the same doc** week to week
+  (update it, don't spawn a new one). Post the link on `OME-1336` and in `#scream-updates`.
+- Pull priorities fresh: `list_issues {label: "product-feature"}` gives each epic's priority.
 
 ## Guardrails
 - Never file without a real requester **and** a real quote/ask.
