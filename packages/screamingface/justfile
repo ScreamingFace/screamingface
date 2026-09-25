@@ -136,8 +136,14 @@ local-stack-notebooks:
     "$UV" run --extra runtime screamingface up
 
     echo "==> starting an inspect-capable Engine on :{{ engine_port }}"
+    # WHY full activity: the notebook's live activity panel shows only the Engine's activity
+    # records, and a local Engine emits none unless URL4_CLOUD_ACTIVITY_LEVEL=full (default
+    # "off", which exists for private deployments). Off here left the panel stuck on "No
+    # structured activity received yet" for the whole run. Export it as "off" to opt out.
     ( cd "{{ engine_dir }}" \
-        && URL4_BENCHMARK_ASSETS="{{ assets }}" exec "$UV" run uvicorn \
+        && URL4_BENCHMARK_ASSETS="{{ assets }}" \
+            URL4_CLOUD_ACTIVITY_LEVEL="${URL4_CLOUD_ACTIVITY_LEVEL:-full}" \
+            exec "$UV" run uvicorn \
             --factory screamingface_engine.local:create_local_app \
             --host 127.0.0.1 --port {{ engine_port }} ) &
     engine_pid=$!

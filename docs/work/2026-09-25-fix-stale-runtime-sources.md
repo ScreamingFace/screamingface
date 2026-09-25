@@ -92,3 +92,9 @@ and make verification check against the source directories. Spec:
   `AttributeError: 'NoneType' object has no attribute '__dict__'`. The partial-checkout
   test fixture now also copies `source.py`. That edit is to a test added in this PR, so
   the append-only gate ran with `--base upstream/main`. All gates are green.
+- **Follow-up in the close-docs PR (at the owner's request).** `just local-stack-notebooks`
+  now starts its :9111 Engine with `URL4_CLOUD_ACTIVITY_LEVEL=full`, and a caller can
+  still export `off`. Found while watching a live notebook run: the local Engine defaults
+  activity to `off`, so the notebook's activity panel stayed on "No structured activity
+  received yet" for the whole run. Verified: unset → the Engine's activity observer is
+  enabled; `off` exported → disabled. The recipe script still parses (`bash -n`).
