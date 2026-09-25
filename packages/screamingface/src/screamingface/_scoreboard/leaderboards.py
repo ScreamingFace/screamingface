@@ -478,6 +478,11 @@ def _submission(
     # list is exact. Never send null or auto-add an identity the caller did not name.
     if selected_authors is not None:
         payload["authors"] = list(selected_authors)
+    # INVARIANT (OME-1326, OME-1251 D5): sent beside the spend, never added to it; the board sums
+    # the two at the point of use. Omitted when absent rather than sent as null, so an uncached
+    # run's payload is unchanged and a board that predates the field 422s only cached runs.
+    if candidate_result.cache_saved_cost_usd is not None:
+        payload["cache_saved_cost_usd"] = _cost_text(candidate_result.cache_saved_cost_usd)
     return payload
 
 

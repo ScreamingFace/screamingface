@@ -23,6 +23,7 @@ from screamingface._report_primitives import (
     Failure,
     Usage,
     _case_id,
+    _cost,
     _duration,
     _nonblank,
     _usage,
@@ -205,6 +206,12 @@ class CandidateResult:
     # the amount is exact; the other two assert it is absent. The Scoreboard refuses the
     # mismatched pair, so the Client must not produce one.
     run_cost_status: RunCostStatus
+    # FEATURE (OME-1326, OME-1251 D5): what the provider reported this run's cache hits avoided.
+    # Kept apart from `usage.cost_usd`, never added to it: the board sums the two at the point of
+    # use. Only the REPORTED sum; `archive_matched` money is never carried here (D3).
+    #
+    # None means nothing priceable was observed, which is not zero.
+    cache_saved_cost_usd: Decimal | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
 
     def __init__(
@@ -227,6 +234,7 @@ class CandidateResult:
         failures: Sequence[Failure],
         usage: Usage,
         run_cost_status: RunCostStatus | None = None,
+        cache_saved_cost_usd: Decimal | str | None = None,
         trace_id: str | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
@@ -262,6 +270,8 @@ class CandidateResult:
             completed_at,
             label="Candidate",
         )
+        selected_saving = _cost(cache_saved_cost_usd, "Candidate cache_saved_cost_usd")
+        selected_status = _run_cost_status(run_cost_status, usage, selected_saving)
         values = {
             "benchmark": benchmark,
             "run_id": _nonblank(run_id, "Candidate run_id"),
@@ -291,7 +301,8 @@ class CandidateResult:
             "members": selected_members,
             "failures": selected_failures,
             "usage": _usage(usage, "Candidate"),
-            "run_cost_status": _run_cost_status(run_cost_status, usage),
+            "run_cost_status": selected_status,
+            "cache_saved_cost_usd": selected_saving,
             "_metric_items": metric_items,
         }
         for attribute, value in values.items():
@@ -339,6 +350,11 @@ class CandidateResult:
             # then mean different things to a consumer, and nothing records which.
             # Found in review of PR #1017 (keelancj, 2026-09-23).
             "run_cost_status": self.run_cost_status,
+            # INVARIANT (OME-1326): emitted, never conditional, for the same reason as the status.
+            # A cost field left out of the export is lost to any reader rebuilding the result.
+            "cache_saved_cost_usd": (
+                None if self.cache_saved_cost_usd is None else str(self.cache_saved_cost_usd)
+            ),
         }
 
 
@@ -674,7 +690,11 @@ def _combined_usage(values: tuple[Usage, ...]) -> Usage:
     )
 
 
-def _run_cost_status(value: object, usage: Usage) -> RunCostStatus:
+def _run_cost_status(
+    value: object,
+    usage: Usage,
+    saved: Decimal | None = None,
+) -> RunCostStatus:
     """Narrow the status, and refuse one that contradicts the amount beside it.
 
     INVARIANT: `complete` if and only if an amount is present. The Scoreboard enforces the same
@@ -685,11 +705,16 @@ def _run_cost_status(value: object, usage: Usage) -> RunCostStatus:
     WHY absent INFERS rather than defaulting to a member: the status is a fact ABOUT the amount,
     so a caller who supplied only an amount has already said everything needed. A literal default
     would have to be wrong for one of the two cases — and `"complete"` was, for every unpriced
-    fixture in the suite. `partial` is never inferred: it needs cache evidence the amount alone
-    cannot carry, so only `_evaluation/results.py` can name it.
+    fixture in the suite. `partial` is inferred only from a saving: that is the cache evidence
+    the amount alone cannot carry. The board derives the same status for the same pair.
+
+    INVARIANT (OME-1326): `unavailable` never carries a saving, zero included. The board refuses
+    that pair. The reverse is allowed: `partial` with no saving is what pre-OME-1326 reports hold.
     """
     if value is None:
-        return "complete" if usage.cost_usd is not None else "unavailable"
+        if usage.cost_usd is not None:
+            return "complete"
+        return "partial" if saved is not None else "unavailable"
     if value not in ("complete", "partial", "unavailable"):
         raise ValueError(
             "Candidate run_cost_status must be 'complete', 'partial', or 'unavailable'"
@@ -699,6 +724,10 @@ def _run_cost_status(value: object, usage: Usage) -> RunCostStatus:
         raise ValueError("a Candidate with run_cost_status 'complete' must carry a cost")
     if not priced and usage.cost_usd is not None:
         raise ValueError(f"a Candidate with a cost cannot have run_cost_status {value!r}")
+    if value == "unavailable" and saved is not None:
+        raise ValueError(
+            "a Candidate with a cache saving cannot have run_cost_status 'unavailable'"
+        )
     return cast("RunCostStatus", value)
 
 
