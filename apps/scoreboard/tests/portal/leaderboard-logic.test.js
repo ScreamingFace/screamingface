@@ -410,3 +410,29 @@ test("frontierSummary: exclusions are named, so a stale registry is visible (D4)
   assert.match(summary.title, /2 without model identities/);
   assert.match(summary.title, /openrouter\/nobody\/mystery-1/);
 });
+
+// --- OME-1282: each row's open/closed verdict --------------------------------------------------
+//
+// INVARIANT: the label never claims verification. `open` means the declared models have
+// downloadable weights, not that anyone re-ran the entry, so the tone is neutral (no success
+// green) and the word carries the meaning.
+
+test("opennessLabel: open is shown at full tone", () => {
+  assert.deepEqual(L.opennessLabel({ openness: "open" }), { text: "Open", tone: "open" });
+});
+
+test("opennessLabel: closed is shown in the whisper tone", () => {
+  assert.deepEqual(L.opennessLabel({ openness: "closed" }), { text: "Closed", tone: "closed" });
+});
+
+test("opennessLabel: an entry with no declared models says so rather than guessing", () => {
+  const label = L.opennessLabel({ openness: "unidentified" });
+  assert.equal(label.tone, "unknown");
+  assert.match(label.title, /not declared/);
+});
+
+test("opennessLabel: a missing or unexpected value is unknown, never open", () => {
+  assert.equal(L.opennessLabel({}).tone, "unknown");
+  assert.equal(L.opennessLabel({ openness: "yes" }).tone, "unknown");
+  assert.equal(L.opennessLabel(null).tone, "unknown");
+});

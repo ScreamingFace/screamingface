@@ -705,6 +705,10 @@ _PUBLIC_BOARD_ENTRY_FIELDS = {
     # this OME-894 guard (2026-08-29); the assertion stays exact so any OTHER field
     # appearing here still fails, which is the leak this guard exists to catch.
     "on_pareto_frontier",
+    # OME-1282: a deliberate addition, owner-approved 2026-09-26 (B2): the entry's open/closed
+    # verdict, published instead of its `models` (OME-1181 Q2 stands). Still exact, so any other
+    # field appearing here fails.
+    "openness",
     "ran_with_providers",
     "rank",
     "run_cost_usd",
