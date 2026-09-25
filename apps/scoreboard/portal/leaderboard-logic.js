@@ -178,6 +178,25 @@
     });
   }
 
+  // One row's open/closed verdict, as the Backends cell shows it.
+  //
+  // Never a verification claim: `open` means every declared model has downloadable weights, not
+  // that anyone re-ran the entry. So the tone is neutral ink, never success green, and the word
+  // carries the meaning.
+  //
+  // Anything but the two known verdicts is "unknown", never open. A stale client or a missing
+  // field must understate openness, never overstate it.
+  function opennessLabel(entry) {
+    var verdict = entry && entry.openness;
+    if (verdict === "open") return { text: "Open", tone: "open" };
+    if (verdict === "closed") return { text: "Closed", tone: "closed" };
+    return {
+      text: "\u2014",
+      tone: "unknown",
+      title: "Models not declared: this entry predates model identities, so it is not counted",
+    };
+  }
+
   // The "N% open" card, from GET /v1/leaderboard/{id}/frontier.
   //
   // Never state a percentage the API did not measure. `open_share: null` means the
@@ -221,5 +240,6 @@
     barWidth: barWidth,
     listedBenchmarks: listedBenchmarks,
     frontierSummary: frontierSummary,
+    opennessLabel: opennessLabel,
   };
 });
