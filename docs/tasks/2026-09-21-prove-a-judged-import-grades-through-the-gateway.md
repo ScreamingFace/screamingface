@@ -1,12 +1,12 @@
 ---
 id: OME-1240
 linear_url: https://linear.app/openmined/issue/OME-1240/prove-an-llm-judged-imported-benchmark-grades-through-our-gateway
-status: in_progress
+status: done
 type: feature
 priority: Medium
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-21
-closed:
+closed: 2026-09-25
 ---
 
 # Prove an LLM-judged imported benchmark grades through our gateway
