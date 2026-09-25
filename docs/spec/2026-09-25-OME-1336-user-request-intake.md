@@ -134,7 +134,7 @@ work — this avoids daily PR churn from raw, unreviewed intake.
 
 ### D11 — Weekly digest report
 
-Once a week (Monday run), over a rolling 7-day window, the bot produces/refreshes a team-facing digest —
+Once a week (Friday run), over a rolling 7-day window, the bot produces/refreshes a team-facing digest —
 **"What users requested this week"** — grouped by theme and tiered by the **Linear priority of the roadmap
 epic** each request maps to (Urgent → High → Medium), plus an **Out of scope** section (black-box-thesis
 conflicts / unplanned niche asks) and a full appendix table (ticket · requester · org · ask · epic). It is a
@@ -182,7 +182,7 @@ cc @Irina — please review.
 - Linear: team `Engineering`, project `😱 ScreamingFace V1` (slug `screamingface-v1-27666092fc7f`),
   state Triage, label `user-request`, assignee `irina@openmined.org`.
 - Windows: calls ≥ today−3d; Slack last 26h. Dedup lookback: `user-request` issues updated in 30d.
-- Weekly digest: Monday, rolling 7-day window (D11).
+- Weekly digest: Friday, rolling 7-day window (D11).
 
 ## MCP surface used
 

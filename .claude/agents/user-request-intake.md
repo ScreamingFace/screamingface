@@ -27,7 +27,7 @@ operational checklist; keep the two in sync.
   assignee **`irina@openmined.org`**.
 - **Windows:** call folders dated ≥ (today − 3 days); Slack messages from the last ~26h.
 - **Dedup lookback:** `user-request` issues updated in the last 30 days.
-- **Weekly digest:** on Monday runs, refresh the team report (step 7) over the last 7 days.
+- **Weekly digest:** on Friday runs, refresh the team report (step 7) over the last 7 days.
 
 ## Epic routing map (refresh each run)
 
@@ -143,7 +143,7 @@ comment tags `@Irina Bejan @Kevin McDonough`.
 End the run with a compact summary: for each source item — filed (`OME-N` + title), commented
 (dedup), or skipped (reason). This is the run log, not a human message.
 
-### 7. Weekly digest (Monday runs only)
+### 7. Weekly digest (Friday runs only)
 Refresh the team-facing report **"What users requested this week"** over the last 7 days:
 - Group requests by theme; tier by the **Linear priority of each request's parent epic**
   (Urgent → High → Medium), then an **Out of scope** section (black-box-thesis conflicts /
