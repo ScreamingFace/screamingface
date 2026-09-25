@@ -154,6 +154,28 @@ It refuses while any score or baseline references the benchmark, and refuses an 
 
 Disable seeding with `--set seedBenchmarks.enabled=false`.
 
+### Deleting scores from a public board
+
+There is no delete route. To remove named scores, run the operator module inside the scoreboard
+pod. It changes nothing without `--yes`, and nothing at all unless the selection matches exactly
+`--expect`. The backup of the selected scores (the `export_private_submissions` JSONL) is the
+only thing written to **stdout**, so redirect it to a file on your machine; a file written inside
+the pod is lost with the pod.
+
+```bash
+# 1. dry run: writes the backup, deletes nothing
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_scores \
+  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 7 > backup.jsonl
+# 2. check backup.jsonl holds exactly the scores you mean to delete, then:
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_scores \
+  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 7 --yes > backup.jsonl
+```
+
+Select with `--id <uuid>` (repeatable) or `--submitted-before <ISO 8601 with a timezone>`, not
+both. A count mismatch, an unknown benchmark or a private board exits 2 and deletes nothing.
+Private boards go through `purge_private_benchmark` instead. The backup is evidence, not a restore
+file: recreating a score means resubmitting it.
+
 ## Smoke Checks
 
 Run the Helm test and check public health:
