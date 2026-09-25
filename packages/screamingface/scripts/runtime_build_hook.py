@@ -6,22 +6,18 @@ instead of copying them, because a copy is frozen at build time and shadows the 
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
-# INVARIANT: the same directories, in the same order, as `_SOURCE_DIRECTORIES` in
-# src/screamingface/_runtime/source.py (tests/test_runtime_build_hook.py pins it). This
-# script runs in an isolated build env where the SDK itself is not importable.
-_LIVE_SOURCE_DIRECTORIES = (
-    Path("apps") / "aigateway" / "src",
-    Path("apps") / "scoreboard" / "src",
-    Path("apps") / "screamingface-engine" / "src",
-    Path("packages") / "url4" / "src",
-)
 _LIVE_SOURCES_PTH = "_screamingface_runtime_sources.pth"
+# The runtime module that owns the list of live source directories. It imports only the
+# standard library, so it loads in the isolated build env where the SDK is not installed.
+_RUNTIME_SOURCE_MODULE = Path("src") / "screamingface" / "_runtime" / "source.py"
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -98,7 +94,7 @@ class CustomBuildHook(BuildHookInterface):
         falls back to the checkout.
         """
 
-        directories = [checkout / directory for directory in _LIVE_SOURCE_DIRECTORIES]
+        directories = _live_source_directories(Path(self.root), checkout)
         # WHY: Python silently skips a .pth entry that does not exist, so a partial
         # checkout would install cleanly and then fail on the first `import url4`.
         missing = [str(directory) for directory in directories if not directory.is_dir()]
@@ -110,3 +106,29 @@ class CustomBuildHook(BuildHookInterface):
         pth = staging / _LIVE_SOURCES_PTH
         pth.write_text("".join(f"{directory}\n" for directory in directories), encoding="utf-8")
         build_data["force_include_editable"] = {str(pth): _LIVE_SOURCES_PTH}
+
+
+def _live_source_directories(package_root: Path, checkout: Path) -> list[Path]:
+    """Ask the runtime itself which checkout directories it serves live code from.
+
+    WHY load `source.py` by file path: the SDK is not installed in the isolated build env,
+    and importing it as `screamingface._runtime.source` would run `screamingface/__init__.py`,
+    which imports url4. One list then drives both the editable `.pth` and checkout
+    activation, so the two cannot drift.
+    """
+
+    spec = importlib.util.spec_from_file_location(
+        "_screamingface_runtime_source", package_root / _RUNTIME_SOURCE_MODULE
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {package_root / _RUNTIME_SOURCE_MODULE}")
+    source = importlib.util.module_from_spec(spec)
+    # WHY registered before exec: `RuntimeSource` is a dataclass, and dataclasses look up
+    # their own module in sys.modules while building the class (AttributeError otherwise).
+    sys.modules[spec.name] = source
+    try:
+        spec.loader.exec_module(source)
+    finally:
+        sys.modules.pop(spec.name, None)
+    live = source.RuntimeSource(mode=source.MODE_CHECKOUT, root=checkout)
+    return [Path(directory) for directory in source.source_directories(live)]

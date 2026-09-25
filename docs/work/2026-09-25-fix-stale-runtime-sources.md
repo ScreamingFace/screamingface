@@ -84,3 +84,11 @@ and make verification check against the source directories. Spec:
     unpinned. The tests prove the override against the locked 1.32.4. A hatchling that
     dropped the override would fail loudly: either `import url4` fails, or
     `verify_live_modules` refuses boot.
+- **Owner follow-up (single list).** The hook no longer keeps its own copy of the four
+  source directories. It loads `_runtime/source.py` by file path, because the SDK isn't
+  installed in the isolated build env, and asks `source_directories()` for them.
+  `source.py` must be registered in `sys.modules` before it runs, because a dataclass
+  looks up its own module while the class is built; without that it raises
+  `AttributeError: 'NoneType' object has no attribute '__dict__'`. The partial-checkout
+  test fixture now also copies `source.py`. That edit is to a test added in this PR, so
+  the append-only gate ran with `--base upstream/main`. All gates are green.

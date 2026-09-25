@@ -95,9 +95,15 @@ def _partial_checkout(tmp_path: Path) -> Path:
 
     package: Path = tmp_path / "checkout" / "packages" / "screamingface"
     (package / "scripts").mkdir(parents=True)
-    (package / "src" / "screamingface").mkdir(parents=True)
+    (package / "src" / "screamingface" / "_runtime").mkdir(parents=True)
     (package / "src" / "screamingface" / "__init__.py").touch()
-    for name in ("pyproject.toml", "README.md", "LICENSE", "scripts/runtime_build_hook.py"):
+    for name in (
+        "pyproject.toml",
+        "README.md",
+        "LICENSE",
+        "scripts/runtime_build_hook.py",
+        "src/screamingface/_runtime/source.py",
+    ):
         (package / name).write_bytes((PACKAGE_ROOT / name).read_bytes())
     for app in ("aigateway", "scoreboard", "screamingface-engine"):
         (tmp_path / "checkout" / "apps" / app / "src").mkdir(parents=True)
