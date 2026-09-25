@@ -67,6 +67,11 @@ File only a concrete, actionable **user-reported feature, interaction, or concer
 chatter, status updates, scheduling logistics, and praise with no ask. **When in doubt on Slack, do
 not file.** Calls are higher-signal — file them more liberally, but still one ticket per distinct ask.
 
+**Attribution (calls):** the OM rep often pitches features; the user reacting is not the same as the
+user asking. File only when the ask originates from — or is explicitly needed/endorsed by — the
+**external user**, and take the quote from the *user's* turn, not the rep's. A mild reaction to a
+rep's pitch is low-confidence: skip it (or comment on an existing ticket) rather than filing.
+
 ### 4. Deduplicate (before filing anything)
 - Compute the fingerprint: `calls/<folder path>` (+ `#askN` when a call has multiple asks) for calls,
   or `slack:<channel-id>:<message-ts>` for Slack.

@@ -75,6 +75,15 @@ ask. When in doubt on a Slack message, do **not** file (calls are higher-signal 
 more liberally). Prefer one ticket per distinct ask; a single call raising two unrelated asks → two
 tickets.
 
+**Attribution matters (calls).** On a sales/research call the OpenMined rep often *pitches* a
+feature; the user reacting to it is not the same as the user *asking* for it. File only when the ask
+originates from — or is explicitly endorsed/needed by — the **external user**. Capture the quote from
+the user's turn, not the rep's. If the user only reacts mildly to a rep's pitch, treat it as
+low-confidence and skip (or note it on an existing ticket rather than filing new). Example from the
+dry run: Amy Rouillard's need for private benchmarks over a South-African healthcare cohort is
+user-driven (file it); the shared-cache idea in the same call slate was pitched by the rep and only
+endorsed by the user (weaker — do not file as that user's request).
+
 ### D6 — Cadence: daily, auto-file
 
 Runs once daily (off-peak minute, e.g. `17 8 * * *` local). It files automatically — no
