@@ -21,16 +21,14 @@ def test_row_expansion_shows_all_calls_without_discarding_events():
     assert panel.details.layout.display == "none"
 
 
-def test_pages_bound_rendering_and_expansion_controls_stay_stable():
+def test_retained_logs_render_and_expansion_controls_stay_stable():
     log = ActivityLog()
     for i in range(201):
         log.observe(0, record(id=str(i), state="completed"))
     panel = CandidateActivityRow(log, ("candidate",), 0)
     root = panel.html
     panel.toggle.value = True
-    assert panel.html.value.count('class="sf-activity__call"') == 100
-    panel.page.value = 2
-    assert panel.html.value.count('class="sf-activity__call"') == 1
+    assert panel.html.value.count('class="sf-activity__call"') == 201
     panel._refresh_activity()
     assert panel.html is root
     assert panel.toggle.value
