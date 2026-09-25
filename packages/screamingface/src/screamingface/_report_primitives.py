@@ -224,17 +224,17 @@ def _optional_count(value: object, label: str) -> int | None:
     return value
 
 
-def _cost(value: Decimal | str | None) -> Decimal | None:
+def _cost(value: Decimal | str | None, label: str = "Usage cost_usd") -> Decimal | None:
     if value is None:
         return None
     if not isinstance(value, Decimal | str):
-        raise TypeError("Usage cost_usd must be a decimal string or Decimal")
+        raise TypeError(f"{label} must be a decimal string or Decimal")
     try:
         selected = Decimal(value)
     except InvalidOperation as exc:
-        raise ValueError("Usage cost_usd must be a finite non-negative decimal") from exc
+        raise ValueError(f"{label} must be a finite non-negative decimal") from exc
     if not selected.is_finite() or selected < 0:
-        raise ValueError("Usage cost_usd must be a finite non-negative decimal")
+        raise ValueError(f"{label} must be a finite non-negative decimal")
     return selected
 
 
