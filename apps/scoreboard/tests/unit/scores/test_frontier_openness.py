@@ -13,12 +13,15 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+
 from scoreboard.classification.openness import Openness, classify_entry
 from scoreboard.scores.frontier import (
     FrontierMember,
     HistoryRow,
     compute_frontier_openness,
     frontier_member_ids,
+    replay_frontier,
 )
 from scoreboard.scores.pareto import ParetoEntry
 
@@ -48,7 +51,7 @@ def _history(entries: list[ParetoEntry]) -> list[HistoryRow]:
             spec_id=e.spec_id,
             score=e.score,
             run_cost_usd=e.run_cost_usd,
-            submitted_at=T0 + timedelta(hours=i),
+            submitted_at=T0 + timedelta(days=i),
         )
         for i, e in enumerate(entries)
     ]
@@ -63,7 +66,7 @@ def _member(
 def _compute(entries: list[ParetoEntry], members: list[FrontierMember], *, pinned: bool = True):
     return compute_frontier_openness(
         entries,
-        _history(entries),
+        replay_frontier(_history(entries)),
         {m.source_id: m for m in members},
         pinned=pinned,
     )
@@ -206,7 +209,7 @@ def test_the_trend_records_each_change_in_share_chronologically() -> None:
         (0.0, 0, 1),
         (0.5, 1, 1),
     ]
-    assert [p.at for p in result.trend] == [T0, T0 + timedelta(hours=1)]
+    assert [p.at for p in result.trend] == [T0, T0 + timedelta(days=1)]
 
 
 def test_the_trend_ends_where_the_current_share_is() -> None:
@@ -221,7 +224,7 @@ def test_a_resubmission_replaces_its_specs_earlier_row_in_the_replay() -> None:
     one. The replay must not keep both, or a spec would count twice on the historical frontier."""
     rows = [
         HistoryRow("spec-a-old", "spec-a", 0.5, Decimal("1.00"), T0),
-        HistoryRow("spec-a-new", "spec-a", 0.8, Decimal("1.00"), T0 + timedelta(hours=1)),
+        HistoryRow("spec-a-new", "spec-a", 0.8, Decimal("1.00"), T0 + timedelta(days=1)),
     ]
     current = [ParetoEntry("spec-a-new", "spec-a", REV, 0.8, Decimal("1.00"))]
     members = {
@@ -229,7 +232,7 @@ def test_a_resubmission_replaces_its_specs_earlier_row_in_the_replay() -> None:
         "spec-a-new": _member("spec-a-new", OPEN),
     }
 
-    result = compute_frontier_openness(current, rows, members, pinned=True)
+    result = compute_frontier_openness(current, replay_frontier(rows), members, pinned=True)
 
     assert [(p.open_count, p.closed_count) for p in result.trend] == [(0, 1), (1, 0)]
 
@@ -245,16 +248,81 @@ def test_models_are_needed_only_for_rows_that_were_ever_on_the_frontier() -> Non
     ]
     rows = [
         HistoryRow("dominated", "dominated", 0.5, Decimal("2.00"), T0),
-        HistoryRow("best", "best", 0.9, Decimal("1.00"), T0 + timedelta(hours=1)),
+        HistoryRow("best", "best", 0.9, Decimal("1.00"), T0 + timedelta(days=1)),
     ]
 
     # `dominated` WAS the whole frontier before `best` arrived, so its models are needed for the
     # trend; a row that never led anywhere would not be.
-    assert frontier_member_ids(entries, rows, pinned=True) == {"best", "dominated"}
-    assert frontier_member_ids(entries, rows[1:], pinned=True) == {"best"}
-    assert frontier_member_ids(entries, rows, pinned=False) == frozenset()
+    assert frontier_member_ids(entries, replay_frontier(rows), pinned=True) == {"best", "dominated"}
+    assert frontier_member_ids(entries, replay_frontier(rows[1:]), pinned=True) == {"best"}
+    assert frontier_member_ids(entries, replay_frontier(rows), pinned=False) == frozenset()
 
 
 def test_an_empty_models_list_is_unidentified_not_open() -> None:
     """`all()` over nothing is True; an empty list must not read as an all-open entry."""
     assert classify_entry((), None) == ("unidentified", ())
+
+
+# --- Review round 1 (owner, 2026-09-26): bounded cost -------------------------------------------
+#
+# The first trend recomputed the whole frontier after EVERY submission, twice per request, and
+# classified every member at every step. 2,000 crafted rows took about 7 s per public request.
+
+
+def test_a_burst_within_one_day_is_one_frontier_computation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: frontier computations scale with days that had submissions, not with rows."""
+    from scoreboard.scores import frontier as module
+
+    calls = 0
+    real = module.compute_pareto_frontier_ids
+
+    def _counting(entries: object) -> frozenset[str]:
+        nonlocal calls
+        calls += 1
+        return real(entries)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(module, "compute_pareto_frontier_ids", _counting)
+    rows = [
+        HistoryRow(f"id{i}", f"spec{i}", i / 2000, Decimal(i + 1), T0 + timedelta(seconds=i))
+        for i in range(2000)
+    ]
+
+    replay = replay_frontier(rows)
+
+    assert calls == 1
+    assert len(replay.steps) == 1
+    assert len(replay.member_ids) == 2000
+
+
+def test_one_step_per_day_stamped_with_that_days_last_submission() -> None:
+    rows = [
+        HistoryRow("a", "a", 0.5, Decimal("1"), T0),
+        HistoryRow("b", "b", 0.6, Decimal("2"), T0 + timedelta(hours=5)),
+        HistoryRow("c", "c", 0.7, Decimal("3"), T0 + timedelta(days=2)),
+    ]
+
+    replay = replay_frontier(rows)
+
+    assert [at for at, _ in replay.steps] == [T0 + timedelta(hours=5), T0 + timedelta(days=2)]
+
+
+def test_each_member_is_classified_once_per_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """INVARIANT: an unrecognised route is classified, and logged, once, not once per step."""
+    from scoreboard.scores import frontier as module
+
+    classified: list[str] = []
+    real = module.classify_entry
+
+    def _counting(models: object, override: object) -> object:
+        classified.append(str(models))
+        return real(models, override)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(module, "classify_entry", _counting)
+    entries = [_entry(f"e{i}", 0.5 + i / 100, f"{i + 1}.00") for i in range(10)]
+    members = [_member(f"e{i}", ("openrouter/nobody/mystery-1",)) for i in range(10)]
+
+    _compute(entries, members)
+
+    assert len(classified) == 10

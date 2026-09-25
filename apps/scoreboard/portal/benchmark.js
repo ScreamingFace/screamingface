@@ -261,7 +261,7 @@
     summaryNode.hidden = false;
   }
 
-  // OME-1145: how much of this benchmark's cost/score Pareto frontier (the rows
+  // How much of this benchmark's cost/score Pareto frontier (the rows
   // the table marks) declares only open-weights models. Fetched and rendered
   // independently of the main leaderboard call — a failure here must not
   // block or error out the leaderboard itself, it's a supplementary stat.
@@ -269,7 +269,7 @@
     var card = document.getElementById("summary-frontier-card");
     var node = document.getElementById("summary-frontier");
     if (!card || !node || !data) return;
-    // OME-1145: the decision of what to claim lives in leaderboard-logic.js, where
+    // The decision of what to claim lives in leaderboard-logic.js, where
     // it is tested; this only paints it. A null summary leaves the card hidden.
     var summary = L.frontierSummary(data);
     if (!summary) return;

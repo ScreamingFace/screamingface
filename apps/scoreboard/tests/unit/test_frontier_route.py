@@ -58,7 +58,7 @@ async def _score(
     cost: str | None,
     models: list[str] | None,
     *,
-    hours: int = 0,
+    day: int = 0,
     revision: str = REV,
     total: int = CASES,
 ) -> str:
@@ -78,7 +78,7 @@ async def _score(
         )
     )
     await Score.filter(id=outcome.score.id).update(
-        submitted_at=T0 + timedelta(hours=hours), benchmark_revision=revision
+        submitted_at=T0 + timedelta(days=day), benchmark_revision=revision
     )
     return str(outcome.score.id)
 
@@ -92,9 +92,9 @@ async def test_the_statistic_counts_exactly_the_tables_frontier_rows(
     client: httpx.AsyncClient,
 ) -> None:
     await _board()
-    await _score("cheap-open", 0.5, "1.00", OPEN, hours=0)
-    await _score("dear-closed", 0.9, "5.00", CLOSED, hours=1)
-    await _score("dominated-open", 0.4, "6.00", OPEN, hours=2)
+    await _score("cheap-open", 0.5, "1.00", OPEN, day=0)
+    await _score("dear-closed", 0.9, "5.00", CLOSED, day=1)
+    await _score("dominated-open", 0.4, "6.00", OPEN, day=2)
 
     body = (await client.get(f"/v1/leaderboard/{BOARD}/frontier")).json()
 
@@ -108,8 +108,8 @@ async def test_the_statistic_counts_exactly_the_tables_frontier_rows(
 async def test_a_superseded_revision_is_not_counted(client: httpx.AsyncClient) -> None:
     """The live 10-vs-7: rows at the old revision were in the statistic but not on the table."""
     await _board()
-    await _score("current", 0.5, "1.00", CLOSED, hours=0)
-    await _score("stale-open", 0.99, "0.10", OPEN, hours=1, revision=OLD_REV)
+    await _score("current", 0.5, "1.00", CLOSED, day=0)
+    await _score("stale-open", 0.99, "0.10", OPEN, day=1, revision=OLD_REV)
 
     body = (await client.get(f"/v1/leaderboard/{BOARD}/frontier")).json()
 
@@ -120,8 +120,8 @@ async def test_a_superseded_revision_is_not_counted(client: httpx.AsyncClient) -
 async def test_a_partial_coverage_run_is_not_counted(client: httpx.AsyncClient) -> None:
     """OME-1056: fewer cases makes a good score easier, so it is not comparable."""
     await _board()
-    await _score("full", 0.5, "1.00", CLOSED, hours=0)
-    await _score("one-case-open", 1.0, "0.01", OPEN, hours=1, total=1)
+    await _score("full", 0.5, "1.00", CLOSED, day=0)
+    await _score("one-case-open", 1.0, "0.01", OPEN, day=1, total=1)
 
     body = (await client.get(f"/v1/leaderboard/{BOARD}/frontier")).json()
 
@@ -146,8 +146,8 @@ async def test_legacy_rows_and_unrecognised_models_are_reported(
     client: httpx.AsyncClient,
 ) -> None:
     await _board()
-    await _score("legacy", 0.5, "1.00", None, hours=0)
-    await _score("mystery", 0.9, "5.00", ["openrouter/nobody/mystery-1"], hours=1)
+    await _score("legacy", 0.5, "1.00", None, day=0)
+    await _score("mystery", 0.9, "5.00", ["openrouter/nobody/mystery-1"], day=1)
 
     body = (await client.get(f"/v1/leaderboard/{BOARD}/frontier")).json()
 
@@ -178,8 +178,8 @@ async def test_the_response_carries_exactly_the_new_fields(client: httpx.AsyncCl
 
 async def test_the_trend_is_the_open_share_over_time(client: httpx.AsyncClient) -> None:
     await _board()
-    await _score("first-closed", 0.5, "1.00", CLOSED, hours=0)
-    await _score("then-open", 0.9, "2.00", OPEN, hours=1)
+    await _score("first-closed", 0.5, "1.00", CLOSED, day=0)
+    await _score("then-open", 0.9, "2.00", OPEN, day=1)
 
     trend = (await client.get(f"/v1/leaderboard/{BOARD}/frontier")).json()["trend"]
 

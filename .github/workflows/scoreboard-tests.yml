@@ -169,6 +169,7 @@ jobs:
           uv run pytest \
             tests/unit/scores/test_idempotency_postgres.py \
             tests/unit/scores/test_idempotency_postgres_safety.py \
+            tests/unit/scores/test_read_snapshot_postgres.py \
             -v
 
   cost:

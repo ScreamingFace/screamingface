@@ -215,14 +215,14 @@
     });
   }
 
-  // OME-1145: the "N% open" card, from GET /v1/leaderboard/{id}/frontier.
+  // The "N% open" card, from GET /v1/leaderboard/{id}/frontier.
   //
-  // INVARIANT: never state a percentage the API did not measure. `open_share: null` means the
-  // frontier held nothing classifiable (D-S), and `frontier_available: false` means the board
-  // has no registered revision, so the table makes no frontier claim either (D12). Both return
+  // Never state a percentage the API did not measure. `open_share: null` means the
+  // frontier held nothing classifiable, and `frontier_available: false` means the board
+  // has no registered revision, so the table makes no frontier claim either. Both return
   // null and the card stays hidden. A measured 0 is shown: that IS a closed frontier.
   //
-  // The tooltip names what was set aside, so a stale model registry is visible (OME-1179 D4)
+  // The tooltip names what was set aside, so a stale model registry is visible
   // rather than reading as a genuinely closed board.
   function frontierSummary(data) {
     if (!data || !data.frontier_available) return null;

@@ -13,7 +13,12 @@ from scoreboard.routes.dependencies import (
     turned_private,
 )
 from scoreboard.scores.baseline_store import BaselineStore
-from scoreboard.scores.frontier import compute_frontier_openness, frontier_member_ids
+from scoreboard.scores.frontier import (
+    FrontierReplay,
+    compute_frontier_openness,
+    frontier_member_ids,
+    replay_frontier,
+)
 from scoreboard.scores.models import Benchmark
 from scoreboard.scores.pareto import compute_pareto_frontier_ids
 from scoreboard.scores.schemas import (
@@ -292,23 +297,28 @@ async def get_leaderboard(
     # bounded so client-controlled recipes and display metadata are never materialised en masse.
     pinned = benchmark.revision is not None
     store = _score_store(request)
-    rows = await store.leaderboard(
-        benchmark_id=benchmark_id,
-        top_n=min(top, MAX_LEADERBOARD_TOP),
-        # The same read that decided `pinned` above also builds the query's revision filter, so
-        # the gate and the filter can never disagree within one request.
-        registered_revision=benchmark.revision,
-        registered_case_count=benchmark.case_count,
-    )
-    frontier_inputs = (
-        await store.leaderboard_pareto_inputs(
-            benchmark_id,
+    # The page and the frontier it is marked against come from ONE snapshot, so a submission
+    # landing between the two reads cannot mark a row against a board it is not on.
+    async with store.read_snapshot() as snapshot:
+        rows = await store.leaderboard(
+            benchmark_id=benchmark_id,
+            top_n=min(top, MAX_LEADERBOARD_TOP),
+            # The same read that decided `pinned` above also builds the query's revision filter,
+            # so the gate and the filter can never disagree within one request.
             registered_revision=benchmark.revision,
             registered_case_count=benchmark.case_count,
+            connection=snapshot,
         )
-        if pinned
-        else []
-    )
+        frontier_inputs = (
+            await store.leaderboard_pareto_inputs(
+                benchmark_id,
+                registered_revision=benchmark.revision,
+                registered_case_count=benchmark.case_count,
+                connection=snapshot,
+            )
+            if pinned
+            else []
+        )
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
         # erroring — a read can, where a write cannot.
@@ -439,22 +449,30 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
     pinned = benchmark.revision is not None
     store = _score_store(request)
     current = []
-    history = []
+    replay = FrontierReplay(())
     members = {}
     if benchmark.revision is not None:
-        current = await store.leaderboard_pareto_inputs(
-            benchmark_id,
-            registered_revision=benchmark.revision,
-            registered_case_count=benchmark.case_count,
-        )
-        history = await store.frontier_history_inputs(
-            benchmark_id,
-            registered_revision=benchmark.revision,
-            registered_case_count=benchmark.case_count,
-        )
-        members = await store.frontier_member_models(
-            sorted(frontier_member_ids(current, history, pinned=pinned))
-        )
+        # One snapshot for all three reads (review round 1): the summary and the trend must
+        # describe the same board, and the models must belong to the rows that were read.
+        async with store.read_snapshot() as snapshot:
+            current = await store.leaderboard_pareto_inputs(
+                benchmark_id,
+                registered_revision=benchmark.revision,
+                registered_case_count=benchmark.case_count,
+                connection=snapshot,
+            )
+            history = await store.frontier_history_inputs(
+                benchmark_id,
+                registered_revision=benchmark.revision,
+                registered_case_count=benchmark.case_count,
+                connection=snapshot,
+            )
+            # Built once and shared by the member ids and the trend (review round 1).
+            replay = replay_frontier(history)
+            members = await store.frontier_member_models(
+                sorted(frontier_member_ids(current, replay, pinned=pinned)),
+                connection=snapshot,
+            )
     # INVARIANT (OME-894): every read of participant data happens BEFORE this re-check, and it is
     # the last await before the response.
     if await turned_private(benchmark_id):
@@ -463,5 +481,5 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
             detail=FRONTIER_NOT_AVAILABLE_DETAIL,
             headers=PRIVATE_CACHE_HEADERS,
         )
-    result = compute_frontier_openness(current, history, members, pinned=pinned)
+    result = compute_frontier_openness(current, replay, members, pinned=pinned)
     return FrontierResponse(benchmark_id=benchmark_id, **result.model_dump())

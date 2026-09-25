@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from scoreboard.classification.openness import Openness, classify_entry
@@ -65,18 +65,29 @@ class _Split:
         return self.open_count / classified if classified else None
 
 
-def _split(ids: frozenset[str], members: Mapping[str, FrontierMember]) -> _Split:
+_Verdict = tuple[str, tuple[str, ...]]
+
+
+def _verdicts(members: Mapping[str, FrontierMember]) -> dict[str, _Verdict]:
+    """Classify every member ONCE (review round 1, 2026-09-26).
+
+    WHY: the trend visits the same members at every step. Classifying per visit repeated the
+    work and logged each unrecognised route once per step, a log flood a crafted board could
+    drive. Each member is now classified, and logged, once per request.
+    """
+    return {
+        source_id: classify_entry(member.models, member.openness_override)
+        for source_id, member in members.items()
+    }
+
+
+def _split(ids: frozenset[str], verdicts: Mapping[str, _Verdict]) -> _Split:
     open_count = closed_count = unidentified_count = 0
     unrecognised: set[str] = set()
     for source_id in ids:
-        member = members.get(source_id)
-        # A frontier row the models read did not return (deleted between the two reads) says
-        # nothing about what it ran: unidentified, never guessed.
-        verdict, unknown = (
-            classify_entry(member.models, member.openness_override)
-            if member is not None
-            else ("unidentified", ())
-        )
+        # A frontier row the models read did not return says nothing about what it ran:
+        # unidentified, never guessed.
+        verdict, unknown = verdicts.get(source_id, ("unidentified", ()))
         unrecognised.update(unknown)
         if verdict == "open":
             open_count += 1
@@ -87,23 +98,49 @@ def _split(ids: frozenset[str], members: Mapping[str, FrontierMember]) -> _Split
     return _Split(open_count, closed_count, unidentified_count, frozenset(unrecognised))
 
 
-def _replay(history: Sequence[HistoryRow]) -> list[tuple[datetime, frozenset[str]]]:
-    """The frontier after each submission, in submission order.
+@dataclass(frozen=True)
+class FrontierReplay:
+    """The frontier as it stood at the end of each UTC day that had submissions.
+
+    Built once per request by `replay_frontier` and shared by `frontier_member_ids` and the trend.
+
+    WHY daily (review round 1, owner 2026-09-26): the first version recomputed the whole frontier
+    after EVERY submission, on a public endpoint, twice per request. With spec ids client-chosen,
+    every row can stay non-dominated, so the cost was O(n * m log m): 2,000 crafted rows took about
+    7 s per request before any database work. Recomputing once per day with submissions costs
+    O(days * m log m). A burst of any size within one day is one step, and a submitter cannot
+    create days.
+    """
+
+    steps: tuple[tuple[datetime, frozenset[str]], ...]
+
+    @property
+    def member_ids(self) -> frozenset[str]:
+        ids: set[str] = set()
+        for _, frontier in self.steps:
+            ids |= frontier
+        return frozenset(ids)
+
+
+def replay_frontier(history: Sequence[HistoryRow]) -> FrontierReplay:
+    """Replay ``history`` in submission order, one frontier per UTC day.
 
     INVARIANT: best-per-spec exactly as the ranked query collapses it: highest score wins, and on
     a tie the newer row (`store._build_leaderboard_query`'s `score DESC, submitted_at DESC`). A
     spec that improved must not count twice on a historical frontier.
 
-    AIDEV-NOTE: O(n * m log m) for n submissions over m specs, recomputing the frontier from
-    scratch each step. Right at today's scale (tens of rows per board); a board with thousands
-    of submissions wants an incremental sweep. Not built speculatively.
+    Each step is stamped with the last submission of its day, a real event time.
     """
     best: dict[str, HistoryRow] = {}
     steps: list[tuple[datetime, frozenset[str]]] = []
-    for row in sorted(history, key=lambda r: (r.submitted_at, r.source_id)):
+    ordered = sorted(history, key=lambda r: (r.submitted_at, r.source_id))
+    for index, row in enumerate(ordered):
         held = best.get(row.spec_id)
         if held is None or row.score >= held.score:
             best[row.spec_id] = row
+        following = ordered[index + 1] if index + 1 < len(ordered) else None
+        if following is not None and _day(following.submitted_at) == _day(row.submitted_at):
+            continue
         frontier = compute_pareto_frontier_ids(
             [
                 # The revision is fixed by the history read (registered revision only), so one
@@ -113,29 +150,28 @@ def _replay(history: Sequence[HistoryRow]) -> list[tuple[datetime, frozenset[str
             ]
         )
         steps.append((row.submitted_at, frontier))
-    return steps
+    return FrontierReplay(tuple(steps))
+
+
+def _day(at: datetime) -> date:
+    return at.astimezone(UTC).date()
 
 
 def frontier_member_ids(
-    current: Sequence[ParetoEntry], history: Sequence[HistoryRow], *, pinned: bool
+    current: Sequence[ParetoEntry], replay: FrontierReplay, *, pinned: bool
 ) -> frozenset[str]:
     """Every row that is, or ever was, on the frontier: the only rows whose models are read."""
     if not pinned:
         return frozenset()
-    ids = set(compute_pareto_frontier_ids(current))
-    for _, frontier in _replay(history):
-        ids |= frontier
-    return frozenset(ids)
+    return frozenset(compute_pareto_frontier_ids(current)) | replay.member_ids
 
 
-def _trend(
-    history: Sequence[HistoryRow], members: Mapping[str, FrontierMember]
-) -> list[FrontierPoint]:
-    """A point each time a submission changes the frontier's open share (D-L)."""
+def _trend(replay: FrontierReplay, verdicts: Mapping[str, _Verdict]) -> list[FrontierPoint]:
+    """A point each day the frontier's open share changed (D-L, daily since review round 1)."""
     points: list[FrontierPoint] = []
     last: float | None = None
-    for at, frontier in _replay(history):
-        split = _split(frontier, members)
+    for at, frontier in replay.steps:
+        split = _split(frontier, verdicts)
         share = split.open_share
         if share == last and (points or share is None):
             continue
@@ -153,7 +189,7 @@ def _trend(
 
 def compute_frontier_openness(
     current: Sequence[ParetoEntry],
-    history: Sequence[HistoryRow],
+    replay: FrontierReplay,
     members: Mapping[str, FrontierMember],
     *,
     pinned: bool,
@@ -161,8 +197,8 @@ def compute_frontier_openness(
     """The open share of the full-board Pareto frontier, and its trend.
 
     ``current`` is exactly what the table's marks are computed from
-    (`leaderboard_pareto_inputs`); ``history`` is every comparable submission for the trend;
-    ``members`` holds the models of every row in `frontier_member_ids`.
+    (`leaderboard_pareto_inputs`); ``replay`` is `replay_frontier` over every comparable
+    submission; ``members`` holds the models of every row in `frontier_member_ids`.
 
     INVARIANT (D12): ``pinned`` false means the board has no registered revision, and the table
     makes no frontier claim. Nor does this: `frontier_available` false and no share.
@@ -179,7 +215,8 @@ def compute_frontier_openness(
             trend=[],
         )
     frontier = compute_pareto_frontier_ids(current)
-    split = _split(frontier, members)
+    verdicts = _verdicts(members)
+    split = _split(frontier, verdicts)
     return FrontierResult(
         frontier_available=True,
         frontier_size=len(frontier),
@@ -188,5 +225,5 @@ def compute_frontier_openness(
         unidentified_count=split.unidentified_count,
         unrecognised_models=sorted(split.unrecognised)[:MAX_UNRECOGNISED_MODELS],
         open_share=split.open_share,
-        trend=_trend(history, members),
+        trend=_trend(replay, verdicts),
     )

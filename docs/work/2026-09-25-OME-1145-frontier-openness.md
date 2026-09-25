@@ -79,3 +79,34 @@ In the spec, §6.
      cleanup for a later unit.
   5. `tests/smoke/test_brand_mockup_drift.py` fails against the live brand mockup when run
      directly. Unrelated and not in the gate's test set.
+
+## Review round 1 (2026-09-26, owner's review)
+
+Four findings, all verified against the code before fixing.
+
+1. **High, verified: a quadratic public request.** `_replay` recomputed the whole frontier after
+   every submission, kept every historical frontier, ran twice per request, and classified each
+   member at every step (logging each unknown route each time). Reproduced: 1,000 rows 1.55 s,
+   2,000 rows 6.93 s, before any database work. **Fix (owner: one point per day + memoise):**
+   `replay_frontier` recomputes once per UTC day with submissions and is built once per request;
+   `_verdicts` classifies each member once. The trend is now daily. Measured: a 2,000-row
+   one-day burst 0.01 s; 2,000 rows over 365 days 0.43 s; 5,000 over 365 days 1.29 s. The residual
+   cost is days x entries: bounded by calendar time, not by request volume, but not zero. A
+   materialised trend is the next step if boards reach that size.
+2. **Medium, verified: responses from inconsistent snapshots.** Three independent reads in
+   `get_frontier`, and the same split in `get_leaderboard` (page vs frontier marks). **Fix (owner:
+   one repeatable-read transaction):** `ScoreStore.read_snapshot()` sets REPEATABLE READ on
+   PostgreSQL; both routes read inside it; `turned_private` stays after it, on the default
+   connection, so a mid-request flip is still seen. Proven on PostgreSQL by
+   `test_read_snapshot_postgres.py` (added to the PostgreSQL CI lane); removing the isolation line
+   makes it fail (`[0.99] == [0.5]`). Run locally against a throwaway Docker PostgreSQL 16.
+3. **Cross-PR: markers in served files.** The five `OME-`/`INVARIANT` comments this PR added to
+   `benchmark.js` and `leaderboard-logic.js` are rewritten as plain comments, so #1049's
+   source-hygiene guard will pass after the rebase.
+4. The daily trend changed this PR's own trend assertions (hours to days) and, within the
+   already-approved rewrite, `test_get_frontier_reflects_real_submissions` (two same-day posts are
+   now one point).
+
+New tests: 3 in `test_frontier_openness.py` (one computation per day, day stamps, one
+classification per member), 2 in `test_route_read_snapshot.py`, 1 PostgreSQL-only. Gates ALL GREEN
+(append-only flags only the approved files).
