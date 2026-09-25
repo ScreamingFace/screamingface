@@ -1,9 +1,9 @@
 ---
 ticket: OME-1240
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-23
-finished:
+finished: 2026-09-25
 ---
 
 # OME-1240 — Prove an LLM-judged imported benchmark grades through our gateway
@@ -185,3 +185,39 @@ per-case judge accounting stays run-level.
   follow-up can join it without new capture. Mitigation for the live run: item
   3's tagged log line already carries finish_reason per Case.
 - **Gates:** run_gates.py ALL GREEN; inspect lane + scope suite green (319).
+
+### Acceptance item 3 — owner-run live `limit=2` runs (2026-09-25)
+
+Three paid `inspect-frontierscience` runs from notebook 12, against the local stack:
+
+| Run | Panel | Cap | Score · coverage | Judge calls (gpt-5.4 via OpenRouter) | Total |
+| -- | -- | -- | -- | -- | -- |
+| 1 | qwen + gemini flash → haiku | 8192 | 0.1 · 0.5 | $0.0151 | $0.071 |
+| 2 | qwen + gemini flash → haiku | 32768 | 0.0 · 0.5 | $0.0139 | $0.103 |
+| 3 | haiku + gemini flash → sonnet 5 | 32768 | 0.65 · 1.0 | $0.0161 + $0.0035 | $0.205 |
+
+- **Judge metered through the gateway:** every graded case's evidence carried
+  judge `accounting`, with request model `openrouter/openai/gpt-5.4`, tokens,
+  USD, latency, and one attempt.
+- **Judge cost is in `cost_usd`:** in run 3, the case calls plus both judge
+  calls sum exactly to the report total.
+- **Members never see the rubric:** the member inputs held only the question;
+  the rubric appeared only in the judge's grading.
+- **Both judge formats graded:** the research rubric (`VERDICT: 3` → 0.3) and
+  the olympiad right/wrong format (`GRADE: C` → 1.0).
+- The failed cases were `model_token_cap` on a *member*, never the judge.
+  Notebook 12's panel was retuned in #1065.
+
+### Close
+
+- **Delivered:** #1032, #1034, #1037, #1040, #1041, #1051 (all merged
+  2026-09-24), plus the live acceptance above.
+- **Follow-ups filed under `OME-1299` (2026-09-25):**
+  - `OME-1369`: the provider's refusal list becomes an allowlist, and `tools`
+    are refused (the two #1032 review findings).
+  - `OME-1370`: role-based judges (`get_model(role="grader")`), starting with
+    SimpleQA.
+  - `OME-1371`: judged boards with no fixed answer (coconot, sosbench).
+  - `OME-1372`: the uccb licence decision.
+  - Surfaced by the live runs: `OME-1339` and `OME-1340`, the judge's
+    reasoning missing or clipped in the notebook report.
