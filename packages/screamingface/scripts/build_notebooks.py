@@ -1532,9 +1532,10 @@ answers *and* one judge call."""),
         nbformat.v4.new_code_cell("""\
 PANEL_PARAMS = {"max_tokens": 32768, "temperature": 0.0}  # increase max tokens for frontierscience
 
-# Rebuild the members too: they captured the 8192 cap when they were created above, and
-# reasoning models spend most of it thinking, so a research derivation stops mid-answer.
-member1 = sf.Model(model="openrouter/qwen/qwen3.7-flash", params=PANEL_PARAMS)
+# A research-level panel, rebuilt with the higher cap (the members above captured 8192, and
+# reasoning models spend most of it thinking). Qwen is left out here: on these problems it
+# reasoned through the whole 32768-token budget without reaching an answer.
+member1 = sf.Model(model="openrouter/anthropic/claude-haiku-4.5", params=PANEL_PARAMS)
 member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARAMS)
 
 SCIENCE_SYNTHESIS_PROMPT = (
@@ -1546,7 +1547,7 @@ SCIENCE_SYNTHESIS_PROMPT = (
 )
 
 science_synth = sf.Model(
-    model="openrouter/anthropic/claude-haiku-4.5",
+    model="openrouter/anthropic/claude-sonnet-5",
     params=PANEL_PARAMS,
     prompt=SCIENCE_SYNTHESIS_PROMPT,
 )
