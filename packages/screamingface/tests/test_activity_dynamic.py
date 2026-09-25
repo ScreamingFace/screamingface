@@ -26,7 +26,7 @@ def test_hide_only_redundant_routine_answering_stages():
     log.observe(0, record(id="other", kind="answering", state="failed"))
     html = activity_html(log, ("candidate",))
     assert html.count('class="sf-activity__stage"') == 1
-    assert "Completed model call" in html
+    assert "Called model" in html
     assert "failed" in html
 
 
@@ -40,14 +40,13 @@ def test_unknown_call_stops_spinning(monkeypatch):
     assert "No recent update" in html
 
 
-def test_pagination_counts_visible_operations_not_transitions():
+def test_scroll_panel_counts_visible_operations_not_transitions():
     log = ActivityLog()
     for i in range(51):
         log.observe(0, record(id=str(i), state="started"))
         log.observe(0, record(2, id=str(i), state="completed"))
     panel = CandidateActivityRow(log, ("candidate",), 0)
     panel.toggle.value = True
-    assert panel.page.max == 0
     assert panel.html.value.count('class="sf-activity__call"') == 51
     assert panel.html.layout.height == "auto"
     assert panel.html.layout.max_height == "280px"
@@ -71,7 +70,7 @@ def test_late_parent_uses_explicit_lineage_and_preserves_failed_stage():
     )
     html = activity_html(log, ("candidate",))
     assert 'aria-label="Failed"' in html
-    assert "Completed model call" in html
+    assert "Called model" in html
     assert html.count('class="sf-activity__stage"') == 1
 
 

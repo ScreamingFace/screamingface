@@ -145,9 +145,9 @@ async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp
     run = RunObservations((ActivityObserver,))
     with run.bind():
         for route, kind in (
-            (board.check_route, "grading"),
+            (board.check_route, "answering"),
             (board.check_surface_route, "grading"),
-            (board.case_evaluation_route, "grading"),
+            (board.case_evaluation_route, None),
             (board.aggregate_route, "aggregation"),
         ):
             records.clear()
@@ -155,5 +155,7 @@ async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp
                 result = node._endpoints[route](Request(route, "", "", {}))
                 if inspect.isawaitable(result):
                     await result
-            assert [r["sf.activity.kind"] for r in records] == [kind, kind]
+            assert [r["sf.activity.kind"] for r in records] == (
+                [] if kind is None else [kind, kind]
+            )
     await run.aclose()

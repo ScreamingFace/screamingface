@@ -482,7 +482,7 @@ default, a storage LOCATION does not. Both directions are now checked —
 `test_deploy_time_chart_contract.py` asserts the chart actually writes these."""
 
 ACTIVITY_LEVEL = "URL4_CLOUD_ACTIVITY_LEVEL"
-"""Deployment-owned full/off activity policy; absent means off, never request-controlled."""
+"""Deployment-owned full/off activity policy; absent means full, never request-controlled."""
 
 DEPLOY_TIME = frozenset(
     {

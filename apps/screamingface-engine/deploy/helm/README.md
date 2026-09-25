@@ -407,11 +407,11 @@ For a real end-to-end exercise of this chart — the same templates, values-only
 
 ### Optional live activity
 
-Set `config.activityLevel: "full"` on public deployments to emit the safe v1 model-call
-activity stream. The default is `"off"`; private/enclave deployments should explicitly keep
-it off. Only `full` and `off` are supported. The worker's deployment environment wins over
-any queued per-run value. For local mode, set `URL4_CLOUD_ACTIVITY_LEVEL=full` in the
-operator environment (or the equivalent local `Settings.activity_level`).
+Structured activity defaults to `full` in Helm, local mode and workers. Set
+`config.activityLevel: "off"` (Helm) or `URL4_CLOUD_ACTIVITY_LEVEL=off` (local/worker)
+to disable it. Only `full` and `off` are supported. Explicit local Settings win over
+environment configuration; the worker's deployment environment wins over queued
+per-run values. Private/enclave operators can explicitly disable activity.
 
 Full activity uses fixed 60-second heartbeats, safe producer observation timestamps and a
 rolling 100-record/s, burst-200 budget, reserving 40 tokens from routine starts/heartbeats

@@ -91,7 +91,7 @@ class ActivityLog:
 
     def _number_case(self, candidate: int, run: str, record: ActivityRecord) -> ActivityRecord:
         values = dict(record.facts)
-        if values.get("scope") != "case" or "case_position" in values or "case_id" not in values:
+        if "case_position" in values or "case_id" not in values:
             return record
         for (owner, run_id, _), prior in reversed(self._latest.items()):
             facts = dict(prior.facts)

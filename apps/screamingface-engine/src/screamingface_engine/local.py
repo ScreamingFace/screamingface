@@ -179,7 +179,7 @@ def _local_activity_configuration(
     level = (
         supplied.activity_level
         if supplied is not None and supplied.activity_level_is_explicit
-        else source.get(job_env.ACTIVITY_LEVEL, "off")
+        else source.get(job_env.ACTIVITY_LEVEL, "full")
     )
     # WHY: align the effective Settings with observer policy without mutating the caller.
     # INVARIANT: observation_factories validates this selection before app construction.

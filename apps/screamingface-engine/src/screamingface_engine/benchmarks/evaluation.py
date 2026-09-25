@@ -101,6 +101,7 @@ def attempt_records_endpoint(
     item_name: str,
     bind: CaseEvaluationBinder,
     error_context_head: int | None = None,
+    observe_grading: bool = True,
 ) -> Callable[[Request], str]:
     """Adapt an ``attempt_1..attempt_N`` struct of evaluator records into a Case envelope.
 
@@ -110,7 +111,6 @@ def attempt_records_endpoint(
     — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
     """
 
-    @observe_stage(ActivityKind.GRADING)
     def endpoint(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -134,7 +134,8 @@ def attempt_records_endpoint(
             raise benchmark_contract_error(detail) from exc
         return compact_json(result)
 
-    return endpoint
+    # WHY: imported boards only package attempts here; their scorer runs later.
+    return observe_stage(ActivityKind.GRADING)(endpoint) if observe_grading else endpoint
 
 
 def aggregate_endpoint(

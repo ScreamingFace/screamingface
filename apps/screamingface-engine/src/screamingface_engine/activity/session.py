@@ -16,8 +16,6 @@ from screamingface_engine.activity.contract import MAX_INTEGER, PREFIX, Emitter,
 BURST = 200.0
 REFILL_PER_S = 100.0
 RESERVED_FOR_OUTCOMES = 40
-# WHY: routine records spend one token while leaving the outcome/retry reserve intact.
-_ROUTINE_MIN_TOKENS = RESERVED_FOR_OUTCOMES + 1
 
 _CURRENT: ContextVar[ActivitySession | None] = ContextVar("activity_session", default=None)
 
@@ -46,39 +44,56 @@ class ActivitySession:
         with self._lock:
             self._suppressed[reason] = min(MAX_INTEGER, self._suppressed[reason] + 1)
 
-    def _admit(self, state: str) -> bool:
+    def _admit(self, state: str, *, reserve_terminal: bool = False) -> bool:
         now = self.monotonic()
         self._tokens = min(BURST, self._tokens + max(0.0, now - self._last) * REFILL_PER_S)
         self._last = max(now, self._last)
-        if self._tokens < (_ROUTINE_MIN_TOKENS if state in {"started", "running"} else 1):
+        cost = 2 if reserve_terminal else 1
+        threshold = RESERVED_FOR_OUTCOMES + cost if state in {"started", "running"} else cost
+        if self._tokens < threshold:
             self.suppress("rate")
             return False
-        self._tokens -= 1
+        self._tokens -= cost
         return True
 
-    def emit(self, sink: Emitter, body: str, attributes: Mapping[str, Scalar]) -> None:
+    def emit(
+        self,
+        sink: Emitter,
+        body: str,
+        attributes: Mapping[str, Scalar],
+        *,
+        reserve_terminal: bool = False,
+        prepaid_terminal: bool = False,
+    ) -> bool:
         # INVARIANT: faults in optional bookkeeping never replace the operation outcome.
         # Catch ordinary exceptions only; process control/cancellation must propagate.
         try:
-            self._emit(sink, body, attributes)
+            return self._emit(sink, body, attributes, reserve_terminal, prepaid_terminal)
         except Exception:
             self.suppress("invalid")
+            return False
 
-    def _emit(self, sink: Emitter, body: str, attributes: Mapping[str, Scalar]) -> None:
+    def _emit(
+        self,
+        sink: Emitter,
+        body: str,
+        attributes: Mapping[str, Scalar],
+        reserve_terminal: bool,
+        prepaid_terminal: bool,
+    ) -> bool:
         with self._lock:
-            if not self.active:
-                return
             record = dict(attributes)
             snapshot = self._suppressed.copy()
             if snapshot != self._reported:
                 record.update({PREFIX + "suppressed." + k: v for k, v in snapshot.items()})
             wire = json.dumps({"body": body, "attributes": record}, allow_nan=False).encode()
-            if len(body) > 256 or len(wire) > 4096:
-                self.suppress("oversize")
-                return
+            if not self.active or len(body) > 256 or len(wire) > 4096:
+                if self.active:
+                    self.suppress("oversize")
+                return False
             state = str(record[PREFIX + "state"])
-            if not self._admit(state):
-                return
+            if not prepaid_terminal and not self._admit(state, reserve_terminal=reserve_terminal):
+                return False
             severity = "WARN" if state in {"retrying", "refused", "cancelled"} else "INFO"
             if state == "failed":
                 severity = "ERROR"
@@ -90,6 +105,7 @@ class ActivitySession:
                 pass
             else:
                 self._reported = snapshot
+            return True
 
 
 def current_session() -> ActivitySession | None:
