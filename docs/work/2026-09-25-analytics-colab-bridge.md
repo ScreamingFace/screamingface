@@ -1,5 +1,5 @@
 ---
-ticket: unfiled
+ticket: OME-1378
 stack: analytics
 status: done
 started: 2026-09-25
@@ -78,3 +78,9 @@ No SDK changes, ticket filing, PR creation or deployment in this unit by default
   and dev PostHog browser smoke remain subsequent steps, not passed tests here.
 - No PR, Linear issue or deployment created. The existing local SDK worktree and
   its pending snapshot approval remain untouched.
+
+## PR preparation
+
+Owner authorized the draft PR and accompanying ticket. Filed OME-1378 under
+OME-1305, self-assigned, analytics/agentic/autonomous, High priority.
+Draft review does not imply deployment or browser acceptance.
