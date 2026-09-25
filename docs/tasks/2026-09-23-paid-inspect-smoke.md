@@ -1,12 +1,12 @@
 ---
 id: OME-1275
 linear_url: https://linear.app/openmined/issue/OME-1275/add-a-manually-run-paid-smoke-test-that-runs-every-imported-benchmark
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-09-23
-closed:
+closed: 2026-09-25
 ---
 
 # Add a manually-run paid smoke test that runs every imported benchmark with real models

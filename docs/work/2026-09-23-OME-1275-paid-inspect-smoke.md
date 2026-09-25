@@ -1,9 +1,9 @@
 ---
 ticket: OME-1275
 stack: py-screamingface
-status: in_progress
+status: done
 started: 2026-09-23
-finished:
+finished: 2026-09-25
 ---
 
 # OME-1275 — Add a manually-run paid smoke test that runs every imported benchmark with real models
@@ -49,3 +49,7 @@ Action-required (both fixed): (1) the paid button could go green having proven n
 ## Rebase + review round 2 (2026-09-25)
 
 Rebased onto main `1f1218ee` (50 commits; zero conflicts). Main added six LAB-Bench boards and frontierscience, so the live-catalog enumeration now covers 24 boards with no code change — exactly the wholesale-lane property. From the review: hard-coded "17" counts removed from every file this PR owns (the pre-existing count in the `local-stack-notebooks` recipe comment is left alone — not this PR's line); the cost wording now names the frontier-model judge of LLM-judged boards (frontierscience → gpt-5.4) instead of "flash-tier only, under $1"; the smoke's tolerance comment records why judged boards stay strict (a rate-limited judge surfaces as `scorer_error`, indistinguishable from a broken judge route). Workflow: timeout 90→120 and the asset cache split into restore + save-right-after-prepare, because the all-in-one cache action saves only on a successful job — a failing smoke would have discarded every fresh download. Verified: the engine preparer uses no HF token and no gated dataset is baked, so the workflow needs none. #1060 (failures re-attributed to the candidate stage) needs no change — the smoke filters on code, not stage. Gates: ALL GREEN, exit code read before commit.
+
+## Close (2026-09-25)
+
+Merged via PR #1035 (squash). Agent-side acceptance met: 2 (loud skip, free gating tests) and 4 (per-board failure verdict with the code visible). Acceptance 1 and 3 are the paid path and the owner's to run: the workflow's "Run workflow" button exists only once the file is on `main`, and it needs the `OPENROUTER_API_KEY` repo secret, which was not configured at merge time. The first press is recorded as the owner-verify item in the Linear close comment.
