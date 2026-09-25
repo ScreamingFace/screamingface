@@ -79,7 +79,7 @@ def test_expanded_activity_is_flat_log_output_not_a_table():
     assert "<table" not in html
     assert "<th" not in html
     assert 'class="sf-activity__call"' in html
-    assert "Call completed: provider/model" in html
+    assert "Called provider/model" in html
     assert "provider/model" in html
     assert "completed" in html
 
@@ -116,8 +116,8 @@ def test_flat_model_lines_identify_case_stage_and_model_without_routine_noise():
             ),
         )
     html = activity_html(log, ("candidate",))
-    assert "Case 42: Call completed: provider/one" in html
-    assert "Case 007: Call completed: provider/two" in html
+    assert "Case 42: Called provider/one" in html
+    assert "Case 007: Called provider/two" in html
     assert "finish reason" not in html
     assert "Measured" not in html
     assert "60s" not in html
