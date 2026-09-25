@@ -215,6 +215,25 @@
     });
   }
 
+  // OME-1282: one row's open/closed verdict, as the Weights cell shows it.
+  //
+  // INVARIANT: never a verification claim. `open` means every declared model has downloadable
+  // weights; it does not mean anyone re-ran the entry (OME-1146, OME-1319). So the tone is
+  // neutral ink, never success green, and the word carries the meaning.
+  //
+  // INVARIANT: anything but the two known verdicts is "unknown", never open. A stale client or
+  // a missing field must understate openness, the direction OME-1179 D4 requires.
+  function opennessLabel(entry) {
+    var verdict = entry && entry.openness;
+    if (verdict === "open") return { text: "Open", tone: "open" };
+    if (verdict === "closed") return { text: "Closed", tone: "closed" };
+    return {
+      text: "\u2014",
+      tone: "unknown",
+      title: "Models not declared: this entry predates model identities, so it is not counted",
+    };
+  }
+
   // OME-1145: the "N% open" card, from GET /v1/leaderboard/{id}/frontier.
   //
   // INVARIANT: never state a percentage the API did not measure. `open_share: null` means the
@@ -258,5 +277,6 @@
     barWidth: barWidth,
     listedBenchmarks: listedBenchmarks,
     frontierSummary: frontierSummary,
+    opennessLabel: opennessLabel,
   };
 });

@@ -117,6 +117,14 @@ table .btn { white-space: nowrap; }
   .col-run { display: none; }
 }
 
+/* ---- Weights line in the Backends cell (OME-1282) --------------------- */
+/* The SFDS .status recipe at full tone WITHOUT its .on state: .on is success green, and green
+   means verified, which an open-weights verdict is not (OME-1146, OME-1319). The square stays
+   ink; the word says open. Closed uses the recipe's own whisper off-state unchanged. */
+.weights-line { display: block; margin-top: var(--space-1); white-space: nowrap; }
+.status.status--open { color: var(--ink); }
+.status.status--open .sq { background: var(--ink); }
+
 /* ---- mark column (OME-769) ------------------------------------------- */
 /* A column rather than a span inside the spec cell, so the browser handles the
    alignment — see the WHY in benchmark.js's COLUMNS. Narrow and never wrapping:
