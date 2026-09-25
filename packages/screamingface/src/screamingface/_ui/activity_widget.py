@@ -24,6 +24,7 @@ class CandidateActivityRow:
         self._lock = lock if lock is not None else RLock()
         self._log, self._candidates, self._index = log, candidates, index
         self._finished = False
+        self._completed_at_ms: int | None = None
         self.toggle: Any = widgets.ToggleButton(
             value=False,
             description=f"Activity for {candidates[index]}",
@@ -65,6 +66,11 @@ class CandidateActivityRow:
     def refresh(self, row: _CandidateProgress, elapsed: float | None) -> None:
         self.summary.value = _table_html(_candidate_row_html(row, elapsed))
         self._finished = row.status not in {"queued", "running"}
+        self._completed_at_ms = (
+            int(row.result.completed_at.timestamp() * 1000)
+            if row.result is not None and row.qualifier is None
+            else None
+        )
         if self.toggle.value:
             self._refresh_activity()
 
@@ -74,4 +80,5 @@ class CandidateActivityRow:
             self._candidates,
             candidate=self._index,
             finished=self._finished,
+            completed_at_ms=self._completed_at_ms,
         )

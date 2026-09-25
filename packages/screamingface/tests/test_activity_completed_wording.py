@@ -10,7 +10,7 @@ from screamingface._ui.activity_view import activity_html
     [
         ("answering", "started", "Answering"),
         ("answering", "completed", "Answered"),
-        ("grading", "completed", "Graded"),
+        ("grading", "completed", "Grading complete"),
         ("aggregation", "completed", "Scores aggregated"),
         ("answering", "failed", "Answering failed"),
         ("grading", "failed", "Grading failed"),
@@ -26,4 +26,4 @@ def test_completed_model_call_inherits_past_tense_stage():
     log = ActivityLog()
     log.observe(0, record(id="stage", kind="answering", state="completed"))
     log.observe(0, record(parent_id="stage", state="completed", model_id="phi-4"))
-    assert "Completed phi-4 call" in activity_html(log, ("candidate",))
+    assert "Call completed: phi-4" in activity_html(log, ("candidate",))

@@ -19,3 +19,5 @@ Keep general telemetry admission bounded, preserve explicit suppression counters
 and test burst completion without assuming the downstream bridge is lossless.
 
 User revision: remove pagination entirely; render all retained operations in the existing scroll panel with Copy.
+
+Timeline revision: calls retain their starting position/time; successful stage summaries use completion time/order. Hide routine recording only, retain errors. Evaluation completion requires a complete scored result.

@@ -13,7 +13,7 @@ def test_call_wording_updates_one_line_without_inventing_role(monkeypatch, stage
     for revision, state, wording in [
         (1, "started", "Calling provider/model"),
         (2, "retrying", "Retrying provider/model call"),
-        (3, "completed", "Completed provider/model call"),
+        (3, "completed", "Call completed: provider/model"),
     ]:
         log.observe(
             0,

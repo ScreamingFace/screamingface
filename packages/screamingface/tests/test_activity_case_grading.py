@@ -25,8 +25,8 @@ def test_case_grading_reuses_explicit_number_and_updates_one_line():
     )
     log.observe(0, record(id="phase", kind="grading", scope="case", case_id="42", state="started"))
     html = activity_html(log, ("candidate",))
-    assert html.count("[Case 2/5] Graded") == 1
-    assert ">Graded<" not in html
+    assert html.count("[Case 2/5] Grading complete") == 1
+    assert ">Grading complete<" not in html
     assert len(log.history()) == 4
 
 
@@ -49,8 +49,8 @@ def test_phase_numbering_is_run_local_and_missing_start_still_finishes():
         0, record(2, run="new", id="p", kind="grading", scope="case", case_id=42, state="completed")
     )
     html = activity_html(log, ("candidate",))
-    assert "Case 42: Graded" in html
-    assert "[Case 2/5] Graded" not in html
+    assert "Case 42: Grading complete" in html
+    assert "[Case 2/5] Grading complete" not in html
 
 
 def test_phase_summary_keeps_endpoint_failures_and_model_calls():
