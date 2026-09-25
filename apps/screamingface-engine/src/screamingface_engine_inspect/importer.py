@@ -500,12 +500,8 @@ def _solver_facts(
             # contracteval named-deviation pattern, owner-approved on OME-1253).
             # An inline literal has no module attribute for the row to POINT at,
             # and the importer never copies exam text, so it stays flagged.
-            system_message_ref = _resolved_or_flagged(
-                module,
-                solver,
-                task_ref,
-                custom,
-                f"{registry_name} (system instructions are not baked)",
+            system_message_ref = _system_message_fact(
+                module, solver, task_ref, custom, registry_name
             )
         elif name == "multiple_choice":
             # WHY the flag: MCQ-ness is the exam's SHAPE (options + letter answer),
@@ -536,6 +532,67 @@ def _solver_facts(
         tuple(custom),
         uses_multiple_choice,
     )
+
+
+def _system_message_fact(
+    module: Any, solver: Any, task_ref: str, custom: list[str], registry_name: str
+) -> str | None:
+    """Point the row at the system-message constant, or record why it cannot."""
+
+    rewrite: str | None = _system_message_rewrite(solver)
+    if rewrite is not None:
+        # WHY no fact at all (OME-1272): the bake delivers the constant's text
+        # verbatim, so a message inspect rewrites before sending would bake a
+        # different exam with every guard green.
+        custom.append(f"{registry_name} ({rewrite})")
+        return None
+    return _resolved_or_flagged(
+        module,
+        solver,
+        task_ref,
+        custom,
+        f"{registry_name} (system instructions are not baked)",
+    )
+
+
+def _system_message_rewrite(solver: Any) -> str | None:
+    """Why the text inspect SENDS would differ from the template constant, or None.
+
+    Think of the constant as a letter the bake photocopies. inspect does not post
+    the letter as written: ``system_message(template, **params)`` (1) READS it
+    through ``resource()`` — a path or URL becomes that file's contents — then
+    (2) runs ``str.format`` over it with the params plus the sample's metadata and
+    store. So the photocopy matches only when neither step changes anything:
+
+    - params ``persona="tutor"`` → the text inspect sends has them filled in.
+    - a path ``"prompts/system.txt"`` → inspect sends the file, not the path.
+    - any brace, e.g. ``"Answer as {persona}."`` or ``"Reply in {{json}}."`` —
+      a field can be filled per case from metadata, and an escaped ``{{``
+      becomes ``{``; with no brace at all str.format is the identity.
+
+    Returns a short reason for the review flag, or None when the constant's text
+    IS what inspect sends (hellaswag's plain SYSTEM_MESSAGE).
+    """
+
+    from inspect_ai._util.registry import registry_params
+    from inspect_ai.util import resource
+
+    params: dict[str, Any] = dict(registry_params(solver))
+    template: Any = params.pop("template", None)
+    reason: str | None = None
+    if params:
+        reason = f"fills params {', '.join(sorted(params))} into the template at run time"
+    elif not isinstance(template, str):
+        # Not text at all: _template_attribute still points at it, and the bake
+        # refuses a non-text resolution by name (prepare._resolved_system_text).
+        reason = None
+    # WHY re-calling resource() is safe here: the eval's own system_message()
+    # already called it once while the task was being built, on the same value.
+    elif resource(template) != template:
+        reason = "template is read from a file"
+    elif "{" in template or "}" in template:
+        reason = "str.format rewrites the template's braces at run time"
+    return reason
 
 
 def _resolved_or_flagged(

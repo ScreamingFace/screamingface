@@ -1674,6 +1674,81 @@ def test_introspect_binds_a_module_level_system_message_as_a_fact(
     assert facts.custom_solvers == ()
 
 
+def _introspect_module_system_message(
+    monkeypatch: pytest.MonkeyPatch, instructions: str, **params: Any
+) -> TaskFacts:
+    """Introspect an eval whose system_message points at module.INSTRUCTIONS."""
+
+    from inspect_ai.solver import system_message
+
+    def storyteller() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=[system_message(module.INSTRUCTIONS, **params), generate()],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, storyteller=storyteller)
+    module.INSTRUCTIONS = instructions  # type: ignore[attr-defined]
+    return introspect_task(f"{_FAKE_MODULE}:storyteller")
+
+
+def test_introspect_flags_a_system_message_that_fills_params(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OME-1272: system_message(template, **params) sends the template AFTER
+    str.format fills the params in. Binding the bare constant would bake text
+    the eval never sends — so the row gets no fact and the flag names the param."""
+
+    facts: TaskFacts = _introspect_module_system_message(
+        monkeypatch, "Answer as {persona}.", persona="a patient tutor"
+    )
+
+    assert facts.system_message is None
+    assert any("system_message" in flag and "persona" in flag for flag in facts.custom_solvers)
+
+
+@pytest.mark.parametrize(
+    "instructions",
+    [
+        # Filled at run time from sample metadata or the store, even with no params.
+        "Answer as {persona}.",
+        # str.format rewrites an escaped brace: the eval sends "{json}", not "{{json}}".
+        "Reply in {{json}}.",
+    ],
+)
+def test_introspect_flags_a_system_message_whose_text_str_format_rewrites(
+    monkeypatch: pytest.MonkeyPatch, instructions: str
+) -> None:
+    """OME-1272: inspect runs every system message through str.format with the
+    sample's metadata and store. Any brace in the text means the sent message can
+    differ from the constant — per case, invisibly — so it flags instead of binding."""
+
+    facts: TaskFacts = _introspect_module_system_message(monkeypatch, instructions)
+
+    assert facts.system_message is None
+    assert any("system_message" in flag for flag in facts.custom_solvers)
+
+
+def test_introspect_flags_a_system_message_read_from_a_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """OME-1272: a template that is a path to an existing file is READ by inspect
+    (resource()), so the eval sends the file's contents. Binding the constant
+    would bake the path itself as the instruction."""
+
+    prompt_file: Path = tmp_path / "system.txt"
+    prompt_file.write_text("You are a careful accountant.")
+
+    facts: TaskFacts = _introspect_module_system_message(monkeypatch, str(prompt_file))
+
+    assert facts.system_message is None
+    assert any("system_message" in flag for flag in facts.custom_solvers)
+
+
 # ---------------------------------------------------------------------------
 # model-graded scorers get the judge flag (OME-1240)
 # ---------------------------------------------------------------------------
