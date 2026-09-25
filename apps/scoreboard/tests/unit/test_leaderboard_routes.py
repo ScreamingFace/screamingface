@@ -387,7 +387,8 @@ async def test_get_frontier_reflects_real_submissions(
     assert body["open_count"] == 1
     assert body["closed_count"] == 1
     assert body["open_share"] == 0.5
-    assert [point["open_share"] for point in body["trend"]] == [1.0, 0.5]
+    # Both posts land on the same day, and the trend is daily since review round 1.
+    assert [point["open_share"] for point in body["trend"]] == [0.5]
 
 
 # --- OME-834: no read path may publish a harvestable address ---

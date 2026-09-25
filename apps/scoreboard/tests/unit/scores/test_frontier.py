@@ -30,6 +30,7 @@ from scoreboard.scores.frontier import (
     FrontierMember,
     HistoryRow,
     compute_frontier_openness,
+    replay_frontier,
 )
 from scoreboard.scores.models import Score
 from scoreboard.scores.pareto import ParetoEntry
@@ -41,8 +42,8 @@ OPEN = ("openrouter/deepseek/deepseek-v4-pro",)
 CLOSED = ("openrouter/openai/gpt-5.5",)
 
 
-def _row(spec_id: str, score: float, cost: str, hours: int) -> HistoryRow:
-    return HistoryRow(spec_id, spec_id, score, Decimal(cost), T0 + timedelta(hours=hours))
+def _row(spec_id: str, score: float, cost: str, day: int) -> HistoryRow:
+    return HistoryRow(spec_id, spec_id, score, Decimal(cost), T0 + timedelta(days=day))
 
 
 def _run(rows: list[HistoryRow], models: dict[str, tuple[str, ...]], override=None):
@@ -58,7 +59,7 @@ def _run(rows: list[HistoryRow], models: dict[str, tuple[str, ...]], override=No
         source_id: FrontierMember(source_id, routes, (override or {}).get(source_id))
         for source_id, routes in models.items()
     }
-    return compute_frontier_openness(current, rows, members, pinned=True)
+    return compute_frontier_openness(current, replay_frontier(rows), members, pinned=True)
 
 
 def test_empty_benchmark_has_no_crash_no_holder() -> None:
