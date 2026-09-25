@@ -112,6 +112,27 @@ class BaseScore(BaseScoreboardModel):
     # NULL means the row predates OME-822 (an imported baseline, or an older submission), which
     # is a different fact from the stored value "unavailable".
     run_cost_status = fields.CharField(max_length=16, null=True)
+    # FEATURE: OME-1325 / OME-1251 D5 — what this run's cache hits would have cost.
+    #
+    # WHY it is stored beside the spend rather than folded into it: `run_cost_usd` is what the
+    # run SPENT, and a cache hit costs nothing upstream, so a cached run spends ~0 while costing
+    # real money to reproduce. The reproduction cost is `run_cost_usd + cache_saved_cost_usd`,
+    # DERIVED at the point of use and never stored pre-summed. Summing on the way in would
+    # destroy the submitter's real bill and leave a figure that cannot be recomputed when the
+    # gateway's pricing coverage improves (OME-1287).
+    #
+    # INVARIANT: this is the PROVIDER-AUTHORED total only. The engine also tracks an
+    # `archive_matched` figure — real measured money, but from a DIFFERENT call of the same model
+    # and kind, so not provably this row's. OME-1251 D3 keeps it unpublished, and url4 holds the
+    # two apart "precisely so the two can never be summed". Never add a second column for it.
+    #
+    # INVARIANT: NULL means "not reported", which is NOT the same as 0 — the same rule
+    # `run_cost_usd` carries above. A run that genuinely saved nothing is a legitimate 0.
+    #
+    # AIDEV-NOTE: nothing ranks on this yet. The Pareto frontier still reads `run_cost_usd`
+    # alone; switching it to the sum is gated on OME-1287, because until every call is priced
+    # this total is a LOWER BOUND and a frontier ranked on it would be quietly wrong.
+    cache_saved_cost_usd = fields.DecimalField(max_digits=12, decimal_places=6, null=True)
     # INVARIANT: sha256 hex over the submission's recipe identity (benchmark, spec,
     # url4 expression, result numbers, provider order) — NOT submitted_by or client
     # metadata. Unique so the DB itself rejects a duplicate recipe, independent of

@@ -115,6 +115,11 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # Same CharField narrowing as `openness_override` above. Null means the row predates
         # OME-822, which is a different fact from the stored value "unavailable".
         run_cost_status=cast("RunCostStatus | None", model.run_cost_status),
+        # INVARIANT (OME-1325): every stored cost field is projected. This is the ONLY path
+        # from a row to a receipt, a list, or the private export — the first version omitted
+        # this field, so it was stored and never left the database, and a purge-certifying
+        # export would have omitted data the purge deletes (review of PR #1055, P1).
+        cache_saved_cost_usd=model.cache_saved_cost_usd,
     )
 
 
@@ -170,6 +175,7 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "ran_with_providers",
     "run_cost_usd",
     "run_cost_status",
+    "cache_saved_cost_usd",
 )
 
 
@@ -234,10 +240,22 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
     #
     # This is the same class of bug `OME-1181` Q3 fixed for `models`, reintroduced by choosing
     # the wrong sentinel. The AMOUNT is the sentinel; the status is a label on it.
-    if existing.run_cost_usd is None and existing.run_cost_status is None:
+    # INVARIANT (OME-1325): spend, status and saving describe ONE execution and move as one
+    # snapshot — filled together from a single submission, or not at all. Review of PR #1055
+    # (P1) reproduced the alternative: an original that spent $2 with no saving, replayed by a
+    # fully cached run that spent $0 and saved $2, kept the old spend and gained the new saving —
+    # a $4 reproduction cost neither run produced. The accepted consequence is that a row
+    # already holding a spend never gains a saving by replay; the saving arrives on FIRST
+    # submission, from clients that send all three together.
+    if (
+        existing.run_cost_usd is None
+        and existing.run_cost_status is None
+        and existing.cache_saved_cost_usd is None
+    ):
         updates["run_cost_status"] = submission.run_cost_status
         updates["run_cost_usd"] = submission.run_cost_usd
-    elif existing.run_cost_status is None:
+        updates["cache_saved_cost_usd"] = submission.cache_saved_cost_usd
+    elif existing.run_cost_status is None and existing.run_cost_usd is not None:
         # A migrated priced row. The money is published and stays untouched; the missing label is
         # recoverable without asking the client, because an amount IS the claim `complete` makes.
         # Healing it here means the population `OME-1258` inherits is already correct.
@@ -288,6 +306,11 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         # `complete`, so storing both verbatim keeps the column consistent with the wire.
         # Deliberately absent from _content_hash for the same reason as the amount.
         "run_cost_status": submission.run_cost_status,
+        # FEATURE (OME-1325 / OME-1251 D5): stored beside the spend, never folded into it. The
+        # reproduction cost is derived at the point of use; pre-summing here would destroy the
+        # submitter's real bill and leave a figure nothing could recompute.
+        # Deliberately absent from _content_hash for the same reason as the amount.
+        "cache_saved_cost_usd": submission.cache_saved_cost_usd,
         "content_hash": content_hash,
     }
 
