@@ -3,10 +3,10 @@
 Pure function, no I/O — takes already-fetched schemas so it's directly
 unit-testable without a DB, mirroring `frontier.py`.
 
-AIDEV-NOTE: deliberately NOT named `frontier` anything. `frontier.py`,
-`compute_frontier`, `FrontierPoint` and `FrontierResult` are OME-323's open/closed
-frontier — a different measure, on a different endpoint, that keeps its name and
-meaning. Qualifying this one keeps a grep for either honest (OME-923).
+AIDEV-NOTE: deliberately NOT named `frontier` anything. `frontier.py` is the open-share
+statistic on `/frontier`, which since OME-1145 is computed OVER this module's frontier:
+it calls `compute_pareto_frontier_ids` and never re-derives domination, so the card and
+the table's marks cannot disagree. Qualifying this one keeps a grep for either honest.
 """
 
 from __future__ import annotations

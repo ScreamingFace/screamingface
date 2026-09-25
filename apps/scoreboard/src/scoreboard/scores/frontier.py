@@ -1,101 +1,192 @@
-"""Open/closed frontier computation (OME-323, spec §5/§6).
+"""The open share of the cost/score Pareto frontier (OME-1145, contract from OME-1179).
 
-Pure function, no I/O — takes already-fetched schemas so it's directly
-unit-testable without a DB.
+FEATURE: the "N% open" card on a benchmark page: of the entries the table marks as best score for
+the money, how many can someone else run end to end on downloadable weights.
+
+Pure functions, no I/O. The route supplies the ranked table's own inputs, so the card and the
+table's Pareto marks are one definition (D-L).
+
+WHY this replaced OME-323's statistic: that one counted every row, Baselines included, across
+every benchmark revision, and traced a score-only "who holds the top" trend. The owner superseded
+it on 2026-09-10 (D-L, D-N): the frontier is cost/score, the unit is the entry (D1), and the trend
+is the open share over time.
+
+AIDEV-NOTE: the frontier itself comes from `pareto.py`, never re-derived here. Two copies of the
+domination rule would drift, and the card would then disagree with the table's marks.
 """
 
 from __future__ import annotations
 
-from scoreboard.classification.openness import classify_baseline, classify_score
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
 
-from .schemas import BaselineSchema, FrontierPoint, FrontierResult, ScoreSchema
+from scoreboard.classification.openness import Openness, classify_entry
 
+from .pareto import ParetoEntry, compute_pareto_frontier_ids
+from .schemas import FrontierPoint, FrontierResult
 
-def _current_split(
-    scores: list[ScoreSchema], baselines: list[BaselineSchema]
-) -> tuple[int, int, float]:
-    """`open_count`/`closed_count`/`open_share` over ALL rows, Scores and Baselines
-    together — the "how much of the frontier is open right now" number."""
-    openness_calls = [classify_score(score) for score in scores]
-    openness_calls += [classify_baseline(baseline) for baseline in baselines]
-    open_count = sum(1 for openness in openness_calls if openness == "open")
-    closed_count = len(openness_calls) - open_count
-    total = open_count + closed_count
-    open_share = open_count / total if total else 0.0
-    return open_count, closed_count, open_share
+# D-T (owner, 2026-09-25): the routes are already public in `url4_expression`; the cap only bounds
+# the response when a registry is badly out of date.
+MAX_UNRECOGNISED_MODELS = 20
 
 
-def _compute_trend(scores: list[ScoreSchema]) -> tuple[FrontierPoint | None, list[FrontierPoint]]:
-    """Walks Score rows ONLY, ordered by `submitted_at`. A Baseline's `imported_at`
-    isn't a trustworthy real-world timestamp, so a Baseline never enters this walk
-    at all — not merely "excluded from the printed list". The holder advances only
-    on a strict score improvement — an exact tie leaves the existing holder in
-    place (spec §6's tie-breaking resolution).
-    """
-    trend: list[FrontierPoint] = []
-    current: FrontierPoint | None = None
-    for score in sorted(scores, key=lambda s: s.submitted_at):
-        if current is not None and score.score <= current.score:
-            continue
-        current = FrontierPoint(
-            at=score.submitted_at,
-            score=score.score,
-            openness=classify_score(score),
-            holder="score",
-            label=score.spec_id,
+@dataclass(frozen=True)
+class HistoryRow:
+    """One comparable submission, for replaying the frontier as it stood over time."""
+
+    source_id: str
+    spec_id: str
+    score: float
+    run_cost_usd: Decimal | None
+    submitted_at: datetime
+
+
+@dataclass(frozen=True)
+class FrontierMember:
+    """What classifying one frontier entry needs, and nothing else (OME-1179 constraint 4)."""
+
+    source_id: str
+    models: tuple[str, ...] | None
+    openness_override: Openness | None
+
+
+@dataclass(frozen=True)
+class _Split:
+    open_count: int
+    closed_count: int
+    unidentified_count: int
+    unrecognised: frozenset[str]
+
+    @property
+    def open_share(self) -> float | None:
+        classified = self.open_count + self.closed_count
+        return self.open_count / classified if classified else None
+
+
+def _split(ids: frozenset[str], members: Mapping[str, FrontierMember]) -> _Split:
+    open_count = closed_count = unidentified_count = 0
+    unrecognised: set[str] = set()
+    for source_id in ids:
+        member = members.get(source_id)
+        # A frontier row the models read did not return (deleted between the two reads) says
+        # nothing about what it ran: unidentified, never guessed.
+        verdict, unknown = (
+            classify_entry(member.models, member.openness_override)
+            if member is not None
+            else ("unidentified", ())
         )
-        trend.append(current)
-    return current, trend
+        unrecognised.update(unknown)
+        if verdict == "open":
+            open_count += 1
+        elif verdict == "closed":
+            closed_count += 1
+        else:
+            unidentified_count += 1
+    return _Split(open_count, closed_count, unidentified_count, frozenset(unrecognised))
 
 
-def _comparable(scores: list[ScoreSchema], registered_case_count: int | None) -> list[ScoreSchema]:
-    """Drop runs that covered fewer cases than the benchmark defines (OME-1056).
+def _replay(history: Sequence[HistoryRow]) -> list[tuple[datetime, frozenset[str]]]:
+    """The frontier after each submission, in submission order.
 
-    INVARIANT: the same rule the RANKING applies, applied here too. It lived only in
-    `_build_leaderboard_query`, so a one-case run scoring 1.0 was hidden from the table while
-    this frontier still published it — on the same page, from the same benchmark. A partial run
-    is advantaged rather than merely admitted, because fewer cases makes a perfect score easier.
+    INVARIANT: best-per-spec exactly as the ranked query collapses it: highest score wins, and on
+    a tie the newer row (`store._build_leaderboard_query`'s `score DESC, submitted_at DESC`). A
+    spec that improved must not count twice on a historical frontier.
 
-    WHY it matters more here than in the ranking: `_compute_trend` advances the holder only on a
-    STRICT improvement, so a partial 1.0 becomes `current` and no complete run — 0.99, anything
-    short of a tie-break — can ever displace it. The table's version of this bug is a wrong row
-    ordering; this one is permanent.
-
-    `None` means the board has no registered count, so nothing is comparable-or-not and every row
-    stands, exactly as before this change.
+    AIDEV-NOTE: O(n * m log m) for n submissions over m specs, recomputing the frontier from
+    scratch each step. Right at today's scale (tens of rows per board); a board with thousands
+    of submissions wants an incremental sweep. Not built speculatively.
     """
-    if registered_case_count is None:
-        return scores
-    return [score for score in scores if score.total_questions >= registered_case_count]
+    best: dict[str, HistoryRow] = {}
+    steps: list[tuple[datetime, frozenset[str]]] = []
+    for row in sorted(history, key=lambda r: (r.submitted_at, r.source_id)):
+        held = best.get(row.spec_id)
+        if held is None or row.score >= held.score:
+            best[row.spec_id] = row
+        frontier = compute_pareto_frontier_ids(
+            [
+                # The revision is fixed by the history read (registered revision only), so one
+                # cohort: the same thing `leaderboard_pareto_inputs` hands the table.
+                ParetoEntry(r.source_id, r.spec_id, None, r.score, r.run_cost_usd)
+                for r in best.values()
+            ]
+        )
+        steps.append((row.submitted_at, frontier))
+    return steps
 
 
-def compute_frontier(
-    scores: list[ScoreSchema],
-    baselines: list[BaselineSchema],
-    registered_case_count: int | None = None,
+def frontier_member_ids(
+    current: Sequence[ParetoEntry], history: Sequence[HistoryRow], *, pinned: bool
+) -> frozenset[str]:
+    """Every row that is, or ever was, on the frontier: the only rows whose models are read."""
+    if not pinned:
+        return frozenset()
+    ids = set(compute_pareto_frontier_ids(current))
+    for _, frontier in _replay(history):
+        ids |= frontier
+    return frozenset(ids)
+
+
+def _trend(
+    history: Sequence[HistoryRow], members: Mapping[str, FrontierMember]
+) -> list[FrontierPoint]:
+    """A point each time a submission changes the frontier's open share (D-L)."""
+    points: list[FrontierPoint] = []
+    last: float | None = None
+    for at, frontier in _replay(history):
+        split = _split(frontier, members)
+        share = split.open_share
+        if share == last and (points or share is None):
+            continue
+        points.append(
+            FrontierPoint(
+                at=at,
+                open_share=share,
+                open_count=split.open_count,
+                closed_count=split.closed_count,
+            )
+        )
+        last = share
+    return points
+
+
+def compute_frontier_openness(
+    current: Sequence[ParetoEntry],
+    history: Sequence[HistoryRow],
+    members: Mapping[str, FrontierMember],
+    *,
+    pinned: bool,
 ) -> FrontierResult:
-    """Two independent passes (spec §6's baseline-timing resolution — deliberately
-    NOT one merged computation): the current open/closed split over all rows
-    (`_current_split`), and the trend over Score rows only (`_compute_trend`).
+    """The open share of the full-board Pareto frontier, and its trend.
 
-    Both passes see only comparable runs — see `_comparable`.
+    ``current`` is exactly what the table's marks are computed from
+    (`leaderboard_pareto_inputs`); ``history`` is every comparable submission for the trend;
+    ``members`` holds the models of every row in `frontier_member_ids`.
 
-    AIDEV-NOTE: `registered_case_count` defaults to None, meaning "rank everything" — the weaker
-    of the two signatures, chosen deliberately. Required is safer and is what
-    `_build_leaderboard_query` does, but seven prior tests call this function and rule 5 makes
-    editing them an owner decision a keyword default does not justify. The realistic regression is
-    someone editing the route, not a second caller appearing, and
-    `test_the_frontier_route_passes_the_registered_case_count` pins that. If a second production
-    caller does appear, make this required and take the seven-site approval then (OME-1056).
+    INVARIANT (D12): ``pinned`` false means the board has no registered revision, and the table
+    makes no frontier claim. Nor does this: `frontier_available` false and no share.
     """
-    scores = _comparable(scores, registered_case_count)
-    open_count, closed_count, open_share = _current_split(scores, baselines)
-    current, trend = _compute_trend(scores)
-
+    if not pinned:
+        return FrontierResult(
+            frontier_available=False,
+            frontier_size=0,
+            open_count=0,
+            closed_count=0,
+            unidentified_count=0,
+            unrecognised_models=[],
+            open_share=None,
+            trend=[],
+        )
+    frontier = compute_pareto_frontier_ids(current)
+    split = _split(frontier, members)
     return FrontierResult(
-        open_count=open_count,
-        closed_count=closed_count,
-        open_share=open_share,
-        current=current,
-        trend=trend,
+        frontier_available=True,
+        frontier_size=len(frontier),
+        open_count=split.open_count,
+        closed_count=split.closed_count,
+        unidentified_count=split.unidentified_count,
+        unrecognised_models=sorted(split.unrecognised)[:MAX_UNRECOGNISED_MODELS],
+        open_share=split.open_share,
+        trend=_trend(history, members),
     )

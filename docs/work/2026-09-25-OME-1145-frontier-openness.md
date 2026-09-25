@@ -1,7 +1,7 @@
 ---
 ticket: OME-1145
 stack: scoreboard
-status: planned
+status: in_progress
 started: 2026-09-25
 finished:
 ---
@@ -43,6 +43,39 @@ In the spec, §6.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**
-- **Commits:**
-- **Gates:**
+  - `scores/frontier.py`: rewritten. `compute_frontier_openness`, `frontier_member_ids`, the
+    trend replay. Frontier membership comes from `pareto.compute_pareto_frontier_ids`, never
+    re-derived.
+  - `classification/openness.py`: `classify_entry` (D1, D4, D-Q4)
+  - `scores/schemas.py`: `FrontierPoint`, `FrontierResult`, `FrontierResponse` on the new basis
+  - `scores/store.py`: `frontier_member_models`, `frontier_history_inputs`, and a shared
+    `_chunked_values` that `models_for_score_ids` now uses too
+  - `routes/leaderboard.py`: `get_frontier` on the table's reads and D12 gate
+  - `portal/leaderboard-logic.js` (`frontierSummary`), `portal/benchmark.js` (`renderFrontier`)
+  - new tests: `test_frontier_openness.py` (17), `test_frontier_models_read.py` (5),
+    `test_frontier_route.py` (11), 4 appended to `tests/portal/leaderboard-logic.test.js`
+  - rewritten under the approved exception: all 9 of `test_frontier.py`; 3 tests and
+    `_PUBLIC_FRONTIER_FIELDS` in `test_leaderboard_routes.py`; `test_a_flip_during_the_frontier_
+    query_withholds_the_aggregate` retargeted (approved separately, 2026-09-25)
+- **Commits:** see the PR.
+- **Gates:** `run_gates.py scoreboard --base origin/main --skip-append-only` ALL GREEN: 776 passed,
+  3 skipped; portal Node suite 47/47. Without the skip, the append-only check flagged exactly
+  `test_frontier.py`, `test_leaderboard_routes.py` (both approved) and
+  `tests/portal/leaderboard-logic.test.js`, which was only appended to but which the checker
+  cannot parse. `frontier.py` and `openness.py` at 100% coverage.
+- **Mutation check:** 7 mutations, each caught: a dominated row counted (5 fail), history ignoring
+  the revision (1), history ignoring the case count (3), unknown reading open (2), the override
+  ignored (2), the privacy re-check removed (4), an unpinned board claiming a frontier (3).
 - **Deviations:**
+  1. **One prior test outside the approved list broke.** The flip test hooked
+     `list_all_for_benchmark`, which the route no longer calls. Stopped and asked; the owner
+     approved retargeting it to `frontier_member_models` on a pinned board, plus a new test that
+     flips during each of the three reads.
+  2. **`models_for_score_ids` was reused, not duplicated.** OME-1181 already built the bounded
+     models read. It lacks the override, and widening its return type would break its pinned
+     tests, so its chunk loop moved into `_chunked_values` and a sibling method reads the override.
+  3. **An empty `models` list is unidentified,** not open: `all()` over nothing is True.
+  4. **`classify_score` has no production caller now.** It and its tests stay; removing it is
+     cleanup for a later unit.
+  5. `tests/smoke/test_brand_mockup_drift.py` fails against the live brand mockup when run
+     directly. Unrelated and not in the gate's test set.

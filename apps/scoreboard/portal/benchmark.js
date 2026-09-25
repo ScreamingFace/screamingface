@@ -261,28 +261,20 @@
     summaryNode.hidden = false;
   }
 
-  // OME-323: how much of this benchmark's score frontier is held by
-  // open-reproducible stacks vs. proprietary ones. Fetched and rendered
+  // OME-1145: how much of this benchmark's cost/score Pareto frontier (the rows
+  // the table marks) declares only open-weights models. Fetched and rendered
   // independently of the main leaderboard call — a failure here must not
   // block or error out the leaderboard itself, it's a supplementary stat.
   function renderFrontier(data) {
     var card = document.getElementById("summary-frontier-card");
     var node = document.getElementById("summary-frontier");
     if (!card || !node || !data) return;
-    // WHY count on open_count/closed_count, not data.current: a benchmark with
-    // imported Baselines but zero Score submissions yet has a real, meaningful
-    // open_share (Baselines count toward the split) even though current is null
-    // (Baselines never become the trend holder — see frontier.py). Gating on
-    // current alone silently hid the stat for every baseline-only benchmark
-    // (found in review).
-    var total = (data.open_count || 0) + (data.closed_count || 0);
-    if (total === 0) return;
-    var pct = Math.round((data.open_share || 0) * 100);
-    node.textContent = pct + "% open";
-    node.title = data.current
-      ? "Frontier currently held by a " + data.current.openness +
-        " entry (" + data.current.label + ")"
-      : "";
+    // OME-1145: the decision of what to claim lives in leaderboard-logic.js, where
+    // it is tested; this only paints it. A null summary leaves the card hidden.
+    var summary = L.frontierSummary(data);
+    if (!summary) return;
+    node.textContent = summary.text;
+    node.title = summary.title;
     // OME-820 + OME-323 interaction: `.stats--two` re-columns the strip for the two
     // cards left when the Verified counter was withdrawn. This card is the third, so
     // the modifier must come off the moment it is shown, or the strip wraps it onto
