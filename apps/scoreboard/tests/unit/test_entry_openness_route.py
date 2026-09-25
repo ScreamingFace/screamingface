@@ -16,6 +16,7 @@ from decimal import Decimal
 import httpx
 import pytest
 import pytest_asyncio
+from tortoise import BaseDBAsyncClient
 
 from scoreboard.config import Settings
 from scoreboard.main import create_app
@@ -130,9 +131,11 @@ async def test_models_are_read_only_for_the_page(
     seen: list[int] = []
     real = ScoreStore.frontier_member_models
 
-    async def _counting(self: ScoreStore, score_ids: list[str], **kwargs: object) -> object:
+    async def _counting(
+        self: ScoreStore, score_ids: list[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> object:
         seen.append(len(score_ids))
-        return await real(self, score_ids, **kwargs)
+        return await real(self, score_ids, connection=connection)
 
     monkeypatch.setattr(ScoreStore, "frontier_member_models", _counting)
 
@@ -150,9 +153,11 @@ async def test_a_flip_during_the_verdict_read_withholds_the_board(
     await _score("a", 0.5, "1.00", OPEN, 0)
     real = ScoreStore.frontier_member_models
 
-    async def _flips(self: ScoreStore, score_ids: list[str], **kwargs: object) -> object:
+    async def _flips(
+        self: ScoreStore, score_ids: list[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> object:
         await Benchmark.filter(id=BOARD).update(visibility="private")
-        return await real(self, score_ids, **kwargs)
+        return await real(self, score_ids, connection=connection)
 
     monkeypatch.setattr(ScoreStore, "frontier_member_models", _flips)
 
