@@ -59,6 +59,14 @@ messages"): 21 call folders (3 parallel extractors) + both Slack channels in ful
   (#735–740); one anonymous on-prem signal (no identifiable requester).
 - **Flagged:** `OME-1360` name discrepancy (frontmatter "Roberto Medina" vs transcript "Diana
   Buzaglo") — verify.
+- **Epic organization (owner requested):** all 28 reparented under existing epics + 2 new epics
+  created (`OME-1373` observability/T&E, `OME-1374` tool-plugin integration, both Triage, Irina+Kevin
+  tagged for scope approval). Posted a demand-summary comment on each of the 10 epics. Mapping:
+  E2/`OME-1287` cost&cache ×7, E7/`OME-1296` private-benchmarks ×3, E13/`OME-1306` BYOM ×3,
+  E4c/`OME-1291` routing ×3, E10a/`OME-1299` benchmarks ×3, E10c/`OME-1301` agentic ×2,
+  E14/`OME-1307` reproducibility ×3, E4a/`OME-1289` methods ×2 (tentative), `OME-1373` ×1, `OME-1374` ×1.
+- **Spec/prompt updated (D3+D10):** the daily bot now parents every ticket under a best-fit epic and
+  rolls up a demand comment on that epic; proposes (never auto-creates) an epic when none fits.
 
 ## Outcome (fill at the end — required before COMMIT)
 

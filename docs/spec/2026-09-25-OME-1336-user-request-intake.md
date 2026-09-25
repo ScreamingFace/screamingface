@@ -55,11 +55,27 @@ state, in team `Engineering` / project `😱 ScreamingFace V1`, carrying the `us
 when obvious; otherwise leave landing for a human triager. Triage is the human safety net that makes
 daily auto-filing (D6) safe.
 
-### D3 — Epic linking by parent, only when unambiguous
+### D3 — Every ticket is parented under a matching epic + the epic gets a demand comment
 
-If the request clearly belongs to an existing epic, set that epic as the ticket's **parent**
-(`parentId`). When the mapping is uncertain, file it parent-less rather than guess. Never create a
-new epic — there is no dedicated intake epic.
+Each filed ticket is **parented under the best-fit existing epic** (`parentId`) — the project keeps a
+rich epic taxonomy (E1–E21 etc.; `list_issues {label: "product-feature"}` returns the current set,
+all titled `… [EPIC]`). Then **add or update a demand-summary comment on that epic** (D10) so the
+repeated find is visible in one place.
+
+- **No fitting epic → do NOT auto-create one** (epic creation is an owner action). File the ticket in
+  Triage **unparented**, and in the run log **propose** a new epic (name + rationale) for the owner;
+  on owner consent, create it in Triage tagging **@Irina Bejan @Kevin McDonough** for scope approval,
+  then parent the ticket under it. Never file silently-orphaned tickets without flagging.
+- When the mapping is genuinely ambiguous between two epics, pick the nearest and say so in the epic
+  comment ("tentative fit — reassign if a better home exists").
+
+### D10 — Epic demand-summary comment (the "repeated find" rollup)
+
+For each epic that receives ticket(s) in a run, post one comment (or append to the existing intake
+comment) titled **"User-request intake (OME-1336) — repeated demand under this epic"** listing every
+child request: `OME-N · Requester (org) — one-line ask` + a short quote. This turns each epic into a
+live demand signal (how many users asked, who, in their words). On later runs, update the same rollup
+rather than posting a fresh comment each day.
 
 ### D4 — Always assign + subscribe Irina
 

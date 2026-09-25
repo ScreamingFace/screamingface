@@ -28,6 +28,21 @@ operational checklist; keep the two in sync.
 - **Windows:** call folders dated ≥ (today − 3 days); Slack messages from the last ~26h.
 - **Dedup lookback:** `user-request` issues updated in the last 30 days.
 
+## Epic routing map (refresh each run)
+
+Every filed ticket is parented under the best-fit **existing** epic. Get the current set with
+`list_issues {project: "😱 ScreamingFace V1", label: "product-feature"}` (all titled `… [EPIC]`).
+Common targets (verify IDs each run — they change):
+- `OME-1287` E2 — trustworthy cost reporting & cache support  → cost / caching / token-fee / cache behavior
+- `OME-1296` E7 — bring your own benchmark  → private / custom / held-out benchmarks, own-data fine-tune
+- `OME-1306` E13 — bring your own model  → BYOM, local model frameworks (Ollama/vLLM/SGLang), no-key/local deploy
+- `OME-1291` E4c — routers/cascades  → routing, skip-a-model, multi-account/provider wiring
+- `OME-1299` E10a — single-turn text benchmarks · `OME-1301` E10c — agentic sandbox benchmarks
+- `OME-1307` E14 — reproducible research artifact  → reproducibility, per-question samples, Pareto/methodology
+- `OME-1289`/`1290`/`1292`/`1293` E4a/b/d/e — method support (combine, signals, debate, join fns)
+- `OME-1330` vision/multimodal · `OME-1315` live model discovery · `OME-1316` attribution/provenance
+- `OME-1373` observability into failure modes (T&E) · `OME-1374` tool/plugin integration (e.g. Lean)
+
 ## Transport rules (hard)
 
 - **Linear via MCP tools ONLY** (`list_issues`, `get_issue`, `save_issue`, `save_comment`) — load
@@ -88,7 +103,10 @@ rep's pitch is low-confidence: skip it (or comment on an existing ticket) rather
 - `title`: imperative summary of the ask (no issue-ID prefix, no name dump).
 - `labels: ["user-request"]` (+ an obvious landing leaf only if unmistakable; else leave for triage).
 - `assignee: "irina@openmined.org"`.
-- `parentId`: an existing epic **only when the mapping is unambiguous** (D3) — never create an epic.
+- `parentId`: the **best-fit existing epic** from the routing map above (every ticket gets a parent).
+  If nothing fits, file it **unparented** and, in the run report, **propose** a new epic — do NOT
+  auto-create it; on owner consent create it in Triage tagging `@Irina Bejan @Kevin McDonough` for
+  scope approval, then reparent. Never create an epic unprompted.
 - `description`: the body template below (literal newlines, raw markdown, no `\n` escapes).
 
 ```
@@ -107,13 +125,23 @@ cc @Irina — please review.
 
 The `@Irina` mention notifies + subscribes her; the assignee also puts it in her queue.
 
+### 5b. Roll up the epic demand comment
+For each epic that received ticket(s) this run, add or update one comment titled
+**"User-request intake (OME-1336) — repeated demand under this epic"** listing every child request as
+`OME-N · Requester (org) — one-line ask` + a short quote (so the epic shows how many users asked, who,
+in their words). Prefer updating the existing intake comment on that epic (`list_comments` → find it)
+over posting a new one each run. For a tentative parent, say "tentative fit — reassign if a better
+home exists". For a newly-created epic (owner-approved), the seed request lives in its body + this
+comment tags `@Irina Bejan @Kevin McDonough`.
+
 ### 6. Report
 End the run with a compact summary: for each source item — filed (`OME-N` + title), commented
 (dedup), or skipped (reason). This is the run log, not a human message.
 
 ## Guardrails
 - Never file without a real requester **and** a real quote/ask.
-- Never mint Linear labels or create epics.
+- Never mint Linear labels. Never auto-create epics — parent under an existing one, or propose a new
+  epic to the owner (tag `@Irina Bejan @Kevin McDonough`) and create it only on consent.
 - One fingerprint per source item; never file the same fingerprint twice.
 - `save_issue.labels` REPLACES the set — when updating an existing issue, read current labels first
   and resend the union. (Fresh creates just send `["user-request", ...]`.)
