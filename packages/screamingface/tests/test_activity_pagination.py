@@ -4,27 +4,14 @@ from screamingface._ui.activity_state import ActivityLog
 from screamingface._ui.activity_widget import CandidateActivityRow
 
 
-def test_inline_pagination_moves_between_pages_and_disables_boundaries():
+def test_all_retained_logs_share_one_scroll_panel_without_pagination():
     log = ActivityLog()
     for i in range(201):
         log.observe(0, record(id=str(i), state="completed"))
     panel = CandidateActivityRow(log, ("candidate",), 0)
     panel.toggle.value = True
-    assert panel.page not in panel.details.children
-    assert panel.newer.disabled
-    assert not panel.older.disabled
-    panel.older.click()
-    assert panel.page.value == 1
-    panel.older.click()
-    assert panel.page.value == 2
-    assert panel.older.disabled
-    assert panel.html.value.count('class="sf-activity__call"') == 1
-    panel.newer.click()
-    assert panel.page.value == 1
-    assert panel.pagination in panel.details.children
-
-
-def test_single_page_has_no_pagination_controls():
-    panel = CandidateActivityRow(ActivityLog(), ("candidate",), 0)
-    panel.toggle.value = True
-    assert panel.pagination.layout.display == "none"
+    assert panel.details.children == (panel.html,)
+    assert panel.html.value.count('class="sf-activity__call"') == 201
+    assert "Copy" in panel.html.value
+    assert panel.html.layout.overflow == "auto"
+    assert not hasattr(panel, "page")

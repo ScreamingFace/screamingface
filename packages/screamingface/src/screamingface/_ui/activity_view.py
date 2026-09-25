@@ -59,16 +59,6 @@ STYLE = """<style>
 .sf-candidate-row .sf-eval__table td:first-child,
 .sf-candidate-head .sf-eval__table th:first-child{padding-left:36px}
 .sf-candidate-details{border-top:1px solid var(--sf-line);position:relative}
-.sf-activity-pagination{position:absolute;right:80px;top:4px;z-index:2;
- gap:4px;align-items:center;background:var(--sf-surface)}
-.sf-activity-pagination .widget-button{width:auto;height:21px;margin:0;padding:0 8px;
- font:12px/1.6 "IBM Plex Mono",monospace;color:var(--sf-ink-2);
- background:var(--sf-surface);border:1px solid var(--sf-line);border-radius:0;box-shadow:none}
-.sf-activity-pagination .widget-button:disabled{opacity:.45;cursor:default}
-.sf-activity-pagination .widget-label{width:auto;margin:0;padding:0 4px;
- font:12px/1.6 "IBM Plex Mono",monospace;color:var(--sf-ink-2)}
-.sf-candidate-details:has(.sf-activity-pagination:not([style*="display: none"]))
- .sf-activity-content{padding-top:25px}
 .sf-candidate-details .widget-html{margin:0}
 .sf-candidate-details .sf-activity-console{border:0}
 .sf-candidate-row .sf-eval__table,.sf-candidate-head .sf-eval__table{min-width:820px}
@@ -236,7 +226,7 @@ def _line(row: ActivityRow, label: str) -> str:
 
 
 def _copy_control() -> str:
-    # INVARIANT: copy only this rendered page; raw event bodies never enter the DOM.
+    # INVARIANT: copy only the rendered retained logs; raw event bodies never enter the DOM.
     action = r"""event.stopPropagation();(async()=>{
       const button=this;
       const content=button.closest('.sf-activity-console').querySelector('.sf-activity-content');
@@ -262,12 +252,9 @@ def activity_html(
     candidates: tuple[str, ...],
     *,
     candidate: int = 0,
-    page: int = 0,
     finished: bool = False,
 ) -> str:
     rows = visible_operations(log, candidate)
-    page = max(0, min(page, max(0, (len(rows) - 1) // 100)))
-    selected = rows[max(0, len(rows) - (page + 1) * 100) : len(rows) - page * 100]
     notices = [
         ("evaluation history entries evicted", log.truncated),
         ("operation revision gaps", log.gaps),
@@ -277,7 +264,7 @@ def activity_html(
         ("Engine bridge Logs dropped", log.bridge_loss.get(candidate, 0)),
     ]
     notice = "; ".join(f"{n} {label}" for label, n in notices if n)
-    content = "".join(_line(row, label) for row, label in selected)
+    content = "".join(_line(row, label) for row, label in rows)
     if not content:
         content = (
             "<p>"

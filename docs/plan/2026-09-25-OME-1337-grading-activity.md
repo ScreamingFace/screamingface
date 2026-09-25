@@ -17,3 +17,5 @@ Reserve a terminal-event token when admitting an operation start. The old shared
 40-token reserve can be exhausted by parallel rubric calls after their starts escape.
 Keep general telemetry admission bounded, preserve explicit suppression counters,
 and test burst completion without assuming the downstream bridge is lossless.
+
+User revision: remove pagination entirely; render all retained operations in the existing scroll panel with Copy.

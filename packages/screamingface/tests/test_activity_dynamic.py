@@ -40,14 +40,13 @@ def test_unknown_call_stops_spinning(monkeypatch):
     assert "No recent update" in html
 
 
-def test_pagination_counts_visible_operations_not_transitions():
+def test_scroll_panel_counts_visible_operations_not_transitions():
     log = ActivityLog()
     for i in range(51):
         log.observe(0, record(id=str(i), state="started"))
         log.observe(0, record(2, id=str(i), state="completed"))
     panel = CandidateActivityRow(log, ("candidate",), 0)
     panel.toggle.value = True
-    assert panel.page.max == 0
     assert panel.html.value.count('class="sf-activity__call"') == 51
     assert panel.html.layout.height == "auto"
     assert panel.html.layout.max_height == "280px"

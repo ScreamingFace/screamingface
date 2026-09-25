@@ -77,3 +77,8 @@ No premature Graded events; judge identity is explicit; no private payloads in e
 - Notebook pagination visually verified: inline beside Copy, Older/Newer navigation, oldest-page boundary disabled. Synthetic 205-call preview; no paid provider calls.
 - Full Client gates passed: lint, formatting, types, coverage, deterministic notebooks, build and distribution checks.
 - Final review: generated benchmark expressions unchanged; run ownership and ambiguous attribution guarded; no live-provider success claimed. Ready for draft review.
+
+## Pagination removal
+User requested removing pagination entirely. Render all retained operations in the stable bounded-height scroll panel; retain Copy and history eviction notices. Migrate pagination assertions to full retained-line visibility and preserve transition/scroll-root checks.
+
+Pagination removal outcome: 22 focused tests and full Client gates passed. Synthetic notebook confirms Copy remains and page controls are absent. Existing DRACO kernel left untouched.

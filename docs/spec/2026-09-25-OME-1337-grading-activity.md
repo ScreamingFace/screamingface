@@ -22,3 +22,5 @@ misrepresented as completed calls.
 
 Pagination uses inline Older/Newer controls beside Copy inside the expanded log area,
 with disabled boundary buttons and no visible numeric page-input box.
+
+User revision: remove pagination entirely; render all retained operations in the existing scroll panel with Copy.
