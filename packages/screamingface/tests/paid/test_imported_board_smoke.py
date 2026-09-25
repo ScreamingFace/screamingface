@@ -3,9 +3,9 @@
 FEATURE: a cheap owner-pressed button that re-proves the whole imported shelf's
 product pipe — SDK → gateway → OpenRouter → engine grading — after any refactor.
 
-STORY: as the owner, before citing "17 imported boards supported", I run
-`just screamingface test-paid-inspect` and get, for under a dollar, either a green
-run or the exact board + failure code that broke.
+STORY: as the owner, before citing "every imported board runs", I run
+`just screamingface test-paid-inspect` and get, for a small bounded spend, either a
+green run or the exact board + failure code that broke.
 
 WHY shape-only assertions: scores are nondeterministic and protected elsewhere (the
 golden replay lane). This lane fails ONLY on infrastructure failure codes; a wrong,
@@ -31,6 +31,11 @@ pytestmark = pytest.mark.paid
 # family, benchmark_unavailable, contract/grading errors — means OUR pipe broke,
 # which is exactly what this lane exists to catch. `retryable` can be None and
 # would let a permanent wiring failure hide behind a transient label.
+#
+# WHY judged boards stay strict too: on an LLM-judged board (frontierscience), a
+# rate-limited or failing JUDGE surfaces as `scorer_error`, not `rate_limited` —
+# the wrapped scorer cannot tell "judge busy" from "judge route broken". Grading is
+# the exact seam this lane guards, so it fails; a genuine judge 429 costs a rerun.
 TOLERATED_MODEL_SIDE_CODES: frozenset[str] = frozenset(
     {
         "provider_refusal",

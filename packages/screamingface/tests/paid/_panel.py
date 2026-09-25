@@ -27,8 +27,8 @@ SYNTHESIZER_MODEL: Final[str] = "openrouter/google/gemini-3-flash-preview"
 # wiring, not sampling luck. Same shape as examples/12_inspect_evals_benchmarks.ipynb.
 PANEL_PARAMS: Final[dict[str, int | float]] = {"max_tokens": 8192, "temperature": 0.0}
 
-# WHY board-agnostic wording: one panel serves all 17 imported boards (math, MCQ,
-# yes/no), so the prompt asks for reconciliation and one committed final answer
+# WHY board-agnostic wording: one panel serves every imported board (math, MCQ,
+# yes/no, free-text science), so the prompt asks for reconciliation and one committed final answer
 # without assuming any answer format.
 SYNTHESIS_PROMPT: Final[str] = (
     "You are given several models' answers to one question. Weigh their reasoning, "

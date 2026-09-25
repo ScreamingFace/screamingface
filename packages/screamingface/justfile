@@ -244,8 +244,9 @@ e2e-refresh-golden board *flags: _bless-preconditions
         --refresh-golden {{flags}}
 
 # Paid smoke of every imported board (OME-1275): boots the real stack (Postgres +
-# gateway + engine) and spends real money through OPENROUTER_API_KEY — a fraction of
-# a dollar per run (17 boards × 2 Cases × a 3-model Fusion of flash-tier seeds). The
+# gateway + engine) and spends real money through OPENROUTER_API_KEY: every imported
+# board × 2 Cases × a 3-model Fusion of flash-tier seeds, plus the frontier-model
+# judge calls of any LLM-judged board (frontierscience's judge is gpt-5.4). The
 # test fails only on infrastructure failure codes, never on scores. Never wired into
 # merge gates; the on-demand CI twin is
 # .github/workflows/screamingface-paid-inspect-smoke.yml.

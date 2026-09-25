@@ -18,9 +18,11 @@ permissions:
 jobs:
   paid-smoke:
     runs-on: ubuntu-latest
-    # 90, not 60: a cold cache means 17 dataset downloads before boot + 17 paid
-    # evaluations, and a deadline death would also lose the freshly built asset cache.
-    timeout-minutes: 90
+    # 120: a cold cache means one dataset download per imported board before boot,
+    # then one paid Fusion run per board — and the shelf grows with every import.
+    # The asset cache is saved right after the prepare step (below), so even a
+    # deadline death here never costs the downloads twice.
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: packages/screamingface
@@ -48,8 +50,13 @@ jobs:
 
       # The imported bundles are dataset snapshots pinned by commit sha — slow to
       # download once, immutable afterwards, so the cache key only needs the pins.
-      - name: Cache benchmark assets
-        uses: actions/cache@v6
+      # WHY restore/save split, not the all-in-one actions/cache: that one saves in
+      # its post step only when the WHOLE job succeeds — a failing smoke (the very
+      # run someone needs to repeat) would throw away every freshly downloaded
+      # dataset. Saving right after prepare decouples the cache from the verdict.
+      - name: Restore benchmark assets
+        id: assets-cache
+        uses: actions/cache/restore@v6
         with:
           path: /tmp/screamingface-data/benchmark-assets
           key: inspect-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine_inspect/**') }}
@@ -84,9 +91,16 @@ jobs:
             uv run python -m screamingface_engine.benchmarks.prepare --root "$assets" "${missing[@]}"
           fi
 
+      - name: Save benchmark assets
+        if: steps.assets-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: /tmp/screamingface-data/benchmark-assets
+          key: ${{ steps.assets-cache.outputs.cache-primary-key }}
+
       # SCREAMINGFACE_PAID_REQUIRED: this workflow IS the paid button, so an
       # unavailable stack must FAIL the run — a pytest skip exits 0, and a green
-      # no-op run would tell the owner 17 boards were re-proven when zero ran.
+      # no-op run would tell the owner the whole shelf was re-proven when zero ran.
       - name: Run the paid smoke over every imported board
         env:
           SCREAMINGFACE_TEST_PAID: "1"
