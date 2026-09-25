@@ -13,7 +13,7 @@ Run inside the scoreboard pod, the way `OME-986` ran `retire_benchmark`:
 
 ```
 kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_scores \
-    --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 7 > backup.jsonl
+    --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 10 > backup.jsonl
 ```
 
 ## §2 Rules

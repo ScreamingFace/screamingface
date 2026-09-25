@@ -165,11 +165,15 @@ the pod is lost with the pod.
 ```bash
 # 1. dry run: writes the backup, deletes nothing
 kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_scores \
-  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 7 > backup.jsonl
+  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 10 > backup.jsonl
 # 2. check backup.jsonl holds exactly the scores you mean to delete, then:
 kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_scores \
-  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 7 --yes > backup.jsonl
+  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 10 --yes > backup.jsonl
 ```
+
+The example is the `OME-1384` cleanup: 10 dev `draco-3pass` scores, 7 at the registered revision
+and 3 at a superseded one the table hides, all publishing a cached run's `0.000000` spend. The
+cutoff selects both revisions, which is why the count is 10 and not the 7 the table shows.
 
 Select with `--id <uuid>` (repeatable) or `--submitted-before <ISO 8601 with a timezone>`, not
 both. A count mismatch, an unknown benchmark or a private board exits 2 and deletes nothing.
