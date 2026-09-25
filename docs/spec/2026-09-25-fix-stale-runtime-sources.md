@@ -57,9 +57,26 @@ four source directories. A file anywhere else, including a venv inside the check
 fails boot with an error naming the module, its file, and
 `uv sync --reinstall-package screamingface`.
 
+### Studio sidecar contract
+
+The Studio desktop sidecar (`apps/screamingface-studio/runtime`) is the one editable
+install that is not a dev venv. Its PyInstaller spec used to read `url4.toml` and the
+scoreboard portal and artifacts from the editable install's site-packages copies, which
+no longer exist. It now gets them from `bundled_runner_config()` and `scoreboard_assets()`,
+the same lookups the runtime uses, which resolve to the checkout. The frozen bundle must
+be the same as main's: the same modules and the same `_runtime` data files.
+
+### Partial-checkout contract
+
+An editable build refuses a checkout that is missing any of the four source directories,
+with the release build's `runtime distribution sources are missing` error. Python skips a
+`.pth` entry that does not exist, so without this check a partial checkout would install
+cleanly and then fail on the first `import url4`.
+
 ## Boundaries
 
-- No change to the published wheel or sdist, the public API, or app code.
+- No change to the published wheel or sdist, the public API, or app code. The Studio
+  sidecar spec is the one file outside `packages/screamingface` that changes.
 - One new dev-only dependency: `hatchling` (already the build backend), so a test can
   build a real editable wheel.
 - `activate()` and `child_environment()` stay as they are. They still order the path

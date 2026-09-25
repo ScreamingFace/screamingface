@@ -27,6 +27,7 @@ and make verification check against the source directories. Spec:
 - `packages/screamingface/uv.lock`: relock
 - `packages/screamingface/tests/test_runtime_build_hook.py`: new
 - `packages/screamingface/tests/test_runtime_source.py`: append one test
+- `apps/screamingface-studio/runtime/screamingface-runtime.spec`: resources via runtime lookups (added in the review round)
 
 ## Test plan
 
@@ -62,3 +63,24 @@ and make verification check against the source directories. Spec:
   `editables~=0.3`), which a real frontend installs automatically. `uv add` also reordered
   unrelated `resolution-markers` and a `zstandard` marker in `uv.lock`. Those hunks were
   restored to main's text, so the lock diff is additions only, and `uv lock --check` passes.
+- **Review round (sf-code-review on `33c8ce5f`):**
+  - **Blocker (fixed).** The Studio sidecar's PyInstaller spec read three resource
+    directories that only the old editable build copied into site-packages. Reproduced:
+    `build-sidecar.sh` failed with `ERROR: Unable to find
+    '.../site-packages/screamingface/_runtime/resources'`. The spec now uses
+    `bundled_runner_config()` and `scoreboard_assets()`. After the fix, the build passes,
+    and the bundle is identical to one built from `upstream/main`: 7550/7550 PYZ modules,
+    and the same 42 `_runtime` data files (same path-list md5).
+  - **Pre-existing and out of scope.** `verify-sidecar.sh` fails the same way on
+    `upstream/main` and on this branch: `Local runtime dependencies are missing:
+    kubernetes`. PyInstaller never bundles kubernetes, but the OME-1036 preflight probes
+    for it.
+  - **Nonblocking (fixed).** The editable build now refuses a checkout missing a source
+    directory. A new test uses a partial checkout. Another new test pins that the staging
+    dir is cleaned up; a mutation that drops the cleanup fails it.
+  - **Nonblocking (fixed).** The `cache-keys` block moved below `conflicts`, so the
+    `conflicts` WHY comment stays attached to it.
+  - **Nonblocking (accepted, noted in the PR).** `[build-system]` hatchling stays
+    unpinned. The tests prove the override against the locked 1.32.4. A hatchling that
+    dropped the override would fail loudly: either `import url4` fails, or
+    `verify_live_modules` refuses boot.

@@ -14,6 +14,7 @@ the risky part is whether hatchling honours the editable override at all.
 
 from __future__ import annotations
 
+import tempfile
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -87,3 +88,44 @@ def test_a_release_wheel_still_vendors_the_runtime(
     assert "url4/cli/_config.py" in names
     assert "screamingface_engine/__init__.py" in names
     assert SOURCES_PTH not in names
+
+
+def _partial_checkout(tmp_path: Path) -> Path:
+    """A monorepo copy with `apps/` present but the url4 sources missing; returns the SDK dir."""
+
+    package: Path = tmp_path / "checkout" / "packages" / "screamingface"
+    (package / "scripts").mkdir(parents=True)
+    (package / "src" / "screamingface").mkdir(parents=True)
+    (package / "src" / "screamingface" / "__init__.py").touch()
+    for name in ("pyproject.toml", "README.md", "LICENSE", "scripts/runtime_build_hook.py"):
+        (package / name).write_bytes((PACKAGE_ROOT / name).read_bytes())
+    for app in ("aigateway", "scoreboard", "screamingface-engine"):
+        (tmp_path / "checkout" / "apps" / app / "src").mkdir(parents=True)
+    return package
+
+
+def test_an_editable_build_refuses_a_checkout_missing_a_source_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(_partial_checkout(tmp_path))
+
+    # WHY: Python silently skips a .pth entry that does not exist, so a partial checkout
+    # would install "fine" and then fail on the first `import url4` with no hint. Refuse
+    # at build time, with the same message the release build already gives.
+    with pytest.raises(RuntimeError, match=r"runtime distribution sources are missing.*url4"):
+        build_editable(str(tmp_path / "dist"))
+
+
+def test_an_editable_build_leaves_no_staging_directory_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scratch: Path = tmp_path / "tmp"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+
+    with _build(build_editable, tmp_path, monkeypatch):
+        pass
+
+    # INVARIANT: the .pth is staged in a temp dir only long enough for hatchling to copy
+    # it into the wheel — every `uv sync` rebuild would otherwise leak one.
+    assert list(scratch.iterdir()) == []

@@ -98,11 +98,15 @@ class CustomBuildHook(BuildHookInterface):
         falls back to the checkout.
         """
 
+        directories = [checkout / directory for directory in _LIVE_SOURCE_DIRECTORIES]
+        # WHY: Python silently skips a .pth entry that does not exist, so a partial
+        # checkout would install cleanly and then fail on the first `import url4`.
+        missing = [str(directory) for directory in directories if not directory.is_dir()]
+        if missing:
+            raise RuntimeError(f"runtime distribution sources are missing: {missing}")
+
         staging = Path(tempfile.mkdtemp(prefix="screamingface-editable-"))
         self._pth_staging = staging
         pth = staging / _LIVE_SOURCES_PTH
-        pth.write_text(
-            "".join(f"{checkout / directory}\n" for directory in _LIVE_SOURCE_DIRECTORIES),
-            encoding="utf-8",
-        )
+        pth.write_text("".join(f"{directory}\n" for directory in directories), encoding="utf-8")
         build_data["force_include_editable"] = {str(pth): _LIVE_SOURCES_PTH}
