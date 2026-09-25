@@ -84,3 +84,19 @@ No SDK changes, ticket filing, PR creation or deployment in this unit by default
 Owner authorized the draft PR and accompanying ticket. Filed OME-1378 under
 OME-1305, self-assigned, analytics/agentic/autonomous, High priority.
 Draft review does not imply deployment or browser acceptance.
+
+## Local HTTPS browser smoke — 25 September 2026
+
+Ran the unmodified service on https://127.0.0.1:19443 and a disposable parent
+page on https://localhost:19444, using the machine's already trusted local CA.
+No trust-store or browser privacy settings changed. The Codex in-app browser
+loaded the actual packaged iframe script over HTTPS and passed 13 assertions:
+remembered decline, no ID before consent, consent-only acceptance, server-issued
+ID, second-iframe continuity, iframe-reload continuity, start/finish delivery,
+cross-iframe opt-out, new ID after re-enable, stale-ID rejection, exactly two
+forwarded batches, and no cookies serialized in PostHog payloads.
+
+The real PostHog adapter used a mock HTTP upstream; this did not post events to
+dev PostHog. The test used local parent/child origins, not Colab, and did not
+exercise full Chrome/Safari restart persistence. Remote acceptance remains open.
+No production code changed as a result of this test.
