@@ -96,3 +96,17 @@ assert {(p["path"], p["pathType"]) for p in paths} == {
     ("/bridge", "Prefix"),
 }
 print("PASS: optional bridge configuration and ingress")
+
+colab_rendered = list(
+    yaml.safe_load_all(
+        subprocess.check_output(base + ["--set", "analytics.bridge.colabEnabled=true"], text=True)
+    )
+)
+colab_deployment = next(item for item in colab_rendered if item and item["kind"] == "Deployment")
+colab_env = {
+    item["name"]: item["value"]
+    for item in colab_deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+}
+assert colab_env["ANALYTICS_BRIDGE_COLAB_ENABLED"] == "true"
+assert colab_env["ANALYTICS_BRIDGE_ENABLED"] == "false"
+print("PASS: Colab profile is explicit and does not enable the bridge by itself")

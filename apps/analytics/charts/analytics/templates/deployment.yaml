@@ -32,6 +32,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
           env:
+            - {name: ANALYTICS_BRIDGE_COLAB_ENABLED, value: {{ .Values.analytics.bridge.colabEnabled | quote }}}
             - {name: ANALYTICS_BRIDGE_ENABLED, value: {{ .Values.analytics.bridge.enabled | quote }}}
             - {name: ANALYTICS_BRIDGE_ORIGIN, value: {{ .Values.analytics.bridge.origin | quote }}}
             - {name: ANALYTICS_BRIDGE_PARENT_ORIGINS, value: {{ .Values.analytics.bridge.parentOrigins | quote }}}

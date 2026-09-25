@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.requests import ClientDisconnect
 
+from analytics_service.bridge_origins import COLAB_PATTERN, COLAB_TOP, is_colab_origin
 from analytics_service.contract import InvalidPayload, decode_body
 from analytics_service.ingestion import AdmissionRejected, Ingestion
 from analytics_service.settings import Settings
@@ -185,24 +186,52 @@ class Bridge:
 
 def install_bridge(app: FastAPI, settings: Settings, ingestion: Ingestion, events: Handler) -> None:
     bridge = Bridge(settings, ingestion, events)
-    parents = [item.strip() for item in settings.bridge_parent_origins.split(",")]
+    parents = [item.strip() for item in settings.bridge_parent_origins.split(",") if item.strip()]
     ancestors = " ".join(
         sorted(
-            set(parents + [item.strip() for item in settings.bridge_ancestor_origins.split(",")])
+            set(
+                parents
+                + [
+                    item.strip()
+                    for item in settings.bridge_ancestor_origins.split(",")
+                    if item.strip()
+                ]
+            )
         )
     )
     script = files("analytics_service").joinpath("bridge.js").read_text()
-    script = "const allowedParents = " + json.dumps(parents) + ";\n" + script
+    pattern = COLAB_PATTERN if settings.bridge_colab_enabled else ""
+    script = (
+        "const allowedParents = "
+        + json.dumps(parents)
+        + ";\n"
+        + "const colabParentPattern = "
+        + json.dumps(pattern)
+        + ";\n"
+        + script
+    )
 
     @app.get("/bridge/consent")
-    async def page():
+    async def page(request: Request):
+        sources = ancestors or "'none'"
+        if request.query_params:
+            parent = request.query_params.get("parent_origin", "")
+            valid = (
+                list(request.query_params.multi_items()) == [("parent_origin", parent)]
+                and settings.bridge_colab_enabled
+                and is_colab_origin(parent)
+            )
+            if not valid:
+                return secure(failure(400, "invalid_parent_origin"))
+            # INVARIANT: CSP gets exact validated origins, never *.googleusercontent.com.
+            sources = f"{COLAB_TOP} {parent}"
         response = HTMLResponse(
             '<!doctype html><meta charset="utf-8"><title>Analytics bridge</title>'
             '<script src="/bridge/script.js"></script>'
         )
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; script-src 'self'; connect-src 'self'; "
-            f"frame-ancestors {ancestors}; base-uri 'none'; form-action 'none'"
+            f"frame-ancestors {sources}; base-uri 'none'; form-action 'none'"
         )
         return secure(response)
 

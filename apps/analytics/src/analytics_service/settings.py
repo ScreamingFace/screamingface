@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ANALYTICS_", extra="forbid")
     bridge_enabled: bool = False
+    bridge_colab_enabled: bool = False
     bridge_origin: str = ""
     bridge_parent_origins: str = ""
     bridge_ancestor_origins: str = ""
@@ -53,7 +54,8 @@ class Settings(BaseSettings):
         if self.bridge_enabled:
             origins = [self.bridge_origin]
             for field in (self.bridge_parent_origins, self.bridge_ancestor_origins):
-                origins.extend(field.split(","))
+                if field or not self.bridge_colab_enabled:
+                    origins.extend(field.split(","))
             for origin in origins:
                 validate_origin(origin.strip())
         return self

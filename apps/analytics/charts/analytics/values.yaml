@@ -7,6 +7,7 @@ analytics:
   enabled: false
   bridge:
     enabled: false
+    colabEnabled: false
     origin: ""
     parentOrigins: ""
     ancestorOrigins: ""
