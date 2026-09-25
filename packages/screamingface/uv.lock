@@ -4014,7 +4014,7 @@ wheels = [
 
 [[package]]
 name = "screamingface"
-version = "0.1.1.post8"
+version = "0.1.1.post9"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
