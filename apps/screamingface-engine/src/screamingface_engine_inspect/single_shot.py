@@ -30,6 +30,7 @@ from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
+from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, CaseResult
 from screamingface_engine.benchmarks.definition import (
@@ -376,6 +377,7 @@ def install_imported_board(node: Url4Node, assets: Path, benchmark_id: str) -> N
                 label=f"{board.benchmark.title} Case evaluation",
                 item_name="Attempt",
                 bind=bind_case_evaluation,
+                observe_grading=False,
             ),
         ),
         (
@@ -469,7 +471,7 @@ def _check(root: Path) -> Callable[[Request], str]:
     preserved for re-grading.
     """
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_stage(ActivityKind.ANSWERING)
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
@@ -506,7 +508,15 @@ def _check(root: Path) -> Callable[[Request], str]:
         }
         return compact_json(record)
 
-    return check
+    def record(request: Request) -> str:
+        try:
+            case_id = positive_case_id(request.intent)
+        except ValueError:
+            return check(request)  # Preserve the existing invalid-request error translation.
+        with case_scope(case_id, recording=True):
+            return check(request)
+
+    return record
 
 
 def _check_surface(board: ImportedBoard, root: Path) -> Callable[[Request], str]:

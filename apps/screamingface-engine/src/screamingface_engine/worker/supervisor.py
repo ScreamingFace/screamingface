@@ -744,7 +744,7 @@ class RunSupervisor:
         env.pop(CLIENT_VERSION_ENV, None)
         env.update(decode_message(msg.data))
         # INVARIANT: an incoming queue message cannot escalate deployment privacy policy.
-        env[job_env.ACTIVITY_LEVEL] = os.environ.get(job_env.ACTIVITY_LEVEL, "off")
+        env[job_env.ACTIVITY_LEVEL] = os.environ.get(job_env.ACTIVITY_LEVEL, "full")
         env[job_env.IO_CONCURRENCY] = str(self._io_budget())
         return env
 

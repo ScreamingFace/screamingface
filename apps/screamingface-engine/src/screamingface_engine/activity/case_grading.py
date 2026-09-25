@@ -15,16 +15,17 @@ def emit_case_grading(
     sink: Emitter | None,
     case_id: CaseId,
     state: GradingState,
-    pending: set[str],
+    pending: dict[str, bool],
 ) -> None:
     if session is None or not session.active or sink is None:
         return
     # INVARIANT: one selected Case per run; normalize integer/string wire IDs, not "007".
     # Track only active cases: record-only endpoints must not report grading completion.
     identity = "case-grading-" + sha256(str(case_id).encode()).hexdigest()
+    prepaid = pending.get(identity, False)
     if not _transition(session, pending, identity, state):
         return
-    session.emit(
+    admitted = session.emit(
         sink,
         f"Grading {state}",
         {
@@ -38,11 +39,15 @@ def emit_case_grading(
             PREFIX + "scope": "case",
             **facts({"case_id": case_id}),
         },
+        reserve_terminal=state == "started",
+        prepaid_terminal=state != "started" and prepaid,
     )
+    if state == "started":
+        pending[identity] = admitted
 
 
 def _transition(
-    session: ActivitySession, pending: set[str], identity: str, state: GradingState
+    session: ActivitySession, pending: dict[str, bool], identity: str, state: GradingState
 ) -> bool:
     accepted = False
     if state == "started":
@@ -50,9 +55,9 @@ def _transition(
             if len(pending) >= MAX_PENDING_CASES:
                 session.suppress("rate")
             else:
-                pending.add(identity)
+                pending[identity] = False
                 accepted = True
     elif identity in pending:
-        pending.remove(identity)
+        del pending[identity]
         accepted = True
     return accepted

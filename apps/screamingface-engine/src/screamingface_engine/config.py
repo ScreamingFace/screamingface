@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="URL4_CLOUD_")
 
     # INVARIANT: deployment policy, never a per-run request parameter.
-    activity_level: Literal["off", "full"] = "off"
+    activity_level: Literal["off", "full"] = "full"
     _activity_level_explicit: bool = PrivateAttr(default=False)
 
     def __init__(self, **values: Any) -> None:

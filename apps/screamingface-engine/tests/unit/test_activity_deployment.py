@@ -30,7 +30,7 @@ class Message:
 
 def test_settings_validate_activity_level(monkeypatch):
     monkeypatch.delenv("URL4_CLOUD_ACTIVITY_LEVEL", raising=False)
-    assert Settings().activity_level == "off"
+    assert Settings().activity_level == "full"
     monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", "full")
     assert Settings().activity_level == "full"
     monkeypatch.setenv("URL4_CLOUD_ACTIVITY_LEVEL", "limited")
@@ -47,7 +47,7 @@ def test_queue_message_cannot_override_worker_activity_policy(monkeypatch, deplo
     supervisor = object.__new__(RunSupervisor)
     monkeypatch.setattr(RunSupervisor, "_io_budget", lambda self: 1)
     msg = Message(data=json.dumps({"URL4_CLOUD_ACTIVITY_LEVEL": "full"}).encode())
-    assert supervisor._child_env(msg)["URL4_CLOUD_ACTIVITY_LEVEL"] == (deployed or "off")
+    assert supervisor._child_env(msg)["URL4_CLOUD_ACTIVITY_LEVEL"] == (deployed or "full")
 
 
 def test_bridge_loss_attributes_are_cumulative_safe_and_disabled_when_off():
@@ -139,7 +139,7 @@ async def test_unset_local_settings_keep_injected_activity_policy(monkeypatch):
     [
         ("full", "off", False),
         ("off", "full", True),
-        ("full", None, False),
+        ("full", None, True),
         ("limited", "off", False),
     ],
 )
@@ -181,7 +181,7 @@ async def test_omitted_environment_uses_process_activity_policy(monkeypatch, amb
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "ambient,injected,expected",
-    [("full", "off", "off"), ("full", None, "off"), ("off", "full", "full")],
+    [("full", "off", "off"), ("full", None, "full"), ("off", "full", "full")],
 )
 async def test_supplied_ambient_settings_do_not_override_injected_activity(
     monkeypatch, ambient, injected, expected

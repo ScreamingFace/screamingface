@@ -9,10 +9,15 @@ from screamingface_engine.activity.case_grading import emit_case_grading
 from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind, safe_fact
 from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
-from screamingface_engine.benchmarks.case_context import current_case_id, current_case_position
+from screamingface_engine.benchmarks.case_context import (
+    current_case_id,
+    current_case_position,
+    is_answer_recording,
+)
 from screamingface_engine.benchmarks.contract import CaseId
 from screamingface_engine.benchmarks.grading_activity import GradingState
 from screamingface_engine.benchmarks.stages import StageScope
+from screamingface_engine.grading_call_scope import current_grading_case
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
 
@@ -20,7 +25,7 @@ class ActivityObserver:
     def __init__(self, *, enabled: bool = True) -> None:
         self.session = ActivitySession() if enabled else None
         self._calls: set[Operation] = set()
-        self._grading: set[str] = set()
+        self._grading: dict[str, bool] = {}
 
     def bind(self) -> AbstractContextManager[None]:
         return activate(self.session)
@@ -139,12 +144,17 @@ _INERT_MODEL_CALL = _InertModelCall()
 
 
 def _case_facts() -> dict[str, Scalar]:
-    case_id = current_case_id()
+    grading_case = current_grading_case()
+    case_id = grading_case if grading_case is not None else current_case_id()
     if case_id is None:
         return {}
     try:
         result = {"case_id": safe_fact("case_id", case_id)}
-        if position := current_case_position():
+        if grading_case is not None:
+            result["role"] = "judge"
+        if is_answer_recording():
+            result["action"] = "recording"
+        if (position := current_case_position()) and case_id == current_case_id():
             result.update(
                 case_position=safe_fact("case_position", position[0]),
                 case_count=safe_fact("case_count", position[1]),

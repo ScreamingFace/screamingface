@@ -33,7 +33,18 @@ class CandidateActivityRow:
             layout=widgets.Layout(width="100%", height="100%"),
         )
         self.summary: Any = widgets.HTML(value="", layout=widgets.Layout(width="100%"))
-        self.page: Any = widgets.BoundedIntText(value=0, min=0, max=0, description="Older page")
+        self.page: Any = widgets.BoundedIntText(
+            value=0,
+            min=0,
+            max=0,
+        )
+        self.older: Any = widgets.Button(description="Older", tooltip="Show older logs")
+        self.newer: Any = widgets.Button(description="Newer", tooltip="Show newer logs")
+        self.page_label: Any = widgets.Label()
+        self.pagination: Any = widgets.HBox(children=(self.older, self.page_label, self.newer))
+        self.pagination.add_class("sf-activity-pagination")
+        self.older.on_click(lambda _: self._move_page(1))
+        self.newer.on_click(lambda _: self._move_page(-1))
         # WHY: keep the scroll viewport outside replaceable HTML content.
         self.html: Any = widgets.HTML(
             value="",
@@ -42,7 +53,7 @@ class CandidateActivityRow:
             tooltip=f"Activity for {candidates[index]}",
         )
         self.details: Any = widgets.VBox(
-            children=(self.page, self.html), layout=widgets.Layout(display="none")
+            children=(self.pagination, self.html), layout=widgets.Layout(display="none")
         )
         summary: Any = widgets.HBox(
             children=(self.toggle, self.summary), layout=widgets.Layout(min_width="820px")
@@ -65,6 +76,10 @@ class CandidateActivityRow:
             self.toggle.tooltip = f"{verb} activity for {self._candidates[self._index]}"
             self._refresh_activity()
 
+    def _move_page(self, direction: int) -> None:
+        with self._lock:
+            self.page.value = max(0, min(self.page.max, self.page.value + direction))
+
     def _page(self, change: object) -> None:
         with self._lock:
             if not self._updating:
@@ -81,7 +96,10 @@ class CandidateActivityRow:
         try:
             count = len(visible_operations(self._log, self._index))
             self.page.max = max(0, (count - 1) // 100)
-            self.page.layout.display = "" if count > 100 else "none"
+            self.pagination.layout.display = "" if count > 100 else "none"
+            self.newer.disabled = self.page.value == 0
+            self.older.disabled = self.page.value == self.page.max
+            self.page_label.value = f"{self.page.value + 1} / {self.page.max + 1}"
             self.html.value = activity_html(
                 self._log,
                 self._candidates,
