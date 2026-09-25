@@ -13,7 +13,12 @@ from scoreboard.routes.dependencies import (
     turned_private,
 )
 from scoreboard.scores.baseline_store import BaselineStore
-from scoreboard.scores.frontier import compute_frontier
+from scoreboard.scores.frontier import (
+    FrontierReplay,
+    compute_frontier_openness,
+    frontier_member_ids,
+    replay_frontier,
+)
 from scoreboard.scores.models import Benchmark
 from scoreboard.scores.pareto import compute_pareto_frontier_ids
 from scoreboard.scores.schemas import (
@@ -292,23 +297,28 @@ async def get_leaderboard(
     # bounded so client-controlled recipes and display metadata are never materialised en masse.
     pinned = benchmark.revision is not None
     store = _score_store(request)
-    rows = await store.leaderboard(
-        benchmark_id=benchmark_id,
-        top_n=min(top, MAX_LEADERBOARD_TOP),
-        # The same read that decided `pinned` above also builds the query's revision filter, so
-        # the gate and the filter can never disagree within one request.
-        registered_revision=benchmark.revision,
-        registered_case_count=benchmark.case_count,
-    )
-    frontier_inputs = (
-        await store.leaderboard_pareto_inputs(
-            benchmark_id,
+    # The page and the frontier it is marked against come from ONE snapshot, so a submission
+    # landing between the two reads cannot mark a row against a board it is not on.
+    async with store.read_snapshot() as snapshot:
+        rows = await store.leaderboard(
+            benchmark_id=benchmark_id,
+            top_n=min(top, MAX_LEADERBOARD_TOP),
+            # The same read that decided `pinned` above also builds the query's revision filter,
+            # so the gate and the filter can never disagree within one request.
             registered_revision=benchmark.revision,
             registered_case_count=benchmark.case_count,
+            connection=snapshot,
         )
-        if pinned
-        else []
-    )
+        frontier_inputs = (
+            await store.leaderboard_pareto_inputs(
+                benchmark_id,
+                registered_revision=benchmark.revision,
+                registered_case_count=benchmark.case_count,
+                connection=snapshot,
+            )
+            if pinned
+            else []
+        )
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
         # erroring — a read can, where a write cannot.
@@ -415,37 +425,61 @@ async def get_spec_history(
     tags=["leaderboard"],
 )
 async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
-    """How much of `benchmark_id`'s score frontier is held by open-reproducible
-    stacks vs. proprietary ones (OME-323) — the current split plus the trend over
-    time. Unknown benchmarks return 404. Deliberately benchmark-wide across every
-    spec, not scoped per-spec like the ranked leaderboard above (spec §6).
+    """How much of `benchmark_id`'s cost/score Pareto frontier is open (OME-1145).
+
+    Of the entries the ranked table marks as best score for the money, how many declare only
+    models with downloadable weights (OME-1179 D1, Q1), plus that share over time. Unknown
+    benchmarks return 404; private boards return 404 (OME-894).
+
+    INVARIANT (D-L): the SAME frontier as `get_leaderboard`'s marks, from the same store reads
+    and the same D12 `pinned` gate, so the card cannot contradict the table on the same page.
     """
     benchmark = await _get_benchmark_or_404(benchmark_id)
     if benchmark.visibility == "private":
-        # An aggregate over every participant by definition. It publishes the running-best score
-        # and when it changed, which is most of what a private challenge hides — so it is
-        # unavailable to participants too, not merely scoped. Nothing here to scope: a
-        # single-participant "frontier" would just restate their own best score under a name that
-        # implies a field.
+        # An aggregate over every participant by definition. It publishes the frontier and when
+        # it changed, which is most of what a private challenge hides — so it is unavailable to
+        # participants too, not merely scoped.
         raise HTTPException(
             status_code=404,
             detail=FRONTIER_NOT_AVAILABLE_DETAIL,
             headers=PRIVATE_CACHE_HEADERS,
         )
-    scores = await _score_store(request).list_all_for_benchmark(benchmark_id)
-    baselines = await _baseline_store(request).list_baselines(benchmark_id)
+    # INVARIANT (D12): a board with no registered revision makes no frontier claim, here or in the
+    # table. The same read decides the gate and builds the revision filter.
+    pinned = benchmark.revision is not None
+    store = _score_store(request)
+    current = []
+    replay = FrontierReplay(())
+    members = {}
+    if benchmark.revision is not None:
+        # One snapshot for all three reads (review round 1): the summary and the trend must
+        # describe the same board, and the models must belong to the rows that were read.
+        async with store.read_snapshot() as snapshot:
+            current = await store.leaderboard_pareto_inputs(
+                benchmark_id,
+                registered_revision=benchmark.revision,
+                registered_case_count=benchmark.case_count,
+                connection=snapshot,
+            )
+            history = await store.frontier_history_inputs(
+                benchmark_id,
+                registered_revision=benchmark.revision,
+                registered_case_count=benchmark.case_count,
+                connection=snapshot,
+            )
+            # Built once and shared by the member ids and the trend (review round 1).
+            replay = replay_frontier(history)
+            members = await store.frontier_member_models(
+                sorted(frontier_member_ids(current, replay, pinned=pinned)),
+                connection=snapshot,
+            )
+    # INVARIANT (OME-894): every read of participant data happens BEFORE this re-check, and it is
+    # the last await before the response.
     if await turned_private(benchmark_id):
         raise HTTPException(
             status_code=404,
             detail=FRONTIER_NOT_AVAILABLE_DETAIL,
             headers=PRIVATE_CACHE_HEADERS,
         )
-    # OME-1056: the same coverage rule the ranking applies. `benchmark` was read at the top of
-    # this handler and its `case_count` is the board's canonical scope; a partial run must not
-    # own the frontier while being hidden from the table on the same page.
-    result = compute_frontier(
-        scores=scores,
-        baselines=baselines,
-        registered_case_count=benchmark.case_count,
-    )
+    result = compute_frontier_openness(current, replay, members, pinned=pinned)
     return FrontierResponse(benchmark_id=benchmark_id, **result.model_dump())

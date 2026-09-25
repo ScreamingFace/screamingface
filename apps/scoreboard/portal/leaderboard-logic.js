@@ -215,6 +215,36 @@
     });
   }
 
+  // The "N% open" card, from GET /v1/leaderboard/{id}/frontier.
+  //
+  // Never state a percentage the API did not measure. `open_share: null` means the
+  // frontier held nothing classifiable, and `frontier_available: false` means the board
+  // has no registered revision, so the table makes no frontier claim either. Both return
+  // null and the card stays hidden. A measured 0 is shown: that IS a closed frontier.
+  //
+  // The tooltip names what was set aside, so a stale model registry is visible
+  // rather than reading as a genuinely closed board.
+  function frontierSummary(data) {
+    if (!data || !data.frontier_available) return null;
+    if (typeof data.open_share !== "number") return null;
+    var classified = (data.open_count || 0) + (data.closed_count || 0);
+    var parts = [
+      (data.open_count || 0) + " of " + classified +
+        " frontier entries declare only open-weights models",
+    ];
+    if (data.unidentified_count) {
+      parts.push(data.unidentified_count + " without model identities, not counted");
+    }
+    var unknown = data.unrecognised_models || [];
+    if (unknown.length) {
+      parts.push("unrecognised models counted as closed: " + unknown.join(", "));
+    }
+    return {
+      text: Math.round(data.open_share * 100) + "% open",
+      title: parts.join("; "),
+    };
+  }
+
   return {
     isReproducible: isReproducible,
     isParetoMarked: isParetoMarked,
@@ -227,5 +257,6 @@
     orderRows: orderRows,
     barWidth: barWidth,
     listedBenchmarks: listedBenchmarks,
+    frontierSummary: frontierSummary,
   };
 });

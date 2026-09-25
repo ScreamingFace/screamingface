@@ -345,40 +345,50 @@ async def test_get_frontier_returns_empty_trend_for_a_benchmark_with_no_scores(
 
     response = await async_client.get("/v1/leaderboard/hle/frontier")
 
+    # REWRITTEN (OME-1145, owner-approved 2026-09-25): `current` is gone (D-L), and nothing
+    # measured is a null share, not 0.0 (D-S). This fixture board registers no revision, so like
+    # the table it makes no frontier claim at all (D12).
     assert response.status_code == 200
     body = response.json()
     assert body["benchmark_id"] == "hle"
-    assert body["current"] is None
+    assert body["frontier_available"] is False
     assert body["trend"] == []
     assert body["open_count"] == 0
     assert body["closed_count"] == 0
-    assert body["open_share"] == 0.0
+    assert body["open_share"] is None
 
 
 async def test_get_frontier_reflects_real_submissions(
     async_client: httpx.AsyncClient,
 ) -> None:
-    await _register_benchmark(ScoreStore())
-    await async_client.post(
-        "/v1/scores",
-        json=_submission(spec_id="spec-1", score=0.5, providers=["huggingface"]).model_dump(
-            mode="json"
-        ),
-    )
-    await async_client.post(
-        "/v1/scores",
-        json=_submission(spec_id="spec-2", score=0.9, providers=["openai"]).model_dump(mode="json"),
-    )
+    # REWRITTEN (OME-1145, owner-approved 2026-09-25): the statistic counts the cost/score
+    # frontier of a pinned board, classified from declared models (D1), so the fixture now
+    # registers a revision and each submission carries a cost and its models. The cheap open run
+    # and the dear closed run are both non-dominated, so both count.
+    await ScoreStore().register_benchmark(benchmark_id="hle", display_name="HLE", revision="rev")
+    for spec_id, score, cost, models in (
+        ("spec-1", 0.5, "1.000000", ["openrouter/deepseek/deepseek-v4-pro"]),
+        ("spec-2", 0.9, "5.000000", ["openrouter/openai/gpt-5.5"]),
+    ):
+        payload = _submission(spec_id=spec_id, score=score).model_dump(mode="json")
+        payload.update(
+            models=models,
+            run_cost_usd=cost,
+            run_cost_status="complete",
+            metadata={"benchmark_revision": "rev"},
+        )
+        assert (await async_client.post("/v1/scores", json=payload)).status_code == 201
 
     response = await async_client.get("/v1/leaderboard/hle/frontier")
 
     assert response.status_code == 200
     body = response.json()
+    assert body["frontier_size"] == 2
     assert body["open_count"] == 1
     assert body["closed_count"] == 1
-    assert body["current"]["label"] == "spec-2"
-    assert body["current"]["openness"] == "closed"
-    assert len(body["trend"]) == 2
+    assert body["open_share"] == 0.5
+    # Both posts land on the same day, and the trend is daily since review round 1.
+    assert [point["open_share"] for point in body["trend"]] == [0.5]
 
 
 # --- OME-834: no read path may publish a harvestable address ---
@@ -723,13 +733,18 @@ _PUBLIC_HISTORY_ITEM_FIELDS = {
     "total_questions",
     "verified_by_screamingface",
 }
+# REWRITTEN (OME-1145, owner-approved 2026-09-25): every field on the frontier basis (D-L).
+# `current` is removed; the exclusion counts are new (D4, D-T). Still exhaustive.
 _PUBLIC_FRONTIER_FIELDS = {
     "benchmark_id",
     "closed_count",
-    "current",
+    "frontier_available",
+    "frontier_size",
     "open_count",
     "open_share",
     "trend",
+    "unidentified_count",
+    "unrecognised_models",
 }
 
 
@@ -1226,13 +1241,19 @@ async def test_a_flip_during_the_frontier_query_withholds_the_aggregate(
 ) -> None:
     # D5: a private board publishes no aggregate, to participants either.
     await _two_participants()
-    real, hook = _flip_private_during("list_all_for_benchmark")
+    # RETARGETED (OME-1145, owner-approved 2026-09-25): the frontier route no longer calls
+    # `list_all_for_benchmark`, and it reads participant data only on a board with a registered
+    # revision (D12), so the board is pinned first and the hook sits on its LAST read.
+    # `test_frontier_route.py::test_a_flip_during_any_frontier_read_withholds_the_aggregate`
+    # covers the other two reads.
+    await Benchmark.filter(id=PRIVATE_ID).update(revision="rev")
+    real, hook = _flip_private_during("frontier_member_models")
 
-    ScoreStore.list_all_for_benchmark = hook  # type: ignore[method-assign]
+    ScoreStore.frontier_member_models = hook  # type: ignore[method-assign]
     try:
         response = await async_client.get(f"/v1/leaderboard/{PRIVATE_ID}/frontier")
     finally:
-        ScoreStore.list_all_for_benchmark = real  # type: ignore[method-assign]
+        ScoreStore.frontier_member_models = real  # type: ignore[method-assign]
 
     assert response.status_code == 404
 
@@ -1298,9 +1319,17 @@ async def test_the_frontier_route_passes_the_registered_case_count(
     because `_compute_trend` advances the holder only on a STRICT improvement, no complete run
     could ever displace it.
     """
+    # REWRITTEN (OME-1145, owner-approved 2026-09-25): the same guard on the frontier basis. The
+    # board is pinned (D12, or there is no frontier to protect) and each run declares its models.
+    # The one-case run is OPEN and would lift the share to 100% if the coverage rule were lost.
     store = ScoreStore()
-    await store.register_benchmark(benchmark_id="ifeval", display_name="IFEval", case_count=541)
-    for spec_id, score, total in (("one-case-run", 1.0, 1), ("honest-full-run", 0.85, 541)):
+    await store.register_benchmark(
+        benchmark_id="ifeval", display_name="IFEval", case_count=541, revision="rev"
+    )
+    for spec_id, score, total, models in (
+        ("one-case-run", 1.0, 1, ["openrouter/deepseek/deepseek-v4-pro"]),
+        ("honest-full-run", 0.85, 541, ["openrouter/openai/gpt-5.5"]),
+    ):
         response = await async_client.post(
             "/v1/scores",
             json={
@@ -1315,17 +1344,19 @@ async def test_the_frontier_route_passes_the_registered_case_count(
                 "run_cost_usd": "1.000000",
                 # OME-822: the amount and its status are a validated pair on the request.
                 "run_cost_status": "complete",
+                "models": models,
+                "metadata": {"benchmark_revision": "rev"},
             },
         )
         assert response.status_code == 201, response.text
 
     body = (await async_client.get("/v1/leaderboard/ifeval/frontier")).json()
 
-    assert body["current"]["label"] == "honest-full-run", (
-        "the frontier published a partial run as the state of the art; the route is not passing "
-        "the registered case count to compute_frontier"
+    assert (body["frontier_size"], body["open_count"], body["closed_count"]) == (1, 0, 1), (
+        "the frontier counted a partial run; the route is not passing the registered case count "
+        "to its reads"
     )
-    assert [point["label"] for point in body["trend"]] == ["honest-full-run"]
+    assert [point["closed_count"] for point in body["trend"]] == [1]
 
 
 # ---- OME-923 part B: Pareto frontier marks -----------------------------------
