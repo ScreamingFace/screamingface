@@ -1,9 +1,9 @@
 ---
 ticket: OME-1326
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-25
-finished:
+finished: 2026-09-25
 ---
 
 # OME-1326 — Send the cache saved cost on a leaderboard submission

@@ -1,13 +1,13 @@
 ---
 id: OME-1326
 linear_url: https://linear.app/openmined/issue/OME-1326/send-the-cache-saved-cost-on-a-leaderboard-submission
-status: in_review
+status: done
 type: task
 priority: high
 labels: [client-sf, agentic, deferred]
 parent: OME-1251
 created: 2026-09-23
-closed:
+closed: 2026-09-25
 ---
 
 # Send the cache saved cost on a leaderboard submission
@@ -25,3 +25,5 @@ on the dev board's `/openapi.json` on 2026-09-25, about 10 minutes after #1055 m
 - 2026-09-23: filed under `OME-1251`, gated on `OME-1325` being deployed.
 - 2026-09-25: built. The saving is carried onto `CandidateResult`, exported by `to_dict()`, and
   sent only when present. The reported sum only; the archive sum is never carried (D3).
+- 2026-09-25: merged in #1075 as `4168da14`, approved by Keelan. Closed in Linear with the close
+  comment. Not yet released; release PR #592 has not picked it up.
