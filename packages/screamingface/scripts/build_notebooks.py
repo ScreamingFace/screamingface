@@ -1530,10 +1530,19 @@ Judged boards carry **no check surface**: a mid-run check would spend judge toke
 every attempt. And `limit` matters twice now — each case below pays for the panel's
 answers *and* one judge call."""),
         nbformat.v4.new_code_cell("""\
+PANEL_PARAMS = {"max_tokens": 32768, "temperature": 0.0}  # increase max tokens for frontierscience
+
+# Rebuild the members too: they captured the 8192 cap when they were created above, and
+# reasoning models spend most of it thinking, so a research derivation stops mid-answer.
+member1 = sf.Model(model="openrouter/qwen/qwen3.7-flash", params=PANEL_PARAMS)
+member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARAMS)
+
 SCIENCE_SYNTHESIS_PROMPT = (
     "You are given several models' step-by-step solutions to a frontier-level science "
     "problem. Check each derivation, resolve any disagreement by re-deriving the disputed "
-    "step, and commit to one final answer, stated precisely."
+    "step, and commit to one final answer, stated precisely. Every explicit constraint in "
+    "the problem is a hard requirement: check your final answer against each one, and never "
+    "trade a stated constraint for an answer that seems better."
 )
 
 science_synth = sf.Model(
@@ -1545,6 +1554,8 @@ science_panel = sf.Fusion(
     name="science_panel", members=[member1, member2], synthesizer=science_synth
 )
 
+science_panel"""),
+        nbformat.v4.new_code_cell("""\
 frontierscience_report = sf.evaluate(science_panel, benchmark="inspect-frontierscience", limit=2)
 frontierscience_report"""),
         nbformat.v4.new_markdown_cell("""\
