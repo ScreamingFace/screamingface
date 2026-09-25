@@ -1,8 +1,8 @@
 """OME-305 — the async half of the global cache stage for POST /v1/chat/completions.
 
-FEATURE: one globally shared exact-request cache. The route consults this stage after
-the caller's profile defaults are merged body-wins and before auth-mode or provider
-credential resolution.
+FEATURE: one globally shared exact-request cache. The route consults this stage with the
+caller's hardened body exactly as sent — since OME-1323 (D2) no stored Profile default is
+read or merged — and before auth-mode or provider credential resolution.
 
 STORY: as a benchmark operator I re-run a suite from a second account and the
 identical calls come back from the first run's stored responses, with no provider
@@ -136,21 +136,6 @@ def _closed_gate_reason(settings: Any) -> str:
     return BYPASS_DISABLED if not settings.request_cache_enabled else CACHE_UNAVAILABLE_REASON
 
 
-def defaults_unreadable_bypass() -> GlobalCacheOutcome:
-    """The outcome for "we could not read the defaults that belong in the key" (§57).
-
-    WHY it reuses ``cache_unavailable`` rather than adding a value: the published
-    vocabulary is read by URL4, and this is the same class of event every other member
-    of that value already names — a store the gateway depends on did not answer, so the
-    cache stood down. An operator's next action is identical.
-
-    INVARIANT: a bypass, never a miss. A miss would send the route on to WRITE a row
-    under a key built from a body whose defaults are missing — turning a failed read
-    into a permanently poisoned entry, since current rows never expire.
-    """
-    return GlobalCacheOutcome(status="bypass", reason=CACHE_UNAVAILABLE_REASON)
-
-
 async def look_up_global_cache(
     request: Request,
     *,
@@ -161,9 +146,9 @@ async def look_up_global_cache(
     """Decide eligibility and, when eligible, try to serve this request from cache.
 
     ``body`` must already have passed JSON shape validation, the gateway ingress
-    strip, the provider's own dispatch-control strip, cache-control removal and the
-    caller's profile-defaults merge (OME-305 §57 — the key covers the EFFECTIVE
-    request). It must NOT yet have a resolved auth mode or a credential.
+    strip, the provider's own dispatch-control strip and cache-control removal. No
+    stored Profile default is merged into it (OME-1323, D2): the key covers exactly
+    what the caller sent. It must NOT yet have a resolved auth mode or a credential.
 
     INVARIANT: totally non-raising. Every outcome is a status plus a published
     reason.

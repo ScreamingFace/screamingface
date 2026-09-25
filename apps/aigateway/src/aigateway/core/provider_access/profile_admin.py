@@ -10,9 +10,9 @@ admin Profile routes. Behaviour unchanged; those routes are now shells over this
 # transaction, delete-wins; transaction rollback is the SOLE atomicity mechanism.
 # INVARIANT (hexagonal): nothing here names an HTTP status or imports a route. Refusals are typed
 # and the edge table in `routes/provider_access_http.py` renders them.
-# COMPATIBILITY (window-only, removed at Stage E / OME-1209 with the shells): `legacy_name`, the
-# optional `defaults` keyword and `CredentialSummary.legacy_projection` exist so the shells keep
-# today's JSON byte-identical.
+# COMPATIBILITY (window-only, removed at Stage E / OME-1209 with the shells): `legacy_name` and
+# `CredentialSummary.legacy_projection` exist so the shells keep today's JSON byte-identical.
+# Op 8 lost its `defaults` keyword at the D2 cutover (OME-1323): no writer stores defaults.
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ from .types import (
     CredentialStoreUnavailable,
     CredentialSummary,
     ProviderUnknown,
-    RequestDefaults,
     TargetMissing,
     UnsupportedAuthMode,
     WriteConflict,
@@ -135,7 +134,6 @@ class ProfileBackedCredentialAdmin:
         *,
         raw_api_key: str,
         legacy_name: str | None,
-        defaults: RequestDefaults | None,
     ) -> CredentialSummary:
         """Op 8 — publish an API key as an AUTHENTICATED legacy Profile plus its credential blob.
 
@@ -163,10 +161,9 @@ class ProfileBackedCredentialAdmin:
                 provider=provider,
                 name=name,
             )
-        if defaults is not None:
-            # WHY wholesale: a supplied `defaults` REPLACES the stored one field for field (the
-            # admin UI sends all six or null); `None` means "not in the request" and keeps them.
-            profile.defaults = defaults
+        # INVARIANT (OME-1323, D2): `profile.defaults` is never written here — an existing
+        # Profile keeps its historical defaults byte-identical, and a new one gets the empty
+        # model default.
         profile.auth_type = "api_key"
         profile.state = ProfileState.AUTHENTICATED
         profile.last_refreshed_at = datetime.now(UTC)

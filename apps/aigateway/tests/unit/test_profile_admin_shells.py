@@ -149,7 +149,7 @@ def test_the_tenant_put_validates_then_calls_the_boundary_and_returns_its_projec
 
     resp = client.put(
         "/v1/auth/anthropic/profiles/keyed/api-key",
-        json={"api_key": f"  {KEY}  ", "defaults": {"max_tokens": 512}},
+        json={"api_key": f"  {KEY}  "},
     )
 
     assert resp.status_code == 200, resp.text
@@ -157,22 +157,19 @@ def test_the_tenant_put_validates_then_calls_the_boundary_and_returns_its_projec
         (
             "set_api_key",
             (fake.account_id, "anthropic"),
-            {
-                "raw_api_key": KEY,
-                "legacy_name": "keyed",
-                "defaults": ProfileDefaults(max_tokens=512),
-            },
+            {"raw_api_key": KEY, "legacy_name": "keyed"},
         )
     ]
     assert resp.json() == _summary(fake.account_id, "anthropic", "keyed").legacy_projection
 
 
-def test_the_tenant_put_passes_omitted_defaults_through_as_none(tenant) -> None:
+def test_the_tenant_put_passes_no_defaults_to_the_boundary(tenant) -> None:
     client, fake = tenant
 
     client.put("/v1/auth/anthropic/profiles/keyed/api-key", json={"api_key": KEY})
 
-    assert fake.calls[0][2]["defaults"] is None
+    # OME-1323 (D2): op 8 takes no `defaults` keyword at all.
+    assert "defaults" not in fake.calls[0][2]
 
 
 def test_the_shell_refuses_an_invalid_key_before_reaching_the_boundary(tenant) -> None:
@@ -344,7 +341,7 @@ def test_the_admin_shells_address_the_tenant_account_through_the_boundary(
         ("list", tenant_id),
         ("delete", tenant_id),
     ]
-    assert fake.calls[0][2] == {"raw_api_key": KEY, "legacy_name": "default", "defaults": None}
+    assert fake.calls[0][2] == {"raw_api_key": KEY, "legacy_name": "default"}
     assert fake.calls[2][2] == {"legacy_name": "default"}
 
 

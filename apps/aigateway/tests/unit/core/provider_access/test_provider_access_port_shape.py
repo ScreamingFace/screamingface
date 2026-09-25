@@ -107,7 +107,6 @@ def test_set_api_key_is_pair_addressed_with_the_window_compatible_keywords() -> 
         ("provider", POS),
         ("raw_api_key", KW),
         ("legacy_name", KW),
-        ("defaults", KW),
     ]
 
 

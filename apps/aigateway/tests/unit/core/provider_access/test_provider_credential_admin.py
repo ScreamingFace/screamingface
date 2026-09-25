@@ -43,7 +43,6 @@ from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.plugin import PLUGIN as ANTHROPIC
 
 KEY = "sk-ant-api03-boundary-key-4242"
-ROTATED = "sk-ant-api03-boundary-key-9999"
 
 
 class _Seam:
@@ -73,7 +72,6 @@ class _Seam:
         return self.client.portal.call(partial(fn, *args, **kwargs))
 
     def set_api_key(self, name: str | None = "keyed", key: str = KEY, **kwargs: Any) -> Any:
-        kwargs.setdefault("defaults", None)
         return self.call(
             self.admin.set_api_key,
             self.account_id,
@@ -139,7 +137,7 @@ def test_the_accessor_fills_only_an_absent_slot() -> None:
 
 
 def test_set_api_key_publishes_an_authenticated_legacy_profile_and_its_blob(seam: _Seam) -> None:
-    summary = seam.set_api_key("keyed", defaults=ProfileDefaults(max_tokens=2048))
+    summary = seam.set_api_key("keyed")
 
     stored = seam.profile("keyed")
     assert stored is not None
@@ -147,7 +145,7 @@ def test_set_api_key_publishes_an_authenticated_legacy_profile_and_its_blob(seam
     assert stored.auth_type == "api_key"
     assert stored.account_label == "API key ····4242"
     assert stored.scopes == []
-    assert stored.defaults == ProfileDefaults(max_tokens=2048)
+    assert stored.defaults == ProfileDefaults()
     assert json.loads(seam.blob("keyed") or "{}") == {"auth_type": "api_key", "api_key": KEY}
 
     assert isinstance(summary, CredentialSummary)
@@ -166,24 +164,6 @@ def test_set_api_key_names_the_default_legacy_profile_when_no_name_is_given(seam
 
     assert summary.selector == "default"
     assert seam.profile("default") is not None
-
-
-def test_set_api_key_replaces_defaults_wholesale_and_keeps_them_when_omitted(seam: _Seam) -> None:
-    seam.set_api_key("keyed", defaults=ProfileDefaults(model="anthropic/x", max_tokens=1024))
-
-    seam.set_api_key("keyed", key=ROTATED, defaults=ProfileDefaults(temperature=0.2))
-    replaced = seam.profile("keyed")
-    assert replaced is not None
-    # Wholesale: the earlier model and max_tokens are GONE, not merged.
-    assert replaced.defaults == ProfileDefaults(temperature=0.2)
-    assert replaced.account_label == "API key ····9999"
-
-    seam.set_api_key("keyed", key=KEY, defaults=None)
-    kept = seam.profile("keyed")
-    assert kept is not None
-    # Omitted: today's PUT without a `defaults` field leaves the stored defaults untouched.
-    assert kept.defaults == ProfileDefaults(temperature=0.2)
-    assert json.loads(seam.blob("keyed") or "{}")["api_key"] == KEY
 
 
 def test_set_api_key_writes_the_index_row_before_the_credential(seam: _Seam, monkeypatch) -> None:
@@ -287,7 +267,6 @@ def test_set_api_key_refuses_an_unknown_provider(seam: _Seam) -> None:
             "nope",
             raw_api_key=KEY,
             legacy_name="keyed",
-            defaults=None,
         )
 
     assert info.value.provider == "nope"
@@ -301,7 +280,6 @@ def test_set_api_key_refuses_a_provider_without_an_api_key_strategy(seam: _Seam)
             "codex",
             raw_api_key=KEY,
             legacy_name="keyed",
-            defaults=None,
         )
 
     assert (info.value.auth_mode, info.value.provider) == ("api_key", "codex")

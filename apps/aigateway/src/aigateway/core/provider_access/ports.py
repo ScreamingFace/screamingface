@@ -97,10 +97,10 @@ class ProviderAccess(Protocol):
 class ProviderCredentialAdmin(Protocol):
     """The write interface behind the credential admin routes (ops 7–9; A3, declared at A1).
 
-    # AIDEV-NOTE: window-compatible by construction — `legacy_name` and `defaults` exist only
-    # so the Profile-backed body (`profile_admin.py`, the relocated `upsert_api_key_profile` /
-    # `delete_profile_for_account`) can keep today's semantics; both disappear with the D2 cutover
-    # and the selector sunset.
+    # AIDEV-NOTE: window-compatible by construction — `legacy_name` exists only so the
+    # Profile-backed body (`profile_admin.py`, the relocated `upsert_api_key_profile` /
+    # `delete_profile_for_account`) can keep today's semantics; it disappears with the selector
+    # sunset. `defaults` left op 8 at the D2 cutover (OME-1323, Stage C).
     """
 
     async def list(
@@ -116,11 +116,10 @@ class ProviderCredentialAdmin(Protocol):
         *,
         raw_api_key: str,
         legacy_name: str | None,
-        defaults: RequestDefaults | None,
     ) -> CredentialSummary:
         """Op 8 — store an API key for the (account, provider) pair; `legacy_name or "default"`
-        names the Profile in the window; supplied defaults are replaced WHOLESALE and `None`
-        keeps the stored ones (today's PUT without a `defaults` field); delete-wins and both
+        names the Profile in the window; a Profile's historical defaults are kept as stored and
+        a new Profile gets none (D2: request parameters are the caller's); delete-wins and both
         conflict contracts (`WriteConflict`) are preserved."""
         ...
 

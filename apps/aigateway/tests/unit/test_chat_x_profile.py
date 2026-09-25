@@ -16,7 +16,6 @@ from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
     Profile,
-    ProfileDefaults,
     ProfileState,
     credential_name_for,
     profile_id_for,
@@ -362,109 +361,6 @@ async def test_chat_409_when_profile_pending(credential_blobs, authenticated_cli
 
 
 @pytest.mark.asyncio
-async def test_chat_merges_profile_defaults(credential_blobs, authenticated_client) -> None:
-    account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(credential_blobs, account_id)
-
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            # AIDEV-NOTE: 8192 is deliberate headroom, not an arbitrary number.
-            # This test is about default MERGING, but reasoning_effort="high"
-            # below becomes a 4096-token thinking budget on this model and
-            # Anthropic requires max_tokens to exceed it (OME-640). The original
-            # 4096 sat exactly on that boundary and made a merge test depend on a
-            # provider constraint it never meant to exercise. The boundary itself
-            # is asserted in tests/unit/anthropic/test_anthropic_thinking_conflict.py.
-            defaults=ProfileDefaults(max_tokens=8192, reasoning_effort="medium"),
-        )
-    )
-
-    captured: dict = {}
-
-    async def fake_chat_completion(_self, body):
-        captured.update(body)
-        from types import SimpleNamespace
-
-        return SimpleNamespace(
-            model_dump=lambda: {
-                "id": "x",
-                "choices": [{"message": {"content": "ok"}}],
-            }
-        )
-
-    with patch(
-        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
-        fake_chat_completion,
-    ):
-        resp = authenticated_client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "anthropic/claude-haiku-4-5",
-                "messages": [{"role": "user", "content": "hi"}],
-                "reasoning_effort": "high",  # body wins
-                # max_tokens omitted — profile default fills in
-            },
-        )
-        assert resp.status_code == 200
-        assert captured["max_tokens"] == 8192
-        assert captured["reasoning_effort"] == "high"
-    assert captured["api_key"] == "tok"
-
-
-@pytest.mark.asyncio
-async def test_chat_skips_anthropic_profile_reasoning_default(
-    credential_blobs, authenticated_client
-) -> None:
-    account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(credential_blobs, account_id)
-
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            defaults=ProfileDefaults(reasoning_effort="medium"),
-        )
-    )
-    captured: dict = {}
-
-    async def fake_chat_completion(_self, body):
-        captured.update(body)
-        from types import SimpleNamespace
-
-        return SimpleNamespace(
-            model_dump=lambda: {
-                "id": "x",
-                "choices": [{"message": {"content": "ok"}}],
-            }
-        )
-
-    with patch(
-        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
-        fake_chat_completion,
-    ):
-        resp = authenticated_client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "anthropic/claude-haiku-4-5",
-                "messages": [{"role": "user", "content": "hi"}],
-            },
-        )
-
-    assert resp.status_code == 200
-    assert "reasoning_effort" not in captured
-
-
-@pytest.mark.asyncio
 async def test_chat_removes_anthropic_reasoning_none(
     credential_blobs, authenticated_client
 ) -> None:
@@ -694,7 +590,6 @@ async def test_chat_maps_codex_reasoning_effort_to_reasoning(
             provider="codex",
             name="default",
             state=ProfileState.AUTHENTICATED,
-            defaults=ProfileDefaults(reasoning_effort="medium"),
         )
     )
     captured: dict = {}
@@ -719,6 +614,7 @@ async def test_chat_maps_codex_reasoning_effort_to_reasoning(
             json={
                 "model": "codex/gpt-5.4-mini",
                 "messages": [{"role": "user", "content": "hi"}],
+                "reasoning_effort": "medium",
             },
         )
 

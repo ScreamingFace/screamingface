@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first re-plan; no execution, task or publication approval is inferred
 created: 2026-09-09
-updated: 2026-09-16
+updated: 2026-09-24
 spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 ---
 
@@ -26,18 +26,18 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 
 ## 1. Stage status
 
-| Stage | Gate | Status, 2026-09-16 |
+| Stage | Gate | Status, 2026-09-24 |
 | --- | --- | --- |
 | P0 baseline | G0 | done 2026-09-09 at b47853ea (gates, consumer/meta maps); anchors re-verified at 17048f5d in this pass; gates not rerun |
-| P1 design | G1 | **revised to adapter-first**: consumer evidence, adversarial checks and review feedback incorporated; spec §3–§9 written; open D11–D18 and the D7 conflict presented; not approved |
+| P1 design | G1 | **revised to adapter-first**: consumer evidence, adversarial checks and review feedback incorporated; spec §3–§9 written; D11–D18 and the D7 conflict presented (their current status: spec §8); not approved |
 | Stage 0 characterisation | G1 | **done** as U0 (gateway) and U0e (Engine); commits `48fa1d78`, `c7d767f7` |
 | A1 port + Profile-backed read implementation | G2a | **done** as U1; review findings closed; module names follow D19 (`OME-1204`, 2026-09-15); stop before A2 |
 | Naming decision | G2b precondition | **done** as `OME-1210` (D20): final domain/API/UI noun is Connection; provider-access is the boundary; Profile is legacy compatibility; Provider Account is not introduced as a resource name |
-| A2 in-process consumers | G2b | **implemented locally** as U2 (`OME-1207`, 2026-09-17, branch `OME-1207-move-consumers-off-profiles`; committed, not pushed, no PR): four consumers on the port; import boundary 7/7; full suite 4463 passed / 58 skipped at 92.69 % coverage; OpenAPI byte-identical to `0c0abfcf`. Five of the six stack gates green; **the append-only check is red and stays red** — five prior suites re-expressed at the port seam, an owner-accepted Confidence-Gate deviation scoped to `OME-1207` ONLY, not a clean append-only pass. Stop before A3 |
-| A3 admin interface + management shells | G2c | not started |
-| A4 Hosted Engine on the availability successor | G3 | not started; D15 and D17 decided 2026-09-14 (explicit mutability flag; `GET /v1/provider-access` with provider + status only); not authorised yet |
-| B backing transition | G4 | not started; needs D11, D14, Q01–Q04; retained S1/S2-marker/S4 content applies to option (a) |
-| C defaults cutover (D2) | G5a | not started; needs D16 and an approved impact plan |
+| A2 in-process consumers | G2b | **merged** as U2 (`OME-1207`, PR #981, `248b0b6d`, 2026-09-17): four consumers on the port; at implementation: import boundary 7/7, full suite 4463 passed / 58 skipped at 92.69 % coverage, OpenAPI byte-identical to `0c0abfcf`; its append-only check was red by an owner-accepted Confidence-Gate deviation scoped to `OME-1207` only (five prior suites re-expressed at the port seam) |
+| A3 admin interface + management shells | G2c | **merged** as U3 (`OME-1230`, PR #992, `a78d58da`, 2026-09-21): the Profile management routes sit behind the provider-credential admin boundary |
+| A4 Hosted Engine on the availability successor | G3 | **merged** in two units (D15 and D17 decided 2026-09-14): U4 (`OME-1244`, PR #1006, `2da45896`, 2026-09-21) publishes the caller-scoped `GET /v1/provider-access` listing; U4e (`OME-1245`, PR #1007, `54fa8673`, 2026-09-22) moves the Hosted Engine listing onto it |
+| B backing transition | G4 | **merged** as `OME-1208` (PR #1029, `7cff8a56`, 2026-09-23) under D11 (a), D14 and D16, decided 2026-09-22 (design PR #23): the `provider_credential_slots` pair marker, the Connection-backed implementations and the backfill tooling (S1/S2'/S4); Profile storage, routes and schemas stay until Stage E (`OME-1209`) |
+| C defaults cutover (D2) | G5a | **UI done** as `OME-1322` (PR #1043, `21832443`): the console sends only `{ "api_key" }`. **Gateway implemented locally** as `OME-1323` (2026-09-24, branch `OME-1323-remove-profile-defaults`; not committed, no PR): chat no longer reads or merges stored defaults, the five writers answer a present `defaults` (even `null`) with 422 `defaults_not_accepted`, cache keys byte-identical (no revision bump, no reset). The running console must use the key-only payload before the gateway refusal reaches dev |
 | D selector sunset and carriers (D4) | G5b | not started; needs the date, disposition and env audit |
 | E retirement and cleanup | G6 | not started; needs D6 |
 | S13 catalog | M0 | additive text possible after M0; successors at D/E |
@@ -62,7 +62,8 @@ Linear needs explicit permission; this table is not evidence that issues exist.
 | S2' | Add the pair-marker authority routing and the Connection-backed implementations of both interfaces | `aigateway` | B (D11 a) | S1 |
 | S4 | Build the secret-aware backfill tool with dry-run, journal, atomic authority fencing and tested R1 rollback | `aigateway` | B (D11 a) | S1, S2' |
 | B' | Provider-account aggregate, migration and implementations (replaces S1/S2'/S4) | `aigateway` | B (D11 b) | D11, D14 |
-| S7 | Move the Admin UI onto the admin successor and drop the defaults fieldset at the cutover | `aigateway` (UI stack gates) | D18 / C | U3, D18, C |
+| S7a | `OME-1322` — Drop the Admin UI defaults fieldset at the cutover (done, PR #1043) | `aigateway` (UI stack gates) | C | D2 |
+| S7 | Move the Admin UI list/delete and its key-only attach/replace call onto the admin successor | `aigateway` (UI stack gates) | D18 | U3, D18, S7a |
 | S11 | Activate the defaults REMOVE and the selector rejection policy | `aigateway` | C / D | B, D16, D4 date |
 | S6 | Retire the Engine selector carrier with old/new worker and accepted-job compatibility tests | `screamingface-engine` | D | S11 disposition |
 | S8 | Map any new gateway codes in the SDK with unchanged retry semantics | `py-screamingface` | D | S11 |
@@ -174,7 +175,9 @@ Preconditions and acceptance per spec §5–§7. B starts only after D11 and D14
 S1 → S2' → S4 with the retained E/B/C migration, R0–R4 authority table and quarantine rules;
 option (b) executes B' under the same discipline (dry-run, journal, quarantine, tested rollback,
 protected metadata mapping). C removes defaults per spec §3.7 with a measured cache impact and
-rejects legacy writes carrying defaults. D enables the reject policy only after the provenance
+rejects legacy writes carrying defaults; it lands UI first (`OME-1322`), then gateway
+(`OME-1323`), and keeps `defaults_for`, `apply_defaults`, `should_apply_profile_default` and
+`CredentialTarget.defaults` declared without a production caller until E. D enables the reject policy only after the provenance
 census, drained or dispositioned accepted work and the worker env audit; S6 before S9; SDK and e2e
 pins change in the same release train as any code rename. E follows D6 with reference-safe cleanup
 and the tooling retirement list.
@@ -184,9 +187,11 @@ and the tooling retirement list.
 - Model parameters: keyless default datasheet and provider-declared mode; admission does not adopt
   the exception (`routes/model_parameters.py:113-250`, `routes/model_admission.py:93-169`;
   `tests/unit/test_model_parameters_route.py:99-149,256-301`).
-- Chat: cache hits precede credential resolution for missing, pending and errored targets;
-  unreadable defaults bypass the cache; one effective-body merge (`routes/chat.py:291-377`;
-  SDK `tests/e2e/harness/cache_seeded.py:13-29,144-160`).
+- Chat: cache hits precede credential resolution for missing, pending and errored targets
+  (`routes/chat.py:291-377`; SDK `tests/e2e/harness/cache_seeded.py:13-29,144-160`). Until stage C:
+  unreadable defaults bypass the cache and there is one effective-body merge. From stage C
+  (`OME-1323`) chat reads and merges no stored defaults, so an unreadable profile index no longer
+  bypasses the cache and a hit reads no index at all.
 - Tavily retrieval lane: no credential resolution or identity keying; `tests/unit/tavily_retrieval/`.
 - Correlation: `gateway_call_id`, streaming lifetime and redaction outside Taxonomy
   (`tests/unit/test_call_context.py`); tracing added on `origin/main` must keep working after rebase.

@@ -413,19 +413,6 @@ async def test_set_api_key_over_oauth_profile_flips_auth_type(
     }
 
 
-def test_set_api_key_accepts_defaults(authenticated_client) -> None:
-    resp = _put_api_key(
-        authenticated_client,
-        "anthropic",
-        "keyed",
-        ANTHROPIC_KEY,
-        defaults={"max_tokens": 2048},
-    )
-
-    assert resp.status_code == 200
-    assert resp.json()["defaults"]["max_tokens"] == 2048
-
-
 def test_set_api_key_unknown_provider_404(authenticated_client) -> None:
     resp = _put_api_key(authenticated_client, "nope", "keyed", ANTHROPIC_KEY)
     assert resp.status_code == 404
@@ -580,19 +567,18 @@ def test_oauth_completion_flips_auth_type_back_to_oauth(
 
 
 def test_patch_profile_preserves_api_key_auth_type(authenticated_client) -> None:
-    """PATCHing defaults must not reset the discriminator (audit F12)."""
+    """PATCHing metadata must not reset the discriminator (audit F12)."""
     assert (
         _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY).status_code == 200
     )
 
     resp = authenticated_client.patch(
         "/v1/auth/anthropic/profiles/keyed",
-        json={"defaults": {"max_tokens": 1024}},
+        json={"account_label": "renamed"},
     )
 
     assert resp.status_code == 200
     assert resp.json()["auth_type"] == "api_key"
-    assert resp.json()["defaults"]["max_tokens"] == 1024
 
 
 def test_legacy_profile_index_defaults_to_oauth_auth_type(

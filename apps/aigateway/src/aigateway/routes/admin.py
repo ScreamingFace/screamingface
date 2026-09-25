@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.responses import Response
@@ -38,7 +38,7 @@ from ..core.admin_schemas import (
     PatchAdminProfileRequest,
     SetAdminApiKeyRequest,
 )
-from ..core.auth.admin import CurrentAdmin
+from ..core.auth.admin import AdminPrincipal, CurrentAdmin
 from ..core.auth.cloudflare_identity import (
     HEADER_USER_EMAIL,
     CloudflareIdentity,
@@ -47,6 +47,7 @@ from ..core.auth.cloudflare_identity import (
 from ..core.auth.models import Account
 from ..core.provider_access import facade_target, patch_facade, provider_credential_admin_for
 from .auth import delete_profile_for_account, upsert_api_key_profile
+from .saved_defaults_refusal import refuse_saved_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,20 @@ def describe_admin_security(schema: dict[str, Any]) -> dict[str, Any]:
 def _note_actor(request: Request, admin: CurrentAdmin) -> None:
     """Name the actor for the audit line. Called first in every handler."""
     request.state.admin_actor = admin.username
+
+
+async def _admin_refusing_saved_defaults(request: Request, admin: CurrentAdmin) -> AdminPrincipal:
+    """The authenticated admin, with a `defaults`-carrying body refused (OME-1323, D2).
+
+    WHY it names the actor itself: the refusal runs before the body is validated and so before
+    the handler, and the audit line must still say who was refused.
+    """
+    _note_actor(request, admin)
+    await refuse_saved_defaults(request)
+    return admin
+
+
+AdminRefusingSavedDefaults = Annotated[AdminPrincipal, Depends(_admin_refusing_saved_defaults)]
 
 
 async def _require_account(account_id: UUID) -> Account:
@@ -262,7 +277,9 @@ async def list_account_profiles(
 @router.patch("/accounts/{account_id}/profiles/{provider}/{name}", response_model=AdminProfileOut)
 async def patch_account_profile(
     request: Request,
-    admin: CurrentAdmin,
+    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency, after
+    # authentication and before the body is validated or anything is read or written.
+    admin: AdminRefusingSavedDefaults,
     account_id: UUID,
     provider: str,
     name: str,
@@ -280,9 +297,7 @@ async def patch_account_profile(
             status_code=404,
             detail={"code": "profile_not_found", "provider": provider, "name": name},
         )
-    updated = await patch_facade(
-        request.app, target, defaults=body.defaults, account_label=body.account_label
-    )
+    updated = await patch_facade(request.app, target, account_label=body.account_label)
     return AdminProfileOut.model_validate(updated, from_attributes=True)
 
 
@@ -292,7 +307,9 @@ async def patch_account_profile(
 )
 async def set_account_api_key(
     request: Request,
-    admin: CurrentAdmin,
+    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency, after
+    # authentication and before the body or the key is validated.
+    admin: AdminRefusingSavedDefaults,
     account_id: UUID,
     provider: str,
     name: str,
@@ -315,7 +332,6 @@ async def set_account_api_key(
         name=name,
         account_id=str(account_id),
         raw_api_key=body.api_key,
-        defaults=body.defaults,
     )
     return AdminProfileOut.model_validate(profile)
 

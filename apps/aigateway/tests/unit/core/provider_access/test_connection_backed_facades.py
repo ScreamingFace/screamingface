@@ -205,16 +205,18 @@ def test_patch_keeps_metadata_on_the_document_and_renders_the_connection_state(m
     effective = h.migrated["default"]
     mark_effective_error(h, effective)
 
-    resp = patch_profile(h, defaults={"max_tokens": 7}, account_label="Work")
+    resp = patch_profile(h, account_label="Work")
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert (body["state"], body["auth_type"]) == ("error", "oauth")
-    assert body["defaults"]["max_tokens"] == 7
+    # The historical defaults stay on the document and in the response (D16): a label edit
+    # is not a defaults write.
+    assert body["defaults"]["max_tokens"] == 3
     assert body["account_label"] == "Work"
     doc = document(h)
     assert doc is not None
-    assert (doc.defaults.max_tokens, doc.account_label) == (7, "Work")
+    assert (doc.defaults.max_tokens, doc.account_label) == (3, "Work")
     after = connection(h, effective)
     assert (after.status, after.label) == ("error", f"error:{effective}")
     # INVARIANT: a metadata edit is not authority-changing — the marker does not move.
@@ -225,13 +227,16 @@ def test_patch_is_404_when_a_migrated_pair_has_no_effective_connection(migrated)
     h = migrated
     h.seed_profile(defaults=ProfileDefaults(max_tokens=3))
     detach_effective(h, h.migrated["default"])
+    before = document(h)
+    assert before is not None
 
-    resp = patch_profile(h, defaults={"max_tokens": 7})
+    resp = patch_profile(h, account_label="Work")
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == {"code": "profile_not_found"}
     doc = document(h)
     assert doc is not None and doc.defaults.max_tokens == 3
+    assert doc.account_label == before.account_label
 
 
 def test_patch_answers_the_legacy_conflict_when_the_document_vanishes(
@@ -260,10 +265,10 @@ def test_patch_of_an_unmigrated_pair_keeps_the_legacy_body(legacy) -> None:
     h = legacy
     h.seed_profile(state=ProfileState.ERROR, defaults=ProfileDefaults(max_tokens=3))
 
-    resp = patch_profile(h, defaults={"max_tokens": 7})
+    resp = patch_profile(h, account_label="Work")
 
     assert resp.status_code == 200, resp.text
-    assert (resp.json()["state"], resp.json()["defaults"]["max_tokens"]) == ("error", 7)
+    assert (resp.json()["state"], resp.json()["defaults"]["max_tokens"]) == ("error", 3)
     pair = marker(h)
     assert (pair.migration_state, pair.generation) == ("none", 0)
 

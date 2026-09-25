@@ -127,15 +127,10 @@ def dispatching(client: TestClient, dispatch: Any):
     return patch.object(plugin, "chat_completion", new=dispatch)
 
 
-def seed_profile(
-    client: TestClient, *, name: str = "default", defaults: dict[str, Any] | None = None
-) -> None:
-    """Give the caller a dispatchable direct-OpenAI profile, optionally with defaults."""
+def seed_profile(client: TestClient, *, name: str = "default") -> None:
+    """Give the caller a dispatchable direct-OpenAI profile (no writer takes defaults, D2)."""
     cast(Any, client.app).state.api_key_validation_service = ValidValidationService()
-    payload: dict[str, Any] = {"api_key": KEY}
-    if defaults is not None:
-        payload["defaults"] = defaults
-    created = client.put(f"/v1/auth/openai/profiles/{name}/api-key", json=payload)
+    created = client.put(f"/v1/auth/openai/profiles/{name}/api-key", json={"api_key": KEY})
     assert created.status_code == 200, created.text
 
 
