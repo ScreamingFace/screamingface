@@ -95,8 +95,12 @@ def install_mounts(app: FastAPI, derive: Callable[[], Awaitable[MountTable]]) ->
     app.router.on_startup.append(_install)
 
 
-def register_mounts(app: FastAPI, table: MountTable) -> None:
-    """Register `table`'s mounts as `GET` routes and forget any cached OpenAPI schema (MC-D8)."""
+def register_mounts(app: FastAPI, table: MountTable, *, require_identity: bool = True) -> None:
+    """Register `table`'s mounts as `GET` routes and forget any cached OpenAPI schema (MC-D8).
+
+    `require_identity=False` is LOCAL mode only (`serve --local`, loopback): it has no edge that
+    verifies a caller, and a local mount call without `X-User-Email` has always been served.
+    """
     for mount in table.mounts:
         # A url4 data key may be an exact TARGET (`/rows?limit=5`) or contain `{`, which FastAPI
         # would read as a path template: neither can be a route, so it is refused at startup.
@@ -104,7 +108,7 @@ def register_mounts(app: FastAPI, table: MountTable) -> None:
             raise ValueError(f"mount path {mount.path!r} cannot be served as an HTTP route")
         app.router.add_api_route(
             mount.path,
-            _handler_for(mount),
+            _handler_for(mount, require_identity=require_identity),
             methods=["GET"],
             tags=[MOUNT_TAG],
             summary=f"Call the {mount.kind} {mount.path}",
@@ -121,6 +125,15 @@ def register_mounts(app: FastAPI, table: MountTable) -> None:
             response_class=Response,
             name=f"mount:{mount.path}",
         )
+        # AC14 parity: a mount speaks GET only, and a wrong method gets the NODE's answer —
+        # url4's `method_not_allowed` envelope — not the framework's `{"detail": ...}` 405.
+        app.router.add_api_route(
+            mount.path,
+            _method_not_allowed,
+            methods=_OTHER_METHODS,
+            include_in_schema=False,
+            name=f"mount-method:{mount.path}",
+        )
     app.state.mount_table = table
     # `/healthz` reports which config file the mounts came from (erd.md §2, R11).
     app.state.config_digest = table.config_digest
@@ -128,7 +141,16 @@ def register_mounts(app: FastAPI, table: MountTable) -> None:
     app.openapi_schema = None
 
 
-def _handler_for(mount: MountDescriptor) -> Callable[..., Awaitable[Response]]:
+_OTHER_METHODS = ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+
+
+async def _method_not_allowed() -> Response:
+    return _envelope(405, "method_not_allowed", "url4 nodes speak GET", {"Allow": "GET"})
+
+
+def _handler_for(
+    mount: MountDescriptor, *, require_identity: bool
+) -> Callable[..., Awaitable[Response]]:
     async def call_mount(
         request: Request,
         q: Annotated[
@@ -144,6 +166,7 @@ def _handler_for(mount: MountDescriptor) -> Callable[..., Awaitable[Response]]:
         return await _call(
             request,
             mount,
+            require_identity=require_identity,
             q=q,
             prefer=prefer,
             traceparent=traceparent,
@@ -185,13 +208,17 @@ def _problem_code(status: int) -> str:
 
 
 def _validated(
-    request: Request, mount: MountDescriptor, q: str | None, answer_seed: str | None
-) -> tuple[dict[str, str], int | None, str]:
+    request: Request,
+    mount: MountDescriptor,
+    q: str | None,
+    answer_seed: str | None,
+    require_identity: bool,
+) -> tuple[dict[str, str] | None, int | None, str]:
     """(verified identity, answer seed, direct target) — or `_Refused` before anything queues."""
     # INVARIANT (MC-D3): identity comes ONLY from the verified header, through the same reader
     # `GET /?q=` uses. No other inbound header reaches the run message.
     identity = job_env.identity_from_headers(request.headers)
-    if not identity:
+    if not identity and require_identity:
         raise _Refused(
             _envelope(403, "identity_access_denied", "a verified caller identity is required")
         )
@@ -211,13 +238,14 @@ def _validated(
         raise _Refused(_envelope(414, "uri_too_long", "the path and query exceed 8 KiB"))
     query = raw.decode("latin-1")
     target = f"{mount.path}?{query}" if query else mount.path
-    return dict(identity), seed, target
+    return (dict(identity) if identity else None), seed, target
 
 
 async def _respond(
     request: Request,
     mount: MountDescriptor,
     *,
+    require_identity: bool,
     q: str | None,
     prefer: str | None,
     traceparent: str | None,
@@ -226,7 +254,7 @@ async def _respond(
     cache_control: str | None,
 ) -> Response:
     deps = _deps(request)
-    identity, seed, target = _validated(request, mount, q, answer_seed)
+    identity, seed, target = _validated(request, mount, q, answer_seed, require_identity)
     # A mount call has no capability token: the App names its run itself.
     topic = new_topic()
     cap = deps.settings.sync_max_wait_s

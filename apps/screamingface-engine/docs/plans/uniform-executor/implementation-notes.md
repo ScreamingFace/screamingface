@@ -3,7 +3,7 @@
 This file records where the build deviates from the PRDs, and why. It also records the
 residual risks that the build accepts. Read it with the PRD of each phase.
 
-Status: phases 1–3 built; phase 4 (PRD 04) built for production, local mode open on branch `exp/uniform-executor`. Exploratory work: the SDLC
+Status: phases 1–4 built on branch `exp/uniform-executor`. Exploratory work: the SDLC
 steps (ticket, ledger) were skipped on the owner's instruction. Phase 0 is partial: the CHAR
 tests of PRD 01 exist; the kind environment and the measurement harness do not exist yet.
 
@@ -200,6 +200,7 @@ This is not the B2/B3 benchmark of the test plan (that needs the kind environmen
   `GET /?q=` result over 512 KiB, a defect that predates this work — answered 500.
 - Status parity: a permanent failure with a non-url4 code (`aigateway_http_401`,
   `provider_refused`) answers 502, as the node tier's `_remap` did.
+- A non-GET request to a mount gets the node's `405 method_not_allowed` envelope (AC14).
 - Every mount answer is url4's envelope and is counted; the 414 check measures raw bytes; a
   mount path with `?`, `{` or `}` fails startup; `wait_terminal_or_gone` is shared with the sync
   `GET /?q=`; topics come from `auth.token.new_topic`.
@@ -218,6 +219,10 @@ This is not the B2/B3 benchmark of the test plan (that needs the kind environmen
 
 ### Not done in phase 4
 
-- MNT-24 / MC-D13: local mode still serves mounts through `_LocalNodeMount`.
+- MC-D13 in part: local mode serves its MOUNTS through the same route code (direct runs on the
+  in-process runner, in `/openapi.json`; `tests/integration/test_local_mount_direct_run.py`),
+  anonymously as before (`require_identity=False`, loopback only). The EVAL PATH stays on
+  `_LocalNodeMount`: serving it as a `shape=expression` sync run needs the url4 expression
+  decoder, which the control plane may not import (the owners' open question, PRD 04 §6).
 - MNT-15 redeem half (303 → artifact fetch 200 on a real store) and MNT-8 on a model endpoint
   with a real gateway: need the kind environment (K3, K4, K5).

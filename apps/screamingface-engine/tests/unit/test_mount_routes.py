@@ -449,3 +449,13 @@ async def test_a_mount_call_arms_no_orphan_reaper() -> None:
     async with _client(app) as client:
         await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
     assert app.state.reaper is None or not app.state.reaper._deadlines  # noqa: SLF001
+
+
+async def test_a_wrong_method_on_a_mount_is_the_nodes_405_envelope() -> None:
+    """AC14 parity (review C8): url4's `method_not_allowed`, not the framework's `detail`."""
+    app, runner = _app(_ok("x"))
+    async with _client(app) as client:
+        resp = await client.post("/v1/chat/completions?q=(a)!b", headers=EMAIL)
+    assert resp.status_code == 405
+    assert _error(resp)["code"] == "method_not_allowed"
+    assert runner.scheduled == []

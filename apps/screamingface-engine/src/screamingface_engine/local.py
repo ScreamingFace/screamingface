@@ -53,14 +53,17 @@ from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
 from screamingface_engine.request_scope import AnswerSeedError, bind_sync_request
 from screamingface_engine.rest.forwarder import forwarded_headers
+from screamingface_engine.rest.mounts import register_mounts
 from screamingface_engine.runner.fair_share import FairShareGate
-from screamingface_engine.world.config import load_config
+from screamingface_engine.world.config import config_file_digest, load_config
 from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
 from screamingface_engine.world.serving import (
+    MountTable,
     NodeMountRoute,
     compose_serving_world,
     engine_route_paths,
     install_node_route,
+    mount_descriptors,
     node_eval_path,
 )
 from screamingface_engine.world.wire import (
@@ -352,7 +355,20 @@ def _install_local_node(
             # `origin == "sync"` regardless of a candidate-invocation flag, so a judge model call
             # issued THROUGH the eval path is still seeded. Closing that would mean the eval path
             # stops evaluating arbitrary expressions, which is the whole point of `serve --local`.
-            holder["paths"] = direct_mount_paths(world) | {node_eval_path(world)}
+            direct = direct_mount_paths(world)
+            # FEATURE (uniform executor PRD 04, MC-D13): the MOUNTS go through the SAME route
+            # code as the deployed App — a direct run on this process's in-process runner,
+            # against this shared node — and appear in `/openapi.json`. The node's ASGI surface
+            # keeps only the eval path (a full expression, served as before: PRD 04 §6).
+            register_mounts(
+                app,
+                MountTable(
+                    mounts=tuple(m for m in mount_descriptors(world) if m.path in direct),
+                    config_digest=config_file_digest(run_env),
+                ),
+                require_identity=False,
+            )
+            holder["paths"] = frozenset({node_eval_path(world)})
         else:
             holder["paths"] = frozenset()
         app.state.node_world = world
