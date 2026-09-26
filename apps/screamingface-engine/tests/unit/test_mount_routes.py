@@ -238,6 +238,8 @@ async def test_bound_elapsed_returns_504_and_stops_run() -> None:
         # Node-tier parity (`send._remap`): a permanent ENGINE/provider code is a 502.
         ("aigateway_http_401", True, 502),
         ("provider_refused", True, 502),
+        # A url4 code the node answered 500 stays 500 (test_a_500_with_a_url4_error_code_stays_500).
+        ("internal_error", True, 500),
     ],
 )
 async def test_mount_status_mapping_matches_node_tier_table(
@@ -459,3 +461,43 @@ async def test_a_wrong_method_on_a_mount_is_the_nodes_405_envelope() -> None:
     assert resp.status_code == 405
     assert _error(resp)["code"] == "method_not_allowed"
     assert runner.scheduled == []
+
+
+async def test_two_concurrent_mount_calls_each_carry_their_own_identity() -> None:
+    """Parity port (test_two_concurrent_sync_requests_keep_their_own_caller_state): each call
+    is its own run message with its own verified identity — nothing shared between them."""
+    app, runner = _app(_ok("x"))
+    async with _client(app) as client:
+        await asyncio.gather(
+            client.get("/v1/chat/completions?q=(a)!b", headers={"X-User-Email": "one@x"}),
+            client.get("/v1/chat/completions?q=(a)!b", headers={"X-User-Email": "two@x"}),
+        )
+    identities = sorted(str(run["identity"]) for run in runner.scheduled)
+    assert len({run["topic"] for run in runner.scheduled}) == 2
+    assert "one@x" in identities[0] + identities[1] and "two@x" in identities[0] + identities[1]
+    assert all(("one@x" in i) != ("two@x" in i) for i in identities)
+
+
+async def test_a_tilde_encoded_model_mount_is_served_with_its_target_unchanged() -> None:
+    """Parity port (test_a_colon_bearing_model_id_is_addressable_via_the_tilde_route): the App
+    serves the ENCODED route form and queues it as written; the connector in the child decodes
+    `~` to `:` (its own tests)."""
+    stream = InMemoryEventStream()
+    runner = _Runner(stream, _ok("x"))
+    app = create_app(Settings(jwt_secret="mount-secret"), stream=stream, job_runner=runner)  # type: ignore[arg-type]
+    path = "/huggingface/org/model~novita"
+    register_mounts(app, MountTable((MountDescriptor(path, "endpoint", None),), None))
+    async with _client(app) as client:
+        resp = await client.get(f"{path}?q=('')!'go'", headers=EMAIL)
+    assert resp.status_code == 200
+    assert runner.scheduled[0]["target"] == f"{path}?q=('')!'go'"
+
+
+async def test_healthz_reports_the_mount_tables_config_digest() -> None:
+    """Parity port (test_the_node_healthz_reports_the_config_file_digest /
+    test_the_app_and_the_node_report_one_digest_for_one_file): with the node tier gone, the App
+    reports the digest of the config file its mounts came from — the one the workers build."""
+    app, _ = _app(_ok("x"))
+    async with _client(app) as client:
+        health = (await client.get("/healthz")).json()
+    assert health["config_digest"] == TABLE.config_digest
