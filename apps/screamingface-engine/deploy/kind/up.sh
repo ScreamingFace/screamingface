@@ -57,6 +57,9 @@ kind load docker-image "${ENGINE_TAG}" "${BENCHMARK_TAG}" "${STUB_TAG}" --name "
 
 echo "==> [4/6] aigw-stub"
 kubectl --context "${KIND_CONTEXT}" apply -f "${HERE}/aigw-stub/k8s.yaml"
+# WHY restart: the image TAG never changes (`:kind`), so a re-run's freshly loaded image is
+# not picked up by an unchanged pod spec — without this a redeploy silently keeps old code.
+kubectl --context "${KIND_CONTEXT}" rollout restart deployment/aigw-stub
 kubectl --context "${KIND_CONTEXT}" rollout status deployment/aigw-stub --timeout=120s
 
 echo "==> [5/6] helm upgrade --install ${RELEASE}"
@@ -73,7 +76,10 @@ helm upgrade --install "${RELEASE}" "${APP_ROOT}/deploy/helm" \
   "$@" \
   --wait --timeout 5m
 
-echo "==> [6/6] rollout status"
+echo "==> [6/6] restart onto the freshly loaded images, then rollout status"
+# Same reason as the stub above: the `:kind` tag does not change between runs.
+kubectl --context "${KIND_CONTEXT}" -n "${NAMESPACE}" rollout restart \
+  "deployment/${APP_DEPLOYMENT}" "deployment/${RUNNER_DEPLOYMENT}"
 kubectl --context "${KIND_CONTEXT}" -n "${NAMESPACE}" rollout status \
   "deployment/${APP_DEPLOYMENT}" --timeout=180s
 kubectl --context "${KIND_CONTEXT}" -n "${NAMESPACE}" rollout status \
