@@ -242,6 +242,15 @@ Name of the Secret holding the shared artifact-signing key (OQ-3.2). An `existin
 otherwise the chart creates `<fullname>-artifact-signing`. The SAME name reaches both tiers:
 the node signs the 303, the App verifies it.
 */}}
+{{/*
+Whether the App holds an artifact-signing key (uniform executor PRD 05, DC-D3): a key or an
+existing Secret is configured. The App signs the 303 of a mount result over 1 MiB with it; with
+neither, such a result is streamed inline and counted (MC-D9).
+*/}}
+{{- define "screamingface-engine.artifactSigningConfigured" -}}
+{{- if or .Values.artifactSigning.signingKey .Values.artifactSigning.existingSecret -}}true{{- end -}}
+{{- end -}}
+
 {{- define "screamingface-engine.artifactSigningSecretName" -}}
 {{- if .Values.artifactSigning.existingSecret -}}
 {{- .Values.artifactSigning.existingSecret -}}

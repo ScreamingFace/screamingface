@@ -41,7 +41,7 @@ spec:
         # updated, running pod kept the OLD env, silently wrong behavior).
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
-        {{- if .Values.node.enabled }}
+        {{- if include "screamingface-engine.artifactSigningConfigured" . }}
         # FX-81: the App VERIFIES the node's signed 303 with this same key (OQ-3.2), so a
         # rotated signing Secret must roll the App too — without this annotation the App keeps
         # verifying against the OLD key until its next unrelated restart, and every redirect the
@@ -116,12 +116,10 @@ spec:
             - secretRef:
                 name: {{ include "screamingface-engine.artifactSecretName" . }}
             {{- end }}
-            {{- if .Values.node.enabled }}
-            # FEATURE (unit 3, OQ-3.2): the shared HMAC key the App VERIFIES a spilled
-            # artifact's short-lived signature against. The node SIGNS with the same Secret.
-            # Gated on `node.enabled` because the node is the only signer: with no tier there is
-            # no signature to accept, and holding the key would only widen the credential
-            # surface.
+            {{- if include "screamingface-engine.artifactSigningConfigured" . }}
+            # FEATURE (OQ-3.2; uniform executor PRD 05 DC-D3): the HMAC key the App SIGNS a
+            # mount's 303 artifact URL with and VERIFIES it against. Present only when a key is
+            # configured; without one a mount result over 1 MiB is streamed inline (MC-D9).
             - secretRef:
                 name: {{ include "screamingface-engine.artifactSigningSecretName" . }}
             {{- end }}
