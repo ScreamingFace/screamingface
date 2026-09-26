@@ -55,8 +55,12 @@ class _Publisher:
 
 
 def _world_file(tmp_path: Path) -> Path:
+    """A world that builds: the warm phase builds it ahead (a gateway world; never dialled)."""
     path = tmp_path / "url4.toml"
-    path.write_text("")
+    path.write_text(
+        '[aigateway]\nbase_url = "http://aigateway.invalid"\n'
+        'default_route = "/anthropic/claude-haiku-4-5"\n'
+    )
     return path
 
 
@@ -85,3 +89,17 @@ async def test_a_world_config_error_is_reported_not_raised(tmp_path: Path) -> No
         {job_env.RUNNER_CONFIG: str(_world_file(tmp_path))}, publisher_factory=_Publisher
     )
     assert ok.world_ok is True
+
+
+async def test_the_warm_phase_builds_the_world_ahead(tmp_path: Path) -> None:
+    """kind B4 finding: the per-run world build was most of a simple call's latency. The warm
+    phase builds it (from per-process config only) and hands it to the one run."""
+    state = await warm_up(
+        {job_env.RUNNER_CONFIG: str(_world_file(tmp_path))}, publisher_factory=_Publisher
+    )
+    try:
+        assert state.world_ok and state.shared is not None
+        assert state.shared.section is not None  # the [aigateway] section it was built from
+    finally:
+        assert state.world_aclose is not None
+        await state.world_aclose()

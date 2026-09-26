@@ -109,7 +109,7 @@ behavior (SY-H1). Each test now sends `Prefer: respond-async`, so it still pins 
 
 | # | PRD text | Built | Reason |
 |---|---|---|---|
-| W1 | "the world is built" in the warm phase | The warm phase does the imports, the broker connection (and stream declaration) and the world-config parse. The world itself is still built lazily on the run's first `execute`. | `build_executor` and the world depend on per-run keys: `TOPIC` (the io wrapper), `EXTRA_MODELS` (the routes), and the request scope (identity, profile, seed). Building them before the spec breaks WRM-4. A world that is split into a per-process part and a per-run part is a refactor of `world/factory.py`, and it is not in this phase. |
+| W1 | "the world is built" in the warm phase | RESOLVED after the kind measurements: the warm phase now BUILDS the world (`build_world` from per-process config) and hands it to the run as a `SharedWorld`; a run whose `EXTRA_MODELS` it does not route builds its own (`shared_world_serves`). First built without it: | `build_executor` and the world depend on per-run keys: `TOPIC` (the io wrapper), `EXTRA_MODELS` (the routes), and the request scope (identity, profile, seed). Building them before the spec breaks WRM-4. A world that is split into a per-process part and a per-run part is a refactor of `world/factory.py`, and it is not in this phase. |
 | W2 | WC-D10: "one code path" | Production always uses the pool (`size=0` included: spawn on claim through the same protocol). The supervisor's `spawn=` test seam keeps `DirectLauncher` (a cold spawn with the whole environment). | About 56 existing supervisor tests drive fake processes through `spawn=`. The supervisor logic under them (dedupe, heartbeat, hard wall, classification, cancel) did not change. The pool has its own tests, and the worker spine runs a real process through the pool. |
 | W3 | C5: "fd 3" | The control pipe's fd number travels in `URL4_CLOUD_CONTROL_FD`. | `pass_fds` keeps the parent's fd number, which is not 3. |
 | W4 | (gap) | A new line, `REFUSED <code>`. A refused spec is not retried, and the terminal frame carries the code (`unsupported_spec_version`, `spec_malformed`, `spec_too_large`). | A new child would refuse the same spec. An exit code alone cannot tell a refusal from a crash before the ACK. |
@@ -226,3 +226,18 @@ This is not the B2/B3 benchmark of the test plan (that needs the kind environmen
   decoder, which the control plane may not import (the owners' open question, PRD 04 §6).
 - MNT-15 redeem half (303 → artifact fetch 200 on a real store) and MNT-8 on a model endpoint
   with a real gateway: need the kind environment (K3, K4, K5).
+
+## Findings from the kind environment (phase 0, run after phases 1–4)
+
+The kind suite and the latency harness found five defects that no unit or integration test had
+shown. Each is fixed, with a regression test.
+
+| # | Finding | Evidence | Fix |
+|---|---|---|---|
+| F1 | Every finished run held its worker SLOT for 60 s: the child slept its reclaim grace before it exited. Under load every slot sat in grace and claims stopped (looked like a wedge). Predates this work (OME-1089); the uniform path makes it fatal. | K6: `slots_busy` 2/2 for 60 s, no claims, stub answers in 200 ms. | The worker owns the reclaim (`RECLAIM_OWNER=worker`): the child exits at its terminal frame; the supervisor purges after the run's grace in a detached task. |
+| F2 | `ensure_events_stream` called `add_stream` on an EXISTING stream, which reserves its bytes twice: a restart failed with 10047 once `max_bytes` passed half the store (8 GiB default vs the bundled 10 GiB). | App start failure in kind. | `stream_info` first; `add_stream` only for a missing stream. |
+| F3 | The bundled Garage pods carried the App's selector labels, so the App Service also selected them. | A port-forward to the App landed on Garage. | Garage has its own selector labels (`<name>-garage`). |
+| F4 | The App got the artifact-signing key only with `node.enabled`, so with the tier off no mount result over 1 MiB got its 303 (PRD 05 DC-D3). | K4: 200 with the 1.5 MiB body. | The key follows the configuration (`signingKey` / `existingSecret`); the chart no longer mints a random key. |
+| F5 | The warm pool refilled one child at a time (1.4 s boot in kind), slower than back-to-back calls used it, and the world was built per run (~600 ms). | B4 frame times: request→Started 1.4–1.6 s without a warm child; Started→first span ~800 ms with a 200 ms stub. | Parallel refill; the world is built in the warm phase (W1 resolved). |
+
+Also found: `up.sh` did not restart pods onto reloaded images (same `:kind` tag) — fixed.

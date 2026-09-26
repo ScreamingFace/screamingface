@@ -245,7 +245,10 @@ async def test_warm_spawn_backoff_1_2_4_to_30s() -> None:
     spawner = _Spawner(_FakeChild(1), fail=7)
     pool = WarmChildPool(spawn_warm=spawner, size=1, sleep=sleeps)
     pool.start()
-    await _settle()
+    for _ in range(500):  # until the eighth attempt warmed the child (scheduling-independent)
+        if pool.idle_count == 1:
+            break
+        await asyncio.sleep(0)
     assert sleeps.delays == [1, 2, 4, 8, 16, 30, 30]
     assert pool.idle_count == 1
     await pool.drain()
@@ -348,3 +351,26 @@ async def test_a_spawn_in_flight_at_drain_is_killed() -> None:
     await _settle()
     await pool.drain()
     assert slow.killed
+
+
+async def test_missing_warm_children_are_started_in_parallel() -> None:
+    """kind B4 finding: a pool of 3 refills all three at once, not one boot after another."""
+    started: list[int] = []
+    gate = asyncio.Event()
+
+    class _SlowSpawner(_Spawner):
+        async def __call__(self) -> WarmHandle:
+            started.append(len(started))
+            await gate.wait()
+            return await super().__call__()
+
+    pool = WarmChildPool(
+        spawn_warm=_SlowSpawner(_FakeChild(1), _FakeChild(2), _FakeChild(3)), size=3
+    )
+    pool.start()
+    await _settle()
+    assert len(started) == 3  # all three are booting before any is READY
+    gate.set()
+    await _settle()
+    assert pool.idle_count == 3
+    await pool.drain()

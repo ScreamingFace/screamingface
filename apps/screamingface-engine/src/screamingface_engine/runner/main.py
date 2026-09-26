@@ -622,6 +622,9 @@ class WarmState:
 
     publisher: Any
     world_ok: bool
+    # The world, built ahead from per-process config (None when the config does not load).
+    shared: SharedWorld | None = None
+    world_aclose: Callable[[], Awaitable[None]] | None = None
 
 
 async def warm_up(
@@ -632,32 +635,42 @@ async def warm_up(
     """The warm phase: the per-PROCESS work a child can do before its run is known.
 
     The imports are already paid by the time this runs (this module's import graph is the
-    run path's). Here: connect to the broker and declare the shared events stream, and read
-    the declared world's config file, so a broken config is visible in READY.
+    run path's). Here: connect to the broker and declare the shared events stream, and BUILD
+    the declared world from its config file — the per-run world build was the largest share of
+    a simple call's latency (kind B4: ~600 ms of ~800 ms). A broken config is reported in READY.
 
     INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, the profile,
-    the io budget. The world itself is NOT built: its routes and io depend on per-run keys
-    (`EXTRA_MODELS`, `TOPIC`), and the request scope (identity, profile, seed) is per-run by
-    definition. It is built lazily on the run's first `execute`, as before.
+    the io budget. The world holds no caller state: the request scope (identity, profile, seed)
+    is bound per run and read at call time. A run whose admitted overlay (`EXTRA_MODELS`) this
+    world does not route builds its own world instead (`shared_world_serves`), as before.
     """
     publisher = publisher_factory(environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL))
     await publisher.ensure_stream("")
     try:
-        load_config(environ)
+        config = load_config(environ)
+        io, world_aclose = await build_world(
+            env=environ, config=config, benchmarks=BUILTIN_BENCHMARKS
+        )
     except Exception:
         # WHY swallow: the run will fail with its own `Terminated(failed)` when it builds the
         # world (WC-D3). READY carries the verdict so the worker can count it.
-        logger.warning("warm child: the world config does not load", exc_info=True)
-        world_ok = False
-    else:
-        world_ok = True
-    return WarmState(publisher=publisher, world_ok=world_ok)
+        logger.warning("warm child: the world could not be built ahead", exc_info=True)
+        return WarmState(publisher=publisher, world_ok=False)
+    return WarmState(
+        publisher=publisher,
+        world_ok=True,
+        shared=SharedWorld(io=io, section=config.aigateway),
+        world_aclose=world_aclose,
+    )
 
 
-async def _run_process(publisher: JetStreamPublisher | None) -> None:
+async def _run_process(
+    publisher: JetStreamPublisher | None, shared: SharedWorld | None = None
+) -> None:
     """One run from this process's environment, then its reclaim.
 
-    `publisher` is the warm phase's already-connected one, or None for a cold `run`.
+    `publisher` and `shared` are the warm phase's (an already-connected publisher, a world
+    built ahead), or None for a cold `run`.
     """
     params = params_from_env(os.environ)
     # WHY: entry-point composition owns plugin registration; the executor stays optional.
@@ -667,6 +680,7 @@ async def _run_process(publisher: JetStreamPublisher | None) -> None:
         os.environ,
         benchmarks=BUILTIN_BENCHMARKS,
         observers=observation_factories(os.environ),
+        shared_world_provider=(lambda: shared) if shared is not None else None,
     )
     traceparent = os.environ.get(job_env.TRACEPARENT)
     if publisher is None:
@@ -740,7 +754,12 @@ async def _warm_process(environ: Any, stdin: Any) -> int:
     # been spawned with, and the io budget is the worker's at hand-off (WRM-18).
     environ.update(spec.env)
     environ[job_env.IO_CONCURRENCY] = str(spec.io_concurrency)
-    await _run_process(state.publisher)
+    try:
+        await _run_process(state.publisher, state.shared)
+    finally:
+        # The world built ahead is this process's own; the run does not close a shared world.
+        if state.world_aclose is not None:
+            await state.world_aclose()
     return 0
 
 

@@ -340,22 +340,37 @@ class WarmChildPool:
         cancel every running supervisor (the N-3 cascade). Log and keep warming.
         """
         while not self._draining:
-            if len(self._idle) + self._spawning >= self._size:
+            missing = self._size - len(self._idle) - self._spawning
+            if missing <= 0:
                 self._wake.clear()
                 await self._wake.wait()
                 continue
-            try:
-                handle = await self._spawn_ready()
-            except Exception as exc:
-                if not isinstance(exc, _WARM_FAILURES):
-                    logger.exception("warm spawn failed unexpectedly")
-                self._count_failure()
-                await self._backoff(f"warm spawn failed: {exc!r}")
-                continue
+            # WHY a parallel batch (kind B4 finding): one spawn at a time refilled a pod's pool
+            # at 1 / boot time (~1.4 s in kind), slower than back-to-back claims used it, so the
+            # pool ran dry and every call paid a cold boot. While spawns FAIL, one at a time, so
+            # the backoff below paces a broken spawn rather than a burst of them.
+            batch = 1 if self._consecutive_failures else missing
+            outcomes = await asyncio.gather(*(self._warm_one() for _ in range(batch)))
             if self._draining:
-                _signal(handle.proc)
                 return
-            self._park(handle)
+            if not all(outcomes):
+                await self._backoff("warm spawn failed")
+
+    async def _warm_one(self) -> bool:
+        """Start one warm child and park it; False when it failed (counted)."""
+        try:
+            handle = await self._spawn_ready()
+        except Exception as exc:
+            if not isinstance(exc, _WARM_FAILURES):
+                logger.exception("warm spawn failed unexpectedly")
+            logger.warning("warm spawn failed: %r", exc)
+            self._count_failure()
+            return False
+        if self._draining:
+            _signal(handle.proc)
+            return True
+        self._park(handle)
+        return True
 
     def _park(self, handle: WarmHandle) -> None:
         entry = _Idle(
