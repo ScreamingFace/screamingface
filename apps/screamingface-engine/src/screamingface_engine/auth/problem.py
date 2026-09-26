@@ -19,6 +19,10 @@ class Problem(BaseModel):
     status: int
     detail: str | None = None
     instance: str | None = None
+    # An RFC 9457 §3.2 extension member: a stable, machine-readable refusal code a client can
+    # branch on without parsing ``detail``. Unset on every problem that predates it, so those
+    # bodies are byte-for-byte unchanged on the wire.
+    code: str | None = None
 
 
 class ProblemException(Exception):
@@ -33,8 +37,9 @@ class ProblemException(Exception):
         detail: str | None = None,
         type_: str = "about:blank",
         headers: dict[str, str] | None = None,
+        code: str | None = None,
     ) -> None:
-        self.problem = Problem(type=type_, title=title, status=status, detail=detail)
+        self.problem = Problem(type=type_, title=title, status=status, detail=detail, code=code)
         self.headers = headers
         super().__init__(title)
 

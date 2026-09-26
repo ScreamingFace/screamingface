@@ -36,6 +36,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
+from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from url4.streaming.interfaces import (
     EventConsumer,
@@ -176,7 +177,6 @@ async def _schedule(
     url4: str,
     *,
     traceparent: str | None = None,
-    profile: str | None = None,
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy,
     answer_seed: int | None = None,
@@ -189,9 +189,13 @@ async def _schedule(
 
     ``cache`` is the run's RESOLVED cache policy — the one thing both carriers converged on, and
     required rather than optional so that "nobody decided" cannot reach this hop. It travels
-    beside ``profile`` and ``identity`` because it is the same kind of value: per-RUN, captured at
-    the REST edge, re-rendered onto the aigateway call by the Runner. It is deliberately NOT world
-    config; a per-run value parked on the shared aigateway configuration would leak across runs.
+    beside ``identity`` because it is the same kind of value: per-RUN, captured at the REST edge,
+    re-rendered onto the aigateway call by the Runner. It is deliberately NOT world config; a
+    per-run value parked on the shared aigateway configuration would leak across runs.
+
+    INVARIANT (OME-1381, producer-off): no profile is passed. The ingress refuses a stated
+    ``X-Profile`` before this hop, so every run this Engine schedules is selector-less; the port
+    keeps its ``profile`` argument only until the URL4 cleanup removes it.
     """
     try:
         already_exists = await deps.job_runner.exists(topic)
@@ -213,7 +217,6 @@ async def _schedule(
             url4,
             deps.settings.job_deadline_s,
             traceparent=traceparent,
-            profile=profile,
             identity=identity,
             cache=cache,
             answer_seed=answer_seed,
@@ -222,10 +225,9 @@ async def _schedule(
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
         _logger.info(
-            "run scheduled topic=%s url4_chars=%d profile=%s cache=%s",
+            "run scheduled topic=%s url4_chars=%d cache=%s",
             topic,
             len(url4),
-            profile,
             cache,
         )
     except JobAlreadyExists as exc:
@@ -436,7 +438,10 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
             },
         },
     },
-    400: _problem("The url4 expression query parameter `q` is required."),
+    400: _problem(
+        "The url4 expression query parameter `q` is required, or the request states the "
+        "unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+    ),
     409: _problem("A run already exists for this topic (single-shot)."),
     428: _problem("Attach a WebSocket to the topic before starting the run."),
     502: _problem("The run failed."),
@@ -474,8 +479,9 @@ _START_DESC = (
     "An inbound ``traceparent`` header, when strictly W3C-valid, is forwarded to the run so its "
     "trace is adopted downstream; absent or malformed, nothing is forwarded — a fresh trace is "
     'minted instead (W3C "restart" rule: garbage never propagates).\n\n'
-    "The optional ``X-Profile`` header selects which of the resolved caller's stored aigateway "
-    "credentials to route through; absent, the gateway's default profile applies.\n\n"
+    "``X-Profile`` is no longer supported: a request that states one (any nonblank value) is "
+    "refused with ``400`` and ``code: x_profile_unsupported`` before anything is scheduled. "
+    "Absent or blank, the run uses the caller's provider access.\n\n"
     "The caller's verified identity header (``X-User-Email``) is read off the inbound request and "
     "carried to the run, which renders it onto its aigateway calls. Envoy strips and re-injects it "
     "after re-verifying Cloudflare Access's assertion, so a client cannot forge it. Absent, the "
@@ -503,10 +509,8 @@ async def start_run(
         str | None,
         Header(alias="traceparent", description="W3C trace context to adopt for this run."),
     ] = None,
-    x_profile: Annotated[
-        str | None,
-        Header(alias="X-Profile", description="Optional aigateway routing profile label."),
-    ] = None,
+    # Documents the refusal in OpenAPI; `refuse_selector` below is what decides.
+    _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
     x_answer_seed: Annotated[
         str | None,
         Header(
@@ -536,6 +540,7 @@ async def start_run(
     body executes — no code path here touches the topic without an already-verified capability
     token.
     """
+    refuse_selector(request.headers)
     deps = _deps(request)
     topic = str(claims["sub"])
     url4 = _require_q(q)
@@ -553,7 +558,6 @@ async def start_run(
         topic,
         url4,
         traceparent=inbound_traceparent,
-        profile=x_profile,
         identity=identity,
         cache=_converge_cache(deps, topic, cache_control, clock),
         answer_seed=answer_seed,

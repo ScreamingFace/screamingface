@@ -28,7 +28,7 @@ sync tier. The node tier must override it rather than inherit it. [proposed]
 | Endpoint | `GET /<mount path>?q=(context)!intent` |
 | Protocol | HTTP/1.1, GET only |
 | Auth | Edge-verified `X-User-Email`, injected by Cloudflare Access / Envoy. Never trusted from the client. (`ans:Q4`) The App trusts the edge-set header exactly as the ensemble path does today; it adds no verification step of its own (`04-review-fixes.md` RD1). |
-| Request headers | `X-Profile` (optional), `Cache-Control` (optional, RFC 9111 request directives), `X-Answer-Seed` (optional int), `traceparent` (optional, strict W3C) |
+| Request headers | `Cache-Control` (optional, RFC 9111 request directives), `X-Answer-Seed` (optional int), `traceparent` (optional, strict W3C). `X-Profile` is no longer supported: a nonblank value is refused with `400 x_profile_unsupported`; absent or blank is accepted (OME-1381) |
 | Success | `200`, `text/plain; charset=utf-8`, body is the handler's return value |
 | Large result | `303 See Other`, `Location: /artifacts/{id}` **plus a short-lived signature** when the body exceeds 512 KiB (D9, OQ-3.2 decision) |
 | Timeout | 30 s, then `504` |
@@ -58,7 +58,7 @@ Status mapping is url4's own (`peer/_http.py:30-93`):
 
 | Status | Codes |
 |---|---|
-| 400 | `malformed_source`, `unbound_reference` |
+| 400 | `malformed_source`, `unbound_reference`; `x_profile_unsupported` **[engine addition, OME-1381]** |
 | 403 | `identity_access_denied`, `consent_required`, `consent_withheld` |
 | 404 | `endpoint_not_found`, `unknown_identity`, `identity_unavailable` |
 | 405 | non-GET method |
@@ -93,7 +93,7 @@ Document the limit; large-context work belongs on the ensemble path. [implied]
 |---|---|
 | Endpoint | `GET http://<node-service>/<mount path>?<query verbatim>` |
 | Protocol | HTTP/1.1 over the cluster network. Shared `httpx.AsyncClient` with keep-alive. |
-| Forwarded | The path and query unchanged; `X-User-Email`, `X-Profile`, `Cache-Control`, `X-Answer-Seed`, `traceparent` |
+| Forwarded | The path and query unchanged; `X-User-Email`, `X-Profile` (blank only — a nonblank one is refused before the forward, OME-1381), `Cache-Control`, `X-Answer-Seed`, `traceparent` |
 | Not forwarded | Cookies, `Authorization`, `URL4-Capability`, any client-supplied `X-User-Email` (stripped and re-set from the verified value) |
 | Timeout | 35 s |
 | Retry | **Once, on connection error only.** Never on timeout, never on a 5xx response. A timeout may mean the node is mid-call and billing; retrying doubles the cost. [proposed] |
@@ -126,7 +126,7 @@ Unchanged in shape; changed in who calls it and with what state.
 | Field | Value |
 |---|---|
 | Endpoint | `POST {aigateway_base_url}/v1/chat/completions` |
-| Headers | `X-User-Email` from `REQUEST_SCOPE`, `X-Profile` if set, `traceparent`. **No `Authorization`** — aigateway runs `cloudflare_headers` mode and reads identity, not a bearer token. |
+| Headers | `X-User-Email` from `REQUEST_SCOPE`, `traceparent`, and `X-Profile` only for a legacy queued run — one whose queue message was accepted before OME-1381 and still carries `AIGATEWAY_PROFILE`, honoured until the drain. A sync request never carries it: ingress refuses a nonblank value, and the node reads a blank one as absent. **No `Authorization`** — aigateway runs `cloudflare_headers` mode and reads identity, not a bearer token. |
 | Body | `{"model": <decoded id>, "messages": [...], ...}` plus cache directives |
 | Timeout | 28 s on this tier (see ladder) |
 | Retry | Existing connector policy: 1 retry, exponential backoff with jitter. **Must be bounded by the remaining request budget** — a retry that cannot finish inside 30 s should not be attempted. [proposed] |
