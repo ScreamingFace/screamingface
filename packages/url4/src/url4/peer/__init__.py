@@ -6,6 +6,8 @@ Owns
   serves the engine over HTTP.
 - ``client`` — ``Client``, ``Url4Result``, ``evaluate_sync``: the requestor
   facade.
+- ``direct`` — ``dispatch_direct``, ``describe_routes``: the PUBLIC one-handler call a host
+  uses for mount calls; it refuses the eval path (spec D1).
 - ``_dispatch`` / ``_http`` / ``_asgi`` / ``_owned`` — the dispatch order and
   the framework-free ASGI adapter.
 
@@ -16,3 +18,13 @@ Must not import: ``url4.cli`` (the CLI composes the node, not the reverse) or
 
 See ``ARCHITECTURE.md`` for the layer map and the direction rule.
 """
+
+from url4.peer.direct import (
+    DirectResult,
+    RouteInfo,
+    describe_routes,
+    dispatch_direct,
+    is_eval_path,
+)
+
+__all__ = ["DirectResult", "RouteInfo", "describe_routes", "dispatch_direct", "is_eval_path"]
