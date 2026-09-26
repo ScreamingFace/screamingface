@@ -12,6 +12,7 @@ live connection for the topic in this process. The App never publishes to the br
 the only route a notice has.
 """
 
+from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
 from url4.streaming.protocol import CachePolicy, OutboundFrame
@@ -26,6 +27,10 @@ class RunSessions(Protocol):
 
     def notify(self, topic: str, frame: OutboundFrame) -> None:
         """Offer ``frame`` to every connection attached to ``topic``; a silent no-op if none is."""
+        ...
+
+    def hold_sync(self, topic: str) -> AbstractAsyncContextManager[None]:
+        """Count a waiting sync request as ``topic``'s audience for the block (PRD 02)."""
         ...
 
 

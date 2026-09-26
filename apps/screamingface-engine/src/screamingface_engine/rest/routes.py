@@ -11,7 +11,7 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 import asyncio
 import logging
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any
@@ -170,28 +170,13 @@ async def _require_subscriber(interest: SubscriberGate, topic: str) -> None:
         )
 
 
-async def _schedule(
-    deps: _Deps,
-    topic: str,
-    url4: str,
-    *,
-    traceparent: str | None = None,
-    profile: str | None = None,
-    identity: Mapping[str, str] | None = None,
-    cache: CachePolicy,
-    answer_seed: int | None = None,
-    client_version: str | None = None,
-) -> None:
-    """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
+async def _refuse_existing(deps: _Deps, topic: str) -> None:
+    """Raise 409 if a run already exists for ``topic`` (503 if that cannot be read).
 
-    Topics are single-shot: both the pre-check and the runner's own ``JobAlreadyExists`` guard
-    against a race collapse into the same 409 problem.
-
-    ``cache`` is the run's RESOLVED cache policy — the one thing both carriers converged on, and
-    required rather than optional so that "nobody decided" cannot reach this hop. It travels
-    beside ``profile`` and ``identity`` because it is the same kind of value: per-RUN, captured at
-    the REST edge, re-rendered onto the aigateway call by the Runner. It is deliberately NOT world
-    config; a per-run value parked on the shared aigateway configuration would leak across runs.
+    WHY a step of its own, BEFORE a sync request's hold (PRD 02 SY-D5): the hold is an audience
+    transition, and the orphan reaper listens to those. A duplicate request that held the topic
+    for a moment would disarm and re-arm the reaper of the run already there — resetting the
+    grace of a run nobody is watching.
     """
     try:
         already_exists = await deps.job_runner.exists(topic)
@@ -207,6 +192,31 @@ async def _schedule(
         ) from None
     if already_exists:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
+
+
+async def _schedule(
+    deps: _Deps,
+    topic: str,
+    url4: str,
+    *,
+    traceparent: str | None = None,
+    profile: str | None = None,
+    identity: Mapping[str, str] | None = None,
+    cache: CachePolicy,
+    answer_seed: int | None = None,
+    client_version: str | None = None,
+) -> None:
+    """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
+
+    Topics are single-shot: `_refuse_existing` (the pre-check, before any hold) and the runner's
+    own ``JobAlreadyExists`` guard against a race collapse into the same 409 problem.
+
+    ``cache`` is the run's RESOLVED cache policy — the one thing both carriers converged on, and
+    required rather than optional so that "nobody decided" cannot reach this hop. It travels
+    beside ``profile`` and ``identity`` because it is the same kind of value: per-RUN, captured at
+    the REST edge, re-rendered onto the aigateway call by the Runner. It is deliberately NOT world
+    config; a per-run value parked on the shared aigateway configuration would leak across runs.
+    """
     try:
         await deps.job_runner.schedule(
             topic,
@@ -383,15 +393,46 @@ def _converge_cache(
     return resolution.effective
 
 
-async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
-    """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses.
+_DISCONNECT_POLL_S = 0.5
+"""How often a sync wait checks that its caller is still connected (PRD 02 §4: the hold is
+released within 1 s of a disconnect)."""
+
+
+async def _until_disconnected(is_disconnected: Callable[[], Awaitable[bool]]) -> None:
+    while not await is_disconnected():
+        await asyncio.sleep(_DISCONNECT_POLL_S)
+
+
+async def _run_sync(
+    deps: _Deps,
+    topic: str,
+    wait_s: float | None,
+    is_disconnected: Callable[[], Awaitable[bool]],
+) -> Response:
+    """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses
+    — or stop waiting when the caller disconnects.
 
     The wait is capped at ``settings.sync_max_wait_s`` regardless of a caller-supplied
     ``wait_s`` (RFC 7240 ``Prefer: wait=``), so a client can shorten but never lengthen it.
+
+    WHY watch the connection: the caller's hold keeps the run's audience alive, so a caller
+    that is gone must release it promptly, or the orphan reaper would wait the full bound
+    before its grace even starts. The run itself is not stopped: the token can still attach.
     """
     cap = deps.settings.sync_max_wait_s
     bound = cap if wait_s is None else min(wait_s, cap)
-    outcome = await _await_terminal(deps.stream, topic, bound)
+    wait = asyncio.ensure_future(_await_terminal(deps.stream, topic, bound))
+    gone = asyncio.ensure_future(_until_disconnected(is_disconnected))
+    try:
+        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in (wait, gone):
+            task.cancel()
+        await asyncio.gather(wait, gone, return_exceptions=True)
+    if wait.cancelled():
+        # The caller is gone: nobody reads this response.
+        return _accepted(topic)
+    outcome = wait.result()
     if outcome is None:
         return _accepted(topic)
     return _terminal_response(outcome[0], outcome[1], deps.artifact_store)
@@ -528,9 +569,12 @@ async def start_run(
         Header(alias="Cache-Control", description=_CACHE_CONTROL_DESC),
     ] = None,
 ) -> Response:
-    """Require an attached subscriber, then schedule the run for the token's topic, forwarding
-    the adopted traceparent and the caller's verified identity; hold for the terminal frame by
-    default, or return ``202`` immediately under ``Prefer: respond-async``.
+    """Schedule the run for the token's topic, forwarding the adopted traceparent and the
+    caller's verified identity; hold for the terminal frame by default, or return ``202``
+    immediately under ``Prefer: respond-async``.
+
+    A sync request needs no WebSocket: it holds the topic's audience itself while it waits
+    (PRD 02). ``respond-async`` still requires an attached subscriber (428 otherwise).
 
     ``claims: VerifiedClaims`` is a FastAPI dependency, so JWT verification runs before this
     body executes — no code path here touches the topic without an already-verified capability
@@ -539,7 +583,10 @@ async def start_run(
     deps = _deps(request)
     topic = str(claims["sub"])
     url4 = _require_q(q)
-    await _require_subscriber(deps.interest, topic)
+    pref = _parse_prefer(prefer or "")
+    if pref.respond_async:
+        # The client reads this run's frames on a WebSocket, so one must be attached first.
+        await _require_subscriber(deps.interest, topic)
     inbound_traceparent = valid_traceparent(traceparent)
     # WHY read identity off `request` instead of declaring another `Header(...)` param: the mesh
     # gateway owns it, not the caller, so there is no client-facing contract for a signature to
@@ -548,23 +595,36 @@ async def start_run(
     identity = job_env.identity_from_headers(request.headers) or None
     answer_seed = _parse_answer_seed(x_answer_seed)
     clock = getattr(request.app.state, "clock", default_clock)
-    await _schedule(
-        deps,
-        topic,
-        url4,
-        traceparent=inbound_traceparent,
-        profile=x_profile,
-        identity=identity,
-        cache=_converge_cache(deps, topic, cache_control, clock),
-        answer_seed=answer_seed,
-        client_version=parse_user_agent(request.headers.get("User-Agent"))
+    client_version = (
+        parse_user_agent(request.headers.get("User-Agent"))
         if len(request.headers.getlist("User-Agent")) == 1
-        else None,
+        else None
     )
-    pref = _parse_prefer(prefer or "")
+    await _refuse_existing(deps, topic)
+
+    async def schedule() -> None:
+        await _schedule(
+            deps,
+            topic,
+            url4,
+            traceparent=inbound_traceparent,
+            profile=x_profile,
+            identity=identity,
+            cache=_converge_cache(deps, topic, cache_control, clock),
+            answer_seed=answer_seed,
+            client_version=client_version,
+        )
+
     if pref.respond_async:
+        await schedule()
         return _accepted(topic)
-    return await _run_sync(deps, topic, pref.wait_s)
+    # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps the
+    # reaper disarmed while it waits. ONE block covers gate, schedule and wait, so every exit —
+    # a 503 from admission, the bound, a disconnect, an error — releases it.
+    async with deps.sessions.hold_sync(topic):
+        await _require_subscriber(deps.interest, topic)
+        await schedule()
+        return await _run_sync(deps, topic, pref.wait_s, request.is_disconnected)
 
 
 @router.delete(

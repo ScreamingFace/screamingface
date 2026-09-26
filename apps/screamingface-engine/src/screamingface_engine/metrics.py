@@ -280,6 +280,33 @@ class _QueueCollector:
             )
 
 
+class _SyncHoldersCollector:
+    """The sync requests waiting on a run right now (uniform executor PRD 02).
+
+    Read from the connection registry at scrape time (sync, in memory). Each one keeps its run's
+    audience alive, so this is also how many runs the orphan reaper is holding off for callers
+    that are still waiting.
+    """
+
+    def __init__(self, get_registry: Callable[[], Any]) -> None:
+        self._get_registry = get_registry
+
+    def collect(self) -> Iterable[Any]:
+        holders = getattr(self._get_registry(), "sync_holders", None)
+        if holders is None:
+            return
+        yield GaugeMetricFamily(
+            "screamingface_engine_sync_holders",
+            "Sync GET /?q= requests currently waiting for a run's terminal frame.",
+            value=float(holders),
+        )
+
+
+def register_sync_metrics(metrics: Metrics, get_registry: Callable[[], Any]) -> None:
+    """Register a `_SyncHoldersCollector` for `get_registry` on `metrics.registry`."""
+    metrics.registry.register(_SyncHoldersCollector(get_registry))
+
+
 def register_queue_metrics(metrics: Metrics, get_runner: Callable[[], Any]) -> None:
     """Register a `_QueueCollector` for `get_runner` on `metrics.registry`."""
     metrics.registry.register(_QueueCollector(get_runner))

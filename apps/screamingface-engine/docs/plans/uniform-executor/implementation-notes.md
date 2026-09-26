@@ -3,7 +3,7 @@
 This file records where the build deviates from the PRDs, and why. It also records the
 residual risks that the build accepts. Read it with the PRD of each phase.
 
-Status: phase 1 (PRD 01) built on branch `exp/uniform-executor`. Exploratory work: the SDLC
+Status: phase 1 (PRD 01) and phase 2 (PRD 02) built on branch `exp/uniform-executor`. Exploratory work: the SDLC
 steps (ticket, ledger) were skipped on the owner's instruction. Phase 0 is partial: the CHAR
 tests of PRD 01 exist; the kind environment and the measurement harness do not exist yet.
 
@@ -45,3 +45,45 @@ tests of PRD 01 exist; the kind environment and the measurement harness do not e
 - EVT-16 (NATS restart during a run) and the kind cases K1, K6, K10, K11, K12: they need the
   kind environment (phase 0).
 - The throughput measurement (2 000 frames/s): it needs the measurement harness.
+
+## Phase 2 — sync run without a WebSocket
+
+### Built as the PRD says
+
+- `ConnectionRegistry` counts `subscribers` (WebSocket) and `sync_holders`. The audience events
+  and `has_subscriber` use the sum. `hold_sync(topic)` is an async context manager on the
+  registry (and on the `RunSessions` port), not a new method on the gate.
+- A sync `GET /?q=` holds the topic in ONE `async with` block around the gate, the schedule and
+  the wait. So every exit releases it: terminal frame, bound (202), client disconnect (polled
+  every 0.5 s), admission 503, or an error.
+- `respond-async` keeps the 428 rule.
+- Gauge `screamingface_engine_sync_holders`.
+
+### Decisions the PRD left open
+
+| # | Decision | Reason |
+|---|---|---|
+| P2-1 | The existence check (409, or 503 when unreadable) moved out of `_schedule` into its own step, BEFORE the hold. | SY-D5 / SYN-8. The hold is an audience change, and the orphan reaper listens to audience changes. A duplicate request that held the topic for a moment would disarm and re-arm the reaper of the run that is already there, and reset its grace. |
+| P2-2 | A sync request validates everything (q, answer seed, traceparent, the 409 check) before it takes the hold. An async request keeps the old order (the 428 comes before those checks). | A request that fails validation must not touch the audience. |
+| P2-3 | On a client disconnect the App returns (to nobody) a 202 and does NOT stop the run. | SY-D3: the token can still attach within the reaper grace. PRD 04 (mount calls) stops the run instead (ans:Q9). |
+
+### Tests changed on purpose
+
+Four existing tests pinned "a SYNC request without a WebSocket returns 428". PRD 02 changes that
+behavior (SY-H1). Each test now sends `Prefer: respond-async`, so it still pins the gate:
+`test_rest.py::test_async_get_without_subscriber_is_428` (SYN-C1),
+`test_ws.py::test_live_ws_enables_start_and_closing_it_restores_428`,
+`test_ws_cache_policy.py::test_run_start_stays_gated_on_an_attached_subscriber`,
+`test_client_provenance_wiring.py::test_rejected_admission_does_not_publish_version`,
+`test_local_spine.py::test_a_run_without_an_attached_subscriber_is_refused`.
+
+### Validation done
+
+- Unit: `tests/unit/test_rest_sync_hold.py` (SYN-1..SYN-9, SYN-11), with the real registry and
+  reaper; SYN-4 drives the ASGI app with a raw `http.disconnect`.
+- Integration: `tests/integration/test_sync_without_ws.py` (SYN-10) on a real JetStream.
+
+### Not done in phase 2
+
+- Kind case K2 (needs the kind environment).
+- The latency measurement of the hold (< 1 ms p95, report only).

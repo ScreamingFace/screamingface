@@ -46,6 +46,7 @@ from screamingface_engine.metrics import (
     register_max_deliveries_metrics,
     register_queue_metrics,
     register_reaper_metrics,
+    register_sync_metrics,
 )
 from screamingface_engine.ops import router as ops_router
 from screamingface_engine.reaper import RunReaper
@@ -144,6 +145,7 @@ def create_app(
     _install_events_store_monitor(app, stream)
     app.add_middleware(MetricsMiddleware)
     app.state.registry = ConnectionRegistry()
+    register_sync_metrics(app.state.metrics, lambda: app.state.registry)
     app.state.interest = interest if interest is not None else app.state.registry
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     _install_orphan_reaper(app, app.state.registry, job_runner, settings)
