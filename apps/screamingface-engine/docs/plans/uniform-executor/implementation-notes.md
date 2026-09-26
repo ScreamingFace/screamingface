@@ -3,7 +3,7 @@
 This file records where the build deviates from the PRDs, and why. It also records the
 residual risks that the build accepts. Read it with the PRD of each phase.
 
-Status: phase 1 (PRD 01) and phase 2 (PRD 02) built on branch `exp/uniform-executor`. Exploratory work: the SDLC
+Status: phases 1–3 (PRD 01–03) built on branch `exp/uniform-executor`. Exploratory work: the SDLC
 steps (ticket, ledger) were skipped on the owner's instruction. Phase 0 is partial: the CHAR
 tests of PRD 01 exist; the kind environment and the measurement harness do not exist yet.
 
@@ -87,3 +87,74 @@ behavior (SY-H1). Each test now sends `Prefer: respond-async`, so it still pins 
 
 - Kind case K2 (needs the kind environment).
 - The latency measurement of the hold (< 1 ms p95, report only).
+
+## Phase 3 — warm child pool
+
+### Built
+
+- `child_protocol.py` (stdlib only): `READY {"pid","world"}` and `ACK` on a control pipe, one
+  RUN_SPEC JSON line on stdin (max 1 MiB, `spec_version` "2").
+- `worker/warm_pool.py`: `WarmChildPool` keeps `size` warm children, hands a run to one, retries
+  once when a child dies before its ACK, backs off 1, 2, 4 … 30 s after warm failures, kills a
+  child that is not READY in 60 s, and terminates idle children first on drain.
+- `runner/main.py`: `run --warm` → `warm_up` (per-process work), READY, read one spec, ACK, then
+  the normal run with the already-connected publisher. Stdin EOF before a spec → exit 0.
+- The supervisor starts a run through a launcher port. The io budget is read at hand-off, and
+  the hard wall starts when the launcher returns (after the ACK).
+- Setting `worker_warm_children` (default: one per slot, capped at the slots), chart value
+  `runnerPool.warmChildren`, four metrics (`worker_warm_children`,
+  `worker_warm_spawn_failures_total`, `worker_handoff_latency_s`, `worker_child_boot_s`).
+
+### Deviations
+
+| # | PRD text | Built | Reason |
+|---|---|---|---|
+| W1 | "the world is built" in the warm phase | The warm phase does the imports, the broker connection (and stream declaration) and the world-config parse. The world itself is still built lazily on the run's first `execute`. | `build_executor` and the world depend on per-run keys: `TOPIC` (the io wrapper), `EXTRA_MODELS` (the routes), and the request scope (identity, profile, seed). Building them before the spec breaks WRM-4. A world that is split into a per-process part and a per-run part is a refactor of `world/factory.py`, and it is not in this phase. |
+| W2 | WC-D10: "one code path" | Production always uses the pool (`size=0` included: spawn on claim through the same protocol). The supervisor's `spawn=` test seam keeps `DirectLauncher` (a cold spawn with the whole environment). | About 56 existing supervisor tests drive fake processes through `spawn=`. The supervisor logic under them (dedupe, heartbeat, hard wall, classification, cancel) did not change. The pool has its own tests, and the worker spine runs a real process through the pool. |
+| W3 | C5: "fd 3" | The control pipe's fd number travels in `URL4_CLOUD_CONTROL_FD`. | `pass_fds` keeps the parent's fd number, which is not 3. |
+| W4 | (gap) | A new line, `REFUSED <code>`. A refused spec is not retried, and the terminal frame carries the code (`unsupported_spec_version`, `spec_malformed`, `spec_too_large`). | A new child would refuse the same spec. An exit code alone cannot tell a refusal from a crash before the ACK. |
+
+### Design review fixes (before commit)
+
+- A cancel during the hand-off (spec written, no ACK yet), during a READY wait, or while an idle
+  child is taken now kills the child. Before, the child could ACK and run with no supervisor,
+  and the message would redeliver and run it again.
+- An ACK timeout is final (`spawn_failed`), not retried: a slow child may have ACKed and started.
+- A spec over 1 MiB is refused before any child sees it (`spec_too_large`); the spec JSON keeps
+  non-ASCII characters unescaped, so its encoded size matches its content.
+- The replenisher wakes when an on-demand spawn ends, catches every error (an escape would
+  cancel the supervisors at drain), and a spawn in flight at drain is killed.
+- Warm failures on the claim path are counted; a child that dies before READY has its stderr
+  logged; kills tolerate a child that is already gone, and reaps are bounded (5 s).
+- The launcher reads the io budget through a callable, at the real hand-off (WRM-18).
+- The supervisor takes exactly one of `launcher` (production) and `spawn` (its tests).
+- The run no longer inherits `URL4_CLOUD_CONTROL_FD` after the control pipe is closed.
+
+Open (recorded, not fixed): the supervisor keeps `_child_env` for four tests that pin the cold
+environment; an early unexpected control line is not rejected at ERROR as erd.md §4 says (it is
+read as the hand-off answer and fails the launch); `handoff_latency_s` starts at the launch call,
+a few microseconds after the claim gates.
+
+### Measurement (report only, ans:Q3)
+
+Ad-hoc on the development Mac, 10 samples, warm disk cache, world build excluded (W1):
+
+| Step | Median | Max |
+|---|---|---|
+| Cold boot: spawn → READY (Python start-up, imports, broker connect) | 224 ms | 232 ms |
+| Warm hand-off: spec write → ACK | 0.13 ms | 0.27 ms |
+
+This is not the B2/B3 benchmark of the test plan (that needs the kind environment).
+
+### Validation done
+
+- Unit: protocol (WRM-2, WRM-15), warm phase with sentinel env (WRM-4), pool state table
+  (WRM-5, 6, 7, 10, 11, 12, 13, 16, 19), supervisor over a launcher (WRM-14, 17, 18), metrics
+  (WRM-20), chart (WRM-21).
+- Integration: the real `run --warm` process (WRM-1, WC-D3, WC-D9, stdin EOF), and the worker
+  spine with a warm child on Linux. The child OOM cap with the warm handshake (WRM-8) on Linux.
+
+### Not done in phase 3
+
+- Kind cases K7, K8, K9 and the B3 benchmark (need the kind environment).
+- The idle warm child's RSS (needed to size `warmChildren × RSS` against the pod memory).

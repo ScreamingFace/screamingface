@@ -165,6 +165,11 @@
           "minimum": 1,
           "description": "Run slots per worker pod. MUST match `run_queue_worker_slots`. One slot is one supervised child process, so `replicas \u00d7 workerSlots` is what bounds fleet execution."
         },
+        "warmChildren": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Warm children per worker pod (uniform executor PRD 03). Null/absent leaves the app default (one per worker slot) in force. 0 spawns a child on each claim instead. The worker caps this at `workerSlots`; the render also refuses a value ABOVE `workerSlots` (see the guard in deployment-runner.yaml), so a chart operator gets a render-time error instead of a silently truncated value. Each idle warm child holds the imported engine in memory, so raising this adds `warmChildren \u00d7 idle RSS` to the runner pod's memory request."
+        },
         "maxAckPending": {
           "type": [
             "integer",

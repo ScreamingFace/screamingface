@@ -493,6 +493,21 @@ runnerPool:
   # execution width: one slot is one supervised child process, so `replicas × workerSlots` is
   # what actually bounds how many runs the fleet executes at once.
   workerSlots: 4
+  # Warm children per worker pod (uniform executor PRD 03): child processes that already did
+  # their per-process work (imports, broker connection) and wait on stdin, so a claim hands off in
+  # milliseconds instead of paying a cold boot. Unset (null) here so the app's own default
+  # applies — one warm child per worker slot (`worker_warm_children` in config.py). 0 spawns a
+  # child on each claim instead, through the same protocol (slower start, least memory). The
+  # worker caps whatever is set here at `workerSlots`.
+  #
+  # Unset (the default) means one warm child per slot — the MOST memory. Each IDLE warm child
+  # holds the imported engine in memory (not a built world: the world is built per run, after
+  # the hand-off), so `warmChildren × idle RSS` adds directly to the runner pod's memory — on top
+  # of `perRunCharge`/`overhead` below. The RSS to size that with is a phase-0 measurement that
+  # has NOT been taken yet (uniform executor PRD 03 §4 Non-functional requirements); pin this
+  # value and raise the pod's memory request from that number once it lands, rather than
+  # guessing one here now.
+  warmChildren:
   # The queue's per-caller allowance, or empty to derive `replicas × workerSlots` (OME-1142).
   #
   # WHY per-caller and not a fleet bound: the queue is split into `config.runQueueBucketCount`

@@ -11,6 +11,7 @@ import asyncio
 import functools
 import logging
 import os
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from screamingface_engine import job_env
+from screamingface_engine import child_protocol, job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.artifacts.wiring import result_writer_from_env
@@ -614,47 +615,128 @@ async def _run_and_log(
         _log_terminal(executor, params.topic, started)
 
 
-def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
-    async def _main() -> None:
-        params = params_from_env(os.environ)
-        # WHY: entry-point composition owns plugin registration; the executor stays optional.
-        from screamingface_engine.observation_plugins import observation_factories
+@dataclass(frozen=True)
+class WarmState:
+    """What a warm child prepared before its run was known (PRD 03)."""
 
-        executor = build_executor(
-            os.environ,
-            benchmarks=BUILTIN_BENCHMARKS,
-            observers=observation_factories(os.environ),
-        )
-        traceparent = os.environ.get(job_env.TRACEPARENT)
+    publisher: Any
+    world_ok: bool
+
+
+async def warm_up(
+    environ: Mapping[str, str],
+    *,
+    publisher_factory: Callable[[str], Any] = JetStreamPublisher,
+) -> WarmState:
+    """The warm phase: the per-PROCESS work a child can do before its run is known.
+
+    The imports are already paid by the time this runs (this module's import graph is the
+    run path's). Here: connect to the broker and declare the shared events stream, and read
+    the declared world's config file, so a broken config is visible in READY.
+
+    INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, the profile,
+    the io budget. The world itself is NOT built: its routes and io depend on per-run keys
+    (`EXTRA_MODELS`, `TOPIC`), and the request scope (identity, profile, seed) is per-run by
+    definition. It is built lazily on the run's first `execute`, as before.
+    """
+    publisher = publisher_factory(environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL))
+    await publisher.ensure_stream("")
+    try:
+        load_config(environ)
+    except Exception:
+        # WHY swallow: the run will fail with its own `Terminated(failed)` when it builds the
+        # world (WC-D3). READY carries the verdict so the worker can count it.
+        logger.warning("warm child: the world config does not load", exc_info=True)
+        world_ok = False
+    else:
+        world_ok = True
+    return WarmState(publisher=publisher, world_ok=world_ok)
+
+
+async def _run_process(publisher: JetStreamPublisher | None) -> None:
+    """One run from this process's environment, then its reclaim.
+
+    `publisher` is the warm phase's already-connected one, or None for a cold `run`.
+    """
+    params = params_from_env(os.environ)
+    # WHY: entry-point composition owns plugin registration; the executor stays optional.
+    from screamingface_engine.observation_plugins import observation_factories
+
+    executor = build_executor(
+        os.environ,
+        benchmarks=BUILTIN_BENCHMARKS,
+        observers=observation_factories(os.environ),
+    )
+    traceparent = os.environ.get(job_env.TRACEPARENT)
+    if publisher is None:
         publisher = JetStreamPublisher(params.nats_url)
-        _log_boot(params, traceparent)
-        # The trace id the run's own frames will carry: parsed from the App-forwarded
-        # traceparent, or None when the caller sent none (the stream then mints one, which
-        # the executor records and the summary line reports). Bound for the whole run so
-        # every process log line inside it carries topic and trace id.
-        trace_id = parse_traceparent(traceparent)
-        # FEATURE (OME-1130): the run's spans, exported to a tracing backend so SigNoz shows a
-        # WATERFALL instead of a log search. The relay wraps the run's own publisher — the one
-        # path every frame of every run travels, attached client or not — and is a pure
-        # passthrough when no OTLP endpoint is configured, which is the default everywhere.
-        #
-        # `with`, not a hand-written `finally`: this process is short-lived, and an unflushed
-        # batch loses the tail of every trace including its root span. See `tracing.relay`.
-        #
-        # `run_and_reclaim` keeps the RAW publisher: it needs `delete_stream`, which is
-        # JetStream's, not the wire port's — the relay only stands where frames are published.
-        with (
-            run_scope(params.topic, trace_id),
-            SpanRelay(publisher, span_sink(os.environ)) as relay,
-        ):
-            await run_and_reclaim(
-                publisher,
-                params.topic,
-                lambda: _run_and_log(executor, relay, params, traceparent),
-                grace_s=stream_grace_s(os.environ),
-            )
+    _log_boot(params, traceparent)
+    # The trace id the run's own frames will carry: parsed from the App-forwarded
+    # traceparent, or None when the caller sent none (the stream then mints one, which
+    # the executor records and the summary line reports). Bound for the whole run so
+    # every process log line inside it carries topic and trace id.
+    trace_id = parse_traceparent(traceparent)
+    # FEATURE (OME-1130): the run's spans, exported to a tracing backend so SigNoz shows a
+    # WATERFALL instead of a log search. The relay wraps the run's own publisher — the one
+    # path every frame of every run travels, attached client or not — and is a pure
+    # passthrough when no OTLP endpoint is configured, which is the default everywhere.
+    #
+    # `with`, not a hand-written `finally`: this process is short-lived, and an unflushed
+    # batch loses the tail of every trace including its root span. See `tracing.relay`.
+    #
+    # `run_and_reclaim` keeps the RAW publisher: it needs `delete_stream`, which is
+    # JetStream's, not the wire port's — the relay only stands where frames are published.
+    with (
+        run_scope(params.topic, trace_id),
+        SpanRelay(publisher, span_sink(os.environ)) as relay,
+    ):
+        await run_and_reclaim(
+            publisher,
+            params.topic,
+            lambda: _run_and_log(executor, relay, params, traceparent),
+            grace_s=stream_grace_s(os.environ),
+        )
 
-    asyncio.run(_main())
+
+def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
+    asyncio.run(_run_process(None))
+
+
+def warm_main() -> None:  # pragma: no cover - real pipes + NATS (covered by integration)
+    """`screamingface-engine run --warm`: warm up, READY, read ONE RUN_SPEC, ACK, run, exit.
+
+    The control pipe's fd comes from `child_protocol.CONTROL_FD_ENV`. Stdin EOF before a spec
+    means the worker is gone: exit 0, having run nothing. A spec the child refuses gets a
+    REFUSED line and exit 2 — before the ACK, so no run code has run (WC-D9).
+    """
+    raise SystemExit(asyncio.run(_warm_process(os.environ, sys.stdin.buffer)))
+
+
+async def _warm_process(environ: Any, stdin: Any) -> int:
+    control = os.fdopen(int(environ[child_protocol.CONTROL_FD_ENV]), "wb", buffering=0)
+    try:
+        state = await warm_up(environ)
+        control.write(child_protocol.encode_ready(pid=os.getpid(), world_ok=state.world_ok))
+        line = await asyncio.to_thread(stdin.readline, child_protocol.MAX_SPEC_BYTES + 1)
+        if not line:
+            return 0
+        try:
+            spec = child_protocol.decode_spec(line)
+        except child_protocol.SpecError as exc:
+            logger.error("warm child refused its run spec: %s (%s)", exc.code, exc)
+            control.write(child_protocol.encode_refused(exc.code))
+            return 2
+        control.write(child_protocol.ACK)
+    finally:
+        control.close()
+        # The fd number is closed now; the run must not inherit a name for a stale fd.
+        environ.pop(child_protocol.CONTROL_FD_ENV, None)
+    # From here the process IS the run: its environment is the one a cold child would have
+    # been spawned with, and the io budget is the worker's at hand-off (WRM-18).
+    environ.update(spec.env)
+    environ[job_env.IO_CONCURRENCY] = str(spec.io_concurrency)
+    await _run_process(state.publisher)
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

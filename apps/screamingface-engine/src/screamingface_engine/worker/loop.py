@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import time
 import uuid
@@ -47,6 +48,7 @@ from screamingface_engine.worker.supervisor import (
     _Publisher,
     derived_heartbeat_interval_s,
 )
+from screamingface_engine.worker.warm_pool import WarmChildPool, process_spawner
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +123,7 @@ class Worker:
         io_capacity: int,
         memory_budget_bytes: int,
         spawn: Callable[..., Awaitable[_ChildProcess]] | None = None,
+        warm_children: int = 0,
         control: _Control | None = None,
         pull_timeout_s: float = PULL_TIMEOUT_S,
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
@@ -185,9 +188,25 @@ class Worker:
         # The in-flight supervisor tasks — the slot accounting. asyncio is single-threaded,
         # so no lock is needed; the fetch batch is computed from the free slots below.
         self._active: set[asyncio.Task[None]] = set()
+        # WHY the pool only when no `spawn` is injected: `spawn` is the supervisor's test seam
+        # (a fake process with a whole cold environment). Production has no `spawn`, and every
+        # run goes through the warm child pool — `warm_children=0` included, which spawns on
+        # the claim through the same READY/spec/ACK protocol (PRD 03).
+        self._pool: WarmChildPool | None = None
+        if spawn is None:
+            self._pool = WarmChildPool(
+                spawn_warm=process_spawner(
+                    asyncio.create_subprocess_exec,
+                    memory_budget_bytes=memory_budget_bytes,
+                    environ=os.environ,
+                ),
+                size=min(warm_children, slots),
+                metrics=self._metrics,
+            )
         self._supervisor = RunSupervisor(
             publisher=publisher,
-            spawn=spawn if spawn is not None else asyncio.create_subprocess_exec,
+            spawn=spawn,
+            launcher=self._pool,
             memory_budget_bytes=memory_budget_bytes,
             io_capacity=io_capacity,
             draining=self._draining,
@@ -215,6 +234,8 @@ class Worker:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, self._draining.set)
+        if self._pool is not None:
+            self._pool.start()
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(self._claim_loop(tg))
@@ -222,6 +243,8 @@ class Worker:
                     tg.create_task(self._control_loop(tg))
                     tg.create_task(self._ownership_loop())
         finally:
+            if self._pool is not None:
+                await self._pool.drain()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.remove_signal_handler(sig)
 
@@ -466,6 +489,10 @@ class Worker:
         deadline = loop.time() + self._drain_grace_s
 
         self._metrics.drains.inc()
+        # Phase 0 — idle warm children die at once and no new one is warmed (WC-D7): they
+        # hold no run, and the pod is going away.
+        if self._pool is not None:
+            await self._pool.drain()
         # Phase 1 — the grace window: let in-flight runs finish naturally. WHY the ACTIVE
         # supervisor tasks and not the CHILDREN (review follow-up P2-6): a task is
         # registered the moment its run is claimed, while its child only registers once
@@ -582,6 +609,11 @@ def run_worker(settings: Settings | None = None) -> None:
                 drain_grace_s=settings.worker_drain_grace_s,
                 io_capacity=settings.worker_io_capacity,
                 memory_budget_bytes=settings.worker_memory_budget_bytes,
+                warm_children=(
+                    settings.run_queue_worker_slots
+                    if settings.worker_warm_children is None
+                    else settings.worker_warm_children
+                ),
                 control=nc,
                 # INVARIANT: the heartbeat cadence is DERIVED from the configured `ack_wait`, not
                 # left at the constant — a heartbeat slower than `ack_wait` redelivers a still-

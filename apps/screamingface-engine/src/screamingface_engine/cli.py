@@ -76,13 +76,18 @@ def _serve_local() -> None:
     )
 
 
-def _run() -> None:
-    """Execute one url4 run from the Job's environment, then exit."""
+def _run(*, warm: bool = False) -> None:
+    """Execute one url4 run from the Job's environment, then exit — or, `warm`, prepare first
+    and read the run from the worker (uniform executor PRD 03)."""
     # WHY: lazy, and the reason the layering rule earns its keep — importing the run path must
     # not drag in FastAPI/uvicorn/kubernetes, and importing `serve` must not drag in the engine.
     from screamingface_engine.runner.main import main as run_main
+    from screamingface_engine.runner.main import warm_main
 
-    run_main()
+    if warm:
+        warm_main()
+    else:
+        run_main()
 
 
 def _worker() -> None:
@@ -140,7 +145,7 @@ def _purge_legacy_streams(*, dry_run: bool) -> None:
     print(f"{verb} {len(names)} legacy stream(s)")
 
 
-def main(argv: list[str] | None = None) -> None:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
         description="screamingface-engine — the control plane, or one url4 run.",
@@ -163,7 +168,17 @@ def main(argv: list[str] | None = None) -> None:
             "loopback only."
         ),
     )
-    sub.add_parser("run", help="execute one url4 expression from the environment, then exit")
+    run_parser = sub.add_parser(
+        "run", help="execute one url4 expression from the environment, then exit"
+    )
+    run_parser.add_argument(
+        "--warm",
+        action="store_true",
+        help=(
+            "warm child of the worker pool: prepare, signal READY on the control pipe, then "
+            "read ONE run spec from stdin (not for direct use)"
+        ),
+    )
     sub.add_parser(
         "worker",
         help=(
@@ -188,6 +203,11 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     purge.add_argument("--dry-run", action="store_true", help="list the streams, delete none")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = _parser()
     args = parser.parse_args(argv)
 
     # BEFORE dispatch, and for every mode: a Job's logs are as load-bearing as the control
@@ -201,7 +221,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.mode == "node":
         _node()
     elif args.mode == "run":
-        _run()
+        _run(warm=args.warm)
     elif args.local:
         _serve_local()
     else:

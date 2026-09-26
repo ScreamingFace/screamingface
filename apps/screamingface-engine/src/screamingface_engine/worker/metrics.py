@@ -31,6 +31,9 @@ _CLAIM_LATENCY_BUCKETS = (0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 # The run-duration buckets: a run is bounded by `job_deadline_s` (16h), and the worker's
 # hard wall adds the stream grace + margin — the histogram covers the full range.
 _RUN_DURATION_BUCKETS = (1, 5, 15, 60, 300, 900, 3600, 14400)
+# The hand-off and boot buckets: a warm hand-off is milliseconds, a cold boot (Python start-up
+# plus the imports) is seconds — the histogram shows both ends.
+_HANDOFF_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
 
 
 @dataclass
@@ -47,6 +50,10 @@ class WorkerMetrics:
     redeliveries: Counter
     cross_pod_duplicate_claims: Counter
     child_exit_codes: Counter
+    warm_children: Gauge
+    warm_spawn_failures: Counter
+    handoff_latency_s: Histogram
+    child_boot_s: Histogram
     started: Counter
     drains: Counter
 
@@ -118,6 +125,29 @@ def build_worker_metrics() -> WorkerMetrics:
             "screamingface_engine_worker_child_exit_codes_total",
             "Child process exit codes, labeled by code (137 = OOM).",
             ["code"],
+            registry=registry,
+        ),
+        # The warm child pool (uniform executor PRD 03).
+        warm_children=Gauge(
+            "screamingface_engine_worker_warm_children",
+            "Idle warm children ready to take a run.",
+            registry=registry,
+        ),
+        warm_spawn_failures=Counter(
+            "screamingface_engine_worker_warm_spawn_failures_total",
+            "Warm children that failed to start, timed out before READY, or died idle.",
+            registry=registry,
+        ),
+        handoff_latency_s=Histogram(
+            "screamingface_engine_worker_handoff_latency_s",
+            "Claim to the child's ACK of its run spec.",
+            buckets=_HANDOFF_BUCKETS,
+            registry=registry,
+        ),
+        child_boot_s=Histogram(
+            "screamingface_engine_worker_child_boot_s",
+            "Child spawn to its READY (the per-process work a warm child does ahead).",
+            buckets=_HANDOFF_BUCKETS,
             registry=registry,
         ),
         started=Counter(

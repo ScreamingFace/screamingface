@@ -165,6 +165,32 @@ cap. This supersedes the OME-1065 quota-admission feature, which was retired wit
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
+### Warm children (uniform executor PRD 03)
+
+Each worker pod can keep child processes started AHEAD of a claim: they already did their
+per-process work (Python start-up, the imports, the world build) and wait on stdin, so a claim
+hands the run off in milliseconds instead of paying a cold boot. With 0 warm children a child
+is spawned ON the claim instead, through the same protocol — slower start, least memory.
+
+Set with `runnerPool.warmChildren`. Left unset (null, the chart default), the worker applies
+its own default of one warm child per `workerSlots`; the worker caps whatever is set here at
+`workerSlots` regardless, and the render refuses a value ABOVE `workerSlots` outright, naming
+both values, rather than deploying a pool that would be silently truncated.
+
+**Memory.** Each IDLE warm child holds the imported engine (and its built world) in memory, so
+raising this adds `warmChildren × idle RSS` to the runner pod's memory, on top of
+`perRunCharge`/`overhead` above. The RSS to size that with is a phase-0 measurement that has
+NOT been taken yet — pin `warmChildren` and raise the pod's memory request from that number
+once it lands, rather than guessing one here now.
+
+**Metrics**, on the same `runnerPool.metricsPort` scrape surface as the pool's other metrics:
+
+- `screamingface_engine_worker_warm_children` (gauge) — idle warm children right now
+- `screamingface_engine_worker_warm_spawn_failures_total` (counter) — a warm child that failed
+  to start, timed out before READY, or died idle
+- `screamingface_engine_worker_handoff_latency_s` (histogram) — claim to the child's ACK
+- `screamingface_engine_worker_child_boot_s` (histogram) — child spawn to its READY
+
 ## Events stream (uniform executor, PRD 01)
 
 Every run's frames now live on ONE JetStream stream, `url4-events` (subject

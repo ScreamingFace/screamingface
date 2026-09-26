@@ -39,6 +39,17 @@ would let a fractional grace slip under the real requirement (30.9/55 rendered, 
 55.9 is required). The minimum is computed in floats and CEILED — the termination grace
 is an integer, so it must cover the whole fractional requirement. */ -}}
 {{- $minimum := ceil (addf (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS) -}}
+{{- /* `warmChildren` above `workerSlots` (uniform executor PRD 03): the worker caps it at the
+slot count itself (`worker/loop.py`), so this can never deploy a pool that over-warms — but a
+value an operator set expecting it to take effect would be silently truncated instead. Refuse
+the render and name both values, the same shape as the drain-timing guard below. Skipped when
+`warmChildren` is unset (null): `kindIs "invalid"` is the only test that distinguishes "unset"
+from the legal value 0, which `if`/`with` alone would treat as falsy. */ -}}
+{{- if not (kindIs "invalid" .Values.runnerPool.warmChildren) -}}
+{{- if gt (float64 .Values.runnerPool.warmChildren) (float64 .Values.runnerPool.workerSlots) -}}
+{{- fail (printf "runnerPool.warmChildren (%v) must not exceed runnerPool.workerSlots (%v): the worker caps it at the slot count, so a chart operator setting more than that gets a silently truncated pool instead of what they asked for" .Values.runnerPool.warmChildren .Values.runnerPool.workerSlots) -}}
+{{- end -}}
+{{- end -}}
 {{- if lt (float64 .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
 {{- fail (printf "runnerPool.terminationGracePeriodSeconds (%v) must be >= runnerPool.drainGraceS (%v) + kill grace (%v) + terminal-publish budget (%v) = %v: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (float64 .Values.runnerPool.terminationGracePeriodSeconds) (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
 {{- /* INVARIANT: `{{- end }}`, NOT `{{- end -}}`. The trailing `-}}` trims the newline after
@@ -166,6 +177,14 @@ spec:
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT
               value: {{ .Values.runnerPool.metricsPort | quote }}
+            {{- /* Unset (null) leaves the key OUT so `Settings` reads its own default (one warm
+            child per slot) — NOT rendered as empty, which would override that default with 0
+            warm children. `kindIs "invalid"` is what distinguishes "unset" from the legal value
+            0 here; `with`/`if .Values...` alone treats 0 as falsy and would drop it too. */ -}}
+            {{- if not (kindIs "invalid" .Values.runnerPool.warmChildren) }}
+            - name: URL4_CLOUD_WORKER_WARM_CHILDREN
+              value: {{ .Values.runnerPool.warmChildren | quote }}
+            {{- end }}
             # `max_ack_pending` is applied to EVERY bucket consumer (`runner_queue.py`:
             # `_bound_subscription`), and a caller hashes to exactly one bucket, so it is a
             # PER-CALLER allowance — NOT the fleet bound this comment used to claim. Deriving

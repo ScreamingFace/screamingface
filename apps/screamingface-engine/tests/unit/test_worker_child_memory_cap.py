@@ -43,8 +43,22 @@ _BUDGET_BYTES = 128 * 1024 * 1024
 _ALLOCATION_BYTES = 512 * 1024 * 1024
 
 _FAKE_RUNNER = f"""#!/usr/bin/env python3
+import json
 import os
 import sys
+
+if "--warm" in sys.argv:
+    # The warm child's hand-off (PRD 03, contracts.md C5), spelled as raw bytes: READY on the
+    # control pipe, one spec line on stdin, ACK. The run's code — here, the allocation — runs
+    # only AFTER the ACK, exactly as in a real warm child (WRM-8).
+    control = os.fdopen(int(os.environ["URL4_CLOUD_CONTROL_FD"]), "wb", buffering=0)
+    control.write(b'READY {{"pid": %d, "world": "ok"}}\\n' % os.getpid())
+    line = sys.stdin.buffer.readline()
+    if not line:
+        sys.exit(0)
+    os.environ.update(json.loads(line)["env"])
+    control.write(b"ACK\\n")
+    control.close()
 
 if os.environ.get("URL4_CLOUD_TOPIC", "").endswith("-oom"):
     # Allocate far past the worker's per-run budget: the RLIMIT_AS the exec wrapper set

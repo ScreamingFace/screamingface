@@ -349,6 +349,11 @@ class Settings(BaseSettings):
     # `RLIMIT_AS` bounds VIRTUAL address space (heap + mapped libraries), which is larger than
     # the RSS a cgroup limit measures.
     worker_memory_budget_bytes: int = Field(default=DEFAULT_WORKER_MEMORY_BUDGET_BYTES, ge=1)
+    # Warm children per worker (uniform executor PRD 03): child processes that already did
+    # their per-process work and wait for a run. None (the default) means one per slot; 0
+    # spawns on the claim — through the same READY/spec/ACK protocol. Capped at the slots.
+    # Each idle warm child holds its imports in memory (see the chart's memory request).
+    worker_warm_children: int | None = Field(default=None, ge=0)
     # The worker's Prometheus /metrics port (OME-1092): `prometheus_client.start_http_server`
     # serves the pool's own metrics (slots, claim latency, run duration, redeliveries, child
     # exit codes) on this port. The chart exposes it on the runner pool Deployment. 0 disables

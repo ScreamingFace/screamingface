@@ -19,7 +19,9 @@ def modes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Record which mode `main` selects, without entering either for real."""
     called: list[str] = []
     monkeypatch.setattr(cli, "_serve", lambda: called.append("serve"))
-    monkeypatch.setattr(cli, "_run", lambda: called.append("run"))
+    monkeypatch.setattr(
+        cli, "_run", lambda *, warm=False: called.append("run --warm" if warm else "run")
+    )
     monkeypatch.setattr(cli, "_worker", lambda: called.append("worker"))
     return called
 
@@ -147,3 +149,9 @@ def test_admin_without_a_command_exits_loudly() -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main(["admin"])
     assert exc.value.code == 2
+
+
+def test_run_warm_subcommand_runs_warm(modes: list[str]) -> None:
+    """PRD 03: the worker pool's child enters the warm path through `run --warm`."""
+    cli.main(["run", "--warm"])
+    assert modes == ["run --warm"]

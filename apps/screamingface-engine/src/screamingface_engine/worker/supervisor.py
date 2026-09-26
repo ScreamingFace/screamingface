@@ -38,6 +38,7 @@ from screamingface_engine.runner_queue import (
 )
 from screamingface_engine.subjects import ENQUEUED_AT_HEADER, ownership_subject_for
 from screamingface_engine.worker.metrics import WorkerMetrics
+from screamingface_engine.worker.warm_pool import SPAWN_FAILED, LaunchFailed
 from url4.streaming.protocol import (
     ErrorInfo,
     OutboundFrame,
@@ -72,8 +73,6 @@ KILLED = "killed"
 """The child was killed by a signal."""
 CHILD_EXITED = "child_exited"
 """The child exited non-zero on its own."""
-SPAWN_FAILED = "spawn_failed"
-"""The child could not be started at all."""
 
 # How long a child that ignores SIGTERM is given before the worker SIGKILLs it. The
 # child is a Python process with no SIGTERM handler, so this is a backstop for a child
@@ -182,6 +181,68 @@ class _Publisher(Protocol):
     async def flush(self) -> None: ...
 
 
+class _Launcher(Protocol):
+    """Starts ONE run's child and returns it once the run is in its hands.
+
+    Production: the warm child pool (`worker.warm_pool.WarmChildPool`, PRD 03), which hands the
+    run to an already-started child. `DirectLauncher` spawns a child cold with the whole
+    environment — the `spawn=` seam the supervisor's own tests drive.
+    """
+
+    async def launch(
+        self, env: Mapping[str, str], *, io_budget: Callable[[], int]
+    ) -> _ChildProcess: ...
+
+
+def cold_child_env(
+    environ: Mapping[str, str], run_env: Mapping[str, str], io_concurrency: int
+) -> dict[str, str]:
+    """A cold child's whole environment: the worker's deploy-time env merged with the run's.
+
+    WHY merge rather than pass the run's alone: the message carries only the per-run
+    mapping; the deploy-time variables the run mode reads (``NATS_URL``,
+    ``AIGATEWAY_BASE_URL``, ``TAVILY_API_KEY``, ``RUNNER_CONFIG``, the artifact store,
+    ...) live in the worker Pod's env, and the child inherits exactly what this dict
+    says. The run's values win over the worker's ambient ones, and the worker's io budget
+    is written last so it is the authority on how wide a run may fan out (the fair-share
+    gate cannot span processes, so the budget travels by env).
+    """
+    env = dict(environ)
+    # INVARIANT: only this queue message may declare its Client version.
+    env.pop(CLIENT_VERSION_ENV, None)
+    env.update(run_env)
+    env[job_env.IO_CONCURRENCY] = str(io_concurrency)
+    return env
+
+
+class DirectLauncher:
+    """Spawn the run's child cold, under its own ``RLIMIT_AS``, with the whole environment.
+
+    WHY through the exec wrapper and not ``preexec_fn``: CPython documents ``preexec_fn`` as
+    unsafe in the presence of threads, and this process runs an event loop plus whatever the
+    NATS client starts. The wrapper is a separate tiny process that sets the address-space
+    limit and execs ``screamingface-engine run`` in place, so the run inherits the limit and
+    the worker never touches the child's memory.
+    """
+
+    def __init__(self, spawn: Callable[..., Awaitable[_ChildProcess]], memory_budget_bytes: int):
+        self._spawn = spawn
+        self._memory_budget_bytes = memory_budget_bytes
+
+    async def launch(
+        self, env: Mapping[str, str], *, io_budget: Callable[[], int]
+    ) -> _ChildProcess:
+        return await self._spawn(
+            sys.executable,
+            "-m",
+            "screamingface_engine.worker.exec_wrapper",
+            str(self._memory_budget_bytes),
+            env=cold_child_env(os.environ, env, io_budget()),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+
 class RunSupervisor:
     """Supervise one claimed run: dedupe, spawn, heartbeat, hard wall, classify, ack.
 
@@ -194,8 +255,9 @@ class RunSupervisor:
         self,
         *,
         publisher: _Publisher,
-        spawn: Callable[..., Awaitable[_ChildProcess]],
         memory_budget_bytes: int,
+        spawn: Callable[..., Awaitable[_ChildProcess]] | None = None,
+        launcher: _Launcher | None = None,
         io_capacity: int,
         draining: asyncio.Event,
         terminating: asyncio.Event,
@@ -212,8 +274,13 @@ class RunSupervisor:
         metrics: WorkerMetrics | None = None,
     ) -> None:
         self._publisher = publisher
-        self._spawn = spawn
-        self._memory_budget_bytes = memory_budget_bytes
+        # ONE of the two: production hands in the warm child pool; the `spawn=` seam (a fake
+        # process with a whole cold environment) is what the supervisor's own tests drive.
+        if (launcher is None) == (spawn is None):
+            raise ValueError("pass exactly one of `launcher` and `spawn`")
+        self._launcher: _Launcher = (
+            launcher if launcher is not None else DirectLauncher(spawn, memory_budget_bytes)  # type: ignore[arg-type]
+        )
         self._io_capacity = io_capacity
         # Spawns committed-to but not yet registered in `_children` (review follow-up):
         # the io budget's denominator counts these, so a batch of concurrent spawns
@@ -496,13 +563,17 @@ class RunSupervisor:
         self._spawning += 1
         promoted = False
         try:
-            env = self._child_env(msg)
+            env = self._run_env(msg)
             try:
-                proc = await self._spawn_child(env)
-            except OSError as exc:
+                # The io budget is a CALLABLE, read by the launcher at the hand-off itself —
+                # after any wait for a child's READY — so the fair share divides by the runs
+                # alive when this run starts (WRM-18).
+                proc = await self._launcher.launch(env, io_budget=self._io_budget)
+            except (OSError, LaunchFailed) as exc:
                 # The run cannot start at all — a named failure beats silence, and the
                 # message is acked so the run is not redelivered to fail the same way.
-                await self._publish_terminal(topic, "failed", SPAWN_FAILED, str(exc))
+                code = exc.code if isinstance(exc, LaunchFailed) else SPAWN_FAILED
+                await self._publish_terminal(topic, "failed", code, str(exc))
                 await msg.ack()
                 return
             self._children.add(proc)
@@ -727,26 +798,20 @@ class RunSupervisor:
 
     # --- the child ------------------------------------------------------------------------
 
-    def _child_env(self, msg: ClaimedMessage) -> dict[str, str]:
-        """The child's environment: the worker's deploy-time env merged with the message's
-        per-run env, plus the worker's own knobs.
+    def _run_env(self, msg: ClaimedMessage) -> dict[str, str]:
+        """The run's own environment: the message's per-run mapping, under the worker's policy.
 
-        WHY merge rather than pass the message alone: the message carries only the per-run
-        mapping; the deploy-time variables the run mode reads (``NATS_URL``,
-        ``AIGATEWAY_BASE_URL``, ``TAVILY_API_KEY``, ``RUNNER_CONFIG``, the artifact store,
-        ...) live in the worker Pod's env, and the child inherits exactly what this dict
-        says. The message's per-run values win over the worker's ambient ones, and the
-        worker's io budget is written last so it is the authority on how wide a run may
-        fan out (the fair-share gate cannot span processes, so the budget travels by env).
+        This is what reaches a warm child in its RUN_SPEC, and what a cold child's environment
+        is merged from (`cold_child_env`).
         """
-        env = dict(os.environ)
-        # INVARIANT: only this queue message may declare its Client version.
-        env.pop(CLIENT_VERSION_ENV, None)
-        env.update(decode_message(msg.data))
+        env = dict(decode_message(msg.data))
         # INVARIANT: an incoming queue message cannot escalate deployment privacy policy.
         env[job_env.ACTIVITY_LEVEL] = os.environ.get(job_env.ACTIVITY_LEVEL, "off")
-        env[job_env.IO_CONCURRENCY] = str(self._io_budget())
         return env
+
+    def _child_env(self, msg: ClaimedMessage) -> dict[str, str]:
+        """A COLD child's whole environment for this message (see `cold_child_env`)."""
+        return cold_child_env(os.environ, self._run_env(msg), self._io_budget())
 
     def _io_budget(self) -> int:
         """The spawn-time io budget: `io_capacity / (active children + committed spawns)`,
@@ -764,26 +829,6 @@ class RunSupervisor:
         sibling committed — the same spawn-fixed limitation as sibling exits.
         """
         return max(1, self._io_capacity // max(1, len(self._children) + self._spawning))
-
-    async def _spawn_child(self, env: Mapping[str, str]) -> _ChildProcess:
-        """Fork the run entrypoint as a supervised child, under its own ``RLIMIT_AS``.
-
-        WHY through the exec wrapper and not ``preexec_fn``: CPython documents
-        ``preexec_fn`` as unsafe in the presence of threads, and this process runs an
-        event loop plus whatever the NATS client starts. The wrapper is a separate tiny
-        process that sets the address-space limit and execs ``screamingface-engine run``
-        in place, so the run inherits the limit and the worker never touches the child's
-        memory.
-        """
-        return await self._spawn(
-            sys.executable,
-            "-m",
-            "screamingface_engine.worker.exec_wrapper",
-            str(self._memory_budget_bytes),
-            env=dict(env),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
 
     def _hard_wall_s(self, env: Mapping[str, str]) -> float | None:
         """The worker's hard wall for this run: ``deadline_s + STREAM_GRACE_S + margin``.
