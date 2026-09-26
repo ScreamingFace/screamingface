@@ -33,6 +33,7 @@ from url4.observe import (
     _bind_node_sinks,
 )
 from url4.peer._dispatch import _text, call_endpoint
+from url4.peer._http import _STATUS_BY_CODE
 from url4.wire.subrequest import extract_expression_params
 
 if TYPE_CHECKING:
@@ -176,4 +177,34 @@ async def _dispatch_direct(node: Url4Node, target: str) -> DirectResult:
     )
 
 
-__all__ = ["DirectResult", "RouteInfo", "describe_routes", "dispatch_direct", "is_eval_path"]
+_DIRECT_STATUS: dict[str, int] = {
+    ErrorCode.MISSING_INTENT: 400,
+    ErrorCode.DIRECT_EVAL_REFUSED: 404,
+}
+"""What a direct call adds to the node's spec table: an endpoint called without ``q`` is the
+caller's error, and the eval path has no direct handler (as if the route did not exist)."""
+
+
+def http_status(code: str | None, *, permanent: bool) -> int:
+    """The HTTP status for a failed direct call with error ``code``.
+
+    The node's own spec table (``url4.peer._http``) plus the direct-call codes; an unlisted
+    code falls back by its shape, as the node does: 502 when transient, 500 when permanent.
+    WHY public: a host that runs direct calls elsewhere (queued) still answers the caller over
+    HTTP, and must answer as the node would have.
+    """
+    if code is not None:
+        status = _DIRECT_STATUS.get(code) or _STATUS_BY_CODE.get(code)
+        if status is not None:
+            return status
+    return 500 if permanent else 502
+
+
+__all__ = [
+    "DirectResult",
+    "RouteInfo",
+    "describe_routes",
+    "dispatch_direct",
+    "http_status",
+    "is_eval_path",
+]

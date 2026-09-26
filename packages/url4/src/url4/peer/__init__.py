@@ -24,7 +24,15 @@ from url4.peer.direct import (
     RouteInfo,
     describe_routes,
     dispatch_direct,
+    http_status,
     is_eval_path,
 )
 
-__all__ = ["DirectResult", "RouteInfo", "describe_routes", "dispatch_direct", "is_eval_path"]
+__all__ = [
+    "DirectResult",
+    "RouteInfo",
+    "describe_routes",
+    "dispatch_direct",
+    "http_status",
+    "is_eval_path",
+]

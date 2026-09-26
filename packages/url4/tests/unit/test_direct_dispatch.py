@@ -157,3 +157,16 @@ async def test_an_observed_failed_direct_call_finishes_its_node_with_the_code() 
     finished = [e for e in recorder.events if isinstance(e, NodeFinished)]
     assert [(f.status, f.code) for f in finished] == [("error", "direct_eval_refused")]
     assert [e.status for e in recorder.events if isinstance(e, RunFinished)] == ["error"]
+
+
+async def test_http_status_of_a_failed_direct_call() -> None:
+    """A queued direct call answers its caller as the node would have."""
+    from url4.peer import http_status
+
+    assert http_status("malformed_source", permanent=True) == 400
+    assert http_status("missing_intent", permanent=True) == 400
+    assert http_status("endpoint_not_found", permanent=True) == 404
+    assert http_status("direct_eval_refused", permanent=True) == 404
+    assert http_status("identity_access_denied", permanent=True) == 403
+    assert http_status("some_upstream_blip", permanent=False) == 502
+    assert http_status(None, permanent=True) == 500
