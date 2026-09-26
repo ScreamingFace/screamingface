@@ -1861,6 +1861,37 @@ def test_introspect_flags_a_rewritten_system_message_in_task_setup(
     assert any("system_message" in flag for flag in facts.custom_solvers)
 
 
+@pytest.mark.parametrize("where", ["chain", "setup_and_chain"])
+def test_introspect_refuses_a_task_with_two_prompt_templates(
+    monkeypatch: pytest.MonkeyPatch, where: str
+) -> None:
+    """OME-1272 (PR #1064 second review): inspect applies EVERY prompt_template in
+    turn, each wrapping the previous one's output, but the row points at one
+    template and the bake applies only it — the last one used to win silently.
+    It refuses by name, like every other prompt template the bake cannot
+    reproduce (an unresolvable one, a file path)."""
+
+    def double_templated() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        outer: Any = prompt_template(module.OUTER)
+        inner: Any = prompt_template(module.TEMPLATE)
+        in_setup: bool = where == "setup_and_chain"
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            setup=outer if in_setup else None,
+            solver=[inner, generate()] if in_setup else [outer, inner, generate()],
+            scorer=match(numeric=True),
+        )
+
+    module = _install_fake_eval(monkeypatch, double_templated=double_templated)
+    module.OUTER = "Think carefully.\n\n{prompt}"  # type: ignore[attr-defined]
+
+    with pytest.raises(ImporterError, match="2 prompt templates"):
+        introspect_task(f"{_FAKE_MODULE}:double_templated")
+
+
 # ---------------------------------------------------------------------------
 # model-graded scorers get the judge flag (OME-1240)
 # ---------------------------------------------------------------------------

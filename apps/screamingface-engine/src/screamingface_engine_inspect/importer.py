@@ -482,8 +482,8 @@ def _solver_facts(
     # solver chain, so anything there reaches the candidate too — a walk of
     # task.solver alone let a setup system message vanish with no flag.
     solvers: list[Any] = [*_solver_list(task.setup), *_solver_list(task.solver)]
-    template_ref: str | None = None
     choice_template_ref: str | None = None
+    template_solvers: list[Any] = []
     system_solvers: list[Any] = []
     custom: list[str] = []
     uses_multiple_choice: bool = False
@@ -494,13 +494,12 @@ def _solver_facts(
             # Task wraps a solver LIST into one chain; the facts live on its links.
             solvers.extend(solver)
             continue
+        # Prompt templates and system messages are collected, not bound here:
+        # whether the row can point at one depends on how many the whole walk
+        # finds (_prompt_template_fact / _system_message_fact).
         if name == "prompt_template":
-            template_value: Any = registry_params(solver).get("template")
-            _refuse_file_template(template_value, task_ref)
-            template_ref = _template_attribute(module, template_value, task_ref)
+            template_solvers.append(solver)
         elif name == "system_message":
-            # Collected, not bound here: whether the row can point at one depends
-            # on how many the whole walk finds (_system_message_fact).
             system_solvers.append(solver)
         elif name == "multiple_choice":
             # WHY the flag: MCQ-ness is the exam's SHAPE (options + letter answer),
@@ -524,6 +523,7 @@ def _solver_facts(
                 )
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
+    template_ref: str | None = _prompt_template_fact(module, template_solvers, task_ref)
     system_message_ref: str | None = _system_message_fact(module, system_solvers, task_ref, custom)
     return (
         template_ref,
@@ -570,6 +570,31 @@ def _refuse_file_template(template: Any, task_ref: str) -> None:
             "the bake formats the constant's own text, so every case would become the "
             "path; add the row by hand or extend the importer for this family"
         )
+
+
+def _prompt_template_fact(module: Any, solvers: list[Any], task_ref: str) -> str | None:
+    """Point the row at THE prompt template constant, or refuse by name.
+
+    inspect applies every prompt_template in turn, each wrapping the previous
+    one's output ("Think carefully.\\n\\n{prompt}" around "Solve: {prompt}"); the
+    row points at one template and the bake applies only it. So two or more
+    refuse (OME-1272), as does a file-path template or one with no single module
+    attribute to point at — the bake cannot reproduce any of them.
+    """
+
+    from inspect_ai._util.registry import registry_params
+
+    if len(solvers) > 1:
+        raise ImporterError(
+            f"{task_ref}: the task applies {len(solvers)} prompt templates — inspect wraps "
+            "each around the previous one's output, the bake applies only one; add the "
+            "row by hand or extend the importer for this family"
+        )
+    if not solvers:
+        return None
+    template: Any = registry_params(solvers[0]).get("template")
+    _refuse_file_template(template, task_ref)
+    return _template_attribute(module, template, task_ref)
 
 
 def _system_message_fact(
