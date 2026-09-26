@@ -139,6 +139,7 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         self._exists = exists
         self._conflict = conflict_on_schedule
         self.scheduled: list[ScheduledRun] = []
+        self.shapes: list[str] = []
         self.stopped: list[str] = []
 
     async def schedule(
@@ -158,12 +159,15 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: str = "expression",
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)
         self.scheduled.append(
             ScheduledRun(topic, url4, deadline_s, traceparent, credential, profile, identity)
         )
+        # Recorded beside, not on, `ScheduledRun` — see the `cache` note above.
+        self.shapes.append(shape)
         return job_name(topic)
 
     async def stop(self, topic: str) -> None:

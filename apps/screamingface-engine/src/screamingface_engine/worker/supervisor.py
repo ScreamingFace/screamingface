@@ -74,6 +74,9 @@ KILLED = "killed"
 CHILD_EXITED = "child_exited"
 """The child exited non-zero on its own."""
 
+UNSUPPORTED_SPEC_VERSION = "unsupported_spec_version"
+"""The run message's major version is unknown to this worker (erd.md §2)."""
+
 # How long a child that ignores SIGTERM is given before the worker SIGKILLs it. The
 # child is a Python process with no SIGTERM handler, so this is a backstop for a child
 # stuck in uninterruptible I/O, not a normal path.
@@ -477,6 +480,8 @@ class RunSupervisor:
         redelivery of a run that already finished, a cancel that landed before the claim,
         and a stale message whose run is over.
         """
+        if await self._settled_unsupported_spec(msg, topic):
+            return True
         try:
             already_terminal = await self._terminal_frame_exists(topic)
         except QueueReadError:
@@ -492,6 +497,25 @@ class RunSupervisor:
             await msg.ack()
             return True
         return await self._settled_elsewhere_or_expired(msg, topic)
+
+    async def _settled_unsupported_spec(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Refuse a run message of a major version this worker does not know (erd.md §2).
+
+        A named `failed` frame and an ack: a newer App's message (a `direct` shape an old worker
+        would run as an expression, say) must never execute here, and redelivering it would only
+        reach another worker of the same version.
+        """
+        version = decode_message(msg.data).get(job_env.SPEC_VERSION, "1")
+        if version.split(".")[0] in job_env.SUPPORTED_SPEC_MAJORS:
+            return False
+        await self._publish_terminal(
+            topic,
+            "failed",
+            UNSUPPORTED_SPEC_VERSION,
+            f"run message version {version!r} is not supported by this worker",
+        )
+        await msg.ack()
+        return True
 
     async def _refuse_cross_pod_duplicate(self, msg: ClaimedMessage, topic: str) -> bool:
         """Ack a redelivered claim away when ANOTHER pod is executing the run (OME-1089).

@@ -24,6 +24,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
+from typing import Literal
 
 from url4.streaming.protocol import CachePolicy
 
@@ -136,6 +137,32 @@ url4-INTERNAL: it is never sent to the gateway, whose cache-control grammar is c
 key and BYPASSES on any other. It travels only so the value survives to read-back, where an entry's
 age can be compared against it.
 """
+
+RUN_SHAPE = "URL4_CLOUD_RUN_SHAPE"
+"""What the run's EXPRESSION is (uniform executor PRD 04, erd.md §2): ``expression`` — a url4
+expression the run evaluates as a DAG — or ``direct`` — a mount call, ``<mount path>?<raw query>``,
+that runs ONE registered handler through ``url4.peer.dispatch_direct`` and never a DAG (D1).
+Absent means ``expression``, so a message from before the change still decodes."""
+
+SPEC_VERSION = "URL4_CLOUD_SPEC_VERSION"
+"""The run message's major version (erd.md §2). Absent means ``1``. A worker refuses an unknown
+major version with a ``failed`` terminal frame, code ``unsupported_spec_version``."""
+
+CURRENT_SPEC_VERSION = "2"
+SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+MAX_DIRECT_TARGET_BYTES = 8 * 1024
+"""The longest ``<mount path>?<raw query>`` a direct run carries (erd.md §2; 414 over it)."""
+
+RunShape = Literal["expression", "direct"]
+
+
+def run_shape_from_env(env: Mapping[str, str]) -> RunShape:
+    """The run's shape; absent is ``expression``. An unknown value raises ``ValueError``."""
+    shape = env.get(RUN_SHAPE, "expression")
+    if shape not in ("expression", "direct"):
+        raise ValueError(f"{RUN_SHAPE}={shape!r} is not 'expression' or 'direct'")
+    return shape  # type: ignore[return-value]
+
 
 EXTRA_MODELS = "URL4_CLOUD_EXTRA_MODELS"
 """Dynamically admitted model ids this run's world must ALSO route (OME-880).
@@ -468,6 +495,8 @@ WRITTEN_BY_APP = frozenset(
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,
         IO_CONCURRENCY,
+        RUN_SHAPE,
+        SPEC_VERSION,
         *IDENTITY_HEADER_ENV.values(),
     }
 )

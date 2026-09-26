@@ -463,6 +463,7 @@ def build_executor(
             artifact_store=artifact_store,
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
+            run_shape=job_env.run_shape_from_env(env),
         ),
         observers=observers,
     )

@@ -45,6 +45,7 @@ from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.errors import NoRespondersError
 
+from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.run_evidence import adopt_or_mint_traceparent, log_scheduled
@@ -270,6 +271,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: job_env.RunShape = "expression",
     ) -> str:
         """Publish the run to the queue and return its job name.
 
@@ -304,6 +306,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 client_version=client_version,
                 io_concurrency=self._io_concurrency,
                 extra_models=() if self._extra_models is None else self._extra_models(),
+                shape=shape,
             )
             await self._queue.publish(message, identity=identity)
             # AFTER the publish: a line claiming a run was scheduled when the publish then

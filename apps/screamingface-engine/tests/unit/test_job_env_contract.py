@@ -153,4 +153,18 @@ def test_the_codec_renders_the_full_per_run_contract() -> None:
         job_env.CACHE_MAX_AGE_S,
         job_env.EXTRA_MODELS,
         job_env.IO_CONCURRENCY,
+        # Uniform executor (erd.md §2): every message states its major version. `RUN_SHAPE`
+        # is written only for a direct run — absent means `expression`.
+        job_env.SPEC_VERSION,
     }
+
+
+def test_a_direct_run_message_states_its_shape_and_version() -> None:
+    """erd.md §2: `shape=direct` is the one case that writes `RUN_SHAPE`."""
+    from screamingface_engine.runner_queue import decode_message, encode_message
+
+    env = decode_message(encode_message("t", "/v1/chat/completions?q=(a)!b", 35, shape="direct"))
+    assert env[job_env.RUN_SHAPE] == "direct"
+    assert env[job_env.SPEC_VERSION] == job_env.CURRENT_SPEC_VERSION
+    assert job_env.run_shape_from_env(env) == "direct"
+    assert job_env.run_shape_from_env({}) == "expression"

@@ -191,6 +191,7 @@ def _env_mapping(
     client_version: str | None = None,
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
+    shape: job_env.RunShape = "expression",
 ) -> dict[str, str]:
     """The per-run env mapping a queue message carries, keyed by env name.
 
@@ -219,6 +220,12 @@ def _env_mapping(
         job_env.EXTRA_MODELS, ""
     )
     env[job_env.IO_CONCURRENCY] = str(io_concurrency)
+    env[job_env.SPEC_VERSION] = job_env.CURRENT_SPEC_VERSION
+    # Written only for a direct run: absent means `expression`, so a default message stays
+    # byte-for-byte what an old worker reads (the drained rollout keeps old workers from ever
+    # seeing a `direct` one — erd.md §10).
+    if shape == "direct":
+        env[job_env.RUN_SHAPE] = "direct"
     return env
 
 
@@ -235,6 +242,7 @@ def encode_message(
     client_version: str | None = None,
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
+    shape: job_env.RunShape = "expression",
 ) -> bytes:
     """Encode a run submission as the queue message body: the per-run env mapping, JSON."""
     return json.dumps(
@@ -250,6 +258,7 @@ def encode_message(
             client_version=client_version,
             io_concurrency=io_concurrency,
             extra_models=extra_models,
+            shape=shape,
         ),
         sort_keys=True,
     ).encode("utf-8")
