@@ -248,3 +248,75 @@ e2e-bless-fresh board dump report candidate *flags: _bless-preconditions
 e2e-refresh-golden board *flags: _bless-preconditions
     {{ blesser }} --board {{board}} \
         --refresh-golden {{flags}}
+
+# Paid smoke of every imported board (OME-1275): boots the real stack (Postgres +
+# gateway + engine) and spends real money through OPENROUTER_API_KEY: every imported
+# board × 2 Cases × a 3-model Fusion of flash-tier seeds, plus the frontier-model
+# judge calls of any LLM-judged board (frontierscience's judge is gpt-5.4). The
+# test fails only on infrastructure failure codes, never on scores. Never wired into
+# merge gates; the on-demand CI twin is
+# .github/workflows/screamingface-paid-inspect-smoke.yml.
+[doc("Run the paid OpenRouter smoke over every imported benchmark (spends money)")]
+test-paid-inspect:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    UV="{{ require('uv') }}"
+    DOCKER="{{ require('docker') }}"
+    : "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY must be set — the paid smoke needs a real key}"
+    # Fail here, not minutes later inside a booted stack, if the daemon is down.
+    "$DOCKER" info >/dev/null 2>&1 || { echo "error: docker daemon unreachable (Postgres testcontainer needs it)" >&2; exit 1; }
+
+    # The imported boards' extra is uncoinstallable with the SDK's runtime extra, so
+    # the engine always runs from its own venv, synced here.
+    ( cd "{{ engine_dir }}" && "$UV" sync --extra benchmarks )
+
+    # Prepare any missing imported bundle. Same resumable rule as local-stack-notebooks:
+    # a bundle counts as finished only when its cases.json PARSES; anything else is
+    # debris from a dead run and is cleared before re-preparing.
+    # AIDEV-NOTE: near-copy of that recipe's loop, narrowed to inspect-* bundles —
+    # fold both (and the workflow's third copy) into one place when any of them
+    # changes again; candidate home: a --only-missing flag on the engine preparer.
+    #
+    # WHY a temp file, not `done < <(...)` (PR #1035 review): a failed --list-bundles
+    # inside process substitution does NOT trip `set -e` — the loop would see an empty
+    # list, prepare nothing, and the run would end as a green no-op.
+    bundles_file="$(mktemp)"
+    trap 'rm -f "$bundles_file"' EXIT
+    ( cd "{{ engine_dir }}" \
+        && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles ) > "$bundles_file"
+    missing=()
+    while read -r bundle; do
+        case "$bundle" in inspect-*) ;; *) continue ;; esac
+        # A bundle id is a flat directory name; anything path-like would make the
+        # rm -rf below reach outside the assets root. Refuse, never sanitize.
+        case "$bundle" in */*|*..*) echo "error: suspicious bundle id '$bundle' from --list-bundles" >&2; exit 1 ;; esac
+        if "$UV" run python -c "import json,sys;json.load(open(sys.argv[1]))" \
+            "{{ assets }}/$bundle/cases.json" >/dev/null 2>&1; then
+            continue
+        fi
+        rm -rf "{{ assets }}/${bundle:?}"
+        missing+=("--bundle" "$bundle")
+    done < "$bundles_file"
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "==> downloading $((${#missing[@]} / 2)) imported dataset(s) into {{ assets }} — slow, once"
+        ( cd "{{ engine_dir }}" \
+            && "$UV" run python -m screamingface_engine.benchmarks.prepare \
+                --root "{{ assets }}" "${missing[@]}" )
+    fi
+
+    # One timestamped directory per press holds everything needed to debug it: the
+    # gateway/engine logs, one full Report per board under reports/, and the junit
+    # verdicts. Pinned here (not pytest's tmp dir, which keeps only the last three
+    # sessions under an unprinted path) and printed below on pass AND fail.
+    log_dir="{{ data_dir }}/paid-smoke-logs/$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$log_dir"
+
+    # REQUIRED: this recipe IS the paid button — an unavailable stack must FAIL the
+    # run (a pytest skip exits 0 and would report a green no-op). -rs still prints
+    # any skip reason from non-button contexts.
+    status=0
+    SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_PAID_REQUIRED=1 SCREAMINGFACE_E2E_ASSETS="{{ assets }}" \
+        SCREAMINGFACE_PAID_LOG_DIR="$log_dir" \
+        "$UV" run pytest tests/paid -m paid -rs -v --junitxml "$log_dir/junit.xml" || status=$?
+    echo "==> logs, per-board reports and verdicts: $log_dir"
+    exit "$status"

@@ -134,6 +134,9 @@ markers = [
     # Gated like aigateway's needs_postgres lane: set SCREAMINGFACE_TEST_E2E=1 and have
     # Docker running, or the tests skip loudly with the reason.
     "e2e: end-to-end replay tests against the locally booted stack (docker + env-gated)",
+    # OME-1275: spends real money through a real OpenRouter key. Never a merge gate —
+    # gated on SCREAMINGFACE_TEST_PAID=1 + OPENROUTER_API_KEY + docker, or it skips loudly.
+    "paid: paid smoke of every imported benchmark against the real provider (opt-in)",
 ]
 
 [tool.coverage.run]
