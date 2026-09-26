@@ -92,3 +92,68 @@ async def test_describe_routes_lists_endpoints_and_data_routes() -> None:
         RouteInfo(path="/v1/benchmarks/data/foo", kind="data", media_type="application/json"),
         RouteInfo(path="/v1/chat/completions", kind="endpoint", media_type=None),
     ]
+
+
+class _Recorder:
+    def __init__(self) -> None:
+        self.events: list[object] = []
+
+    def on_event(self, event: object) -> None:
+        self.events.append(event)
+
+
+async def test_an_observed_direct_call_reports_one_node_with_its_usage() -> None:
+    """PRD 04 MC-H3 / MNT-8: a direct call emits what a one-node run emits — RunStarted, one
+    NodeStarted / NodeFinished pair, and the handler's usage and response on THAT span — so a
+    host maps it to the same span and cost frames, with no DAG."""
+    from url4.observe import (
+        ModelResponse,
+        NodeFinished,
+        NodeStarted,
+        RunFinished,
+        RunStarted,
+        Usage,
+        current_response_sink,
+        current_usage_sink,
+    )
+
+    node = Url4Node("t")
+
+    @node.endpoint("/v1/chat/completions")
+    async def chat(request):  # type: ignore[no-untyped-def]
+        sink, response = current_usage_sink(), current_response_sink()
+        assert sink is not None and response is not None
+        sink(provider="p", model="m", input_tokens=3, output_tokens=5)
+        response(finish_reason="stop", refusal=None)
+        return "ok"
+
+    recorder = _Recorder()
+    trace_id, root = "a" * 32, "b" * 16
+    await dispatch_direct(
+        node,
+        _target("/v1/chat/completions", "ctx", "i"),
+        observer=recorder,
+        trace_id=trace_id,
+        root_span_id=root,
+    )
+    kinds = [type(e) for e in recorder.events]
+    assert kinds == [RunStarted, NodeStarted, Usage, ModelResponse, NodeFinished, RunFinished]
+    run, started, usage, response, finished, done = recorder.events
+    assert (run.trace_id, run.root_span_id) == (trace_id, root)  # type: ignore[attr-defined]
+    assert started.parent_span_id == root and started.detail == "/v1/chat/completions"  # type: ignore[attr-defined]
+    span = started.span_id  # type: ignore[attr-defined]
+    assert usage.span_id == response.span_id == finished.span_id == span  # type: ignore[attr-defined]
+    assert (usage.input_tokens, usage.output_tokens) == (3, 5)  # type: ignore[attr-defined]
+    assert finished.status == "ok" and done.status == "ok"  # type: ignore[attr-defined]
+
+
+async def test_an_observed_failed_direct_call_finishes_its_node_with_the_code() -> None:
+    node, _ = _node()
+    recorder = _Recorder()
+    with pytest.raises(ResolutionError):
+        await dispatch_direct(node, "/v1?q=x", observer=recorder)
+    from url4.observe import NodeFinished, RunFinished
+
+    finished = [e for e in recorder.events if isinstance(e, NodeFinished)]
+    assert [(f.status, f.code) for f in finished] == [("error", "direct_eval_refused")]
+    assert [e.status for e in recorder.events if isinstance(e, RunFinished)] == ["error"]

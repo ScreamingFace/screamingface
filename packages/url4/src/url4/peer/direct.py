@@ -14,10 +14,24 @@ the call happens — not re-derived from private registries on the other side of
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import itertools
+import secrets
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.observe import (
+    ModelResponse,
+    NodeFinished,
+    NodeStarted,
+    Observer,
+    RunFinished,
+    RunStarted,
+    Usage,
+    _bind_node_sinks,
+)
 from url4.peer._dispatch import _text, call_endpoint
 from url4.wire.subrequest import extract_expression_params
 
@@ -55,14 +69,80 @@ def is_eval_path(node: Url4Node, path: str) -> bool:
     return path == node._eval_path or path.startswith(f"{node._eval_path}/")
 
 
-async def dispatch_direct(node: Url4Node, target: str) -> DirectResult:
+async def dispatch_direct(
+    node: Url4Node,
+    target: str,
+    *,
+    observer: Observer | None = None,
+    trace_id: str | None = None,
+    root_span_id: str | None = None,
+) -> DirectResult:
     """Run the ONE handler ``target`` (``<path>[?query]``) names on ``node``.
+
+    With an ``observer``, the call is reported as a one-node run: ``RunStarted``, then ONE
+    ``NodeStarted`` / ``NodeFinished`` pair (a child of ``root_span_id``) with the handler's
+    ``Usage`` and ``ModelResponse`` on that span, then ``RunFinished`` — the events a DAG run of
+    a single call would emit, so a host maps them to the same span and cost frames. The handler
+    reports usage exactly as it does inside a run, through the ctx-less sinks
+    (:func:`~url4.observe.current_usage_sink`).
 
     Raises:
         ResolutionError: ``direct_eval_refused`` for the eval path; ``missing_intent`` for an
             endpoint called without ``q``; ``endpoint_not_found`` for any other path; and the
             subrequest decode errors for a malformed ``q``. All permanent.
     """
+    if observer is None:
+        return await _dispatch_direct(node, target)
+    return await _observed(node, target, observer, trace_id, root_span_id)
+
+
+async def _observed(
+    node: Url4Node,
+    target: str,
+    observer: Observer,
+    trace_id: str | None,
+    root_span_id: str | None,
+) -> DirectResult:
+    root = root_span_id if root_span_id is not None else secrets.token_hex(8)
+    span = secrets.token_hex(8)
+    seq = itertools.count(1)
+    digest = hashlib.sha256(target.encode()).hexdigest()[:16]
+    observer.on_event(RunStarted(trace_id or secrets.token_hex(16), root, digest))
+    observer.on_event(NodeStarted(span, root, "DirectCall", target.partition("?")[0]))
+
+    def usage(**kwargs: Any) -> None:
+        observer.on_event(Usage(span_id=span, **kwargs))
+
+    def response(**kwargs: Any) -> None:
+        observer.on_event(ModelResponse(span_id=span, **kwargs))
+
+    try:
+        with _bind_node_sinks(usage, response):
+            result = await _dispatch_direct(node, target)
+    except asyncio.CancelledError:
+        observer.on_event(NodeFinished(span, "cancelled", next(seq)))
+        observer.on_event(RunFinished("cancelled", next(seq)))
+        raise
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        permanent = getattr(exc, "permanent", None)
+        observer.on_event(
+            NodeFinished(
+                span,
+                "error",
+                next(seq),
+                code=code if isinstance(code, str) else None,
+                permanent=permanent if isinstance(permanent, bool) else None,
+            )
+        )
+        observer.on_event(RunFinished("error", next(seq)))
+        raise
+    observer.on_event(NodeFinished(span, "ok", next(seq)))
+    observer.on_event(RunFinished("ok", next(seq)))
+    return result
+
+
+async def _dispatch_direct(node: Url4Node, target: str) -> DirectResult:
     path, sep, query = target.partition("?")
     params, q = extract_expression_params(query) if sep else ({}, None)
     # INVARIANT (D1): only a REGISTERED handler is ever called. The eval branch of `dispatch`
