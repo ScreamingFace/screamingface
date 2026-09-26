@@ -1,0 +1,10 @@
+# Layers the node tier back on for the phase-0 B1 baseline (test-plan §6) — the mount path as it
+# existed before uniform executor PRD 04, kept only because the chart still supports it.
+#
+#   helm upgrade --install sf-uniform ../helm -f values-kind.yaml -f values-kind-node.yaml
+#
+# Needs no other override: `deployment-node.yaml` requires `artifactStorage.backend: s3`, which
+# values-kind.yaml already sets, and `node.enabled` is the only switch that arms the App's
+# forwarder (`configmap.yaml`'s URL4_CLOUD_NODE_BASE_URL).
+node:
+  enabled: true
