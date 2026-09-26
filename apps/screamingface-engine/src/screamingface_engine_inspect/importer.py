@@ -478,10 +478,13 @@ def _solver_facts(
 
     from inspect_ai._util.registry import registry_info, registry_params
 
-    solvers: list[Any] = task.solver if isinstance(task.solver, list) else [task.solver]
-    template_ref: str | None = None
+    # WHY setup first (OME-1272): inspect always runs Task(setup=...) before the
+    # solver chain, so anything there reaches the candidate too — a walk of
+    # task.solver alone let a setup system message vanish with no flag.
+    solvers: list[Any] = [*_solver_list(task.setup), *_solver_list(task.solver)]
     choice_template_ref: str | None = None
-    system_message_ref: str | None = None
+    template_solvers: list[Any] = []
+    system_solvers: list[Any] = []
     custom: list[str] = []
     uses_multiple_choice: bool = False
     for solver in solvers:
@@ -491,22 +494,13 @@ def _solver_facts(
             # Task wraps a solver LIST into one chain; the facts live on its links.
             solvers.extend(solver)
             continue
+        # Prompt templates and system messages are collected, not bound here:
+        # whether the row can point at one depends on how many the whole walk
+        # finds (_prompt_template_fact / _system_message_fact).
         if name == "prompt_template":
-            template_value: Any = registry_params(solver).get("template")
-            template_ref = _template_attribute(module, template_value, task_ref)
+            template_solvers.append(solver)
         elif name == "system_message":
-            # A module-level system instruction the bake CAN deliver — as leading
-            # input text (a benchmark cannot address a candidate's system role;
-            # contracteval named-deviation pattern, owner-approved on OME-1253).
-            # An inline literal has no module attribute for the row to POINT at,
-            # and the importer never copies exam text, so it stays flagged.
-            system_message_ref = _resolved_or_flagged(
-                module,
-                solver,
-                task_ref,
-                custom,
-                f"{registry_name} (system instructions are not baked)",
-            )
+            system_solvers.append(solver)
         elif name == "multiple_choice":
             # WHY the flag: MCQ-ness is the exam's SHAPE (options + letter answer),
             # and this solver is one of its two witnesses (the other is the choice
@@ -529,6 +523,8 @@ def _solver_facts(
                 )
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
+    template_ref: str | None = _prompt_template_fact(module, template_solvers, task_ref)
+    system_message_ref: str | None = _system_message_fact(module, system_solvers, task_ref, custom)
     return (
         template_ref,
         choice_template_ref,
@@ -536,6 +532,145 @@ def _solver_facts(
         tuple(custom),
         uses_multiple_choice,
     )
+
+
+def _solver_list(solvers: Any) -> list[Any]:
+    """A Task's solver slot as a fresh list: None, one solver, or a list of them."""
+
+    if solvers is None:
+        return []
+    return list(solvers) if isinstance(solvers, list) else [solvers]
+
+
+def _reads_a_file(template: Any) -> bool:
+    """True when inspect would swap this template for a file's contents.
+
+    inspect's prompt_template() and system_message() both pass their template
+    through resource(): a path to an existing file (or a URL) becomes that
+    file's text. Calling it again is safe — the eval's own solver already did,
+    on the same value, while the task was being built.
+    """
+
+    from inspect_ai.util import resource
+
+    return isinstance(template, str) and resource(template) != template
+
+
+def _refuse_file_template(template: Any, task_ref: str) -> None:
+    """A prompt_template read from a file refuses by name (OME-1272).
+
+    WHY refuse, not flag: the bake formats the constant's own text, and a path
+    has no {prompt} slot — every case would become the path string. That
+    matches how an unresolvable prompt template already refuses.
+    """
+
+    if _reads_a_file(template):
+        raise ImporterError(
+            f"{task_ref}: prompt_template reads its template from a file ({template}) — "
+            "the bake formats the constant's own text, so every case would become the "
+            "path; add the row by hand or extend the importer for this family"
+        )
+
+
+def _prompt_template_fact(module: Any, solvers: list[Any], task_ref: str) -> str | None:
+    """Point the row at THE prompt template constant, or refuse by name.
+
+    inspect applies every prompt_template in turn, each wrapping the previous
+    one's output ("Think carefully.\\n\\n{prompt}" around "Solve: {prompt}"); the
+    row points at one template and the bake applies only it. So two or more
+    refuse (OME-1272), as does a file-path template or one with no single module
+    attribute to point at — the bake cannot reproduce any of them.
+    """
+
+    from inspect_ai._util.registry import registry_params
+
+    if len(solvers) > 1:
+        raise ImporterError(
+            f"{task_ref}: the task applies {len(solvers)} prompt templates — inspect wraps "
+            "each around the previous one's output, the bake applies only one; add the "
+            "row by hand or extend the importer for this family"
+        )
+    if not solvers:
+        return None
+    template: Any = registry_params(solvers[0]).get("template")
+    _refuse_file_template(template, task_ref)
+    return _template_attribute(module, template, task_ref)
+
+
+def _system_message_fact(
+    module: Any, solvers: list[Any], task_ref: str, custom: list[str]
+) -> str | None:
+    """Point the row at THE system-message constant, or record why it cannot.
+
+    A module-level system instruction the bake CAN deliver — as leading input
+    text (a benchmark cannot address a candidate's system role; contracteval
+    named-deviation pattern, owner-approved on OME-1253). The row holds ONE
+    pointer, so a chain sending two or more system messages flags (inspect
+    sends them all; OME-1272). An inline literal has no module attribute for
+    the row to POINT at, and the importer never copies exam text, so it stays
+    flagged too.
+    """
+
+    from inspect_ai._util.registry import registry_info
+
+    if not solvers:
+        return None
+    registry_name: str = registry_info(solvers[0]).name
+    rewrite: str | None = (
+        f"the task sends {len(solvers)} system messages; the bake delivers only one"
+        if len(solvers) > 1
+        else _system_message_rewrite(solvers[0])
+    )
+    if rewrite is not None:
+        # WHY no fact at all (OME-1272): the bake delivers ONE constant's text
+        # verbatim, so any other text inspect sends would bake a different exam
+        # with every guard green.
+        custom.append(f"{registry_name} ({rewrite})")
+        return None
+    return _resolved_or_flagged(
+        module,
+        solvers[0],
+        task_ref,
+        custom,
+        f"{registry_name} (system instructions are not baked)",
+    )
+
+
+def _system_message_rewrite(solver: Any) -> str | None:
+    """Why the text inspect SENDS would differ from the template constant, or None.
+
+    Think of the constant as a letter the bake photocopies. inspect does not post
+    the letter as written: ``system_message(template, **params)`` (1) READS it
+    through ``resource()`` — a path or URL becomes that file's contents — then
+    (2) runs ``str.format`` over it with the params plus the sample's metadata and
+    store. So the photocopy matches only when neither step changes anything:
+
+    - params ``persona="tutor"`` → the text inspect sends has them filled in.
+    - a path ``"prompts/system.txt"`` → inspect sends the file, not the path.
+    - any brace, e.g. ``"Answer as {persona}."`` or ``"Reply in {{json}}."`` —
+      a field can be filled per case from metadata, and an escaped ``{{``
+      becomes ``{``; with no brace at all str.format is the identity.
+
+    Returns a short reason for the review flag, or None when the constant's text
+    IS what inspect sends (hellaswag's plain SYSTEM_MESSAGE).
+    """
+
+    from inspect_ai._util.registry import registry_params
+
+    params: dict[str, Any] = dict(registry_params(solver))
+    template: Any = params.pop("template", None)
+    reason: str | None = None
+    if params:
+        reason = f"fills params {', '.join(sorted(params))} into the template at run time"
+    elif not isinstance(template, str):
+        # Not text at all: _template_attribute still points at it, and the bake
+        # refuses a non-text resolution by name (prepare._resolved_system_text).
+        reason = None
+    elif _reads_a_file(template):
+        reason = "template is read from a file"
+    elif "{" in template or "}" in template:
+        reason = "str.format rewrites the template's braces at run time"
+    return reason
 
 
 def _resolved_or_flagged(
