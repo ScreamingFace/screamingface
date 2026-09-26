@@ -132,6 +132,7 @@ async def test_mount_call_publishes_direct_run_and_returns_200() -> None:
     assert resp.status_code == 200
     assert resp.json() == {"answer": 42}
     (run,) = runner.scheduled
+    assert resp.headers["x-url4-run"] == run["topic"]  # the run behind the answer
     assert run["shape"] == "direct"
     assert run["target"] == "/v1/chat/completions?q=('hi')!'answer'"
     assert run["deadline_s"] == 10  # sync_max_wait_s + 5: never outlives its caller

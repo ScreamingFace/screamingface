@@ -218,59 +218,359 @@ async def test_k12_events_store_near_full_raises_the_utilization_gauge() -> None
 
 
 # --------------------------------------------------------------------------------------------
-# K4, K5, K7-K11 — TODO stubs for the orchestrator.
+# Shared plumbing for K4-K11: read a run's frames straight off the shared events stream.
 # --------------------------------------------------------------------------------------------
-def test_k4_mount_call_with_a_1_5_mib_reply_spills_to_the_artifact_store() -> None:
-    """K4: a mount call whose stub reply carries `X-Stub-Bytes: 1572864` (1.5 MiB) exceeds the
-    mount route's 1 MiB inline limit and must answer `303` with a `Location` the App itself can
-    redeem `200` from (`rest/artifacts.py`, `ArtifactReader.content()`), on the real Garage-backed
-    S3 store this environment already runs."""
-    pytest.skip("TODO: mount call with a 1.5 MiB stub reply -> 303 -> artifact fetch 200")
+_RUNNER_DEPLOYMENT = "sf-uniform-url4-cloud-runner"
+_APP_DEPLOYMENT = "sf-uniform-url4-cloud"
+_NATS_POD = "sf-uniform-nats-0"
 
 
-def test_k5_mount_call_that_hangs_upstream_times_out_and_terminates_the_run() -> None:
-    """K5: a mount call whose stub reply carries `X-Stub-Fail: hang` (aigw-stub sleeps 3600s)
-    must answer `504` at the mount's own wait bound, and the run's subject must carry a
-    `Terminated(stopped)` frame — the handler stops the run itself before answering (D5/M6,
-    implementation-notes.md)."""
-    pytest.skip("TODO: mount call with X-Stub-Fail: hang -> 504 and Terminated(stopped)")
+async def _subject_frames(nats_port: int, topic: str) -> list[dict]:
+    """Every retained frame on `url4-cloud.<topic>` of `url4-events`, in stream order."""
+    import json
+
+    from nats.aio.client import Client as NatsClient
+
+    nc = NatsClient()
+    await nc.connect(f"nats://127.0.0.1:{nats_port}")
+    try:
+        js = nc.jetstream()
+        subject = f"url4-cloud.{topic}"
+        info = await js.stream_info("url4-events", subjects_filter=subject)
+        count = (info.state.subjects or {}).get(subject, 0)
+        frames: list[dict] = []
+        if count:
+            sub = await js.subscribe(subject, stream="url4-events", ordered_consumer=True)
+            while len(frames) < count:
+                msg = await sub.next_msg(timeout=10)
+                frames.append(json.loads(msg.data))
+            await sub.unsubscribe()
+        return frames
+    finally:
+        await nc.close()
 
 
-def test_k7_killing_a_runner_pod_mid_run_redelivers_to_exactly_one_terminal_frame() -> None:
-    """K7: `kubectl delete pod` on the runner pod holding an in-flight run's slot must cause
-    JetStream redelivery to a surviving replica, and the run's shared-stream subject must end
-    with EXACTLY ONE terminal frame (D3/D3a's redelivery rebase, implementation-notes.md) —
-    never two, never zero."""
-    pytest.skip("TODO: kill one runner pod during a run -> redelivery -> one terminal frame")
+def _terminals(frames: list[dict]) -> list[dict]:
+    return [frame for frame in frames if frame.get("type") == "ai.url4.terminated"]
 
 
-def test_k8_a_run_past_its_memory_budget_is_oom_killed_without_taking_its_siblings() -> None:
-    """K8: a run whose child process allocates past its budget must end `oom_killed` (the
-    warm-pool RLIMIT_AS cap, WRM-8) while every OTHER run sharing the same worker pod finishes
-    normally — the isolation the warm child pool (PRD 03) claims across runs sharing one pod."""
-    pytest.skip("TODO: a run that allocates past its budget -> oom_killed; siblings finish")
+def _kubectl(*args: str, timeout: float = 120.0) -> str:
+    result = subprocess.run(
+        ["kubectl", "--context", KIND_CONTEXT, "-n", NAMESPACE, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
 
 
-def test_k9_a_runner_rollout_restart_drains_and_kills_idle_warm_children_first() -> None:
-    """K9: `kubectl rollout restart` of the runner pool mid-run must drain in-flight runs
-    (`worker_drain_grace_s`) before terminating, and among a pod's warm children the IDLE ones
-    must die before a warm child that is mid-hand-off or mid-run (`WarmChildPool` drain
-    ordering, PRD 03)."""
-    pytest.skip("TODO: rollout restart during runs -> drain; idle warm children die first")
+def _rollout(deployment: str) -> None:
+    _kubectl("rollout", "status", f"deployment/{deployment}", "--timeout=300s", timeout=320)
 
 
-def test_k10_restarting_the_nats_pod_mid_run_stays_gapfree_or_fails_named() -> None:
-    """K10: restarting the NATS pod during a live run must either keep every later frame
-    gap-free once the broker comes back (EV-16), or the run must end with a named
-    `failed/stream_failed` — never a silent gap and never a second, contradictory terminal
-    frame."""
-    pytest.skip("TODO: restart the NATS pod during a run -> gap-free, or failed/stream_failed")
+async def _start_async(client: httpx.AsyncClient, expression: str) -> tuple[str, object]:
+    """Mint a token, attach a WebSocket, start an async run; returns (topic, websocket)."""
+    import base64
+    import json
+
+    token = await mint_token(client)
+    payload = token.split(".")[1]
+    topic = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["sub"]
+    ws = await websockets.connect(ws_uri(str(client.base_url).rstrip("/"), token))
+    from _helpers import attach
+
+    await attach(ws)
+    response = await client.get(
+        "/",
+        params={"q": expression},
+        headers={"URL4-Capability": token, "Prefer": "respond-async", **IDENTITY},
+    )
+    assert response.status_code == 202, response.text
+    return topic, ws
 
 
-def test_k11_purge_legacy_streams_after_a_drained_upgrade_from_the_old_chart() -> None:
-    """K11: on a cluster carrying a legacy `url4-cloud_<topic>` stream from the pre-PRD-01
-    chart, the new image's App/worker must refuse to start (implementation-notes.md D7, err
-    10065) until `admin purge-legacy-streams` runs — this test needs to seed a legacy-shaped
-    stream first, which needs the OLD chart's stream-declaration code path, not just a values
-    tweak on the new chart."""
-    pytest.skip("TODO: purge-legacy-streams after a drained upgrade from the previous chart")
+async def _until_terminal(nats_port: int, topic: str, timeout: float) -> list[dict]:
+    deadline = time.monotonic() + timeout
+    frames: list[dict] = []
+    while time.monotonic() < deadline:
+        frames = await _subject_frames(nats_port, topic)
+        if _terminals(frames):
+            return frames
+        await asyncio.sleep(2)
+    return frames
+
+
+# --------------------------------------------------------------------------------------------
+# K4 — a mount call with a 1.5 MiB reply -> 303 -> the signed artifact URL answers 200.
+# --------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_k4_mount_call_with_a_1_5_mib_reply_spills_to_the_artifact_store(
+    app_base_url: str,
+) -> None:
+    size = 1536 * 1024
+    async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
+        response = await client.get(
+            MODEL_MOUNT, params={"q": f"('STUB_BYTES={size}')!'go'"}, headers=IDENTITY
+        )
+        assert response.status_code == 303, response.text
+        location = response.headers["location"]
+        assert location.startswith("/artifacts/") and "sig=" in location
+        body = await client.get(location)
+    assert body.status_code == 200
+    assert len(body.content) >= size  # the stub's answer, at least its padding
+
+
+# --------------------------------------------------------------------------------------------
+# K5 — a mount call whose upstream hangs -> 504, and the run ends Terminated(stopped).
+# --------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_k5_mount_call_that_hangs_upstream_times_out_and_terminates_the_run(
+    app_base_url: str, nats_local_port: int
+) -> None:
+    async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
+        response = await client.get(
+            MODEL_MOUNT,
+            params={"q": "('STUB_FAIL=hang')!'go'"},
+            headers={**IDENTITY, "Prefer": "wait=3"},
+        )
+    assert response.status_code == 504, response.text
+    topic = response.headers["x-url4-run"]
+    frames = await _until_terminal(nats_local_port, topic, timeout=60)
+    (terminal,) = _terminals(frames)
+    assert terminal["data"]["status"] == "stopped", terminal
+
+
+# --------------------------------------------------------------------------------------------
+# K7 — kill the runner pod holding a run -> redelivery -> exactly one terminal frame.
+# --------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_k7_killing_a_runner_pod_mid_run_redelivers_to_exactly_one_terminal_frame(
+    app_base_url: str, nats_local_port: int
+) -> None:
+    async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
+        topic, ws = await _start_async(client, "('STUB_SLEEP_MS=20000')!'go'")
+        try:
+            # Wait for the run to start, then find and delete the pod that runs it.
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline and not await _subject_frames(nats_local_port, topic):
+                await asyncio.sleep(1)
+            busy = [
+                pod
+                for pod in _kubectl("get", "pods", "-o", "name").split()
+                if "runner" in pod and _slots_busy(pod) > 0
+            ]
+            assert busy, "no runner pod is running the run"
+            _kubectl("delete", busy[0], "--wait=false")
+        finally:
+            await ws.close()  # type: ignore[attr-defined]
+    frames = await _until_terminal(nats_local_port, topic, timeout=240)
+    terminals = _terminals(frames)
+    assert len(terminals) == 1, terminals
+    assert_gapfree(frames)
+    _rollout(_RUNNER_DEPLOYMENT)
+
+
+def _slots_busy(pod: str) -> float:
+    script = (
+        "import urllib.request;"
+        "t=urllib.request.urlopen('http://127.0.0.1:9109/metrics').read().decode();"
+        "print([l.split()[-1] for l in t.splitlines()"
+        " if l.startswith('screamingface_engine_worker_slots_busy ')][0])"
+    )
+    return float(_kubectl("exec", pod.removeprefix("pod/"), "--", "python", "-c", script).strip())
+
+
+# --------------------------------------------------------------------------------------------
+# K8 — a run past its memory budget dies alone; its siblings finish.
+# --------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_k8_a_run_past_its_memory_budget_is_oom_killed_without_taking_its_siblings(
+    app_base_url: str, nats_local_port: int
+) -> None:
+    budget = 1536 * 1024 * 1024
+    _kubectl(
+        "set",
+        "env",
+        f"deployment/{_RUNNER_DEPLOYMENT}",
+        f"URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES={budget}",
+    )
+    _rollout(_RUNNER_DEPLOYMENT)
+    try:
+        async with httpx.AsyncClient(base_url=app_base_url, timeout=120.0) as client:
+            hog = asyncio.ensure_future(
+                client.get(
+                    MODEL_MOUNT,
+                    params={"q": f"('STUB_BYTES={600 * 1024 * 1024}')!'go'"},
+                    headers={**IDENTITY, "Prefer": "wait=30"},
+                )
+            )
+            siblings = await asyncio.gather(
+                *(
+                    client.get(MODEL_MOUNT, params={"q": "('hi')!'go'"}, headers=IDENTITY)
+                    for _ in range(3)
+                )
+            )
+            hogged = await hog
+        assert all(s.status_code == 200 for s in siblings), [s.text for s in siblings]
+        assert hogged.status_code >= 500, hogged.status_code  # the hog failed, alone
+        frames = await _until_terminal(nats_local_port, hogged.headers["x-url4-run"], 60)
+        (terminal,) = _terminals(frames)
+        assert terminal["data"]["status"] in ("failed", "stopped"), terminal
+    finally:
+        _kubectl(
+            "set",
+            "env",
+            f"deployment/{_RUNNER_DEPLOYMENT}",
+            "URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES-",
+        )
+        _rollout(_RUNNER_DEPLOYMENT)
+
+
+# --------------------------------------------------------------------------------------------
+# K9 — rollout restart of the runner pool during runs -> every run ends with one terminal.
+# --------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_k9_a_runner_rollout_restart_drains_and_kills_idle_warm_children_first(
+    app_base_url: str, nats_local_port: int
+) -> None:
+    async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
+        started = [await _start_async(client, "('STUB_SLEEP_MS=3000')!'go'") for _ in range(4)]
+        _kubectl("rollout", "restart", f"deployment/{_RUNNER_DEPLOYMENT}")
+        for _, ws in started:
+            await ws.close()  # type: ignore[attr-defined]
+    _rollout(_RUNNER_DEPLOYMENT)
+    for topic, _ in started:
+        frames = await _until_terminal(nats_local_port, topic, timeout=240)
+        terminals = _terminals(frames)
+        assert len(terminals) == 1, (topic, terminals)
+        assert terminals[0]["data"]["status"] in ("succeeded", "stopped"), terminals
+        assert_gapfree(frames)
+
+
+# --------------------------------------------------------------------------------------------
+# K10 — restart the NATS pod during a run -> gap-free frames, or failed/stream_failed.
+# --------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_k10_restarting_the_nats_pod_mid_run_stays_gapfree_or_fails_named(
+    app_base_url: str,
+) -> None:
+    async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
+        topic, ws = await _start_async(client, "('STUB_SLEEP_MS=8000')!'go'")
+        await asyncio.sleep(2)
+        _kubectl("delete", "pod", _NATS_POD, "--wait=false")
+        await ws.close()  # type: ignore[attr-defined]
+    _kubectl("wait", "--for=condition=Ready", f"pod/{_NATS_POD}", "--timeout=180s", timeout=200)
+    _rollout(_APP_DEPLOYMENT)
+    # A FRESH port-forward: the fixture's one pointed at the pod that was deleted.
+    with port_forward("sf-uniform-nats", 4222) as nats_port:
+        frames = await _until_terminal(nats_port, topic, timeout=240)
+    terminals = _terminals(frames)
+    if terminals:
+        assert len(terminals) == 1, terminals
+        status = terminals[0]["data"]["status"]
+        if status != "succeeded":
+            assert status in ("failed", "stopped"), terminals
+    # Whatever survived the restart must not hide a gap.
+    sequences = [int(f["sequence"]) for f in frames if "sequence" in f]
+    assert sequences == sorted(sequences) and len(set(sequences)) == len(sequences)
+    if sequences:
+        assert sequences == list(range(sequences[0], sequences[0] + len(sequences))), sequences
+
+
+# --------------------------------------------------------------------------------------------
+# K11 — a legacy per-run stream blocks startup until `admin purge-legacy-streams` ran.
+# --------------------------------------------------------------------------------------------
+async def _seed_legacy_stream(nats_port: int, legacy: str) -> None:
+    """What the pre-PRD-01 chart leaves behind: a per-run stream, and no `url4-events`."""
+    from nats.aio.client import Client as NatsClient
+
+    nc = NatsClient()
+    await nc.connect(f"nats://127.0.0.1:{nats_port}")
+    try:
+        js = nc.jetstream()
+        await js.delete_stream("url4-events")
+        await js.add_stream(name=legacy, subjects=[f"url4-cloud.{legacy.split('_', 1)[1]}"])
+    finally:
+        await nc.close()
+
+
+async def _app_log_names(needle: str, timeout: float) -> str:
+    deadline = time.monotonic() + timeout
+    logs = ""
+    while time.monotonic() < deadline and needle not in logs:
+        await asyncio.sleep(5)
+        logs = subprocess.run(
+            [
+                "kubectl",
+                "--context",
+                KIND_CONTEXT,
+                "-n",
+                NAMESPACE,
+                "logs",
+                f"deployment/{_APP_DEPLOYMENT}",
+                "--tail=200",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout
+    return logs
+
+
+def _run_purge_command() -> None:
+    """The rollout step, with the NEW image (the command ships only there)."""
+    image = _kubectl(
+        "get",
+        f"deployment/{_APP_DEPLOYMENT}",
+        "-o",
+        "jsonpath={.spec.template.spec.containers[0].image}",
+    )
+    _kubectl(
+        "run",
+        "k11-purge",
+        "--rm",
+        "-i",
+        "--restart=Never",
+        f"--image={image}",
+        "--image-pull-policy=Never",
+        "--env=URL4_CLOUD_NATS_URL=nats://sf-uniform-nats:4222",
+        "--command",
+        "--",
+        "screamingface-engine",
+        "admin",
+        "purge-legacy-streams",
+        timeout=180,
+    )
+
+
+@pytest.mark.asyncio
+async def test_k11_purge_legacy_streams_after_a_drained_upgrade_from_the_old_chart(
+    nats_local_port: int,
+) -> None:
+    """The drained-rollout order (implementation-notes D7): with a legacy `url4-cloud_<topic>`
+    stream on the broker (seeded here as the old chart left one), the new App refuses to start
+    naming the command; the command deletes it; the App starts."""
+    _kubectl("scale", f"deployment/{_RUNNER_DEPLOYMENT}", "--replicas=0")
+    _kubectl("scale", f"deployment/{_APP_DEPLOYMENT}", "--replicas=0")
+    _kubectl(
+        "wait",
+        "--for=delete",
+        "pod",
+        "-l",
+        "app.kubernetes.io/component=runner",
+        "--timeout=120s",
+        timeout=140,
+    )
+    await _seed_legacy_stream(nats_local_port, "url4-cloud_k11-legacy")
+    try:
+        _kubectl("scale", f"deployment/{_APP_DEPLOYMENT}", "--replicas=1")
+        logs = await _app_log_names("purge-legacy-streams", timeout=120)
+        assert "purge-legacy-streams" in logs, logs[-2000:]
+        _run_purge_command()
+    finally:
+        _kubectl("scale", f"deployment/{_APP_DEPLOYMENT}", "--replicas=1")
+        _kubectl("scale", f"deployment/{_RUNNER_DEPLOYMENT}", "--replicas=2")
+    _kubectl("rollout", "restart", f"deployment/{_APP_DEPLOYMENT}")
+    _rollout(_APP_DEPLOYMENT)
+    _rollout(_RUNNER_DEPLOYMENT)

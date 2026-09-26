@@ -57,6 +57,8 @@ WHY this is not the run's frame cap: a result FRAME stays at 512 KiB
 default `max_payload` once the envelope is added. A result between the two is spilled by the
 child and served INLINE here, from the artifact store."""
 ARTIFACT_URL_TTL_S = 600
+RUN_HEADER = "X-Url4-Run"
+"""The response header naming the topic of the run that answered a mount call."""
 """How long a mount's signed artifact URL is valid (the node tier's value)."""
 
 _MOUNT_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -296,9 +298,14 @@ async def _respond(
             # answer: nobody else can ever read it.
             await deps.job_runner.stop(topic)
     if outcome is None or outcome is WAIT_GONE:
-        return _envelope(504, "timeout", "the call did not finish in time; it was stopped")
-    terminated, result = outcome
-    return await _terminal(request, deps, terminated, result)
+        response = _envelope(504, "timeout", "the call did not finish in time; it was stopped")
+    else:
+        terminated, result = outcome
+        response = await _terminal(request, deps, terminated, result)
+    # The run behind the answer: an operator (or a test) finds its frames and cost records on
+    # subject `url4-cloud.<topic>` of the shared events stream.
+    response.headers[RUN_HEADER] = topic
+    return response
 
 
 async def _terminal(
@@ -338,4 +345,10 @@ async def _success(request: Request, deps: _Deps, result: ResultEvent | None) ->
     return await _result_response(result, deps.artifact_store)
 
 
-__all__ = ["MOUNT_INLINE_LIMIT_BYTES", "MOUNT_TAG", "install_mounts", "register_mounts"]
+__all__ = [
+    "MOUNT_INLINE_LIMIT_BYTES",
+    "MOUNT_TAG",
+    "RUN_HEADER",
+    "install_mounts",
+    "register_mounts",
+]

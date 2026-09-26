@@ -101,6 +101,17 @@ def _usage_accounting(model: str) -> dict[str, object]:
     }
 
 
+def _marker(text: str, name: str) -> str | None:
+    """The value of `NAME=value` in `text` (value ends at whitespace or a quote), or None."""
+    start = text.find(f"{name}=")
+    if start < 0:
+        return None
+    value = text[start + len(name) + 1 :]
+    for stop in (" ", "'", '"', ")", "\n"):
+        value = value.split(stop, 1)[0]
+    return value or None
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request: Request,
@@ -109,6 +120,18 @@ async def chat_completions(
 ) -> JSONResponse:
     body = await request.json()
     model = str(body.get("model") or _MODELS[0])
+    # A caller's HTTP headers never reach the gateway (the run child sends identity and
+    # profile only), so the faults can also ride the PROMPT: `STUB_FAIL=<kind>` and
+    # `STUB_BYTES=<n>` anywhere in the messages' text.
+    text = " ".join(
+        str(message.get("content", "")) for message in body.get("messages", []) if message
+    )
+    x_stub_fail = x_stub_fail or _marker(text, "STUB_FAIL")
+    x_stub_bytes = x_stub_bytes or _marker(text, "STUB_BYTES")
+    sleep_ms = _marker(text, "STUB_SLEEP_MS")
+    if sleep_ms and sleep_ms.isdigit():
+        # K7/K9/K10: a run still in flight when a pod or the broker goes away.
+        await asyncio.sleep(int(sleep_ms) / 1000.0)
 
     if x_stub_fail == "hang":
         # K5: the run's aigateway call never returns; the App's sync wait bounds at
