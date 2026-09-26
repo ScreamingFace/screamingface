@@ -473,6 +473,13 @@ class RunSupervisor:
         await msg.ack()
 
     async def _already_settled(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Whether this claim is finished without running (see `_settled_by_tail`), or refused
+        because this worker does not speak its message version."""
+        return await self._settled_unsupported_spec(msg, topic) or await self._settled_by_tail(
+            msg, topic
+        )
+
+    async def _settled_by_tail(self, msg: ClaimedMessage, topic: str) -> bool:
         """Whether this claim is finished without running: the run is over, or it expired.
 
         ``True`` means the message has been dealt with — acked, or deliberately left for
@@ -480,8 +487,6 @@ class RunSupervisor:
         redelivery of a run that already finished, a cancel that landed before the claim,
         and a stale message whose run is over.
         """
-        if await self._settled_unsupported_spec(msg, topic):
-            return True
         try:
             already_terminal = await self._terminal_frame_exists(topic)
         except QueueReadError:

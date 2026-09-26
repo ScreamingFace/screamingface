@@ -205,6 +205,8 @@ async def _schedule(
     cache: CachePolicy,
     answer_seed: int | None = None,
     client_version: str | None = None,
+    shape: job_env.RunShape = "expression",
+    deadline_s: int | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -221,13 +223,14 @@ async def _schedule(
         await deps.job_runner.schedule(
             topic,
             url4,
-            deps.settings.job_deadline_s,
+            deps.settings.job_deadline_s if deadline_s is None else deadline_s,
             traceparent=traceparent,
             profile=profile,
             identity=identity,
             cache=cache,
             answer_seed=answer_seed,
             client_version=client_version,
+            shape=shape,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.

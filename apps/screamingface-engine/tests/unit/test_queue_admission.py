@@ -233,6 +233,7 @@ class _AtCapacityRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: str = "expression",
     ) -> str:
         raise JobRunnerAtCapacity(active=100, limit=10, retry_after_s=42)
 

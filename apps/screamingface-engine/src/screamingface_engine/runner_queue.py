@@ -226,6 +226,7 @@ def _env_mapping(
     # seeing a `direct` one — erd.md §10).
     if shape == "direct":
         env[job_env.RUN_SHAPE] = "direct"
+        env[job_env.STREAM_GRACE_S] = str(job_env.DIRECT_STREAM_GRACE_S)
     return env
 
 

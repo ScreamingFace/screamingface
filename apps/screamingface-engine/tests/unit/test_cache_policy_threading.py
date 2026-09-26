@@ -238,6 +238,7 @@ class _CacheRecordingRunner(RecordingJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: str = "expression",
     ) -> str:
         self.cache_policies.append(cache)
         return await super().schedule(

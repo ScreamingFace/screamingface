@@ -21,6 +21,9 @@ class Metrics:
 
     registry: CollectorRegistry
     requests: Counter
+    # Optional so a caller that builds `Metrics` by hand (a test of another series) needs none.
+    mount_calls: Counter | None = None
+    mount_unsigned_spill: Counter | None = None
 
 
 # The `path` label value used when a request matched no route. Every unrouted request — a 404, a
@@ -36,7 +39,24 @@ def build_metrics() -> Metrics:
         ["method", "path", "status"],
         registry=registry,
     )
-    return Metrics(registry=registry, requests=requests)
+    # Mount calls as direct runs (uniform executor PRD 04).
+    mount_calls = Counter(
+        "screamingface_engine_mount_calls",
+        "Mount calls (GET /<mount>), by mount path and answered status.",
+        ["path", "status"],
+        registry=registry,
+    )
+    mount_unsigned_spill = Counter(
+        "screamingface_engine_mount_unsigned_spill",
+        "Mount results over 1 MiB streamed inline because no artifact signing key is set.",
+        registry=registry,
+    )
+    return Metrics(
+        registry=registry,
+        requests=requests,
+        mount_calls=mount_calls,
+        mount_unsigned_spill=mount_unsigned_spill,
+    )
 
 
 class MetricsMiddleware:

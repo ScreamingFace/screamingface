@@ -165,6 +165,8 @@ def test_a_direct_run_message_states_its_shape_and_version() -> None:
 
     env = decode_message(encode_message("t", "/v1/chat/completions?q=(a)!b", 35, shape="direct"))
     assert env[job_env.RUN_SHAPE] == "direct"
+    # Nobody attaches to a mount run, and the child holds a worker slot through the grace.
+    assert float(env[job_env.STREAM_GRACE_S]) == job_env.DIRECT_STREAM_GRACE_S
     assert env[job_env.SPEC_VERSION] == job_env.CURRENT_SPEC_VERSION
     assert job_env.run_shape_from_env(env) == "direct"
     assert job_env.run_shape_from_env({}) == "expression"

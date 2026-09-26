@@ -58,8 +58,9 @@ from screamingface_engine.rest import (
     connection_router,
 )
 from screamingface_engine.rest import router as rest_router
-from screamingface_engine.rest.forwarder import install_forwarder
+from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
+from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
 from url4.streaming.interfaces import EventConsumer, JobRunner
@@ -549,5 +550,11 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
-    install_forwarder(app, settings, env=os.environ)
+    # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
+    # into /openapi.json, and every call runs as a DIRECT run on the worker pool — the node-tier
+    # forwarder is no longer installed (PRD 05 removes it).
+    install_mounts(
+        app,
+        lambda: derive_mount_table(env=os.environ, engine_routes=engine_route_paths(app)),
+    )
     return app

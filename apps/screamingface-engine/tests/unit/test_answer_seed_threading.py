@@ -199,6 +199,7 @@ class _SeedRecordingRunner(RecordingJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: str = "expression",
     ) -> str:
         self.answer_seeds.append(answer_seed)
         return await super().schedule(

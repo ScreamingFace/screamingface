@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from starlette._utils import get_route_path
@@ -37,9 +38,16 @@ from starlette.types import Receive, Scope, Send
 
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.registry import served_routes
-from screamingface_engine.world.config import DEFAULT_EVAL_PATH, WorldConfig, WorldConfigError
+from screamingface_engine.world.config import (
+    DEFAULT_EVAL_PATH,
+    WorldConfig,
+    WorldConfigError,
+    config_file_digest,
+)
 from screamingface_engine.world.factory import World, build_world
 from screamingface_engine.world.wire import AsgiApp
+from url4.peer import describe_routes
+from url4.peer import http_status as url4_http_status
 from url4.peer.server import Url4Node
 
 logger = logging.getLogger(__name__)
@@ -105,6 +113,77 @@ def node_mount_paths(node: Any) -> frozenset[str]:
     if not isinstance(node, Url4Node):
         return frozenset()
     return served_routes(node)
+
+
+@dataclass(frozen=True, slots=True)
+class MountDescriptor:
+    """One mount the App serves and projects into `/openapi.json` (erd.md §9, PRD 04)."""
+
+    path: str
+    kind: Literal["endpoint", "data"]
+    media_type: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MountTable:
+    """The App's mounts, and the sha256 of the config file they were derived from."""
+
+    mounts: tuple[MountDescriptor, ...]
+    config_digest: str | None
+
+
+def mount_descriptors(node: Any) -> tuple[MountDescriptor, ...]:
+    """Every mount of ``node`` as plain data — through url4's PUBLIC route listing (ans:Q12)."""
+    if not isinstance(node, Url4Node):
+        return ()
+    return tuple(
+        MountDescriptor(route.path, route.kind, route.media_type) for route in describe_routes(node)
+    )
+
+
+async def derive_mount_table(
+    *,
+    env: Mapping[str, str],
+    engine_routes: Iterable[str],
+    config: WorldConfig | None = None,
+) -> MountTable:
+    """The App's mount table, from the same `world` module the run children build.
+
+    No network call is made: building the world constructs clients but never dials them, and
+    the world is closed again at once — the App serves no mount from it; every mount call is a
+    direct RUN on the queue (PRD 04). `compose_serving_world` runs the F4 collision guard
+    against the App's own routes, so a mount an engine route would shadow fails startup.
+
+    The mount SET is the one the node-tier forwarder served (`derive_forward_contract` built the
+    world the same way): parity first; exposing more is an owner decision (PRD 04 §6).
+    """
+    io, aclose = await compose_serving_world(env=env, engine_routes=engine_routes, config=config)
+    try:
+        mounts = mount_descriptors(io)
+    finally:
+        if aclose is not None:
+            await aclose()
+    return MountTable(mounts=mounts, config_digest=config_file_digest(env))
+
+
+_ENGINE_STATUS: dict[str, int] = {
+    "result_too_large": 413,
+    "artifact_spill_failed": 502,
+    "timeout": 504,
+    "identity_access_denied": 403,
+}
+"""The engine's own codes a mount call can end with (contracts.md C1/C2), over url4's table."""
+
+
+def mount_http_status(code: str | None, *, permanent: bool) -> int:
+    """The HTTP status a mount call answers for a run that failed with ``code``.
+
+    The engine's codes first, then url4's own direct-call mapping (`url4.peer.http_status`) —
+    so a mount call queued as a direct run answers exactly as the node tier did (MNT-9).
+    """
+    if code is not None and code in _ENGINE_STATUS:
+        return _ENGINE_STATUS[code]
+    return url4_http_status(code, permanent=permanent)
 
 
 def node_eval_path(node: Any) -> str:
@@ -360,6 +439,11 @@ def assert_node_route_last(app: Starlette, route: NodeMountRoute) -> None:
 
 __all__ = [
     "MountCollisionError",
+    "MountDescriptor",
+    "MountTable",
+    "derive_mount_table",
+    "mount_descriptors",
+    "mount_http_status",
     "NodeMountRoute",
     "assert_node_route_last",
     "check_mount_collisions",

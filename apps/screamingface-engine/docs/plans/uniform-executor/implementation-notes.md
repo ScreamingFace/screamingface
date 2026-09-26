@@ -3,7 +3,7 @@
 This file records where the build deviates from the PRDs, and why. It also records the
 residual risks that the build accepts. Read it with the PRD of each phase.
 
-Status: phases 1–3 (PRD 01–03) built on branch `exp/uniform-executor`. Exploratory work: the SDLC
+Status: phases 1–3 built; phase 4 (PRD 04) built for production, local mode open on branch `exp/uniform-executor`. Exploratory work: the SDLC
 steps (ticket, ledger) were skipped on the owner's instruction. Phase 0 is partial: the CHAR
 tests of PRD 01 exist; the kind environment and the measurement harness do not exist yet.
 
@@ -158,3 +158,48 @@ This is not the B2/B3 benchmark of the test plan (that needs the kind environmen
 
 - Kind cases K7, K8, K9 and the B3 benchmark (need the kind environment).
 - The idle warm child's RSS (needed to size `warmChildren × RSS` against the pod memory).
+
+## Phase 4 — mount call as a direct run
+
+### Built
+
+- url4 (public, `url4.peer`): `dispatch_direct(node, target, observer=…)`, `describe_routes`,
+  `http_status(code, permanent=)`, and the error code `direct_eval_refused`. An observed direct
+  call emits RunStarted, one NodeStarted/NodeFinished pair with the handler's Usage and
+  ModelResponse on that span, and RunFinished — what a one-node DAG run emits.
+- Run message: `URL4_CLOUD_RUN_SHAPE` (`direct` only when direct; absent = expression) and
+  `URL4_CLOUD_SPEC_VERSION` "2" on every message. A worker refuses an unknown major version with
+  `failed / unsupported_spec_version`.
+- Run child: `Url4Executor(run_shape="direct")` calls `dispatch_direct` on the world node; the
+  existing `_RunState` maps its events to the same span and cost frames; the route's media type
+  reaches the result frame.
+- App: `world.serving.derive_mount_table` (plain descriptors through `describe_routes`) and
+  `rest/mounts.py`: one FastAPI `GET` route per mount, tag `Mounts`, in `/openapi.json`. The
+  handler validates (403 / 400 / 414), queues a direct run, holds the topic (PRD 02), waits
+  `min(Prefer wait, 30 s)`, and answers from the terminal frame with url4's error envelope and
+  the node's status (`world.serving.mount_http_status`). Bound passed or caller gone → the run is
+  stopped first (504). Counters `mount_calls_total{path,status}` and `mount_unsigned_spill_total`.
+- `create_app_from_env` installs the mounts; the node-tier forwarder is no longer installed.
+
+### Deviations
+
+| # | PRD text | Built | Reason |
+|---|---|---|---|
+| M1 | ans:Q10: one 1 MiB inline limit for every shape | The mount RESPONSE limit is 1 MiB (200 inline up to it, 303 over it). The result FRAME cap stays 512 KiB; a result between the two is spilled by the child and served inline by the App from the artifact store. | OME-949: a frame near 1 MiB exceeds the broker's default 1 MiB `max_payload` once the CloudEvent envelope is added, and the publish fails after every model call is paid for. |
+| M2 | MNT-1: "refuses the eval path" | `dispatch_direct` calls ONLY a registered handler, and an unregistered target in the eval path gets `direct_eval_refused`. A registered mount under `/v1` (`/v1/chat/completions`) is served. | The engine's real mounts (and the PRD's own examples) live under the eval path `/v1`. A prefix refusal would refuse every one of them. |
+| M3 | (gap) | A direct run's reclaim grace is 2 s (`DIRECT_STREAM_GRACE_S`), not 60 s. | The child holds a worker slot through the grace; nobody attaches to a mount run. Found by the end-to-end spine (62 s → seconds). |
+| M4 | MC-D6: "same status and problem `code`" | Same status, and url4's error envelope `{"error": {"code", "message"}}` — the node tier's body, not RFC 9457 problem+json. | That is what the node tier answered; changing the body would break mount callers. |
+| M5 | (open question §6) | The mount set is the node-tier forwarder's set (the world built without benchmarks). | Parity first; exposing benchmark endpoints is the owners' decision. |
+
+### Validation done
+
+- url4 unit: MNT-1..MNT-4 and the observed direct call (1357 url4 tests green).
+- Engine unit: MNT-6, 7, 8 (unit half), 9 (MNT-C2 table, parametrized), 10–14, 16–23.
+- End-to-end on Linux (`tests/integration/test_mount_direct_run_spine.py`): App → queue →
+  worker → warm `run --warm` child → world data route → 200 `text/plain`; the eval path 404.
+
+### Not done in phase 4
+
+- MNT-24 / MC-D13: local mode still serves mounts through `_LocalNodeMount`.
+- MNT-15 redeem half (303 → artifact fetch 200 on a real store) and MNT-8 on a model endpoint
+  with a real gateway: need the kind environment (K3, K4, K5).

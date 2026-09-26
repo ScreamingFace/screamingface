@@ -150,6 +150,13 @@ major version with a ``failed`` terminal frame, code ``unsupported_spec_version`
 
 CURRENT_SPEC_VERSION = "2"
 SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+DIRECT_STREAM_GRACE_S = 2.0
+"""The reclaim grace of a DIRECT run: the child's wait between its terminal frame and its purge.
+
+WHY not :data:`DEFAULT_STREAM_GRACE_S` (60 s): that grace lets an attached WebSocket client drain
+the final frames. Nobody attaches to a mount run — the App reads its frames in-process and has
+answered by then — and the child holds a WORKER SLOT through the grace, so a 60 s grace would
+make every simple call occupy a slot for a minute after it answered."""
 MAX_DIRECT_TARGET_BYTES = 8 * 1024
 """The longest ``<mount path>?<raw query>`` a direct run carries (erd.md §2; 414 over it)."""
 

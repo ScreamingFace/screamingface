@@ -23,13 +23,13 @@ from decimal import Decimal
 from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
-from screamingface_engine.job_env import RunShape
 from screamingface_engine.artifacts import (
     ArtifactWriter,
     ResultDelivery,
     allowed_result_bytes,
     decide_result_delivery,
 )
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
@@ -40,8 +40,6 @@ from screamingface_engine.world.factory import WorldFactory
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
-from url4.peer import dispatch_direct
-from url4.peer.server import Url4Node
 from url4.observe import (
     Log,
     ModelResponse,
@@ -51,6 +49,8 @@ from url4.observe import (
     RunStarted,
     Usage,
 )
+from url4.peer import dispatch_direct
+from url4.peer.server import Url4Node
 from url4.streaming.interfaces import Completed, ExecStep, Executor, SpanRef, TraceContext, Traced
 from url4.streaming.protocol import (
     SEVERITY_NUMBER,
@@ -907,18 +907,7 @@ class Url4Executor(Executor):
             # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
             try:
                 with run_trace_scope(trace), self._scope_context():
-                    if self._run_shape == "direct":
-                        return await self._dispatch_direct(url4, trace, bridge)
-                    if trace is not None:
-                        return await url4_run(
-                            url4,
-                            self._io,
-                            observer=bridge,
-                            trace_id=trace.trace_id,
-                            root_span_id=trace.root_span_id,
-                            **self._run_kwargs,
-                        )
-                    return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                    return await self._evaluate(url4, trace, bridge)
             finally:
                 bridge.close()
 
@@ -956,6 +945,22 @@ class Url4Executor(Executor):
                     await task
             elif not task.cancelled():
                 task.exception()
+
+    async def _evaluate(self, url4: str, trace: TraceContext | None, bridge: _Bridge) -> str:
+        """Run the run's work on this task: a DAG for an expression, one handler for a direct
+        run (PRD 04). Either way the observation events reach `bridge`."""
+        if self._run_shape == "direct":
+            return await self._dispatch_direct(url4, trace, bridge)
+        if trace is not None:
+            return await url4_run(
+                url4,
+                self._io,
+                observer=bridge,
+                trace_id=trace.trace_id,
+                root_span_id=trace.root_span_id,
+                **self._run_kwargs,
+            )
+        return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
 
     async def _dispatch_direct(
         self, target: str, trace: TraceContext | None, bridge: _Bridge
