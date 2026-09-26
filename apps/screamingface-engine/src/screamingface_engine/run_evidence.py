@@ -1,10 +1,10 @@
-"""The control-plane log lines that outlive a run's frame stream (OME-940).
+"""The control-plane log lines that outlive a run's frames (OME-940).
 
-FEATURE: a run's whole diagnostic record — the NATS frame stream — is deleted
-`DEFAULT_STREAM_GRACE_S` (60 s) after it ends, and the pod that produced it is reclaimed soon
-after. A failed deployed run was therefore not reconstructable after ~2 minutes. These two
-lines put the essentials where `kubectl logs` keeps them for the pod-log window: what was
-scheduled, under which trace, and how it ended.
+FEATURE: a run's whole diagnostic record — its frames on the shared events stream — is purged
+(the run's subject, keeping only its terminal frame) `DEFAULT_STREAM_GRACE_S` (60 s) after it
+ends, and the pod that produced it is reclaimed soon after. A failed deployed run was therefore
+not reconstructable after ~2 minutes. These two lines put the essentials where `kubectl logs`
+keeps them for the pod-log window: what was scheduled, under which trace, and how it ended.
 
 INVARIANT: both adapters emit the SAME fields in the SAME order. `InProcessJobRunner` (local)
 and `QueueJobRunner` (deployed) are two renderings of one contract, and evidence that differed

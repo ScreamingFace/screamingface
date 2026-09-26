@@ -130,3 +130,20 @@ def test_run_mode_does_not_import_the_serving_stack() -> None:
     assert result.stdout.strip() == "", (
         f"`url4-cloud run` loaded serving-side packages: {result.stdout.strip()}"
     )
+
+
+def test_admin_purge_legacy_streams_dispatches_with_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EVT-17: the rollout step is a CLI subcommand, and `--dry-run` reaches it."""
+    calls: list[bool] = []
+    monkeypatch.setattr(cli, "_purge_legacy_streams", lambda *, dry_run: calls.append(dry_run))
+    cli.main(["admin", "purge-legacy-streams", "--dry-run"])
+    cli.main(["admin", "purge-legacy-streams"])
+    assert calls == [True, False]
+
+
+def test_admin_without_a_command_exits_loudly() -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["admin"])
+    assert exc.value.code == 2

@@ -9,15 +9,21 @@ run duration, redelivery count, child exit codes (137 = OOM), worker restarts, a
 drain count. Cardinality is bounded: the only label is the child's exit code, which is
 an integer.
 
-LAYERING: this module imports only `prometheus_client` — a serving-half dependency the
-worker may already import — so it stays a shared leaf under `.claude/scripts/check_layering.py`.
+LAYERING: this module imports `prometheus_client` and, for the publish-conflicts family,
+`screamingface_engine.metrics` (the control plane's own module) — allowed one-way, per
+`.claude/scripts/check_layering.py`: the worker may import a control-plane module; the reverse
+is what the gate refuses.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+
+from screamingface_engine.metrics import publish_conflicts_family
 
 # The claim-latency buckets: a pull waits up to `PULL_TIMEOUT_S` (5s) for the first
 # message, so the histogram must cover the whole wait.
@@ -127,4 +133,38 @@ def build_worker_metrics() -> WorkerMetrics:
     )
 
 
-__all__ = ["WorkerMetrics", "build_worker_metrics"]
+class _PublishConflictsCollector:
+    """A `prometheus_client` custom collector for the worker's publisher's publish-conflict
+    counter (uniform executor, PRD 01 §4 Observability, I-EV3).
+
+    `JetStreamPublisher.publish_next` is how a non-child writer — here, the supervisor's own
+    classification frame — appends onto a subject another writer may have just appended to;
+    a `Nats-Expected-Last-Subject-Sequence` mismatch means it retried.
+
+    WHY the publisher directly, and not a getter like the App-side collectors: those exist
+    because `app.state.job_runner`/`app.state.stream` are read at scrape time off state that
+    may not be wired yet at registration. The worker builds exactly ONE publisher for the life
+    of the process (`worker_composition`) before this is ever registered, so there is nothing
+    to defer — a getter here would only wrap a constant.
+    """
+
+    def __init__(self, publisher: Any) -> None:
+        self._publisher = publisher
+
+    def collect(self) -> Iterable[Any]:
+        conflicts = getattr(self._publisher, "publish_conflicts", None)
+        if conflicts is None:
+            return
+        yield publish_conflicts_family(conflicts)
+
+
+def register_events_publish_conflicts_metrics(metrics: WorkerMetrics, publisher: Any) -> None:
+    """Register a `_PublishConflictsCollector` for `publisher` on `metrics.registry`."""
+    metrics.registry.register(_PublishConflictsCollector(publisher))
+
+
+__all__ = [
+    "WorkerMetrics",
+    "build_worker_metrics",
+    "register_events_publish_conflicts_metrics",
+]

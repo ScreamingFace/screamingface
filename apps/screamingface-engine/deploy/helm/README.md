@@ -165,6 +165,46 @@ cap. This supersedes the OME-1065 quota-admission feature, which was retired wit
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
+## Events stream (uniform executor, PRD 01)
+
+Every run's frames now live on ONE JetStream stream, `url4-events` (subject
+`url4-cloud.<topic>` per run), instead of one stream per run. The App and the runner pool
+both declare it at startup and apply a changed limit; the values are rendered to both from
+one place so they cannot disagree:
+
+- `events.maxBytes` (default 8 GiB) — must fit the broker's JetStream file store, or startup
+  fails naming `events.maxBytes`. When the store is full, JetStream drops the OLDEST frames
+  of whichever run they belong to; a run in progress keeps publishing, it does not fail.
+- `events.maxMsgsPerSubject` (default 20000) — one run's own frame retention bound, so a
+  single long run cannot crowd every other run's frames out of the shared store.
+- `events.maxAgeS` (default 86400) — the storage backstop: a run whose runner crashed before
+  reclaiming its subject still clears itself after this many seconds, with no sweep needed.
+- `events.replicas` (default 1) — same posture as `config.runQueueReplicas`: this chart bundles
+  a single-node NATS subchart, which refuses `replicas > 1` outright.
+
+**Rollout order (upgrading past the per-run-stream layout).** The new App and worker REFUSE to
+start while a legacy `url4-cloud_<topic>` stream exists on the broker — the shared stream's
+subjects overlap them, and JetStream will not declare a stream whose subjects overlap
+another's; the refusal names `screamingface-engine admin purge-legacy-streams` in its error.
+Upgrade in this order:
+
+1. Scale the OLD App and runner pool to 0, and wait for the queue to drain. Both must be at
+   0 together, not just drained: an old App still up would let a client's WebSocket attach
+   re-create a legacy per-run stream after step 2 has just removed it.
+2. Run `screamingface-engine admin purge-legacy-streams --dry-run` first, to see (and confirm)
+   the exact list of streams the next step deletes, then run it for real:
+   `screamingface-engine admin purge-legacy-streams`. It prints each stream it deletes; it
+   never touches `url4-events` or `url4-runq`. The command ships only in the NEW image, so run
+   it from that image — not the one still deployed — e.g. a one-off `kubectl run` or `Job`
+   using the new image and the App's own env (it needs the same `NATS_URL` the App does; no
+   pod from the old image can run it).
+3. Deploy the new version.
+
+**Alert rule.** `screamingface_engine_events_store_utilization_ratio > 0.8` for 5 minutes,
+severity warning. Meaning: the events store is close to full, and JetStream will soon start
+dropping the oldest frames of some run to make room for new ones. Response: raise
+`events.maxBytes`, or grow the broker's JetStream store.
+
 ## The node tier (unit 3)
 
 The sync surface (`GET /<mount>?q=`) can run as its own Deployment, separate from the App, so a

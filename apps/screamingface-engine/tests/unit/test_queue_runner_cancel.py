@@ -291,6 +291,9 @@ async def test_a_claim_landing_mid_stop_is_still_cancelled_with_one_frame() -> N
     publisher = _FakePublisher()
     control = _ScriptedControl([TimeoutError("nobody yet"), object()])  # ask, then CLAIMED
     runner = _runner(publisher, control)
+    # Queued by THIS App: in the shared events stream only the App's own schedule record says
+    # a run is queued (an empty subject says nothing).
+    await runner.schedule("t-raced", "'hi'", 60)
 
     await runner.stop("t-raced")
 

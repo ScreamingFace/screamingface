@@ -89,6 +89,39 @@
       "additionalProperties": false,
       "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port \u2014 a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
     },
+    "events": {
+      "type": "object",
+      "description": "The shared events stream (`url4-events`, uniform executor PRD 01 \u00a74). Rendered to BOTH the App and the runner pool \u2014 both halves apply their OWN configured limits to the live stream at startup (ensure_events_stream(..., update=True)); every field below is MUTABLE, so a one-sided value is NOT a startup failure but silently flips the shared stream's limits back and forth on every rollout. Only an IMMUTABLE field (storage, retention \u2014 neither configurable here) failing to match fails startup. Both halves must render from the SAME values for that reason.",
+      "properties": {
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Must fit the broker's JetStream file store, or startup fails naming `events.maxBytes` (erd.md \u00a75 EV-D9). Default 8 GiB. When the store is full, JetStream drops the OLDEST frames of whichever subject they belong to (ans:Q11); `screamingface_engine_events_store_utilization_ratio` is the alert signal to raise this from."
+        },
+        "maxMsgsPerSubject": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "One run's frame retention bound per SUBJECT, regardless of the store's overall use. Default 20000 \u2014 10x the measured p99 frame count headroom (PRD 01 \u00a76). A rollover keeps the terminal frame: a purge always keeps the last message."
+        },
+        "maxAgeS": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Storage backstop: a subject nobody ever purges (a crashed runner, EV-D13) clears itself after this many seconds \u2014 no sweep is needed. Default 86400 (24h)."
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Same posture as `config.runQueueReplicas`: this chart bundles a SINGLE-NODE NATS subchart, which refuses `replicas > 1` outright (ServerError 10074). Raise it only against a real NATS cluster (OME-1093)."
+        }
+      },
+      "required": [
+        "maxBytes",
+        "maxMsgsPerSubject",
+        "maxAgeS",
+        "replicas"
+      ],
+      "additionalProperties": false
+    },
     "runner": {
       "type": "object",
       "properties": {

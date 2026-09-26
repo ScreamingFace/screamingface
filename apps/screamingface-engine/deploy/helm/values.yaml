@@ -144,6 +144,37 @@ config:
   # away from the port actually being listened on. Use `service.port` to change what the cluster
   # dials; the container side is fixed.
 
+# The shared events stream (`url4-events`, uniform executor PRD 01): every run's frames, one
+# subject per topic (`url4-cloud.<topic>`). Rendered to BOTH the App and the runner pool — unlike
+# `config.runQueueReplicas` above, a divergence between the two is NOT a startup failure: both
+# halves apply their OWN configured limits to the live stream at startup
+# (`ensure_events_stream(..., update=True)`), and every field below is MUTABLE, so a one-sided
+# value silently flips the shared stream's limits back and forth on every rollout instead of
+# failing anything. Only an IMMUTABLE field (storage, retention — neither configurable here)
+# failing to match fails startup. Both halves must render from the SAME values for that reason.
+events:
+  # WHY 8 GiB: must fit the broker's JetStream file store — this chart does not size that store
+  # itself (no `nats.*` value here overrides the bundled subchart's own file-store default), so
+  # raising this past what the broker actually has fails startup naming `events.maxBytes`
+  # (erd.md §5 EV-D9), not the broker's own less legible error. WHY drop-oldest and not
+  # refuse-newest when it fills (ans:Q11): JetStream drops the OLDEST frames of whichever
+  # subject they belong to — a run in progress keeps publishing, it never fails on this, and
+  # `screamingface_engine_events_store_utilization_ratio` is the signal an operator raises this
+  # value (or the store) from.
+  maxBytes: 8589934592
+  # One run's frame retention bound per SUBJECT, regardless of the store's overall use — a
+  # single run cannot starve every OTHER run's frames out of the shared store. 20000 is 10x the
+  # measured p99 frame count headroom (PRD 01 §6); the terminal frame survives a per-subject
+  # rollover because a purge always keeps the last message.
+  maxMsgsPerSubject: 20000
+  # Storage backstop: a subject nobody ever purges (a crashed runner, EV-D13) still clears
+  # itself after 24h — no sweep is needed.
+  maxAgeS: 86400
+  # Same posture as `config.runQueueReplicas`: this chart bundles a SINGLE-NODE NATS subchart,
+  # which refuses `replicas > 1` outright (ServerError 10074). Raise it only against a real
+  # NATS cluster (OME-1093).
+  replicas: 1
+
 # Where over-cap Evaluation results are parked between the worker that produces one and the
 # App that serves it back (OME-929).
 #

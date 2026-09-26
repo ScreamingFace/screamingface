@@ -81,7 +81,7 @@ SPAWN_FAILED = "spawn_failed"
 KILL_GRACE_S = 10.0
 # The margin past `deadline_s + STREAM_GRACE_S` before the worker declares a child hung.
 # The child enforces `deadline_s` in-process and then waits out `STREAM_GRACE_S` before
-# reclaiming its stream, so a well-behaved child exits before the wall; the margin absorbs
+# purging its run subject, so a well-behaved child exits before the wall; the margin absorbs
 # process teardown.
 DEADLINE_MARGIN_S = 30.0
 # How often the worker extends a claimed message's ack_wait while its child runs. Far
@@ -789,7 +789,7 @@ class RunSupervisor:
         """The worker's hard wall for this run: ``deadline_s + STREAM_GRACE_S + margin``.
 
         The child enforces ``deadline_s`` in-process (publishing ``Terminated(timed_out)``)
-        and then waits out ``STREAM_GRACE_S`` before reclaiming its stream, so a
+        and then waits out ``STREAM_GRACE_S`` before purging its run subject, so a
         well-behaved child exits by ``deadline_s + STREAM_GRACE_S``. Past the wall the
         child is hung and the worker SIGTERMs, then SIGKILLs — this replaces
         ``activeDeadlineSeconds``. A message with no deadline (the codec always writes
@@ -879,7 +879,8 @@ class RunSupervisor:
 
         Returns ``(status, code, message)``, or ``None`` when the worker must add
         nothing: a clean exit means the child's own teardown already put a terminal frame
-        on the stream (or reclaimed it), so a second one would be a duplicate.
+        on the subject (or purged it, keeping that frame), so a second one would be a
+        duplicate.
         """
         if outcome == "deadline":
             status, code, message = (
@@ -992,12 +993,14 @@ class RunSupervisor:
     async def _publish_terminal(
         self, topic: str, status: TerminalStatus, code: str, message: str
     ) -> None:
-        """Publish a named terminal frame to the run's stream.
+        """Publish a named terminal frame to the run's subject.
 
         The frame is a root frame (``source`` is the run's own), so a client attached to
-        the run sees it as the run's outcome. The broker assigns the stream sequence, and
-        the App-side consumer stamps it onto the frame, so the client's replay cursor
-        advances past it exactly as it would past the child's own terminal frame.
+        the run sees it as the run's outcome. This is an UNSEQUENCED frame (I-EV3):
+        `JetStreamPublisher.publish_next` reads the subject's last frame and appends this one
+        at `last + 1` under `Nats-Expected-Last-Subject-Sequence` — the broker no longer
+        assigns the sequence — so the client's replay cursor advances past it exactly as it
+        would past the child's own terminal frame.
         """
         await self._publisher.ensure_stream(topic)
         await self._publisher.publish(

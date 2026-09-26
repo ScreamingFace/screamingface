@@ -14,6 +14,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
+from nats.js.errors import NotFoundError
 
 from screamingface_engine.adapters.jetstream import (
     DeferredPublishError,
@@ -32,7 +33,16 @@ class _FakeJetStream:
         self.subjects: list[str] = []
         self.futures: list[asyncio.Future[object]] = []
 
-    async def publish_async(self, subject: str, payload: bytes) -> asyncio.Future[object]:
+    async def add_stream(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    async def get_last_msg(self, stream: str, subject: str) -> object:
+        # A fresh subject: the run's first frame reads the tail to rebase its sequence.
+        raise NotFoundError(code=404, err_code=10037, description="no message found")
+
+    async def publish_async(
+        self, subject: str, payload: bytes, headers: dict[str, str] | None = None
+    ) -> asyncio.Future[object]:
         self.subjects.append(subject)
         future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
         self.futures.append(future)
@@ -57,7 +67,10 @@ def _publisher(fake: _FakeJetStream) -> JetStreamPublisher:
 
 
 def _log(n: int) -> LogEvent:
+    # SEQUENCED, as the url4 producer stamps them: only a producer frame is pipelined; an
+    # unsequenced one is a conditional append (`publish_next`), which waits by design.
     return LogEvent(
+        sequence=str(n + 1),
         id=f"e{n}",
         source="/trace/t/node/root",
         subject="t",
@@ -67,6 +80,7 @@ def _log(n: int) -> LogEvent:
 
 def _span(n: int) -> SpanEvent:
     return SpanEvent(
+        sequence=str(n + 1),
         id=f"s{n}",
         source="/trace/t/node/n",
         subject="t",

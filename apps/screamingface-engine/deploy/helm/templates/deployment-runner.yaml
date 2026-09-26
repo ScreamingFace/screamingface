@@ -142,6 +142,26 @@ spec:
             # is silent, which is why both are rendered from a single value.
             - name: URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT
               value: {{ .Values.config.runQueueBucketCount | quote }}
+            # The shared events stream's own limits (uniform executor, PRD 01 §4).
+            #
+            # INVARIANT: the SAME `values.events.*` the App's ConfigMap renders. Unlike the queue
+            # replicas above, a divergence here is NOT a startup failure: both halves apply their
+            # OWN configured values to the live stream at startup (`ensure_events_stream(...,
+            # update=True)`) because every one of these four fields is MUTABLE — so a one-sided
+            # value silently flips the shared stream's limits back and forth on every rollout.
+            # Only an IMMUTABLE field (storage, retention — neither configurable here) failing to
+            # match fails startup. Both halves must render from the same values for that reason.
+            # `int64`, not a bare `quote` — see `deployment-node.yaml`'s identical fix: a large
+            # whole number like the 8 GiB default arrives as a float64 through Helm's JSON
+            # decoding, and Go's default float formatting renders it in SCIENTIFIC NOTATION.
+            - name: URL4_CLOUD_EVENTS_MAX_BYTES
+              value: {{ .Values.events.maxBytes | int64 | quote }}
+            - name: URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT
+              value: {{ .Values.events.maxMsgsPerSubject | quote }}
+            - name: URL4_CLOUD_EVENTS_MAX_AGE_S
+              value: {{ .Values.events.maxAgeS | quote }}
+            - name: URL4_CLOUD_EVENTS_REPLICAS
+              value: {{ .Values.events.replicas | quote }}
             - name: URL4_CLOUD_WORKER_DRAIN_GRACE_S
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT

@@ -4,6 +4,7 @@
     screamingface-engine run      # one url4 evaluation, streamed to NATS, then exit
     screamingface-engine worker   # claim runs from the durable queue, supervise each as a child
     screamingface-engine node     # serve the sync surface: one world, direct mount hits (unit 3)
+    screamingface-engine admin purge-legacy-streams [--dry-run]   # one-shot rollout step
 
 WHY one artifact with a mode argument rather than two images: the two halves already shared
 their whole wire vocabulary (`job_env`, `subjects`, the JetStream binding), and keeping them in
@@ -108,6 +109,37 @@ def _node() -> None:
     serve_node()
 
 
+def _purge_legacy_streams(*, dry_run: bool) -> None:
+    """Delete the per-run streams of the former layout, printing each name (erd.md §10).
+
+    ROLLOUT ORDER: drain the system, run this, THEN start the new version. The shared events
+    stream (`url4-cloud.*`) overlaps every legacy stream's subject, and JetStream refuses it
+    while one exists — the new App and worker fail at startup naming this command.
+    """
+    import asyncio
+
+    import nats
+
+    from screamingface_engine.adapters.jetstream import purge_legacy_streams
+    from screamingface_engine.config import Settings
+
+    async def _purge() -> list[str]:
+        settings = Settings()
+        nc = await nats.connect(settings.nats_url)
+        try:
+            return await purge_legacy_streams(
+                nc.jetstream(), dry_run=dry_run, run_queue_stream=settings.run_queue_stream
+            )
+        finally:
+            await nc.close()
+
+    names = asyncio.run(_purge())
+    verb = "would delete" if dry_run else "deleted"
+    for name in names:
+        print(f"{verb} {name}")
+    print(f"{verb} {len(names)} legacy stream(s)")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
@@ -146,13 +178,25 @@ def main(argv: list[str] | None = None) -> None:
             "(the url4 node tier of unit 3)"
         ),
     )
+    admin = sub.add_parser("admin", help="one-shot operator commands")
+    admin_sub = admin.add_subparsers(dest="admin_command", required=True)
+    purge = admin_sub.add_parser(
+        "purge-legacy-streams",
+        help=(
+            "delete every per-run stream (url4-cloud_<topic>) of the former layout; run it "
+            "after draining and BEFORE starting this version"
+        ),
+    )
+    purge.add_argument("--dry-run", action="store_true", help="list the streams, delete none")
     args = parser.parse_args(argv)
 
     # BEFORE dispatch, and for every mode: a Job's logs are as load-bearing as the control
     # plane's, and neither `uvicorn.run` nor `run_main` configures anything for this package.
     configure_logging()
 
-    if args.mode == "worker":
+    if args.mode == "admin":
+        _purge_legacy_streams(dry_run=args.dry_run)
+    elif args.mode == "worker":
         _worker()
     elif args.mode == "node":
         _node()

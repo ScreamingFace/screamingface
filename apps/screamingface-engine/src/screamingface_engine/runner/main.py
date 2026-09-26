@@ -162,33 +162,36 @@ async def run_and_reclaim(
     grace_s: float = job_env.DEFAULT_STREAM_GRACE_S,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
-    """Drive one run, then reclaim its stream.
+    """Drive one run, then reclaim its subject on the shared events stream.
 
-    WHY the runner owns this: `DELETE /` is the only other path that reclaims a stream, and it
+    WHY the runner owns this: `DELETE /` is the only other path that reclaims a run, and it
     needs a capability token — those expire `iat_window_s` (60s) after minting and cannot be
     re-issued for an existing topic, so any run longer than a minute could never tear its own
-    stream down. Every such run leaked a stream holding a full `max_bytes` reservation until the
-    store was full and every new run failed with 10047.
+    subject down. Every such run left its frames on the shared stream until `max_age` (24h)
+    or the store's own `max_bytes`/`max_msgs_per_subject` limits eventually dropped them.
 
     INVARIANT: the reclamation is in a `finally`. A run that raised is precisely the run whose
-    stream would otherwise be left behind.
+    subject would otherwise be left behind.
     """
     try:
         await run_once()
     finally:
-        # WHY the delay: `delete_stream` destroys the stream AND its consumers. Deleting the
-        # instant the terminal frame is published races a client that has not drained yet, which
-        # would never see the terminal frame and would hang until its own timeout.
+        # WHY the delay: `delete_stream` purges the subject, KEEPING the terminal frame
+        # (erd.md §5; `_JetStreamConnection.delete_stream`'s own docstring). Purging the
+        # instant the terminal frame is published would still drop every EARLIER frame of the
+        # subject — the ones a client that has not drained yet is still resuming through —
+        # forcing its replay to fail with `stream_reclaimed` instead of finishing the read.
         await sleep(grace_s)
         try:
             await publisher.delete_stream(topic)
         except Exception:
             # INVARIANT: nothing here may escape. Teardown is best-effort by design and
-            # `_sweep_orphans` is the stated backstop, so the cost of swallowing is a late
-            # reclamation. The cost of raising is far worse in BOTH directions: on the success
-            # path it reports a run that published `Terminated(succeeded)` as a Failed Job, and
-            # on the failure path a raise inside `finally` SUPERSEDES the exception already
-            # propagating, erasing the real cause of the failure from the Job's logs.
+            # `max_age` expiry is the stated backstop (EV-D13: a crashed runner that never
+            # reaches this line loses nothing but the early purge), so the cost of swallowing
+            # is a late reclamation. The cost of raising is far worse in BOTH directions: on the
+            # success path it reports a run that published `Terminated(succeeded)` as a Failed
+            # Job, and on the failure path a raise inside `finally` SUPERSEDES the exception
+            # already propagating, erasing the real cause of the failure from the Job's logs.
             #
             # WHY not `except APIError`: `delete_stream` connects lazily, so it also raises
             # `NoServersError`, `ConnectionClosedError` and `nats.errors.TimeoutError` — none of

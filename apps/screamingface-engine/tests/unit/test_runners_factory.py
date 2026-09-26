@@ -58,15 +58,16 @@ def test_the_queue_runner_wires_the_configured_stream_and_prefix_everywhere() ->
     """P2-2/3: `run_queue_stream` and `run_queue_subject_prefix` were honoured by the
     worker's composition root but ignored at the App's — the App published to the
     DEFAULT stream while the worker pulled the configured one (a split that fails loudly
-    on every admission), and the App-side publisher's sweep used a stale constant. All
-    composition roots must agree for any Settings. The
+    on every admission). All composition roots must agree for any Settings. The
     per-caller subject prefix rides along — a prefix mismatch would publish where no
-    worker listens."""
+    worker listens. The publisher also carries the configured events-stream limits, so a
+    changed chart value reaches the broker from this root too."""
     settings = Settings(
         runner="queue",
         nats_url="nats://localhost:4222",
         run_queue_stream="prod-runq",
         run_queue_subject_prefix="prod-prefix",
+        events_max_bytes=123_456_789,
     )
 
     runner = build_job_runner(settings)
@@ -81,16 +82,17 @@ def test_the_queue_runner_wires_the_configured_stream_and_prefix_everywhere() ->
     publisher = cast(JetStreamPublisher, runner._publisher)
     assert queue._stream == "prod-runq"
     assert queue._subject_prefix == "prod-prefix"
-    assert publisher._run_queue_stream == "prod-runq"
+    assert publisher._events.max_bytes == 123_456_789
 
 
 def test_every_composition_root_wires_the_same_stream_name() -> None:
     """V-9/V-6: the stream-wiring test asserted only `build_job_runner`'s output — it
-    could not see the App's consumer (whose sweep deletes what it accepts), the advisor
-    (whose advisory subject carries the stream name), or the worker's root, and a fourth
-    unwired consumer site (app.py) survived exactly that blindness. All four roots are
-    now held to ONE Settings: a mismatch anywhere is a split that fails loudly or a
-    sweep that deletes the queue."""
+    could not see the App's consumer (which must carry the same configured events
+    limits as the publisher), the advisor (whose advisory subject carries the queue
+    stream name), or the worker's root, and a fourth unwired consumer site (app.py)
+    survived exactly that blindness. All four roots are now held to ONE Settings: a
+    mismatch anywhere is a queue split that fails loudly, or an events stream two roots
+    declare differently."""
     from fastapi import FastAPI
 
     from screamingface_engine.app import _install_max_deliveries_advisor as _register_queue_advisor
@@ -101,6 +103,7 @@ def test_every_composition_root_wires_the_same_stream_name() -> None:
         runner="queue",
         nats_url="nats://localhost:4222",
         run_queue_stream="prod-runq",
+        events_max_bytes=123_456_789,
     )
 
     # The App's runner: the queue and its publisher agree with Settings.
@@ -109,11 +112,11 @@ def test_every_composition_root_wires_the_same_stream_name() -> None:
     root_queue = cast(RunQueue, runner._queue)  # see the cast note above
     root_publisher = cast(JetStreamPublisher, runner._publisher)
     assert root_queue._stream == "prod-runq"  # noqa: SLF001
-    assert root_publisher._run_queue_stream == "prod-runq"  # noqa: SLF001
+    assert root_publisher._events.max_bytes == 123_456_789  # noqa: SLF001
 
-    # The App's event-stream consumer: the sweep's exclusion follows this name (V-6).
+    # The App's event-stream consumer: it carries the same configured events limits.
     consumer = build_stream_consumer(settings)
-    assert consumer._run_queue_stream == "prod-runq"  # noqa: SLF001
+    assert consumer._events.max_bytes == 123_456_789  # noqa: SLF001
 
     # The advisor: its advisory subject must carry the configured stream name.
     app = FastAPI()
@@ -122,7 +125,8 @@ def test_every_composition_root_wires_the_same_stream_name() -> None:
     assert advisor._run_queue_stream == "prod-runq"  # noqa: SLF001
     assert "prod-runq" in advisor._subject  # noqa: SLF001
 
-    # The worker: it must pull the same stream the App publishes to.
+    # The worker: it must pull the same stream the App publishes to, and share the same
+    # configured events limits.
     queue, publisher = worker_composition(settings)
     assert queue._stream == "prod-runq"  # noqa: SLF001
-    assert publisher._run_queue_stream == "prod-runq"  # noqa: SLF001
+    assert publisher._events.max_bytes == 123_456_789  # noqa: SLF001

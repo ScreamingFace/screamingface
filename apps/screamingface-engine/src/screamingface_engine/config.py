@@ -252,14 +252,25 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
+    # --- shared events stream (uniform executor, PRD 01) --------------------------------------
+    # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
+    # and the worker declare it at startup from these values and apply a changed limit; no
+    # other process rewrites it. `max_bytes` must fit the JetStream file store, or startup
+    # fails naming `events.maxBytes`. When the store is full, the OLDEST frames are dropped
+    # (ans:Q11) and `screamingface_engine_events_store_utilization_ratio` shows it.
+    events_max_bytes: int = Field(default=8 * 1024**3, ge=1)
+    events_max_msgs_per_subject: int = Field(default=20_000, ge=1)
+    events_max_age_s: float = Field(default=86_400.0, gt=0)
+    events_replicas: int = Field(default=1, ge=1)
+
     # --- durable run queue (OME-1088) -------------------------------------------------------
     # WHY a queue at all: OME-1086 replaces one-Job-per-run scheduling with a fixed worker pool
     # pulling from a durable work queue. THIS unit adds the queue substrate only — no worker,
     # no cutover — so these settings are the substrate's knobs, not the worker's.
     #
-    # INVARIANT: the stream name must NOT begin with `url4-cloud_` — `_sweep_orphans` deletes
-    # any stream `owns_stream()` accepts, and the queue is the one stream an accepted run may
-    # not be lost from. `subjects.owns_stream` excludes it explicitly; the default here is the
+    # INVARIANT: the stream name must NOT begin with `url4-cloud_` — `admin purge-legacy-streams`
+    # deletes any stream `owns_stream()` accepts, and the queue is the one stream an accepted run
+    # may not be lost from. `subjects.owns_stream` excludes it explicitly; the default here is the
     # same constant, so the two cannot drift. The invariant is ENFORCED below by
     # `_reject_sweepable_run_queue_stream` (review follow-up V-8): a comment could not stop an
     # operator or a composition root from naming the queue into the sweepable prefix, and the
@@ -349,12 +360,12 @@ class Settings(BaseSettings):
     def _reject_sweepable_run_queue_stream(cls, value: str) -> str:
         """Refuse a queue stream named under the per-run `url4-cloud_` prefix.
 
-        The reclamation sweep deletes every stream `owns_stream()` accepts; a queue so
+        `admin purge-legacy-streams` deletes every stream `owns_stream()` accepts; a queue so
         named is one rejected publish away from being deleted with an accepted run on it.
         The exact-name exclusion in `owns_stream` guards the sites that RECEIVE the
         configured name; this validator makes the hazard impossible at its source, so a
         wiring gap (a site built from the default constant) can only ever produce a
-        split — loud — never a swept queue.
+        split — loud — never a purged queue.
         """
         if value.startswith(f"{subjects.PREFIX}_"):
             raise ValueError(

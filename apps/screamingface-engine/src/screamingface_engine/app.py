@@ -12,7 +12,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -42,6 +42,7 @@ from screamingface_engine.metrics import (
     MetricsMiddleware,
     build_metrics,
     register_catalog_metrics,
+    register_events_metrics,
     register_max_deliveries_metrics,
     register_queue_metrics,
     register_reaper_metrics,
@@ -137,6 +138,10 @@ def create_app(
     # every /metrics scrape rather than capturing the value built here.
     register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
     _register_runner_metrics(app)
+    # FEATURE: the shared events stream's own signals — store use and publish conflicts
+    # (uniform executor, PRD 01 §4 Observability). A stream that can refresh its own usage
+    # (the JetStream adapter; not the in-memory local one) also gets a periodic poller.
+    _install_events_store_monitor(app, stream)
     app.add_middleware(MetricsMiddleware)
     app.state.registry = ConnectionRegistry()
     app.state.interest = interest if interest is not None else app.state.registry
@@ -167,6 +172,17 @@ def _register_runner_metrics(app: FastAPI) -> None:
     order."""
     register_queue_metrics(app.state.metrics, lambda: app.state.job_runner)
     register_max_deliveries_metrics(app.state.metrics, lambda: app.state.max_deliveries_advisor)
+    # WHY the publisher getter reaches through `job_runner.publisher` rather than a field of
+    # its own: the queue runner is the one thing on `app.state` that already holds the
+    # `JetStreamPublisher` the App's own writers (the queued-cancel tombstone) use — the same
+    # publisher `publish_conflicts` counts against (writer="app"). `getattr` twice over (the
+    # runner may be None, or not a `QueueJobRunner`) so a stream-only or `runner="none"` App
+    # renders the series absent rather than raising.
+    register_events_metrics(
+        app.state.metrics,
+        lambda: app.state.stream,
+        lambda: getattr(app.state.job_runner, "publisher", None),
+    )
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
@@ -366,6 +382,90 @@ def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
     app.router.on_shutdown.append(_stop)
 
 
+_EVENTS_STORE_POLL_S = 15.0
+"""How often the App re-reads the shared events stream's own usage (PRD 01 §4 Observability)."""
+
+
+class _EventsStoreMonitor:
+    """One tick of the events-store usage poll: refresh the gauge, and log a failed refresh.
+
+    Split from `_install_events_store_monitor`'s task wiring so a test can call `tick()`
+    directly, with no sleep involved — the `failing` state that makes "log once per failure
+    streak, not every failed tick" true lives here.
+
+    WHY no utilization-threshold logging here: the chart's own alert rule
+    (`screamingface_engine_events_store_utilization_ratio >= 0.8` for 5m, deploy/helm/README.md)
+    is the single owner of that threshold. Logging a second copy of it here duplicated the
+    alert's own logic in a second place that could drift from it (a changed alert rule left
+    this log's threshold stale); the gauge this tick refreshes is all the alert needs.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self._failing = False
+
+    async def tick(self) -> None:
+        try:
+            await self._stream.refresh_store_usage()
+        except Exception:
+            # WHY once per streak, not once per tick: a broker outage lasting several
+            # intervals must not fill the App's log with the same warning every
+            # `_EVENTS_STORE_POLL_S` — and a failed read leaves `store_snapshot` at its
+            # last value, so the gauge keeps reporting the last known reading.
+            if not self._failing:
+                _logger.warning(
+                    "events store usage refresh failed; keeping the last reading", exc_info=True
+                )
+                self._failing = True
+            return
+        self._failing = False
+
+
+def _install_events_store_monitor(
+    app: FastAPI, stream: EventConsumer | None, *, interval_s: float = _EVENTS_STORE_POLL_S
+) -> None:
+    """Poll the shared events stream's own usage on a cadence, for `_EventsStoreCollector` to
+    read at scrape time.
+
+    Modelled on `_install_artifact_sweeper`: an asyncio task on the App's own event loop,
+    cancelled at shutdown so nothing outlives the App. Installed ONLY when `stream` can refresh
+    its own usage (`refresh_store_usage`) — the in-memory local stream has no store to read, and
+    a stream-only or `runner='none'` App may be given no stream at all.
+
+    WHY the first tick waits one interval rather than firing immediately (unlike
+    `_install_artifact_sweeper`, which sweeps once at startup): this task is started from an
+    `on_startup` handler registered BEFORE `create_app_from_env` appends
+    `stream.declare_events_stream`, and `on_startup` handlers run in registration order but this
+    one only SCHEDULES a task rather than awaiting it — so an immediate first tick can run
+    during a later handler's own await and read a stream that has not been declared yet, logging
+    a spurious cold-start warning. Sleeping first gives `declare_events_stream` the whole
+    interval to finish before the first read.
+    """
+    if not hasattr(stream, "refresh_store_usage"):
+        return
+    monitor = _EventsStoreMonitor(stream)
+
+    async def _poll_forever() -> None:
+        while True:
+            await asyncio.sleep(interval_s)
+            await monitor.tick()
+
+    async def _start() -> None:
+        app.state.events_store_monitor_task = asyncio.get_running_loop().create_task(
+            _poll_forever()
+        )
+
+    async def _stop() -> None:
+        task = getattr(app.state, "events_store_monitor_task", None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app.router.on_startup.append(_start)
+    app.router.on_shutdown.append(_stop)
+
+
 _MIN_JWT_SECRET_BYTES = 32
 
 
@@ -387,17 +487,15 @@ def _require_prod_secret(settings: Settings) -> None:
 
 
 def build_stream_consumer(settings: Settings) -> JetStreamConsumer:
-    """The App's event-stream consumer, carrying the CONFIGURED queue stream name.
+    """The App's event-stream consumer, carrying the CONFIGURED events stream limits.
 
-    V-6: the consumer inherits `_sweep_orphans`, whose exclusion follows the
-    `run_queue_stream` ctor param — a consumer built from the default constant re-arms
-    the sweep against a renamed queue stream, and the sweep deletes what it accepts.
     Extracted from `create_app_from_env` so the stream-wiring test can hold this root to
     the same Settings as the worker's and the App's runner.
     """
+    from screamingface_engine.adapters.factory import events_stream_config
     from screamingface_engine.adapters.jetstream import JetStreamConsumer
 
-    return JetStreamConsumer(settings.nats_url, run_queue_stream=settings.run_queue_stream)
+    return JetStreamConsumer(settings.nats_url, events=events_stream_config(settings))
 
 
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
@@ -434,6 +532,9 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         connections=connections,
         benchmarks=BUILTIN_BENCHMARKS,
     )
+    # The App owns the configured limits: declare the shared events stream (and apply a
+    # changed limit) before the first request, and fail startup on a config it cannot apply.
+    app.router.on_startup.append(stream.declare_events_stream)
     app.router.on_shutdown.append(stream.close)
     if job_runner is not None:
         # The queue runner owns a control connection of its own (OME-1090). `getattr` rather

@@ -1,12 +1,11 @@
 """The publisher proxy that ships a run's spans to a tracing backend (OME-1130).
 
 MOUNT POINT. `OME-1130` specifies "the engine control-plane relay, never the runner". That
-subscription does not exist: `stream_for(topic)` creates ONE JetStream stream per run, so
-nothing in the control plane sees all runs — only `ws/bridge.py` subscribes, and only for runs
-somebody is watching. Exporting from there would reproduce the "absent because not exercised"
-ambiguity that cost a real diagnosis in `OME-940`. The owner resolved the fork in favour of a
-PUBLISHER PROXY: the run's own publisher, wrapped, which sees every frame of every run whether
-or not a client is attached.
+subscription does not exist: nothing in the control plane subscribes to all runs — only
+`ws/bridge.py` subscribes, and only for runs somebody is watching. Exporting from there would
+reproduce the "absent because not exercised" ambiguity that cost a real diagnosis in `OME-940`.
+The owner resolved the fork in favour of a PUBLISHER PROXY: the run's own publisher, wrapped,
+which sees every frame of every run whether or not a client is attached.
 
 INVARIANT — THE RELAY MAY NEVER FAIL OR ALTER A RUN. It sits on the one path every frame
 travels, so a downed collector, an unmapped frame, or a bug in this module must degrade

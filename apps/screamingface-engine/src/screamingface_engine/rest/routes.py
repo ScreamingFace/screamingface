@@ -599,9 +599,11 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             title="Service Unavailable",
             detail="the run queue could not be read; retry",
         ) from None
-    # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
-    # stream empties it but leaves the stream object, its consumer state and its filestore
-    # directory behind — one permanent stream per run, forever. `delete_stream` defaults to
-    # `purge` for adapters with nothing broker-side to reclaim, so both modes stay correct.
+    # WHY delete_stream and not purge: this is the run's terminal teardown, and `delete_stream`
+    # purges the subject on the shared events stream while KEEPING the terminal frame — the
+    # evidence a run ended (the queue's dedupe gate, the runner's own admission bookkeeping, and
+    # a repeated `DELETE /` all read that frame). Plain `purge` drops it too, and an empty
+    # subject reads exactly like a run still queued — there is no per-run stream object left to
+    # tell the two apart in a shared stream (erd.md §5).
     await deps.stream.delete_stream(sub)
     return Response(status_code=204)

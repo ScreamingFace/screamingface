@@ -31,7 +31,11 @@ if (
     from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import UNDECODABLE_BODY_ERRORS, topic_of_message
 from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX, OWNERSHIP_SUBJECT_PREFIX
-from screamingface_engine.worker.metrics import WorkerMetrics, build_worker_metrics
+from screamingface_engine.worker.metrics import (
+    WorkerMetrics,
+    build_worker_metrics,
+    register_events_publish_conflicts_metrics,
+)
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
@@ -509,6 +513,7 @@ def worker_composition(settings: Settings) -> tuple[RunQueue, JetStreamPublisher
     sides agreeing on the stream name is the whole P2-2 fix, and a test that only inspects
     one root cannot see the other drifting.
     """
+    from screamingface_engine.adapters.factory import events_stream_config
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
 
@@ -529,8 +534,11 @@ def worker_composition(settings: Settings) -> tuple[RunQueue, JetStreamPublisher
         # broker is a startup failure for whichever half declares second.
         replicas=settings.run_queue_replicas,
     )
-    # The publisher's sweep must exclude the CONFIGURED queue stream, not a stale constant.
-    publisher = JetStreamPublisher(settings.nats_url, run_queue_stream=settings.run_queue_stream)
+    # `writer="supervisor"`: the worker's own frames are the supervisor's classifications, and
+    # the publish-conflict metric is labelled by writer (C7).
+    publisher = JetStreamPublisher(
+        settings.nats_url, events=events_stream_config(settings), writer="supervisor"
+    )
     return queue, publisher
 
 
@@ -545,6 +553,9 @@ def run_worker(settings: Settings | None = None) -> None:
     queue, publisher = worker_composition(settings)
     metrics = build_worker_metrics()
     metrics.started.inc()
+    # The worker's own publish-conflict signal (uniform executor, PRD 01 §4 Observability,
+    # I-EV3), labelled "supervisor" — `publisher._writer` (worker_composition sets it so).
+    register_events_publish_conflicts_metrics(metrics, publisher)
     if settings.worker_metrics_port > 0:
         # The worker's own scrape endpoint (OME-1092): the chart exposes this port on the
         # runner pool Deployment. The stdlib-backed server is the prometheus_client
@@ -559,6 +570,8 @@ def run_worker(settings: Settings | None = None) -> None:
         # created.
         nc = await nats.connect(settings.nats_url)
         try:
+            # The worker owns the configured limits too; it may start before the App.
+            await publisher.declare_events_stream()
             worker = Worker(
                 queue=queue,
                 publisher=publisher,
