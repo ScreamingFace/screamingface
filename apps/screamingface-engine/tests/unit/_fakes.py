@@ -10,6 +10,7 @@ import pytest
 from _pytest.mark import ParameterSet
 
 from screamingface_engine.adapters.jetstream import JetStreamConsumer, JetStreamPublisher
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.interfaces import (
@@ -159,7 +160,7 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
-        shape: str = "expression",
+        shape: RunShape = "expression",
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)

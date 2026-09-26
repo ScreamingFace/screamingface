@@ -37,6 +37,7 @@ from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.runner_queue import decode_message, encode_message
@@ -199,7 +200,7 @@ class _SeedRecordingRunner(RecordingJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
-        shape: str = "expression",
+        shape: RunShape = "expression",
     ) -> str:
         self.answer_seeds.append(answer_seed)
         return await super().schedule(

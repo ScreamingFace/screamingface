@@ -737,6 +737,20 @@ def _log_frame(event: Log) -> LogData:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _EvalResult:
+    """One run's evaluated text plus the media type its route declares (S4).
+
+    An expression run (`url4_run`) declares none; a direct run's `DirectResult` carries
+    whatever its route did. Returned by `_evaluate`/`_drive` rather than stashed on the
+    executor, so the media type flows to `state.build_result` as DATA, not as per-run state
+    an executor instance could carry stale between calls.
+    """
+
+    body: str
+    media_type: str | None = None
+
+
 class Url4Executor(Executor):
     """The `Executor` port implementation that drives one url4 run against the real engine.
 
@@ -766,11 +780,11 @@ class Url4Executor(Executor):
         # is `<mount path>?<raw query>` and it runs ONE registered handler of the world node via
         # `url4.peer.dispatch_direct`, never a DAG (D1). Same lifecycle, same frames.
         self._run_shape = run_shape
-        # The world NODE a direct call dispatches on — captured before any io wrapper, which
-        # is not a node (a direct run is one call; there is nothing to fan out or bound).
-        self._node: IOLayer | None = io
-        # The declared media type of a direct call's route, carried to the result frame.
-        self._media_type: str | None = None
+        # The world NODE a direct call dispatches on (`self._node`) is set ONLY by
+        # `_resolve_world` — from `self._io` before any wrap is applied, since a wrapper is
+        # not a node (a direct run is one call; there is nothing to fan out or bound).
+        # `execute` always calls `_resolve_world` before a direct run can dispatch, so there
+        # is no window where `_node` is read unset.
         self._queue_cap = queue_cap
         # WHY: `result_cap` is now the INLINE threshold (biggest body that rides the
         # result frame), not a truncation point; `hard_cap` bounds the spill path. The
@@ -885,7 +899,7 @@ class Url4Executor(Executor):
         reported as "never retrieved".
         """
 
-        async def _drive() -> str:
+        async def _drive() -> _EvalResult:
             # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
             # world's outbound aigateway calls carry it (`world.connector._headers`).
             #
@@ -916,7 +930,7 @@ class Url4Executor(Executor):
             async for ev in bridge.drain():
                 for frame in state.map(ev):
                     yield frame
-            result_str = await task
+            eval_result = await task
             for frame in _closing_logs(bridge, state.cache_counters):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
@@ -924,11 +938,11 @@ class Url4Executor(Executor):
             # pumps heartbeats, letting a client declare a FINISHING run dead.
             result = await asyncio.to_thread(
                 state.build_result,
-                result_str,
+                eval_result.body,
                 inline_cap=self._result_cap,
                 hard_cap=self._hard_cap,
                 store=self._artifact_store,
-                media_type=self._media_type,
+                media_type=eval_result.media_type,
             )
             subtree = state.build_subtree()
             # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
@@ -946,13 +960,15 @@ class Url4Executor(Executor):
             elif not task.cancelled():
                 task.exception()
 
-    async def _evaluate(self, url4: str, trace: TraceContext | None, bridge: _Bridge) -> str:
+    async def _evaluate(
+        self, url4: str, trace: TraceContext | None, bridge: _Bridge
+    ) -> _EvalResult:
         """Run the run's work on this task: a DAG for an expression, one handler for a direct
         run (PRD 04). Either way the observation events reach `bridge`."""
         if self._run_shape == "direct":
             return await self._dispatch_direct(url4, trace, bridge)
         if trace is not None:
-            return await url4_run(
+            body = await url4_run(
                 url4,
                 self._io,
                 observer=bridge,
@@ -960,11 +976,13 @@ class Url4Executor(Executor):
                 root_span_id=trace.root_span_id,
                 **self._run_kwargs,
             )
-        return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+        else:
+            body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+        return _EvalResult(body)
 
     async def _dispatch_direct(
         self, target: str, trace: TraceContext | None, bridge: _Bridge
-    ) -> str:
+    ) -> _EvalResult:
         """Run a direct run's ONE handler, reported to `bridge` as a one-node run.
 
         `dispatch_direct` emits the events a single-call DAG run would (RunStarted, one
@@ -987,8 +1005,7 @@ class Url4Executor(Executor):
             trace_id=trace.trace_id if trace is not None else None,
             root_span_id=trace.root_span_id if trace is not None else None,
         )
-        self._media_type = result.media_type
-        return result.body
+        return _EvalResult(result.body, result.media_type)
 
     def _record_summary(
         self,
@@ -1042,6 +1059,13 @@ class Url4Executor(Executor):
         """
         if self._io is None and self._world_factory is not None:
             self._io, self._world_aclose = await self._world_factory()
+        # The world NODE a direct call dispatches on — captured from `self._io` BEFORE any
+        # wrap below, whether `self._io` just came from the factory or was injected directly
+        # (a wrapper is not a node: a direct run is one call, with nothing to fan out or
+        # bound). Captured only once, gated on the same `_io_wrapped` flag the wrap below
+        # sets: on a later `execute` of the same executor, `self._io` is already the WRAPPED
+        # layer, and re-reading it here would replace the real node with its own wrapper.
+        if not self._io_wrapped:
             self._node = self._io
         # FEATURE (OME-908): the admission wrapper binds ONCE, to whatever io this run
         # uses — the resolved world or a directly injected test io — and a second

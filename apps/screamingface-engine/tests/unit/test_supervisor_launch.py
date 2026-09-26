@@ -16,6 +16,7 @@ from screamingface_engine import job_env
 from screamingface_engine.worker.loop import Worker
 from screamingface_engine.worker.supervisor import CANCELLED
 from screamingface_engine.worker.warm_pool import LaunchFailed
+from url4.streaming.protocol import TerminatedData, TerminatedEvent, source_for
 
 pytestmark = pytest.mark.asyncio
 
@@ -192,4 +193,29 @@ async def test_an_unknown_spec_major_version_is_refused_with_its_code() -> None:
     msg.data = json.dumps(body).encode()
     await worker._supervisor.supervise(msg)  # type: ignore[arg-type]
     assert [f.data.error.code for f in publisher.published] == ["unsupported_spec_version"]
+    assert msg.acked and launcher.launched == []
+
+
+async def test_an_unknown_spec_major_version_whose_run_already_ended_gets_no_second_frame() -> None:
+    """C6: a redelivery of a run a newer worker already finished must not get a second
+    terminal frame from an older worker that cannot read its version — the terminal-frame
+    check runs BEFORE the version refusal, so the message is acked away with no new
+    publish at all."""
+    publisher = _Publisher()
+    publisher.published.append(
+        TerminatedEvent(
+            id="already-there",
+            source=source_for("t-v3-done"),
+            subject="t-v3-done",
+            data=TerminatedData(status="succeeded"),
+        )
+    )
+    launcher = _Launcher(_Proc(exit_after_s=0.0))
+    worker = _worker(publisher, launcher)
+    msg = _Msg("t-v3-done")
+    body = json.loads(msg.data)
+    body[job_env.SPEC_VERSION] = "3"
+    msg.data = json.dumps(body).encode()
+    await worker._supervisor.supervise(msg)  # type: ignore[arg-type]
+    assert len(publisher.published) == 1  # unchanged: the pre-existing terminal frame only
     assert msg.acked and launcher.launched == []

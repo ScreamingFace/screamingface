@@ -17,7 +17,6 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Request, Response
-from fastapi.responses import FileResponse
 
 from screamingface_engine import job_env, notices
 from screamingface_engine.adapters.jetstream import QueueReadError
@@ -34,6 +33,7 @@ from screamingface_engine.cache_intent import parse_cache_control
 from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
 from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
 from screamingface_engine.rest.sessions import RunSessions
@@ -313,7 +313,9 @@ async def _await_terminal(
         return None
 
 
-def _result_response(result: ResultEvent | None, store: ArtifactStore | None = None) -> Response:
+async def _result_response(
+    result: ResultEvent | None, store: ArtifactStore | None = None
+) -> Response:
     """Build the 200 response body from the run's ``ResultEvent``, or an empty 200 if none.
 
     FEATURE: deliver large results in full (OME-892) — a result frame may carry an artifact
@@ -324,8 +326,11 @@ def _result_response(result: ResultEvent | None, store: ArtifactStore | None = N
         return Response(status_code=200)
     artifact = result.data.artifact
     if artifact is not None:
-        path = store.path_for(artifact.id) if store is not None else None
-        if path is None:
+        media_type = result.data.media_type or "application/json"
+        response = (
+            await artifact_response(store, artifact.id, media_type) if store is not None else None
+        )
+        if response is None:
             # WHY 404 and not an empty 200: the run DID produce a result; serving nothing as
             # success would be a quieter cousin of the truncation bug this feature removes.
             raise ProblemException(
@@ -334,7 +339,7 @@ def _result_response(result: ResultEvent | None, store: ArtifactStore | None = N
                 detail=f"the run's result was spilled to artifact {artifact.id!r}, which has "
                 "already been fetched or swept",
             )
-        return FileResponse(path, media_type=result.data.media_type or "application/json")
+        return response
     return Response(
         content=result.data.body,
         media_type=result.data.media_type or "application/json",
@@ -342,7 +347,7 @@ def _result_response(result: ResultEvent | None, store: ArtifactStore | None = N
     )
 
 
-def _terminal_response(
+async def _terminal_response(
     terminated: TerminatedEvent,
     result: ResultEvent | None,
     store: ArtifactStore | None = None,
@@ -350,7 +355,7 @@ def _terminal_response(
     """Map a terminal frame to its HTTP response: the Result body on success, else a problem."""
     status = terminated.data.status
     if status == "succeeded":
-        return _result_response(result, store)
+        return await _result_response(result, store)
     # `.get` and not `[...]`: a terminal status added to the protocol but not mapped here would
     # otherwise surface as an unhandled KeyError — a bare 500 with a traceback, rather than a
     # response that still tells the caller the run ended and did not succeed.
@@ -406,6 +411,35 @@ async def _until_disconnected(is_disconnected: Callable[[], Awaitable[bool]]) ->
         await asyncio.sleep(_DISCONNECT_POLL_S)
 
 
+WAIT_GONE = object()
+"""`wait_terminal_or_gone`'s answer when the caller disconnected first."""
+
+
+async def wait_terminal_or_gone(
+    stream: EventConsumer,
+    topic: str,
+    bound_s: float,
+    is_disconnected: Callable[[], Awaitable[bool]],
+) -> tuple[TerminatedEvent, ResultEvent | None] | None | object:
+    """Race the run's terminal frame (bounded by `bound_s`) against the caller leaving.
+
+    The terminal frame and its result; ``None`` when the bound passed first; ``WAIT_GONE`` when
+    the caller disconnected first. Both tasks are cancelled and reaped on every exit. Shared by
+    the sync `GET /?q=` and the mount calls, which differ only in what they do with the answer.
+    """
+    wait = asyncio.ensure_future(_await_terminal(stream, topic, bound_s))
+    gone = asyncio.ensure_future(_until_disconnected(is_disconnected))
+    try:
+        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in (wait, gone):
+            task.cancel()
+        await asyncio.gather(wait, gone, return_exceptions=True)
+    if wait.cancelled():
+        return WAIT_GONE
+    return wait.result()
+
+
 async def _run_sync(
     deps: _Deps,
     topic: str,
@@ -424,21 +458,13 @@ async def _run_sync(
     """
     cap = deps.settings.sync_max_wait_s
     bound = cap if wait_s is None else min(wait_s, cap)
-    wait = asyncio.ensure_future(_await_terminal(deps.stream, topic, bound))
-    gone = asyncio.ensure_future(_until_disconnected(is_disconnected))
-    try:
-        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        for task in (wait, gone):
-            task.cancel()
-        await asyncio.gather(wait, gone, return_exceptions=True)
-    if wait.cancelled():
-        # The caller is gone: nobody reads this response.
+    outcome = await wait_terminal_or_gone(deps.stream, topic, bound, is_disconnected)
+    if outcome is None or outcome is WAIT_GONE:
+        # The bound passed (the client may attach a WebSocket) — or the caller is gone and
+        # nobody reads this response.
         return _accepted(topic)
-    outcome = wait.result()
-    if outcome is None:
-        return _accepted(topic)
-    return _terminal_response(outcome[0], outcome[1], deps.artifact_store)
+    terminated, result = outcome  # type: ignore[misc]
+    return await _terminal_response(terminated, result, deps.artifact_store)
 
 
 @router.post(

@@ -187,9 +187,27 @@ This is not the B2/B3 benchmark of the test plan (that needs the kind environmen
 |---|---|---|---|
 | M1 | ans:Q10: one 1 MiB inline limit for every shape | The mount RESPONSE limit is 1 MiB (200 inline up to it, 303 over it). The result FRAME cap stays 512 KiB; a result between the two is spilled by the child and served inline by the App from the artifact store. | OME-949: a frame near 1 MiB exceeds the broker's default 1 MiB `max_payload` once the CloudEvent envelope is added, and the publish fails after every model call is paid for. |
 | M2 | MNT-1: "refuses the eval path" | `dispatch_direct` calls ONLY a registered handler, and an unregistered target in the eval path gets `direct_eval_refused`. A registered mount under `/v1` (`/v1/chat/completions`) is served. | The engine's real mounts (and the PRD's own examples) live under the eval path `/v1`. A prefix refusal would refuse every one of them. |
-| M3 | (gap) | A direct run's reclaim grace is 2 s (`DIRECT_STREAM_GRACE_S`), not 60 s. | The child holds a worker slot through the grace; nobody attaches to a mount run. Found by the end-to-end spine (62 s → seconds). |
+| M3 | (gap) | A direct run's reclaim grace is 5 s (`DIRECT_STREAM_GRACE_S`), not 60 s. A succeeded run whose Result frame the App could not read answers 502 `result_unavailable`, never an empty 200. | The child holds a worker slot through the grace; nobody attaches to a mount run. Found by the end-to-end spine (62 s → seconds). |
 | M4 | MC-D6: "same status and problem `code`" | Same status, and url4's error envelope `{"error": {"code", "message"}}` — the node tier's body, not RFC 9457 problem+json. | That is what the node tier answered; changing the body would break mount callers. |
+| M6 | MC-H2 step 3: the handler "holds the topic (PRD 02 mechanism)" | A mount call takes NO audience hold. On every exit without a terminal frame (bound, disconnect, a failed or cancelled wait) the handler stops the run itself, before it answers. | Nobody can attach to a mount run. A hold only armed the orphan reaper on release: one broker round trip per call, for a run already over (review C11). |
 | M5 | (open question §6) | The mount set is the node-tier forwarder's set (the world built without benchmarks). | Parity first; exposing benchmark endpoints is the owners' decision. |
+
+### Design review fixes (before the final phase 4 commit)
+
+- A spilled result is read through `ArtifactReader.content()` for every surface
+  (`rest.artifacts.artifact_response`). `path_for` exists only on the filesystem store, so on S3
+  (the store every queue deployment uses) a mount result between 512 KiB and 1 MiB — and a sync
+  `GET /?q=` result over 512 KiB, a defect that predates this work — answered 500.
+- Status parity: a permanent failure with a non-url4 code (`aigateway_http_401`,
+  `provider_refused`) answers 502, as the node tier's `_remap` did.
+- Every mount answer is url4's envelope and is counted; the 414 check measures raw bytes; a
+  mount path with `?`, `{` or `}` fails startup; `wait_terminal_or_gone` is shared with the sync
+  `GET /?q=`; topics come from `auth.token.new_topic`.
+- A worker checks a message's terminal frame BEFORE its version, so an older worker never adds a
+  second terminal frame to a run a newer one finished.
+- url4: an observed direct call keeps the handler's log records; the code-to-status fallback
+  and the data-route lookup each have one owner.
+- MNT-5 is an AST test: the engine imports no private `url4.peer` module.
 
 ### Validation done
 

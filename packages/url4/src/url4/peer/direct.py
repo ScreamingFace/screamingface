@@ -18,11 +18,14 @@ import asyncio
 import hashlib
 import itertools
 import secrets
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.observe import (
+    Log,
+    LogScalar,
     ModelResponse,
     NodeFinished,
     NodeStarted,
@@ -32,8 +35,8 @@ from url4.observe import (
     Usage,
     _bind_node_sinks,
 )
-from url4.peer._dispatch import _text, call_endpoint
-from url4.peer._http import _STATUS_BY_CODE
+from url4.peer._dispatch import _text, call_endpoint, data_route
+from url4.peer._http import status_for_code
 from url4.wire.subrequest import extract_expression_params
 
 if TYPE_CHECKING:
@@ -97,6 +100,19 @@ async def dispatch_direct(
     return await _observed(node, target, observer, trace_id, root_span_id)
 
 
+def _finish(
+    observer: Observer,
+    span: str,
+    seq: itertools.count,
+    status: Literal["ok", "error", "cancelled"],
+    *,
+    code: str | None = None,
+    permanent: bool | None = None,
+) -> None:
+    observer.on_event(NodeFinished(span, status, next(seq), code=code, permanent=permanent))
+    observer.on_event(RunFinished(status, next(seq)))
+
+
 async def _observed(
     node: Url4Node,
     target: str,
@@ -117,29 +133,28 @@ async def _observed(
     def response(**kwargs: Any) -> None:
         observer.on_event(ModelResponse(span_id=span, **kwargs))
 
+    def log(severity: str, body: str, *, attributes: Mapping[str, LogScalar] | None = None) -> None:
+        observer.on_event(Log(span, severity, body, attributes or {}))
+
     try:
-        with _bind_node_sinks(usage, response):
+        with _bind_node_sinks(usage, response, log):
             result = await _dispatch_direct(node, target)
     except asyncio.CancelledError:
-        observer.on_event(NodeFinished(span, "cancelled", next(seq)))
-        observer.on_event(RunFinished("cancelled", next(seq)))
+        _finish(observer, span, seq, "cancelled")
         raise
     except Exception as exc:
         code = getattr(exc, "code", None)
         permanent = getattr(exc, "permanent", None)
-        observer.on_event(
-            NodeFinished(
-                span,
-                "error",
-                next(seq),
-                code=code if isinstance(code, str) else None,
-                permanent=permanent if isinstance(permanent, bool) else None,
-            )
+        _finish(
+            observer,
+            span,
+            seq,
+            "error",
+            code=code if isinstance(code, str) else None,
+            permanent=permanent if isinstance(permanent, bool) else None,
         )
-        observer.on_event(RunFinished("error", next(seq)))
         raise
-    observer.on_event(NodeFinished(span, "ok", next(seq)))
-    observer.on_event(RunFinished("ok", next(seq)))
+    _finish(observer, span, seq, "ok")
     return result
 
 
@@ -159,7 +174,7 @@ async def _dispatch_direct(node: Url4Node, target: str) -> DirectResult:
                 permanent=True,
             )
         return DirectResult(await call_endpoint(node, path, q, params), None)
-    route = node._data.get(target) or node._data.get(path)
+    route = data_route(node, target, path)
     if route is not None:
         provider = route.provider
         body = await _text(provider() if callable(provider) else provider)
@@ -194,10 +209,10 @@ def http_status(code: str | None, *, permanent: bool) -> int:
     HTTP, and must answer as the node would have.
     """
     if code is not None:
-        status = _DIRECT_STATUS.get(code) or _STATUS_BY_CODE.get(code)
+        status = _DIRECT_STATUS.get(code)
         if status is not None:
             return status
-    return 500 if permanent else 502
+    return status_for_code(code, permanent=permanent)
 
 
 __all__ = [

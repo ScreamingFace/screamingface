@@ -150,7 +150,7 @@ major version with a ``failed`` terminal frame, code ``unsupported_spec_version`
 
 CURRENT_SPEC_VERSION = "2"
 SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
-DIRECT_STREAM_GRACE_S = 2.0
+DIRECT_STREAM_GRACE_S = 5.0
 """The reclaim grace of a DIRECT run: the child's wait between its terminal frame and its purge.
 
 WHY not :data:`DEFAULT_STREAM_GRACE_S` (60 s): that grace lets an attached WebSocket client drain

@@ -83,11 +83,21 @@ async def handle_http(node: IOLayer, scope: Mapping, send) -> None:
     await _send(send, 200, [(b"content-type", b"text/plain; charset=utf-8")], body.encode())
 
 
+def status_for_code(code: str | None, *, permanent: bool) -> int:
+    """The HTTP status for a failed call by spec error code, then exception shape.
+
+    Shared by :func:`status_for` (the node's own dispatch) and
+    ``url4.peer.direct.http_status`` (which overlays its own direct-call codes
+    first) — one fallback rule: 502 when transient, 500 when permanent.
+    """
+    if code is not None:
+        status = _STATUS_BY_CODE.get(code)
+        if status is not None:
+            return status
+    return 500 if permanent else 502
+
+
 def status_for(exc: Url4Error) -> int:
     """The HTTP status for a :class:`Url4Error` (spec codes, then exception shape)."""
-    status = _STATUS_BY_CODE.get(exc.code)
-    if status is not None:
-        return status
-    if isinstance(exc, ResolutionError) and not exc.permanent:
-        return 502  # transient upstream/source failure
-    return 500
+    permanent = not isinstance(exc, ResolutionError) or exc.permanent
+    return status_for_code(exc.code, permanent=permanent)

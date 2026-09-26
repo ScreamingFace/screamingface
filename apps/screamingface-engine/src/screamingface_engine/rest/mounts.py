@@ -17,9 +17,7 @@ The answers match the node tier's (MNT-C2, MNT-9): url4's error envelope
 - result ≤ 1 MiB → 200 inline; over it → 303 to a signed `/artifacts/{id}` (ans:Q10)
 """
 
-import asyncio
 import logging
-import secrets
 import time
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
@@ -30,8 +28,9 @@ from fastapi.responses import Response
 from screamingface_engine import job_env
 from screamingface_engine.artifacts.signing import signed_artifact_path
 from screamingface_engine.auth.problem import ProblemException
+from screamingface_engine.auth.token import new_topic
 from screamingface_engine.rest.routes import (
-    _await_terminal,
+    WAIT_GONE,
     _converge_cache,
     _Deps,
     _deps,
@@ -39,8 +38,8 @@ from screamingface_engine.rest.routes import (
     _parse_prefer,
     _result_response,
     _schedule,
-    _until_disconnected,
     default_clock,
+    wait_terminal_or_gone,
 )
 from screamingface_engine.world.serving import MountDescriptor, MountTable, mount_http_status
 from screamingface_engine.world.wire import url4_error_body
@@ -99,6 +98,10 @@ def install_mounts(app: FastAPI, derive: Callable[[], Awaitable[MountTable]]) ->
 def register_mounts(app: FastAPI, table: MountTable) -> None:
     """Register `table`'s mounts as `GET` routes and forget any cached OpenAPI schema (MC-D8)."""
     for mount in table.mounts:
+        # A url4 data key may be an exact TARGET (`/rows?limit=5`) or contain `{`, which FastAPI
+        # would read as a path template: neither can be a route, so it is refused at startup.
+        if "?" in mount.path or "{" in mount.path or "}" in mount.path:
+            raise ValueError(f"mount path {mount.path!r} cannot be served as an HTTP route")
         app.router.add_api_route(
             mount.path,
             _handler_for(mount),
@@ -166,10 +169,19 @@ async def _call(request: Request, mount: MountDescriptor, **kwargs: Any) -> Resp
         response = await _respond(request, mount, **kwargs)
     except _Refused as refused:
         response = refused.response
+    except ProblemException as exc:
+        # M4: a mount answers in url4's envelope, whatever raised on the way (a 409 from the
+        # scheduler, an unavailable artifact) — and every answer is counted.
+        problem = exc.problem
+        response = _envelope(problem.status, _problem_code(problem.status), problem.detail or "")
     counter = getattr(getattr(request.app.state, "metrics", None), "mount_calls", None)
     if counter is not None:
         counter.labels(path=mount.path, status=str(response.status_code)).inc()
     return response
+
+
+def _problem_code(status: int) -> str:
+    return {404: "result_unavailable", 409: "conflict"}.get(status, "upstream_error")
 
 
 def _validated(
@@ -193,10 +205,12 @@ def _validated(
         raise _Refused(
             _envelope(400, "malformed_header", "the X-Answer-Seed header must be an integer")
         ) from None
-    raw_query = request.scope.get("query_string", b"").decode("latin-1")
-    target = f"{mount.path}?{raw_query}" if raw_query else mount.path
-    if len(target.encode()) > job_env.MAX_DIRECT_TARGET_BYTES:
+    raw = request.scope.get("query_string", b"")
+    # Measured on the RAW bytes: a decoded-then-re-encoded query counts a byte >= 0x80 twice.
+    if len(mount.path.encode()) + 1 + len(raw) > job_env.MAX_DIRECT_TARGET_BYTES:
         raise _Refused(_envelope(414, "uri_too_long", "the path and query exceed 8 KiB"))
+    query = raw.decode("latin-1")
+    target = f"{mount.path}?{query}" if query else mount.path
     return dict(identity), seed, target
 
 
@@ -214,71 +228,57 @@ async def _respond(
     deps = _deps(request)
     identity, seed, target = _validated(request, mount, q, answer_seed)
     # A mount call has no capability token: the App names its run itself.
-    topic = secrets.token_hex(32)
+    topic = new_topic()
     cap = deps.settings.sync_max_wait_s
     wait_s = _parse_prefer(prefer or "").wait_s
     bound = cap if wait_s is None else min(wait_s, cap)
     clock = getattr(request.app.state, "clock", default_clock)
-    async with deps.sessions.hold_sync(topic):
-        try:
-            await _schedule(
-                deps,
-                topic,
-                target,
-                traceparent=traceparent,
-                profile=profile,
-                identity=identity,
-                cache=_converge_cache(deps, topic, cache_control, clock),
-                answer_seed=seed,
-                shape="direct",
-                # A direct run never outlives its caller (erd.md §2 invariant).
-                deadline_s=int(cap) + 5,
-            )
-        except ProblemException as exc:
-            if exc.problem.status != 503:
-                raise
-            # The node tier's shed shape: url4's `overloaded` envelope, the drain estimate kept.
-            raise _Refused(
-                _envelope(503, "overloaded", "server at capacity, retry shortly", exc.headers)
-            ) from None
-        outcome = await _wait(deps, topic, bound, request)
-    return await _answer(request, deps, topic, outcome)
-
-
-_GONE = object()
-
-
-async def _wait(deps: _Deps, topic: str, bound_s: float, request: Request) -> Any:
-    """The run's terminal outcome; None when the bound passed; `_GONE` when the caller left."""
-    wait = asyncio.ensure_future(_await_terminal(deps.stream, topic, bound_s))
-    gone = asyncio.ensure_future(_until_disconnected(request.is_disconnected))
+    # WHY no audience hold (unlike `GET /?q=`, PRD 02): nobody can attach to a mount run, and
+    # this handler stops the run itself on every exit that lacks a terminal frame. A hold would
+    # only arm the orphan reaper on release — one broker round trip per call, for a run that
+    # is already over (review C11).
     try:
-        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
+        await _schedule(
+            deps,
+            topic,
+            target,
+            traceparent=traceparent,
+            profile=profile,
+            identity=identity,
+            cache=_converge_cache(deps, topic, cache_control, clock),
+            answer_seed=seed,
+            shape="direct",
+            # A direct run never outlives its caller (erd.md §2 invariant).
+            deadline_s=int(cap) + 5,
+        )
+    except ProblemException as exc:
+        if exc.problem.status != 503:
+            raise
+        # The node tier's shed shape: url4's `overloaded` envelope, the drain estimate kept.
+        raise _Refused(
+            _envelope(503, "overloaded", "server at capacity, retry shortly", exc.headers)
+        ) from None
+    outcome: Any = None
+    try:
+        outcome = await wait_terminal_or_gone(deps.stream, topic, bound, request.is_disconnected)
     finally:
-        for task in (wait, gone):
-            task.cancel()
-        await asyncio.gather(wait, gone, return_exceptions=True)
-    if wait.cancelled():
-        return _GONE
-    return wait.result()
-
-
-async def _answer(request: Request, deps: _Deps, topic: str, outcome: Any) -> Response:
-    if outcome is None or outcome is _GONE:
-        # ans:Q9 — and MC-D4: nobody can attach to a mount run, so a run whose caller is gone
-        # or out of time is stopped at once, BEFORE the answer (no reaper grace applies).
-        await deps.job_runner.stop(topic)
+        if outcome is None or outcome is WAIT_GONE:
+            # ans:Q9 and MC-D4: no terminal outcome was read — the bound passed, the caller
+            # left, or the wait itself failed or was cancelled. The run is stopped BEFORE any
+            # answer: nobody else can ever read it.
+            await deps.job_runner.stop(topic)
+    if outcome is None or outcome is WAIT_GONE:
         return _envelope(504, "timeout", "the call did not finish in time; it was stopped")
     terminated, result = outcome
-    return _terminal(request, deps, terminated, result)
+    return await _terminal(request, deps, terminated, result)
 
 
-def _terminal(
+async def _terminal(
     request: Request, deps: _Deps, terminated: TerminatedEvent, result: ResultEvent | None
 ) -> Response:
     status = terminated.data.status
     if status == "succeeded":
-        return _success(request, deps, result)
+        return await _success(request, deps, result)
     error = terminated.data.error
     if status == "timed_out":
         return _envelope(504, "timeout", error.message if error else "the call timed out")
@@ -288,22 +288,26 @@ def _terminal(
     return _envelope(mount_http_status(code, permanent=permanent), code or status, message)
 
 
-def _success(request: Request, deps: _Deps, result: ResultEvent | None) -> Response:
-    artifact = result.data.artifact if result is not None else None
-    if artifact is None or artifact.size_bytes <= MOUNT_INLINE_LIMIT_BYTES:
-        return _result_response(result, deps.artifact_store)
+async def _success(request: Request, deps: _Deps, result: ResultEvent | None) -> Response:
+    if result is None:
+        # A succeeded run's Result frame always precedes its terminal frame. Missing, it was
+        # reclaimed before this handler read it (the run's grace is short, M3): answering an
+        # empty 200 would be a silent wrong answer (review C3).
+        return _envelope(502, "result_unavailable", "the call's result could not be read")
+    artifact = result.data.artifact
     key = deps.settings.artifact_signing_key
-    if key:
-        location = signed_artifact_path(
-            artifact.id, key=key, ttl_s=ARTIFACT_URL_TTL_S, now=time.time
-        )
-        return Response(status_code=303, headers={"Location": location})
-    # MC-D9: with no signing key a 303 would point at an unredeemable URL; stream the body.
-    counter = getattr(getattr(request.app.state, "metrics", None), "mount_unsigned_spill", None)
-    if counter is not None:
-        counter.inc()
-    logger.warning("mount result %s over 1 MiB served inline: no artifact signing key", artifact.id)
-    return _result_response(result, deps.artifact_store)
+    if artifact is not None and artifact.size_bytes > MOUNT_INLINE_LIMIT_BYTES:
+        if key:
+            location = signed_artifact_path(
+                artifact.id, key=key, ttl_s=ARTIFACT_URL_TTL_S, now=time.time
+            )
+            return Response(status_code=303, headers={"Location": location})
+        # MC-D9: with no signing key a 303 would point at an unredeemable URL; stream the body.
+        counter = getattr(getattr(request.app.state, "metrics", None), "mount_unsigned_spill", None)
+        if counter is not None:
+            counter.inc()
+        logger.warning("mount result %s over 1 MiB served inline: no signing key", artifact.id)
+    return await _result_response(result, deps.artifact_store)
 
 
 __all__ = ["MOUNT_INLINE_LIMIT_BYTES", "MOUNT_TAG", "install_mounts", "register_mounts"]

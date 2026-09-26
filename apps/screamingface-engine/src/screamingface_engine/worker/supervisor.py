@@ -474,8 +474,15 @@ class RunSupervisor:
 
     async def _already_settled(self, msg: ClaimedMessage, topic: str) -> bool:
         """Whether this claim is finished without running (see `_settled_by_tail`), or refused
-        because this worker does not speak its message version."""
-        return await self._settled_unsupported_spec(msg, topic) or await self._settled_by_tail(
+        because this worker does not speak its message version.
+
+        ORDER MATTERS: the terminal-frame check runs FIRST. A redelivery of a run a newer
+        worker already finished must be acked away by `_settled_by_tail` before the version
+        refusal ever runs — an OLDER worker that cannot decode a NEWER message's version
+        field must not get the chance to publish a second, contradicting terminal frame for
+        a run that is already over.
+        """
+        return await self._settled_by_tail(msg, topic) or await self._settled_unsupported_spec(
             msg, topic
         )
 
@@ -510,7 +517,7 @@ class RunSupervisor:
         would run as an expression, say) must never execute here, and redelivering it would only
         reach another worker of the same version.
         """
-        version = decode_message(msg.data).get(job_env.SPEC_VERSION, "1")
+        version = str(decode_message(msg.data).get(job_env.SPEC_VERSION, "1"))
         if version.split(".")[0] in job_env.SUPPORTED_SPEC_MAJORS:
             return False
         await self._publish_terminal(

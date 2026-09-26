@@ -235,6 +235,9 @@ async def test_bound_elapsed_returns_504_and_stops_run() -> None:
         ("aigateway_transport_error", False, 502),
         ("artifact_spill_failed", True, 502),
         ("timeout", False, 504),
+        # Node-tier parity (`send._remap`): a permanent ENGINE/provider code is a 502.
+        ("aigateway_http_401", True, 502),
+        ("provider_refused", True, 502),
     ],
 )
 async def test_mount_status_mapping_matches_node_tier_table(
@@ -283,13 +286,12 @@ async def test_no_signing_key_streams_artifact_200() -> None:
     unsigned-spill counter rises."""
     big = _artifact(1536 * 1024)
     app, _ = _app(lambda topic, _t: [_result(topic, artifact=big), _terminated(topic)])
-    store = app.state.artifact_store
-    store.path_for = lambda artifact_id: None  # type: ignore[method-assign]
+    body = b"y" * big.size_bytes
+    app.state.artifact_store.content = lambda artifact_id: _stream(body)  # type: ignore[method-assign]
     async with _client(app) as client:
         resp = await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
         metrics = (await client.get("/metrics")).text
-    # The store has no such file in this unit test: the App answers as `GET /?q=` does (404).
-    assert resp.status_code == 404
+    assert resp.status_code == 200 and len(resp.content) == len(body)
     assert "screamingface_engine_mount_unsigned_spill_total 1.0" in metrics
 
 
@@ -404,8 +406,46 @@ async def test_result_700kib_returns_inline_200(tmp_path: Any) -> None:
         lambda topic, _t: [_result(topic, artifact=medium), _terminated(topic)],
         signing_key="k" * 32,
     )
-    app.state.artifact_store.path_for = lambda artifact_id: path  # type: ignore[method-assign]
+    from screamingface_engine.artifacts.ports import LocalFile
+
+    app.state.artifact_store.content = lambda artifact_id: LocalFile(path=path)  # type: ignore[method-assign]
     async with _client(app) as client:
         resp = await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
     assert resp.status_code == 200
     assert len(resp.content) == len(body)
+
+
+def _stream(body: bytes) -> Any:
+    from screamingface_engine.artifacts.ports import RemoteStream
+
+    async def _chunks():  # type: ignore[no-untyped-def]
+        yield body
+
+    return RemoteStream(stream=_chunks(), size_bytes=len(body))
+
+
+async def test_a_success_without_its_result_frame_is_502_not_an_empty_200() -> None:
+    """Review C3: a reclaimed Result frame must not read as an empty success."""
+    app, _ = _app(lambda topic, _t: [_terminated(topic)])
+    async with _client(app) as client:
+        resp = await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
+    assert resp.status_code == 502 and _error(resp)["code"] == "result_unavailable"
+
+
+async def test_a_mount_path_that_cannot_be_a_route_fails_registration() -> None:
+    """Review C9: an exact-target data key or a `{` path is refused at startup."""
+    stream = InMemoryEventStream()
+    runner: Any = _Runner(stream, None)
+    app = create_app(Settings(jwt_secret="mount-secret"), stream=stream, job_runner=runner)
+    for bad in ("/rows?limit=5", "/a/{b}"):
+        with pytest.raises(ValueError, match="cannot be served"):
+            register_mounts(app, MountTable((MountDescriptor(bad, "data", None),), None))
+
+
+async def test_a_mount_call_arms_no_orphan_reaper() -> None:
+    """Review C11: nobody attaches to a mount run, and the handler stops it itself — so a call
+    leaves nothing for the reaper to watch."""
+    app, _ = _app(_ok("x"))
+    async with _client(app) as client:
+        await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
+    assert app.state.reaper is None or not app.state.reaper._deadlines  # noqa: SLF001

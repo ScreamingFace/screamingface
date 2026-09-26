@@ -1,0 +1,41 @@
+"""SC1 / MNT-5 (contracts.md C11): the engine speaks only url4's PUBLIC `url4.peer` API.
+
+`url4.peer._dispatch` and `url4.peer._http` are package-private — the direct-call guarantee
+(spec D1) lives in the public `url4.peer.direct` module precisely so a host that queues mount
+calls and runs them elsewhere never re-derives it from private registries on the other side of
+a queue. An AST scan (not a runtime import check) so an offender fails even if nothing happens
+to exercise the import at collection time.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
+
+_FORBIDDEN_MODULES = frozenset({"url4.peer._dispatch", "url4.peer._http"})
+
+
+def _imports_private_url4_peer(py_file: Path) -> bool:
+    tree = ast.parse(py_file.read_text(), filename=str(py_file))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name in _FORBIDDEN_MODULES for alias in node.names
+        ):
+            return True
+        if isinstance(node, ast.ImportFrom) and node.module in _FORBIDDEN_MODULES:
+            return True
+    return False
+
+
+def test_no_module_imports_a_private_url4_peer_dispatch_module() -> None:
+    """Every `screamingface_engine` module reaches url4's direct-call/dispatch behavior
+    through the public `url4.peer` API alone (`dispatch_direct`, `describe_routes`,
+    `http_status`) — never the package-private `_dispatch`/`_http` it is built from."""
+    offenders = [
+        py_file
+        for py_file in (_SRC_ROOT / "screamingface_engine").rglob("*.py")
+        if _imports_private_url4_peer(py_file)
+    ]
+    assert offenders == []

@@ -147,6 +147,38 @@ async def test_an_observed_direct_call_reports_one_node_with_its_usage() -> None
     assert finished.status == "ok" and done.status == "ok"  # type: ignore[attr-defined]
 
 
+async def test_an_observed_direct_call_reports_a_log_line_on_its_span() -> None:
+    """C10: a handler's `current_log_sink()` record is not dropped for a direct call —
+    it reaches the observer as a `Log` on the node's span, between NodeStarted and
+    NodeFinished, the same as a DAG run keeps it."""
+    from url4.observe import Log, NodeFinished, NodeStarted, current_log_sink
+
+    node = Url4Node("t")
+
+    @node.endpoint("/v1/chat/completions")
+    async def chat(request):  # type: ignore[no-untyped-def]
+        sink = current_log_sink()
+        assert sink is not None
+        sink("hello from handler", {"k": "v"}, severity="warn")
+        return "ok"
+
+    recorder = _Recorder()
+    await dispatch_direct(
+        node, _target("/v1/chat/completions", "ctx", "i"), observer=recorder
+    )
+    kinds = [type(e) for e in recorder.events]
+    assert kinds.count(Log) == 1
+    started_idx = kinds.index(NodeStarted)
+    finished_idx = kinds.index(NodeFinished)
+    log_idx = kinds.index(Log)
+    assert started_idx < log_idx < finished_idx
+    log_event = recorder.events[log_idx]
+    assert log_event.span_id == recorder.events[started_idx].span_id  # type: ignore[attr-defined]
+    assert log_event.severity == "WARN"  # type: ignore[attr-defined]
+    assert log_event.body == "hello from handler"  # type: ignore[attr-defined]
+    assert dict(log_event.attributes) == {"k": "v"}  # type: ignore[attr-defined]
+
+
 async def test_an_observed_failed_direct_call_finishes_its_node_with_the_code() -> None:
     node, _ = _node()
     recorder = _Recorder()

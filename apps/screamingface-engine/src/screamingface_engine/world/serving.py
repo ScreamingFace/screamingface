@@ -46,6 +46,7 @@ from screamingface_engine.world.config import (
 )
 from screamingface_engine.world.factory import World, build_world
 from screamingface_engine.world.wire import AsgiApp
+from url4.core.errors import ErrorCode
 from url4.peer import describe_routes
 from url4.peer import http_status as url4_http_status
 from url4.peer.server import Url4Node
@@ -175,6 +176,9 @@ _ENGINE_STATUS: dict[str, int] = {
 """The engine's own codes a mount call can end with (contracts.md C1/C2), over url4's table."""
 
 
+_URL4_CODES = frozenset(code.value for code in ErrorCode)
+
+
 def mount_http_status(code: str | None, *, permanent: bool) -> int:
     """The HTTP status a mount call answers for a run that failed with ``code``.
 
@@ -183,6 +187,11 @@ def mount_http_status(code: str | None, *, permanent: bool) -> int:
     """
     if code is not None and code in _ENGINE_STATUS:
         return _ENGINE_STATUS[code]
+    if permanent and code is not None and code not in _URL4_CODES:
+        # Node-tier parity (`node_tier.send._remap`, review C2): a permanent failure with an
+        # ENGINE or provider code (`aigateway_http_401`, `provider_refused`) is an upstream
+        # failure — 502 — not url4's 500 for an unknown permanent error.
+        return 502
     return url4_http_status(code, permanent=permanent)
 
 

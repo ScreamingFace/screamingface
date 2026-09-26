@@ -160,7 +160,8 @@ def create_app(
 
 
 def _install_surfaces(app: FastAPI) -> None:
-    """Register every engine HTTP surface; `install_forwarder` appends the node route after them."""
+    """Register every engine HTTP surface; declared mounts are registered separately, by
+    `install_mounts` at startup."""
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)

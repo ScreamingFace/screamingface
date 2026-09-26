@@ -20,7 +20,7 @@ all three (review finding on OME-892). Artifacts die by TTL alone: the periodic 
 """
 
 import asyncio
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
@@ -110,8 +110,8 @@ async def get_artifact(
     # WHY `to_thread`: the port is sync (see `artifacts.ports`), and for object storage this
     # call makes a blocking round trip to learn the object's existence and length. Running it
     # on the loop would stall every other request and the WS heartbeats for its duration.
-    content = await asyncio.to_thread(store.content, artifact_id)
-    if content is None:
+    response = await artifact_response(store, artifact_id, "application/octet-stream")
+    if response is None:
         raise ProblemException(
             status=404,
             title="Unknown artifact",
@@ -119,16 +119,34 @@ async def get_artifact(
             "(artifacts are TTL-swept), or the Runner that produced it wrote to storage "
             "this App cannot read (check the artifact storage settings agree on both sides)",
         )
+    return response
+
+
+async def artifact_response(store: Any, artifact_id: str, media_type: str) -> Response | None:
+    """A stored artifact as a 200 response, from EITHER store shape; None when it is absent.
+
+    The one reader of `ArtifactReader.content` for every surface that serves a spilled result
+    (`/artifacts/{id}`, a sync `GET /?q=`, a mount call): a filesystem store hands back a
+    `LocalFile` (a `FileResponse`: bounded memory, Range), an object store a `RemoteStream`.
+    WHY one helper: `path_for` exists on the filesystem store only, and a surface that read it
+    answered 500 for every spilled result on S3 — the store every queue deployment uses.
+    """
+    # WHY `to_thread`: the port is sync (see `artifacts.ports`), and for object storage this
+    # call makes a blocking round trip to learn the object's existence and length. Running it
+    # on the loop would stall every other request and the WS heartbeats for its duration.
+    content = await asyncio.to_thread(store.content, artifact_id)
+    if content is None:
+        return None
     if isinstance(content, LocalFile):
-        return FileResponse(content.path, media_type="application/octet-stream")
+        return FileResponse(content.path, media_type=media_type)
     # INVARIANT: `Content-Length` is set from the ticket's own size, so a truncated upstream
     # body is a protocol error the client detects — not a short response that looks complete.
     # The SDK independently re-verifies size AND sha256 before decoding.
     return StreamingResponse(
         content.stream,
-        media_type="application/octet-stream",
+        media_type=media_type,
         headers={"content-length": str(content.size_bytes)},
     )
 
 
-__all__ = ["router"]
+__all__ = ["artifact_response", "router"]
