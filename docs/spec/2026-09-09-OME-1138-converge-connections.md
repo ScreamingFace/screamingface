@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
 created: 2026-09-09
-updated: 2026-09-25
+updated: 2026-09-26
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)
@@ -230,8 +230,10 @@ Successors (each an owner decision, published only when the consumer that needs 
 Window (D4, supported semantics preserved): the Profile-backed `resolve` honours every selector
 exactly as today; absent/blank/whitespace mean `default`; a named selector that matches nothing
 still returns 404 with the requested label; nothing is ignored or retargeted. Ambient vs
-caller-supplied provenance is not expressible today (the gateway sees only the header); the
-implementation counts `explicit` vs default selectors without logging names to build the D4 census.
+caller-supplied provenance is not expressible today (the gateway sees only the header). The D4
+census — a count of `explicit` vs default selectors that logs no names — was **waived
+2026-09-25 (owner, recorded on `OME-1381`)**: dev evidence and the absence of first-party callers
+that send `X-Profile` are accepted as sufficient.
 
 Sunset (separate stage, owner-set; contract decided 2026-09-25, `OME-1377`): a boundary-level
 policy makes `Selector.from_header` raise `SelectorUnsupported` → non-retryable 400
@@ -369,9 +371,11 @@ invariant suites.
 
 - APIs: successor published, its consumers moved (Hosted Engine, Admin UI), sunset date set,
   accepted-work disposition approved; retirement returns a code, never an empty list.
-- Selectors (D4): provenance census (explicit vs default counts), queued and in-flight work carrying
-  `AIGATEWAY_PROFILE` drained or dispositioned, worker ambient env audited, Engine emission and
-  URL4 argument retired, then the gateway rejects present selectors with 400.
+- Selectors (D4): the provenance census is **waived 2026-09-25 (owner, recorded on
+  `OME-1381`)** — dev evidence and the absence of first-party callers that send `X-Profile` are
+  accepted as sufficient; queued and in-flight work carrying `AIGATEWAY_PROFILE` drained or
+  dispositioned, worker ambient env audited, Engine emission and URL4 argument retired, then the
+  gateway rejects present selectors with 400.
 - Storage: after the backing switch, no unresolved quarantine, D6 retention fulfilled, the named
   rollback build no longer needs the legacy index.
 - History: separately authorised cleanup; reference validation and deletion share one atomic
@@ -420,7 +424,7 @@ Conflicts are presented, not resolved.
 | D1 | Persistence | slot with single PK + UNIQUE pair, generation fence, no defaults | preserved; **conditional on D11(a)**; option (b) needs the same semantics in its own table |
 | D2 | Defaults | full REMOVE at an explicit cutover; no transfer anywhere; behaviour preserved until then | settled 2026-09-10; restated by the adapter-first input |
 | D3 | Collisions | only unambiguous, compatibility-safe automatic mappings; otherwise quarantine | preserved; applies at Stage B and to the admin successor's pair→record mapping |
-| D4 | Selector retirement | supported semantics in the window; reject unsupported after sunset; never silent | preserved; enforcement point is now the boundary's parse step; **activation detail decided 2026-09-25 (owner, `OME-1377`):** blank and whitespace-only headers are absent; literal `default` is rejected like any other nonblank value (no window); rollout is two-phase — Engine producer-off, drain proof, then the gateway reject; rollback floor is the producer-off Engine build and the gateway may return to `HONOUR`; the evidence window and sunset date follow the privacy-safe census |
+| D4 | Selector retirement | supported semantics in the window; reject unsupported after sunset; never silent | preserved; enforcement point is now the boundary's parse step; **activation detail decided 2026-09-25 (owner, `OME-1377`):** blank and whitespace-only headers are absent; literal `default` is rejected like any other nonblank value (no window); rollout is two-phase — Engine producer-off, drain proof, then the gateway reject; rollback floor is the producer-off Engine build and the gateway may return to `HONOUR`; the separate census is **waived 2026-09-25 (owner, recorded on `OME-1381`)** — dev evidence and the absence of first-party callers that send `X-Profile` are accepted as sufficient to proceed to Engine producer-off, so no evidence window is run; the sunset date (the gateway reject) is still open and follows the drain proof |
 | D5 | Rollback | tested R1 after the first canonical write; R0 needs proof | preserved (Stage B) |
 | D6 | Retention | API sunset separate from data retention | preserved (Stage E) |
 | D7 | Units | first units were S1–S3 | **re-approved 2026-09-14:** Stage 0 then A1 are the first units; U0/U0e/U1 authorised and filed; stop after A1 for review; A2–A4 and any backing migration need a new authorisation |

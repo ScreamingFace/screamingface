@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Path, Request, Response
+from fastapi import APIRouter, Depends, Path, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, SecretStr
@@ -22,13 +22,15 @@ from screamingface_engine.connections.port import (
     ConnectionStatus,
     OAuthAuthorization,
 )
+from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from url4.streaming.trace import valid_traceparent
 
 logger = logging.getLogger(__name__)
 
 
 class _SecretSafeRoute(APIRoute):
-    """Replace FastAPI's input-bearing validation errors at the credential boundary."""
+    """The connection routes' boundary: refuse a stated selector before anything else, then
+    replace FastAPI's input-bearing validation errors at the credential boundary."""
 
     def get_route_handler(
         self,
@@ -36,6 +38,12 @@ class _SecretSafeRoute(APIRoute):
         route_handler = super().get_route_handler()
 
         async def secret_safe_route_handler(request: Request) -> Response:
+            # INVARIANT (OME-1381): refused BEFORE `route_handler`, which is where FastAPI reads,
+            # parses and validates the body and resolves dependencies — so a stated `X-Profile`
+            # is answered 400 ahead of any 422, and ahead of the endpoint's 503 for an
+            # unconfigured service. No connection is listed, written, authorized or removed for
+            # a request that named a selector.
+            refuse_selector(request.headers)
             try:
                 return await route_handler(request)
             except RequestValidationError:
@@ -49,7 +57,15 @@ class _SecretSafeRoute(APIRoute):
         return secret_safe_route_handler
 
 
-router = APIRouter(tags=["Connections"], route_class=_SecretSafeRoute)
+def _declare_x_profile(_x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None) -> None:
+    """Document the retired header on every connection route; `_SecretSafeRoute` refuses it."""
+
+
+router = APIRouter(
+    tags=["Connections"],
+    route_class=_SecretSafeRoute,
+    dependencies=[Depends(_declare_x_profile)],
+)
 
 
 class ApiKeyRequest(BaseModel):
@@ -95,7 +111,10 @@ class OAuthAuthorizationResponse(BaseModel):
 
 
 _ERROR_DESCRIPTIONS = {
-    400: "The provider does not support the requested authentication method.",
+    400: (
+        "The provider does not support the requested authentication method, or the request "
+        "states the unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+    ),
     401: "The caller or provider credential was rejected.",
     404: "The provider is not available.",
     409: "The Engine-managed connection state conflicts with this operation.",
@@ -137,6 +156,8 @@ def _serialize_oauth(authorization: OAuthAuthorization) -> OAuthAuthorizationRes
 
 
 def _caller(request: Request) -> Caller:
+    # INVARIANT (OME-1381): selector-less. `_SecretSafeRoute` has already refused a stated
+    # `X-Profile`, so the `Caller` built below never carries one.
     # WHY `valid_traceparent` and not the raw header (OME-1119): this value is forwarded to
     # aigateway, and a malformed one is worse than none — it would be rejected or, worse,
     # parsed into a trace joining nothing. Same rule the run path applies at
@@ -146,7 +167,6 @@ def _caller(request: Request) -> Caller:
     return Caller(
         job_env.identity_from_headers(request.headers),
         traceparent=valid_traceparent(request.headers.get("traceparent")),
-        profile=request.headers.get("X-Profile"),
     )
 
 

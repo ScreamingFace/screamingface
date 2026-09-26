@@ -43,6 +43,9 @@ from screamingface_engine.request_scope import (
     CACHE_CONTROL_HEADER,
     PROFILE_HEADER,
     TRACEPARENT_HEADER,
+    X_PROFILE_UNSUPPORTED,
+    X_PROFILE_UNSUPPORTED_MESSAGE,
+    requests_selector,
 )
 from screamingface_engine.world.config import WorldConfig, config_file_digest
 from screamingface_engine.world.serving import (
@@ -256,6 +259,12 @@ class NodeForwarder:
         identity = self._resolve_identity(scope)
         if not identity:
             await send_url4_error(send, 403, _IDENTITY_ACCESS_DENIED, _MISSING_IDENTITY_MESSAGE)
+            return
+        # INVARIANT (OME-1381): a stated `X-Profile` never reaches the node — refused after the
+        # identity check (authentication first) and before the forward. A blank one still rides
+        # the allowlist and the node reads it as absence, by the same rule this check applies.
+        if requests_selector(Headers(scope=scope).getlist(PROFILE_HEADER)):
+            await send_url4_error(send, 400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE)
             return
         await self._forward(scope, send, identity)
 

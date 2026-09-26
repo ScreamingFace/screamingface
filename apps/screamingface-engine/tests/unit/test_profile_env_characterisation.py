@@ -6,8 +6,9 @@ ambiguity rule (OME-1199, Stage 0 of OME-1138).
 # obligation that must survive untouched while the Hosted listing moves (A4). Both are pinned
 # here BEFORE any boundary work.
 # AIDEV-NOTE: this module records LEGACY behaviour exactly; it does not judge or fix it. The
-# queued runner and the in-process runner disagree about an ambient profile today — that
-# asymmetry is the point of the first three tests, not a defect they should make go away.
+# queued runner and the in-process runner disagreed about an ambient profile until OME-1381
+# (Stage D producer-off) made the worker drop it too; the first test now pins that agreement,
+# and the legacy message path (a carried profile wins) is still pinned as it was.
 """
 
 import asyncio
@@ -124,23 +125,25 @@ async def _child_env_for(message: bytes) -> dict[str, str]:
     return envs[0]
 
 
-# --- 1. the queued runner: the child INHERITS an ambient profile the message did not carry ----
+# --- 1. the queued runner: the child DROPS an ambient profile the message did not carry -------
 
 
-async def test_the_worker_child_inherits_an_ambient_profile_the_message_did_not_carry(
+async def test_the_worker_child_drops_an_ambient_profile_the_message_did_not_carry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """# INVARIANT (legacy, pinned): `RunSupervisor._child_env` starts from `dict(os.environ)`
-    and overlays the message (`worker/supervisor.py:729-744`); the queue codec writes
-    `AIGATEWAY_PROFILE` only when a profile was requested (`runner_queue._env_mapping`) and never
-    clears it. A worker Pod with an ambient profile therefore routes every profile-less run
-    through that profile.
+    """# INVARIANT (OME-1381): `RunSupervisor._child_env` removes an ambient `AIGATEWAY_PROFILE`
+    before it overlays the message, so a profile-less message runs with no profile at all.
+
+    Was `test_the_worker_child_inherits_an_ambient_profile_the_message_did_not_carry`, which
+    pinned the legacy inheritance (`env[AIGATEWAY_PROFILE] == _AMBIENT`) that Stage D producer-off
+    removes: that inheritance routed every profile-less run through a credential its caller never
+    named.
     """
     monkeypatch.setenv(job_env.AIGATEWAY_PROFILE, _AMBIENT)
 
     env = await _child_env_for(encode_message("t-profile-inherit", "'hi'", 60))
 
-    assert env[job_env.AIGATEWAY_PROFILE] == _AMBIENT
+    assert job_env.AIGATEWAY_PROFILE not in env
 
 
 async def test_a_profile_carried_by_the_message_replaces_the_ambient_one_in_the_child(
@@ -201,8 +204,8 @@ async def _in_process_env_for(profile: str | None) -> dict[str, str]:
 
 async def test_the_in_process_runner_drops_an_ambient_profile_the_request_did_not_carry() -> None:
     """# INVARIANT (legacy, pinned): `InProcessJobRunner._env` pops `AIGATEWAY_PROFILE` when the
-    request carries none (`adapters/inprocess.py:179-185`) — the opposite of what the worker
-    does with the same ambient variable.
+    request carries none (`adapters/inprocess.py:179-185`) — the opposite of what the worker did
+    with the same ambient variable until OME-1381 made it drop the value too.
     """
     env = await _in_process_env_for(profile=None)
 

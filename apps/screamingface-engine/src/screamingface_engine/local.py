@@ -51,7 +51,14 @@ from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
-from screamingface_engine.request_scope import AnswerSeedError, bind_sync_request
+from screamingface_engine.request_scope import (
+    PROFILE_HEADER,
+    X_PROFILE_UNSUPPORTED,
+    X_PROFILE_UNSUPPORTED_MESSAGE,
+    AnswerSeedError,
+    bind_sync_request,
+    requests_selector,
+)
 from screamingface_engine.rest.forwarder import forwarded_headers
 from screamingface_engine.runner.fair_share import FairShareGate
 from screamingface_engine.world.config import load_config
@@ -236,6 +243,11 @@ class _LocalNodeMount:
         # until startup has built a node — so a node always exists by the time this runs.
         node_asgi = self._holder["asgi"]
         raw_headers = Headers(scope=scope)
+        # INVARIANT (OME-1381): the same refusal, in the same place relative to the node, as the
+        # deployed forwarder's — local mode must not accept a selector production refuses.
+        if requests_selector(raw_headers.getlist(PROFILE_HEADER)):
+            await send_url4_error(send, 400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE)
+            return
         with ExitStack() as stack:
             try:
                 # `bind_sync_request` is the ONE binding both this mount and the node tier's
