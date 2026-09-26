@@ -275,6 +275,7 @@ class RunSupervisor:
         kill_grace_s: float = KILL_GRACE_S,
         ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
         metrics: WorkerMetrics | None = None,
+        reclaim: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._publisher = publisher
         # ONE of the two: production hands in the warm child pool; the `spawn=` seam (a fake
@@ -339,6 +340,11 @@ class RunSupervisor:
         self._ownership_probe_timeout_s = ownership_probe_timeout_s
         # The worker's Prometheus metrics (OME-1092), shared with the claim loop.
         self._metrics = metrics
+        # The subject purge a finished run is owed after its grace (RECLAIM_OWNER=worker), run
+        # detached so it never holds the run's slot. `None` (the supervisor's unit tests)
+        # reclaims nothing; `max_age` is the backstop either way.
+        self._reclaim = reclaim
+        self._reclaims: set[asyncio.Task[None]] = set()
 
     async def supervise(self, msg: ClaimedMessage) -> None:
         """Claim one run and see it through to a terminal frame and an ack.
@@ -616,6 +622,7 @@ class RunSupervisor:
             self._spawning -= 1  # the registries count this spawn from here — no double count
             promoted = True
             await self._supervise_live_child(msg, topic, proc, env)
+            self._schedule_reclaim(topic, env)
         finally:
             if not promoted:
                 self._spawning -= 1  # the spawn never registered — release its reservation
@@ -664,6 +671,31 @@ class RunSupervisor:
                 # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
                 # must not orphan its child.
                 proc.kill()
+
+    def _schedule_reclaim(self, topic: str, env: Mapping[str, str]) -> None:
+        """Purge the finished run's subject after its grace, detached from the slot."""
+        if self._reclaim is None:
+            return
+        grace_s = _float_or_none(env.get(job_env.STREAM_GRACE_S))
+        delay = job_env.DEFAULT_STREAM_GRACE_S if grace_s is None else grace_s
+        reclaim = self._reclaim
+
+        async def _later() -> None:
+            await asyncio.sleep(delay)
+            try:
+                await reclaim(topic)
+            except Exception:
+                # Best-effort, as the child's own teardown was: `max_age` removes the frames.
+                logger.warning("could not reclaim the subject of %s", topic, exc_info=True)
+
+        task = asyncio.create_task(_later())
+        self._reclaims.add(task)
+        task.add_done_callback(self._reclaims.discard)
+
+    def cancel_reclaims(self) -> None:
+        """Drop the pending purges (the worker is stopping); `max_age` covers them."""
+        for task in tuple(self._reclaims):
+            task.cancel()
 
     def _release_child(self, proc: _ChildProcess, topic: str) -> None:
         """Drop a finished child from every registry the worker shares.

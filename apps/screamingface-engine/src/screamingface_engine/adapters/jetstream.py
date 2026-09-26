@@ -159,14 +159,20 @@ async def ensure_events_stream(
     takes (a child, a test harness): it creates a missing stream but never rewrites a live one,
     so a process with default limits cannot shrink the operator's stream.
     """
+    # WHY look before creating (kind K6/K12 finding): `add_stream` on an EXISTING stream makes the
+    # server reserve its `max_bytes` a second time before it notices the config is identical, so
+    # every restart of a process failed with 10047 once `max_bytes` exceeded half the store.
+    # Only a missing stream is created; an existing one is reconciled.
     try:
-        # Identical config is a success from `add_stream`.
-        await js.add_stream(config.stream_config())
-        return
-    except APIError as exc:
-        # A name in use means the stream exists with a DIFFERENT config: reconcile below.
-        if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
-            await _raise_declare_error(js, config, exc)
+        await js.stream_info(config.name)
+    except NotFoundError:
+        try:
+            await js.add_stream(config.stream_config())
+            return
+        except APIError as exc:
+            # A racing process created it first (name in use): reconcile below.
+            if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
+                await _raise_declare_error(js, config, exc)
     await _reconcile(js, config, update=update)
 
 

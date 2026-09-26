@@ -106,7 +106,7 @@ def _histogram(metrics_text: str, name: str) -> dict[str, float]:
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--case", required=True, choices=["B1", "B2", "B3", "B4"])
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--expression", default="('hi')!'answer'")

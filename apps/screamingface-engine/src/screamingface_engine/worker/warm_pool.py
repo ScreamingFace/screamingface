@@ -105,10 +105,15 @@ def process_spawner(
     *,
     memory_budget_bytes: int,
     environ: Mapping[str, str],
+    worker_reclaims: bool = False,
 ) -> SpawnWarm:
     """The real `SpawnWarm`: the exec wrapper (own `RLIMIT_AS`) → `run --warm`, with a control
     pipe whose write end the child inherits and names in `CONTROL_FD_ENV`."""
     base = deploy_env(environ)
+    if worker_reclaims:
+        # The pool's worker purges each run's subject after its grace, so the child exits at
+        # its terminal frame and frees its slot at once (RECLAIM_OWNER).
+        base[job_env.RECLAIM_OWNER] = "worker"
 
     async def _spawn_warm() -> WarmHandle:
         read_fd, write_fd = os.pipe()

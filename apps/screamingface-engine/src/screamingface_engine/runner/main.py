@@ -691,12 +691,16 @@ async def _run_process(publisher: JetStreamPublisher | None) -> None:
         run_scope(params.topic, trace_id),
         SpanRelay(publisher, span_sink(os.environ)) as relay,
     ):
-        await run_and_reclaim(
-            publisher,
-            params.topic,
-            lambda: _run_and_log(executor, relay, params, traceparent),
-            grace_s=stream_grace_s(os.environ),
-        )
+        run_once = lambda: _run_and_log(executor, relay, params, traceparent)  # noqa: E731
+        if os.environ.get(job_env.RECLAIM_OWNER) == "worker":
+            # The supervising worker reclaims the subject after the grace, off this run's slot;
+            # this process exits the moment its terminal frame is out (see RECLAIM_OWNER).
+            await run_once()
+            await publisher.flush()
+        else:
+            await run_and_reclaim(
+                publisher, params.topic, run_once, grace_s=stream_grace_s(os.environ)
+            )
 
 
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)

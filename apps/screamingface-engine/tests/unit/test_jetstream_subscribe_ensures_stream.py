@@ -118,6 +118,12 @@ class _FakeJetStream:
         self._next_msgs = msgs
         self._next_blocks = blocks
 
+    async def stream_info(self, name: str) -> object:
+        # Like the broker: the stream is unknown until `add_stream` created it.
+        if not self.add_stream_calls:
+            raise NotFoundError(code=404, err_code=10059, description="stream not found")
+        return object()
+
     async def add_stream(self, config: Any) -> object:
         self.calls.append("add_stream")
         self.add_stream_calls.append(config)

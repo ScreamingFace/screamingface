@@ -46,6 +46,19 @@ app.kubernetes.io/name: {{ include "screamingface-engine.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{/*
+The bundled Garage's selector labels. WHY a name of its own (kind suite finding): Garage pods
+carrying the App's `selectorLabels` (plus a component label) were ALSO matched by the App
+Service's name+instance selector, so App traffic — and a port-forward to the App — could land on
+Garage. A StatefulSet selector cannot change in place: an existing bundled Garage (dev only) must
+be deleted before upgrading past this change.
+*/}}
+{{- define "screamingface-engine.garageSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "screamingface-engine.name" . }}-garage
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: garage
+{{- end -}}
+
 {{- define "screamingface-engine.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
 {{- default (include "screamingface-engine.fullname" .) .Values.serviceAccount.name -}}

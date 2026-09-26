@@ -150,6 +150,15 @@ major version with a ``failed`` terminal frame, code ``unsupported_spec_version`
 
 CURRENT_SPEC_VERSION = "2"
 SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+RECLAIM_OWNER = "URL4_CLOUD_RECLAIM_OWNER"
+"""Who reclaims a finished run's subject: absent (the run process itself, after its grace — a
+standalone `run`) or ``worker`` (the supervising worker, per process — the worker pool).
+
+WHY the worker: a child that sleeps its grace before it exits holds a WORKER SLOT for the whole
+grace (60 s) after its run is over. Under load every slot sat idle in grace and claims stopped —
+found by the kind suite (K6). The worker purges after the grace in a detached task, off the slot.
+A per-PROCESS key, set by the worker on the children it starts."""
+
 DIRECT_STREAM_GRACE_S = 5.0
 """The reclaim grace of a DIRECT run: the child's wait between its terminal frame and its purge.
 

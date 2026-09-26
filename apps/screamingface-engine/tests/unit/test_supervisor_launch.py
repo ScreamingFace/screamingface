@@ -219,3 +219,43 @@ async def test_an_unknown_spec_major_version_whose_run_already_ended_gets_no_sec
     await worker._supervisor.supervise(msg)  # type: ignore[arg-type]
     assert len(publisher.published) == 1  # unchanged: the pre-existing terminal frame only
     assert msg.acked and launcher.launched == []
+
+
+async def test_the_worker_reclaims_after_the_grace_off_the_slot() -> None:
+    """K6 finding: a child that waits its grace holds a worker slot for it. With a `reclaim`
+    the supervisor finishes the run (slot free) at once and purges the subject after the
+    run's own grace, detached."""
+    publisher = _Publisher()
+    reclaimed: list[tuple[str, float]] = []
+    worker = _worker(publisher, _Launcher(_Proc(exit_after_s=0.0)))
+
+    async def reclaim(topic: str) -> None:
+        reclaimed.append((topic, time.monotonic()))
+
+    worker._supervisor._reclaim = reclaim  # noqa: SLF001 - the seam under test
+    msg = _Msg("t-reclaim")
+    body = json.loads(msg.data)
+    body[job_env.STREAM_GRACE_S] = "0.2"
+    msg.data = json.dumps(body).encode()
+    started = time.monotonic()
+    await worker._supervisor.supervise(msg)  # type: ignore[arg-type]
+    assert msg.acked and time.monotonic() - started < 0.2  # the slot is not held for the grace
+    assert reclaimed == []
+    await asyncio.sleep(0.35)
+    assert [topic for topic, _ in reclaimed] == ["t-reclaim"]
+    assert reclaimed[0][1] - started >= 0.2
+
+
+async def test_pending_reclaims_are_dropped_when_the_worker_stops() -> None:
+    publisher = _Publisher()
+    calls: list[str] = []
+    worker = _worker(publisher, _Launcher(_Proc(exit_after_s=0.0)))
+
+    async def reclaim(topic: str) -> None:
+        calls.append(topic)
+
+    worker._supervisor._reclaim = reclaim  # noqa: SLF001
+    await worker._supervisor.supervise(_Msg("t-stop"))  # type: ignore[arg-type]  # grace 0 → soon
+    worker._supervisor.cancel_reclaims()
+    await asyncio.sleep(0.05)
+    assert calls == []

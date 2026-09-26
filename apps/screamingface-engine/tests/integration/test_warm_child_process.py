@@ -147,3 +147,36 @@ async def test_a_warm_child_refuses_an_unknown_spec_version(tmp_path: object) ->
         if proc.returncode is None:
             proc.kill()
             await proc.wait()
+
+
+async def test_a_worker_reclaimed_child_exits_at_its_terminal_frame(tmp_path: object) -> None:
+    """RECLAIM_OWNER=worker (the pool's children): the run does not wait its grace — the child
+    exits once its terminal frame is out, and its subject is left for the worker to purge."""
+    os.environ[job_env.RECLAIM_OWNER] = "worker"
+    try:
+        proc, control = await _spawn_warm(tmp_path)
+    finally:
+        del os.environ[job_env.RECLAIM_OWNER]
+    try:
+        cp.decode_ready(await asyncio.wait_for(control.readline(), timeout=60))
+        topic = f"warm-reclaim-{uuid4().hex}"
+        spec = {
+            job_env.TOPIC: topic,
+            job_env.EXPRESSION: "'hi'",
+            job_env.JOB_DEADLINE_S: "30",
+            job_env.STREAM_GRACE_S: "30",
+        }
+        assert proc.stdin is not None
+        proc.stdin.write(cp.encode_spec(spec, io_concurrency=1))
+        await proc.stdin.drain()
+        proc.stdin.close()
+        assert await asyncio.wait_for(control.readline(), timeout=10) == cp.ACK
+        # Well inside the 30 s grace a self-reclaiming child would sleep.
+        assert await asyncio.wait_for(proc.wait(), timeout=15) == 0
+        frames = await asyncio.wait_for(_frames(topic), timeout=10)
+        assert isinstance(frames[-1], TerminatedEvent)
+        assert len(frames) >= 2  # not purged: the worker owns that
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()

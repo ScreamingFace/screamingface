@@ -124,6 +124,7 @@ class Worker:
         memory_budget_bytes: int,
         spawn: Callable[..., Awaitable[_ChildProcess]] | None = None,
         warm_children: int = 0,
+        reclaim: Callable[[str], Awaitable[None]] | None = None,
         control: _Control | None = None,
         pull_timeout_s: float = PULL_TIMEOUT_S,
         heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
@@ -199,6 +200,7 @@ class Worker:
                     asyncio.create_subprocess_exec,
                     memory_budget_bytes=memory_budget_bytes,
                     environ=os.environ,
+                    worker_reclaims=reclaim is not None,
                 ),
                 size=min(warm_children, slots),
                 metrics=self._metrics,
@@ -207,6 +209,8 @@ class Worker:
             publisher=publisher,
             spawn=spawn,
             launcher=self._pool,
+            # The pool's children leave their subject to the worker (RECLAIM_OWNER).
+            reclaim=reclaim if self._pool is not None else None,
             memory_budget_bytes=memory_budget_bytes,
             io_capacity=io_capacity,
             draining=self._draining,
@@ -243,6 +247,7 @@ class Worker:
                     tg.create_task(self._control_loop(tg))
                     tg.create_task(self._ownership_loop())
         finally:
+            self._supervisor.cancel_reclaims()
             if self._pool is not None:
                 await self._pool.drain()
             for sig in (signal.SIGTERM, signal.SIGINT):
@@ -609,6 +614,7 @@ def run_worker(settings: Settings | None = None) -> None:
                 drain_grace_s=settings.worker_drain_grace_s,
                 io_capacity=settings.worker_io_capacity,
                 memory_budget_bytes=settings.worker_memory_budget_bytes,
+                reclaim=publisher.delete_stream,
                 warm_children=(
                     settings.run_queue_worker_slots
                     if settings.worker_warm_children is None

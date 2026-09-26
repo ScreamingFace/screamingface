@@ -21,7 +21,7 @@ from typing import Any, cast
 import pytest
 from nats.errors import Error as NatsError
 from nats.js import JetStreamContext
-from nats.js.errors import APIError
+from nats.js.errors import APIError, NotFoundError
 
 from screamingface_engine import subjects
 from screamingface_engine.adapters import jetstream
@@ -42,6 +42,9 @@ class _FakeInsufficientResourcesJetStream:
 
     def __init__(self) -> None:
         self.add_stream_calls = 0
+
+    async def stream_info(self, name: str) -> object:
+        raise NotFoundError(code=404, err_code=10059, description="stream not found")
 
     async def add_stream(self, *_args: Any, **_kwargs: Any) -> object:
         self.add_stream_calls += 1
@@ -142,3 +145,29 @@ def test_the_publisher_still_exposes_the_shared_stream_metrics_surface() -> None
     publisher = JetStreamPublisher("nats://localhost:4222")
     assert publisher.subject_purges == 0
     assert publisher.publish_conflicts == {}
+
+
+@pytest.mark.asyncio
+async def test_an_existing_events_stream_is_never_re_added() -> None:
+    """REGRESSION (kind K6/K12): `add_stream` on an existing stream makes the server reserve its
+    bytes twice, so a restart failed with 10047 once `max_bytes` passed half the store. An
+    existing stream is reconciled (`stream_info`) and never re-added."""
+    from types import SimpleNamespace
+
+    from screamingface_engine.adapters.jetstream import EventsStreamConfig, ensure_events_stream
+
+    config = EventsStreamConfig()
+
+    class _Existing:
+        added = 0
+
+        async def stream_info(self, name: str) -> object:
+            return SimpleNamespace(config=config.stream_config())
+
+        async def add_stream(self, *_args: Any, **_kwargs: Any) -> object:
+            self.added += 1
+            return object()
+
+    js = _Existing()
+    await ensure_events_stream(js, config, update=True)  # type: ignore[arg-type]
+    assert js.added == 0
