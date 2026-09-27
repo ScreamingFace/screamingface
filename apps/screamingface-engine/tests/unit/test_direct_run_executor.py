@@ -98,3 +98,30 @@ async def test_expression_shape_is_unchanged() -> None:
     steps = await _steps(Url4Executor(node), "'hello'")
     assert isinstance(steps[-1], Completed)
     assert "EVAL" not in calls  # a literal needs no node evaluation either
+
+
+async def test_a_direct_run_refuses_a_route_outside_the_recorded_mounts() -> None:
+    """INVARIANT (D1, MC-D1): the child runs only a MOUNT. `build_world` records the mount set
+    before Benchmarks install; a tampered queue message naming a benchmark endpoint the child's
+    world also serves (a judge, with a caller-chosen `X-Answer-Seed` under `origin="sync"`) is
+    refused as `endpoint_not_found` — the child's own check, not only the App's route table."""
+    from screamingface_engine.benchmarks.registry import served_routes
+    from screamingface_engine.world import factory
+
+    node, calls = _node()
+    factory._DIRECT_MOUNTS[node] = served_routes(node)
+
+    @node.endpoint("/v1/benchmarks/judge")
+    async def judge(request):  # type: ignore[no-untyped-def]
+        calls.append("JUDGE")
+        return "graded"
+
+    executor = Url4Executor(node, run_shape="direct")
+    with pytest.raises(ResolutionError) as exc:
+        await _steps(executor, encode_subrequest("/v1/benchmarks/judge", "hi", "grade"))
+    assert exc.value.code == "endpoint_not_found"
+    assert calls == []
+    # A recorded mount still runs, with or without a query.
+    steps = await _steps(executor, encode_subrequest("/v1/chat/completions", "hi", "answer"))
+    assert isinstance(steps[-1], Completed)
+    assert isinstance((await _steps(executor, "/v1/benchmarks/data/foo"))[-1], Completed)

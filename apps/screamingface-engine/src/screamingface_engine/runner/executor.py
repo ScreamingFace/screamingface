@@ -29,6 +29,7 @@ from screamingface_engine.artifacts import (
     allowed_result_bytes,
     decide_result_delivery,
 )
+from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.request_scope import RequestScope, request_scope
@@ -36,8 +37,8 @@ from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCo
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
-from screamingface_engine.world.factory import WorldFactory
-from url4.core.errors import ResolutionError
+from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.observe import (
@@ -991,11 +992,28 @@ class Url4Executor(Executor):
         INVARIANT (D1): no DAG runs here. `dispatch_direct` has no path to the eval branch and
         refuses an eval-path target with `direct_eval_refused` — the child's own check, after
         the App's (MC-D1: a tampered queue message).
+
+        INVARIANT (D1): a direct run reaches only a MOUNT — a route `build_world` recorded
+        before Benchmarks installed. WHY the child checks too: its world also serves the
+        benchmark, candidate and judge endpoints, and a direct run carries `origin="sync"`, so a
+        tampered message naming one would run it with a caller-chosen `X-Answer-Seed`. It is
+        refused as `endpoint_not_found`, as the App refuses an unmounted path.
         """
         node = self._node
         if not isinstance(node, Url4Node):
             raise ResolutionError(
                 "a direct run needs a url4 node world", code="internal_error", permanent=True
+            )
+        path = target.partition("?")[0]
+        mounts = direct_mount_paths(node)
+        served = served_routes(node)
+        # Only a route the node SERVES but did not record as a mount is refused here; any other
+        # target keeps `dispatch_direct`'s own code (`direct_eval_refused`, `endpoint_not_found`).
+        if target not in mounts and path not in mounts and (target in served or path in served):
+            raise ResolutionError(
+                f"a direct run may reach only a mount, not {path!r}",
+                code=ErrorCode.ENDPOINT_NOT_FOUND,
+                permanent=True,
             )
         result = await dispatch_direct(
             node,
