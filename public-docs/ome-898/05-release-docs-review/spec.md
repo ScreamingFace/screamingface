@@ -1,6 +1,6 @@
 ---
 title: "Release-time docs review: spec"
-ticket: OME-898 (child 5, not yet filed)
+ticket: OME-898
 status: draft
 date: 2026-09-22
 ---
