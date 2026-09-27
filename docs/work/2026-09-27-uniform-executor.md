@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issues are filed at PR-open
+ticket: OME-1387, OME-1388   # parent epic OME-1086
 stack: screamingface-engine, url4
 status: in_progress
 started: 2026-09-25
@@ -49,7 +49,7 @@ The spec is `apps/screamingface-engine/docs/plans/uniform-executor/` (`00-overvi
 - **Actual files:** 200+ files in `apps/screamingface-engine`, 8 in `packages/url4`,
   `.claude/scripts/check_layering.py`, `.github/scripts/verify_chart_wiring.py`.
   Findings and fixes F1–F11 are in `implementation-notes.md`.
-- **Commits:** 33 on `exp/uniform-executor`; `git log origin/main..HEAD`.
+- **Commits:** 35 on `OME-1387-uniform-executor`; `git log origin/main..HEAD`.
 - **Gates:** see the PR body (card gates, integration, kind suite, chart renders).
 - **Deviations:**
   - This was exploratory work, so this ledger was written after the code, not before it
@@ -65,6 +65,8 @@ The spec is `apps/screamingface-engine/docs/plans/uniform-executor/` (`00-overvi
   - Review fixes before PR: the Garage StatefulSet keeps main's selector (it is immutable and
     all three environments bundle Garage); the App Service selects `component: control-plane`;
     a direct run reaches only a recorded mount.
+  - Filing (owner, 2026-09-27): the two leaves were filed with the `linear` CLI at the owner's
+    request, in place of the card's Linear-MCP-only transport (the MCP was not authenticated).
   - Known limits, not fixed: the pre-PR review reports that in local mode, direct runs skip
     the shared fair-share gate (not checked; local mode only);
     `runnerPool.workerSlots: 1` needs `warmChildren` ≤ 1 (the render fails naming both);
