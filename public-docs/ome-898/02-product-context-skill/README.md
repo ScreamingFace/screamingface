@@ -18,7 +18,7 @@ Named `product-context` to avoid colliding with the marketplace skill of a simil
 
 ## What it feeds
 
-This is what fills the context contract that child 01's skill declares: product facts,
+This is what fills the context contract that the writing-docs skill declares: product facts,
 terminology casing, positioning language, the reader, and the operational metrics.
 
 ## Not blocked

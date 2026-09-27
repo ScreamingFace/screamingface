@@ -1,7 +1,7 @@
 # 04: documentation as part of every PR
 
 Status: layer 2 (the CI check) built, verified against real history, and live. Layers 1 and
-3 blocked on child 01. See `spec.md`, `plan.md`, `symbol-page-map.md`,
+3 blocked on the writing-docs skill being published. See `spec.md`, `plan.md`, `symbol-page-map.md`,
 `packages/screamingface/scripts/check_docs_sync.py`, and
 `.github/workflows/docs-sync-check.yml`.
 

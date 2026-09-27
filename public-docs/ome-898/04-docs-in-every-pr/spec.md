@@ -33,10 +33,10 @@ instead: `packages/screamingface/src/screamingface/**` or
 Each catches what the one before it misses.
 
 **1. In-loop drafting, on every change.** The `writing-docs` skill drafts or updates the
-relevant `public-docs/` page while the change is being made, before a PR exists. Needs child
-01 published somewhere installable, and a routing rule in `.claude/` (child 03) that invokes
-it on a public-surface change. No CI work. Nothing enforces it on its own; a step with no
-PR-time check is a step people skip under deadline, which is what layer 2 is for.
+relevant `public-docs/` page while the change is being made, before a PR exists. Needs the
+skill published somewhere installable, and a routing rule in `.claude/` that invokes it on a
+public-surface change. No CI work. Nothing enforces it on its own; a step with no PR-time
+check is a step people skip under deadline, which is what layer 2 is for.
 
 **2. A minimal CI check, at PR time.** If the PR touches public surface, it must also touch
 `public-docs/**`. Checks presence, not quality. A PR without the change fails and names what
@@ -80,8 +80,8 @@ check.
 
 **3. A follow-up PR, for anything that still merges without one.** An admin override, a
 hotfix, an accepted exception. Opens automatically against `public-docs/` afterward, using
-child 01's skill again to draft the content, run after merge instead of before. If layer 2
-is a hard gate, this rarely fires.
+the writing-docs skill again to draft the content, run after merge instead of before. If
+layer 2 is a hard gate, this rarely fires.
 
 Needs a bot identity with write access. Docs are one merge behind by construction; on a site
 that deploys straight from `main`, that is a real window where the deployed docs are wrong.

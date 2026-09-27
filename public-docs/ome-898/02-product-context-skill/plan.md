@@ -9,7 +9,7 @@ date: 2026-09-02
 
 # product-context: implementation plan
 
-Builds the skill in `spec.md`. Unlike child 01, this lands in this monorepo, because the
+Builds the skill in `spec.md`. Unlike the writing-docs skill, this lands in this monorepo, because the
 content is product-specific and the ticket's complaint is that engineers see only repository
 skills.
 
@@ -74,10 +74,10 @@ document.
 No dashes. Every item has status, date, and owner. The skill loads with the marketplace
 plugin absent. No reference to that plugin as a dependency.
 
-**9. Re-run child 01 against it.**
+**9. Re-run the writing-docs review against it.**
 The context-loaded review currently runs against the mirrored files read by hand. Redo it
-against this skill. If 01's slots do not fill without hand-assembly, that is a finding about
-one of the two, and the point of doing them in this order.
+against this skill. If the writing-docs skill's slots do not fill without hand-assembly, that
+is a finding about one of the two, and the point of doing them in this order.
 
 ## Verification
 
@@ -94,7 +94,7 @@ The seven checks in `spec.md` §8. The three that decide it:
 ## Sequence
 
 ```
-1 read sources -> 2 reconcile with code -+-> 3 write sections -> 4 stale-by -> 8 checks -> 9 re-run 01
+1 read sources -> 2 reconcile with code -+-> 3 write sections -> 4 stale-by -> 8 checks -> 9 re-run writing-docs review
                                          +-> 5 quarantine (blocked on named yes)
                                          +-> 6 retire positioning.md
                                          +-> 7 the other five files (three blocked on owners)

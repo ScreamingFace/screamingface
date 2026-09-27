@@ -22,7 +22,7 @@ evidence.
 **Name.** `product-context`, not `screamingface-context`. The marketplace already has a skill
 by that name, and two skills with one name is the confusion this unit is meant to end.
 
-**Where it lives.** In this monorepo, unlike child 01's skill, which is standalone. The
+**Where it lives.** In this monorepo, unlike the writing-docs skill, which is standalone. The
 ticket's complaint is that engineers see only repository skills; this content is
 product-specific, not agnostic, so the repo is its natural home.
 
@@ -105,7 +105,7 @@ finding a blank.
 
 ## 5. What this fixes downstream
 
-Two gaps found by the documentation review in child 01:
+Two gaps found by the writing-docs skill's documentation review:
 
 - `draco-3pass`, advertised on the docs site, is a validated replacement for a benchmark id
   the released Client now rejects (`OME-1057`), and is real, engine-tested. The gap is that
@@ -159,7 +159,7 @@ This is the accepted cost of independence.
 - Ask it whether a state-of-the-art claim can be made on a benchmark we authored. It says no
   and names the rule.
 - Ask it something canon marks provisional. It answers and says the status is provisional.
-- Re-run child 01's context-loaded review against this skill instead of the mirrored files.
+- Re-run the writing-docs skill's context-loaded review against this skill instead of the mirrored files.
   Its slots fill from this content with no hand-assembly. If they do not, that is a finding
   about one of the two.
 - Grep the repo for the retired doc's path. Every reference either goes to the pointer or is

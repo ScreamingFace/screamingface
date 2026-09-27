@@ -9,7 +9,8 @@ date: 2026-09-17
 # Documentation as part of every PR: implementation plan
 
 Builds the three-layer mechanism in `spec.md`. Only layer 2, the CI check, is buildable now;
-layers 1 and 3 both need child 01 published, and layer 1 also needs child 03's routing.
+layers 1 and 3 both need the writing-docs skill published, and layer 1 also needs a routing
+rule in `.claude/`.
 
 ## Steps
 
@@ -46,12 +47,12 @@ than interpolating it into the shell command. Live at `.github/workflows/docs-sy
 
 ## Later
 
-**Layer 1**, once child 01 ships: a routing rule in `.claude/` (child 03's territory) that
-invokes the `writing-docs` skill on a public-surface change, before a PR opens.
+**Layer 1**, once the writing-docs skill ships: a routing rule in `.claude/` that invokes it
+on a public-surface change, before a PR opens.
 
-**Layer 3**, once child 01 ships: a bot identity with write access to open a follow-up PR
-against `public-docs/`, using the same skill to draft content, triggered when a PR merges
-without the layer-2 check having passed.
+**Layer 3**, once the writing-docs skill ships: a bot identity with write access to open a
+follow-up PR against `public-docs/`, using the same skill to draft content, triggered when a
+PR merges without the layer-2 check having passed.
 
 ## Sequence
 
@@ -59,6 +60,6 @@ without the layer-2 check having passed.
 1 symbol table -> 2 check script -> 3 CI job
                                     (ships independently)
 
-child 01 publishes -+-> layer 1 (needs child 03 too)
-                     +-> layer 3
+writing-docs skill publishes -+-> layer 1 (needs the .claude/ routing rule too)
+                               +-> layer 3
 ```

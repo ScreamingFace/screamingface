@@ -8,18 +8,18 @@ This child carries the epic's stated Done when, so the epic closes on this one.
 
 - Review and update `.claude/`.
 - Folder-scoped routing: working in this folder means using this skill.
-- Route documentation and copy work to the new skills from children 01 and 02.
+- Route documentation and copy work to the writing-docs and product-context skills.
 - Retire or refresh skills that are outdated or confusing.
 
 ## Also folded in here
 
-Installing child 01's skill in this repository. That was deliberately kept out of child 01
-so the skill itself never reaches into a product repository, which is what keeps it
-agnostic.
+Installing the writing-docs skill in this repository. That was deliberately kept out of the
+skill itself so it never reaches into a product repository, which is what keeps it agnostic.
 
 ## Depends on
 
-Children 01 and 02, because the routing has to point at skills that exist.
+The writing-docs and product-context skills, because the routing has to point at skills
+that exist.
 
 ## Expected contents
 
