@@ -1,6 +1,6 @@
 ---
 title: "product-context: a single source of truth for product and brand"
-ticket: OME-898 (child 2, not yet filed)
+ticket: OME-898
 findings: ./findings.md
 status: draft
 date: 2026-09-02

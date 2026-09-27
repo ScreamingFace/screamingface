@@ -1,6 +1,6 @@
 ---
 title: "product-context: implementation plan"
-ticket: OME-898 (child 2, not yet filed)
+ticket: OME-898
 spec: ./spec.md
 findings: ./findings.md
 status: draft

@@ -1,6 +1,6 @@
 ---
 title: "Documentation as part of every PR: implementation plan"
-ticket: OME-898 (child 4, not yet filed)
+ticket: OME-898
 spec: ./spec.md
 status: draft
 date: 2026-09-17
