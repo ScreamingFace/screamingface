@@ -46,6 +46,9 @@ Advisory, not a gate: `run_gates.py` does not check whether either skill was use
 closest thing to enforcement is `docs-sync-check.yml` (below), which checks that a docs
 page changed, not that either skill produced it.
 
+At a big release, product runs `docs/release-docs-review-checklist.md` themselves. Nothing
+in CI triggers it.
+
 ## Agents (`.claude/agents/`)
 
 | Agent | Use |
