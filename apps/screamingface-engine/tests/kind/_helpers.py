@@ -62,12 +62,20 @@ async def attach(ws: websockets.ClientConnection, *, from_sequence: int | None =
 
 
 async def read_until_terminal(
-    ws: websockets.ClientConnection, *, timeout: float = 30.0
+    ws: websockets.ClientConnection, *, timeout: float = 30.0, total: float = 180.0
 ) -> list[dict]:
-    """Every non-heartbeat frame up to and including `ai.url4.terminated`."""
+    """Every non-heartbeat frame up to and including `ai.url4.terminated`.
+
+    `timeout` bounds one receive; `total` bounds the whole read — heartbeats keep a receive
+    alive, so without it a run that never starts hangs the case forever (kind K6 finding).
+    """
     frames: list[dict] = []
+    deadline = asyncio.get_running_loop().time() + total
     while True:
-        raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
+        left = deadline - asyncio.get_running_loop().time()
+        if left <= 0:
+            raise TimeoutError(f"no terminal frame within {total}s; got {frames!r}")
+        raw = await asyncio.wait_for(ws.recv(), timeout=min(timeout, left))
         frame = json.loads(raw)
         if frame.get("type") == _HEARTBEAT:
             continue
@@ -101,7 +109,11 @@ def assert_gapfree(frames: list[dict]) -> None:
 
 
 async def run_async_over_ws(
-    client: httpx.AsyncClient, ws: websockets.ClientConnection, token: str
+    client: httpx.AsyncClient,
+    ws: websockets.ClientConnection,
+    token: str,
+    *,
+    identity: dict[str, str] = IDENTITY,
 ) -> tuple[httpx.Response, list[dict]]:
     """Attach, start an async run for `token`'s topic, and read its frames to the terminal one.
 
@@ -112,7 +124,8 @@ async def run_async_over_ws(
     response = await client.get(
         "/",
         params={"q": EXPRESSION},
-        headers={"URL4-Capability": token, "Prefer": "respond-async", **IDENTITY},
+        headers={"URL4-Capability": token, "Prefer": "respond-async", **identity},
     )
+    assert response.status_code == 202, (response.status_code, response.text)
     frames = await read_until_terminal(ws)
     return response, frames

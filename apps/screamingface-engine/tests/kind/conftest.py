@@ -27,10 +27,15 @@ from _cluster import (
 )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def app_base_url() -> Iterator[str]:
     """Port-forwards the App Service (`sf-uniform-url4-cloud`, port 9108) and yields its
-    `http://127.0.0.1:<port>` base URL once `/healthz` answers."""
+    `http://127.0.0.1:<port>` base URL once `/healthz` answers.
+
+    WHY per test, not per session: a port-forward is bound to ONE pod, and the chaos cases
+    replace pods (K12's `helm upgrade` restarts the App). A session forward died with the old
+    pod and every later case failed to connect.
+    """
     with port_forward(APP_SERVICE, APP_PORT) as local_port:
         base_url = f"http://127.0.0.1:{local_port}"
         deadline = time.monotonic() + 30
@@ -49,7 +54,7 @@ def app_base_url() -> Iterator[str]:
         yield base_url
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def nats_local_port() -> Iterator[int]:
     """Port-forwards the bundled NATS Service's client port (4222) — used only by K6 to list
     JetStream streams over a real `nats-py` connection."""

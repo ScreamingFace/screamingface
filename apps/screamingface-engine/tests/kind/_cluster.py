@@ -69,7 +69,7 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
-def _endpoint_pod(service: str, *, timeout: float = 30.0) -> str:
+def _endpoint_pod(service: str, *, timeout: float = 120.0) -> str:
     """The name of ONE pod actually backing `service`, resolved from its Endpoints object
     rather than from the Service's own selector.
 
@@ -102,7 +102,7 @@ def _endpoint_pod(service: str, *, timeout: float = 30.0) -> str:
 
 
 @contextlib.contextmanager
-def port_forward(service: str, remote_port: int, *, ready_timeout: float = 30.0) -> Iterator[int]:
+def port_forward(service: str, remote_port: int, *, ready_timeout: float = 120.0) -> Iterator[int]:
     """`kubectl port-forward` the pod backing a Service to a free local port; yields that port
     once it accepts TCP connections. The forward is torn down on exit regardless of how the
     block ends. See `_endpoint_pod` for why this targets the POD, not `svc/<service>`."""

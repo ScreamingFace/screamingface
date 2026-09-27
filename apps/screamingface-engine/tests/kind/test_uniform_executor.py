@@ -19,7 +19,7 @@ from pathlib import Path
 import httpx
 import pytest
 import websockets
-from _cluster import KIND_CONTEXT, NAMESPACE, kind_reachable, port_forward
+from _cluster import KIND_CONTEXT, NAMESPACE, kind_reachable, port_forward, run_kubectl
 from _helpers import (
     DATA_MOUNT,
     EXPRESSION,
@@ -103,20 +103,27 @@ async def test_k3_mount_calls_succeed_and_openapi_lists_both_mounts(app_base_url
 # --------------------------------------------------------------------------------------------
 # K6 — 50 concurrent mixed runs: every subject gap-free; no per-topic (`url4-cloud_*`) stream.
 # --------------------------------------------------------------------------------------------
-async def _one_ws_run(app_base_url: str) -> list[dict]:
+async def _one_ws_run(app_base_url: str, caller: dict[str, str]) -> list[dict]:
     async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
         token = await mint_token(client)
         async with websockets.connect(ws_uri(app_base_url, token)) as ws:
-            _, frames = await run_async_over_ws(client, ws, token)
+            _, frames = await run_async_over_ws(client, ws, token, identity=caller)
     return frames
 
 
-async def _one_sync_run(app_base_url: str) -> httpx.Response:
+async def _one_sync_run(app_base_url: str, caller: dict[str, str]) -> httpx.Response:
     async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
         token = await mint_token(client)
         return await client.get(
-            "/", params={"q": EXPRESSION}, headers={"URL4-Capability": token, **IDENTITY}
+            "/", params={"q": EXPRESSION}, headers={"URL4-Capability": token, **caller}
         )
+
+
+def _k6_caller(index: int) -> dict[str, str]:
+    # WHY one caller per run: the queue caps each CALLER's runs in flight (replicas × slots),
+    # so 50 runs from one caller are mostly refused with 503 by design (OME-1091). K6 is 50
+    # callers at once.
+    return {"X-User-Email": f"kind-k6-{index}@example.com"}
 
 
 @pytest.mark.asyncio
@@ -127,8 +134,10 @@ async def test_k6_fifty_concurrent_mixed_runs_are_gapfree_with_no_legacy_stream(
     sync_runs = 25
 
     ws_results, sync_results = await asyncio.gather(
-        asyncio.gather(*(_one_ws_run(app_base_url) for _ in range(ws_runs))),
-        asyncio.gather(*(_one_sync_run(app_base_url) for _ in range(sync_runs))),
+        asyncio.gather(*(_one_ws_run(app_base_url, _k6_caller(i)) for i in range(ws_runs))),
+        asyncio.gather(
+            *(_one_sync_run(app_base_url, _k6_caller(ws_runs + i)) for i in range(sync_runs))
+        ),
     )
 
     for frames in ws_results:
@@ -187,7 +196,7 @@ async def test_k12_events_store_near_full_raises_the_utilization_gauge() -> None
     `_EventsStoreMonitor`, polled every 15s) must cross 0.8 — the chart's own alert threshold
     (deploy/helm/README.md). Restores the base values afterwards regardless of the outcome.
     """
-    small_max_bytes = 131072  # 128 KiB — the base 8 GiB default divided down to fill fast.
+    small_max_bytes = 131072  # 128 KiB — the base 1 GiB default divided down to fill fast.
     _helm_upgrade("--set", f"events.maxBytes={small_max_bytes}")
     try:
         with port_forward("sf-uniform-url4-cloud", 9108) as local_port:
@@ -220,6 +229,11 @@ async def test_k12_events_store_near_full_raises_the_utilization_gauge() -> None
 # --------------------------------------------------------------------------------------------
 # Shared plumbing for K4-K11: read a run's frames straight off the shared events stream.
 # --------------------------------------------------------------------------------------------
+# WHY own callers: the queue caps each caller's in-flight runs (replicas × workerSlots). A run
+# an earlier case killed is redelivered and still counts for ITS caller, so a case that shares
+# the caller can wait in the queue past its sync bound (kind K8 finding) — the cap working.
+_K8_CALLER = {"X-User-Email": "kind-k8@example.com"}
+_MNT26_CALLER = {"X-User-Email": "kind-mnt26@example.com"}
 _RUNNER_DEPLOYMENT = "sf-uniform-url4-cloud-runner"
 _APP_DEPLOYMENT = "sf-uniform-url4-cloud"
 _NATS_POD = "sf-uniform-nats-0"
@@ -349,7 +363,7 @@ async def test_k7_killing_a_runner_pod_mid_run_redelivers_to_exactly_one_termina
     app_base_url: str, nats_local_port: int
 ) -> None:
     async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
-        topic, ws = await _start_async(client, "('STUB_SLEEP_MS=20000')!'go'")
+        topic, ws = await _start_async(client, f"{MODEL_MOUNT}('STUB_SLEEP_MS=20000')!'go'")
         try:
             # Wait for the run to start, then find and delete the pod that runs it.
             deadline = time.monotonic() + 60
@@ -371,6 +385,40 @@ async def test_k7_killing_a_runner_pod_mid_run_redelivers_to_exactly_one_termina
     _rollout(_RUNNER_DEPLOYMENT)
 
 
+# --------------------------------------------------------------------------------------------
+# MNT-26 — kill the runner pod during a MOUNT call -> the call answers 200 (redelivered) or 504,
+# and the run's subject ends with exactly one terminal frame.
+# --------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_mnt26_killing_the_runner_pod_mid_mount_call_redelivers_or_504(
+    app_base_url: str, nats_local_port: int
+) -> None:
+    async with httpx.AsyncClient(base_url=app_base_url, timeout=120.0) as client:
+        call = asyncio.create_task(
+            client.get(
+                MODEL_MOUNT, params={"q": "('STUB_SLEEP_MS=8000')!'go'"}, headers=_MNT26_CALLER
+            )
+        )
+        deadline = time.monotonic() + 60
+        busy: list[str] = []
+        while time.monotonic() < deadline and not busy and not call.done():
+            busy = [
+                pod
+                for pod in _kubectl("get", "pods", "-o", "name").split()
+                if "runner" in pod and _slots_busy(pod) > 0
+            ]
+            await asyncio.sleep(0.5)
+        assert busy, "no runner pod is running the mount call"
+        _kubectl("delete", busy[0], "--wait=false")
+        response = await call
+    assert response.status_code in {200, 504}, response.text
+    topic = response.headers["x-url4-run"]
+    frames = await _until_terminal(nats_local_port, topic, timeout=240)
+    assert len(_terminals(frames)) == 1, _terminals(frames)
+    assert_gapfree(frames)
+    _rollout(_RUNNER_DEPLOYMENT)
+
+
 def _slots_busy(pod: str) -> float:
     script = (
         "import urllib.request;"
@@ -378,7 +426,9 @@ def _slots_busy(pod: str) -> float:
         "print([l.split()[-1] for l in t.splitlines()"
         " if l.startswith('screamingface_engine_worker_slots_busy ')][0])"
     )
-    return float(_kubectl("exec", pod.removeprefix("pod/"), "--", "python", "-c", script).strip())
+    # A pod listed a moment ago may be gone (a rollout from an earlier case): it runs nothing.
+    result = run_kubectl("exec", pod.removeprefix("pod/"), "--", "python", "-c", script)
+    return float(result.stdout.strip()) if result.returncode == 0 else 0.0
 
 
 # --------------------------------------------------------------------------------------------
@@ -402,12 +452,12 @@ async def test_k8_a_run_past_its_memory_budget_is_oom_killed_without_taking_its_
                 client.get(
                     MODEL_MOUNT,
                     params={"q": f"('STUB_BYTES={600 * 1024 * 1024}')!'go'"},
-                    headers={**IDENTITY, "Prefer": "wait=30"},
+                    headers={**_K8_CALLER, "Prefer": "wait=30"},
                 )
             )
             siblings = await asyncio.gather(
                 *(
-                    client.get(MODEL_MOUNT, params={"q": "('hi')!'go'"}, headers=IDENTITY)
+                    client.get(MODEL_MOUNT, params={"q": "('hi')!'go'"}, headers=_K8_CALLER)
                     for _ in range(3)
                 )
             )
@@ -435,7 +485,10 @@ async def test_k9_a_runner_rollout_restart_drains_and_kills_idle_warm_children_f
     app_base_url: str, nats_local_port: int
 ) -> None:
     async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
-        started = [await _start_async(client, "('STUB_SLEEP_MS=3000')!'go'") for _ in range(4)]
+        started = [
+            await _start_async(client, f"{MODEL_MOUNT}('STUB_SLEEP_MS=3000')!'go'")
+            for _ in range(4)
+        ]
         _kubectl("rollout", "restart", f"deployment/{_RUNNER_DEPLOYMENT}")
         for _, ws in started:
             await ws.close()  # type: ignore[attr-defined]
@@ -456,7 +509,7 @@ async def test_k10_restarting_the_nats_pod_mid_run_stays_gapfree_or_fails_named(
     app_base_url: str,
 ) -> None:
     async with httpx.AsyncClient(base_url=app_base_url, timeout=60.0) as client:
-        topic, ws = await _start_async(client, "('STUB_SLEEP_MS=8000')!'go'")
+        topic, ws = await _start_async(client, f"{MODEL_MOUNT}('STUB_SLEEP_MS=8000')!'go'")
         await asyncio.sleep(2)
         _kubectl("delete", "pod", _NATS_POD, "--wait=false")
         await ws.close()  # type: ignore[attr-defined]
