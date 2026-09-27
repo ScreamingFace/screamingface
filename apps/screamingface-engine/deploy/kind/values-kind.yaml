@@ -39,20 +39,6 @@ nats:
   enabled: true
   fullnameOverride: sf-uniform-nats
 
-# The subchart's own JetStream file-store PVC is 10Gi (nats/values.yaml
-# `config.jetstream.fileStore.pvc.size`), which the server reports as its hard
-# `max_file_store` cap regardless of real free disk. The shared events stream's declared
-# `events.maxBytes` (8 GiB by default, values.yaml) is sized for a real deployment's much bigger
-# store; here it leaves NO headroom for `ensure_events_stream`'s own retry path — on an App
-# restart, `add_stream` reserves the SAME stream's bytes a second time before JetStream's
-# identical-config check short-circuits it (a NATS 2.10.18 ordering quirk, confirmed against
-# this environment: `jsz` showed `reserved_storage` at exactly one `maxBytes` already, and a
-# second declare then needs headroom for another one), so 8 GiB against a 10 GiB cap fails
-# `events.maxBytes does not fit the JetStream file store` on the very first restart. 1 GiB
-# leaves more than 2x headroom for that retry.
-events:
-  maxBytes: 1073741824
-
 # Bundled single-node Garage (S3-compatible) store — self-configuring, no bootstrap Job.
 garage:
   enabled: true

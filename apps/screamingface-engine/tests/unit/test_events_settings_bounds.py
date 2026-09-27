@@ -14,7 +14,7 @@ from screamingface_engine.config import Settings
 
 
 def test_events_max_bytes_defaults_to_eight_gib() -> None:
-    assert Settings().events_max_bytes == 8 * 1024**3
+    assert Settings().events_max_bytes == 1024**3
 
 
 def test_a_zero_events_max_bytes_is_refused() -> None:

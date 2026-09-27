@@ -258,7 +258,7 @@ class Settings(BaseSettings):
     # other process rewrites it. `max_bytes` must fit the JetStream file store, or startup
     # fails naming `events.maxBytes`. When the store is full, the OLDEST frames are dropped
     # (ans:Q11) and `screamingface_engine_events_store_utilization_ratio` shows it.
-    events_max_bytes: int = Field(default=8 * 1024**3, ge=1)
+    events_max_bytes: int = Field(default=1024**3, ge=1)
     events_max_msgs_per_subject: int = Field(default=20_000, ge=1)
     events_max_age_s: float = Field(default=86_400.0, gt=0)
     events_replicas: int = Field(default=1, ge=1)

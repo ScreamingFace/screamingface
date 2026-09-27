@@ -198,7 +198,7 @@ Every run's frames now live on ONE JetStream stream, `url4-events` (subject
 both declare it at startup and apply a changed limit; the values are rendered to both from
 one place so they cannot disagree:
 
-- `events.maxBytes` (default 8 GiB) — must fit the broker's JetStream file store, or startup
+- `events.maxBytes` (default 1 GiB) — must fit the broker's JetStream file store, or startup
   fails naming `events.maxBytes`. When the store is full, JetStream drops the OLDEST frames
   of whichever run they belong to; a run in progress keeps publishing, it does not fail.
 - `events.maxMsgsPerSubject` (default 20000) — one run's own frame retention bound, so a

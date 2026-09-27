@@ -86,7 +86,7 @@ class EventsStreamConfig:
     name: str = subjects.EVENTS_STREAM
     subjects: tuple[str, ...] = (f"{subjects.PREFIX}.*",)
     max_age_s: float = 86_400.0
-    max_bytes: int = 8 * 1024**3
+    max_bytes: int = 1024**3
     max_msgs_per_subject: int = 20_000
     # A 1 MiB result body plus its JSON escaping and the envelope.
     max_msg_size: int = 2 * 1024**2

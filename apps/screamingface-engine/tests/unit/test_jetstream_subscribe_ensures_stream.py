@@ -299,7 +299,7 @@ async def test_the_stream_is_created_with_retention_limits() -> None:
     assert config.discard is DiscardPolicy.OLD
     assert config.storage is StorageType.FILE
     assert config.max_age == 86_400.0
-    assert config.max_bytes == 8 * 1024**3
+    assert config.max_bytes == 1024**3
     assert config.max_msgs_per_subject == 20_000
     assert config.max_msg_size == 2 * 1024**2
     assert config.duplicate_window == 120.0

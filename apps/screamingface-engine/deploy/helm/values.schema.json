@@ -96,7 +96,7 @@
         "maxBytes": {
           "type": "integer",
           "minimum": 1,
-          "description": "Must fit the broker's JetStream file store, or startup fails naming `events.maxBytes` (erd.md \u00a75 EV-D9). Default 8 GiB. When the store is full, JetStream drops the OLDEST frames of whichever subject they belong to (ans:Q11); `screamingface_engine_events_store_utilization_ratio` is the alert signal to raise this from."
+          "description": "Must fit the broker's JetStream file store, or startup fails naming `events.maxBytes` (erd.md \u00a75 EV-D9). Default 1 GiB. When the store is full, JetStream drops the OLDEST frames of whichever subject they belong to (ans:Q11); `screamingface_engine_events_store_utilization_ratio` is the alert signal to raise this from."
         },
         "maxMsgsPerSubject": {
           "type": "integer",
@@ -168,7 +168,7 @@
         "warmChildren": {
           "type": ["integer", "null"],
           "minimum": 0,
-          "description": "Warm children per worker pod (uniform executor PRD 03). Null/absent leaves the app default (one per worker slot) in force. 0 spawns a child on each claim instead. The worker caps this at `workerSlots`; the render also refuses a value ABOVE `workerSlots` (see the guard in deployment-runner.yaml), so a chart operator gets a render-time error instead of a silently truncated value. Each idle warm child holds the imported engine in memory, so raising this adds `warmChildren \u00d7 idle RSS` to the runner pod's memory request."
+          "description": "Warm children per worker pod (uniform executor PRD 03). Default 2 (sized to 4 runs in flight over 2 pods). Null leaves the app default (one per worker slot) in force. 0 spawns a child on each claim instead. The worker caps this at `workerSlots`; the render also refuses a value ABOVE `workerSlots` (see the guard in deployment-runner.yaml), so a chart operator gets a render-time error instead of a silently truncated value. Each idle warm child holds the engine and its built world (~430 MiB with the builtin benchmarks); idle children only occupy FREE slots."
         },
         "maxAckPending": {
           "type": [

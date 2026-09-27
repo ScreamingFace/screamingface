@@ -61,8 +61,8 @@ data:
   # rollout. Only an IMMUTABLE field (storage, retention — neither configurable here) failing to
   # match fails startup. Both halves must render from the same `events.*` values for that reason.
   # `int64`, not a bare `quote`: Helm decodes values through JSON, which has no integer type,
-  # so a large whole number like the 8 GiB default arrives as a float64 — and Go's default
-  # float formatting renders it in SCIENTIFIC NOTATION (`8.589934592e+09`), which no Settings
+  # so a large whole number like the 1 GiB default arrives as a float64 — and Go's default
+  # float formatting renders it in SCIENTIFIC NOTATION (`1.073741824e+09`), which no Settings
   # int/byte-size field can parse (see `deployment-node.yaml`'s identical fix).
   URL4_CLOUD_EVENTS_MAX_BYTES: {{ .Values.events.maxBytes | int64 | quote }}
   URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT: {{ .Values.events.maxMsgsPerSubject | quote }}

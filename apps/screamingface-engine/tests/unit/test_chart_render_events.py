@@ -70,7 +70,7 @@ def _values() -> dict[str, Any]:
 
 def test_the_chart_defaults_match_the_prd() -> None:
     events = _values()["events"]
-    assert events["maxBytes"] == 8 * 1024**3
+    assert events["maxBytes"] == 1024**3
     assert events["maxMsgsPerSubject"] == 20_000
     assert events["maxAgeS"] == 86_400
     assert events["replicas"] == 1
@@ -79,7 +79,7 @@ def test_the_chart_defaults_match_the_prd() -> None:
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_the_app_receives_the_default_events_config() -> None:
     data = _app_configmap(_render())["data"]
-    assert data["URL4_CLOUD_EVENTS_MAX_BYTES"] == str(8 * 1024**3)
+    assert data["URL4_CLOUD_EVENTS_MAX_BYTES"] == str(1024**3)
     assert data["URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT"] == "20000"
     assert data["URL4_CLOUD_EVENTS_MAX_AGE_S"] == "86400"
     assert data["URL4_CLOUD_EVENTS_REPLICAS"] == "1"
@@ -88,7 +88,7 @@ def test_the_app_receives_the_default_events_config() -> None:
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_the_worker_receives_the_default_events_config() -> None:
     env = _runner_env(_render())
-    assert env["URL4_CLOUD_EVENTS_MAX_BYTES"] == str(8 * 1024**3)
+    assert env["URL4_CLOUD_EVENTS_MAX_BYTES"] == str(1024**3)
     assert env["URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT"] == "20000"
     assert env["URL4_CLOUD_EVENTS_MAX_AGE_S"] == "86400"
     assert env["URL4_CLOUD_EVENTS_REPLICAS"] == "1"

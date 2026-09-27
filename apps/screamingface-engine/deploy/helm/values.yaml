@@ -153,7 +153,11 @@ config:
 # failing anything. Only an IMMUTABLE field (storage, retention — neither configurable here)
 # failing to match fails startup. Both halves must render from the SAME values for that reason.
 events:
-  # WHY 8 GiB: must fit the broker's JetStream file store — this chart does not size that store
+  # WHY 1 GiB (sized to today's deployments, 2026-09-26 — OpenMined/infrastructure
+  # `kubernetes/apps/sf-url4-cloud/values/{dev,staging,prod}.yaml`: 2 runner pods × 4 slots, a
+  # 10 Gi JetStream store): the former per-run streams reserved 50 MB each, so 8 runs in flight
+  # held about 400 MB. 1 GiB is 2.5x that and leaves most of the store to the run queue.
+  # It must fit the broker's JetStream file store — this chart does not size that store
   # itself (no `nats.*` value here overrides the bundled subchart's own file-store default), so
   # raising this past what the broker actually has fails startup naming `events.maxBytes`
   # (erd.md §5 EV-D9), not the broker's own less legible error. WHY drop-oldest and not
@@ -161,7 +165,7 @@ events:
   # subject they belong to — a run in progress keeps publishing, it never fails on this, and
   # `screamingface_engine_events_store_utilization_ratio` is the signal an operator raises this
   # value (or the store) from.
-  maxBytes: 8589934592
+  maxBytes: 1073741824
   # One run's frame retention bound per SUBJECT, regardless of the store's overall use — a
   # single run cannot starve every OTHER run's frames out of the shared store. 20000 is 10x the
   # measured p99 frame count headroom (PRD 01 §6); the terminal frame survives a per-subject
@@ -170,9 +174,9 @@ events:
   # Storage backstop: a subject nobody ever purges (a crashed runner, EV-D13) still clears
   # itself after 24h — no sweep is needed.
   maxAgeS: 86400
-  # Same posture as `config.runQueueReplicas`: this chart bundles a SINGLE-NODE NATS subchart,
-  # which refuses `replicas > 1` outright (ServerError 10074). Raise it only against a real
-  # NATS cluster (OME-1093).
+  # 1 on purpose, also where NATS runs as a 3-node cluster (owner decision, 2026-09-26: no
+  # replicated events store yet). The bundled SINGLE-NODE subchart refuses `replicas > 1`
+  # outright (ServerError 10074). Raise it only against a real NATS cluster (OME-1093).
   replicas: 1
 
 # Where over-cap Evaluation results are parked between the worker that produces one and the
@@ -495,19 +499,22 @@ runnerPool:
   workerSlots: 4
   # Warm children per worker pod (uniform executor PRD 03): child processes that already did
   # their per-process work (imports, broker connection) and wait on stdin, so a claim hands off in
-  # milliseconds instead of paying a cold boot. Unset (null) here so the app's own default
-  # applies — one warm child per worker slot (`worker_warm_children` in config.py). 0 spawns a
-  # child on each claim instead, through the same protocol (slower start, least memory). The
-  # worker caps whatever is set here at `workerSlots`.
+  # milliseconds instead of paying a cold boot. 0 spawns a child on each claim instead, through
+  # the same protocol (slower start, least memory); null leaves the app's own default (one per
+  # worker slot, `worker_warm_children` in config.py). The worker caps it at `workerSlots`.
   #
-  # Unset (the default) means one warm child per slot — the MOST memory. Each IDLE warm child
-  # holds the imported engine in memory (not a built world: the world is built per run, after
-  # the hand-off), so `warmChildren × idle RSS` adds directly to the runner pod's memory — on top
-  # of `perRunCharge`/`overhead` below. The RSS to size that with is a phase-0 measurement that
-  # has NOT been taken yet (uniform executor PRD 03 §4 Non-functional requirements); pin this
-  # value and raise the pod's memory request from that number once it lands, rather than
-  # guessing one here now.
-  warmChildren:
+  # WHY 2 (sized to today's deployments, 2026-09-26 — the same values files: 4 slots per pod):
+  # two idle children (~0.9 GiB) fit the pod's memory REQUEST (4 × 256 Mi + 128 Mi); one per
+  # slot (4 idle, ~1.7 GiB) would not. The trade: the first 2 runs that start at once on a pod
+  # hand off warm, a third and fourth pay a cold boot (~1.7 s in kind).
+  #
+  # Memory: an IDLE warm child holds the imported engine AND the built world (measured in kind:
+  # about 430 MiB with the builtin benchmarks; 60 MiB without them). It does NOT add to the pod
+  # beyond `perRunCharge × workerSlots`: the worker keeps idle children only in FREE slots (idle
+  # + running ≤ workerSlots), so the pod never holds more than `workerSlots` child processes.
+  # `perRunCharge.memoryLimitMi` (1024) covers one idle child; the REQUEST `memoryMi` (256) is
+  # below it, so a pod with a full warm pool uses more than it requests (implementation-notes F7).
+  warmChildren: 2
   # The queue's per-caller allowance, or empty to derive `replicas × workerSlots` (OME-1142).
   #
   # WHY per-caller and not a fleet bound: the queue is split into `config.runQueueBucketCount`

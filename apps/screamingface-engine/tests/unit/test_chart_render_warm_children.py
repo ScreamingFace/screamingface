@@ -58,11 +58,17 @@ def _runner_env(docs: list[dict]) -> dict[str, str]:
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
-def test_unset_warm_children_renders_no_env_var() -> None:
-    """The chart default (`values.yaml`) leaves `warmChildren` null, so the key must be ABSENT
-    from the rendered env — not rendered empty, which would override the worker's own default
-    (one warm child per slot) with 0 warm children."""
+def test_the_chart_default_is_two_warm_children() -> None:
+    """Sized to today's deployments (2026-09-26): 2 idle children fit a 4-slot pod's request."""
     env = _runner_env(_render_with_overrides())
+    assert env["URL4_CLOUD_WORKER_WARM_CHILDREN"] == "2"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_null_warm_children_renders_no_env_var() -> None:
+    """A null `warmChildren` must be ABSENT from the rendered env — not rendered empty, which
+    would override the worker's own default (one warm child per slot) with 0 warm children."""
+    env = _runner_env(_render_with_overrides(**{"runnerPool.warmChildren": "null"}))
     assert "URL4_CLOUD_WORKER_WARM_CHILDREN" not in env
 
 
