@@ -140,7 +140,10 @@ What the pool's pods get:
 - `securityContext` matching the App's, plus a `RuntimeDefault` seccomp profile and an `emptyDir`
   at `/tmp` (required by `readOnlyRootFilesystem`)
 - `resources` = `workerSlots × perRunCharge + overhead` — sized so the declared concurrency can
-  actually run rather than scheduling BestEffort
+  actually run rather than scheduling BestEffort. The memory REQUEST also adds, per
+  warm child (`workerSlots` when `warmChildren` is unset), what it holds beyond its free slot's
+  charge — `warmChildCharge.memoryMi − perRunCharge.memoryMi` (194 Mi with the defaults) — so it
+  states what an idle warm pool actually holds; the memory limit is unchanged.
 - `nodeSelector` and `tolerations` from the chart's top-level placement values — the pool and
   the App Deployment therefore use the same operator-owned node pool and taint policy
 - a `checksum/runner-env` + `checksum/secret` annotation pair, so a ConfigMap/Secret value
@@ -172,16 +175,17 @@ per-process work (Python start-up, the imports, the world build) and wait on std
 hands the run off in milliseconds instead of paying a cold boot. With 0 warm children a child
 is spawned ON the claim instead, through the same protocol — slower start, least memory.
 
-Set with `runnerPool.warmChildren`. Left unset (null, the chart default), the worker applies
-its own default of one warm child per `workerSlots`; the worker caps whatever is set here at
-`workerSlots` regardless, and the render refuses a value ABOVE `workerSlots` outright, naming
-both values, rather than deploying a pool that would be silently truncated.
+Set with `runnerPool.warmChildren` — the chart default is 2 per pod (sized 2026-09-26 to the
+deployments' 4-slot pods). `null` leaves the worker's own default of one warm child per
+`workerSlots`; the worker caps whatever is set here at `workerSlots` regardless, and the render
+refuses a value ABOVE `workerSlots` outright, naming both values, rather than deploying a pool
+that would be silently truncated.
 
-**Memory.** Each IDLE warm child holds the imported engine (and its built world) in memory, so
-raising this adds `warmChildren × idle RSS` to the runner pod's memory, on top of
-`perRunCharge`/`overhead` above. The RSS to size that with is a phase-0 measurement that has
-NOT been taken yet — pin `warmChildren` and raise the pod's memory request from that number
-once it lands, rather than guessing one here now.
+**Memory.** Each IDLE warm child holds the imported engine and its built world: about 430 MiB
+measured in kind with the builtin benchmarks. Idle children only occupy FREE slots (idle +
+running ≤ `workerSlots`), so the per-slot memory LIMIT already covers them; the memory REQUEST
+adds each warm child's excess over its slot's charge (`runnerPool.warmChildCharge.memoryMi` 450 −
+`perRunCharge.memoryMi` 256), so the scheduler sees what the warm pool really uses.
 
 **Metrics**, on the same `runnerPool.metricsPort` scrape surface as the pool's other metrics:
 

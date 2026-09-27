@@ -236,6 +236,20 @@
           ],
           "additionalProperties": false
         },
+        "warmChildCharge": {
+          "type": "object",
+          "description": "The memory one IDLE warm child holds (the engine + its built world; ~430 MiB measured in kind, implementation-notes F7), ; each warm child adds its excess over `perRunCharge.memoryMi` (its free slot's charge, already requested) to the pod's memory request.",
+          "properties": {
+            "memoryMi": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "memoryMi"
+          ],
+          "additionalProperties": false
+        },
         "metricsPort": {
           "type": "integer",
           "minimum": 1,
@@ -249,6 +263,7 @@
         "terminationGracePeriodSeconds",
         "perRunCharge",
         "overhead",
+        "warmChildCharge",
         "metricsPort"
       ],
       "additionalProperties": false

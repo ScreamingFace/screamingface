@@ -509,11 +509,10 @@ runnerPool:
   # hand off warm, a third and fourth pay a cold boot (~1.7 s in kind).
   #
   # Memory: an IDLE warm child holds the imported engine AND the built world (measured in kind:
-  # about 430 MiB with the builtin benchmarks; 60 MiB without them). It does NOT add to the pod
-  # beyond `perRunCharge × workerSlots`: the worker keeps idle children only in FREE slots (idle
-  # + running ≤ workerSlots), so the pod never holds more than `workerSlots` child processes.
-  # `perRunCharge.memoryLimitMi` (1024) covers one idle child; the REQUEST `memoryMi` (256) is
-  # below it, so a pod with a full warm pool uses more than it requests (implementation-notes F7).
+  # about 430 MiB with the builtin benchmarks; 60 MiB without them). The worker keeps idle
+  # children only in FREE slots (idle + running ≤ workerSlots), so the pod never holds more than
+  # `workerSlots` children and the LIMIT (`perRunCharge.memoryLimitMi` per slot) covers them; the
+  # REQUEST adds each warm child's excess over its slot's charge (`warmChildCharge`, below).
   warmChildren: 2
   # The queue's per-caller allowance, or empty to derive `replicas × workerSlots` (OME-1142).
   #
@@ -558,6 +557,14 @@ runnerPool:
     cpuMillicores: 100
     memoryMi: 128
     memoryLimitMi: 256
+  # The memory one IDLE warm child holds (the engine + its built world; ~430 MiB measured in
+  # kind with the builtin benchmarks, implementation-notes F7). Each warm child adds what it
+  # holds BEYOND its free slot's `perRunCharge.memoryMi` (already requested) to the pod's
+  # memory REQUEST — 450 − 256 = 194 Mi with the defaults — so the scheduler sees what the warm
+  # pool really uses. NOT added to the limit: idle children only occupy free slots, which
+  # `perRunCharge` limits.
+  warmChildCharge:
+    memoryMi: 450
   # The worker's Prometheus /metrics port (prometheus_client.start_http_server).
   metricsPort: 9109
 

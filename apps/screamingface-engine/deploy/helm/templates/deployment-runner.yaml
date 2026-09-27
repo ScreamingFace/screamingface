@@ -45,7 +45,12 @@ value an operator set expecting it to take effect would be silently truncated in
 the render and name both values, the same shape as the drain-timing guard below. Skipped when
 `warmChildren` is unset (null): `kindIs "invalid"` is the only test that distinguishes "unset"
 from the legal value 0, which `if`/`with` alone would treat as falsy. */ -}}
+{{- /* `$warm` feeds the memory REQUEST (implementation-notes F7 follow-up): the warm children the
+pod actually holds — `workerSlots` when `warmChildren` is unset (the worker's own default, one per
+slot), `warmChildren` itself when set, the legal value 0 included. */ -}}
+{{- $warm := .Values.runnerPool.workerSlots -}}
 {{- if not (kindIs "invalid" .Values.runnerPool.warmChildren) -}}
+{{- $warm = .Values.runnerPool.warmChildren -}}
 {{- if gt (float64 .Values.runnerPool.warmChildren) (float64 .Values.runnerPool.workerSlots) -}}
 {{- fail (printf "runnerPool.warmChildren (%v) must not exceed runnerPool.workerSlots (%v): the worker caps it at the slot count, so a chart operator setting more than that gets a silently truncated pool instead of what they asked for" .Values.runnerPool.warmChildren .Values.runnerPool.workerSlots) -}}
 {{- end -}}
@@ -242,12 +247,14 @@ spec:
               exec:
                 command: ["sh", "-c", "kill -TERM 1"]
           resources:
-            # workerSlots × per-run charge + the worker's own overhead — sized so the declared
-            # concurrency can actually run. Memory limit only; no CPU limit, so a run can burst
-            # into idle CPU instead of being CFS-throttled mid-inference.
+            # workerSlots × per-run charge + the worker's own overhead, plus — per warm child —
+            # what it holds BEYOND the per-run charge of the free slot it sits in
+            # (`warmChildCharge − perRunCharge`, never negative): that slot's charge is already
+            # counted once. Memory limit only; no CPU limit, and the limit is unchanged: idle
+            # children only occupy FREE slots, which `perRunCharge`'s limit already covers.
             requests:
               cpu: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.cpuMillicores) .Values.runnerPool.overhead.cpuMillicores }}m
-              memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryMi) .Values.runnerPool.overhead.memoryMi }}Mi
+              memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryMi) .Values.runnerPool.overhead.memoryMi (mul $warm (max 0 (sub .Values.runnerPool.warmChildCharge.memoryMi .Values.runnerPool.perRunCharge.memoryMi))) }}Mi
             limits:
               memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryLimitMi) .Values.runnerPool.overhead.memoryLimitMi }}Mi
           # INVARIANT: pairs with `securityContext.readOnlyRootFilesystem` — the same rule as
