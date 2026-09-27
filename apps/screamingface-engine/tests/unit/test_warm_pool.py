@@ -374,3 +374,101 @@ async def test_missing_warm_children_are_started_in_parallel() -> None:
     await _settle()
     assert pool.idle_count == 3
     await pool.drain()
+
+
+async def test_idle_children_plus_busy_runs_never_exceed_the_slots() -> None:
+    """kind K8 finding: a pod sized for `slots` child processes keeps no idle child in a slot a
+    run holds — two of two slots busy means no warm child at all, and a freed slot refills."""
+    busy = 2
+    spawner = _Spawner(_FakeChild(1), _FakeChild(2), _FakeChild(3))
+    pool = WarmChildPool(spawn_warm=spawner, size=2, slots=2, busy=lambda: busy)
+    pool.start()
+    await _settle()
+    assert pool.idle_count == 0
+    assert spawner.spawned == []
+
+    busy = 1
+    pool.wake()
+    await _settle()
+    assert pool.idle_count == 1
+
+    busy = 0
+    pool.wake()
+    await _settle()
+    assert pool.idle_count == 2
+    await pool.drain()
+
+
+async def test_a_claim_takes_a_warm_spawn_in_flight_instead_of_spawning_another() -> None:
+    """kind K8 finding: at pod boot, a claim waits for the warm child already booting; it does
+    not boot a second child beside it (that doubled the pod's children and OOM-killed it)."""
+    gate = asyncio.Event()
+
+    class _GatedSpawner(_Spawner):
+        async def __call__(self) -> WarmHandle:
+            await gate.wait()
+            return await super().__call__()
+
+    spawner = _GatedSpawner(_FakeChild(1), _FakeChild(2))
+    busy = 0
+    pool = WarmChildPool(spawn_warm=spawner, size=1, slots=1, busy=lambda: busy)
+    pool.start()
+    await _settle()  # the warm spawn is in flight, blocked on the gate
+    busy = 1  # the worker counts the claim as soon as it takes the message
+    launch = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await _settle()
+    gate.set()
+    proc = await asyncio.wait_for(launch, 5)
+
+    assert proc.pid == 1  # type: ignore[attr-defined]
+    assert len(spawner.spawned) == 1
+    await pool.drain()
+
+
+async def test_a_claim_spawns_its_own_child_when_the_warm_spawn_fails() -> None:
+    gate = asyncio.Event()
+
+    class _GatedSpawner(_Spawner):
+        async def __call__(self) -> WarmHandle:
+            await gate.wait()
+            return await super().__call__()
+
+    sleeps = _Sleeps()
+    spawner = _GatedSpawner(_FakeChild(1, "die"), _FakeChild(2))
+    pool = WarmChildPool(spawn_warm=spawner, size=1, slots=1, sleep=sleeps)
+    pool.start()
+    await _settle()
+    launch = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await _settle()
+    gate.set()
+    proc = await asyncio.wait_for(launch, 5)
+
+    assert proc.pid == 2  # type: ignore[attr-defined]
+    await pool.drain()
+
+
+async def test_two_claims_take_one_warm_spawn_and_one_own_spawn() -> None:
+    """The `_warming > _waiting` count: one warm spawn in flight serves ONE waiting claim; the
+    second claim spawns its own child instead of waiting for a spawn nobody will make."""
+    gate = asyncio.Event()
+
+    class _GatedSpawner(_Spawner):
+        async def __call__(self) -> WarmHandle:
+            await gate.wait()
+            return await super().__call__()
+
+    busy = 0
+    spawner = _GatedSpawner(_FakeChild(1), _FakeChild(2))
+    pool = WarmChildPool(spawn_warm=spawner, size=1, slots=2, busy=lambda: busy)
+    pool.start()
+    await _settle()  # one warm spawn in flight
+    busy = 2
+    first = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    second = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await _settle()
+    gate.set()
+    procs = await asyncio.wait_for(asyncio.gather(first, second), 5)
+
+    assert sorted(proc.pid for proc in procs) == [1, 2]  # type: ignore[attr-defined]
+    assert len(spawner.spawned) == 2
+    await pool.drain()

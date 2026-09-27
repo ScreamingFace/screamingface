@@ -76,17 +76,19 @@ class RequestScope:
     stash state in.
 
     ``identity_headers`` is the caller's VERIFIED identity (canonical header name → value, see
-    `job_env.IDENTITY_HEADER_ENV`). ``origin`` distinguishes the two producers — "run" for a
-    child process booted from its environment, "sync" for a per-request handler (unit 3) — so
-    metrics, logs and the cache key can name the surface without inferring it.
+    `job_env.IDENTITY_HEADER_ENV`). ``origin`` names the SURFACE — "run" for an ensemble run,
+    "sync" for a sync call: local mode's per-request eval path, and a DIRECT run (a mount call,
+    booted from its environment but serving one sync call). The connector's seed rule reads it
+    (`world/connector.py`); nothing else does.
 
     WHY no ``traceparent`` field (FX-64): the trace has ONE carrier, `trace_scope`. A copy here let
     the connector read one carrier on the sync path and the other on the run path; a sync
     producer now binds `trace_scope` itself, from :func:`trace_from_headers`.
 
     ``deadline`` (04-review-fixes §2.1) is a :func:`time.monotonic` instant by which the
-    request must have answered, or ``None`` when no request budget applies. The sync producer
-    sets ``start + request_timeout_s``; the run producer sets ``None``.
+    request must have answered, or ``None`` when no request budget applies. The run producer
+    sets ``start + JOB_DEADLINE_S`` for a DIRECT run (a mount call) and ``None`` for an
+    expression run; local mode's eval path sets ``None``.
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
@@ -144,7 +146,7 @@ def request_scope_from_headers(
     ASGI layer supplies a case-insensitive view). It is the header-carrier sibling of
     `runner.main.request_scope_from_env`: the two share every VALUE's representation (identity via
     `job_env.identity_from_*`, the cache policy via :func:`cache_intent.parse_cache_control`) and
-    differ only in carrier and in ``origin`` — which is exactly the one field that names them.
+    differ in carrier and in ``origin`` (the run producer says "sync" too for a DIRECT run).
 
     The identity is the EDGE-VERIFIED header (D4). A client-supplied ``X-User-Email`` never
     reaches this function: the App strips and re-sets it before forwarding, and the node tier is

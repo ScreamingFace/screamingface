@@ -84,18 +84,27 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
             refusal `job_env.answer_seed_from_env` always produced — a run silently executed
             without its declared seed would publish a score claiming a sitting it never had.
+            Also an unknown ``RUN_SHAPE``, and a malformed ``JOB_DEADLINE_S`` on a direct run.
     """
 
     try:
         answer_seed = job_env.answer_seed_from_env(env)
+        direct = job_env.run_shape_from_env(env) == "direct"
     except ValueError as exc:
         raise RunnerConfigError(str(exc)) from exc
+    # FEATURE (uniform executor PRD 04, review of PRD 05): a DIRECT run is a mount call — the
+    # sync surface the node tier served — so it keeps that surface's two rules. `origin="sync"`
+    # lets the caller's declared `X-Answer-Seed` reach aigateway outside a candidate invocation
+    # (the connector's seed rule), and the run's own deadline bounds each aigateway attempt and
+    # retry (04-review-fixes §2.1) — no aigateway attempt starts past the run's own deadline.
+    job_deadline = _deadline_from_env(env) if direct else None
     return RequestScope(
         identity_headers=job_env.identity_from_env(env),
         profile=env.get(job_env.AIGATEWAY_PROFILE),
         answer_seed=answer_seed,
         cache=job_env.cache_policy_from_env(env),
-        origin="run",
+        origin="sync" if direct else "run",
+        deadline=None if job_deadline is None else time.monotonic() + job_deadline,
     )
 
 

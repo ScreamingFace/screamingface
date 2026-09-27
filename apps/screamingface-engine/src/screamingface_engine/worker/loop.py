@@ -71,6 +71,8 @@ class _Queue(Protocol):
 
     async def pull(self, batch: int, timeout_s: float) -> Sequence[ClaimedMessage]: ...
 
+    async def release_held(self) -> int: ...
+
 
 class _ControlMessage(Protocol):
     """The slice of ``nats.aio.msg.Msg`` the control loop uses."""
@@ -203,6 +205,8 @@ class Worker:
                     worker_reclaims=reclaim is not None,
                 ),
                 size=min(warm_children, slots),
+                slots=slots,
+                busy=lambda: len(self._active),
                 metrics=self._metrics,
             )
         self._supervisor = RunSupervisor(
@@ -339,11 +343,22 @@ class Worker:
                 await drain_task
         for task in done:
             self._active.discard(task)
+        if self._pool is not None:
+            self._pool.wake()
+
+    async def _release_held(self) -> None:
+        try:
+            await self._queue.release_held()
+        except Exception:  # a broker blip must not stop the drain; ack_wait still returns them
+            logger.warning("could not give back buffered queue messages", exc_info=True)
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
-        """Drop a finished supervisor task and refresh the busy-slot gauge."""
+        """Drop a finished supervisor task, refresh the busy-slot gauge, and let the warm pool
+        refill into the freed slot."""
         self._active.discard(task)
         self._metrics.slots_busy.set(len(self._active))
+        if self._pool is not None:
+            self._pool.wake()
 
     async def _control_loop(self, tg: asyncio.TaskGroup) -> None:
         """Serve run-control requests: only the owner of a run replies, and it SIGTERMs
@@ -494,10 +509,15 @@ class Worker:
         deadline = loop.time() + self._drain_grace_s
 
         self._metrics.drains.inc()
-        # Phase 0 — idle warm children die at once and no new one is warmed (WC-D7): they
-        # hold no run, and the pod is going away.
-        if self._pool is not None:
-            await self._pool.drain()
+        # Phase 0 — TOGETHER, so neither waits for the other: idle warm children die at once
+        # and no new one is warmed (WC-D7) — they hold no run, and the pod is going away; and
+        # the messages the claim loop's held subscriptions buffered after their last pull go
+        # back to the queue, so another pod runs them now instead of after `ack_wait` (kind K8
+        # finding; `RunQueue.release_held`).
+        await asyncio.gather(
+            self._release_held(),
+            self._pool.drain() if self._pool is not None else asyncio.sleep(0),
+        )
         # Phase 1 — the grace window: let in-flight runs finish naturally. WHY the ACTIVE
         # supervisor tasks and not the CHILDREN (review follow-up P2-6): a task is
         # registered the moment its run is claimed, while its child only registers once

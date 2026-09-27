@@ -155,13 +155,24 @@ class _Idle:
 
 
 class WarmChildPool:
-    """Keeps up to `size` warm children and hands each claimed run to exactly one of them."""
+    """Keeps up to `size` warm children and hands each claimed run to exactly one of them.
+
+    INVARIANT (kind K8 finding): idle children + running runs never exceed `slots`. An idle
+    child holds its built world (about 430 MiB with the builtin benchmarks), and the chart sizes
+    the pod's memory limit as `workerSlots × perRunCharge + overhead` — room for `slots` child
+    processes, not `slots` runs PLUS `size` idle children. Without this bound a pod with every
+    slot busy still kept `size` more children, and one run near its budget OOM-killed the whole
+    pod (and, redelivered, the next one). `busy` is the worker's count of running runs; the
+    worker calls `wake()` when one ends so the pool refills into the freed slot.
+    """
 
     def __init__(
         self,
         *,
         spawn_warm: SpawnWarm,
         size: int,
+        slots: int | None = None,
+        busy: Callable[[], int] = lambda: 0,
         ready_timeout_s: float = DEFAULT_READY_TIMEOUT_S,
         ack_timeout_s: float = DEFAULT_ACK_TIMEOUT_S,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -171,12 +182,19 @@ class WarmChildPool:
             raise ValueError(f"warm pool size must be >= 0, got {size}")
         self._spawn_warm = spawn_warm
         self._size = size
+        self._slots = size if slots is None else slots
+        self._busy = busy
         self._ready_timeout_s = ready_timeout_s
         self._ack_timeout_s = ack_timeout_s
         self._sleep = sleep
         self._metrics = metrics
         self._idle: list[_Idle] = []
         self._spawning = 0
+        # Warm spawns in flight (a subset of `_spawning`), the claims waiting for one of them,
+        # and the signal that one finished (parked or failed) — see `_take`.
+        self._warming = 0
+        self._waiting = 0
+        self._warm_done = asyncio.Condition()
         self._consecutive_failures = 0
         self._draining = False
         self._wake = asyncio.Event()
@@ -185,7 +203,7 @@ class WarmChildPool:
     # --- lifecycle ---------------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start keeping `size` children warm. Idempotent."""
+        """Start keeping up to `size` children warm, in free slots only. Idempotent."""
         if self._replenisher is None and self._size > 0:
             self._replenisher = asyncio.create_task(self._replenish_forever())
 
@@ -213,6 +231,10 @@ class WarmChildPool:
     @property
     def idle_count(self) -> int:
         return len(self._idle)
+
+    def wake(self) -> None:
+        """A run ended and freed its slot: look again at how many children to keep warm."""
+        self._wake.set()
 
     # --- the hand-off ------------------------------------------------------------------------
 
@@ -243,8 +265,21 @@ class WarmChildPool:
         raise LaunchFailed(SPAWN_FAILED, "no child took the run: two children died before the ACK")
 
     async def _take(self) -> WarmHandle:
-        """An idle warm child, or a child spawned for this claim (and awaited to READY)."""
-        while self._idle:
+        """An idle warm child, or one a warm spawn in flight is about to park, or a child spawned
+        for this claim (and awaited to READY).
+
+        WHY wait for a warm spawn in flight (kind K8 finding): at pod boot the pool is already
+        booting `size` children. A claim that spawned ANOTHER child beside them held
+        `size + claims` booting children at once — each about 430 MiB once its world is built —
+        and OOM-killed a pod sized for `slots` children. A claim takes a spawn in flight that no
+        other claim waits for; only when there is none does it spawn its own.
+        """
+        while True:
+            if not self._idle and self._warming > self._waiting:
+                await self._await_warm_spawn()
+                continue
+            if not self._idle:
+                break
             entry = self._idle.pop(0)
             entry.watcher.cancel()
             entry.forwarder.cancel()
@@ -264,6 +299,15 @@ class WarmChildPool:
         except _WARM_FAILURES as exc:
             self._count_failure()
             raise LaunchFailed(SPAWN_FAILED, f"could not start a child: {exc}") from exc
+
+    async def _await_warm_spawn(self) -> None:
+        """Wait until a warm spawn in flight finishes (parked or failed); `_take` looks again."""
+        self._waiting += 1
+        try:
+            async with self._warm_done:
+                await self._warm_done.wait()
+        finally:
+            self._waiting -= 1
 
     async def _hand_off(
         self, handle: WarmHandle, env: Mapping[str, str], io_budget: Callable[[], int]
@@ -333,14 +377,18 @@ class WarmChildPool:
             self._wake.set()
 
     async def _replenish_forever(self) -> None:
-        """Keep `size` children warm; back off 1, 2, 4 … 30 s after consecutive failures.
+        """Keep `min(size, free slots)` children warm; back off 1, 2, 4 … 30 s after consecutive
+        failures.
 
         WHY catch everything: this task lives beside the supervisors, and `drain()` awaits it —
         an unexpected error escaping here would land in the worker's TaskGroup at drain and
         cancel every running supervisor (the N-3 cascade). Log and keep warming.
         """
         while not self._draining:
-            missing = self._size - len(self._idle) - self._spawning
+            # The slot bound (class INVARIANT). `_spawning` also counts a claim's own spawn,
+            # whose run is already in `busy` — that counts it twice, which only warms less.
+            target = min(self._size, self._slots - self._busy())
+            missing = target - len(self._idle) - self._spawning
             if missing <= 0:
                 self._wake.clear()
                 await self._wake.wait()
@@ -358,19 +406,27 @@ class WarmChildPool:
 
     async def _warm_one(self) -> bool:
         """Start one warm child and park it; False when it failed (counted)."""
+        self._warming += 1
         try:
-            handle = await self._spawn_ready()
-        except Exception as exc:
-            if not isinstance(exc, _WARM_FAILURES):
-                logger.exception("warm spawn failed unexpectedly")
-            logger.warning("warm spawn failed: %r", exc)
-            self._count_failure()
-            return False
-        if self._draining:
-            _signal(handle.proc)
+            try:
+                handle = await self._spawn_ready()
+            except Exception as exc:
+                if not isinstance(exc, _WARM_FAILURES):
+                    logger.exception("warm spawn failed unexpectedly")
+                logger.warning("warm spawn failed: %r", exc)
+                self._count_failure()
+                return False
+            if self._draining:
+                _signal(handle.proc)
+                return True
+            self._park(handle)
             return True
-        self._park(handle)
-        return True
+        finally:
+            self._warming -= 1
+            # A claim waiting in `_take` looks again: at the parked child, or (on a failure)
+            # spawns its own.
+            async with self._warm_done:
+                self._warm_done.notify_all()
 
     def _park(self, handle: WarmHandle) -> None:
         entry = _Idle(

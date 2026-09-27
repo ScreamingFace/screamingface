@@ -17,6 +17,7 @@ worker half (which pulls), so it imports nothing from the run half — only the 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -368,6 +369,9 @@ class RunQueue:
         # list), so the cache is bounded by that, not by callers or messages.
         self._pull_subs: dict[str, Any] = {}
         self._pull_subs_bound: dict[str, float] = {}
+        # The longest fetch window any pull has used: a pull request stays open on the server
+        # up to this long, so `release_held` waits it out before it collects late deliveries.
+        self._max_window_s = 0.0
 
     async def _jetstream(self) -> JetStreamContext:
         js = self._js
@@ -557,6 +561,7 @@ class RunQueue:
             if remaining <= 0:
                 break
             window = fast_window if slot < rotation else remaining / rotation
+            self._max_window_s = max(self._max_window_s, window)
             subject = subjects[(self._rr_index + slot) % rotation]
             sub = await self._bound_subscription(js, subject)
             want = min(batch - len(collected), per_visit)
@@ -714,6 +719,44 @@ class RunQueue:
         if ts.year <= 1:
             return None
         return (datetime.now(UTC) - ts).total_seconds()
+
+    async def release_held(self) -> int:
+        """Give back every message a held subscription buffered that no pull returned.
+
+        WHY (kind K8 finding): a fetch that times out on the client leaves its pull request
+        open on the server for the rest of its window, and a message that arrives then lands
+        in the held subscription's buffer — a DELIVERY no pull has returned. While the claim
+        loop runs, the next pull picks it up (V-4). A draining worker pulls no more, so that
+        message sat unacked for the whole `ack_wait` (60 s) before any other pod could take
+        it: a mount call on the next pod waited past its 30 s bound and answered 504.
+
+        Call it once the claim loop has stopped. It waits out the last window (the server
+        closes the open pull requests), NAKs every buffered message so it is redelivered at
+        once, and unsubscribes. Status messages (a pull's 408/404 end) carry no delivery and
+        are skipped. Returns the number of messages given back.
+        """
+        if not self._pull_subs:
+            return 0
+        await asyncio.sleep(self._max_window_s)
+        released = 0
+        subs = list(self._pull_subs.values())
+        self._pull_subs.clear()
+        self._pull_subs_bound.clear()
+        for sub in subs:
+            # AIDEV-NOTE: nats-py exposes the buffer only as `pending_msgs` (a count); the
+            # queue behind it is `_sub._pending_queue`. `get_nowait` never blocks.
+            buffered = sub._sub._pending_queue  # noqa: SLF001
+            while not buffered.empty():
+                msg = buffered.get_nowait()
+                if msg.reply and not JetStreamContext.is_status_msg(msg):
+                    with contextlib.suppress(nats.errors.Error):
+                        await msg.nak()
+                        released += 1
+            with contextlib.suppress(nats.errors.Error):
+                await sub.unsubscribe()
+        if released:
+            logger.info("run-queue drain gave back %d buffered message(s)", released)
+        return released
 
     async def close(self) -> None:
         if self._nc is not None:

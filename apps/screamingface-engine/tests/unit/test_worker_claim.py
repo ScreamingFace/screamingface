@@ -125,6 +125,9 @@ class _FakeQueue:
         self._batches = list(batches or [])
         self.pull_calls: list[tuple[int, float]] = []
 
+    async def release_held(self) -> int:
+        return 0
+
     async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
         self.pull_calls.append((batch, timeout_s))
         if self._batches:

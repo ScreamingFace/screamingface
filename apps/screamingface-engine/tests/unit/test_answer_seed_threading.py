@@ -501,3 +501,35 @@ async def test_the_seed_reaches_candidate_calls_and_never_judge_calls() -> None:
     by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
     assert by_context["case-ctx"]["seed"] == 7
     assert "seed" not in by_context["judge-ctx"]
+
+
+@pytest.mark.asyncio
+async def test_a_direct_mount_call_sends_the_callers_seed_to_aigateway() -> None:
+    """Review of PRD 05 (finding 3): a mount call is a DIRECT run now, not a node-tier request.
+    It keeps the sync surface's seed rule — the caller's declared seed reaches aigateway with
+    no candidate invocation around the call."""
+    gw = _MockAigateway()
+    env = {
+        **job_env.answer_seed_to_env(7),
+        job_env.RUN_SHAPE: "direct",
+        job_env.JOB_DEADLINE_S: "35",
+    }
+
+    async with gw.client() as client:
+        executor = build_executor(env, _declared(), client=client)
+        async for _ in executor.execute(f"/{MODEL}?q=('ctx')!'go'"):
+            pass
+
+    assert gw.bodies[0]["seed"] == 7
+
+
+@pytest.mark.asyncio
+async def test_an_expression_run_still_sends_no_seed_outside_a_candidate() -> None:
+    """The run path's rule is unchanged: outside a candidate invocation, no seed."""
+    gw = _MockAigateway()
+    async with gw.client() as client:
+        executor = build_executor(job_env.answer_seed_to_env(7), _declared(), client=client)
+        async for _ in executor.execute(f"/{MODEL}('ctx')!'go'"):
+            pass
+
+    assert "seed" not in gw.bodies[0]
