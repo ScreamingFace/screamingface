@@ -183,15 +183,6 @@ third-party benchmark explicitly not created by us, and once as a board we would
 own. The claims rules about self-authored benchmarks apply only to the second. Which one a
 given result refers to has to be settled before a claim about it is published. Owner: brand.
 
-## What is unsettled
-
-Do not resolve these. They are recorded so nobody has to rediscover them.
-
-| Item | Status | Owner | Source |
-|---|---|---|---|
-| Public claim language for benchmarks we authored has not been approved. Canon names Ronnie as the approver; Irina names Lacey. Which name is current, and what exact copy is under review, needs one more answer | **open** | Lacey, unreconciled with canon | terminology, `Benchmark` entry: "Ronnie has not yet approved public claim language for authored benchmarks" |
-| The persona set, outside the top priority persona, is still being refined | **provisional** | Irina | personas file preamble: "These audiences are still being refined, not all are final" |
-
 ## Not in this file
 
 **Two sections of the source are marked "do not put in public copy"** by the people who own
