@@ -37,6 +37,7 @@ import nats
 import nats.errors
 from nats.aio.client import Client
 from nats.aio.msg import Msg
+from nats.aio.subscription import Subscription
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StorageType
 from nats.js.errors import BadRequestError
@@ -372,6 +373,34 @@ class RunQueue:
         # The longest fetch window any pull has used: a pull request stays open on the server
         # up to this long, so `release_held` waits it out before it collects late deliveries.
         self._max_window_s = 0.0
+        # The wake-up subject (OME-1091 F6): a CORE-NATS subject, not a bucket subject, and
+        # DELIBERATELY named outside the queue stream's wildcard filter (`<prefix>.>`, see
+        # `_stream_subject`) — `<prefix>-wake` fails that match at the first character past
+        # the prefix (`-` where the filter needs a `.`). If it matched, JetStream would
+        # durably STORE every wake-up as a queue message, and the worker's pull would try to
+        # claim it as a run. `publish` and `release_held` send a fire-and-forget nudge here;
+        # `pull` subscribes to it (lazily, once per connection — `_ensure_wake_subscription`,
+        # bound BEFORE every pull's fast pass) so an idle pull is nudged the moment work
+        # lands, instead of waiting out a blind rotation. See
+        # `test_the_wake_subject_is_outside_the_stream_subject_filter`.
+        self._wake_subject = f"{subject_prefix}-wake"
+        # The HELD wake subscription (one per connection, like `_pull_subs`): `None` until
+        # `_ensure_wake_subscription` binds it, and reset to `None` on reconnect below —
+        # the subscription died with the old connection.
+        self._wake_sub: Subscription | None = None
+        # Set by the wake subscription's callback; `pull`'s wait loop blocks on it once
+        # its fast pass leaves the batch unfilled. Cleared at the start of every `pull`,
+        # and again each time the wait loop wakes (`_wait_for_wake`).
+        self._woken = asyncio.Event()
+        # The TARGETED wake state (OME-1091 F6, design review's accepted fix): WHICH
+        # bucket(s) a wake was actually for, so the wait loop's repeat pass visits only
+        # those instead of a full rotation. `_on_wake` adds one subject per `publish`'s
+        # nudge, or sets `_woken_all` for a `release_held` drain (whose given-back
+        # messages can span any bucket). `_wait_for_wake` reads and clears both
+        # atomically (no `await` between) right before it runs a pass, so a wake landing
+        # WHILE that pass runs accumulates for the NEXT one instead of racing it.
+        self._woken_subjects: set[str] = set()
+        self._woken_all = False
 
     async def _jetstream(self) -> JetStreamContext:
         js = self._js
@@ -390,6 +419,7 @@ class RunQueue:
             # Held subscriptions died with it too — rebind on the next pull.
             self._pull_subs.clear()
             self._pull_subs_bound.clear()
+            self._wake_sub = None
             return js
 
     def _is_closed(self) -> bool:
@@ -473,17 +503,25 @@ class RunQueue:
         wall-clock acceptance moment. JetStream's delivery metadata carries only the PULL
         timestamp, so the claim-time "waited past its deadline" check would otherwise measure
         an always-fresh ~0 and never fire for exactly the backlogged runs it exists to catch.
+
+        WAKE-UP (OME-1091 F6): once the message is durably queued, a fire-and-forget
+        core-NATS nudge on `self._wake_subject` lets an idle `pull` claim it at once instead
+        of waiting out its next rotation — see `_wake`. It never fails this call: the run is
+        already accepted by the time it is sent, so a missed nudge only costs the OLD
+        latency, never the run.
         """
         await self.ensure_stream()
         js = await self._jetstream()
+        bucket_subject = self.bucket_subject(identity)
         await js.publish(
-            self.bucket_subject(identity),
+            bucket_subject,
             message,
             headers={
                 "Nats-Msg-Id": topic_of_message(message),
                 subjects.ENQUEUED_AT_HEADER: datetime.now(UTC).isoformat(),
             },
         )
+        await self._wake(bucket_subject.encode())
 
     async def pull(
         self,
@@ -496,15 +534,47 @@ class RunQueue:
         bucket), waiting up to `timeout_s` in total.
 
         The round-robin visits every bucket in rotation, up to `PULL_BUCKET_BATCH`
-        messages (or the batch's fair share, whichever is larger) per bucket per visit, in
-        TWO phases: a FAST pass whose short per-bucket windows collect what is immediately
-        available — a burst sitting in one bucket — and a slow pass that spends the
-        remaining budget on a second rotation, so a message that is not there yet still
-        has a window to land. A busy caller cannot drain ahead of a quieter one WITHIN a
-        pull (the per-visit cap sees to that), and the rotation index advances so no
-        bucket is permanently first. A poll against an empty queue returns within
-        `timeout_s` overall: the fast pass is capped at `PULL_FAST_PASS_S`, and the slow
-        pass only re-splits what remains.
+        messages (or the batch's fair share, whichever is larger) per bucket per visit. A
+        busy caller cannot drain ahead of a quieter one WITHIN a pull (the per-visit cap
+        sees to that), and the rotation index advances so no bucket is permanently first.
+
+        WAKE-UP (OME-1091 F6): a FAST pass — one rotation with short per-bucket windows —
+        collects whatever a burst already left sitting in a bucket. What happens next
+        depends on whether a wake SUBSCRIPTION exists (`_ensure_wake_subscription`, bound
+        BEFORE the fast pass runs, on EVERY pull — including the first of a connection —
+        so a wake landing during THIS pull's own fast pass is never lost):
+
+        - No subscription could be made (no live connection yet, or the broker refuses
+          the subscribe): `pull` falls back to the ORIGINAL behavior, BYTE FOR BYTE,
+          unchanged by any of this — a slow pass spends the remaining budget on a second
+          rotation, so a message that is not there yet still has a window to land, and
+          the call holds for a full batch or the deadline exactly as it always has.
+        - A subscription exists and the fast pass collected NOTHING: `pull` waits on
+          `self._wake_subject` instead of blind-rotating again — the core-NATS nudge
+          `publish` (or a drained `release_held`) sends the moment work lands. That wait
+          repeats a TARGETED pass on each wake: ONLY the bucket(s) `_on_wake` recorded
+          since the last one, or every bucket when a drain-wide nudge marked "all". A
+          false alarm (another pod claimed first, or the nudge named buckets outside
+          this pull's own list) keeps waiting rather than returning empty-handed; only
+          the deadline forces an empty return.
+        - A subscription exists and a pass (the fast pass, or a wake pass) collected
+          SOMETHING but not the full batch: `pull` runs ONE top-up rotation over only the
+          subject(s) that pass just found something in (`_top_up`), then returns — this
+          is what keeps the wake path's OWN version of the OME-1091 property "one
+          caller's burst fills a worker's batch" (test_one_callers_burst_fills_the_batch
+          _from_one_bucket, on the fallback path) without ever holding delivered messages
+          until the deadline the way blind-rotating for more would.
+
+        Every fetch window in every pass — fast, wake, top-up, or the fallback's slow
+        pass — is capped by what remains until `timeout_s`'s deadline, so none of them
+        can overrun it.
+
+        A BROKER BLIP never loses what was already collected: a pass that ends early on
+        one (`_visit`'s `None`, raised only once something is already in hand) makes
+        `pull` return that partial batch AT ONCE, rather than starting another pass that
+        would re-bind the dropped subscription — which can raise mid-outage, and would
+        otherwise unwind this call and discard delivered messages that were never acked
+        or NAK'd.
 
         Returns the raw NATS messages; the caller acks each after processing. Under the
         EXPLICIT ack policy an unacked message is redelivered after `ack_wait`, up to
@@ -520,19 +590,29 @@ class RunQueue:
         reconnect clears it — the subscriptions died with the connection.
 
         THE RPC ACCOUNTING (review follow-up, recorded so the tradeoff is a decision, not
-        an accident): one pull costs one `fetch` per bucket VISITED — the fast pass
-        always costs a full rotation (16 with the default bucket count); the slow pass
-        only runs while the batch is unfilled and budget remains — against one
-        `fetch(batch)` for a single-subject consumer. That multiplier is the price of
-        per-caller fairness: JetStream dispatches one consumer in stream order, so a
-        single wildcard consumer would collapse the buckets back into FIFO — the exact
-        head-of-line unfairness the bucket rotation exists to break. Two properties keep
-        the cost bounded: the fast pass's windows total `min(PULL_FAST_PASS_S,
-        timeout_s)`, and an empty bucket's fetch returns as soon as its own short window
-        expires, so a poll against an empty queue is 16 cheap timeouts plus at most one
-        more rotation of the REMAINING budget — never more than `timeout_s` overall.
-        Revisit only with production RPC-budget numbers from the sized fleet (worker pods
-        x polls/second x buckets vs what the broker absorbs); the levers, in order of
+        an accident; updated for the wake-up): one pull costs one `fetch` per bucket
+        VISITED — the fast pass always costs a full rotation (16 with the default bucket
+        count) — against one `fetch(batch)` for a single-subject consumer. That
+        multiplier is the price of per-caller fairness: JetStream dispatches one consumer
+        in stream order, so a single wildcard consumer would collapse the buckets back
+        into FIFO — the exact head-of-line unfairness the bucket rotation exists to
+        break. An IDLE poll on the wake path now costs one fast rotation plus ONE FETCH
+        per bucket a wake-up actually names — never a whole second blind rotation — and
+        a partial burst costs the fast pass plus one top-up fetch per productive bucket,
+        never a full second rotation either. FAN-OUT: every idle pod receives every wake, so
+        one publish costs one fetch of the woken bucket PER IDLE POD (all but one lose it and
+        wait out one fast window), and the winner's claim loop pulls again at once (one
+        more fast rotation) — about `pods + rotation` fetches per publish, against a blind
+        slow rotation per pod per `timeout_s` before. At a high publish rate across many
+        idle pods that can cost MORE RPCs than the old poll; it buys milliseconds of claim
+        latency. A missed wake (the notify raced the pull, or
+        never arrived) simply falls back to the NEXT pull's own fast rotation rather than
+        hanging. Only the fallback path (no wake subscription) still costs a second full
+        rotation, exactly as before the wake-up existed. Never more than `timeout_s`
+        overall either way (the fast pass's windows total `min(PULL_FAST_PASS_S,
+        timeout_s)`, and every later window is capped by what remains of it). Revisit
+        only with production RPC-budget numbers from the sized fleet (worker pods x
+        polls/second x buckets vs what the broker absorbs); the levers, in order of
         preference, are a smaller `bucket_count`, the per-visit cap, or a server-side
         fair consumer if JetStream ever ships one — never a silent fallback to the
         wildcard.
@@ -542,35 +622,332 @@ class RunQueue:
             return []
         await self.ensure_stream()
         js = await self._jetstream()
+        # Bound BEFORE the fast pass, on EVERY pull — a wake that lands
+        # during THIS pull's own fast pass must still be seen, not just a later one's.
+        wake_sub = await self._ensure_wake_subscription()
+        self._woken.clear()
+        self._woken_all = False
+        self._woken_subjects.clear()
         collected: list[Msg] = []
-        # TWO PHASES over the same rotation (review follow-up P2-7). The FAST pass (the
-        # first rotation) gives each bucket a short window so messages that are already
-        # there — a burst sitting in one bucket — are collected before the budget is
-        # spent waiting on empty buckets; the SLOW pass spends the remaining budget on a
-        # second rotation, so a message that lands mid-poll still has a window. Each
-        # visit fetches at most `per_visit` messages, so a busy caller cannot drain ahead
-        # of a quieter one WITHIN a pull, and the total wait never exceeds `timeout_s`.
+        hits: set[str] = set()
         rotation = len(subjects)
         per_visit = max(PULL_BUCKET_BATCH, -(-batch // rotation))
         fast_window = min(PULL_FAST_PASS_S, timeout_s) / rotation
         deadline = time.monotonic() + timeout_s
-        for slot in range(max(batch, 2 * rotation)):
+        start = self._rr_index
+        stopped = await self._rotate(
+            js,
+            subjects,
+            start=start,
+            visits=rotation,
+            batch=batch,
+            per_visit=per_visit,
+            window=fast_window,
+            shrink=False,
+            deadline=deadline,
+            collected=collected,
+            productive=hits,
+        )
+        self._rr_index = (start + 1) % rotation
+        if not stopped and len(collected) < batch and deadline - time.monotonic() > 0:
+            await self._second_pass(
+                js,
+                subjects,
+                wake_sub,
+                hits,
+                start,
+                batch,
+                per_visit,
+                fast_window,
+                deadline,
+                collected,
+            )
+        return collected
+
+    async def _second_pass(
+        self,
+        js: Any,
+        subjects: list[str],
+        wake_sub: Subscription | None,
+        hits: set[str],
+        start: int,
+        batch: int,
+        per_visit: int,
+        fast_window: float,
+        deadline: float,
+        collected: list[Msg],
+    ) -> None:
+        """The pull's SECOND pass — reached only when the first fast pass hit no blip and
+        left the batch unfilled, with time still remaining. Three ways this goes:
+
+        - No wake subscription (`wake_sub` is `None`): the ORIGINAL slow pass, BYTE FOR
+          BYTE unchanged by the wake-up — one more rotation spending the REMAINING
+          budget, split evenly across every bucket (`shrink=True`), starting at the SAME
+          rotation offset as the fast pass (`start`) — whether or not that fast pass
+          already collected something (the fallback holds for a full batch or the deadline
+          exactly as it always has; only the wake path below returns early on a partial
+          batch).
+        - A wake subscription exists and the fast pass already collected something
+          (`hits` names the bucket(s) it came from): ONE top-up rotation over just those
+          buckets (`_top_up`), then return — never a full wake wait, and never held for
+          the deadline.
+        - A wake subscription exists and the fast pass collected NOTHING: wait for a
+          wake-up (`_wait_for_wake`), which applies this same top-up-then-return rule to
+          each wake pass in turn.
+        """
+        if wake_sub is None:
+            rotation = len(subjects)
+            extra_slots = max(batch, 2 * rotation) - rotation
+            if extra_slots > 0:
+                await self._rotate(
+                    js,
+                    subjects,
+                    start=start,
+                    visits=extra_slots,
+                    batch=batch,
+                    per_visit=per_visit,
+                    window=0.0,
+                    shrink=True,
+                    deadline=deadline,
+                    collected=collected,
+                )
+            return
+        if collected:
+            await self._top_up(
+                js, subjects, hits, batch, per_visit, fast_window, deadline, collected
+            )
+            return
+        await self._wait_for_wake(js, subjects, batch, per_visit, fast_window, deadline, collected)
+
+    async def _top_up(
+        self,
+        js: Any,
+        subjects: list[str],
+        hits: set[str],
+        batch: int,
+        per_visit: int,
+        window: float,
+        deadline: float,
+        collected: list[Msg],
+    ) -> None:
+        """ONE extra rotation over only the
+        bucket(s) that the pass just before this one found something in — `hits`, in
+        `subjects`' own rotation order — then return, whatever it finds. This is what
+        keeps the wake path's version of the OME-1091 burst property (one caller's 8
+        messages in one bucket still fill a `batch=4` pull) without ever holding what is
+        ALREADY collected and delivered until the deadline: a caller with a partial batch
+        in hand gets it back at once, and can always poll again for the rest.
+
+        A blip during this rotation is handled exactly like any other (`_rotate`'s own
+        `stopped` return) — the caller just returns `collected` right after either way,
+        so there is nothing further for this method itself to decide.
+        """
+        targets = [s for s in subjects if s in hits]
+        if not targets:
+            return
+        await self._rotate(
+            js,
+            targets,
+            start=self._rr_index,
+            visits=len(targets),
+            batch=batch,
+            per_visit=per_visit,
+            window=window,
+            shrink=False,
+            deadline=deadline,
+            collected=collected,
+        )
+
+    async def _rotate(
+        self,
+        js: Any,
+        subjects: list[str],
+        *,
+        start: int,
+        visits: int,
+        batch: int,
+        per_visit: int,
+        window: float,
+        shrink: bool,
+        deadline: float,
+        collected: list[Msg],
+        productive: set[str] | None = None,
+    ) -> bool:
+        """One rotation: `visits` bucket visits over `subjects`, starting at rotation
+        offset `start` (mod `len(subjects)`). `visits == len(subjects)` sweeps the whole
+        list once — the fast pass, and a wake or top-up pass's targeted list; a larger
+        `visits` cycles it more than once — the fallback slow pass's larger batch.
+        Appends to `collected` IN PLACE, and — when `productive` is given — adds every
+        subject that yielded at least one message to it, so a caller (`_top_up`) can
+        revisit just those. Shared by every pass so they are identical in every fairness
+        property: same per-visit cap, same rotation order.
+
+        WHY one window formula, selected by `shrink`: the fast pass, the wake pass, and
+        the top-up pass all use a FIXED short `window` per visit, so a burst already
+        sitting in a bucket is caught immediately; the fallback slow pass instead SPENDS
+        the remaining budget, splitting it across the full rotation afresh every visit
+        (`shrink=True` ignores `window` and uses `remaining / len(subjects)` instead) —
+        the shrinking rule it has always used. EITHER WAY every visit's window is capped
+        by what remains until `deadline`: a wake — or a slow-pass slot — landing
+        near `timeout_s`'s deadline must never spend a longer window than what is
+        actually left.
+
+        Returns `True` ("stopped") the moment a visit ends on a blip (`_visit`'s `None`
+        — a broker error raised only once `have` messages were already collected): the
+        caller must return `collected` AT ONCE rather than starting another pass, because
+        the very next visit would re-bind the dropped subscription
+        (`_bound_subscription` -> `js.pull_subscribe`), which can raise mid-outage and
+        would otherwise discard exactly the delivered messages this call is protecting.
+        Returns `False` when the rotation ends normally: the batch filled, the visits
+        ran out, or the deadline passed.
+        """
+        rotation = len(subjects)
+        for slot in range(visits):
             if len(collected) >= batch:
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            window = fast_window if slot < rotation else remaining / rotation
-            self._max_window_s = max(self._max_window_s, window)
-            subject = subjects[(self._rr_index + slot) % rotation]
+            visit_window = remaining / rotation if shrink else min(window, remaining)
+            self._max_window_s = max(self._max_window_s, visit_window)
+            subject = subjects[(start + slot) % rotation]
             sub = await self._bound_subscription(js, subject)
             want = min(batch - len(collected), per_visit)
-            fetched = await self._visit(sub, subject, want, window, have=len(collected))
+            fetched = await self._visit(sub, subject, want, visit_window, have=len(collected))
             if fetched is None:
-                break
+                return True
+            # Productive only when the visit came back FULL: a bucket that returned fewer than
+            # asked ran dry inside its window, and a top-up visit would only wait it out again.
+            if productive is not None and len(fetched) == want:
+                productive.add(subject)
             collected.extend(fetched)
-        self._rr_index = (self._rr_index + 1) % rotation
-        return collected
+        return False
+
+    async def _wait_for_wake(
+        self,
+        js: Any,
+        subjects: list[str],
+        batch: int,
+        per_visit: int,
+        fast_window: float,
+        deadline: float,
+        collected: list[Msg],
+    ) -> None:
+        """Wait for a wake-up (OME-1091 F6, targeted pass — the design review's accepted
+        fix), repeating a pass on each one: ONLY the woken subjects (`_on_wake`'s
+        per-`publish` nudge), or a full sweep of `subjects` when a `release_held` drain
+        woke every puller ("all" — its given-back messages can span any bucket).
+
+        Takes and clears the woken state atomically (no `await` between the read and the
+        reset) BEFORE running a pass, so a wake landing WHILE that pass runs accumulates
+        for the NEXT iteration instead of racing it. A wake whose subjects miss this
+        pull's own list entirely — another caller's publish, restricted out by the
+        intersection with `subjects` — is a false alarm: it keeps waiting rather than
+        spending a pass on nothing, since only the deadline may end this loop
+        empty-handed.
+
+        A pass that STOPS on a blip returns at once, same as everywhere else. A pass
+        that collects something but not the full batch runs ONE top-up rotation
+        (`_top_up`) over just the bucket(s) it came from, then returns — the
+        SAME rule `pull`'s own first fast pass follows — rather than waiting for a
+        further wake that may never target this pull's own buckets again. Only a pass
+        that collects NOTHING loops back to wait for the next wake.
+        """
+        subject_set = set(subjects)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            try:
+                await asyncio.wait_for(self._woken.wait(), remaining)
+            except TimeoutError:
+                return
+            self._woken.clear()
+            woken_all, self._woken_all = self._woken_all, False
+            targets_hit = self._woken_subjects & subject_set
+            self._woken_subjects.clear()
+            if not woken_all and not targets_hit:
+                continue
+            targets = subjects if woken_all else [s for s in subjects if s in targets_hit]
+            hits: set[str] = set()
+            stopped = await self._rotate(
+                js,
+                targets,
+                start=self._rr_index,
+                visits=len(targets),
+                batch=batch,
+                per_visit=per_visit,
+                window=fast_window,
+                shrink=False,
+                deadline=deadline,
+                collected=collected,
+                productive=hits,
+            )
+            if stopped:
+                return
+            if collected:
+                break
+        await self._top_up(js, targets, hits, batch, per_visit, fast_window, deadline, collected)
+
+    async def _ensure_wake_subscription(self) -> Subscription | None:
+        """The lazy, HELD-per-connection subscription to `self._wake_subject`
+        (OME-1091 F6): its callback (`_on_wake`) records what the wake was for and sets
+        `self._woken`, which `pull`'s wait loop blocks on.
+
+        Bound BEFORE the fast pass runs, on EVERY pull (`pull` awaits this right after
+        `_jetstream`, before it resets `_woken`/`_woken_all`/`_woken_subjects`) —
+        including the very first pull of a connection: a subscription bound only
+        AFTER the fast pass would miss exactly the wake a concurrent publish sends while
+        that fast pass is still running. Once bound it stays live for every later pull on
+        this connection too.
+
+        Returns `None`, never raising, when no subscription exists and none can be made —
+        no live connection yet (`self._nc` is `None`), or the broker refuses the
+        subscribe (`nats.errors.Error`) — so the caller falls back to the original slow
+        pass. Reset to `None` on reconnect (`_jetstream`), like `_pull_subs`.
+        """
+        if self._wake_sub is None and self._nc is not None:
+            try:
+                self._wake_sub = await self._nc.subscribe(self._wake_subject, cb=self._on_wake)
+            except nats.errors.Error:
+                logger.debug(
+                    "run-queue wake subscription failed; falling back to the slow pass",
+                    exc_info=True,
+                )
+        return self._wake_sub
+
+    async def _on_wake(self, msg: Msg) -> None:
+        """The wake subscription's callback (OME-1091 F6, targeted pass — the design
+        review's accepted fix): a non-empty payload is one bucket subject (`publish`'s
+        nudge), recorded so the next pass visits ONLY that bucket; an empty payload
+        (`release_held`'s drain-wide nudge, whose given-back messages can span any
+        bucket) marks "all" instead. Either way sets `self._woken`, which `pull`'s wait
+        loop blocks on.
+        """
+        if msg.data:
+            self._woken_subjects.add(msg.data.decode())
+        else:
+            self._woken_all = True
+        self._woken.set()
+
+    async def _wake(self, payload: bytes) -> None:
+        """Fire off a core-NATS wake-up on `self._wake_subject`, best-effort.
+
+        Called only AFTER the run it announces is already durably queued (`publish`) or
+        already NAK'd back to the queue (`release_held`), so a failure here costs only a
+        missed nudge — the slow path (the fallback rotation, or the next pull's own fast
+        pass) still finds the work. Never raises: a broker hiccup on the wake must not
+        fail the call it follows.
+        """
+        nc = self._nc
+        if nc is None:
+            return
+        try:
+            await nc.publish(self._wake_subject, payload)
+        except nats.errors.Error:
+            logger.debug(
+                "run-queue wake-up publish failed; the run is durably queued", exc_info=True
+            )
 
     async def _visit(
         self, sub: Any, subject: str, want: int, window: float, *, have: int
@@ -732,10 +1109,14 @@ class RunQueue:
 
         Call it once the claim loop has stopped. It waits out the last window (the server
         closes the open pull requests), NAKs every buffered message so it is redelivered at
-        once, and unsubscribes. Status messages (a pull's 408/404 end) carry no delivery and
-        are skipped. Returns the number of messages given back.
+        once, and unsubscribes — the queue's OWN pull subscriptions AND its wake
+        subscription (OME-1091 F6): a draining pod stops pulling, so it has no more use
+        for the wake-up either, and a stale callback on a closing connection is one less
+        thing to reason about. Status messages (a pull's 408/404 end) carry no delivery
+        and are skipped. Returns the number of messages given back.
         """
         if not self._pull_subs:
+            await self._disarm_wake_subscription()
             return 0
         await asyncio.sleep(self._max_window_s)
         released = 0
@@ -754,9 +1135,35 @@ class RunQueue:
                         released += 1
             with contextlib.suppress(nats.errors.Error):
                 await sub.unsubscribe()
+        await self._disarm_wake_subscription()
         if released:
+            # The NAKs above must actually reach the broker before the wake-up below —
+            # otherwise another pod's idle pull could wake, pass, and find nothing yet.
+            # Bounded and best-effort, like every other step here: a flush that times out
+            # still leaves the NAKs in flight, and the wake below costs only a missed
+            # nudge, never the given-back runs (V-4 still picks them up next pull).
+            nc = self._nc
+            if nc is not None:
+                with contextlib.suppress(nats.errors.Error, TimeoutError):
+                    await nc.flush(timeout=1)  # inside the drain grace: bounded
             logger.info("run-queue drain gave back %d buffered message(s)", released)
+            # OME-1091 F6: another pod's idle pull may be sitting in its wake wait right
+            # now — nudge it so it claims the given-back runs at once instead of waiting
+            # out its own rotation. No bucket in the payload: the given-back messages can
+            # span any of them, so every waiting puller does a full pass, not a targeted
+            # one (`_on_wake`'s "all").
+            await self._wake(b"")
         return released
+
+    async def _disarm_wake_subscription(self) -> None:
+        """Unsubscribe the wake subscription and forget it (OME-1091 F6, `release_held`
+        item): a draining pod stops pulling, so it has no more use for the wake-up, and
+        best-effort like every other step here — a broker hiccup on the unsubscribe must
+        not stop the drain it follows."""
+        wake_sub, self._wake_sub = self._wake_sub, None
+        if wake_sub is not None:
+            with contextlib.suppress(nats.errors.Error):
+                await wake_sub.unsubscribe()
 
     async def close(self) -> None:
         if self._nc is not None:
