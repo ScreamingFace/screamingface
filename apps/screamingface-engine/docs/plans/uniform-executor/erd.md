@@ -178,7 +178,7 @@ An orphan sweep runs only when `add_stream` fails with 10047. `[existing adapter
 | `storage` | file | [existing adapters/jetstream.py:213] |
 | `discard` | `OLD` (store full ⇒ drop the oldest frames) | [stated ans:Q11] |
 | `max_age_s` | 86 400 | [existing adapters/jetstream.py:69] |
-| `max_bytes` | chart value `events.maxBytes`, default 8 GiB, must be ≤ the JetStream file store | [proposed] |
+| `max_bytes` | chart value `events.maxBytes`, default 1 GiB (sized to today's deployments: 8 runs in flight, 50 MB each before), must be ≤ the JetStream file store | [proposed] |
 | `max_msgs_per_subject` | chart value `events.maxMsgsPerSubject`, default 20 000; phase 0 measures the real frame count | [proposed] |
 | `max_msg_size` | 2 MiB (a 1 MiB result body plus JSON escaping and envelope) | [proposed] |
 | `duplicate_window_s` | 120 | [proposed] |
@@ -206,7 +206,7 @@ filtered to one subject, from the first message of that subject. Purge: by subje
   retries, max 3 times. `[proposed]`
 - I-EV4. One terminal frame per topic, and it is the last frame. `[existing adapters/queue_runner.py:345-366]`
 
-**Size and growth.** One subject holds max 20 000 frames. The stream total is max 8 GiB.
+**Size and growth.** One subject holds max 20 000 frames. The stream total is max 1 GiB by default.
 When the stream is full, JetStream drops the oldest frames of any subject. `[stated ans:Q11]`
 A metric shows the use ratio, and an alert rule fires at 0.8. `[stated ans:Q11]`
 

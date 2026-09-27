@@ -51,7 +51,10 @@ child.
 2. A control pipe on fd 3 carries `READY` and `ACK` lines. Stdout and stderr keep their log
    role.
 3. The supervisor keeps up to `warm_children` warm children (chart value
-   `runnerPool.warmChildren`, default = `workerSlots`, range 0..workerSlots). With 0, the
+   `runnerPool.warmChildren`, range 0..workerSlots; chart default 2 since 2026-09-26, the app
+   default stays `workerSlots` — owner decision, implementation-notes F7–F11). Idle plus
+   running children never exceed `workerSlots` (F8), and a claim takes a warm spawn in flight
+   before it spawns its own (F9). With 0, the
    supervisor spawns on claim and still uses the same READY/spec protocol. So there is one
    code path.
 4. `io_concurrency` is computed at hand-off.
