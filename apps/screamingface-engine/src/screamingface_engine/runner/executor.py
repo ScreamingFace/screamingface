@@ -614,9 +614,8 @@ class _RunState:
         path of GitHub #642 is unrepresentable here.
         """
         encoded = result_str.encode("utf-8")
-        # The hard-cap-first decision is SHARED with the node tier's sync spill path
-        # (`world.node_tier`), so the two delivery paths cannot disagree on the boundary or
-        # on which check wins (T6).
+        # The hard-cap-first decision lives in `decide_result_delivery`, so the boundary and
+        # which check wins are defined once (T6).
         decision = decide_result_delivery(
             len(encoded),
             inline_cap=inline_cap,

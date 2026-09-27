@@ -1,3 +1,7 @@
+> **Superseded by `docs/plans/uniform-executor/`.** The node tier this document describes was
+> removed (uniform executor PRD 05). Mount calls run as direct runs on the runner pool. Keep
+> this document as history only.
+
 # Entity model
 
 ## 0. An honest caveat

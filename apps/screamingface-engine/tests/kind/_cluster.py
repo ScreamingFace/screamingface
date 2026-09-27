@@ -76,12 +76,13 @@ def _endpoint_pod(service: str, *, timeout: float = 120.0) -> str:
     WHY: `kubectl port-forward svc/<name>` re-runs the Service's `spec.selector` itself and
     forwards to whichever matching pod it happens to pick — and in this chart that selector
     (`name`+`instance`, no `component`) is a SUBSET match the bundled Garage StatefulSet's pods
-    also satisfy (same rationale the node tier's own selector-label comment warns about,
-    `deployment.yaml`). A `port-forward` that lands on the Garage pod fails outright (it carries
-    no `http`-named container port); one that lands on it silently by IP would simply not be the
-    App. The Endpoints object has already done the real filtering (only pods that resolve the
-    Service's target port are listed), so resolving through it and forwarding to that POD by
-    NUMBER sidesteps both failure modes.
+    also satisfy (the same rationale `deployment.yaml`'s own component-label comment warns
+    about, there between the App and the runner pool, which share the same name+instance pair).
+    A `port-forward` that lands on the Garage pod fails outright (it carries no `http`-named
+    container port); one that lands on it silently by IP would simply not be the App. The
+    Endpoints object has already done the real filtering (only pods that resolve the Service's
+    target port are listed), so resolving through it and forwarding to that POD by NUMBER
+    sidesteps both failure modes.
     """
     deadline = time.monotonic() + timeout
     last_stderr = ""

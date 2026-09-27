@@ -309,14 +309,14 @@ def number_from_env[N: (int, float)](
     """One tolerant env-number parser, shared by every deploy-time int/float knob.
 
     ``type(default)`` decides whether this parses an ``int`` or a ``float``, so one function
-    serves both ladders (`runner.main`'s deploy-time knobs, the node tier's timeout ladder).
+    serves every deploy-time knob (`runner.main`, the worker).
 
     INVARIANT: never raises. These are typo'd-knob readers for boot-time settings, and the
     shipped default is the safe answer to a typo — the alternative is a pod that cannot start.
 
     Args:
         log: the caller's own logger, required so the warning is attributed to the module that
-            owns the setting (`runner.main`, the node tier) rather than to `job_env` itself.
+            owns the setting (for example `runner.main`) rather than to `job_env` itself.
     """
     raw = env.get(name)
     if raw is None:
@@ -412,9 +412,9 @@ readable by anything with `get` on it and is printed in plain text by `helm get 
 ARTIFACT_SIGNING_KEY = "URL4_CLOUD_ARTIFACT_SIGNING_KEY"
 """Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6).
 
-The node tier SIGNS the 303's `Location`; the App VERIFIES it on `GET /artifacts/{id}`. Both
-halves read this one name, so the signer and the verifier cannot be pointed at different keys
-by a one-sided edit — the same one-name invariant :data:`ARTIFACTS_DIR` states.
+The App SIGNS a mount result's 303 `Location` and VERIFIES it on `GET /artifacts/{id}`
+(uniform executor PRD 04). One name, so the signer and the verifier cannot be pointed at
+different keys by a one-sided edit — the same one-name invariant :data:`ARTIFACTS_DIR` states.
 
 INVARIANT: Secret only — a signing key is authorization material (a holder can mint a fetch
 credential for any artifact id), so it must never travel by ConfigMap or be logged.

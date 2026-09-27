@@ -85,9 +85,9 @@ _ROUTERS = (
 
 @router.get("/healthz", include_in_schema=False)
 def healthz(request: Request) -> dict[str, str]:
-    # FEATURE (unit 3, erd.md §2): when the sync forwarder is wired, report the digest of the
-    # config its mount set came from, so a rolling deploy where the App and the node tier briefly
-    # read different worlds is visible (R11). An App with no sync surface keeps the exact
+    # FEATURE (uniform executor PRD 04): when mounts are registered, report the digest of the
+    # config the mount table came from (the App's own view only — the runner pool reports no
+    # digest, so compare App pods with each other). An App with no mounts keeps the exact
     # `{"status": "ok"}` contract it had before.
     digest = getattr(request.app.state, "config_digest", None)
     if digest:
@@ -205,9 +205,6 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
     the DEFAULT before OME-929, reachable by configuring nothing, and nothing in the setup said
     so. It fails at boot now.
 
-    INVARIANT (FX-38): a node tier (`node_base_url`) with filesystem storage is refused too: the
-    node pod spills an over-cap sync result to ITS disk and redirects the caller here — a 404.
-
     AIDEV-NOTE: if a shared RWX volume is ever mounted into both pods, THIS is the check to
     relax — deliberately, and with the mount as evidence. Do not relax it to quiet a startup
     error; that restores the bug.
@@ -223,12 +220,6 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
                     job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
                 }
             )
-        )
-    if settings.node_base_url:
-        raise ValueError(
-            "a node tier is configured (node_base_url), and the node pod's disk is not this "
-            "App's (OME-929): a spilled sync result redirected here would 404. Set "
-            f"{job_env.ARTIFACT_STORE}=s3 and the {job_env.ARTIFACT_S3_BUCKET} settings."
         )
     if settings.runner == "queue":
         # WHY: `queue` (OME-1090) runs each run in a worker pod — either way the run executes in
@@ -552,8 +543,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
     # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
-    # into /openapi.json, and every call runs as a DIRECT run on the worker pool — the node-tier
-    # forwarder is no longer installed (PRD 05 removes it).
+    # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(
         app,
         lambda: derive_mount_table(env=os.environ, engine_routes=engine_route_paths(app)),

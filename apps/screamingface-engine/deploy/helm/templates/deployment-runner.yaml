@@ -162,9 +162,10 @@ spec:
             # value silently flips the shared stream's limits back and forth on every rollout.
             # Only an IMMUTABLE field (storage, retention — neither configurable here) failing to
             # match fails startup. Both halves must render from the same values for that reason.
-            # `int64`, not a bare `quote` — see `deployment-node.yaml`'s identical fix: a large
-            # whole number like the 1 GiB default arrives as a float64 through Helm's JSON
-            # decoding, and Go's default float formatting renders it in SCIENTIFIC NOTATION.
+            # `int64`, not a bare `quote` — see `configmap.yaml`'s identical fix for its own copy
+            # of this same value: a large whole number like the 1 GiB default arrives as a
+            # float64 through Helm's JSON decoding, and Go's default float formatting renders it
+            # in SCIENTIFIC NOTATION.
             - name: URL4_CLOUD_EVENTS_MAX_BYTES
               value: {{ .Values.events.maxBytes | int64 | quote }}
             - name: URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT

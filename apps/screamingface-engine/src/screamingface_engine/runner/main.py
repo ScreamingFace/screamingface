@@ -159,8 +159,8 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
     hard_cap = job_env.number_from_env(
         env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES, log=logger
     )
-    # The store construction is SHARED with the node tier's spill path (unit 3): both call
-    # `result_writer_from_env`, so the run path and the sync tier cannot park into two places.
+    # The store construction lives in `result_writer_from_env`, the one place the run path's
+    # spill store is chosen.
     return inline_cap, hard_cap, result_writer_from_env(env)
 
 

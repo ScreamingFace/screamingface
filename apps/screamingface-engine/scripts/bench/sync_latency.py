@@ -6,7 +6,8 @@ and writes `docs/plans/uniform-executor/measurements/<date>-<case>.md` plus the 
 it. The kind environment's stub gateway answers after `STUB_LATENCY_MS` (200 by default).
 
 Cases:
-    B1  a mount call through the node tier (the baseline; `values-kind-node.yaml`)
+    B1  a mount call through the node tier (the baseline; already measured — needs the
+        pre-removal chart, before the uniform executor PRD 05 node-tier decommission)
     B2  `GET /?q=` sync single-model, cold spawn (`runnerPool.warmChildren=0`)
     B3  `GET /?q=` sync single-model, warm children
     B4  a mount call as a direct run, warm children
@@ -105,9 +106,22 @@ def _histogram(metrics_text: str, name: str) -> dict[str, float]:
     return out
 
 
+def _case(value: str) -> str:
+    """`--case`'s `type`: B1 stays a listed choice (it is the baseline other cases compare
+    against), but it measured the node tier, which is gone (uniform executor PRD 05) — there is
+    nothing left for it to hit, so it is refused here, before argparse even reaches `choices`,
+    and before any request goes out."""
+    if value == "B1":
+        raise argparse.ArgumentTypeError(
+            "B1 measured the node tier, which was removed (uniform executor PRD 05); see "
+            "measurements/2026-09-26-B1.md"
+        )
+    return value
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
-    parser.add_argument("--case", required=True, choices=["B1", "B2", "B3", "B4"])
+    parser.add_argument("--case", required=True, choices=["B1", "B2", "B3", "B4"], type=_case)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--expression", default="('hi')!'answer'")
     parser.add_argument("--mount", help="a mount target, e.g. /corpus/papers (B1, B4)")

@@ -153,29 +153,34 @@ curl -H 'X-User-Email: alice@example.com' --get \
   'https://engine.example.com/anthropic/claude-haiku-4-5'
 ```
 
-Two placements serve it. Deployed, the App forwards the request verbatim to the node tier (D6).
-With `serve --local`, the App mounts the same node in process. Both tiers build the mount set from
-the SAME `url4.toml` declaration, so they cannot disagree about what is addressable.
+A mount call runs on the App itself: the route handler queues a `shape=direct` run on the SAME
+worker queue and warm child pool that `GET /?q=` uses, holds the topic while it waits, and answers
+from the run's terminal frame (`rest/mounts.py`, uniform executor PRD 04). Every mount call goes
+through that one workflow — same queue, same child, same events and cost records — so
+`/openapi.json` lists a real `GET` operation, with a `q` parameter and documented responses, for
+every declared mount. `serve --local` registers the same mount routes, backed by
+`InProcessJobRunner`; only the eval path (`/v1?q=<expression>`) is additionally served in-process
+there, for development — production has no route for it (`404`).
 
 ### Rules that shape a sync call
 
 - **Edge-verified identity only.** The App reads `X-User-Email` from the edge (Cloudflare Access
-  or Envoy). It removes a client-supplied `X-User-Email` and sets the verified value. No
-  capability token is used (D4). A request with no verified identity is refused, not forwarded
-  anonymously.
+  or Envoy), the same source `GET /?q=` uses. No capability token is used (D4). A request with no
+  verified identity gets `403` and is never queued.
 - **`q` is a URL.** Edge proxies limit a request URL to about 8 KiB. Some allow 8-16 KiB. A large
-  context cannot go on this surface. `url4` is GET-only, so there is no POST variant. Send large
-  context on the ensemble path.
-- **30 s budget.** The node wrapper stops a request after 30 s and returns `504`. The body names
-  the ensemble path as the remedy: `POST /token`, attach the WebSocket, then
-  `GET /?q=<expression>`.
-- **In-flight cap.** The node admits 2 x worker count requests. More requests get `503` with
-  `Retry-After`.
+  context cannot go on this surface. `url4` is GET-only, so there is no POST variant. A path plus
+  query over 8 KiB gets `414` before anything is queued. Send large context on the ensemble path.
+- **30 s budget.** The App stops a mount call after `min(the client's Prefer wait, 30 s)` and
+  returns `504`; the run itself is stopped, not left running.
+- **In-flight cap.** A mount call shares admission with the ensemble path — queue depth plus the
+  per-caller in-flight cap (OME-1091). Over the cap, `503` with `Retry-After`.
 - **Prefer `web_search = false`.** A web-tool mount usually uses the whole 30 s budget before it
   reaches its iteration count. Set `web_search = false` on the model routes that the sync surface
   serves (`[[aigateway.models]]` in `url4.toml`).
-- **Large result.** A body over 512 KiB spills to the artifact store. The caller gets `303` with
-  a short-lived signed `Location`. A body over `result_hard_cap_bytes` gets `413`.
+- **Large result.** A body over 1 MiB spills to the artifact store. With
+  `URL4_CLOUD_ARTIFACT_SIGNING_KEY` set (chart: `artifactSigning.signingKey`), the caller gets
+  `303` with a short-lived (10-minute) signed `Location`. With no key set, the body streams inline
+  as `200` instead, and `screamingface_engine_mount_unsigned_spill_total` counts it.
 - **Encoded route id.** A model id with a `:` is not addressable in a URL path. Write the encoded
   form with `~`: `/huggingface/model~provider`.
 
@@ -188,16 +193,17 @@ One origin speaks two error dialects (OQ-3.1):
 | Mount paths — `GET /<mount>?q=` | url4: `{"error": {"code": "...", "message": "..."}}` |
 | Everything else — `/`, `/token`, `/v1/*`, `/artifacts/{id}` | RFC 9457 `application/problem+json` |
 
-Both dialects stay. Under D6 the App forwards verbatim, and a mount path IS a `url4` node surface.
-A `url4` client can point at the engine and at a bare `url4 serve` node and get the same
-contract. The `Problem` schema in this document defines the RFC 9457 shape. `contracts.md` C1
-defines the url4 status mapping.
+Both dialects stay. A mount call runs `url4.peer.dispatch_direct` inside the run child, and the App
+re-emits url4's own error envelope byte for byte (`world/wire.py`), so a `url4` client gets the
+same contract whether it points at the engine or at a bare `url4 serve` node — even though the call
+is now a `shape=direct` run on the shared queue, not a call to a separate tier. The `Problem` schema
+in this document defines the RFC 9457 shape. `contracts.md` C1 defines the url4 status mapping.
 
 ### Operator notes
 
 - **The declared shelves are global (D8).** Every shelf in `[holdings]` and `[identities]` is
   readable by EVERY caller of the sync surface. v1 has no per-caller scoping. Put no secret in
-  these shelves. The node logs the declared shelves at startup, so you can see what is exposed.
+  these shelves. The declared shelves are logged at startup, so you can see what is exposed.
 
   ```toml
   [holdings]
@@ -208,30 +214,22 @@ defines the url4 status mapping.
   ```
 
   Everything in the example above is readable by all sync callers.
-- **The artifact-signing key must match on both tiers (OQ-3.2).** The node signs a spilled
-  artifact's `303` URL. The App verifies that URL on `GET /artifacts/{id}`. Set the same
-  `URL4_CLOUD_ARTIFACT_SIGNING_KEY` in the App and the node tier. Put it in a Secret in both
-  tiers. A different key makes every signed fetch fail closed, which is safe but useless. The
-  signature TTL is 10 minutes by default; the node sets it with
-  `URL4_CLOUD_NODE_ARTIFACT_URL_TTL_S`. A bare `/artifacts/{id}` stays capability-token-only.
-- **`config_digest` detects a rolling-deploy skew.** The App and the node tier both report it
-  on `/healthz`. It is the SHA-256 of the `url4.toml` file the tier built its world from.
-  The App reports it when the forwarder is armed:
+- **The App signs and verifies its own mount artifact URLs.** It signs the `303` a mount call
+  issues over 1 MiB and verifies that same URL back on `GET /artifacts/{id}`, so there is no second
+  tier to keep a key in sync with. Set `URL4_CLOUD_ARTIFACT_SIGNING_KEY` (chart:
+  `artifactSigning.signingKey`) to enable it; leaving it empty disables the signed `303` and mount
+  results stream inline instead (see above). The signature TTL is 10 minutes. A bare
+  `/artifacts/{id}` — no token, no signature — stays capability-token-only.
+- **`config_digest` names the App's world.** `/healthz` reports it once mounts are registered —
+  the SHA-256 of the `url4.toml` file the App built its mount table from. Compare it across App
+  pods during a rolling deploy. The runner pool does not report a digest:
 
   ```json
   {"status": "ok", "config_digest": "<sha256>"}
   ```
 
-  The node tier reports it on its own `/healthz`:
-
-  ```json
-  {"status": "live", "config_digest": "<sha256>"}
-  ```
-
-  A tier that cannot read the file omits the field. Both tiers read the same baked file, so in
-  steady state the two digests are equal. During a rolling deploy they can differ for a short
-  time: an App pod on the new build can pair with a node pod on the old one. Compare the two
-  digests to see this. An unknown mount also answers `404` at the App and never reaches the node.
+  An App with no mounts registered keeps the plain `{"status": "ok"}` contract it always had. A
+  path outside the declared mount set is a plain `404`.
 
 ## Model catalog — `GET /v1/models`
 

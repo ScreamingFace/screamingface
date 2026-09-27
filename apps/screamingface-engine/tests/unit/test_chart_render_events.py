@@ -98,9 +98,10 @@ def test_the_worker_receives_the_default_events_config() -> None:
 def test_overriding_max_bytes_changes_both_halves() -> None:
     """INVARIANT: the two halves declare ONE stream, so a configured limit must never be
     rendered a different value to each. Pinned with a NON-default value, and one large enough
-    to expose the float64-scientific-notation hazard (`deployment-node.yaml`'s equivalent
-    fix): rendering only one half, or the wrong format, still passes a test written against
-    the default."""
+    to expose the float64-scientific-notation hazard that `int64 | quote` guards against here
+    (Helm decodes a large values.yaml integer as float64, and a bare `quote` would emit
+    `1.7179869184e+10`): rendering only one half, or the wrong format, still passes a test
+    written against the default."""
     docs = _render("events.maxBytes=17179869184")  # 16 GiB
     assert _app_configmap(docs)["data"]["URL4_CLOUD_EVENTS_MAX_BYTES"] == "17179869184"
     assert _runner_env(docs)["URL4_CLOUD_EVENTS_MAX_BYTES"] == "17179869184"

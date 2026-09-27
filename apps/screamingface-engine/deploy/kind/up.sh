@@ -5,8 +5,7 @@ set -euo pipefail
 # rebuilds the images, reloads them, and `helm upgrade`s the existing release in place rather
 # than failing on anything that already exists.
 #
-#   deploy/kind/up.sh                             # queue runner, node tier off
-#   deploy/kind/up.sh -f values-kind-node.yaml     # + the phase-0 B1 baseline (node tier on)
+#   deploy/kind/up.sh                             # queue runner
 #
 # Any extra arguments are passed straight through to `helm upgrade --install` after
 # `-f values-kind.yaml`, so `--set`/`-f` overrides both work.

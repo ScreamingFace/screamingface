@@ -140,6 +140,14 @@ RULES: list[tuple[str, set[str], str]] = [
     ),
 ]
 
+# Modules that were DELETED (uniform executor PRD 05, DC-D2): the node tier and the App's
+# forwarder to it. No module may import them again — not even an exempt one — so this rule
+# walks every file. Mount calls run as direct runs on the worker pool now.
+REMOVED: dict[str, str] = {
+    "world.node_tier": "the node tier was removed (uniform executor PRD 05)",
+    "rest.forwarder": "the App's forwarder to the node tier was removed (uniform executor PRD 05)",
+}
+
 # INVARIANT (FX-70): an exemption is a PATH relative to the package root (`SRC`), never a bare
 # file name. Matching on the name exempted every `local.py`/`cli.py` at any depth — a future
 # `world/local.py` would have skipped every rule in silence. See `_is_exempt`.
@@ -296,6 +304,12 @@ def check_layers() -> list[str]:
         ):
             offenders.append(
                 f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n      {shared_why}"
+            )
+    for path in python_files(SRC):
+        for module in sorted(imported_screamingface_engine_submodules(path) & REMOVED.keys()):
+            offenders.append(
+                f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n"
+                f"      {REMOVED[module]}; mount calls run as direct runs (rest.mounts)"
             )
     return offenders
 

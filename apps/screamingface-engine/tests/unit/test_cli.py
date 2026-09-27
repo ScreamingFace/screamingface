@@ -155,3 +155,12 @@ def test_run_warm_subcommand_runs_warm(modes: list[str]) -> None:
     """PRD 03: the worker pool's child enters the warm path through `run --warm`."""
     cli.main(["run", "--warm"])
     assert modes == ["run --warm"]
+
+
+def test_cli_rejects_node_mode(modes: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+    """DEC-5 / DC-D4: the node tier was removed (uniform executor PRD 05), so its mode is gone."""
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["node"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'node'" in capsys.readouterr().err
+    assert modes == []

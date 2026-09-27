@@ -139,7 +139,7 @@ def test_unknown_key_in_the_aigateway_table_is_rejected() -> None:
 
 def test_the_reserved_commands_table_fails_loudly_rather_than_being_ignored() -> None:
     # F3 (prd/02): `[commands]` is the ONE section still reserved — its argv templates are exec
-    # mounts and the node tier has no sandbox for them, so declaring one is a loud error with the
+    # mounts and a mount call has no sandbox for them, so declaring one is a loud error with the
     # deferral stated, not a silent no-op. `[data]`/`[holdings]`/`[identities]` are now real
     # (see test_world_read_side.py).
     with pytest.raises(WorldConfigError, match="not supported"):

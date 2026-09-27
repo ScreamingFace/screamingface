@@ -77,3 +77,32 @@ def test_no_key_configured_renders_and_mounts_nothing() -> None:
         if d["kind"] == "Secret" and d["metadata"]["name"].endswith("artifact-signing")
     ]
     assert not [n for n in _signing_secret_refs(_app(docs)) if n.endswith("artifact-signing")]
+
+
+def _app_checksum(docs: list[dict[str, Any]]) -> str | None:
+    return _app(docs)["spec"]["template"]["metadata"]["annotations"].get(
+        "checksum/artifact-signing"
+    )
+
+
+def test_the_signing_checksum_follows_the_existing_secret_name() -> None:
+    """The `existingSecret` half of `artifactSigningChecksum` (see `_helpers.tpl`): with no
+    `signingKey` pinned, the checksum hashes the Secret's NAME, not its (unknowable, operator-
+    held) content. Two different names must roll the App; the same name twice — as two
+    independent `helm template` invocations of a stable release always render — must not, or
+    every GitOps sync would roll the App though the Secret it points at never changed."""
+    checksum_a = _app_checksum(_render("artifactSigning.existingSecret=a"))
+    checksum_b = _app_checksum(_render("artifactSigning.existingSecret=b"))
+    assert checksum_a != checksum_b
+
+    checksum_a_again = _app_checksum(_render("artifactSigning.existingSecret=a"))
+    assert checksum_a == checksum_a_again
+
+
+def test_the_signing_checksum_changes_when_the_pinned_key_changes() -> None:
+    """Ported from the deleted node-tier chart test: a REAL rotation — an operator changing
+    `signingKey` — must still roll the App, so two different pinned keys must checksum
+    differently."""
+    checksum_a = _app_checksum(_render("artifactSigning.signingKey=key-a"))
+    checksum_b = _app_checksum(_render("artifactSigning.signingKey=key-b"))
+    assert checksum_a != checksum_b

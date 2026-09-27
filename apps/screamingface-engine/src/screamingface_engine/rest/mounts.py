@@ -6,7 +6,7 @@ route (`GET /<path>`) — is a FastAPI `GET` operation of its own, tagged `Mount
 `shape=direct` run, holds its topic while it waits (the PRD 02 hold), and answers from the run's
 terminal frame. A worker's child runs the ONE handler through `url4.peer.dispatch_direct` (D1).
 
-The answers match the node tier's (MNT-C2, MNT-9): url4's error envelope
+The answers match the removed node tier's (MNT-C2, MNT-9): url4's error envelope
 (`{"error": {"code", "message"}}`) and the status url4 would have given the code.
 
 - identity: the verified `X-User-Email`, from the same source as `GET /?q=` — none → 403
@@ -57,9 +57,9 @@ WHY this is not the run's frame cap: a result FRAME stays at 512 KiB
 default `max_payload` once the envelope is added. A result between the two is spilled by the
 child and served INLINE here, from the artifact store."""
 ARTIFACT_URL_TTL_S = 600
+"""How long a mount's signed artifact URL is valid (the removed node tier's value)."""
 RUN_HEADER = "X-Url4-Run"
 """The response header naming the topic of the run that answered a mount call."""
-"""How long a mount's signed artifact URL is valid (the node tier's value)."""
 
 _MOUNT_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {"description": "The handler's body, with the route's media type."},
@@ -75,7 +75,7 @@ _MOUNT_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 def _envelope(status: int, code: str, message: str, headers: dict[str, str] | None = None):
-    """url4's error envelope — the node tier's error shape, byte for byte."""
+    """url4's error envelope, byte for byte (`world.wire.url4_error_body`)."""
     return Response(
         content=url4_error_body(code, message),
         status_code=status,
@@ -284,7 +284,7 @@ async def _respond(
     except ProblemException as exc:
         if exc.problem.status != 503:
             raise
-        # The node tier's shed shape: url4's `overloaded` envelope, the drain estimate kept.
+        # url4's `overloaded` shed shape (the removed node tier's), the drain estimate kept.
         raise _Refused(
             _envelope(503, "overloaded", "server at capacity, retry shortly", exc.headers)
         ) from None

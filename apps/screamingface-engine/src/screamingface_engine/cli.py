@@ -1,9 +1,8 @@
-"""``screamingface-engine`` console entrypoint — one image, four modes.
+"""``screamingface-engine`` console entrypoint — one image, three modes plus admin.
 
     screamingface-engine serve    # the control plane: mint tokens, bridge WS, schedule Runner Jobs
     screamingface-engine run      # one url4 evaluation, streamed to NATS, then exit
     screamingface-engine worker   # claim runs from the durable queue, supervise each as a child
-    screamingface-engine node     # serve the sync surface: one world, direct mount hits (unit 3)
     screamingface-engine admin purge-legacy-streams [--dry-run]   # one-shot rollout step
 
 WHY one artifact with a mode argument rather than two images: the two halves already shared
@@ -99,21 +98,6 @@ def _worker() -> None:
     run_worker()
 
 
-def _node() -> None:
-    """Serve the node tier: the declared world built once, over url4's ASGI surface (unit 3).
-
-    The sync surface's deployed shape (prd/03 §2.1). It is a sibling of `_serve` rather than a
-    flag on it: the control plane schedules runs and owns identity, the node tier executes one
-    direct mount hit and holds no caller state. They resolve different factories on different
-    ports and share only the word "serve".
-    """
-    # WHY: lazy — the node tier imports the shared world and url4's serving wrapper, and the
-    # control plane's boot must not pay for either when the mode is not running.
-    from screamingface_engine.world.node_tier import serve as serve_node
-
-    serve_node()
-
-
 def _purge_legacy_streams(*, dry_run: bool) -> None:
     """Delete the per-run streams of the former layout, printing each name (erd.md §10).
 
@@ -186,13 +170,6 @@ def _parser() -> argparse.ArgumentParser:
             "(the fixed worker pool of OME-1086)"
         ),
     )
-    sub.add_parser(
-        "node",
-        help=(
-            "serve the sync surface: one declared world, one direct mount call per request "
-            "(the url4 node tier of unit 3)"
-        ),
-    )
     admin = sub.add_parser("admin", help="one-shot operator commands")
     admin_sub = admin.add_subparsers(dest="admin_command", required=True)
     purge = admin_sub.add_parser(
@@ -218,8 +195,6 @@ def main(argv: list[str] | None = None) -> None:
         _purge_legacy_streams(dry_run=args.dry_run)
     elif args.mode == "worker":
         _worker()
-    elif args.mode == "node":
-        _node()
     elif args.mode == "run":
         _run(warm=args.warm)
     elif args.local:

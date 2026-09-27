@@ -230,3 +230,23 @@ all three get `EVENTS_MAX_BYTES=1073741824`, `EVENTS_REPLICAS=1`, `WORKER_WARM_C
 preview (512 Mi JetStream store) is out of scope by the owner's choice.
 
 Result: PASS
+
+## After the removal (DC-H2, DEC-8, PRD 05 §4)
+
+The removal is one commit on `exp/uniform-executor-p5`, on top of the gate above (a revert
+restores the node tier). Real size, against the PRD's estimate (~1 100 source lines, ~300 chart
+lines, ~90 tests):
+
+| Area | Lines removed | Lines added |
+|---|---|---|
+| `src/` | 1 863 | 165 |
+| `deploy/` (chart, kind) | 919 | 78 |
+| `tests/` (10 test files, 149 tests, deleted) | 4 159 | 391 |
+| `.github/`, `.claude/` scripts | 494 | 25 |
+| docs | 44 | 75 |
+
+Evidence on the removal tree (2026-09-27): unit 4167 passed, 0 failed; integration in the
+Linux container 70 passed; pyright 0 errors; `check_layering.py` OK (with the DEC-4 rule);
+`verify_chart_wiring.py` passed; `helm lint` OK; the chart renders with the dev, staging and
+prod values of `OpenMined/infrastructure`; **DEC-8: the kind suite, deployed from the removal
+tree, 13 passed in 255 s**, and the cluster has no `-node` Deployment or Service.

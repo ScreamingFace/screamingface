@@ -1,12 +1,11 @@
 """Parse the request ``Cache-Control`` field into a run's cache INTENT (spec §5.1, D6).
 
 WHY this lives at the top level rather than in :mod:`screamingface_engine.rest.cache_header`
-(unit 3): the exact same RFC 9111 request-directive parsing is now needed by BOTH the App
-(the REST edge, a control-plane module) and the node tier's sync scope producer (unit 3,
-which lives in the shared ``world`` package and may not import the control plane). A shared
-leaf is the only layering-legal home for something both halves parse identically — a second
-copy in ``world`` would let the App and the node tier disagree about the same header, which
-is the exact drift class F1/F3 exist to remove. ``rest.cache_header`` re-exports these
+(unit 3): the exact same RFC 9111 request-directive parsing is needed by BOTH the App (the
+REST edge, a control-plane module) and the sync scope producer (`request_scope`, a shared
+leaf that may not import the control plane). A shared leaf is the only layering-legal home for
+something both parse identically — a second copy would let them disagree about the same
+header, which is the exact drift class F1/F3 exist to remove. ``rest.cache_header`` re-exports these
 names, so the App's existing import path is unchanged.
 
 ``Cache-Control`` is the standard field and it was chosen deliberately over a private

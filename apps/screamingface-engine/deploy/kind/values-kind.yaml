@@ -53,12 +53,6 @@ artifactStorage:
 artifactSigning:
   signingKey: "kind-dev-artifact-signing-key-do-not-use-in-prod-0123456789abcdef"
 
-# The node tier stays OFF here (D5, uniform executor implementation-notes: the App no longer
-# forwards mount calls to it). `values-kind-node.yaml` layers it back on for the phase-0 B1
-# baseline only, while the chart still supports it.
-node:
-  enabled: false
-
 # `tracing.enabled: true` by default points at an aks-dev-only collector (values.yaml) that does
 # not exist in kind; the exporter fails OPEN (drops spans, never fails a run), but there is no
 # collector here to receive them either way, so turn it off rather than log a permanent

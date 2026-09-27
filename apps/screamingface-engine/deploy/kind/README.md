@@ -15,7 +15,6 @@ cases (`tests/kind/`, marker `kind`) and the phase-0/5 measurement harness
 | `url4-kind.toml` | the declared world this environment ships: the shipped `[aigateway]` defaults plus one `[data]` route (`/corpus/papers`) |
 | `engine-kind.Dockerfile` | layers `url4-kind.toml` onto the engine image at `/etc/url4/url4.toml` — the shared `apps/screamingface-engine/url4.toml` is untouched |
 | `values-kind.yaml` | the chart values table from test-plan §5 |
-| `values-kind-node.yaml` | layers `node.enabled: true` back on, for the phase-0 B1 baseline only |
 | `up.sh` / `down.sh` | bring the cluster up / tear it down |
 
 ## Why a Dockerfile overlay for the world config
@@ -42,11 +41,7 @@ deploy/kind/up.sh
 ```
 
 Idempotent — re-running rebuilds the images, reloads them, and `helm upgrade`s the existing
-release. Pass extra `helm` arguments straight through, e.g. for the phase-0 B1 baseline:
-
-```sh
-deploy/kind/up.sh -f deploy/kind/values-kind-node.yaml
-```
+release. Pass extra `helm` arguments straight through, e.g. for a `--set` override.
 
 Tear down:
 
