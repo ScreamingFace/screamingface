@@ -20,7 +20,7 @@ Name helpers + k8s recommended labels (app.kubernetes.io/*) — spec §9 / docs/
 
 {{/*
 Recommended labels MINUS `component` — shared by every helper that fixes a `component` value
-(`labels` fixes `control-plane`, `garageSelectorLabels` fixes `garage`), so a label added or
+(`labels` fixes `control-plane`), so a label added or
 changed here reaches every call site from one place instead of several near-identical blocks
 that can silently drift apart. Uses the RELEASE's own `instance` — object metadata is not a
 selector, so `kubectl get -l app.kubernetes.io/instance=<release>` finds every object the
@@ -44,19 +44,6 @@ app.kubernetes.io/component: control-plane
 {{- define "screamingface-engine.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "screamingface-engine.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end -}}
-
-{{/*
-The bundled Garage's selector labels. WHY a name of its own (kind suite finding): Garage pods
-carrying the App's `selectorLabels` (plus a component label) were ALSO matched by the App
-Service's name+instance selector, so App traffic — and a port-forward to the App — could land on
-Garage. A StatefulSet selector cannot change in place: an existing bundled Garage (dev only) must
-be deleted before upgrading past this change.
-*/}}
-{{- define "screamingface-engine.garageSelectorLabels" -}}
-app.kubernetes.io/name: {{ include "screamingface-engine.name" . }}-garage
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: garage
 {{- end -}}
 
 {{- define "screamingface-engine.serviceAccountName" -}}

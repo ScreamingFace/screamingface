@@ -78,7 +78,8 @@ spec:
       targetPort: s3
       protocol: TCP
   selector:
-    {{- include "screamingface-engine.garageSelectorLabels" . | nindent 4 }}
+    {{- include "screamingface-engine.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -92,11 +93,13 @@ spec:
   serviceName: {{ $name }}
   selector:
     matchLabels:
-      {{- include "screamingface-engine.garageSelectorLabels" . | nindent 6 }}
+      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: garage
   template:
     metadata:
       labels:
-        {{- include "screamingface-engine.garageSelectorLabels" . | nindent 8 }}
+        {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: garage
     spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
