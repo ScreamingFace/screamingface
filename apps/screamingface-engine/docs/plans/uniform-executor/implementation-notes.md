@@ -242,26 +242,36 @@ shown. Each is fixed, with a regression test.
 
 Also found: `up.sh` did not restart pods onto reloaded images (same `:kind` tag) — fixed.
 
-### F6 — open: the queue claim dominates a simple call's latency (not fixed; follow-up)
+### F6 — fixed: the queue claim dominated a simple call's latency
 
 After F5, a mount call's own work is ~210 ms (Started → first span, with the 200 ms stub). The
-rest of its ~1.5–3 s is between the App's publish and the child's `Started`: the worker's claim.
-With the queue idle, `RunQueue.pull` rotates over all 16 caller buckets and spends the 5 s pull
-timeout as a slow pass across them (OME-1091 fairness), so a message that lands mid-pull waits
-until the rotation reaches its bucket — roughly uniform in [0, 5 s]. Hand-offs themselves are
-fast when a warm child is idle (≈55 % ≤ 5 ms in the B4 histogram).
+rest of its ~1.5–3 s was between the App's publish and the child's `Started`: the worker's claim.
+With the queue idle, `RunQueue.pull` rotated over all 16 caller buckets and spent the 5 s pull
+timeout as a slow pass across them (OME-1091 fairness), so a message that landed mid-pull waited
+until the rotation reached its bucket — roughly uniform in [0, 5 s].
 
-Why not fixed here: latency gates nothing (ans:Q3); the fair pull is intricate, heavily tested,
-and outside the files the PRDs name (test-plan §7 stop rule). Recommended fix: the App publishes a
-core-NATS wake-up (`url4.runq.wake.<bucket>`) after each queue publish; an idle worker's pull
-blocks on that subscription (bounded by its timeout) and then runs one fast pass — the fairness
-rotation is unchanged, only the idle wait becomes event-driven.
+Fixed 2026-09-27 (the owner lifted the test-plan §7 stop rule for it): the App's queue publish
+also sends a core-NATS wake-up on `<prefix>-wake` (`url4-runq-wake`) — a subject OUTSIDE the
+queue stream's `<prefix>.>` filter, so it is never stored — with the bucket subject as payload;
+`release_held` sends one with an empty payload ("all") after it gives runs back. An idle worker's
+pull subscribes to it before its fast pass, and after the fast pass waits on it instead of the
+slow rotation; a wake runs one pass over only the woken bucket(s), and a productive pass on the
+wake path runs one top-up over the buckets that came back full, then returns. A pull whose wake
+subscription cannot be made behaves exactly as before. Measured on a real broker: publish → claim
+~5 ms (was 0–5 s); a mount call's B4 p50 in the deployments' shape went from 1519 ms to 350 ms
+(`measurements/2026-09-27-B4-prod-shape.md`). What remains is the hand-off when no idle warm child
+is left (a ~2 s boot). RPC cost: every idle pod receives every wake, so one publish costs about one
+fetch per idle pod plus one fast rotation on the winner (`RunQueue.pull` docstring); at a high
+publish rate over many idle pods that can exceed the old poll's RPCs, which is the trade for
+millisecond claims. Not covered end to end: `release_held`'s wake reaching another pod (the race
+it targets cannot be forced deterministically against a real broker); its NAK, flush and wake are
+unit-tested on a fake.
 
 ### F7–F11 — found by the chaos cases (K7, K8, MNT-26) and the PRD 05 design review
 
 | # | Finding | Evidence | Fix |
 |---|---|---|---|
-| F7 | An idle warm child holds its BUILT world: about 430 MiB with the builtin benchmarks (60 MiB without). The chart request `perRunCharge.memoryMi` (256) is below it; the limit (1024) covers it. | `/proc/<pid>/status` in a runner pod: worker 53 MiB, `run --warm` 434 MiB; world build measured with and without benchmarks. | Recorded in `values.yaml` (the `warmChildren` comment). Raising the request is an owner decision (bin packing), not made here. |
+| F7 | An idle warm child holds its BUILT world: about 430 MiB with the builtin benchmarks (60 MiB without). The chart request `perRunCharge.memoryMi` (256) is below it; the limit (1024) covers it. | `/proc/<pid>/status` in a runner pod: worker 53 MiB, `run --warm` 434 MiB; world build measured with and without benchmarks. | `runnerPool.warmChildCharge.memoryMi` (450) is now added to the pod's memory request once per warm child (2026-09-27 follow-up, below). |
 | F8 | The pool kept `warmChildren` idle children ON TOP of the running runs, so a pod with every slot busy held `slots + warmChildren` children. One run near its memory budget then OOM-killed the whole pod, and the redelivered run OOM-killed the next pod. | K8: both runner pods `OOMKilled` (2304 Mi limit) 8–10 s into the case. | Idle + running ≤ `workerSlots`: the pool refills only into free slots (`WarmChildPool(slots=, busy=)`; the worker wakes it when a run ends). |
 | F9 | At pod boot, claims that found no idle child spawned their OWN child beside the warm children already booting: `size + claims` children built their worlds at once. | K8 right after a rollout: both new pods `OOMKilled` 5 s after start; 4 messages ack-pending until `ack_wait`, every call 504. | A claim waits for a warm spawn in flight that no other claim waits for (`WarmChildPool._take`); it spawns its own only when there is none (or it failed). |
 | F10 | A draining worker left deliveries its held pull subscriptions had buffered after their last pull: never run, never returned, redelivered only after `ack_wait` (60 s) — past the 30 s sync bound. | Consumer info during a rollout: ack-pending messages with no reader. | `RunQueue.release_held()` at drain start: wait out the last fetch window, NAK the buffered deliveries, unsubscribe. |
@@ -281,7 +291,19 @@ B2 and B3 measured `('hi')!'go'` on `GET /?q=`, which names no model: they time 
 with NO aigateway call. B4 (a model mount) includes the stub's 200 ms. Compare B2/B3 with B4 with
 that in mind.
 
-Known limits of F9, recorded, not fixed (design review, low severity): at drain, the pool cancels a
-warm spawn in flight even when a claim waits for it, so that claim pays one cold boot inside the
-drain grace; and a claim that waits for a HUNG warm spawn can wait its READY timeout (60 s) before
-it spawns its own. A mount call is bounded at 30 s by the App either way.
+Two limits of F9 (design review, low severity), fixed 2026-09-27, after a second review found a
+busy loop in the first attempt: the claim/spawn hand-off is now one future per waiting claim,
+resolved by the spawn that finishes (its child, or `None` when it failed) — waiting claims never
+wake each other. At drain, the pool does not cancel the spawns that claims wait for and does not
+wait for them either: each finishes on its own and hands its child to its claim, or kills it when
+no claim waits, so the drain never holds up the worker's grace. A claim waits for a warm spawn in
+flight at most `WARM_SPAWN_WAIT_S` (10 s) counted from that spawn's START, then spawns its own
+child with the full READY timeout. Tests: `test_waiting_claims_do_not_wake_each_other_when_a_spawn_fails`,
+`test_a_drain_does_not_wait_for_a_claim_it_hands_a_warm_spawn_to`,
+`test_a_child_handed_to_a_cancelled_claim_is_killed`,
+`test_a_claim_behind_a_hung_warm_spawn_spawns_its_own_after_the_wait_bound`.
+
+F7 follow-up (2026-09-27): the runner pod's memory request now adds
+each warm child's excess over its free slot's charge, `runnerPool.warmChildCharge.memoryMi` (450)
+− `perRunCharge.memoryMi` (256) = 194 Mi; the limit is unchanged. Dev, staging and prod: 1540 Mi
+per runner pod (was 1152 Mi).

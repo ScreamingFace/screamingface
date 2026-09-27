@@ -195,11 +195,16 @@ latency 200 ms, 300 requests per phase. Report only — latency gates nothing (a
 |---|---|---|---|
 | B1 node tier | 204.9 / 210.8 | 207.5 / 210.1 (n=2) | 298 of 300 shed with 503 (per-pod admission cap) |
 | B4 direct run | 1518.8 / 3986.2 | 5297.2 / 7555.3 | 0 |
+| B4 after F6–F11, kind shape (2 slots) — `2026-09-27-B4-kind-2slot.md` | 1586.7 / 1811.1 | 5910.0 / 6790.6 | 0 |
+| B4 after F6–F11, deployments' shape (4 slots, 2 warm) — `2026-09-27-B4-prod-shape.md`, n=100 | 350.1 / 1631.7 | 4822.2 / 6076.8 | 0 |
 
 Reading: the node tier answers a single call in ~5 ms over the stub, but sheds almost all
-concurrent calls; the direct run answers every call, and its extra time is the queue claim
-(F6: 0–5 s while the queue is idle, not fixed here) plus the hand-off. B4 was measured before
-F8–F11. B2/B3 (`GET /?q=`, no model call) are in this directory for the cold/warm comparison.
+concurrent calls; the direct run answers every call. The first B4's extra time was the queue
+claim (F6: 0–5 s while the queue is idle). After the F6 wake-up (2026-09-27) the claim is
+milliseconds: in the deployments' shape a mount call's p50 is 350 ms; its p95 (~1.6 s) and the
+concurrency-8 times are calls that find no idle warm child and wait for a boot (~2 s with the
+builtin benchmarks). In kind's 2-slot pods F8 keeps one idle child while one run is in flight, so
+back-to-back calls wait on a boot there too (hand-off mean 1.47 s). B2/B3 (`GET /?q=`, no model call) are in this directory for the cold/warm comparison.
 
 Result: PASS
 
