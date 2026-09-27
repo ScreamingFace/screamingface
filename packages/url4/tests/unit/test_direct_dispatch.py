@@ -163,9 +163,7 @@ async def test_an_observed_direct_call_reports_a_log_line_on_its_span() -> None:
         return "ok"
 
     recorder = _Recorder()
-    await dispatch_direct(
-        node, _target("/v1/chat/completions", "ctx", "i"), observer=recorder
-    )
+    await dispatch_direct(node, _target("/v1/chat/completions", "ctx", "i"), observer=recorder)
     kinds = [type(e) for e in recorder.events]
     assert kinds.count(Log) == 1
     started_idx = kinds.index(NodeStarted)
