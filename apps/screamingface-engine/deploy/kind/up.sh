@@ -53,6 +53,13 @@ docker build -f "${HERE}/aigw-stub/Dockerfile" -t "${STUB_TAG}" "${HERE}/aigw-st
 
 echo "==> [3/6] kind load docker-image"
 kind load docker-image "${ENGINE_TAG}" "${BENCHMARK_TAG}" "${STUB_TAG}" --name "${CLUSTER_NAME}"
+# WHY: each load leaves the previous image behind in the nodes' containerd as an untagged
+# `import-<date>@sha256:...` ref that `crictl rmi --prune` does not collect; a day of rebuilds
+# filled the Docker VM's disk (the next build then failed with "Not enough disk space").
+for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
+  docker exec "${node}" sh -c \
+    'ctr -n k8s.io images ls -q | grep "^import-" | xargs -r ctr -n k8s.io images rm >/dev/null 2>&1 || true'
+done
 
 echo "==> [4/6] aigw-stub"
 kubectl --context "${KIND_CONTEXT}" apply -f "${HERE}/aigw-stub/k8s.yaml"
