@@ -170,10 +170,41 @@ async def ensure_events_stream(
             await js.add_stream(config.stream_config())
             return
         except APIError as exc:
+            if update and exc.err_code == SUBJECTS_OVERLAP_ERR_CODE:
+                if await _migrate_from_per_run_streams(js, config):
+                    return
             # A racing process created it first (name in use): reconcile below.
-            if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
+            elif exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
                 await _raise_declare_error(js, config, exc)
     await _reconcile(js, config, update=update)
+
+
+async def _migrate_from_per_run_streams(js: JetStreamContext, config: EventsStreamConfig) -> bool:
+    """Delete the former layout's per-run streams, then declare the shared stream ONCE more.
+
+    True when this call created the stream; False when a racing process did (reconcile it).
+
+    FEATURE (rollout, owner decision 2026-09-27): the App and the worker migrate the broker at
+    startup, so a GitOps auto-sync upgrades with no hook and no manual purge. Frames of runs
+    still in flight on a legacy stream are lost at the cut-over — accepted by the owner.
+    INVARIANT: once the shared stream exists, JetStream refuses any stream overlapping it, so an
+    old App still serving during the rollout cannot re-create a legacy stream after this.
+    WHY exactly one retry: an overlap the purge cannot remove is a stranger's stream
+    (`owns_stream` never deletes one), and a loop would only hide it.
+    """
+    deleted = await purge_legacy_streams(js, dry_run=False)
+    logger.warning(
+        "events stream %s: deleted %d legacy per-run stream(s) at startup",
+        config.name,
+        len(deleted),
+    )
+    try:
+        await js.add_stream(config.stream_config())
+    except APIError as exc:
+        if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
+            await _raise_declare_error(js, config, exc)
+        return False
+    return True
 
 
 async def _reconcile(js: JetStreamContext, config: EventsStreamConfig, *, update: bool) -> None:
@@ -210,8 +241,9 @@ async def _raise_declare_error(
         # the first process of this version starts.
         raise EventsStreamConfigError(
             f"events stream {config.name!r}: its subjects {list(config.subjects)} overlap an "
-            f"existing stream — legacy per-run streams are still on the broker. Drain the "
-            f"system and run `screamingface-engine admin purge-legacy-streams` first"
+            f"existing stream — a legacy per-run stream (the App and the worker delete those "
+            f"at startup; `screamingface-engine admin purge-legacy-streams` does it by hand) "
+            f"or another workload's stream on a shared broker, which must be moved"
         ) from exc
     raise exc
 

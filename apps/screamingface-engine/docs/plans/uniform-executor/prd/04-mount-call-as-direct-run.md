@@ -194,6 +194,13 @@ These emerged after the decision round, while the implementation detail was read
    mode, serve the eval path as a `shape=expression` sync run through the same route code, so
    local mode stays uniform. Ask the owners if production should also hide the benchmark
    endpoints for the answer-seed reason noted in `world/factory.py:110-126`.
+   **Resolved 2026-09-27 (owner):** "production" meant the node tier, which is off in dev,
+   staging and prod, so those environments served NO mount before this change. They now
+   serve every model and data mount (117 routes with the current `url4.toml`), each a paid
+   model call gated by `X-User-Email` only, like `GET /?q=`. The owner accepted this surface
+   with no chart switch. The benchmark, candidate, corrective and judge endpoints stay
+   hidden: the App derives its table without them, and the child refuses any served route
+   that is not a recorded mount.
 
 ## 7. TDD plan
 

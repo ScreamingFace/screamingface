@@ -281,7 +281,10 @@ with the eval path. Startup fails on a collision. `[existing world/serving.py:12
 - **EVENTS_STREAM.** No data moves. The rollout drains the system first. `[stated ans:Q7]`
   After deploy, a one-shot command deletes every legacy stream whose name matches
   `url4-cloud_*`: `screamingface-engine admin purge-legacy-streams`. It prints each name,
-  and `--dry-run` only lists. `[proposed]`
+  and `--dry-run` only lists. `[proposed]` **Superseded 2026-09-27 (owner):** the App and
+  the worker do this deletion at startup, so a GitOps auto-sync needs no manual step (see
+  `implementation-notes.md` D7). Without a drain first, runs in flight on a legacy stream
+  lose their frames, and an old worker still up can read a `shape=direct` message.
 - **EVENTS_STREAM config change later.** At startup the App calls `add_stream`. If the
   stream exists, it calls `update_stream` for mutable fields (`max_bytes`, `max_age`,
   `max_msgs_per_subject`, `num_replicas`). For an immutable field (`storage`,

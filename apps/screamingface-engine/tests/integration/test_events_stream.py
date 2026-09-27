@@ -5,6 +5,7 @@ client sees is the PRODUCER sequence, gap-free per topic (erd.md §5, I-EV1..I-E
 """
 
 import asyncio
+import contextlib
 import os
 import socket
 from collections.abc import AsyncIterator
@@ -108,6 +109,7 @@ async def test_frame_sequence_on_wire_equals_producer_sequence_for_fresh_run() -
 # --- delta: one shared stream -----------------------------------------------------------------
 
 from nats.js.api import StorageType  # noqa: E402
+from nats.js.errors import APIError, NotFoundError  # noqa: E402
 
 from screamingface_engine.adapters.jetstream import (  # noqa: E402
     EventsStreamConfig,
@@ -491,7 +493,9 @@ async def test_startup_fails_when_max_bytes_exceeds_store() -> None:
 
 async def test_startup_fails_while_a_legacy_stream_overlaps_naming_the_purge_command() -> None:
     """Rollout order (erd.md §10, corrected): a legacy stream captures `url4-cloud.<topic>`, which
-    overlaps `url4-cloud.*`, so the events stream cannot be created until the purge ran."""
+    overlaps `url4-cloud.*`, so the events stream cannot be created until the purge ran. Since
+    the owner's 2026-09-27 rollout decision the App and worker (`update=True`) purge it
+    themselves; the lazy path (`update=False`) still refuses, naming the command."""
     cfg = _isolated()
     prefix = cfg.subjects[0].removesuffix("*")
     legacy = f"url4-cloud_{uuid4().hex}"
@@ -499,9 +503,32 @@ async def test_startup_fails_while_a_legacy_stream_overlaps_naming_the_purge_com
     try:
         await js.add_stream(name=legacy, subjects=[f"{prefix}sometopic"])
         with pytest.raises(EventsStreamConfigError, match="purge-legacy-streams"):
-            await ensure_events_stream(js, cfg, update=True)
+            await ensure_events_stream(js, cfg, update=False)
     finally:
         await js.delete_stream(legacy)
+        await nc.close()
+
+
+async def test_startup_deletes_an_overlapping_legacy_stream_and_declares_the_shared_one() -> None:
+    """The App and worker's own migration, on a real broker: the legacy stream is gone, the
+    shared stream exists, and a legacy stream can no longer be created over it (the old App
+    still up during a rollout cannot bring one back)."""
+    cfg = _isolated()
+    prefix = cfg.subjects[0].removesuffix("*")
+    legacy = f"url4-cloud_{uuid4().hex}"
+    nc, js = await _js()
+    try:
+        await js.add_stream(name=legacy, subjects=[f"{prefix}sometopic"])
+        await ensure_events_stream(js, cfg, update=True)
+        names = await _stream_names()
+        assert legacy not in names and cfg.name in names
+        with pytest.raises(APIError):
+            await js.add_stream(name=legacy, subjects=[f"{prefix}othertopic"])
+    finally:
+        with contextlib.suppress(NotFoundError):
+            await js.delete_stream(legacy)
+        with contextlib.suppress(NotFoundError):
+            await js.delete_stream(cfg.name)
         await nc.close()
 
 

@@ -532,7 +532,7 @@ async def test_k10_restarting_the_nats_pod_mid_run_stays_gapfree_or_fails_named(
 
 
 # --------------------------------------------------------------------------------------------
-# K11 — a legacy per-run stream blocks startup until `admin purge-legacy-streams` ran.
+# K11 — the new App deletes a legacy per-run stream at startup (no manual rollout step).
 # --------------------------------------------------------------------------------------------
 async def _seed_legacy_stream(nats_port: int, legacy: str) -> None:
     """What the pre-PRD-01 chart leaves behind: a per-run stream, and no `url4-events`."""
@@ -544,6 +544,17 @@ async def _seed_legacy_stream(nats_port: int, legacy: str) -> None:
         js = nc.jetstream()
         await js.delete_stream("url4-events")
         await js.add_stream(name=legacy, subjects=[f"url4-cloud.{legacy.split('_', 1)[1]}"])
+    finally:
+        await nc.close()
+
+
+async def _stream_names_on(nats_port: int) -> list[str]:
+    from nats.aio.client import Client as NatsClient
+
+    nc = NatsClient()
+    await nc.connect(f"nats://127.0.0.1:{nats_port}")
+    try:
+        return [info.config.name or "" for info in await nc.jetstream().streams_info()]
     finally:
         await nc.close()
 
@@ -561,7 +572,10 @@ async def _app_log_names(needle: str, timeout: float) -> str:
                 "-n",
                 NAMESPACE,
                 "logs",
-                f"deployment/{_APP_DEPLOYMENT}",
+                # WHY a label and not `deployment/<app>`: kubectl picks that pod by the
+                # Deployment's name+instance selector, which also matches the bundled Garage.
+                "-l",
+                "app.kubernetes.io/component=control-plane",
                 "--tail=200",
             ],
             capture_output=True,
@@ -571,39 +585,14 @@ async def _app_log_names(needle: str, timeout: float) -> str:
     return logs
 
 
-def _run_purge_command() -> None:
-    """The rollout step, with the NEW image (the command ships only there)."""
-    image = _kubectl(
-        "get",
-        f"deployment/{_APP_DEPLOYMENT}",
-        "-o",
-        "jsonpath={.spec.template.spec.containers[0].image}",
-    )
-    _kubectl(
-        "run",
-        "k11-purge",
-        "--rm",
-        "-i",
-        "--restart=Never",
-        f"--image={image}",
-        "--image-pull-policy=Never",
-        "--env=URL4_CLOUD_NATS_URL=nats://sf-uniform-nats:4222",
-        "--command",
-        "--",
-        "screamingface-engine",
-        "admin",
-        "purge-legacy-streams",
-        timeout=180,
-    )
-
-
 @pytest.mark.asyncio
-async def test_k11_purge_legacy_streams_after_a_drained_upgrade_from_the_old_chart(
+async def test_k11_the_app_deletes_a_legacy_stream_at_startup_after_an_upgrade(
     nats_local_port: int,
 ) -> None:
-    """The drained-rollout order (implementation-notes D7): with a legacy `url4-cloud_<topic>`
-    stream on the broker (seeded here as the old chart left one), the new App refuses to start
-    naming the command; the command deletes it; the App starts."""
+    """FEATURE (rollout, owner decision 2026-09-27): with a legacy `url4-cloud_<topic>` stream
+    on the broker (seeded here as the old chart left one), the new App deletes it and declares
+    `url4-events` itself, then becomes ready — no hook Job and no manual purge, so a GitOps
+    auto-sync upgrades."""
     _kubectl("scale", f"deployment/{_RUNNER_DEPLOYMENT}", "--replicas=0")
     _kubectl("scale", f"deployment/{_APP_DEPLOYMENT}", "--replicas=0")
     _kubectl(
@@ -615,15 +604,16 @@ async def test_k11_purge_legacy_streams_after_a_drained_upgrade_from_the_old_cha
         "--timeout=120s",
         timeout=140,
     )
-    await _seed_legacy_stream(nats_local_port, "url4-cloud_k11-legacy")
+    legacy = "url4-cloud_k11-legacy"
+    await _seed_legacy_stream(nats_local_port, legacy)
     try:
         _kubectl("scale", f"deployment/{_APP_DEPLOYMENT}", "--replicas=1")
-        logs = await _app_log_names("purge-legacy-streams", timeout=120)
-        assert "purge-legacy-streams" in logs, logs[-2000:]
-        _run_purge_command()
+        logs = await _app_log_names("legacy per-run stream(s) at startup", timeout=120)
+        assert "deleted 1 legacy per-run stream(s) at startup" in logs, logs[-2000:]
+        _rollout(_APP_DEPLOYMENT)
     finally:
         _kubectl("scale", f"deployment/{_APP_DEPLOYMENT}", "--replicas=1")
         _kubectl("scale", f"deployment/{_RUNNER_DEPLOYMENT}", "--replicas=2")
-    _kubectl("rollout", "restart", f"deployment/{_APP_DEPLOYMENT}")
-    _rollout(_APP_DEPLOYMENT)
     _rollout(_RUNNER_DEPLOYMENT)
+    names = await _stream_names_on(nats_local_port)
+    assert legacy not in names and "url4-events" in names, names

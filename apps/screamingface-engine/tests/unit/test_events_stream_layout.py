@@ -171,3 +171,73 @@ async def test_an_existing_events_stream_is_never_re_added() -> None:
     js = _Existing()
     await ensure_events_stream(js, config, update=True)  # type: ignore[arg-type]
     assert js.added == 0
+
+
+class _FakeLegacyBroker:
+    """A broker holding legacy per-run streams whose subjects overlap the shared stream: the
+    first `add_stream` fails with the overlap code; after the purge, `add_stream` succeeds
+    unless `overlap_persists` (a stranger's stream overlaps, which the purge must not touch)."""
+
+    def __init__(self, *, overlap_persists: bool = False) -> None:
+        self.names = ["url4-cloud_aaa", "url4-cloud_bbb", "url4-runq", "stranger"]
+        self.deleted: list[str] = []
+        self.add_stream_calls = 0
+        self._overlap_persists = overlap_persists
+
+    async def stream_info(self, name: str) -> object:
+        raise NotFoundError(code=404, err_code=10059, description="stream not found")
+
+    async def add_stream(self, *_args: Any, **_kwargs: Any) -> object:
+        from screamingface_engine.adapters.jetstream import SUBJECTS_OVERLAP_ERR_CODE
+
+        self.add_stream_calls += 1
+        if self.add_stream_calls == 1 or self._overlap_persists:
+            raise APIError(err_code=SUBJECTS_OVERLAP_ERR_CODE)
+        return object()
+
+    async def streams_info(self, offset: int = 0) -> list[object]:
+        from types import SimpleNamespace
+
+        if offset:
+            return []
+        live = [n for n in self.names if n not in self.deleted]
+        return [SimpleNamespace(config=SimpleNamespace(name=n)) for n in live]
+
+    async def delete_stream(self, name: str) -> bool:
+        self.deleted.append(name)
+        return True
+
+
+@pytest.mark.asyncio
+async def test_startup_deletes_the_legacy_streams_and_declares_the_shared_stream() -> None:
+    """FEATURE (rollout, owner decision 2026-09-27): the App and worker (`update=True`) migrate
+    the broker themselves — no hook, no manual step, so a GitOps auto-sync upgrades. Only the
+    `url4-cloud_*` per-run streams are deleted, never the run queue or a stranger's stream.
+    INVARIANT: once the shared stream exists, JetStream refuses any new overlapping legacy
+    stream, so an old App still up during the rollout cannot bring one back."""
+    js = _FakeLegacyBroker()
+    await ensure_events_stream(cast(JetStreamContext, js), EventsStreamConfig(), update=True)
+    assert sorted(js.deleted) == ["url4-cloud_aaa", "url4-cloud_bbb"]
+    assert js.add_stream_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_the_lazy_path_never_deletes_a_legacy_stream() -> None:
+    """A child or a test harness (`update=False`) does not own the broker's layout: it refuses
+    with the purge command named and deletes nothing."""
+    js = _FakeLegacyBroker()
+    with pytest.raises(EventsStreamConfigError, match="purge-legacy-streams"):
+        await ensure_events_stream(cast(JetStreamContext, js), EventsStreamConfig(), update=False)
+    assert js.deleted == []
+    assert js.add_stream_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_an_overlap_the_purge_cannot_remove_fails_after_one_retry() -> None:
+    """A stream that is NOT a legacy per-run stream overlaps: the startup still fails, after
+    exactly one retry — never a loop, and the stranger's stream is untouched."""
+    js = _FakeLegacyBroker(overlap_persists=True)
+    with pytest.raises(EventsStreamConfigError, match="overlap"):
+        await ensure_events_stream(cast(JetStreamContext, js), EventsStreamConfig(), update=True)
+    assert js.add_stream_calls == 2
+    assert "stranger" not in js.deleted and "url4-runq" not in js.deleted

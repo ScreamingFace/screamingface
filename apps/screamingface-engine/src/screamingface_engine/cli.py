@@ -101,9 +101,9 @@ def _worker() -> None:
 def _purge_legacy_streams(*, dry_run: bool) -> None:
     """Delete the per-run streams of the former layout, printing each name (erd.md §10).
 
-    ROLLOUT ORDER: drain the system, run this, THEN start the new version. The shared events
-    stream (`url4-cloud.*`) overlaps every legacy stream's subject, and JetStream refuses it
-    while one exists — the new App and worker fail at startup naming this command.
+    The new App and worker do the same deletion at startup (owner decision 2026-09-27), so a
+    rollout needs no manual step; this command is for a `--dry-run` preview, or a broker a
+    lazy-path process (a child, a test harness) refused to declare the shared stream on.
     """
     import asyncio
 

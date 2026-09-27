@@ -212,23 +212,17 @@ one place so they cannot disagree:
 - `events.replicas` (default 1) — same posture as `config.runQueueReplicas`: this chart bundles
   a single-node NATS subchart, which refuses `replicas > 1` outright.
 
-**Rollout order (upgrading past the per-run-stream layout).** The new App and worker REFUSE to
-start while a legacy `url4-cloud_<topic>` stream exists on the broker — the shared stream's
-subjects overlap them, and JetStream will not declare a stream whose subjects overlap
-another's; the refusal names `screamingface-engine admin purge-legacy-streams` in its error.
-Upgrade in this order:
-
-1. Scale the OLD App and runner pool to 0, and wait for the queue to drain. Both must be at
-   0 together, not just drained: an old App still up would let a client's WebSocket attach
-   re-create a legacy per-run stream after step 2 has just removed it.
-2. Run `screamingface-engine admin purge-legacy-streams --dry-run` first, to see (and confirm)
-   the exact list of streams the next step deletes, then run it for real:
-   `screamingface-engine admin purge-legacy-streams`. It prints each stream it deletes; it
-   never touches `url4-events` or `url4-runq`. The command ships only in the NEW image, so run
-   it from that image — not the one still deployed — e.g. a one-off `kubectl run` or `Job`
-   using the new image and the App's own env (it needs the same `NATS_URL` the App does; no
-   pod from the old image can run it).
-3. Deploy the new version.
+**Upgrading past the per-run-stream layout.** No manual step. JetStream will not declare the
+shared stream while a legacy `url4-cloud_<topic>` stream exists (their subjects overlap), so
+the new App and worker delete every legacy stream at startup, log
+`deleted N legacy per-run stream(s) at startup`, and declare `url4-events`. Once it exists,
+JetStream refuses any new overlapping stream, so an old App still serving during the rollout
+cannot create a legacy stream again. The frames of runs still in flight on a legacy stream are
+lost at the cut-over (owner decision, 2026-09-27); to avoid that, scale the old App and runner
+pool to 0 and let the queue drain before the sync. The deletion never touches `url4-events`,
+`url4-runq`, or another workload's stream; an overlap with one of those still fails the
+startup. `screamingface-engine admin purge-legacy-streams --dry-run` lists what would be
+deleted, and without `--dry-run` it does the same deletion by hand.
 
 **Alert rule.** `screamingface_engine_events_store_utilization_ratio > 0.8` for 5 minutes,
 severity warning. Meaning: the events store is close to full, and JetStream will soon start

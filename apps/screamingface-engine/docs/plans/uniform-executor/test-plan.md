@@ -91,7 +91,7 @@ fixture port-forwards the App Service. Tests use `httpx` and `websockets`. Chaos
 | K8 | A run that allocates past its budget → `oom_killed`; its siblings finish | 03 |
 | K9 | `kubectl rollout restart` of the runner pool during runs → drain; idle warm children die first | 03 |
 | K10 | Restart the NATS pod during a run → gap-free frames, or `failed/stream_failed` | 01 |
-| K11 | `purge-legacy-streams` after a drained upgrade from the previous chart version | 01 |
+| K11 | the new App deletes a legacy stream at startup after an upgrade from the previous chart version (was: `purge-legacy-streams` after a drained upgrade; changed 2026-09-27, D7) | 01 |
 | K12 | Events store near full (small `events.maxBytes`) → gauge > 0.8 | 01 |
 
 **CI.** Add an optional job `kind-e2e` to `.github/workflows/screamingface-engine-tests.yml`,
