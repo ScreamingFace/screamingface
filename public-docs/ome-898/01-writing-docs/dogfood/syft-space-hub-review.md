@@ -1,6 +1,6 @@
 ---
 title: "writing-docs: different-domain verification run"
-ticket: OME-898 (child 1, not yet filed)
+ticket: OME-898
 results: ./RESULTS.md
 status: draft
 date: 2026-09-02

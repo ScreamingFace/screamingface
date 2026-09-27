@@ -1,6 +1,6 @@
 ---
 title: "writing-docs: implementation plan"
-ticket: OME-898 (child 1, not yet filed)
+ticket: OME-898
 spec: ./spec.md
 status: draft
 date: 2026-08-20

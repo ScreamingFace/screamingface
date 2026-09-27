@@ -1,6 +1,6 @@
 ---
 title: "Child 02: what the two sources actually disagree about"
-ticket: OME-898 (child 2, not yet filed)
+ticket: OME-898
 status: draft
 date: 2026-09-02
 ---

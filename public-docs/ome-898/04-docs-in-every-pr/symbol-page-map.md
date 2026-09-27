@@ -1,6 +1,6 @@
 ---
 title: "Documentation as part of every PR: the symbol-to-page table"
-ticket: OME-898 (child 4, not yet filed)
+ticket: OME-898
 spec: ./spec.md
 plan: ./plan.md
 status: draft

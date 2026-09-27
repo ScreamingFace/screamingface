@@ -1,6 +1,6 @@
 ---
 title: "writing-docs: dogfood results"
-ticket: OME-898 (child 1, not yet filed)
+ticket: OME-898
 spec: ../spec.md
 plan: ../plan.md
 review output: ./public-docs-review.md
