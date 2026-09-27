@@ -25,10 +25,18 @@ Dates are the date of the source that supplied the item, not the date this file 
 
 ## What this is
 
-**canonical, 2026-08-29.** ScreamingFace is the open ecosystem for fusing many models into
-measurably smarter AI systems, delivering more intelligence per dollar than any single
-model. Other tools compose and other boards rank. What ScreamingFace adds is that it
-verifies the result in public and hands you the recipe to re-run it yourself.
+**canonical, 2026-09-25, source: the Product Positioning doc.**
+ScreamingFace is an open toolkit for composing model fusions that outperform any single
+model. Push the frontier together, in the open, while every result stays trivial to
+reproduce for everyone.
+
+Audience-adjusted description, for external copy: ScreamingFace is a community toolkit for
+composing model fusions, built to make AI research around fusions self-reliant and
+verifiable. It runs locally on your own keys: compose models, run benchmarks, and get a
+verified result, score, cost, and the exact recipe, that is trivial for anyone to reproduce.
+Every result generates an immutable recipe, so you can build on community work and track
+how closed APIs change underneath you over time. Two ways in: a Python-first library, and a
+no-code desktop app.
 
 The name spans the products, the url4 protocol, and the community program.
 
@@ -76,7 +84,7 @@ page saying "ensemble" is correct; a launch post should say fusion.
 | Context routing | provisional | which knowledge is consulted |
 | BYOK | provisional | bring your own key. The user supplies their own provider credentials |
 | DRACO | provisional | the third-party public research benchmark we reproduce first. Not created by us |
-| Fusion Monsters | provisional | the community program. The people, never the product. The external name is not final |
+| Fusion Monsters | canonical | the community program. The people, never the product. Final name |
 | STUB submissions | provisional | fake leaderboard entries used to test the board |
 
 **Two cautions.**
@@ -90,8 +98,9 @@ existing validates that composition matters.
 
 ## Who we write for
 
-Four personas, in priority order. **provisional, 2026-08-28**: the set is still being
-refined, and each entry is the current best definition rather than settled.
+Four personas, in priority order. **provisional, 2026-08-28**, except the top one. The top
+persona is product's current, exclusive focus; the other three stay valid for the surfaces
+they cover, and are not being actively refined.
 
 Identify which one the work is for, then match its register. The registers differ sharply,
 and a community post, a researcher-facing result, and a consumer explainer are not the same
@@ -99,19 +108,32 @@ voice.
 
 | Priority | Persona | Register | Surfaces they touch |
 |---|---|---|---|
-| 0, top | Applied ML researchers and public result builders | neutral and rigorous, academic or governmental | Client, Leaderboard, Studio, Fusion Monsters, Engine |
+| 0, top | Ensemble Routing Researchers | neutral and rigorous, academic or governmental | Client, Leaderboard, Studio, Fusion Monsters, Engine |
 | 1, high | Technical developers and benchmark enthusiasts | direct and technical | Studio, Client, Leaderboard, Fusion Monsters, url4 |
 | 1, high | Current or aspiring AI researchers | fully playful, community | Client, Leaderboard, Studio, Fusion Monsters |
 | 1, high | Everyday AI users and general token payers | plain-language consumer | Leaderboard, Reports, the website |
 
-**The top persona in one line.** Give me a credible baseline, an inspectable fusion, and a
-fair way to submit and publish, so I earn public credit for work that survives scrutiny.
+**The top persona, canonical, 2026-09-25, source: Notion, "Ensemble Routing Researchers."**
+Researchers advancing ensembling, fusion, routing, cascades, and mixture-of-agents. The
+contribution is how model calls are combined, or which model runs. They publish the method
+and run it on benchmarks. They are researchers first, and would rather not rebuild the stack
+around each experiment.
 
-What they need to believe, and therefore what documentation for them must supply: the
-benchmark and baseline are named and meaningful; the result is reproducible or its limits are
-explicit; they can inspect and change enough of the recipe to make a defensible
-contribution; the verification, submission, and attribution rules are clear before they
-invest time; and the cost and key requirements are known up front.
+In their own words: "I have published work on ensembling or routing. I want the next
+experiment on infrastructure someone else maintains, graded independently, so the result is
+citable and can be rerun."
+
+What they want: a state-of-the-art result on a benchmark, under their name; their method or
+benchmark carried on a fusion and routing leaderboard; a result other people can reproduce,
+with their credit intact.
+
+What they are up against: each experiment is glue across providers, keys, and grading; there
+is no shared way to rerun their work or someone else's; cost limits both new experiments and
+reruns; with no public board for fusion and routing, the result stays inside the paper.
+
+The full qualification rubric, who counts as this persona, benchmark and method filters,
+segments, priority order, lives in the source Notion page, not here. That level of detail is
+for outreach targeting, not docs voice.
 
 If the work addresses someone outside these four, say so rather than forcing a fit.
 
@@ -165,14 +187,10 @@ given result refers to has to be settled before a claim about it is published. O
 
 Do not resolve these. They are recorded so nobody has to rediscover them.
 
-| Item | Status | Owner |
-|---|---|---|
-| The ScreamingFace one-liner says we combine models into "fusion models", while the Fusion entry forbids exactly that phrase and the claim it implies. Canon contradicts itself on the core term | **open** | brand |
-| Public claim language for benchmarks we authored has not been approved | **open** | claims |
-| The external name of the community program is not final | **provisional** | brand and GTM |
-| The persona set is still being refined | **provisional** | brand |
-| The top terminology entry is marked as needing review | **provisional** | brand |
-| Whether the token-buyer audience is covered by the researcher personas | **open** | brand |
+| Item | Status | Owner | Source |
+|---|---|---|---|
+| Public claim language for benchmarks we authored has not been approved. Canon names Ronnie as the approver; Irina names Lacey. Which name is current, and what exact copy is under review, needs one more answer | **open** | Lacey, unreconciled with canon | terminology, `Benchmark` entry: "Ronnie has not yet approved public claim language for authored benchmarks" |
+| The persona set, outside the top priority persona, is still being refined | **provisional** | Irina | personas file preamble: "These audiences are still being refined, not all are final" |
 
 ## Not in this file
 
@@ -192,8 +210,7 @@ sequencing and shipped-state reporting belong to their own documents.
 
 This file is a copy. It does not sync, so it goes stale when the sources change.
 
-- **Owner: unassigned.** This needs one named person, not a team. Until it is filled in,
-  treat every date above as the only signal of freshness.
+- **Owner: Irina Bejan.**
 - **Refresh trigger:** at each release, and whenever a positioning document or the
   terminology database changes materially, whichever comes first.
 - **Stale-by** is in the frontmatter. An expired date is a prompt to refresh, not a reason to
@@ -209,6 +226,7 @@ Read once as material, on 2026-09-02, and not depended on at runtime:
 | target personas, four entries | canon as of 2026-08-28 |
 | product-positioning document | source edited 2026-08-28, mirrored 2026-08-31 |
 | brand-positioning document | via the terminology entries that cite it |
+| Ensemble Routing Researchers persona, Notion | 2026-09-25 |
 
 Where this file and those sources disagree, they are newer. Refresh rather than arguing with
 this copy.
