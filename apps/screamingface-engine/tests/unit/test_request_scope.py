@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import time
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ from screamingface_engine.request_scope import (
     RequestScope,
     RequestScopeError,
     current_scope,
+    forwarded_headers,
     request_scope,
 )
 from screamingface_engine.runner.main import (
@@ -308,8 +310,56 @@ def test_a_scope_has_no_deadline_by_default() -> None:
     assert request_scope_from_env({}).deadline is None
 
 
-def test_the_sync_producer_carries_the_deadline_it_is_given() -> None:
+def test_the_sync_producer_binds_no_deadline() -> None:
     from screamingface_engine.request_scope import request_scope_from_headers
 
     assert request_scope_from_headers({}).deadline is None
-    assert request_scope_from_headers({}, deadline=123.5).deadline == 123.5
+
+
+def test_a_direct_run_scope_is_the_sync_surfaces_with_the_runs_deadline() -> None:
+    """Review of PRD 05 (finding 2): a mount call's aigateway retries fit its own deadline."""
+    before = time.monotonic()
+    scope = request_scope_from_env({job_env.RUN_SHAPE: "direct", job_env.JOB_DEADLINE_S: "35"})
+
+    assert scope.origin == "sync"
+    assert scope.deadline is not None
+    assert before + 35 <= scope.deadline <= time.monotonic() + 35
+
+
+def test_an_expression_run_scope_keeps_no_deadline() -> None:
+    scope = request_scope_from_env({job_env.JOB_DEADLINE_S: "35"})
+    assert scope.origin == "run"
+    assert scope.deadline is None
+
+
+# --- C2: the security boundary — only the allowlist and the verified identity leave -----------
+
+
+def test_forwarded_headers_keep_only_the_allowlist_and_the_verified_identity() -> None:
+    """The strip-and-reset helper (moved from the deleted ``rest/forwarder.py``, prd/05).
+
+    No inbound identity survives — however many the client sent, however it cased the name —
+    Cookie/Authorization/URL4-Capability never leave, the allowlisted headers pass through
+    canonicalised and in order, and the verified identity is appended last, exactly once.
+    """
+    inbound = [
+        ("Cookie", "session=secret"),
+        ("Authorization", "Bearer secret"),
+        ("URL4-Capability", "jwt"),
+        ("X-User-Email", "forged@example.com"),
+        ("x-user-email", "forged-lower@example.com"),
+        ("x-profile", "p"),
+        ("Cache-Control", "no-cache"),
+        ("X-Answer-Seed", "7"),
+        ("traceparent", "00-" + "a" * 32 + "-" + "b" * 16 + "-01"),
+    ]
+
+    out = forwarded_headers(inbound, verified_identity={"X-User-Email": "real@x"})
+
+    assert out == [
+        ("X-Profile", "p"),
+        ("Cache-Control", "no-cache"),
+        ("X-Answer-Seed", "7"),
+        ("traceparent", "00-" + "a" * 32 + "-" + "b" * 16 + "-01"),
+        ("X-User-Email", "real@x"),
+    ]

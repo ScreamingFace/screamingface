@@ -11,6 +11,7 @@ import asyncio
 import functools
 import logging
 import os
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from screamingface_engine import job_env
+from screamingface_engine import child_protocol, job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.artifacts.wiring import result_writer_from_env
@@ -83,18 +84,27 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
             refusal `job_env.answer_seed_from_env` always produced — a run silently executed
             without its declared seed would publish a score claiming a sitting it never had.
+            Also an unknown ``RUN_SHAPE``, and a malformed ``JOB_DEADLINE_S`` on a direct run.
     """
 
     try:
         answer_seed = job_env.answer_seed_from_env(env)
+        direct = job_env.run_shape_from_env(env) == "direct"
     except ValueError as exc:
         raise RunnerConfigError(str(exc)) from exc
+    # FEATURE (uniform executor PRD 04, review of PRD 05): a DIRECT run is a mount call — the
+    # sync surface the node tier served — so it keeps that surface's two rules. `origin="sync"`
+    # lets the caller's declared `X-Answer-Seed` reach aigateway outside a candidate invocation
+    # (the connector's seed rule), and the run's own deadline bounds each aigateway attempt and
+    # retry (04-review-fixes §2.1) — no aigateway attempt starts past the run's own deadline.
+    job_deadline = _deadline_from_env(env) if direct else None
     return RequestScope(
         identity_headers=job_env.identity_from_env(env),
         profile=env.get(job_env.AIGATEWAY_PROFILE),
         answer_seed=answer_seed,
         cache=job_env.cache_policy_from_env(env),
-        origin="run",
+        origin="sync" if direct else "run",
+        deadline=None if job_deadline is None else time.monotonic() + job_deadline,
     )
 
 
@@ -149,8 +159,8 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
     hard_cap = job_env.number_from_env(
         env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES, log=logger
     )
-    # The store construction is SHARED with the node tier's spill path (unit 3): both call
-    # `result_writer_from_env`, so the run path and the sync tier cannot park into two places.
+    # The store construction lives in `result_writer_from_env`, the one place the run path's
+    # spill store is chosen.
     return inline_cap, hard_cap, result_writer_from_env(env)
 
 
@@ -162,33 +172,36 @@ async def run_and_reclaim(
     grace_s: float = job_env.DEFAULT_STREAM_GRACE_S,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
-    """Drive one run, then reclaim its stream.
+    """Drive one run, then reclaim its subject on the shared events stream.
 
-    WHY the runner owns this: `DELETE /` is the only other path that reclaims a stream, and it
+    WHY the runner owns this: `DELETE /` is the only other path that reclaims a run, and it
     needs a capability token — those expire `iat_window_s` (60s) after minting and cannot be
     re-issued for an existing topic, so any run longer than a minute could never tear its own
-    stream down. Every such run leaked a stream holding a full `max_bytes` reservation until the
-    store was full and every new run failed with 10047.
+    subject down. Every such run left its frames on the shared stream until `max_age` (24h)
+    or the store's own `max_bytes`/`max_msgs_per_subject` limits eventually dropped them.
 
     INVARIANT: the reclamation is in a `finally`. A run that raised is precisely the run whose
-    stream would otherwise be left behind.
+    subject would otherwise be left behind.
     """
     try:
         await run_once()
     finally:
-        # WHY the delay: `delete_stream` destroys the stream AND its consumers. Deleting the
-        # instant the terminal frame is published races a client that has not drained yet, which
-        # would never see the terminal frame and would hang until its own timeout.
+        # WHY the delay: `delete_stream` purges the subject, KEEPING the terminal frame
+        # (erd.md §5; `_JetStreamConnection.delete_stream`'s own docstring). Purging the
+        # instant the terminal frame is published would still drop every EARLIER frame of the
+        # subject — the ones a client that has not drained yet is still resuming through —
+        # forcing its replay to fail with `stream_reclaimed` instead of finishing the read.
         await sleep(grace_s)
         try:
             await publisher.delete_stream(topic)
         except Exception:
             # INVARIANT: nothing here may escape. Teardown is best-effort by design and
-            # `_sweep_orphans` is the stated backstop, so the cost of swallowing is a late
-            # reclamation. The cost of raising is far worse in BOTH directions: on the success
-            # path it reports a run that published `Terminated(succeeded)` as a Failed Job, and
-            # on the failure path a raise inside `finally` SUPERSEDES the exception already
-            # propagating, erasing the real cause of the failure from the Job's logs.
+            # `max_age` expiry is the stated backstop (EV-D13: a crashed runner that never
+            # reaches this line loses nothing but the early purge), so the cost of swallowing
+            # is a late reclamation. The cost of raising is far worse in BOTH directions: on the
+            # success path it reports a run that published `Terminated(succeeded)` as a Failed
+            # Job, and on the failure path a raise inside `finally` SUPERSEDES the exception
+            # already propagating, erasing the real cause of the failure from the Job's logs.
             #
             # WHY not `except APIError`: `delete_stream` connects lazily, so it also raises
             # `NoServersError`, `ConnectionClosedError` and `nats.errors.TimeoutError` — none of
@@ -459,6 +472,7 @@ def build_executor(
             artifact_store=artifact_store,
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
+            run_shape=job_env.run_shape_from_env(env),
         ),
         observers=observers,
     )
@@ -611,47 +625,151 @@ async def _run_and_log(
         _log_terminal(executor, params.topic, started)
 
 
-def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
-    async def _main() -> None:
-        params = params_from_env(os.environ)
-        # WHY: entry-point composition owns plugin registration; the executor stays optional.
-        from screamingface_engine.observation_plugins import observation_factories
+@dataclass(frozen=True)
+class WarmState:
+    """What a warm child prepared before its run was known (PRD 03)."""
 
-        executor = build_executor(
-            os.environ,
-            benchmarks=BUILTIN_BENCHMARKS,
-            observers=observation_factories(os.environ),
+    publisher: Any
+    world_ok: bool
+    # The world, built ahead from per-process config (None when the config does not load).
+    shared: SharedWorld | None = None
+    world_aclose: Callable[[], Awaitable[None]] | None = None
+
+
+async def warm_up(
+    environ: Mapping[str, str],
+    *,
+    publisher_factory: Callable[[str], Any] = JetStreamPublisher,
+) -> WarmState:
+    """The warm phase: the per-PROCESS work a child can do before its run is known.
+
+    The imports are already paid by the time this runs (this module's import graph is the
+    run path's). Here: connect to the broker and declare the shared events stream, and BUILD
+    the declared world from its config file — the per-run world build was the largest share of
+    a simple call's latency (kind B4: ~600 ms of ~800 ms). A broken config is reported in READY.
+
+    INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, the profile,
+    the io budget. The world holds no caller state: the request scope (identity, profile, seed)
+    is bound per run and read at call time. A run whose admitted overlay (`EXTRA_MODELS`) this
+    world does not route builds its own world instead (`shared_world_serves`), as before.
+    """
+    publisher = publisher_factory(environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL))
+    await publisher.ensure_stream("")
+    try:
+        config = load_config(environ)
+        io, world_aclose = await build_world(
+            env=environ, config=config, benchmarks=BUILTIN_BENCHMARKS
         )
-        traceparent = os.environ.get(job_env.TRACEPARENT)
+    except Exception:
+        # WHY swallow: the run will fail with its own `Terminated(failed)` when it builds the
+        # world (WC-D3). READY carries the verdict so the worker can count it.
+        logger.warning("warm child: the world could not be built ahead", exc_info=True)
+        return WarmState(publisher=publisher, world_ok=False)
+    return WarmState(
+        publisher=publisher,
+        world_ok=True,
+        shared=SharedWorld(io=io, section=config.aigateway),
+        world_aclose=world_aclose,
+    )
+
+
+async def _run_process(
+    publisher: JetStreamPublisher | None, shared: SharedWorld | None = None
+) -> None:
+    """One run from this process's environment, then its reclaim.
+
+    `publisher` and `shared` are the warm phase's (an already-connected publisher, a world
+    built ahead), or None for a cold `run`.
+    """
+    params = params_from_env(os.environ)
+    # WHY: entry-point composition owns plugin registration; the executor stays optional.
+    from screamingface_engine.observation_plugins import observation_factories
+
+    executor = build_executor(
+        os.environ,
+        benchmarks=BUILTIN_BENCHMARKS,
+        observers=observation_factories(os.environ),
+        shared_world_provider=(lambda: shared) if shared is not None else None,
+    )
+    traceparent = os.environ.get(job_env.TRACEPARENT)
+    if publisher is None:
         publisher = JetStreamPublisher(params.nats_url)
-        _log_boot(params, traceparent)
-        # The trace id the run's own frames will carry: parsed from the App-forwarded
-        # traceparent, or None when the caller sent none (the stream then mints one, which
-        # the executor records and the summary line reports). Bound for the whole run so
-        # every process log line inside it carries topic and trace id.
-        trace_id = parse_traceparent(traceparent)
-        # FEATURE (OME-1130): the run's spans, exported to a tracing backend so SigNoz shows a
-        # WATERFALL instead of a log search. The relay wraps the run's own publisher — the one
-        # path every frame of every run travels, attached client or not — and is a pure
-        # passthrough when no OTLP endpoint is configured, which is the default everywhere.
-        #
-        # `with`, not a hand-written `finally`: this process is short-lived, and an unflushed
-        # batch loses the tail of every trace including its root span. See `tracing.relay`.
-        #
-        # `run_and_reclaim` keeps the RAW publisher: it needs `delete_stream`, which is
-        # JetStream's, not the wire port's — the relay only stands where frames are published.
-        with (
-            run_scope(params.topic, trace_id),
-            SpanRelay(publisher, span_sink(os.environ)) as relay,
-        ):
+    _log_boot(params, traceparent)
+    # The trace id the run's own frames will carry: parsed from the App-forwarded
+    # traceparent, or None when the caller sent none (the stream then mints one, which
+    # the executor records and the summary line reports). Bound for the whole run so
+    # every process log line inside it carries topic and trace id.
+    trace_id = parse_traceparent(traceparent)
+    # FEATURE (OME-1130): the run's spans, exported to a tracing backend so SigNoz shows a
+    # WATERFALL instead of a log search. The relay wraps the run's own publisher — the one
+    # path every frame of every run travels, attached client or not — and is a pure
+    # passthrough when no OTLP endpoint is configured, which is the default everywhere.
+    #
+    # `with`, not a hand-written `finally`: this process is short-lived, and an unflushed
+    # batch loses the tail of every trace including its root span. See `tracing.relay`.
+    #
+    # `run_and_reclaim` keeps the RAW publisher: it needs `delete_stream`, which is
+    # JetStream's, not the wire port's — the relay only stands where frames are published.
+    with (
+        run_scope(params.topic, trace_id),
+        SpanRelay(publisher, span_sink(os.environ)) as relay,
+    ):
+        run_once = lambda: _run_and_log(executor, relay, params, traceparent)  # noqa: E731
+        if os.environ.get(job_env.RECLAIM_OWNER) == "worker":
+            # The supervising worker reclaims the subject after the grace, off this run's slot;
+            # this process exits the moment its terminal frame is out (see RECLAIM_OWNER).
+            await run_once()
+            await publisher.flush()
+        else:
             await run_and_reclaim(
-                publisher,
-                params.topic,
-                lambda: _run_and_log(executor, relay, params, traceparent),
-                grace_s=stream_grace_s(os.environ),
+                publisher, params.topic, run_once, grace_s=stream_grace_s(os.environ)
             )
 
-    asyncio.run(_main())
+
+def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
+    asyncio.run(_run_process(None))
+
+
+def warm_main() -> None:  # pragma: no cover - real pipes + NATS (covered by integration)
+    """`screamingface-engine run --warm`: warm up, READY, read ONE RUN_SPEC, ACK, run, exit.
+
+    The control pipe's fd comes from `child_protocol.CONTROL_FD_ENV`. Stdin EOF before a spec
+    means the worker is gone: exit 0, having run nothing. A spec the child refuses gets a
+    REFUSED line and exit 2 — before the ACK, so no run code has run (WC-D9).
+    """
+    raise SystemExit(asyncio.run(_warm_process(os.environ, sys.stdin.buffer)))
+
+
+async def _warm_process(environ: Any, stdin: Any) -> int:
+    control = os.fdopen(int(environ[child_protocol.CONTROL_FD_ENV]), "wb", buffering=0)
+    try:
+        state = await warm_up(environ)
+        control.write(child_protocol.encode_ready(pid=os.getpid(), world_ok=state.world_ok))
+        line = await asyncio.to_thread(stdin.readline, child_protocol.MAX_SPEC_BYTES + 1)
+        if not line:
+            return 0
+        try:
+            spec = child_protocol.decode_spec(line)
+        except child_protocol.SpecError as exc:
+            logger.error("warm child refused its run spec: %s (%s)", exc.code, exc)
+            control.write(child_protocol.encode_refused(exc.code))
+            return 2
+        control.write(child_protocol.ACK)
+    finally:
+        control.close()
+        # The fd number is closed now; the run must not inherit a name for a stale fd.
+        environ.pop(child_protocol.CONTROL_FD_ENV, None)
+    # From here the process IS the run: its environment is the one a cold child would have
+    # been spawned with, and the io budget is the worker's at hand-off (WRM-18).
+    environ.update(spec.env)
+    environ[job_env.IO_CONCURRENCY] = str(spec.io_concurrency)
+    try:
+        await _run_process(state.publisher, state.shared)
+    finally:
+        # The world built ahead is this process's own; the run does not close a shared world.
+        if state.world_aclose is not None:
+            await state.world_aclose()
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

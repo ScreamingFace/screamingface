@@ -214,8 +214,10 @@ def test_the_drain_configuration_keeps_a_deploy_from_interrupting_runs() -> None
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 def test_the_pool_resources_are_slots_times_the_per_run_charge_plus_overhead() -> None:
-    """The pool's resources are `worker_slots × per-run charge` + the worker's own overhead —
-    sized so the declared concurrency can actually run, not BestEffort."""
+    """The pool's resources are `worker_slots × per-run charge` + the worker's own overhead +
+    each warm child's excess over its slot's charge on the memory request — sized so the
+    declared concurrency can actually run, not BestEffort, and the request states what the warm
+    pool actually uses."""
     docs = _render()
     values = _values()
     pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
@@ -223,16 +225,66 @@ def test_the_pool_resources_are_slots_times_the_per_run_charge_plus_overhead() -
     slots = values["runnerPool"]["workerSlots"]
     charge = values["runnerPool"]["perRunCharge"]
     overhead = values["runnerPool"]["overhead"]
+    # A null `warmChildren` is the worker's own default: one warm child per slot.
+    warm = values["runnerPool"]["warmChildren"]
+    warm = slots if warm is None else warm
+    warm_charge = values["runnerPool"]["warmChildCharge"]
 
     assert resources["requests"]["cpu"] == (
         f"{slots * charge['cpuMillicores'] + overhead['cpuMillicores']}m"
     )
     assert resources["requests"]["memory"] == (
-        f"{slots * charge['memoryMi'] + overhead['memoryMi']}Mi"
+        f"{
+            slots * charge['memoryMi']
+            + overhead['memoryMi']
+            + warm * max(0, warm_charge['memoryMi'] - charge['memoryMi'])
+        }Mi"
     )
     assert resources["limits"]["memory"] == (
         f"{slots * charge['memoryLimitMi'] + overhead['memoryLimitMi']}Mi"
     )
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_the_memory_request_counts_each_warm_child() -> None:
+    """The default render (`warmChildren: 2`, `workerSlots: 4`) requests
+    `4*256 + 128 + 2*(450-256) = 1540Mi` — the memory request now states what the warm pool actually
+    holds, not just what the running slots need. The limit is unchanged from before this
+    change: `workerSlots × perRunCharge.memoryLimitMi + overhead.memoryLimitMi`."""
+    docs = _render()
+    values = _values()
+    pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
+    resources = pool["spec"]["template"]["spec"]["containers"][0]["resources"]
+
+    assert values["runnerPool"]["workerSlots"] == 4
+    assert values["runnerPool"]["warmChildren"] == 2
+    assert resources["requests"]["memory"] == "1540Mi"
+
+    slots = values["runnerPool"]["workerSlots"]
+    limit_charge = values["runnerPool"]["perRunCharge"]["memoryLimitMi"]
+    overhead_limit = values["runnerPool"]["overhead"]["memoryLimitMi"]
+    assert resources["limits"]["memory"] == f"{slots * limit_charge + overhead_limit}Mi"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_zero_warm_children_add_no_request() -> None:
+    """`warmChildren: 0` adds no warm-child memory to the request: `4*256 + 128 = 1152Mi`."""
+    docs = _render_with_overrides(**{"runnerPool.warmChildren": "0"})
+    pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
+    resources = pool["spec"]["template"]["spec"]["containers"][0]["resources"]
+
+    assert resources["requests"]["memory"] == "1152Mi"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+def test_null_warm_children_charge_one_per_slot() -> None:
+    """`warmChildren: null` leaves the worker's own default (one warm child per slot) in force,
+    so the request charges one warm child per slot: `4*256 + 128 + 4*(450-256) = 1928Mi`."""
+    docs = _render_with_overrides(**{"runnerPool.warmChildren": "null"})
+    pool = _find(docs, "Deployment", f"{_RELEASE}-{_RELEASE}-runner")
+    resources = pool["spec"]["template"]["spec"]["containers"][0]["resources"]
+
+    assert resources["requests"]["memory"] == "1928Mi"
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")

@@ -94,13 +94,13 @@ class Settings(BaseSettings):
     # AIDEV-NOTE: credential material. Never logged, never rendered into a ConfigMap — it
     # reaches the pod from a Secret, the same way `TAVILY_API_KEY` does.
     artifact_s3_secret_key: str = ""
-    # FEATURE (unit 3, OQ-3.2, contracts.md C6): the shared HMAC key the node tier signs a
-    # spilled artifact's short-lived URL with and this App verifies it against.
+    # FEATURE (OQ-3.2, uniform executor PRD 04): the HMAC key this App signs a mount result's
+    # short-lived artifact URL with (the 303 over 1 MiB) and verifies it against.
     #
     # WHY empty by default: an unconfigured key must DISABLE signed fetches, not become a
     # universal credential. `artifacts.signing.verify_artifact_signature` refuses an empty key,
-    # and the node tier refuses to sign with one — so the bare capability-token path is
-    # unaffected until the secret is wired.
+    # and a mount result over 1 MiB streams inline instead of a 303 — so the bare
+    # capability-token path is unaffected until the secret is wired.
     # INVARIANT: Secret only. A holder can mint a fetch credential for any artifact id.
     artifact_signing_key: str = ""
     # WHY 48h: long enough for any client that survived its run to come back for the parcel
@@ -163,19 +163,6 @@ class Settings(BaseSettings):
     # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY run, so a stale
     # copy left in the Helm ConfigMap can never reach a run through `envFrom`.
     runner_io_concurrency: int = Field(default=4, ge=1)
-    # --- sync surface (unit 3, D6/C2) ------------------------------------------------------
-    # WHERE the App forwards a known mount. Absent means this App serves no sync surface at all:
-    # the forwarder is not mounted, no world is derived, and `/healthz` keeps its original shape.
-    #
-    # WHY a plain base URL and not a Service DNS guess: only the composition root knows whether a
-    # node tier exists in this deployment (the Helm unit writes this from the Service name), and a
-    # wrong guess would silently forward to nothing.
-    node_base_url: str | None = None
-    # The App -> node forward budget (contracts.md ladder): above the node's request budget
-    # plus its spill write, so the node's own 504 wins the race. INVARIANT (FX-34): this is the
-    # ONLY source of the number — `NodeForwarder` has no default. The chart renders it as
-    # `requestTimeoutS + spillTimeoutS + 1` (35 s with the defaults).
-    node_forward_timeout_s: float = 35.0
 
     # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's
     # credential, so there is deliberately NO credential setting here:
@@ -252,14 +239,25 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
+    # --- shared events stream (uniform executor, PRD 01) --------------------------------------
+    # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
+    # and the worker declare it at startup from these values and apply a changed limit; no
+    # other process rewrites it. `max_bytes` must fit the JetStream file store, or startup
+    # fails naming `events.maxBytes`. When the store is full, the OLDEST frames are dropped
+    # (ans:Q11) and `screamingface_engine_events_store_utilization_ratio` shows it.
+    events_max_bytes: int = Field(default=1024**3, ge=1)
+    events_max_msgs_per_subject: int = Field(default=20_000, ge=1)
+    events_max_age_s: float = Field(default=86_400.0, gt=0)
+    events_replicas: int = Field(default=1, ge=1)
+
     # --- durable run queue (OME-1088) -------------------------------------------------------
     # WHY a queue at all: OME-1086 replaces one-Job-per-run scheduling with a fixed worker pool
     # pulling from a durable work queue. THIS unit adds the queue substrate only — no worker,
     # no cutover — so these settings are the substrate's knobs, not the worker's.
     #
-    # INVARIANT: the stream name must NOT begin with `url4-cloud_` — `_sweep_orphans` deletes
-    # any stream `owns_stream()` accepts, and the queue is the one stream an accepted run may
-    # not be lost from. `subjects.owns_stream` excludes it explicitly; the default here is the
+    # INVARIANT: the stream name must NOT begin with `url4-cloud_` — `admin purge-legacy-streams`
+    # deletes any stream `owns_stream()` accepts, and the queue is the one stream an accepted run
+    # may not be lost from. `subjects.owns_stream` excludes it explicitly; the default here is the
     # same constant, so the two cannot drift. The invariant is ENFORCED below by
     # `_reject_sweepable_run_queue_stream` (review follow-up V-8): a comment could not stop an
     # operator or a composition root from naming the queue into the sweepable prefix, and the
@@ -338,6 +336,11 @@ class Settings(BaseSettings):
     # `RLIMIT_AS` bounds VIRTUAL address space (heap + mapped libraries), which is larger than
     # the RSS a cgroup limit measures.
     worker_memory_budget_bytes: int = Field(default=DEFAULT_WORKER_MEMORY_BUDGET_BYTES, ge=1)
+    # Warm children per worker (uniform executor PRD 03): child processes that already did
+    # their per-process work and wait for a run. None (the default) means one per slot; 0
+    # spawns on the claim — through the same READY/spec/ACK protocol. Capped at the slots.
+    # Each idle warm child holds its imports in memory (see the chart's memory request).
+    worker_warm_children: int | None = Field(default=None, ge=0)
     # The worker's Prometheus /metrics port (OME-1092): `prometheus_client.start_http_server`
     # serves the pool's own metrics (slots, claim latency, run duration, redeliveries, child
     # exit codes) on this port. The chart exposes it on the runner pool Deployment. 0 disables
@@ -349,12 +352,12 @@ class Settings(BaseSettings):
     def _reject_sweepable_run_queue_stream(cls, value: str) -> str:
         """Refuse a queue stream named under the per-run `url4-cloud_` prefix.
 
-        The reclamation sweep deletes every stream `owns_stream()` accepts; a queue so
+        `admin purge-legacy-streams` deletes every stream `owns_stream()` accepts; a queue so
         named is one rejected publish away from being deleted with an accepted run on it.
         The exact-name exclusion in `owns_stream` guards the sites that RECEIVE the
         configured name; this validator makes the hazard impossible at its source, so a
         wiring gap (a site built from the default constant) can only ever produce a
-        split — loud — never a swept queue.
+        split — loud — never a purged queue.
         """
         if value.startswith(f"{subjects.PREFIX}_"):
             raise ValueError(

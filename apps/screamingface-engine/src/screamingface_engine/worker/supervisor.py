@@ -38,6 +38,7 @@ from screamingface_engine.runner_queue import (
 )
 from screamingface_engine.subjects import ENQUEUED_AT_HEADER, ownership_subject_for
 from screamingface_engine.worker.metrics import WorkerMetrics
+from screamingface_engine.worker.warm_pool import SPAWN_FAILED, LaunchFailed
 from url4.streaming.protocol import (
     ErrorInfo,
     OutboundFrame,
@@ -72,8 +73,9 @@ KILLED = "killed"
 """The child was killed by a signal."""
 CHILD_EXITED = "child_exited"
 """The child exited non-zero on its own."""
-SPAWN_FAILED = "spawn_failed"
-"""The child could not be started at all."""
+
+UNSUPPORTED_SPEC_VERSION = "unsupported_spec_version"
+"""The run message's major version is unknown to this worker (erd.md §2)."""
 
 # How long a child that ignores SIGTERM is given before the worker SIGKILLs it. The
 # child is a Python process with no SIGTERM handler, so this is a backstop for a child
@@ -81,7 +83,7 @@ SPAWN_FAILED = "spawn_failed"
 KILL_GRACE_S = 10.0
 # The margin past `deadline_s + STREAM_GRACE_S` before the worker declares a child hung.
 # The child enforces `deadline_s` in-process and then waits out `STREAM_GRACE_S` before
-# reclaiming its stream, so a well-behaved child exits before the wall; the margin absorbs
+# purging its run subject, so a well-behaved child exits before the wall; the margin absorbs
 # process teardown.
 DEADLINE_MARGIN_S = 30.0
 # How often the worker extends a claimed message's ack_wait while its child runs. Far
@@ -182,6 +184,68 @@ class _Publisher(Protocol):
     async def flush(self) -> None: ...
 
 
+class _Launcher(Protocol):
+    """Starts ONE run's child and returns it once the run is in its hands.
+
+    Production: the warm child pool (`worker.warm_pool.WarmChildPool`, PRD 03), which hands the
+    run to an already-started child. `DirectLauncher` spawns a child cold with the whole
+    environment — the `spawn=` seam the supervisor's own tests drive.
+    """
+
+    async def launch(
+        self, env: Mapping[str, str], *, io_budget: Callable[[], int]
+    ) -> _ChildProcess: ...
+
+
+def cold_child_env(
+    environ: Mapping[str, str], run_env: Mapping[str, str], io_concurrency: int
+) -> dict[str, str]:
+    """A cold child's whole environment: the worker's deploy-time env merged with the run's.
+
+    WHY merge rather than pass the run's alone: the message carries only the per-run
+    mapping; the deploy-time variables the run mode reads (``NATS_URL``,
+    ``AIGATEWAY_BASE_URL``, ``TAVILY_API_KEY``, ``RUNNER_CONFIG``, the artifact store,
+    ...) live in the worker Pod's env, and the child inherits exactly what this dict
+    says. The run's values win over the worker's ambient ones, and the worker's io budget
+    is written last so it is the authority on how wide a run may fan out (the fair-share
+    gate cannot span processes, so the budget travels by env).
+    """
+    env = dict(environ)
+    # INVARIANT: only this queue message may declare its Client version.
+    env.pop(CLIENT_VERSION_ENV, None)
+    env.update(run_env)
+    env[job_env.IO_CONCURRENCY] = str(io_concurrency)
+    return env
+
+
+class DirectLauncher:
+    """Spawn the run's child cold, under its own ``RLIMIT_AS``, with the whole environment.
+
+    WHY through the exec wrapper and not ``preexec_fn``: CPython documents ``preexec_fn`` as
+    unsafe in the presence of threads, and this process runs an event loop plus whatever the
+    NATS client starts. The wrapper is a separate tiny process that sets the address-space
+    limit and execs ``screamingface-engine run`` in place, so the run inherits the limit and
+    the worker never touches the child's memory.
+    """
+
+    def __init__(self, spawn: Callable[..., Awaitable[_ChildProcess]], memory_budget_bytes: int):
+        self._spawn = spawn
+        self._memory_budget_bytes = memory_budget_bytes
+
+    async def launch(
+        self, env: Mapping[str, str], *, io_budget: Callable[[], int]
+    ) -> _ChildProcess:
+        return await self._spawn(
+            sys.executable,
+            "-m",
+            "screamingface_engine.worker.exec_wrapper",
+            str(self._memory_budget_bytes),
+            env=cold_child_env(os.environ, env, io_budget()),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+
 class RunSupervisor:
     """Supervise one claimed run: dedupe, spawn, heartbeat, hard wall, classify, ack.
 
@@ -194,8 +258,9 @@ class RunSupervisor:
         self,
         *,
         publisher: _Publisher,
-        spawn: Callable[..., Awaitable[_ChildProcess]],
         memory_budget_bytes: int,
+        spawn: Callable[..., Awaitable[_ChildProcess]] | None = None,
+        launcher: _Launcher | None = None,
         io_capacity: int,
         draining: asyncio.Event,
         terminating: asyncio.Event,
@@ -210,10 +275,16 @@ class RunSupervisor:
         kill_grace_s: float = KILL_GRACE_S,
         ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
         metrics: WorkerMetrics | None = None,
+        reclaim: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._publisher = publisher
-        self._spawn = spawn
-        self._memory_budget_bytes = memory_budget_bytes
+        # ONE of the two: production hands in the warm child pool; the `spawn=` seam (a fake
+        # process with a whole cold environment) is what the supervisor's own tests drive.
+        if (launcher is None) == (spawn is None):
+            raise ValueError("pass exactly one of `launcher` and `spawn`")
+        self._launcher: _Launcher = (
+            launcher if launcher is not None else DirectLauncher(spawn, memory_budget_bytes)  # type: ignore[arg-type]
+        )
         self._io_capacity = io_capacity
         # Spawns committed-to but not yet registered in `_children` (review follow-up):
         # the io budget's denominator counts these, so a batch of concurrent spawns
@@ -269,6 +340,11 @@ class RunSupervisor:
         self._ownership_probe_timeout_s = ownership_probe_timeout_s
         # The worker's Prometheus metrics (OME-1092), shared with the claim loop.
         self._metrics = metrics
+        # The subject purge a finished run is owed after its grace (RECLAIM_OWNER=worker), run
+        # detached so it never holds the run's slot. `None` (the supervisor's unit tests)
+        # reclaims nothing; `max_age` is the backstop either way.
+        self._reclaim = reclaim
+        self._reclaims: set[asyncio.Task[None]] = set()
 
     async def supervise(self, msg: ClaimedMessage) -> None:
         """Claim one run and see it through to a terminal frame and an ack.
@@ -403,6 +479,20 @@ class RunSupervisor:
         await msg.ack()
 
     async def _already_settled(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Whether this claim is finished without running (see `_settled_by_tail`), or refused
+        because this worker does not speak its message version.
+
+        ORDER MATTERS: the terminal-frame check runs FIRST. A redelivery of a run a newer
+        worker already finished must be acked away by `_settled_by_tail` before the version
+        refusal ever runs — an OLDER worker that cannot decode a NEWER message's version
+        field must not get the chance to publish a second, contradicting terminal frame for
+        a run that is already over.
+        """
+        return await self._settled_by_tail(msg, topic) or await self._settled_unsupported_spec(
+            msg, topic
+        )
+
+    async def _settled_by_tail(self, msg: ClaimedMessage, topic: str) -> bool:
         """Whether this claim is finished without running: the run is over, or it expired.
 
         ``True`` means the message has been dealt with — acked, or deliberately left for
@@ -425,6 +515,25 @@ class RunSupervisor:
             await msg.ack()
             return True
         return await self._settled_elsewhere_or_expired(msg, topic)
+
+    async def _settled_unsupported_spec(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Refuse a run message of a major version this worker does not know (erd.md §2).
+
+        A named `failed` frame and an ack: a newer App's message (a `direct` shape an old worker
+        would run as an expression, say) must never execute here, and redelivering it would only
+        reach another worker of the same version.
+        """
+        version = str(decode_message(msg.data).get(job_env.SPEC_VERSION, "1"))
+        if version.split(".")[0] in job_env.SUPPORTED_SPEC_MAJORS:
+            return False
+        await self._publish_terminal(
+            topic,
+            "failed",
+            UNSUPPORTED_SPEC_VERSION,
+            f"run message version {version!r} is not supported by this worker",
+        )
+        await msg.ack()
+        return True
 
     async def _refuse_cross_pod_duplicate(self, msg: ClaimedMessage, topic: str) -> bool:
         """Ack a redelivered claim away when ANOTHER pod is executing the run (OME-1089).
@@ -496,19 +605,24 @@ class RunSupervisor:
         self._spawning += 1
         promoted = False
         try:
-            env = self._child_env(msg)
+            env = self._run_env(msg)
             try:
-                proc = await self._spawn_child(env)
-            except OSError as exc:
+                # The io budget is a CALLABLE, read by the launcher at the hand-off itself —
+                # after any wait for a child's READY — so the fair share divides by the runs
+                # alive when this run starts (WRM-18).
+                proc = await self._launcher.launch(env, io_budget=self._io_budget)
+            except (OSError, LaunchFailed) as exc:
                 # The run cannot start at all — a named failure beats silence, and the
                 # message is acked so the run is not redelivered to fail the same way.
-                await self._publish_terminal(topic, "failed", SPAWN_FAILED, str(exc))
+                code = exc.code if isinstance(exc, LaunchFailed) else SPAWN_FAILED
+                await self._publish_terminal(topic, "failed", code, str(exc))
                 await msg.ack()
                 return
             self._children.add(proc)
             self._spawning -= 1  # the registries count this spawn from here — no double count
             promoted = True
             await self._supervise_live_child(msg, topic, proc, env)
+            self._schedule_reclaim(topic, env)
         finally:
             if not promoted:
                 self._spawning -= 1  # the spawn never registered — release its reservation
@@ -557,6 +671,31 @@ class RunSupervisor:
                 # A cancelled supervisor (a sibling failed and the TaskGroup unwound)
                 # must not orphan its child.
                 proc.kill()
+
+    def _schedule_reclaim(self, topic: str, env: Mapping[str, str]) -> None:
+        """Purge the finished run's subject after its grace, detached from the slot."""
+        if self._reclaim is None:
+            return
+        grace_s = _float_or_none(env.get(job_env.STREAM_GRACE_S))
+        delay = job_env.DEFAULT_STREAM_GRACE_S if grace_s is None else grace_s
+        reclaim = self._reclaim
+
+        async def _later() -> None:
+            await asyncio.sleep(delay)
+            try:
+                await reclaim(topic)
+            except Exception:
+                # Best-effort, as the child's own teardown was: `max_age` removes the frames.
+                logger.warning("could not reclaim the subject of %s", topic, exc_info=True)
+
+        task = asyncio.create_task(_later())
+        self._reclaims.add(task)
+        task.add_done_callback(self._reclaims.discard)
+
+    def cancel_reclaims(self) -> None:
+        """Drop the pending purges (the worker is stopping); `max_age` covers them."""
+        for task in tuple(self._reclaims):
+            task.cancel()
 
     def _release_child(self, proc: _ChildProcess, topic: str) -> None:
         """Drop a finished child from every registry the worker shares.
@@ -727,26 +866,20 @@ class RunSupervisor:
 
     # --- the child ------------------------------------------------------------------------
 
-    def _child_env(self, msg: ClaimedMessage) -> dict[str, str]:
-        """The child's environment: the worker's deploy-time env merged with the message's
-        per-run env, plus the worker's own knobs.
+    def _run_env(self, msg: ClaimedMessage) -> dict[str, str]:
+        """The run's own environment: the message's per-run mapping, under the worker's policy.
 
-        WHY merge rather than pass the message alone: the message carries only the per-run
-        mapping; the deploy-time variables the run mode reads (``NATS_URL``,
-        ``AIGATEWAY_BASE_URL``, ``TAVILY_API_KEY``, ``RUNNER_CONFIG``, the artifact store,
-        ...) live in the worker Pod's env, and the child inherits exactly what this dict
-        says. The message's per-run values win over the worker's ambient ones, and the
-        worker's io budget is written last so it is the authority on how wide a run may
-        fan out (the fair-share gate cannot span processes, so the budget travels by env).
+        This is what reaches a warm child in its RUN_SPEC, and what a cold child's environment
+        is merged from (`cold_child_env`).
         """
-        env = dict(os.environ)
-        # INVARIANT: only this queue message may declare its Client version.
-        env.pop(CLIENT_VERSION_ENV, None)
-        env.update(decode_message(msg.data))
+        env = dict(decode_message(msg.data))
         # INVARIANT: an incoming queue message cannot escalate deployment privacy policy.
         env[job_env.ACTIVITY_LEVEL] = os.environ.get(job_env.ACTIVITY_LEVEL, "off")
-        env[job_env.IO_CONCURRENCY] = str(self._io_budget())
         return env
+
+    def _child_env(self, msg: ClaimedMessage) -> dict[str, str]:
+        """A COLD child's whole environment for this message (see `cold_child_env`)."""
+        return cold_child_env(os.environ, self._run_env(msg), self._io_budget())
 
     def _io_budget(self) -> int:
         """The spawn-time io budget: `io_capacity / (active children + committed spawns)`,
@@ -765,31 +898,11 @@ class RunSupervisor:
         """
         return max(1, self._io_capacity // max(1, len(self._children) + self._spawning))
 
-    async def _spawn_child(self, env: Mapping[str, str]) -> _ChildProcess:
-        """Fork the run entrypoint as a supervised child, under its own ``RLIMIT_AS``.
-
-        WHY through the exec wrapper and not ``preexec_fn``: CPython documents
-        ``preexec_fn`` as unsafe in the presence of threads, and this process runs an
-        event loop plus whatever the NATS client starts. The wrapper is a separate tiny
-        process that sets the address-space limit and execs ``screamingface-engine run``
-        in place, so the run inherits the limit and the worker never touches the child's
-        memory.
-        """
-        return await self._spawn(
-            sys.executable,
-            "-m",
-            "screamingface_engine.worker.exec_wrapper",
-            str(self._memory_budget_bytes),
-            env=dict(env),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
     def _hard_wall_s(self, env: Mapping[str, str]) -> float | None:
         """The worker's hard wall for this run: ``deadline_s + STREAM_GRACE_S + margin``.
 
         The child enforces ``deadline_s`` in-process (publishing ``Terminated(timed_out)``)
-        and then waits out ``STREAM_GRACE_S`` before reclaiming its stream, so a
+        and then waits out ``STREAM_GRACE_S`` before purging its run subject, so a
         well-behaved child exits by ``deadline_s + STREAM_GRACE_S``. Past the wall the
         child is hung and the worker SIGTERMs, then SIGKILLs — this replaces
         ``activeDeadlineSeconds``. A message with no deadline (the codec always writes
@@ -879,7 +992,8 @@ class RunSupervisor:
 
         Returns ``(status, code, message)``, or ``None`` when the worker must add
         nothing: a clean exit means the child's own teardown already put a terminal frame
-        on the stream (or reclaimed it), so a second one would be a duplicate.
+        on the subject (or purged it, keeping that frame), so a second one would be a
+        duplicate.
         """
         if outcome == "deadline":
             status, code, message = (
@@ -992,12 +1106,14 @@ class RunSupervisor:
     async def _publish_terminal(
         self, topic: str, status: TerminalStatus, code: str, message: str
     ) -> None:
-        """Publish a named terminal frame to the run's stream.
+        """Publish a named terminal frame to the run's subject.
 
         The frame is a root frame (``source`` is the run's own), so a client attached to
-        the run sees it as the run's outcome. The broker assigns the stream sequence, and
-        the App-side consumer stamps it onto the frame, so the client's replay cursor
-        advances past it exactly as it would past the child's own terminal frame.
+        the run sees it as the run's outcome. This is an UNSEQUENCED frame (I-EV3):
+        `JetStreamPublisher.publish_next` reads the subject's last frame and appends this one
+        at `last + 1` under `Nats-Expected-Last-Subject-Sequence` — the broker no longer
+        assigns the sequence — so the client's replay cursor advances past it exactly as it
+        would past the child's own terminal frame.
         """
         await self._publisher.ensure_stream(topic)
         await self._publisher.publish(

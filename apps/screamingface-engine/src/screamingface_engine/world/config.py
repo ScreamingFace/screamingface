@@ -25,11 +25,11 @@ world both halves consume.
 
 ``[data]``, ``[holdings]`` and ``[identities]`` are parsed here (F3, prd/02) and delegated to
 url4's own resolvers, so provider semantics have exactly one owner. ``[commands]`` stays reserved:
-its argv templates are exec mounts and the node tier has no sandbox for them, so declaring one is
+its argv templates are exec mounts and a mount call has no sandbox for them, so declaring one is
 a loud error — a config that looks like it works must not silently serve nothing. A
 ``command``-backed provider is refused in EVERY read-side section for the same reason (R12):
 url4 runs a subprocess for it wherever it is declared, so ``[data]``, ``[holdings]`` and
-``[identities]`` all reject it at load rather than expose the exec surface at the node tier.
+``[identities]`` all reject it at load rather than expose the exec surface to mount calls.
 
 # AIDEV-NOTE: delegation to url4's `_config` resolvers replaces the old duplication of
 # `_serve.py`'s parsing (F3). The provider rules — value/file/command, the `default` shelf, the
@@ -339,10 +339,10 @@ def _parse_read_side(
 
 
 ALLOWED_PROVIDER_KINDS = ("value", "file")
-"""The only read-side provider kinds the node tier may register (FX-53).
+"""The only read-side provider kinds a served world may register (FX-53).
 
 WHY an allowlist and not a ``command`` denylist: a denylist admits any kind url4 adds later BY
-DEFAULT, while an allowlist admits nothing the node tier cannot serve un-sandboxed until this
+DEFAULT, while an allowlist admits nothing a mount call cannot serve un-sandboxed until this
 tuple says so. ``command`` is today's only excluded kind — url4's ``_provide`` runs
 ``asyncio.create_subprocess_exec`` for it regardless of the mount kind (``cli/_serve.py``), the
 same unsandboxed exec surface ``[commands]`` is rejected for — but a future provider kind is
@@ -376,7 +376,7 @@ def _reject_disallowed_read_side_providers(
     WHY every read-side section and not just ``[data]``: D2's table restricts only ``[data]``,
     but a disallowed provider is an exec surface wherever it is declared, so a
     ``[holdings]``/``[identities]`` command is the same unsandboxed subprocess on the same
-    network-reachable node tier that F3 rejects for ``[commands]``. R12 (test-plan §2) names a
+    network-reachable mount surface that F3 rejects for ``[commands]``. R12 (test-plan §2) names a
     command-backed provider explicitly; resolving the spec inconsistency in R12's direction is
     what keeps its mitigation true.
     """
@@ -391,7 +391,7 @@ def _reject_disallowed_read_side_providers(
     allowed = " or ".join(repr(kind) for kind in ALLOWED_PROVIDER_KINDS)
     message = (
         f"{named} do not use an allowed provider kind — only {allowed} providers may be "
-        "declared on the node tier"
+        "declared in a served world"
     )
     # item 7 (B6 review): the exec-mount sentence is true of a `command` offender, not of an
     # `unknown` one (no source declared at all) — appending it unconditionally mislabelled an

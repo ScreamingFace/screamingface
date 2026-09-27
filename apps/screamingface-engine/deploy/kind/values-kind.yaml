@@ -1,0 +1,61 @@
+# Engine chart values for the kind environment (uniform executor test-plan §5). Installed with:
+#
+#   helm upgrade --install sf-uniform ../helm -f values-kind.yaml
+#
+# Every image tag here is built locally by up.sh and loaded into the cluster with
+# `kind load docker-image` — nothing is pulled from a registry (`pullPolicy: Never`).
+
+image:
+  repository: screamingface-engine
+  tag: kind
+  pullPolicy: Never
+
+# runner.image is left empty on purpose: it derives `<image.repository>-benchmark:<image.tag>`
+# (`screamingface-engine.runnerImage` in _helpers.tpl) — exactly the benchmark tag up.sh builds
+# and loads, so nothing here has to repeat it.
+runner:
+  backend: queue
+
+config:
+  # Empty: the `screamingface-engine.natsUrl` helper derives `nats://<nats.fullnameOverride>:4222`
+  # from `nats.enabled` below.
+  natsUrl: ""
+  # Where BOTH the App's `/v1/models` catalog and the runner pool's children reach aigateway
+  # (`configmap.yaml`'s URL4_CLOUD_AIGATEWAY_BASE_URL and configmap-runner-env.yaml's
+  # AIGATEWAY_BASE_URL both render from this one value). `aigw-stub` is the Service name in
+  # aigw-stub/k8s.yaml, port 8080.
+  aigatewayBaseUrl: "http://aigw-stub:8080"
+
+# The queue runner pool (uniform executor test-plan §5 table).
+runnerPool:
+  replicas: 2
+  workerSlots: 2
+  warmChildren: 2
+
+# Bundled single-node NATS (JetStream) subchart — needs `helm dependency build` only if
+# `charts/nats-1.2.2.tgz` is missing; it is already vendored (Chart.lock), so up.sh does not
+# re-run it (see the CI `chart` job's own note on why).
+nats:
+  enabled: true
+  fullnameOverride: sf-uniform-nats
+
+# Bundled single-node Garage (S3-compatible) store — self-configuring, no bootstrap Job.
+garage:
+  enabled: true
+
+artifactStorage:
+  # REQUIRED whenever runs are separate pods (`config.runner: queue`): a filesystem store is
+  # unservable across the App/runner pod boundary (OME-929).
+  backend: s3
+
+# A fixed HMAC key so the signed 303 an artifact spill produces stays verifiable across a
+# `helm upgrade` that recreates pods — dev-only, never a real secret.
+artifactSigning:
+  signingKey: "kind-dev-artifact-signing-key-do-not-use-in-prod-0123456789abcdef"
+
+# `tracing.enabled: true` by default points at an aks-dev-only collector (values.yaml) that does
+# not exist in kind; the exporter fails OPEN (drops spans, never fails a run), but there is no
+# collector here to receive them either way, so turn it off rather than log a permanent
+# "unreachable collector" warning for no benefit.
+tracing:
+  enabled: false

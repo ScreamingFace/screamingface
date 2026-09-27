@@ -17,7 +17,9 @@ caller gets a meaningful error instead of a severed connection. [proposed]
 | Node → aigateway, per attempt | min(28 s, time left) | Fails inside the wrapper, so the caller gets a 502 naming the cause rather than a bare 504. A transport retry starts only when a full attempt still fits in the request deadline. Overrides `url4.toml`'s 600 s default on this tier. |
 
 The 600 s default in `url4.toml` is correct for the ensemble path and wrong for the
-sync tier. The node tier must override it rather than inherit it. [proposed]
+sync tier. The node tier must override it rather than inherit it. [proposed] (Superseded — the
+node tier was removed, uniform executor PRD 05; see `docs/plans/uniform-executor/` for how a
+direct mount run's timeout is set today.)
 
 ---
 
@@ -63,7 +65,7 @@ Status mapping is url4's own (`peer/_http.py:30-93`):
 | 404 | `endpoint_not_found`, `unknown_identity`, `identity_unavailable` |
 | 405 | non-GET method |
 | 413 | body over the hard cap **[proposed, engine addition]** |
-| 502 | downstream failure: transient, or a permanent aigateway refusal (a url4 `500` whose code is not a url4 `ErrorCode` is remapped to `502` on the node tier, `04-review-fixes.md` §2.2) |
+| 502 | downstream failure: transient, or a permanent aigateway refusal (a url4 `500` whose code is not a url4 `ErrorCode` is remapped to `502` on the node tier, `04-review-fixes.md` §2.2 — superseded: the node tier is removed, and a mount's run status maps to `502` the same way any other run's does, `rest/routes.py`) |
 | 503 | over capacity, with `Retry-After` |
 | 504 | request exceeded 30 s **[engine addition via the serve wrapper]** |
 
@@ -87,7 +89,11 @@ Document the limit; large-context work belongs on the ensemble path. [implied]
 
 ---
 
-## C2 — App → node tier, verbatim forward **NEW**
+## C2 — App → node tier, verbatim forward **NEW** — Superseded
+
+> **Superseded.** The node tier and this forward are removed. A mount call is now the App's own
+> route (`rest/mounts.py`), running as a `shape=direct` run on the runner pool, with identity
+> read from the same verified `X-User-Email` this hop describes.
 
 | Field | Value |
 |---|---|
@@ -166,6 +172,9 @@ surface. [proposed]
 
 ## C6 — Client → App, artifact fetch **CHANGED**
 
+> **Superseded.** The node tier is gone, so there is no second signer. The App now signs a
+> mount result's `303` URL and verifies it itself, with the same `artifactSigning.signingKey`.
+
 | Field | Value |
 |---|---|
 | Endpoint | `GET /artifacts/{id}` |
@@ -189,7 +198,7 @@ fetch. Decision recorded in `prd/03` §7 (OQ-3.2).
 | Field | Value |
 |---|---|
 | Source | `URL4_RUNNER_CONFIG`, default `/etc/url4/url4.toml`, baked into the image |
-| Read by | The child (today), plus the node tier and the App (new) |
+| Read by | The child (today), plus the node tier and the App (new) — superseded: the node tier is removed, so this is now the child and the App only |
 | Sections | `[aigateway]` as today; `[data]`, `[holdings]`, `[identities]` become real (D2) |
 | Rejected | `[commands]` entirely; command-backed providers inside `[data]` |
 | Failure | `WorldConfigError` at startup. The process must not start. A half-configured node serving a partial mount set is worse than a node that refuses to boot. [proposed] |
@@ -231,7 +240,7 @@ declared route now fails as `WorldConfigError` instead of a bare `ValueError`, s
 | Boundary | Untrusted input | Control |
 |---|---|---|
 | Client → App | `q`, all headers, the path | Identity is taken only from the edge-verified header. Client-supplied `X-User-Email` is stripped. |
-| App → node | — | NetworkPolicy: only the App may reach the node tier. Without it, anyone in-cluster could set `X-User-Email` freely. **Required, not optional.** |
+| App → node | — | NetworkPolicy: only the App may reach the node tier. Without it, anyone in-cluster could set `X-User-Email` freely. **Required, not optional.** (Superseded — the node tier, and this boundary, were removed; a mount is now a direct run inside the App's own process.) |
 | Node → aigateway | — | Identity forwarded, no bearer token |
 | `q` → model | Prompt content | Prompt injection is inherent to the product and is not a regression. Unchanged from the ensemble path. |
 | `q` → URL fetch | Absolute URLs in context | **Not reachable on the sync surface.** A direct mount hit does not run the DAG, so a URL-valued context stays opaque text (D1). `allow_outbound` should still be `false` on this tier as defence in depth. [proposed] |

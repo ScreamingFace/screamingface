@@ -33,15 +33,13 @@ _REQUIRED_S3 = (
 
 
 def result_writer_from_env(env: Mapping[str, str]) -> ArtifactWriter:
-    """The spill store BOTH writers share: the Runner's result path and the node tier's.
+    """The spill store of the Runner's result path.
 
-    FEATURE: deliver large results in full (OME-892); FEATURE (unit 3, D9): a sync response
-    over 512 KiB spills to the same store.
+    FEATURE: deliver large results in full (OME-892). A mount call is a direct run (uniform
+    executor PRD 04), so its spill parks here too.
 
-    WHY shared and not one construction per half: the run path and the sync spill path must
-    park into one location, and the App must read from that same one. `result_delivery_from_env`
-    (run mode) and `world.node_tier.build_node_tier` (sync tier) both call THIS, so a change to
-    the store selection cannot land on one writer and miss the other.
+    WHY one construction: the run path must park into one location, and the App must read from
+    that same one. `result_delivery_from_env` (run mode) calls THIS.
 
     The filesystem/S3 choice and the half-configured refusal are unchanged from the run path's
     old inline expression; this is that expression, lifted so it has one home.

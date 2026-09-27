@@ -9,15 +9,21 @@ run duration, redelivery count, child exit codes (137 = OOM), worker restarts, a
 drain count. Cardinality is bounded: the only label is the child's exit code, which is
 an integer.
 
-LAYERING: this module imports only `prometheus_client` — a serving-half dependency the
-worker may already import — so it stays a shared leaf under `.claude/scripts/check_layering.py`.
+LAYERING: this module imports `prometheus_client` and, for the publish-conflicts family,
+`screamingface_engine.metrics` (the control plane's own module) — allowed one-way, per
+`.claude/scripts/check_layering.py`: the worker may import a control-plane module; the reverse
+is what the gate refuses.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+
+from screamingface_engine.metrics import publish_conflicts_family
 
 # The claim-latency buckets: a pull waits up to `PULL_TIMEOUT_S` (5s) for the first
 # message, so the histogram must cover the whole wait.
@@ -25,6 +31,9 @@ _CLAIM_LATENCY_BUCKETS = (0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 # The run-duration buckets: a run is bounded by `job_deadline_s` (16h), and the worker's
 # hard wall adds the stream grace + margin — the histogram covers the full range.
 _RUN_DURATION_BUCKETS = (1, 5, 15, 60, 300, 900, 3600, 14400)
+# The hand-off and boot buckets: a warm hand-off is milliseconds, a cold boot (Python start-up
+# plus the imports) is seconds — the histogram shows both ends.
+_HANDOFF_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
 
 
 @dataclass
@@ -41,6 +50,10 @@ class WorkerMetrics:
     redeliveries: Counter
     cross_pod_duplicate_claims: Counter
     child_exit_codes: Counter
+    warm_children: Gauge
+    warm_spawn_failures: Counter
+    handoff_latency_s: Histogram
+    child_boot_s: Histogram
     started: Counter
     drains: Counter
 
@@ -114,6 +127,29 @@ def build_worker_metrics() -> WorkerMetrics:
             ["code"],
             registry=registry,
         ),
+        # The warm child pool (uniform executor PRD 03).
+        warm_children=Gauge(
+            "screamingface_engine_worker_warm_children",
+            "Idle warm children ready to take a run.",
+            registry=registry,
+        ),
+        warm_spawn_failures=Counter(
+            "screamingface_engine_worker_warm_spawn_failures_total",
+            "Warm children that failed to start, timed out before READY, or died idle.",
+            registry=registry,
+        ),
+        handoff_latency_s=Histogram(
+            "screamingface_engine_worker_handoff_latency_s",
+            "Claim to the child's ACK of its run spec.",
+            buckets=_HANDOFF_BUCKETS,
+            registry=registry,
+        ),
+        child_boot_s=Histogram(
+            "screamingface_engine_worker_child_boot_s",
+            "Child spawn to its READY (the per-process work a warm child does ahead).",
+            buckets=_HANDOFF_BUCKETS,
+            registry=registry,
+        ),
         started=Counter(
             "screamingface_engine_worker_started_total",
             "Worker process starts — the in-process half of the restart signal.",
@@ -127,4 +163,38 @@ def build_worker_metrics() -> WorkerMetrics:
     )
 
 
-__all__ = ["WorkerMetrics", "build_worker_metrics"]
+class _PublishConflictsCollector:
+    """A `prometheus_client` custom collector for the worker's publisher's publish-conflict
+    counter (uniform executor, PRD 01 §4 Observability, I-EV3).
+
+    `JetStreamPublisher.publish_next` is how a non-child writer — here, the supervisor's own
+    classification frame — appends onto a subject another writer may have just appended to;
+    a `Nats-Expected-Last-Subject-Sequence` mismatch means it retried.
+
+    WHY the publisher directly, and not a getter like the App-side collectors: those exist
+    because `app.state.job_runner`/`app.state.stream` are read at scrape time off state that
+    may not be wired yet at registration. The worker builds exactly ONE publisher for the life
+    of the process (`worker_composition`) before this is ever registered, so there is nothing
+    to defer — a getter here would only wrap a constant.
+    """
+
+    def __init__(self, publisher: Any) -> None:
+        self._publisher = publisher
+
+    def collect(self) -> Iterable[Any]:
+        conflicts = getattr(self._publisher, "publish_conflicts", None)
+        if conflicts is None:
+            return
+        yield publish_conflicts_family(conflicts)
+
+
+def register_events_publish_conflicts_metrics(metrics: WorkerMetrics, publisher: Any) -> None:
+    """Register a `_PublishConflictsCollector` for `publisher` on `metrics.registry`."""
+    metrics.registry.register(_PublishConflictsCollector(publisher))
+
+
+__all__ = [
+    "WorkerMetrics",
+    "build_worker_metrics",
+    "register_events_publish_conflicts_metrics",
+]

@@ -61,43 +61,40 @@ def ownership_subject_for(topic: str) -> str:
     return f"{OWNERSHIP_SUBJECT_PREFIX}.{topic}"
 
 
+EVENTS_STREAM = "url4-events"
+"""The ONE JetStream stream every run's frames live in, on subject `url4-cloud.<topic>`
+(uniform executor, PRD 01). It replaces the former stream-per-run layout."""
+
+
 def subject_for(topic: str) -> str:
     return f"{PREFIX}.{topic}"
 
 
-def stream_for(topic: str) -> str:
-    return f"{PREFIX}_{topic}"
-
-
 def owns_stream(stream_name: str, *, run_queue_stream: str = RUN_QUEUE_STREAM) -> bool:
-    """Whether a stream on the broker is one of ours.
+    """Whether a stream on the broker is a per-run stream of the FORMER layout
+    (`url4-cloud_<topic>`), which `admin purge-legacy-streams` deletes.
 
-    INVARIANT: the NATS store may be shared with other workloads. Reclamation enumerates every
-    stream the broker holds, so this is what keeps a sweep from deleting a stranger's data.
+    INVARIANT: the NATS store may be shared with other workloads. The purge enumerates every
+    stream the broker holds, so this is what keeps it from deleting a stranger's data — and the
+    shared events stream (`url4-events` does not start with `url4-cloud_`).
 
-    INVARIANT (OME-1088): the run queue is OURS but must never be swept — it is the durable
-    substrate an accepted run may not be lost from, and `_sweep_orphans` deletes anything this
-    accepts. It is named outside the per-run prefix (`url4-runq` does not start with
-    `url4-cloud_`), and it is ALSO excluded explicitly here, so a future rename of either side
-    cannot silently re-arm the sweep against it.
+    INVARIANT (OME-1088): the run queue is OURS but must never be deleted — it is the durable
+    substrate an accepted run may not be lost from. It is named outside the per-run prefix
+    (`url4-runq` does not start with `url4-cloud_`), and it is ALSO excluded explicitly here, so
+    a future rename of either side cannot silently arm the purge against it.
 
     The exclusion follows the CONFIGURED queue stream, not the default constant: the name is
     a Settings field (`run_queue_stream`), and an operator who renames the queue must not have
-    the sweep re-armed against the renamed stream by a stale constant. Composition roots pass
-    their configured name; the default keeps tests and the default deployment on the constant.
+    the purge armed against the renamed stream by a stale constant.
     """
     if stream_name == run_queue_stream:
         return False
     return stream_name.startswith(f"{PREFIX}_")
 
 
-def topic_of(stream_name: str) -> str:
-    """Inverse of :func:`stream_for`. Callers must check :func:`owns_stream` first."""
-    return stream_name.removeprefix(f"{PREFIX}_")
-
-
 __all__ = [
     "CONTROL_SUBJECT_PREFIX",
+    "EVENTS_STREAM",
     "ENQUEUED_AT_HEADER",
     "OWNERSHIP_SUBJECT_PREFIX",
     "RUN_QUEUE_STREAM",
@@ -106,7 +103,5 @@ __all__ = [
     "control_subject_for",
     "ownership_subject_for",
     "owns_stream",
-    "stream_for",
     "subject_for",
-    "topic_of",
 ]

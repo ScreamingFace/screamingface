@@ -121,11 +121,17 @@ async def test_get_without_capability_is_401_problem_json() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_without_subscriber_is_428() -> None:
+async def test_async_get_without_subscriber_is_428() -> None:
+    """SYN-C1 / SY-H3: `respond-async` needs an attached WebSocket — the client will read the
+    run's frames there. (A SYNC request holds the topic itself: see test_rest_sync_hold.py.)"""
     runner = RecordingJobRunner()
     app = _make_app(job_runner=runner)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap("topic-428"))
+        resp = await client.get(
+            "/",
+            params={"q": "gpt()"},
+            headers={**_cap("topic-428"), "Prefer": "respond-async"},
+        )
     assert resp.status_code == 428
     assert resp.headers["content-type"].startswith("application/problem+json")
     assert runner.scheduled == []

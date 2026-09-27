@@ -13,3 +13,8 @@ spec:
       protocol: TCP
   selector:
     {{- include "screamingface-engine.selectorLabels" . | nindent 4 }}
+    # WHY `component` (kind suite finding): the bundled Garage's pods share name+instance, so a
+    # name+instance selector also sent App traffic to Garage. The split lives HERE because a
+    # Service selector is mutable; the Garage StatefulSet's selector is not, and the platform's
+    # NetworkPolicies admit App<->Garage traffic by its name+instance+`component: garage`.
+    app.kubernetes.io/component: control-plane

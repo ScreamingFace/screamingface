@@ -2,7 +2,7 @@
 counter middleware and a custom collector that surfaces the model-catalog cache
 counters at scrape time."""
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +21,9 @@ class Metrics:
 
     registry: CollectorRegistry
     requests: Counter
+    # Optional so a caller that builds `Metrics` by hand (a test of another series) needs none.
+    mount_calls: Counter | None = None
+    mount_unsigned_spill: Counter | None = None
 
 
 # The `path` label value used when a request matched no route. Every unrouted request — a 404, a
@@ -36,7 +39,24 @@ def build_metrics() -> Metrics:
         ["method", "path", "status"],
         registry=registry,
     )
-    return Metrics(registry=registry, requests=requests)
+    # Mount calls as direct runs (uniform executor PRD 04).
+    mount_calls = Counter(
+        "screamingface_engine_mount_calls",
+        "Mount calls (GET /<mount>), by mount path and answered status.",
+        ["path", "status"],
+        registry=registry,
+    )
+    mount_unsigned_spill = Counter(
+        "screamingface_engine_mount_unsigned_spill",
+        "Mount results over 1 MiB streamed inline because no artifact signing key is set.",
+        registry=registry,
+    )
+    return Metrics(
+        registry=registry,
+        requests=requests,
+        mount_calls=mount_calls,
+        mount_unsigned_spill=mount_unsigned_spill,
+    )
 
 
 class MetricsMiddleware:
@@ -280,6 +300,33 @@ class _QueueCollector:
             )
 
 
+class _SyncHoldersCollector:
+    """The sync requests waiting on a run right now (uniform executor PRD 02).
+
+    Read from the connection registry at scrape time (sync, in memory). Each one keeps its run's
+    audience alive, so this is also how many runs the orphan reaper is holding off for callers
+    that are still waiting.
+    """
+
+    def __init__(self, get_registry: Callable[[], Any]) -> None:
+        self._get_registry = get_registry
+
+    def collect(self) -> Iterable[Any]:
+        holders = getattr(self._get_registry(), "sync_holders", None)
+        if holders is None:
+            return
+        yield GaugeMetricFamily(
+            "screamingface_engine_sync_holders",
+            "Sync GET /?q= requests currently waiting for a run's terminal frame.",
+            value=float(holders),
+        )
+
+
+def register_sync_metrics(metrics: Metrics, get_registry: Callable[[], Any]) -> None:
+    """Register a `_SyncHoldersCollector` for `get_registry` on `metrics.registry`."""
+    metrics.registry.register(_SyncHoldersCollector(get_registry))
+
+
 def register_queue_metrics(metrics: Metrics, get_runner: Callable[[], Any]) -> None:
     """Register a `_QueueCollector` for `get_runner` on `metrics.registry`."""
     metrics.registry.register(_QueueCollector(get_runner))
@@ -310,3 +357,79 @@ class _MaxDeliveriesCollector:
 def register_max_deliveries_metrics(metrics: Metrics, get_advisor: Callable[[], Any]) -> None:
     """Register a `_MaxDeliveriesCollector` for `get_advisor` on `metrics.registry`."""
     metrics.registry.register(_MaxDeliveriesCollector(get_advisor))
+
+
+def publish_conflicts_family(conflicts: Mapping[str, int]) -> CounterMetricFamily:
+    """Build the `..._publish_conflicts_total` family (I-EV3) from a writer -> count mapping.
+
+    Shared by the App's `_EventsStoreCollector` and the worker's `_PublishConflictsCollector`
+    (`worker/metrics.py`): one builder rather than two copies of the same family. It lives here,
+    in the control plane, rather than beside `job_env`/`subjects`, because `check_layering.py`
+    only forbids the CONTROL PLANE from importing the worker — a worker module importing a
+    control-plane one is unrestricted, so the worker imports this function from here.
+    """
+    family = CounterMetricFamily(
+        "screamingface_engine_events_publish_conflicts_total",
+        "Appends a non-child writer (the App tombstone, the supervisor) retried "
+        "after `Nats-Expected-Last-Subject-Sequence` did not match (I-EV3).",
+        labels=["writer"],
+    )
+    for writer, count in conflicts.items():
+        family.add_metric([writer], float(count))
+    return family
+
+
+class _EventsStoreCollector:
+    """A `prometheus_client` custom collector for the shared events stream's own signals
+    (uniform executor, PRD 01 §4 Observability): store use, and the two kinds of contention
+    a shared stream introduces that a per-run stream never had.
+
+    `get_stream` and `get_publisher` are getters, like every other collector here: the
+    collector re-reads `app.state` at scrape time rather than capturing a value built at
+    startup, so it reflects whatever is wired (a stream-only App has a stream but no queue
+    publisher; a `runner="none"` App may have neither).
+    """
+
+    def __init__(self, get_stream: Callable[[], Any], get_publisher: Callable[[], Any]) -> None:
+        self._get_stream = get_stream
+        self._get_publisher = get_publisher
+
+    def collect(self) -> Iterable[Any]:
+        stream = self._get_stream()
+        snapshot = getattr(stream, "store_snapshot", None)
+        # WHY omitted rather than rendered as 0 (same rule as `_QueueCollector.collect`):
+        # before the first `refresh_store_usage()` the stream has no reading, and a confident
+        # `..._bytes 0` is indistinguishable from a genuinely empty store at cold start.
+        if snapshot is not None:
+            used, ratio = snapshot
+            yield GaugeMetricFamily(
+                "screamingface_engine_events_store_bytes",
+                "Bytes currently held in the shared events stream (url4-events).",
+                value=float(used),
+            )
+            yield GaugeMetricFamily(
+                "screamingface_engine_events_store_utilization_ratio",
+                "Events store bytes held divided by its configured max_bytes. An alert fires "
+                "at >= 0.8 for 5m: the oldest frames of some run are about to be dropped.",
+                value=ratio,
+            )
+        purges = getattr(stream, "subject_purges", None)
+        if purges is not None:
+            yield CounterMetricFamily(
+                "screamingface_engine_events_subject_purges_total",
+                "Run subjects purged by this App (DELETE /); the runner's own teardown "
+                "purges are not counted.",
+                value=float(purges),
+            )
+        publisher = self._get_publisher()
+        conflicts = getattr(publisher, "publish_conflicts", None)
+        if conflicts is not None:
+            yield publish_conflicts_family(conflicts)
+
+
+def register_events_metrics(
+    metrics: Metrics, get_stream: Callable[[], Any], get_publisher: Callable[[], Any]
+) -> None:
+    """Register an `_EventsStoreCollector` for `get_stream`/`get_publisher` on
+    `metrics.registry`."""
+    metrics.registry.register(_EventsStoreCollector(get_stream, get_publisher))

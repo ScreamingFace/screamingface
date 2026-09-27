@@ -121,6 +121,9 @@ class _FakeProcess:
 class _FakeQueue:
     """A queue that never serves anything: these tests drive `supervise` directly."""
 
+    async def release_held(self) -> int:
+        return 0
+
     async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
         await asyncio.sleep(timeout_s)
         return []

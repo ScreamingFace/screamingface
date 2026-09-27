@@ -24,6 +24,7 @@ from screamingface_engine.adapters.queue_runner import QueueJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.interfaces import JobRunnerAtCapacity, JobStatus, job_name
@@ -233,6 +234,7 @@ class _AtCapacityRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: RunShape = "expression",
     ) -> str:
         raise JobRunnerAtCapacity(active=100, limit=10, retry_after_s=42)
 

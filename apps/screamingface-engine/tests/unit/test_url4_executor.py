@@ -664,20 +664,10 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # FX-56 (04-review-fixes.md B3): the F4 collision guard now checks `isinstance(io,
         # Url4Node)` rather than duck-typing an `Any` — a non-node layer (StaticIOLayer) has no
         # mounts or eval path to protect, and an isinstance check says so directly instead of
-        # relying on an object happening to expose the same method names. That is the same
-        # engine-adapter shape `node_tier` has (below): the guard is the serving shape of the
-        # shared world, and it names the ONE type it composes against.
+        # relying on an object happening to expose the same method names: the guard is the serving
+        # shape of the shared world, and it names the ONE type it composes against.
         Path("screamingface_engine/world/serving.py"),
         Path("screamingface_engine/world/corrective.py"),
-        # unit 3 (prd/03): the node tier is the serving shape of the shared world. It speaks the
-        # url4 ENGINE directly because that IS its product — `node.asgi()` wrapped in url4's own
-        # `build_asgi_app` admission/timeout middleware, plus the wire subrequest decoder used to
-        # explain a missing `q`. It is an engine adapter in exactly `connector`'s sense, and the
-        # control plane may import `world`, so it belongs in this allowance (not a new one).
-        # FX-21 split the one module into a package; these are its modules that speak url4.
-        Path("screamingface_engine/world/node_tier/build.py"),
-        Path("screamingface_engine/world/node_tier/send.py"),
-        Path("screamingface_engine/world/node_tier/tier.py"),
     }
 )
 

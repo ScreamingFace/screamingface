@@ -47,10 +47,10 @@ _FORMAT = "%(levelname)s:     %(name)s %(run_context)s%(message)s"
 class RunContext:
     """The one run a process log line belongs to, when it belongs to one.
 
-    ``origin`` names the SURFACE that produced the line — "run" for the ensemble path's child,
-    "sync" for the node tier's per-request handler (unit 3). It is the RequestScope origin field
-    rendered onto the log, and it exists because without it a sync line and an ensemble line are
-    indistinguishable in the runtime log (test-plan.md §9).
+    ``origin`` names the SURFACE that produced the line — "run" for a run's child (a direct run
+    included: its lines carry its topic), "sync" for local mode's per-request eval path. It exists
+    because without it a sync line and an ensemble line are indistinguishable in the runtime log
+    (test-plan.md §9).
     """
 
     topic: str | None = None

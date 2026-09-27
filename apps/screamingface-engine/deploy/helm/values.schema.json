@@ -89,6 +89,39 @@
       "additionalProperties": false,
       "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port \u2014 a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
     },
+    "events": {
+      "type": "object",
+      "description": "The shared events stream (`url4-events`, uniform executor PRD 01 \u00a74). Rendered to BOTH the App and the runner pool \u2014 both halves apply their OWN configured limits to the live stream at startup (ensure_events_stream(..., update=True)); every field below is MUTABLE, so a one-sided value is NOT a startup failure but silently flips the shared stream's limits back and forth on every rollout. Only an IMMUTABLE field (storage, retention \u2014 neither configurable here) failing to match fails startup. Both halves must render from the SAME values for that reason.",
+      "properties": {
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Must fit the broker's JetStream file store, or startup fails naming `events.maxBytes` (erd.md \u00a75 EV-D9). Default 1 GiB. When the store is full, JetStream drops the OLDEST frames of whichever subject they belong to (ans:Q11); `screamingface_engine_events_store_utilization_ratio` is the alert signal to raise this from."
+        },
+        "maxMsgsPerSubject": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "One run's frame retention bound per SUBJECT, regardless of the store's overall use. Default 20000 \u2014 10x the measured p99 frame count headroom (PRD 01 \u00a76). A rollover keeps the terminal frame: a purge always keeps the last message."
+        },
+        "maxAgeS": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Storage backstop: a subject nobody ever purges (a crashed runner, EV-D13) clears itself after this many seconds \u2014 no sweep is needed. Default 86400 (24h)."
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Same posture as `config.runQueueReplicas`: this chart bundles a SINGLE-NODE NATS subchart, which refuses `replicas > 1` outright (ServerError 10074). Raise it only against a real NATS cluster (OME-1093)."
+        }
+      },
+      "required": [
+        "maxBytes",
+        "maxMsgsPerSubject",
+        "maxAgeS",
+        "replicas"
+      ],
+      "additionalProperties": false
+    },
     "runner": {
       "type": "object",
       "properties": {
@@ -131,6 +164,11 @@
           "type": "integer",
           "minimum": 1,
           "description": "Run slots per worker pod. MUST match `run_queue_worker_slots`. One slot is one supervised child process, so `replicas \u00d7 workerSlots` is what bounds fleet execution."
+        },
+        "warmChildren": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Warm children per worker pod (uniform executor PRD 03). Default 2 (sized to 4 runs in flight over 2 pods). Null leaves the app default (one per worker slot) in force. 0 spawns a child on each claim instead. The worker caps this at `workerSlots`; the render also refuses a value ABOVE `workerSlots` (see the guard in deployment-runner.yaml), so a chart operator gets a render-time error instead of a silently truncated value. Each idle warm child holds the engine and its built world (~430 MiB with the builtin benchmarks); idle children only occupy FREE slots."
         },
         "maxAckPending": {
           "type": [
@@ -198,6 +236,20 @@
           ],
           "additionalProperties": false
         },
+        "warmChildCharge": {
+          "type": "object",
+          "description": "The memory one IDLE warm child holds (the engine + its built world; ~430 MiB measured in kind, implementation-notes F7), ; each warm child adds its excess over `perRunCharge.memoryMi` (its free slot's charge, already requested) to the pod's memory request.",
+          "properties": {
+            "memoryMi": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "memoryMi"
+          ],
+          "additionalProperties": false
+        },
         "metricsPort": {
           "type": "integer",
           "minimum": 1,
@@ -211,165 +263,17 @@
         "terminationGracePeriodSeconds",
         "perRunCharge",
         "overhead",
+        "warmChildCharge",
         "metricsPort"
       ],
       "additionalProperties": false
     },
     "node": {
-      "type": "object",
-      "description": "The node tier (unit 3, prd/03 §2.1): the sync surface, running `screamingface-engine node`. Stateless and horizontally scalable; reachable only from the App via the NetworkPolicy this stanza renders.",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "replicas": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "port": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "The single port the tier serves on: mounts, /readyz, /livez and /metrics share one ASGI app. Mirrors world.node_tier.NodeTierSettings.port."
-        },
-        "service": {
-          "type": "object",
-          "properties": {
-            "port": {
-              "type": "integer",
-              "minimum": 1
-            }
-          },
-          "required": [
-            "port"
-          ],
-          "additionalProperties": false
-        },
-        "requestTimeoutS": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "The url4 request wrapper budget; exceeded => 504 naming the ensemble path (contracts.md ladder)."
-        },
-        "aigatewayTimeoutS": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "The node -> aigateway budget. MUST stay BELOW requestTimeoutS so the inner failure wins and the caller gets a 502 naming the cause rather than a bare 504 (contracts.md ladder)."
-        },
-        "maxInflightPerWorker": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "In-flight requests per worker; the admission cap is this x workers, and exceeding it sheds with 503 + Retry-After (ans:Q5)."
-        },
-        "workers": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "retryAfterS": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "spillTimeoutS": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "The spill write's own bound (§2.2), applied AFTER the request wrapper returns and outside its own timeout. Feeds the App's derived URL4_CLOUD_NODE_FORWARD_TIMEOUT_S (requestTimeoutS + spillTimeoutS + 1) and the terminationGracePeriodSeconds guard below."
-        },
-        "artifactUrlTtlS": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "OQ-3.2: lifetime of a spilled artifact's signed URL. The App enforces the same expiry from the signature."
-        },
-        "resultHardCapBytes": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "The node's own hard cap on a response body (mirrors NT-M9's NODE_DEFAULT_RESULT_HARD_CAP_BYTES); a body over this fails 413 rather than spilling. Rendered as URL4_CLOUD_RESULT_HARD_CAP_BYTES."
-        },
-        "preStopSleepSeconds": {
-          "type": [
-            "integer",
-            "string"
-          ],
-          "minimum": 0
-        },
-        "terminationGracePeriodSeconds": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "INVARIANT: the chart FAILS to render unless this exceeds preStopSleepSeconds + requestTimeoutS + spillTimeoutS, so a rollout never SIGKILLs an in-flight request or its spill write."
-        },
-        "resources": {
-          "type": "object"
-        },
-        "livenessProbe": {
-          "type": "object"
-        },
-        "readinessProbe": {
-          "type": "object"
-        },
-        "startupProbe": {
-          "type": "object",
-          "description": "Covers the world build, which can outlast liveness's own restart window. periodSeconds x failureThreshold must stay >= 120s (FX-88)."
-        },
-        "metrics": {
-          "type": "object",
-          "description": "The tier's own scrape surface, on a port separate from request traffic (FX-82, RD2).",
-          "properties": {
-            "port": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "scrapeFrom": {
-              "type": "array",
-              "description": "NetworkPolicy peer objects admitted to the metrics port. Empty (default) renders NO second ingress rule, so metrics is reachable from nowhere else in the cluster.",
-              "items": {
-                "type": "object"
-              }
-            }
-          },
-          "required": [
-            "port",
-            "scrapeFrom"
-          ],
-          "additionalProperties": false
-        },
-        "networkPolicy": {
-          "type": "object",
-          "description": "The chart's own App-only NetworkPolicy for the node tier. It is the node's authentication boundary: set enabled=false ONLY when the platform supplies an equivalent policy (e.g. a GitOps project that denies the NetworkPolicy kind to the chart).",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "enabled"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "required": [
-        "enabled",
-        "replicas",
-        "port",
-        "service",
-        "requestTimeoutS",
-        "aigatewayTimeoutS",
-        "maxInflightPerWorker",
-        "workers",
-        "retryAfterS",
-        "spillTimeoutS",
-        "artifactUrlTtlS",
-        "resultHardCapBytes",
-        "preStopSleepSeconds",
-        "terminationGracePeriodSeconds",
-        "resources",
-        "livenessProbe",
-        "readinessProbe",
-        "startupProbe",
-        "metrics",
-        "networkPolicy"
-      ],
-      "additionalProperties": false
+      "description": "REMOVED (uniform executor PRD 05). Any value makes the chart fail with a message."
     },
     "artifactSigning": {
       "type": "object",
-      "description": "Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6). The node signs the 303 Location; the App verifies it on GET /artifacts/{id}. One Secret reaches both tiers, keyed URL4_CLOUD_ARTIFACT_SIGNING_KEY.",
+      "description": "Shared HMAC key for a mount result's short-lived artifact URL (OQ-3.2, contracts.md C6, uniform executor PRD 05). The App signs the 303 Location over 1 MiB and verifies it on GET /artifacts/{id}, keyed URL4_CLOUD_ARTIFACT_SIGNING_KEY.",
       "properties": {
         "existingSecret": {
           "type": "string"

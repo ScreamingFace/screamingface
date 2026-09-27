@@ -1,8 +1,8 @@
 """The publisher proxy that ships a run's spans to a sink (OME-1130).
 
 MOUNT: the run's own publisher, wrapped. The ticket said "the control-plane relay, never the
-runner" — but there is no control-plane subscription that sees all runs (`stream_for(topic)`
-creates ONE JetStream stream per run), so that mount point does not exist. The owner resolved
+runner" — but there is no control-plane subscription that sees all runs, so that mount point
+does not exist. The owner resolved
 the fork in favour of a publisher proxy, which sees every frame of every run by construction,
 attached client or not.
 

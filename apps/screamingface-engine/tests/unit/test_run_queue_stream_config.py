@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
+import nats.errors
 import pytest
 from nats.js.api import RetentionPolicy, StorageType, StreamConfig
 from nats.js.errors import BadRequestError
@@ -332,3 +333,58 @@ async def test_widening_a_legacy_stream_preserves_its_own_config() -> None:
     assert config.num_replicas == 3
     assert config.duplicate_window == 120.0
     assert config.max_age == 86_400.0
+
+
+# --- the wake-up subject (OME-1091 F6) ------------------------------------------------------
+
+
+def _subject_matches(subject: str, filter_subject: str) -> bool:
+    """Minimal NATS subject-matching — only the trailing `>` wildcard this file needs.
+    `filter_subject` must end in `.>`; a subject matches only at a full TOKEN boundary
+    (a string prefix is not enough: `url4-runq-wake` must not match `url4-runq.>` just
+    because it starts with the same characters)."""
+    assert filter_subject.endswith(".>")
+    prefix = filter_subject[: -len(".>")]
+    return subject == prefix or subject.startswith(prefix + ".")
+
+
+def test_the_wake_subject_is_outside_the_stream_subject_filter() -> None:
+    """The wake subject is a CORE-NATS nudge, not a queued run — were it inside the
+    stream's wildcard filter, JetStream would durably store every wake-up as a queue
+    message, and the worker's pull would try to claim it as a run. `url4-runq-wake`
+    fails the match at the character right after the prefix: `-` where the filter
+    needs a `.`."""
+    queue = RunQueue("nats://unused:4222")
+
+    assert queue._wake_subject == "url4-runq-wake"  # noqa: SLF001
+    assert not _subject_matches(queue._wake_subject, queue._stream_subject)  # noqa: SLF001
+    # Belt-and-braces: the matcher itself must accept an ordinary bucket subject, or the
+    # assertion above would be vacuous.
+    assert _subject_matches("url4-runq.0a", queue._stream_subject)  # noqa: SLF001
+
+
+class _RaisingCoreClient:
+    """A core-NATS connection whose `publish` — the wake-up `publish()` sends after the
+    JetStream publish succeeds — always fails the way a real broker error would."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, bytes]] = []
+
+    async def publish(self, subject: str, payload: bytes = b"") -> None:
+        self.calls.append((subject, payload))
+        raise nats.errors.Error("wake publish failed")
+
+
+async def test_a_wake_up_failure_never_fails_the_publish() -> None:
+    """The wake-up is best-effort: the run is already durably queued by the JetStream
+    publish that precedes it, so a broker hiccup on the CORE-NATS nudge must cost only a
+    missed nudge — the old rotation-based latency — never the publish itself."""
+    fake = _FakeJetStream()
+    queue = _queue(fake)
+    core = _RaisingCoreClient()
+    queue._nc = core  # type: ignore[assignment]  # noqa: SLF001
+
+    await queue.publish(encode_message("topic-wake", "'hi'", 60))
+
+    assert len(fake.published) == 1
+    assert len(core.calls) == 1, "the wake-up must still be attempted"

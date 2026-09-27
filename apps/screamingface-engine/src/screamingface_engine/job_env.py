@@ -24,6 +24,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
+from typing import Literal
 
 from url4.streaming.protocol import CachePolicy
 
@@ -136,6 +137,48 @@ url4-INTERNAL: it is never sent to the gateway, whose cache-control grammar is c
 key and BYPASSES on any other. It travels only so the value survives to read-back, where an entry's
 age can be compared against it.
 """
+
+RUN_SHAPE = "URL4_CLOUD_RUN_SHAPE"
+"""What the run's EXPRESSION is (uniform executor PRD 04, erd.md §2): ``expression`` — a url4
+expression the run evaluates as a DAG — or ``direct`` — a mount call, ``<mount path>?<raw query>``,
+that runs ONE registered handler through ``url4.peer.dispatch_direct`` and never a DAG (D1).
+Absent means ``expression``, so a message from before the change still decodes."""
+
+SPEC_VERSION = "URL4_CLOUD_SPEC_VERSION"
+"""The run message's major version (erd.md §2). Absent means ``1``. A worker refuses an unknown
+major version with a ``failed`` terminal frame, code ``unsupported_spec_version``."""
+
+CURRENT_SPEC_VERSION = "2"
+SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+RECLAIM_OWNER = "URL4_CLOUD_RECLAIM_OWNER"
+"""Who reclaims a finished run's subject: absent (the run process itself, after its grace — a
+standalone `run`) or ``worker`` (the supervising worker, per process — the worker pool).
+
+WHY the worker: a child that sleeps its grace before it exits holds a WORKER SLOT for the whole
+grace (60 s) after its run is over. Under load every slot sat idle in grace and claims stopped —
+found by the kind suite (K6). The worker purges after the grace in a detached task, off the slot.
+A per-PROCESS key, set by the worker on the children it starts."""
+
+DIRECT_STREAM_GRACE_S = 5.0
+"""The reclaim grace of a DIRECT run: the child's wait between its terminal frame and its purge.
+
+WHY not :data:`DEFAULT_STREAM_GRACE_S` (60 s): that grace lets an attached WebSocket client drain
+the final frames. Nobody attaches to a mount run — the App reads its frames in-process and has
+answered by then — and the child holds a WORKER SLOT through the grace, so a 60 s grace would
+make every simple call occupy a slot for a minute after it answered."""
+MAX_DIRECT_TARGET_BYTES = 8 * 1024
+"""The longest ``<mount path>?<raw query>`` a direct run carries (erd.md §2; 414 over it)."""
+
+RunShape = Literal["expression", "direct"]
+
+
+def run_shape_from_env(env: Mapping[str, str]) -> RunShape:
+    """The run's shape; absent is ``expression``. An unknown value raises ``ValueError``."""
+    shape = env.get(RUN_SHAPE, "expression")
+    if shape not in ("expression", "direct"):
+        raise ValueError(f"{RUN_SHAPE}={shape!r} is not 'expression' or 'direct'")
+    return shape  # type: ignore[return-value]
+
 
 EXTRA_MODELS = "URL4_CLOUD_EXTRA_MODELS"
 """Dynamically admitted model ids this run's world must ALSO route (OME-880).
@@ -266,14 +309,14 @@ def number_from_env[N: (int, float)](
     """One tolerant env-number parser, shared by every deploy-time int/float knob.
 
     ``type(default)`` decides whether this parses an ``int`` or a ``float``, so one function
-    serves both ladders (`runner.main`'s deploy-time knobs, the node tier's timeout ladder).
+    serves every deploy-time knob (`runner.main`, the worker).
 
     INVARIANT: never raises. These are typo'd-knob readers for boot-time settings, and the
     shipped default is the safe answer to a typo — the alternative is a pod that cannot start.
 
     Args:
         log: the caller's own logger, required so the warning is attributed to the module that
-            owns the setting (`runner.main`, the node tier) rather than to `job_env` itself.
+            owns the setting (for example `runner.main`) rather than to `job_env` itself.
     """
     raw = env.get(name)
     if raw is None:
@@ -369,9 +412,9 @@ readable by anything with `get` on it and is printed in plain text by `helm get 
 ARTIFACT_SIGNING_KEY = "URL4_CLOUD_ARTIFACT_SIGNING_KEY"
 """Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6).
 
-The node tier SIGNS the 303's `Location`; the App VERIFIES it on `GET /artifacts/{id}`. Both
-halves read this one name, so the signer and the verifier cannot be pointed at different keys
-by a one-sided edit — the same one-name invariant :data:`ARTIFACTS_DIR` states.
+The App SIGNS a mount result's 303 `Location` and VERIFIES it on `GET /artifacts/{id}`
+(uniform executor PRD 04). One name, so the signer and the verifier cannot be pointed at
+different keys by a one-sided edit — the same one-name invariant :data:`ARTIFACTS_DIR` states.
 
 INVARIANT: Secret only — a signing key is authorization material (a holder can mint a fetch
 credential for any artifact id), so it must never travel by ConfigMap or be logged.
@@ -468,6 +511,8 @@ WRITTEN_BY_APP = frozenset(
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,
         IO_CONCURRENCY,
+        RUN_SHAPE,
+        SPEC_VERSION,
         *IDENTITY_HEADER_ENV.values(),
     }
 )

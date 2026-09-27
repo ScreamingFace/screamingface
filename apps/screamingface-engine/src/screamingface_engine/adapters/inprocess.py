@@ -163,6 +163,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
+        shape: job_env.RunShape = "expression",
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -214,6 +215,11 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # mode replaced. Popped unconditionally; the gate reaches runs through the
         # executor factory's `io_gate`, not through env.
         env.pop(job_env.IO_CONCURRENCY, None)
+        # Same reset: the shape is THIS run's, never an ambient value (uniform executor PRD 04).
+        env.pop(job_env.RUN_SHAPE, None)
+        env[job_env.SPEC_VERSION] = job_env.CURRENT_SPEC_VERSION
+        if shape == "direct":
+            env[job_env.RUN_SHAPE] = "direct"
         return env
 
     # --- the JobRunner port -----------------------------------------------------------------
@@ -231,6 +237,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: job_env.RunShape = "expression",
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -258,6 +265,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             identity,
             cache,
             answer_seed=answer_seed,
+            shape=shape,
         )
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a

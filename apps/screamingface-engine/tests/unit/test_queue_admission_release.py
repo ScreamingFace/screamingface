@@ -20,7 +20,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from nats.errors import ConnectionClosedError
 
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.adapters.queue_runner import QueueJobRunner
@@ -85,9 +84,6 @@ class _Publisher:
         if topic in self.unreadable:
             raise QueueReadError(f"unreadable {topic}")
         return self.tails.get(topic)
-
-    async def stream_exists(self, topic: str) -> bool:
-        return True
 
     async def ensure_stream(self, topic: str) -> None:
         pass
@@ -263,174 +259,43 @@ async def test_a_reservation_within_the_lease_still_holds_its_slot() -> None:
         await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
 
 
-# --- reclaimed streams: absence is evidence, not unknown --------------------------------------
+# --- reclaimed runs in the shared events stream (uniform executor, PRD 01) --------------------
 #
-# THE DEFECT in the release path above. `run_and_reclaim` deletes each run's stream in a
-# `finally`, `DEFAULT_STREAM_GRACE_S` (60s) after the run ends — deliberate, because a leaked
-# per-run stream holds a full `max_bytes` reservation until the store fills and every new run
-# fails with JetStream 10047. Once the stream is gone the terminal frame is gone with it, so
-# `_read_tail` can NEVER answer `TerminatedEvent` for a run that finished more than ~60s ago:
-# the terminal-frame release is unreachable for exactly the runs that matter, leaving only the
-# 1h lease. Confirmed on a live kind cluster — identical 8 runs, same caller, idle pool, the
-# only variable being whether the 9th submission landed inside the 60s grace window:
-#
-#   [immediate]      ADMITTED  <- streams still exist, the terminal-frame release fires
-#   [after-deletion] REFUSED   <- "the runner is at capacity", queue_depth 0.0, pool idle
-#
-# A missing stream is NOT unknown: `delete_stream` runs strictly AFTER the run is over, so
-# absence is positive evidence of reclamation. The gate is the reservation's AGE — a topic
-# admitted a moment ago may have no stream YET.
+# The former layout deleted each run's stream 60 s after it ended, the terminal frame went with
+# it, and "the stream is gone" had to count as evidence that the run finished (OME-1108). In the
+# shared stream the reclaim purges the run's subject with `keep=1`: the terminal frame SURVIVES
+# (until `max_age`, 24 h — past the 1 h lease), so it is the only evidence needed. An empty
+# subject is now also the state of a run still in the queue, so absence must NOT free a slot.
 
 
-class _ReclaimingPublisher(_Publisher):
-    """`_Publisher` with a SCRIPTABLE stream existence, which the base fake hardcodes to True.
-
-    `absent` is a stream the broker does not have — either RECLAIMED (`run_and_reclaim` deleted
-    it a grace period after the run ended) or NOT CREATED YET. Note it does NOT go through
-    `unreadable`: the real `JetStreamPublisher.last_frame` maps a missing stream to None, because
-    `get_last_msg` raises `NotFoundError`, which IS an `APIError`, and that branch returns None
-    while `QueueReadError` is reserved for transport failures.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.absent: set[str] = set()
-        self.exists_unreadable: set[str] = set()
-        self.exists_checks: list[str] = []
-
-    def reclaim(self, topic: str) -> None:
-        """What `run_and_reclaim` leaves behind: the terminal frame is gone WITH the stream, so
-        the tail reads None and the stream no longer exists."""
-        self.tails.pop(topic, None)
-        self.absent.add(topic)
-
-    async def stream_exists(self, topic: str) -> bool:
-        self.exists_checks.append(topic)
-        if topic in self.exists_unreadable:
-            # The real adapter does NOT translate this: `_stream_exists` returns False only for
-            # `NotFoundError` and lets every other failure propagate, so a blip surfaces raw.
-            raise ConnectionClosedError()
-        return topic not in self.absent
+def _reclaim(publisher: _Publisher, topic: str, when: datetime) -> None:
+    """What `run_and_reclaim` leaves behind now: the subject holds only its terminal frame."""
+    publisher.tails[topic] = _terminated(topic, when)
 
 
 async def test_a_caller_whose_finished_runs_were_reclaimed_is_admitted() -> None:
-    """THE incident, after the streams were reclaimed. No terminal frame survives, so only the
-    stream's ABSENCE can say the runs are over — and it must."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
+    """THE OME-1108 incident, in the new layout: long after the reclaim, the kept terminal
+    frame still frees the slot."""
+    queue, publisher, clock = _Queue(), _Publisher(), _Clock()
     runner = _runner(queue, publisher, clock, cap=3)
     topics = await _fill_to_cap(runner, 3, CALLER)
 
     clock.advance(600)
     for topic in topics:
-        publisher.reclaim(topic)
+        _reclaim(publisher, topic, clock())
 
     await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
 
     assert len(queue.published) == 4, "a reclaimed run must not hold its slot for the whole lease"
 
 
-async def test_a_freshly_admitted_topic_with_no_stream_yet_keeps_its_slot() -> None:
-    """The startup race. Between admission and the stream's creation the tail reads None and the
-    stream is absent — identical to a reclaimed run. Releasing there would let a caller exceed
-    its cap, so absence only counts once the reservation is older than the reclaim threshold."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
-    runner = _runner(queue, publisher, clock, cap=2, reclaim_evidence_after_s=90.0)
-    topics = await _fill_to_cap(runner, 2, CALLER)
-    publisher.absent.update(topics)
-
-    clock.advance(5)
-    with pytest.raises(JobRunnerAtCapacity):
-        await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-
-
-async def test_absence_frees_the_slot_only_past_the_reclaim_threshold() -> None:
-    """The same absent streams, either side of the threshold: held below it, released above."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
-    runner = _runner(queue, publisher, clock, cap=2, reclaim_evidence_after_s=90.0)
-    topics = await _fill_to_cap(runner, 2, CALLER)
-    publisher.absent.update(topics)
-
-    clock.advance(89)
-    with pytest.raises(JobRunnerAtCapacity):
-        await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-
-    clock.advance(2)
-    await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-    assert len(queue.published) == 3
-
-
-async def test_an_unreadable_stream_check_never_frees_a_slot() -> None:
-    """The invariant, extended to the second broker call the absence check adds: `stream_exists`
-    failing is UNKNOWN, and unknown must never hand out a slot that may still be held."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
-    runner = _runner(queue, publisher, clock, cap=2, reclaim_evidence_after_s=90.0)
-    topics = await _fill_to_cap(runner, 2, CALLER)
-    publisher.exists_unreadable.update(topics)
-
-    clock.advance(600)
-    with pytest.raises(JobRunnerAtCapacity):
-        await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-
-
-async def test_an_empty_but_present_stream_keeps_its_slot() -> None:
-    """A queued run that has not published yet: the tail is None but the stream EXISTS. Only
-    absence is evidence — an empty stream says the run has not started, not that it ended."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
-    runner = _runner(queue, publisher, clock, cap=2, reclaim_evidence_after_s=90.0)
+async def test_an_old_reservation_with_an_empty_subject_keeps_its_slot() -> None:
+    """A run that waited in the queue for 10 min has published nothing: its subject is empty.
+    That is NOT evidence of a finish, however old the reservation is."""
+    queue, publisher, clock = _Queue(), _Publisher(), _Clock()
+    runner = _runner(queue, publisher, clock, cap=2)
     await _fill_to_cap(runner, 2, CALLER)
 
     clock.advance(600)
     with pytest.raises(JobRunnerAtCapacity):
         await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-
-
-async def test_absence_does_not_free_a_re_scheduled_topics_live_slot() -> None:
-    """The stale-sighting guard, on the absence path. A topic re-scheduled after its first run
-    was reclaimed still reads "absent" — that absence belongs to the FIRST run, and must not
-    release the SECOND run's reservation, whose stream simply does not exist yet."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
-    runner = _runner(queue, publisher, clock, cap=2, reclaim_evidence_after_s=90.0)
-
-    await runner.schedule("t-reused", "'hi'", 60, identity=CALLER)
-    clock.advance(600)
-    publisher.reclaim("t-reused")
-    # Re-scheduled now: the second run is live, and its own stream is still absent.
-    await runner.schedule("t-reused", "'hi'", 60, identity=CALLER)
-
-    clock.advance(1)
-    # The FIRST reservation is older than the threshold, so its slot is freed and this fits.
-    await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-
-    # ...but the LIVE second reservation is younger than the threshold and must have survived.
-    with pytest.raises(JobRunnerAtCapacity):
-        await runner.schedule("t-newer", "'hi'", 60, identity=CALLER)
-
-
-async def test_a_young_reservation_costs_no_stream_check() -> None:
-    """The cost discipline: the extra round trip happens only when a reservation is old enough
-    for absence to mean anything, so the common refusal is as cheap as before."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
-    runner = _runner(queue, publisher, clock, cap=2, reclaim_evidence_after_s=90.0)
-    await _fill_to_cap(runner, 2, CALLER)
-
-    clock.advance(5)
-    with pytest.raises(JobRunnerAtCapacity):
-        await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-
-    assert publisher.exists_checks == [], "a young reservation needs no absence check"
-
-
-async def test_a_terminal_frame_still_costs_no_stream_check() -> None:
-    """The terminal-frame release stays the primary path: when the frame is there, the absence
-    check is not reached at all."""
-    queue, publisher, clock = _Queue(), _ReclaimingPublisher(), _Clock()
-    runner = _runner(queue, publisher, clock, cap=2, reclaim_evidence_after_s=90.0)
-    topics = await _fill_to_cap(runner, 2, CALLER)
-
-    clock.advance(600)
-    for topic in topics:
-        publisher.tails[topic] = _terminated(topic, clock.now)
-
-    await runner.schedule("t-new", "'hi'", 60, identity=CALLER)
-
-    assert publisher.exists_checks == []

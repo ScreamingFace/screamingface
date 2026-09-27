@@ -1,11 +1,12 @@
-"""The inline/spill/refuse decision, shared by the run path and the sync spill path.
+"""The inline/spill/refuse decision of the run path's terminal result frame.
 
-FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892);
-FEATURE (unit 3, D9): a sync response over 512 KiB spills to the same artifact store.
+FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892). A
+mount call is a direct run (uniform executor PRD 04), so it reaches the App through this same
+decision.
 
-WHY this is a module and not two copies of an `if`: the two delivery paths — the
-Runner's terminal result frame (`runner.executor.build_result`) and the node tier's
-sync response (`world.node_tier`) — must agree on the boundary to the byte. The order
+WHY this is a module and not an inline `if`: the Runner's terminal result frame
+(`runner.executor.build_result`) is the one delivery path, and its boundary must hold to the
+byte. The order
 of the two checks is the load-bearing part: the HARD cap is absolute and is checked
 before the inline cap, so an inverted operator knob (`inline_cap > hard_cap`) cannot
 let an over-hard-cap body through a path that only meant to keep small bodies inline.

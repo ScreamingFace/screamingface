@@ -256,20 +256,20 @@ def test_a_second_connection_cannot_restate_the_first_connections_policy() -> No
 
 
 def test_run_start_stays_gated_on_an_attached_subscriber() -> None:
-    """The whole design rests on attach preceding run start; assert it rather than assume it."""
+    """The whole design rests on attach preceding an ASYNC run start; assert it rather than
+    assume it. (A sync request needs no attach — it declares its cache intent in the
+    `Cache-Control` header, PRD 02.)"""
     topic = "ws-cache-gate"
     stream = InMemoryEventStream()
     app = _make_app(stream=stream)
-    headers = {"URL4-Capability": _token(topic)}
+    headers = {"URL4-Capability": _token(topic), "Prefer": "respond-async"}
     with TestClient(app) as client:
         _seed(client, stream, topic, [_started(topic)])
         assert client.get("/", params={"q": "gpt()"}, headers=headers).status_code == 428
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_json(_attach(cache=OPT_OUT))
             assert ws.receive_json()["type"] == "ai.url4.started"
-            started = client.get(
-                "/", params={"q": "gpt()"}, headers={**headers, "Prefer": "respond-async"}
-            )
+            started = client.get("/", params={"q": "gpt()"}, headers=headers)
             # By the time a run CAN be scheduled, the frame's declaration is already recorded.
             assert app.state.registry.cache_policy_for(topic) == OPT_OUT
     assert started.status_code == 202

@@ -2,13 +2,12 @@
 
 # WHY this file exists. Before C1, `local._LocalNodeMount` bound the request scope and the trace
 # (`trace_scope`) but not `logs.run_scope` — the ONE thing that renders `origin=`/`trace_id=` onto
-# a log line (see `logs.RunContextFilter`). The node tier's own `_dispatch` bound all three, so a
-# sync request answered by the deployed tier logged its identity and a request answered by
-# `serve --local` did not. C1 extracts ONE shared binding, `request_scope.bind_sync_request`, and
-# uses it in both places — this test pins the local mount's half of that: a log line emitted
-# while a direct-mount request is in flight now carries `origin=sync` and the caller's trace id,
-# exactly as the tier's own origin test already pins — see the FX-6 test in
-# test_node_tier_dispatch_fixes.py.
+# a log line (see `logs.RunContextFilter`), so a request answered by `serve --local` logged with
+# neither. C1 extracts ONE shared binding, `request_scope.bind_sync_request` — this test pins
+# local mode's use of it: a log line emitted while a direct-mount request is in flight now
+# carries `origin=sync` and the caller's trace id. (The node tier bound all three the same way in
+# its own `_dispatch`; it was removed in uniform executor PRD 05, and `bind_sync_request` is now
+# local mode's only caller.)
 """
 
 from __future__ import annotations

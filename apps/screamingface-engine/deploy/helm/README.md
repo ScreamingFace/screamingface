@@ -140,7 +140,10 @@ What the pool's pods get:
 - `securityContext` matching the App's, plus a `RuntimeDefault` seccomp profile and an `emptyDir`
   at `/tmp` (required by `readOnlyRootFilesystem`)
 - `resources` = `workerSlots × perRunCharge + overhead` — sized so the declared concurrency can
-  actually run rather than scheduling BestEffort
+  actually run rather than scheduling BestEffort. The memory REQUEST also adds, per
+  warm child (`workerSlots` when `warmChildren` is unset), what it holds beyond its free slot's
+  charge — `warmChildCharge.memoryMi − perRunCharge.memoryMi` (194 Mi with the defaults) — so it
+  states what an idle warm pool actually holds; the memory limit is unchanged.
 - `nodeSelector` and `tolerations` from the chart's top-level placement values — the pool and
   the App Deployment therefore use the same operator-owned node pool and taint policy
 - a `checksum/runner-env` + `checksum/secret` annotation pair, so a ConfigMap/Secret value
@@ -165,111 +168,79 @@ cap. This supersedes the OME-1065 quota-admission feature, which was retired wit
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
-## The node tier (unit 3)
+### Warm children (uniform executor PRD 03)
 
-The sync surface (`GET /<mount>?q=`) can run as its own Deployment, separate from the App, so a
-slow or crashing sync call cannot take down the WebSocket relays that in-flight ensemble runs
-depend on. **Off by default** (`node.enabled: false`) — turn it on with:
+Each worker pod can keep child processes started AHEAD of a claim: they already did their
+per-process work (Python start-up, the imports, the world build) and wait on stdin, so a claim
+hands the run off in milliseconds instead of paying a cold boot. With 0 warm children a child
+is spawned ON the claim instead, through the same protocol — slower start, least memory.
 
-```bash
---set node.enabled=true --set artifactStorage.backend=s3 --set garage.enabled=true
-```
+Set with `runnerPool.warmChildren` — the chart default is 2 per pod (sized 2026-09-26 to the
+deployments' 4-slot pods). `null` leaves the worker's own default of one warm child per
+`workerSlots`; the worker caps whatever is set here at `workerSlots` regardless, and the render
+refuses a value ABOVE `workerSlots` outright, naming both values, rather than deploying a pool
+that would be silently truncated.
 
-(or, pointing at storage you already run, `--set-string
-artifactStorage.s3.endpointUrl=http://your-s3-endpoint:port` in place of `garage.enabled=true` —
-`artifactStorage.backend=s3` alone is not enough to render: the chart also needs to know WHERE
-the store is, from one of those two sources.)
+**Memory.** Each IDLE warm child holds the imported engine and its built world: about 430 MiB
+measured in kind with the builtin benchmarks. Idle children only occupy FREE slots (idle +
+running ≤ `workerSlots`), so the per-slot memory LIMIT already covers them; the memory REQUEST
+adds each warm child's excess over its slot's charge (`runnerPool.warmChildCharge.memoryMi` 450 −
+`perRunCharge.memoryMi` 256), so the scheduler sees what the warm pool really uses.
 
-**Needs S3.** The node's spill path (a response over 512 KiB) writes to the SAME object store
-the App reads it back from, across pods — the chart REFUSES `node.enabled=true` paired with any
-`artifactStorage.backend` other than `s3` (OME-929; the SAME failure mode for `runner: queue` +
-`artifactStorage.backend: filesystem` is refused at App STARTUP, one tier over, rather than by
-this chart — a local single-process run is a legitimate shape the chart never renders at all).
-`values-cloud.yaml` leaves the node off for exactly this reason: it does not set an s3 backend,
-so turning the node on there needs the same two extra flags as above at install time.
+**Metrics**, on the same `runnerPool.metricsPort` scrape surface as the pool's other metrics:
 
-**Its own label set.** The node Deployment's pods carry `app.kubernetes.io/name: url4-cloud` —
-the SAME name as the App, so aigateway's own NetworkPolicy admits the node's outbound calls
-without a CNI change — but `app.kubernetes.io/instance: <release>-node`, NOT the App's plain
-`<release>`. This is deliberate (FX-80): the App's own Service and Deployment select on a bare
-`{name, instance}` pair with no component qualifier, which is a SUPERSET match — before the
-node's instance diverged, the App's Service silently fronted the node's pods too, and the App
-Deployment's replace/evict blast radius silently covered them as well. Nothing on the App side
-changes to fix this; the node's own instance value is what breaks the match.
+- `screamingface_engine_worker_warm_children` (gauge) — idle warm children right now
+- `screamingface_engine_worker_warm_spawn_failures_total` (counter) — a warm child that failed
+  to start, timed out before READY, or died idle
+- `screamingface_engine_worker_handoff_latency_s` (histogram) — claim to the child's ACK
+- `screamingface_engine_worker_child_boot_s` (histogram) — child spawn to its READY
 
-> **If you run an aigateway NetworkPolicy of your own (outside this repo)**, it must admit peers
-> by `app.kubernetes.io/name: url4-cloud` alone, not by `name` AND `instance` together — a policy
-> that also matches on `instance` denies the node tier's calls, because the node's instance is
-> never the App's.
+## Events stream (uniform executor, PRD 01)
 
-**A platform that owns its NetworkPolicies.** Some GitOps projects deny the NetworkPolicy kind
-to tenant charts; there the chart's node policy fails the whole sync. Set
-`node.networkPolicy.enabled=false` and render the equivalent policy on the platform side: admit
-ONLY the App (`app.kubernetes.io/name: url4-cloud` AND `app.kubernetes.io/component:
-control-plane`) to `node.port`, and let the App reach the node pods (`component: node`) on that
-port. The policy is the node's authentication boundary — never turn it off without that
-replacement. `node.metrics.scrapeFrom` rides the same policy, so it renders nothing while off.
+Every run's frames now live on ONE JetStream stream, `url4-events` (subject
+`url4-cloud.<topic>` per run), instead of one stream per run. The App and the runner pool
+both declare it at startup and apply a changed limit; the values are rendered to both from
+one place so they cannot disagree:
 
-**Verifying the App-only NetworkPolicy on a real cluster.** `tests/unit/test_chart_render_node_tier.py`
-and `verify_chart_wiring.py` prove the policy is CORRECTLY SHAPED at render time; neither proves a
-CNI actually enforces it — `kind`'s default CNI does not enforce `NetworkPolicy` at all (test-plan
-§3, T15), so a kind-based test cannot tell you this works. On a cluster whose CNI does enforce it,
-confirm both directions after installing with `node.enabled=true`:
+- `events.maxBytes` (default 1 GiB) — must fit the broker's JetStream file store, or startup
+  fails naming `events.maxBytes`. When the store is full, JetStream drops the OLDEST frames
+  of whichever run they belong to; a run in progress keeps publishing, it does not fail.
+- `events.maxMsgsPerSubject` (default 20000) — one run's own frame retention bound, so a
+  single long run cannot crowd every other run's frames out of the shared store.
+- `events.maxAgeS` (default 86400) — the storage backstop: a run whose runner crashed before
+  reclaiming its subject still clears itself after this many seconds, with no sweep needed.
+- `events.replicas` (default 1) — same posture as `config.runQueueReplicas`: this chart bundles
+  a single-node NATS subchart, which refuses `replicas > 1` outright.
 
-```bash
-# From a pod that is NOT the App (must be REFUSED):
-kubectl run np-probe --rm -it --image=curlimages/curl --restart=Never -- \
-  curl -sS -m 3 http://<release>-<release>-node:9109/livez
-# expect: no response / connection timed out (the request never reaches the node)
+**Upgrading past the per-run-stream layout.** No manual step. JetStream will not declare the
+shared stream while a legacy `url4-cloud_<topic>` stream exists (their subjects overlap), so
+the new App and worker delete every legacy stream at startup, log
+`deleted N legacy per-run stream(s) at startup`, and declare `url4-events`. Once it exists,
+JetStream refuses any new overlapping stream, so an old App still serving during the rollout
+cannot create a legacy stream again. The frames of runs still in flight on a legacy stream are
+lost at the cut-over (owner decision, 2026-09-27); to avoid that, scale the old App and runner
+pool to 0 and let the queue drain before the sync. The deletion never touches `url4-events`,
+`url4-runq`, or another workload's stream; an overlap with one of those still fails the
+startup. `screamingface-engine admin purge-legacy-streams --dry-run` lists what would be
+deleted, and without `--dry-run` it does the same deletion by hand.
 
-# From inside the App's own pod (must SUCCEED):
-kubectl exec deploy/<release>-<release> -- \
-  curl -sS -m 3 http://<release>-<release>-node:9109/livez
-# expect: 200 (or whatever /livez answers once the node is up)
-```
+**Alert rule.** `screamingface_engine_events_store_utilization_ratio > 0.8` for 5 minutes,
+severity warning. Meaning: the events store is close to full, and JetStream will soon start
+dropping the oldest frames of some run to make room for new ones. Response: raise
+`events.maxBytes`, or grow the broker's JetStream store.
 
-**Metrics on their own port.** `/metrics` is served on `node.metrics.port` (default `9110`),
-separate from the request port `node.port` (`9109`) — a scrape can never compete with a sync
-call for the same listener. The NetworkPolicy admits it via a SECOND, independent ingress rule,
-gated on `node.metrics.scrapeFrom` (a list of NetworkPolicy peer objects, default `[]`): with no
-peer configured, metrics is reachable from nowhere else in the cluster, and no rule renders at
-all.
+## Removed node-tier metrics
 
-**The artifact-signing key (OQ-3.2).** The node signs a spilled artifact's short-lived `303`
-`Location`; the App verifies it. The SAME `URL4_CLOUD_ARTIFACT_SIGNING_KEY` Secret must reach
-both tiers — `artifactSigning.existingSecret` (recommended for GitOps) is created out-of-band.
-Left empty (and with `artifactSigning.signingKey` also empty), the chart generates one and
-reuses it across upgrades via Helm's `lookup` function — but `lookup` reads the LIVE cluster, so
-it returns nothing under `helm template` (no cluster to query).
+The node tier (unit 3, the separate sync-surface Deployment) was removed (uniform executor
+PRD 05): every mount call now runs as a direct run on the runner pool. A dashboard or alert rule
+that still queries a `screamingface_engine_node_sync_*` series must move to its replacement:
 
-> **GitOps / offline-render workflows (ArgoCD, or any `helm template` that never talks to
-> the target cluster) MUST set `artifactSigning.existingSecret` or `artifactSigning.signingKey`.**
-> Left to the generated default, every offline render mints a NEW random key — and unlike a live
-> `helm upgrade --install` (where `lookup` finds and reuses the cluster's existing copy), an
-> offline render has no way to know there already is one. If that render is then applied, every
-> in-flight signed artifact URL breaks, and the two tiers can end up disagreeing about which key
-> is current. The `checksum/artifact-signing` pod annotation is keyed on the SOURCE of the key
-> (`signingKey`, else `existingSecret`'s name, else a fixed constant), not the rendered Secret, so
-> a chart-generated key does not by itself force a rollout on every sync — but the Secret's actual
-> VALUE still changes underneath it, which is the real hazard `existingSecret`/`signingKey` closes.
-
-**Web tools are off on the node tier.** The node Deployment's `envFrom` never references the
-Tavily Secret, regardless of `tavily.enabled` — only the runner pool does. A sync call has a 30 s
-budget (`node.requestTimeoutS`), and a web-tool-enabled mount usually exhausts that budget before
-its iteration count (contracts.md C4); operators should prefer `web_search = false` on model
-routes the sync surface serves.
-
-**Sizing the node pod (item 11, B6 review).** The defaults — `node.resources.limits.memory: 512Mi`,
-`node.maxInflightPerWorker: 2` (× `node.workers: 1` = an in-flight cap of 2), and
-`node.resultHardCapBytes: 67108864` (64 MiB, in bytes — the setting takes a byte count, not a
-quantity suffix) — assume a small, in-memory response per request. One capped
-response can hold TWO OR MORE copies in memory at once (the body itself, plus at least one
-serialization/encoding copy) and, for a spilled result, an S3 upload buffer on top of that — so at
-`maxInflight=2` a pod can carry several times the 64 MiB cap in flight before it ever reaches the
-memory limit's headroom. If a `[data]` file mount on this node serves large files, raise
-`node.resources.limits.memory` (and, correspondingly, `node.resources.requests.memory`) to keep
-that headroom, or lower `node.resultHardCapBytes` instead if the response size is what should
-shrink.
+| Removed metric | Replacement |
+|---|---|
+| `screamingface_engine_node_sync_request_duration_seconds` | `screamingface_engine_mount_calls_total{path,status}` (counts by status) and `screamingface_engine_worker_handoff_latency_s` / `screamingface_engine_worker_run_duration_s` (time) |
+| `screamingface_engine_node_sync_inflight` | `screamingface_engine_worker_slots_busy` |
+| `screamingface_engine_node_sync_shed_total` | `screamingface_engine_mount_calls_total{status="503"}` (the run queue's per-caller cap) |
+| `screamingface_engine_node_sync_budget_exhausted_total` | `screamingface_engine_mount_calls_total{status="504"}` |
 
 ## Artifact storage (OME-929)
 
@@ -366,15 +337,12 @@ by a node drain; the `preStop` drain is what protects its runs (they close out a
 ## Labels
 
 All resources carry the k8s **recommended labels** (`app.kubernetes.io/name·instance·version·
-managed-by·part-of·component`) via `templates/_helpers.tpl` (docs/protocol.md §9). Two deliberate
-exceptions:
+managed-by·part-of·component`) via `templates/_helpers.tpl` (docs/protocol.md §9). One deliberate
+exception:
 
 - The runner pool's pods carry `app.kubernetes.io/name: url4-runner` — the label aigateway's
   NetworkPolicy admits the run workload by (the old Job labels), so the pool replaces the Jobs
   without a CNI change.
-- The node tier's pods keep `app.kubernetes.io/name: url4-cloud` (the SAME name as the App, for
-  the same aigateway-admission reason) but carry `app.kubernetes.io/instance: <release>-node`,
-  not the App's own `<release>` (FX-80). See "The node tier" section above for why.
 
 ## OCI image annotations
 

@@ -23,7 +23,10 @@ import sys
 def main() -> None:
     budget = int(sys.argv[1])
     resource.setrlimit(resource.RLIMIT_AS, (budget, budget))
-    os.execvpe("screamingface-engine", ["screamingface-engine", "run"], os.environ)
+    # `--warm` passes through: a warm child (PRD 03) is under the same limit, and it keeps the
+    # control pipe the worker handed it — `execvpe` preserves inheritable descriptors.
+    extra = ["--warm"] if "--warm" in sys.argv[2:] else []
+    os.execvpe("screamingface-engine", ["screamingface-engine", "run", *extra], os.environ)
 
 
 if __name__ == "__main__":  # pragma: no cover - execs in place; nothing to return to

@@ -4,8 +4,10 @@
 # the answer on existing engine routes: a wrong method on ``/token`` became url4's 404 instead of
 # the engine's 405, and a trailing slash on ``/healthz`` was never redirected. ``NodeMountRoute``
 # matches only the paths the node serves, so Starlette gives its normal answers for everything
-# else. These tests pin the class, the one install function both shapes use, and the local shape
-# end to end. The deployed shape is pinned in ``test_forwarder_deployed_shape.py``.
+# else. These tests pin the class and ``install_node_route`` end to end through local mode's own
+# eval path (``local.create_local_app``) — the only caller now that the node tier is gone
+# (uniform executor PRD 05); mounts reach the App through its own routes instead, in
+# ``rest/mounts.py``.
 
 Offline throughout: the local world is a read-side declaration only (a ``[data]`` value route).
 """

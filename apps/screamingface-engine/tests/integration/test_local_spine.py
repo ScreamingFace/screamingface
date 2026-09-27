@@ -114,10 +114,12 @@ def test_the_run_streams_its_whole_lifecycle_over_the_websocket(client: TestClie
 
 
 def test_a_run_without_an_attached_subscriber_is_refused(client: TestClient) -> None:
-    """The 428 gate is protocol discipline, and local mode keeps it rather than relaxing it."""
+    """The 428 gate is protocol discipline, and local mode keeps it rather than relaxing it — for
+    `respond-async`, whose caller reads the frames on a WebSocket. (A sync request holds the
+    topic itself, uniform executor PRD 02.)"""
     token = _token(client)
 
-    response = client.get("/?q=hello", headers=_cap(token))
+    response = client.get("/?q=hello", headers={**_cap(token), "Prefer": "respond-async"})
 
     assert response.status_code == 428
 
