@@ -472,3 +472,190 @@ async def test_two_claims_take_one_warm_spawn_and_one_own_spawn() -> None:
     assert sorted(proc.pid for proc in procs) == [1, 2]  # type: ignore[attr-defined]
     assert len(spawner.spawned) == 2
     await pool.drain()
+
+
+async def test_a_drain_lets_a_waiting_claim_take_its_warm_spawn() -> None:
+    """Design review of F9: a drain does not kill the warm spawn a claim waits for — the claim
+    takes it (no cold boot inside the drain grace); the drain then kills what is left."""
+    gate = asyncio.Event()
+
+    class _GatedSpawner(_Spawner):
+        async def __call__(self) -> WarmHandle:
+            await gate.wait()
+            return await super().__call__()
+
+    busy = 0
+    spawner = _GatedSpawner(_FakeChild(1), _FakeChild(2))
+    pool = WarmChildPool(spawn_warm=spawner, size=1, slots=1, busy=lambda: busy)
+    pool.start()
+    await _settle()
+    busy = 1
+    launch = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await _settle()
+    drain = asyncio.ensure_future(pool.drain())
+    await _settle()
+    gate.set()
+    proc = await asyncio.wait_for(launch, 5)
+    await asyncio.wait_for(drain, 5)
+
+    assert proc.pid == 1  # type: ignore[attr-defined]
+    assert len(spawner.spawned) == 1  # no cold child
+    assert pool.idle_count == 0
+
+
+async def test_a_claim_behind_a_hung_warm_spawn_spawns_its_own_after_the_wait_bound() -> None:
+    """Design review of F9: the wait for a warm spawn in flight is bounded from that spawn's
+    START (`warm_spawn_wait_s`); then the claim spawns its own child and the run still starts."""
+    hung = asyncio.Event()  # never set: the first spawn hangs
+
+    class _FirstHangs(_Spawner):
+        calls = 0
+
+        async def __call__(self) -> WarmHandle:
+            type(self).calls += 1
+            if type(self).calls == 1:
+                await hung.wait()
+            return await super().__call__()
+
+    busy = 0
+    spawner = _FirstHangs(_FakeChild(2))
+    pool = WarmChildPool(
+        spawn_warm=spawner, size=1, slots=1, busy=lambda: busy, warm_spawn_wait_s=0.2
+    )
+    pool.start()
+    await _settle()
+    busy = 1
+    proc = await asyncio.wait_for(pool.launch(RUN_ENV, io_budget=lambda: 1), 5)
+
+    assert proc.pid == 2  # type: ignore[attr-defined]
+    await pool.drain()
+
+
+class _Gated(_Spawner):
+    """Each spawn blocks on the shared gate; spawns listed in `fail_at` raise instead."""
+
+    def __init__(self, gate: asyncio.Event, *children: _FakeChild, fail_at: set[int]) -> None:
+        super().__init__(*children)
+        self._gate = gate
+        self._fail_at = fail_at
+        self.calls = 0
+
+    async def __call__(self) -> WarmHandle:
+        self.calls += 1
+        call = self.calls
+        await self._gate.wait()
+        if call in self._fail_at:
+            raise OSError("exec failed")
+        return await super().__call__()
+
+
+async def test_waiting_claims_do_not_wake_each_other_when_a_spawn_fails() -> None:
+    """Design review (busy loop): three claims wait on three warm spawns; one spawn fails. Each
+    claim is resolved once — the failed one looks again and spawns its own — with no spin."""
+    gate = asyncio.Event()
+    busy = 0
+    spawner = _Gated(gate, *(_FakeChild(pid) for pid in (1, 2, 3, 4)), fail_at={2})
+    pool = WarmChildPool(spawn_warm=spawner, size=3, slots=3, busy=lambda: busy)
+    pool.start()
+    await _settle()
+    assert spawner.calls == 3  # three warm spawns in flight
+    busy = 3
+    claims = [asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1)) for _ in range(3)]
+    await _settle()
+    gate.set()
+    procs = await asyncio.wait_for(asyncio.gather(*claims), 5)
+
+    assert sorted(proc.pid for proc in procs) == [1, 2, 3]  # type: ignore[attr-defined]
+    assert spawner.calls == 4  # the three warm spawns plus ONE own spawn — no extra
+    await pool.drain()
+
+
+async def test_a_drain_does_not_wait_for_a_claim_it_hands_a_warm_spawn_to() -> None:
+    """Design review (drain grace): the drain returns at once while a claim still waits; the
+    spawn in flight then hands its child to that claim."""
+    gate = asyncio.Event()
+    busy = 0
+    spawner = _Gated(gate, _FakeChild(1), fail_at=set())
+    pool = WarmChildPool(spawn_warm=spawner, size=1, slots=1, busy=lambda: busy)
+    pool.start()
+    await _settle()
+    busy = 1
+    claim = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await _settle()
+    await asyncio.wait_for(pool.drain(), 1)  # the gate is still closed: no wait
+    assert not claim.done()
+    gate.set()
+    proc = await asyncio.wait_for(claim, 5)
+
+    assert proc.pid == 1  # type: ignore[attr-defined]
+
+
+async def test_a_warm_spawn_finishing_after_its_claim_left_is_killed_in_a_drain() -> None:
+    gate = asyncio.Event()
+    busy = 0
+    child = _FakeChild(1)
+    spawner = _Gated(gate, child, fail_at=set())
+    pool = WarmChildPool(spawn_warm=spawner, size=1, slots=1, busy=lambda: busy)
+    pool.start()
+    await _settle()
+    busy = 1
+    claim = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await _settle()
+    await pool.drain()
+    claim.cancel()
+    await asyncio.gather(claim, return_exceptions=True)
+    gate.set()
+    await _settle()
+
+    assert child.killed or child.terminated  # nobody runs it, so it does not outlive the pool
+
+
+async def test_a_late_warm_child_is_not_parked_over_the_slots() -> None:
+    """Design review (F8 after a timed-out wait): the claim spawned its own child; the late warm
+    spawn then finishes with every slot busy — it must be killed, not parked beyond `slots`."""
+    gate = asyncio.Event()
+    busy = 0
+    late = _FakeChild(1)
+    spawner = _Gated(gate, late, _FakeChild(2), fail_at=set())
+    pool = WarmChildPool(
+        spawn_warm=spawner, size=1, slots=1, busy=lambda: busy, warm_spawn_wait_s=0.1
+    )
+    pool.start()
+    await _settle()
+    busy = 1
+    claim = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await asyncio.sleep(0.2)  # the wait bound passes; the claim spawns its own (blocked too)
+    gate.set()
+    proc = await asyncio.wait_for(claim, 5)
+    await _settle()
+
+    assert proc.pid in (1, 2)  # type: ignore[attr-defined]
+    assert pool.idle_count + busy <= 1
+    await pool.drain()
+
+
+async def test_a_child_handed_in_the_same_tick_as_its_claims_cancel_is_killed() -> None:
+    """`_await_warm_spawn`'s cancel branch: the future already holds a child when the claim is
+    cancelled — nobody would run it, so it is killed."""
+    gate = asyncio.Event()
+    busy = 0
+    child = _FakeChild(1)
+    spawner = _Gated(gate, child, fail_at=set())
+    pool = WarmChildPool(spawn_warm=spawner, size=1, slots=1, busy=lambda: busy)
+    pool.start()
+    await _settle()
+    busy = 1
+    claim = asyncio.ensure_future(pool.launch(RUN_ENV, io_budget=lambda: 1))
+    await _settle()
+    gate.set()
+    # Let the spawn resolve the claim's future, then cancel the claim before it resumes.
+    for _ in range(50):
+        if not pool._waiters or pool._waiters[0].done():  # noqa: SLF001
+            break
+        await asyncio.sleep(0)
+    claim.cancel()
+    await asyncio.gather(claim, return_exceptions=True)
+    await _settle()
+
+    assert child.killed or child.terminated or claim.done() and not claim.cancelled()
+    await pool.drain()

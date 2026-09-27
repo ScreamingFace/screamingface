@@ -15,6 +15,7 @@ exited. Any exit before ACK is safe to retry: no run code has run yet (WC-D2).
 """
 
 import asyncio
+import collections
 import contextlib
 import logging
 import os
@@ -30,6 +31,10 @@ from screamingface_engine.client_provenance import CLIENT_VERSION_ENV
 logger = logging.getLogger(__name__)
 
 DEFAULT_READY_TIMEOUT_S = 60.0
+WARM_SPAWN_WAIT_S = 10.0
+"""How long a claim waits for a warm spawn in flight, counted from that spawn's START: a healthy
+boot takes seconds (~2 s in kind, world included), so a spawn older than this is treated as hung
+and the claim spawns its own child. It stays well below the App's 30 s mount-call bound."""
 DEFAULT_ACK_TIMEOUT_S = 10.0
 BACKOFF_START_S = 1.0
 BACKOFF_MAX_S = 30.0
@@ -174,6 +179,7 @@ class WarmChildPool:
         slots: int | None = None,
         busy: Callable[[], int] = lambda: 0,
         ready_timeout_s: float = DEFAULT_READY_TIMEOUT_S,
+        warm_spawn_wait_s: float = WARM_SPAWN_WAIT_S,
         ack_timeout_s: float = DEFAULT_ACK_TIMEOUT_S,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         metrics: _PoolMetrics | None = None,
@@ -185,16 +191,17 @@ class WarmChildPool:
         self._slots = size if slots is None else slots
         self._busy = busy
         self._ready_timeout_s = ready_timeout_s
+        self._warm_spawn_wait_s = warm_spawn_wait_s
         self._ack_timeout_s = ack_timeout_s
         self._sleep = sleep
         self._metrics = metrics
         self._idle: list[_Idle] = []
         self._spawning = 0
-        # Warm spawns in flight (a subset of `_spawning`), the claims waiting for one of them,
-        # and the signal that one finished (parked or failed) — see `_take`.
-        self._warming = 0
-        self._waiting = 0
-        self._warm_done = asyncio.Condition()
+        # Warm spawns in flight: their start times (monotonic), and the claims waiting for one
+        # of them, oldest first — each a future the finished spawn resolves with its child (or
+        # None when it failed). See `_take` and `_warm_one`.
+        self._warm_started: list[float] = []
+        self._waiters: collections.deque[asyncio.Future[WarmHandle | None]] = collections.deque()
         self._consecutive_failures = 0
         self._draining = False
         self._wake = asyncio.Event()
@@ -212,11 +219,15 @@ class WarmChildPool:
         the supervisor's; they follow the worker's drain rules.
 
         A spawn the replenisher has in flight is cancelled with it, and `_spawn_ready` kills
-        that child on the way out (erd.md §4: spawning × drain → kill).
+        that child on the way out (erd.md §4: spawning × drain → kill) — UNLESS a claim waits
+        for one (`_take`). Then the drain does not wait for it either: it leaves the replenisher
+        running, each spawn in flight finishes on its own (READY-bounded) and hands its child to
+        the waiting claim, or kills it when no claim waits (`_warm_one`). The drain never holds
+        up the worker's grace for a spawn.
         """
         self._draining = True
         self._wake.set()
-        if self._replenisher is not None:
+        if self._replenisher is not None and not self._waiters:
             self._replenisher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._replenisher
@@ -273,41 +284,74 @@ class WarmChildPool:
         `size + claims` booting children at once — each about 430 MiB once its world is built —
         and OOM-killed a pod sized for `slots` children. A claim takes a spawn in flight that no
         other claim waits for; only when there is none does it spawn its own.
+
+        The hand-off is one future per waiting claim (`_waiters`), resolved by the spawn that
+        finishes (`_warm_one`) — no shared wake-up, so waiting claims never wake each other. The
+        wait is bounded from the oldest spawn's START (`WARM_SPAWN_WAIT_S`): behind a hung warm
+        spawn the claim spawns its own child, with its full READY timeout (design review of F9).
         """
         while True:
-            if not self._idle and self._warming > self._waiting:
-                await self._await_warm_spawn()
-                continue
+            waitable = len(self._warm_started) > len(self._waiters)
+            if not self._idle and waitable and not self._warm_overdue():
+                handed = await self._await_warm_spawn()
+                if handed is not None and handed.proc.returncode is None:
+                    return handed
+                continue  # a spawn failed, timed out or handed a dead child: look again
             if not self._idle:
                 break
-            entry = self._idle.pop(0)
-            entry.watcher.cancel()
-            entry.forwarder.cancel()
-            try:
-                # The idle forwarder must be GONE before the supervisor reads the same streams.
-                await asyncio.gather(entry.forwarder, return_exceptions=True)
-            except BaseException:
-                # Cancelled here, the child is in no registry any more: it must not outlive us.
-                _signal(entry.handle.proc)
-                raise
-            self._report()
-            self._wake.set()
-            if entry.handle.proc.returncode is None:
-                return entry.handle
+            taken = await self._pop_idle()
+            if taken is not None:
+                return taken
         try:
             return await self._spawn_ready()
         except _WARM_FAILURES as exc:
             self._count_failure()
             raise LaunchFailed(SPAWN_FAILED, f"could not start a child: {exc}") from exc
 
-    async def _await_warm_spawn(self) -> None:
-        """Wait until a warm spawn in flight finishes (parked or failed); `_take` looks again."""
-        self._waiting += 1
+    async def _pop_idle(self) -> WarmHandle | None:
+        """Take the oldest idle child out of the pool; ``None`` when it had already exited."""
+        entry = self._idle.pop(0)
+        entry.watcher.cancel()
+        entry.forwarder.cancel()
         try:
-            async with self._warm_done:
-                await self._warm_done.wait()
+            # The idle forwarder must be GONE before the supervisor reads the same streams.
+            await asyncio.gather(entry.forwarder, return_exceptions=True)
+        except BaseException:
+            # Cancelled here, the child is in no registry any more: it must not outlive us.
+            _signal(entry.handle.proc)
+            raise
+        self._report()
+        self._wake.set()
+        return entry.handle if entry.handle.proc.returncode is None else None
+
+    def _warm_overdue(self) -> bool:
+        """The oldest warm spawn in flight started more than `WARM_SPAWN_WAIT_S` ago."""
+        return time.monotonic() - min(self._warm_started) >= self._warm_spawn_wait_s
+
+    async def _await_warm_spawn(self) -> WarmHandle | None:
+        """Wait for a warm spawn in flight to hand this claim its child.
+
+        Returns the child, or ``None`` when the spawn failed or the wait passed
+        `WARM_SPAWN_WAIT_S` from the oldest spawn's start. A child handed over while this claim
+        is being cancelled is killed: nobody would run it.
+        """
+        future: asyncio.Future[WarmHandle | None] = asyncio.get_running_loop().create_future()
+        self._waiters.append(future)
+        left = self._warm_spawn_wait_s - (time.monotonic() - min(self._warm_started))
+        try:
+            return await asyncio.wait_for(asyncio.shield(future), max(left, 0.0))
+        except TimeoutError:
+            return future.result() if future.done() else None
+        except asyncio.CancelledError:
+            handed = future.result() if future.done() and not future.cancelled() else None
+            if handed is not None:
+                _signal(handed.proc)
+            raise
         finally:
-            self._waiting -= 1
+            if future in self._waiters:
+                self._waiters.remove(future)
+            if not future.done():
+                future.cancel()
 
     async def _hand_off(
         self, handle: WarmHandle, env: Mapping[str, str], io_budget: Callable[[], int]
@@ -406,7 +450,8 @@ class WarmChildPool:
 
     async def _warm_one(self) -> bool:
         """Start one warm child and park it; False when it failed (counted)."""
-        self._warming += 1
+        started = time.monotonic()
+        self._warm_started.append(started)
         try:
             try:
                 handle = await self._spawn_ready()
@@ -415,18 +460,32 @@ class WarmChildPool:
                     logger.exception("warm spawn failed unexpectedly")
                 logger.warning("warm spawn failed: %r", exc)
                 self._count_failure()
+                self._resolve_waiter(None)  # that claim looks again (or spawns its own)
                 return False
-            if self._draining:
-                _signal(handle.proc)
-                return True
-            self._park(handle)
-            return True
+            except BaseException:
+                # Cancelled (a drain): a claim that reached `_take` in the same tick must look
+                # again now, not wait out `warm_spawn_wait_s` inside the drain grace.
+                self._resolve_waiter(None)
+                raise
         finally:
-            self._warming -= 1
-            # A claim waiting in `_take` looks again: at the parked child, or (on a failure)
-            # spawns its own.
-            async with self._warm_done:
-                self._warm_done.notify_all()
+            self._warm_started.remove(started)
+        if not self._resolve_waiter(handle):
+            # F8 again: a claim may have timed out and spawned its own child meanwhile, so park
+            # only into a FREE slot; a surplus child would hold a slot's memory nobody sized.
+            if self._draining or len(self._idle) + self._busy() >= self._slots:
+                _signal(handle.proc)
+            else:
+                self._park(handle)
+        return True
+
+    def _resolve_waiter(self, handle: WarmHandle | None) -> bool:
+        """Hand ``handle`` (or a failure, ``None``) to the oldest waiting claim; True if taken."""
+        while self._waiters:
+            waiter = self._waiters.popleft()
+            if not waiter.done():
+                waiter.set_result(handle)
+                return handle is not None
+        return False
 
     def _park(self, handle: WarmHandle) -> None:
         entry = _Idle(
