@@ -45,23 +45,32 @@
   optional fraction, then `Z` or `±HH:MM`). The gateway writes `...:SSZ`. The out-of-band archive
   loader writes `archive_paired` blocks with `+00:00`; both are real rows. The value is the time
   of the cache fill (the time that the gateway observed the original response). It is not the
-  time of the hit.
+  time of the hit. The check has two parts: a regex for the shape, then
+  `datetime.fromisoformat` for the calendar (the regex alone admits `2026-99-99T99:99:99+99:99`).
 - The constructor raises `ValueError` for a value that is not valid.
 - **A bad stored value does not cost the price.** `cache_reference_from_entry_metadata` checks
   each of the two fields with the same predicate that the constructor uses
   (`is_valid_cache_response_model`, `is_valid_cache_observed_at`). It drops a bad value (the hit
   then looks like an older row) and does NOT go to the S11 fallback. The two fields are
   informational; the S11 fallback would replace a certified stored price with the value from
-  the cached body. S11 does not change for `usage` and `direct_cost`.
+  the cached body. S11 does not change for `usage` and `direct_cost`. Each drop logs
+  `cache-entry metadata field dropped field=<name>` at WARNING. The log never contains the value.
 - `as_json` adds `response_model` and `observed_at` to the reference only when the value is not
   `None`. This is the rule that `latency` already uses.
-  - **Compatibility.** An old entry (a NULL block, or a block with NULL fields) and every provider
-    fallback reference (built from the cached body) produce the same bytes as before. The pinned
+  - **Compatibility.** The bytes stay the same only for a row whose metadata block is NULL or
+    whose two fields are NULL, and for every provider fallback reference (built from the cached
+    body). Rows written since PR #930 already store both fields, so on deploy their hits START to
+    return the two new keys. This is additive; the Engine tolerates it
+    (`test_the_engine_ignores_the_reference_fields_it_does_not_price`). The pinned
     release-fixture hashes in `test_release_fixtures.py` do not change.
   - **No value is inferred from the cached body** (PRD R2). The fallback mappers keep `None`.
 - A `partial` block still returns both fields. The `partial` rule applies to price only.
 - The JSON schema `$defs.cache_reference` gets two optional properties with the same bounds.
-  `response_model` uses the same definition as `attempt.response_model`.
+  `response_model` and `attempt.response_model` / `attempt.requested_model` share one
+  `$defs.model_id` entry (`string`, `maxLength: 512`). The reference adds `minLength: 1`, because
+  it OMITS an unknown model where an attempt renders `null`. Note: JSON Schema `maxLength` counts
+  characters; the Python check (`MAX_RESPONSE_MODEL_BYTES`, also used by the collector) counts
+  UTF-8 bytes, so the Python check is the stricter one.
 - **Consumers.** The Engine reads only `cache.reference.direct_cost`
   (`world/accounting.py:_cache_reference_direct_cost`). The SDK does not read `_aigw`. The
   Engine kind stub sends `reference: null`. No consumer needs a change. The admin API surface
@@ -102,9 +111,13 @@ the file) and one **consumer** test (it reads the file and asserts what must sur
   producer regenerates it, and the consumer reads it by repository path. The Engine already reads
   aigateway files by repository path (`test_declared_models_match_aigateway.py`). A new top-level
   directory would be a repository-layout decision, which this unit does not make.
-- **CI.** The path filters of `screamingface-engine-tests.yml` get the fixture-1 directory, and
-  the path filters of `screamingface-tests.yml` get the fixture-2 directory. Thus a regenerated
-  fixture runs its consumer suite.
+- **CI.** The path filters of `screamingface-engine-tests.yml` get the fixture-1 directory. The
+  path filters of `screamingface-tests.yml` get the fixture-2 directory AND the fixture-1
+  directory, because the SDK test also reads fixture 1 directly (to tie the last hop to the
+  first). Thus a regenerated fixture runs its consumer suites.
+- **Regeneration never looks green.** After it writes a fixture, a producer test fails on
+  purpose (`pytest.fail(..., pytrace=False)`, the `test_public_surface.py` convention). Under `CI`
+  the variable is refused.
 
 ### 3.3 S3 — PRD test 23, the `None` space
 

@@ -87,6 +87,29 @@ are None" part of PRD test 23 with an exhaustive stdlib walk.
     §3.1 is updated.
   - Runtime schema validation not built (spec Q3); PRD test 23 closed only for the `None` space
     (spec Q2). No new dependency.
+- **Design-review fixes (one round, ACCEPT WITH FIXES):**
+  1. Producer tests `pytest.fail` after a regeneration and refuse `CI` (aigateway + Engine).
+  2. A dropped `response_model` / `observed_at` logs `cache-entry metadata field dropped
+     field=<name>` (never the value); tests assert the log and the silence on valid input.
+  3. `collector.py` uses `MAX_RESPONSE_MODEL_BYTES` instead of a literal 512.
+  4. `observed_at` adds a `datetime.fromisoformat` calendar check; impossible dates are refused
+     and dropped (tested).
+  5. Schema: one `$defs.model_id` shared by the reference and the attempt (tested); spec notes
+     chars vs UTF-8 bytes.
+  6. SDK hop-3 docstring states that `_RunState` decoding is the tested hop and the
+     Report/`_submission` part checks plumbing only.
+  7. `cache_chat_client` and `valid_api_key_readiness` fixtures in `tests/unit/conftest.py`; the
+     new producer test uses them. **Deviation:** `test_chat_cache_entry_metadata.py` keeps its own
+     copies — making it delegate to the conftest tripped the append-only gate (changing a prior
+     fixture is a Confidence-Gate decision), so that edit was reverted.
+  8. One session `accounting_schema` fixture in `tests/unit/conftest.py` replaces the branch's
+     three copies; `test_release_fixtures.py` is unchanged.
+  - Spec wording: the SDK workflow filter includes the fixture-1 path because the SDK test reads
+    fixture 1 directly (differs from the plan, correct); "same bytes" now holds only for NULL
+    blocks/fields — rows since PR #930 start returning the two keys on deploy (additive).
+  - Gates after the fixes: aigateway ALL GREEN (4998 passed, 89 skipped); screamingface ALL
+    GREEN (1868 passed, 26 skipped); Engine ruff/pyright green, unit 3992 passed, 18 skipped.
+  - Not pushed (coordinator instruction; the local pre-push blocker above still applies).
 - **Follow-ups / owner questions:** spec §4 Q1 (same format / Engine agnostic sign-off), Q2
   (`hypothesis`), Q3 (runtime schema validation — proposed `improvement-ideas`), Q4 (Engine span
   `gen_ai.response.model` could read `cache.reference.response_model` on a hit).
