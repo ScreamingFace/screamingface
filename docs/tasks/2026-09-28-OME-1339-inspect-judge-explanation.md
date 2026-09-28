@@ -15,7 +15,8 @@ closed:
 The inspect adapter kept a judge's words only in the evidence's `raw_output`; the report
 reads `explanation`. The adapter now fills `explanation` from the same text, except when that
 text is just the candidate's own answer (inspect's match, choice, pattern and math scorers
-echo it), so exact-match boards stay as they were. Pairs with `OME-1340`, which lands first.
+echo it). Exact-match boards change only where a scorer writes its own message (boolq's
+"Scoring pattern not matched", AIME's "Model produced empty completion"), which now shows. Pairs with `OME-1340`, which lands first.
 
 - 2026-09-25: filed.
 - 2026-09-28: owner decision: fill `explanation` only when it differs from the graded answer.

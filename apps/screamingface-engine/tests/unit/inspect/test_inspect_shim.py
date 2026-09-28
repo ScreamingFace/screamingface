@@ -23,7 +23,7 @@ import pytest
 
 inspect_ai_scorer = pytest.importorskip("inspect_ai.scorer")
 
-from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, match  # noqa: E402
+from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, match, pattern  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
 
 from screamingface_engine.benchmarks.spine.payloads import TextPayload  # noqa: E402
@@ -286,3 +286,17 @@ async def test_no_explanation_leaves_the_field_absent(explanation: str | None) -
     # WHY absent, not "": the wire model omits a None explanation, so a scorer that
     # explains nothing produces the same evidence it always did.
     assert "explanation" not in _evidence(outcome)
+
+
+@pytest.mark.asyncio
+async def test_a_scorers_own_failure_message_is_reported_as_reasoning() -> None:
+    """boolq's real pattern() scorer explains a miss in its own words — that message
+    differs from the answer, so it shows under the verdict: it says WHY the Case
+    failed (review finding, 2026-09-28). raw_output keeps the same text verbatim."""
+
+    answer = "**Yes**, the passage says so."
+    outcome = await _graded(pattern("(Yes|No).?\\Z"), _request(answer=answer))
+
+    evidence = _evidence(outcome)
+    assert evidence["explanation"].startswith("Scoring pattern not matched in output")
+    assert evidence["raw_output"] == evidence["explanation"]

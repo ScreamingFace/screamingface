@@ -251,7 +251,10 @@ def _judge_reasoning(score: Score, completion: str) -> str | None:
     completion in ``explanation`` — shown under the verdict it would repeat the answer
     as if it were the judge's reasoning (owner decision, 2026-09-28). One comparison
     against the graded completion, so still zero per-scorer branches. ``None`` (not "")
-    keeps the wire field absent, leaving such evidence exactly as it was.
+    keeps the wire field absent, so an echoing scorer's evidence serializes as before.
+    A scorer's OWN message is reasoning and does show — ``pattern()``'s "Scoring
+    pattern not matched in output: …" on boolq, the AIME scorer's "Model produced
+    empty completion" — because it says why a Case failed.
     """
 
     explanation: str | None = score.explanation

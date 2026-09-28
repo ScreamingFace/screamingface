@@ -19,6 +19,9 @@ Owner decision (2026-09-28): inspect's match, choice, pattern and math scorers s
 `explanation` to the candidate's own answer, not to any reasoning. The adapter fills
 `explanation` only when the text differs from the answer being graded, so exact-match boards
 don't repeat the answer under the verdict. `raw_output` keeps the verbatim text either way.
+A scorer's own message differs from the answer and does show (boolq's `pattern()` "Scoring
+pattern not matched in output: …", AIME's "Model produced empty completion"); it says why a
+Case failed, which is what the field is for (review finding, kept by the literal decision).
 
 ## Planned changes
 
