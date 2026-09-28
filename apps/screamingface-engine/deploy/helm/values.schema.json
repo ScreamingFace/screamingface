@@ -66,7 +66,7 @@
         "unclaimedRunWarnS": {
           "type": "number",
           "minimum": 0,
-          "description": "Seconds a queued run may wait with no frame before its attached client gets one generic WARN notice; 0 disables it. Advisory only \u2014 the run is never failed or stopped. Keep it well above a healthy claim latency (seconds) so it fires only on a saturated or absent runner pool."
+          "description": "Seconds a queued run may wait with no frame before its attached client gets one generic WARN notice; 0 disables it. Advisory only \u2014 the run is never failed or stopped. Keep it well above a healthy claim latency (seconds) so it fires only on a saturated or absent runner pool. INVARIANT: assumes replicaCount 1 \u2014 only the replica that scheduled a run warns, so with more than one App replica a client whose WebSocket lands on another replica is silently never warned."
         },
         "runnerIoConcurrency": {
           "type": "integer",

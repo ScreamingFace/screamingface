@@ -38,30 +38,18 @@ single `AudienceListener` slot stays the reaper's: this module POLLS `has_subscr
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 
 from screamingface_engine import notices
 from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.reaper import tick_for_grace
 from url4.streaming.interfaces import JobStatus
 from url4.streaming.protocol import OutboundFrame
 
 _logger = logging.getLogger(__name__)
 
-_MIN_TICK_S = 1.0
-_TICKS_PER_GRACE = 8
-"""Sweeps per grace window. WHY derived rather than a second setting: warn latency is `grace` to
-`grace + grace/8`, one knob with a bounded overshoot — the same rule as the reaper's."""
-
 UNCLAIMED_MESSAGE = "the runner service is at capacity; your run is queued and has not started yet"
 """The user-facing notice body. INVARIANT: no internals — see the module docstring."""
-
-FrameClock = Callable[[], datetime]
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 @runtime_checkable
@@ -98,37 +86,24 @@ class UnclaimedRunWarner:
         audience: NoticeAudience,
         *,
         grace_s: float,
-        frame_clock: FrameClock = _utc_now,
-        tick_s: float | None = None,
+        frame_clock: notices.Clock,
     ) -> None:
         self._runs = runs
         self._audience = audience
         self._grace_s = grace_s
+        # WHY the App's clock (`create_app(clock=...)`): the notice's `time` is a wire value,
+        # stamped by the same clock every other App-built frame uses.
         self._frame_clock = frame_clock
-        self._tick_s = (
-            tick_s if tick_s is not None else max(_MIN_TICK_S, grace_s / _TICKS_PER_GRACE)
-        )
+        self._tick_s = tick_for_grace(grace_s)
         self._decided: set[str] = set()
-        self._warned_total = 0
 
     @property
     def tick_s(self) -> float:
         """Seconds between sweeps. The loop in `app.py` reads its cadence from here."""
         return self._tick_s
 
-    @property
-    def decided_count(self) -> int:
-        """Topics whose verdict is final (warned or seen started) and still remembered."""
-        return len(self._decided)
-
-    @property
-    def warned_total(self) -> int:
-        """Runs warned as unclaimed, since boot."""
-        return self._warned_total
-
-    async def sweep(self) -> tuple[str, ...]:
-        """Warn every undecided, attached topic whose run is still `scheduled` past the grace;
-        return the topics warned.
+    async def sweep(self) -> None:
+        """Warn every undecided, attached topic whose run is still `scheduled` past the grace.
 
         Split from the loop that calls it so tests drive the policy with no sleeps.
         """
@@ -136,13 +111,9 @@ class UnclaimedRunWarner:
         # Bounded by the runner's record: a topic the runner forgot (capability expiry) is
         # forgotten here too.
         self._decided &= ages.keys()
-        warned: list[str] = []
         for topic, age in ages.items():
-            if age < self._grace_s or topic in self._decided:
-                continue
-            if await self._warn_if_unclaimed(topic, age):
-                warned.append(topic)
-        return tuple(warned)
+            if age >= self._grace_s and topic not in self._decided:
+                await self._warn_if_unclaimed(topic, age)
 
     async def _status_if_heard(self, topic: str) -> JobStatus | None:
         """The run's status, or ``None`` when the answer would decide nothing: nobody is
@@ -157,25 +128,23 @@ class UnclaimedRunWarner:
             _logger.warning("unclaimed-run check: stream tail unreadable topic=%s", topic)
             return None
 
-    async def _warn_if_unclaimed(self, topic: str, age: float) -> bool:
-        """Decide one topic past the grace; ``True`` when it was warned."""
+    async def _warn_if_unclaimed(self, topic: str, age: float) -> None:
+        """Decide one topic past the grace, and warn it if it is still unclaimed."""
         status = await self._status_if_heard(topic)
         if status is None:
-            return False
+            return
         # INVARIANT: decided BEFORE the notify, and for every readable answer. Any frame on the
         # stream reads non-`scheduled` (the run started), and that verdict is final.
         self._decided.add(topic)
         if status != "scheduled":
-            return False
+            return
         # AIDEV-NOTE: accepted race — a run claimed between the read above and this notify gets
         # the notice just before its StartedEvent. The window is one broker round trip.
         self._audience.notify(
             topic,
             notices.warn(topic, self._frame_clock, UNCLAIMED_MESSAGE, {"run.wait_s": int(age)}),
         )
-        self._warned_total += 1
         _logger.info("unclaimed run warned topic=%s wait_s=%.0f", topic, age)
-        return True
 
 
 __all__ = ["UNCLAIMED_MESSAGE", "NoticeAudience", "QueuedRuns", "UnclaimedRunWarner"]

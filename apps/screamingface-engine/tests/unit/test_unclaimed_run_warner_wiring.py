@@ -124,9 +124,14 @@ def test_the_warner_asks_the_real_registry_and_never_the_subscriber_gate() -> No
     runner = _QueuedRunner({"t": 1000.0})
     app = _app(job_runner=runner, interest=FixedGate(True))
 
+    notices: list[Any] = []
+    app.state.registry.add_notifier("t", notices.append)  # a sink, but no subscriber
+
     with TestClient(app) as client:
         assert client.portal is not None
-        assert client.portal.call(app.state.unclaimed_warner.sweep) == ()
+        client.portal.call(app.state.unclaimed_warner.sweep)
+
+    assert notices == []
 
 
 def _token(topic: str) -> str:
@@ -159,11 +164,13 @@ def test_the_notice_reaches_the_attached_socket_as_a_warn_log_frame() -> None:
         # Barrier: a heartbeat proves the bridge is attached and its notifier registered.
         assert ws.receive_json()["type"] == "ai.url4.heartbeat"
         assert client.portal is not None
-        assert client.portal.call(app.state.unclaimed_warner.sweep) == (topic,)
+        client.portal.call(app.state.unclaimed_warner.sweep)
         frame = _next_non_heartbeat(ws)
 
     assert frame["type"] == "ai.url4.log"
     assert frame["subject"] == topic
+    # The App's injected clock stamps the notice (`create_app(clock=...)`).
+    assert frame["time"].startswith("2026-09-28T09:00:00")
     assert frame["data"]["severity_text"] == "WARN"
     assert frame["data"]["body"] == UNCLAIMED_MESSAGE
     assert frame["data"]["attributes"] == {"run.wait_s": 301}
@@ -178,8 +185,33 @@ def test_a_started_run_sends_nothing_to_the_socket() -> None:
         ws.send_json(_attach(topic))
         assert ws.receive_json()["type"] == "ai.url4.heartbeat"
         assert client.portal is not None
-        assert client.portal.call(app.state.unclaimed_warner.sweep) == ()
+        client.portal.call(app.state.unclaimed_warner.sweep)
         # Ordering barrier: frames on one socket are FIFO, so two more heartbeats after the
         # sweep prove no notice was queued ahead of them.
         assert ws.receive_json()["type"] == "ai.url4.heartbeat"
         assert ws.receive_json()["type"] == "ai.url4.heartbeat"
+
+
+def test_a_failing_sweep_does_not_kill_the_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R7: the notice is advisory, and a loop that died on one bad sweep would put every later
+    client back on a silent socket. The shared periodic loop logs and keeps its cadence."""
+    calls: list[int] = []
+
+    async def _flaky(self: UnclaimedRunWarner) -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("one bad sweep")
+
+    monkeypatch.setattr(UnclaimedRunWarner, "tick_s", property(lambda self: 0.01))
+    monkeypatch.setattr(UnclaimedRunWarner, "sweep", _flaky)
+    app = _app(job_runner=_QueuedRunner())
+
+    with TestClient(app) as client:
+        assert client.portal is not None
+        for _ in range(200):
+            if len(calls) >= 3:
+                break
+            client.portal.call(asyncio.sleep, 0.01)
+        assert not app.state.unclaimed_warner_task.done()
+
+    assert len(calls) >= 3

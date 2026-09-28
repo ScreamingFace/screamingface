@@ -101,7 +101,9 @@ config:
   # notice ("the runner service is at capacity; your run is queued and has not started yet").
   # Advisory only: the run is never failed or stopped. 0 disables it. 300 is two orders of
   # magnitude above a healthy claim (seconds), so it fires only when the runner pool is saturated
-  # or absent — never on every run of a healthy stack.
+  # or absent — never on every run of a healthy stack. INVARIANT: like `orphanGraceS`, this assumes
+  # `replicaCount: 1` — only the replica that scheduled a run remembers it, so with more than one
+  # App replica a client whose WebSocket lands on another replica is silently never warned.
   unclaimedRunWarnS: 300
   # Per-run downstream in-flight budget written onto every run as
   # `URL4_CLOUD_IO_CONCURRENCY` (OME-908). The gateway admits only a few calls per provider at
