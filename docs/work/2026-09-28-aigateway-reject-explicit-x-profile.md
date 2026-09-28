@@ -38,7 +38,8 @@ pair's one effective Connection.
 ## Acceptance
 
 - Every explicit selector is refused before credential, discovery, admission, cache, or dispatch I/O.
-- Selector-less behavior is unchanged.
+- Selector-less behavior is unchanged except for the owner-approved multi-Connection ambiguity
+  tightening recorded in Stage D D12.
 - Responses, logs, and telemetry disclose no selector value.
 - Ambiguity remains explicit and actionable without a replacement selector.
 - Full AIGateway gates are green, or the only remaining red is an exact prior-test list awaiting
@@ -100,3 +101,39 @@ pair's one effective Connection.
   append-only precheck is skipped for that reviewed set. Real live provider calls were not run
   because credentials are absent. No deployment or production access occurred; merge remains
   blocked on the alpha drain proof.
+
+## Decision and rollout clarification
+
+### Planned changes
+
+- Record that Stage B label selection was window-only and Stage D intentionally returns `409` for
+  every selector-less pair with multiple active Connections, including `[default, backup]`.
+- Add a privacy-safe count of affected unmigrated pairs to the pre-merge drain gate without
+  authorising or performing the production read.
+- Record the deliberate absence of `_aigw` accounting on pre-body selector refusals and the exact
+  breaking PR title/body requirement.
+- Strengthen the blank-header matrix and remove test helpers that still imply label selection.
+- Track stale AIGateway UI copy, generated schema, and identity diagrams separately in `OME-1398`.
+
+### Acceptance
+
+- Spec, mirror, ledger and future PR metadata describe the same breaking cohort.
+- A `500` cannot satisfy the blank-header matrix, and test inputs remain valid HTTP field values.
+- The rollout gate names the required aggregate evidence and its separate authorisation boundary.
+- Runtime behavior remains unchanged from commit `8e60d435`.
+
+### Outcome
+
+- **Actual files:** the Stage D D4/D12 specification, OME-1394 task mirror, this ledger, the blank
+  selector route matrix, one OpenRouter helper, and the live provider matrix helper. Runtime source
+  code did not change.
+- **Decision record:** Linear comment `d5148392-6578-4889-a6c2-3b100c135f77` records the owner
+  clarification, breaking PR metadata, accounting decision, rollout census, and production-read
+  boundary. UI copy, generated schema, and diagrams are tracked in `OME-1398`.
+- **Gates:** focused tests `60 passed`; credential-free provider matrix `20 skipped`; focused Ruff
+  and format checks green; `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` — ALL
+  GATES GREEN (Ruff, format, Pyright, no-enterprise, full pytest coverage >=80); `git diff --check`
+  clean.
+- **Deviations:** append-only remains skipped for the owner-approved contract re-pins and review
+  corrections already recorded above. No production read, deployment, rebase, push, or runtime
+  behavior change occurred.

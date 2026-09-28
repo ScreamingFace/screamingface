@@ -64,11 +64,9 @@ def _active_labels(client, account_id: str) -> list[str]:
     return client.portal.call(_list)
 
 
-def _post_chat(client, *, profile: str | None = None):
-    headers = {"X-Profile": profile} if profile is not None else {}
+def _post_chat(client):
     return client.post(
         "/v1/chat/completions",
-        headers=headers,
         json={"model": _MODEL, "messages": [{"role": "user", "content": "hi"}]},
     )
 

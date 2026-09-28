@@ -185,10 +185,7 @@ def _single_active_connection(
         return None
     if len(connections) > 1:
         pytest.skip(f"{provider} has multiple active OAuth connections; remove extras before retry")
-    connection = connections[0]
-    if not isinstance(connection.get("label"), str) or not connection["label"]:
-        pytest.skip(f"{provider} active OAuth connection has no usable label")
-    return connection
+    return connections[0]
 
 
 def _default_profile_authenticated(client: httpx.Client | TestClient, provider: str) -> bool:

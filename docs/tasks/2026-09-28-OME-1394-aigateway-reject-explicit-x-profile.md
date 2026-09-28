@@ -14,9 +14,10 @@ closed:
 
 ## Outcome
 
-Activate the accepted Stage D AIGateway selector sunset after Engine producer-off: selector-less
-requests retain their behavior, while every explicit `X-Profile` is rejected without disclosing its
-value.
+Activate the accepted Stage D AIGateway selector sunset after Engine producer-off: every explicit
+`X-Profile` is rejected without disclosing its value. Selector-less behavior remains unchanged except
+for the owner-approved breaking cohort: every pair with multiple active Connections returns `409`,
+including a window-era `[default, backup]` pair that previously auto-selected `default`.
 
 ## Scope
 
@@ -27,8 +28,16 @@ value.
 
 ## Gate
 
-Offline implementation and verification may proceed. Merge and deployment activation remain
-blocked on the approved quick alpha drain proof after Engine build `df6e9b92`.
+Offline implementation and verification may proceed. Merge and deployment activation remain blocked
+after Engine build `df6e9b92` until both checks pass:
+
+- the approved quick alpha drain proof for old ingress pods, legacy queued/in-flight/redelivered
+  `AIGATEWAY_PROFILE` work, and ambient worker `AIGATEWAY_PROFILE`;
+- a separately authorized privacy-safe upper-bound count of unmigrated pairs with multiple active
+  Connections and an active `default` label; a nonzero result requires owner disposition or explicit
+  impact acceptance.
+
+This issue does not authorize the production read.
 
 ## Implementation Status
 
@@ -37,7 +46,16 @@ target-local invalidation, value-free exceptions, current documentation, and opt
 are pinned. The complete AIGateway gate runner is green. No deployment or production access was
 performed.
 
+The PR must use title `feat(aigateway)!: reject explicit profile selectors` and include:
+
+`BREAKING CHANGE: AIGateway rejects every nonblank X-Profile and selector-less pairs with multiple active Connections now return 409 even when one Connection is labelled default.`
+
+The selector refusal intentionally runs before chat body parsing and `_aigw` accounting. Its 400
+therefore carries no `_aigw` metadata; authentication still runs first. This preserves the
+no-body/cache/credential-I/O boundary and keeps the rejected value outside accounting and telemetry.
+
 ## Out Of Scope
 
 - Production/deployment access and the drain proof itself.
 - URL4, Engine, SDK, D18, Stage E, schemas, migrations, and dependencies.
+- Stale AIGateway UI copy, generated schema, and identity diagrams; tracked by `OME-1398`.

@@ -221,7 +221,7 @@ def test_chat_refuses_explicit_selector_before_cache_lookup(
     cache_lookup.assert_not_awaited()
 
 
-@pytest.mark.parametrize("blank", ["", " ", "\t  \n"])
+@pytest.mark.parametrize("blank", ["", " ", "\t"])
 @pytest.mark.parametrize("case", _REQUEST_CASES, ids=lambda case: case.name)
 def test_blank_selector_is_not_rejected_on_any_route(
     authenticated_client: TestClient,
@@ -235,6 +235,14 @@ def test_blank_selector_is_not_rejected_on_any_route(
         **case.kwargs,
     )
 
+    expected_status = {
+        "chat": 404,
+        "chat_stream": 404,
+        "model_parameters": 200,
+        "model_admission": 200,
+        "provider_access": 200,
+    }[case.name]
+    assert response.status_code == expected_status, response.text
     detail = response.json().get("detail")
     assert detail != {
         "code": "x_profile_unsupported",
