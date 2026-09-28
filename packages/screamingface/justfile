@@ -307,10 +307,12 @@ test-paid-inspect:
 
     # REQUIRED: this recipe IS the paid button — an unavailable stack must FAIL the
     # run (a pytest skip exits 0 and would report a green no-op). -rs still prints
-    # any skip reason from non-button contexts.
+    # any skip reason from non-button contexts. No `-m paid` filter: the lane's free
+    # gate tests run nowhere else (merge CI never collects tests/paid), so every press
+    # runs them too — in well under a second.
     status=0
     SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_PAID_REQUIRED=1 SCREAMINGFACE_E2E_ASSETS="{{ assets }}" \
         SCREAMINGFACE_PAID_LOG_DIR="$log_dir" \
-        "$UV" run pytest tests/paid -m paid -rs -v --junitxml "$log_dir/junit.xml" || status=$?
+        "$UV" run pytest tests/paid -rs -v --junitxml "$log_dir/junit.xml" || status=$?
     echo "==> logs, per-board reports and verdicts: $log_dir"
     exit "$status"

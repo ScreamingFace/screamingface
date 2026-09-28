@@ -101,6 +101,9 @@ jobs:
       # SCREAMINGFACE_PAID_REQUIRED: this workflow IS the paid button, so an
       # unavailable stack must FAIL the run — a pytest skip exits 0, and a green
       # no-op run would tell the owner the whole shelf was re-proven when zero ran.
+      # No `-m paid` filter: merge CI never collects tests/paid (tests/conftest.py
+      # deselects it without SCREAMINGFACE_TEST_PAID=1), so the lane's free gate tests
+      # run here, on every press, or nowhere.
       - name: Run the paid smoke over every imported board
         env:
           SCREAMINGFACE_TEST_PAID: "1"
@@ -108,7 +111,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
           SCREAMINGFACE_PAID_LOG_DIR: /tmp/screamingface-paid-logs
-        run: uv run pytest tests/paid -m paid -rs -v --junitxml /tmp/screamingface-paid-logs/junit.xml
+        run: uv run pytest tests/paid -rs -v --junitxml /tmp/screamingface-paid-logs/junit.xml
 
       # Everything needed to debug a press, in one download: the stack's own logs
       # (gateway request lines, engine model-call lifecycle), one full Report per

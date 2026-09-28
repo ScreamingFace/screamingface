@@ -59,7 +59,8 @@ _ASSETS_ENV: Final = "SCREAMINGFACE_E2E_ASSETS"
 # INVARIANT (PR #1035 review): set ONLY by the just recipe and the workflow — the two
 # "paid button" surfaces. There, an unavailable stack must FAIL the run: a pytest skip
 # exits 0, so without this flag a broken gate or empty assets would show the owner a
-# green run that re-proved nothing. Plain `pytest tests/paid` keeps skipping politely.
+# green run that re-proved nothing. Without SCREAMINGFACE_TEST_PAID=1 the whole lane
+# is deselected before any gate runs (tests/conftest.py), so it never runs in merge CI.
 REQUIRED_ENV: Final = "SCREAMINGFACE_PAID_REQUIRED"
 # Where child logs (aigateway.log, engine.log) land. The workflow pins this to a fixed
 # path and uploads it with if:always(), so a failed CI run's stack logs outlive the
