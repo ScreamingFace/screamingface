@@ -1,13 +1,13 @@
 ---
 id: OME-1392
 linear_url: https://linear.app/openmined/issue/OME-1392/link-the-paid-smokes-debug-download-from-its-run-summary
-status: in_progress
+status: done
 type: task
 priority: low
 labels: [client-sf, agentic, autonomous]
 parent: OME-1299
 created: 2026-09-28
-closed:
+closed: 2026-09-28
 ---
 
 # Link the paid smoke's debug download from its run summary
@@ -19,3 +19,4 @@ After the upload, append a "Download the debug bundle" link to that run's zip
 uploaded.
 
 - 2026-09-28: filed at PR-open; ledger `docs/work/2026-09-28-paid-smoke-bundle-link.md`.
+- 2026-09-28: PR #1094 merged (`20cc992e`); closed. The link is proven on the next paid press.
