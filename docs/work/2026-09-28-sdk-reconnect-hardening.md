@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1396
 stack: screamingface (+ screamingface-engine tests)
 status: done   # planned | in_progress | done | blocked
 started: 2026-09-28
