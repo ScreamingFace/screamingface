@@ -1,12 +1,12 @@
 ---
 id: OME-885
 linear_url: https://linear.app/openmined/issue/OME-885/stop-shipping-internal-engineering-commentary-in-the-public-portal
-status: in_progress
+status: done
 type: task
 priority: 3
 labels: [scoreboard, agentic, autonomous, task]
 created: 2026-08-18
-closed:
+closed: 2026-09-28
 ---
 
 # Stop shipping internal engineering commentary in the public portal
@@ -20,3 +20,4 @@ the repository and enforcing the boundary across every served asset.
 - Spec: `docs/spec/2026-09-08-OME-885-portal-source-hygiene.md`
 - Plan: `docs/plan/2026-09-08-OME-885-portal-source-hygiene.md`
 - Ledger: `docs/work/2026-09-08-OME-885-portal-source-hygiene.md`
+- 2026-09-28: merged in #1049 as `2b84c63d` after one review round (Dmitry); closed in Linear.

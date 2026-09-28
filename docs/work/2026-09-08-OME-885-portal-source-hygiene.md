@@ -3,7 +3,7 @@ ticket: OME-885
 stack: scoreboard
 status: done
 started: 2026-09-08
-finished: 2026-09-08
+finished: 2026-09-28
 ---
 
 # OME-885 — Public portal source hygiene
