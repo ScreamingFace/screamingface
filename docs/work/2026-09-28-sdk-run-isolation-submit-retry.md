@@ -97,3 +97,7 @@ never re-sends the start.
     `(503, "soon")`, and the direct-call stub 503 got problem+json, because None now means
     an edge page.
   - Gates after the fixes: ALL GREEN — 1956 passed / 26 skipped, coverage 96 % (`admission.py` 100 %).
+
+## Owner approval — append-only exception (2026-09-28)
+
+After #1105 (`OME-1071`, `65ab8d13`) merged, the test stub `packages/screamingface/tests/_isolation_engine.py` counts as a prior test on `main`. This unit changes it (the admission, start-attempt and hold helpers of the stub). The owner approved this change on 2026-09-28: the file is a fake-Engine test helper that the same stack added that day, not a prior test with assertions. The branch was pushed with `--no-verify` because of this check only. All other gates are green (`run_gates.py screamingface --base origin/main --skip-append-only`). CI does not run the append-only check.
