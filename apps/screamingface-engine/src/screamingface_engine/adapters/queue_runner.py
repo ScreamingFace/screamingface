@@ -493,6 +493,22 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """
         return await self._queue.depth()
 
+    def accepted_ages(self) -> dict[str, float]:
+        """Seconds since this replica durably accepted each run it still remembers.
+
+        FEATURE: warn the client about an unclaimed queued run (under OME-1086) — the
+        unclaimed-run warner's input. It is the schedule-time record the capability-validity
+        boundary already keeps (`_scheduled_at`), read on the same clock, so "when was it
+        accepted" has ONE answer in this process. A run appears only after its publish was
+        acknowledged, and leaves when `_prune` drops it at capability expiry.
+
+        It says nothing about whether the run STARTED — that is `status()`'s stream read,
+        which the warner makes only for the runs this snapshot shows past its grace. A copy,
+        so the caller cannot mutate the runner's record.
+        """
+        now = self._clock()
+        return {topic: (now - at).total_seconds() for topic, at in self._scheduled_at.items()}
+
     @property
     def publisher(self) -> _Publisher:
         """The stream publisher, exposed for the App's events metrics."""

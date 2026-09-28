@@ -97,6 +97,12 @@ config:
   # detection it depends on. This bounds SPEND on runs whose client died; `jobDeadlineS` above
   # remains the backstop.
   orphanGraceS: 120
+  # Seconds a queued run may wait with NO frame before its attached client gets ONE generic WARN
+  # notice ("the runner service is at capacity; your run is queued and has not started yet").
+  # Advisory only: the run is never failed or stopped. 0 disables it. 300 is two orders of
+  # magnitude above a healthy claim (seconds), so it fires only when the runner pool is saturated
+  # or absent — never on every run of a healthy stack.
+  unclaimedRunWarnS: 300
   # Per-run downstream in-flight budget written onto every run as
   # `URL4_CLOUD_IO_CONCURRENCY` (OME-908). The gateway admits only a few calls per provider at
   # once (`AIGW_PROVIDER_MAX_CONCURRENCY`, default 4), and a benchmark-scale run at URL4's

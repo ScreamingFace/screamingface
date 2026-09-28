@@ -63,6 +63,11 @@
           "minimum": 0,
           "description": "Seconds a run may keep going with no WebSocket subscriber before the App stops it (OME-890); 0 disables the reaper. INVARIANT: the audience count is in-process, so replicaCount must stay 1 while this is non-zero \u2014 a second replica would answer \"nobody is listening\" for runs another replica is streaming. Keep it above uvicorn's WS ping window (~40s), which is what closes a partitioned client's socket in the first place."
         },
+        "unclaimedRunWarnS": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds a queued run may wait with no frame before its attached client gets one generic WARN notice; 0 disables it. Advisory only \u2014 the run is never failed or stopped. Keep it well above a healthy claim latency (seconds) so it fires only on a saturated or absent runner pool."
+        },
         "runnerIoConcurrency": {
           "type": "integer",
           "minimum": 1,

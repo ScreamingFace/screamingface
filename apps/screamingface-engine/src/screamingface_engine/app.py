@@ -60,6 +60,7 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
+from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
@@ -150,6 +151,8 @@ def create_app(
     app.state.interest = interest if interest is not None else app.state.registry
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     _install_orphan_reaper(app, app.state.registry, job_runner, settings)
+    # FEATURE: warn the client about an unclaimed queued run (under OME-1086).
+    _install_unclaimed_run_warner(app, app.state.registry, job_runner, settings)
     # FEATURE: a run the queue gave up on must end in a named failure, not silence
     # (OME-1090).
     _install_max_deliveries_advisor(app, settings)
@@ -335,6 +338,67 @@ def _install_orphan_reaper(
 
     async def _stop() -> None:
         task = app.state.reaper_task
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app.router.on_startup.append(_start)
+    app.router.on_shutdown.append(_stop)
+
+
+def _install_unclaimed_run_warner(
+    app: FastAPI,
+    registry: ConnectionRegistry,
+    job_runner: JobRunner | None,
+    settings: Settings,
+) -> None:
+    """Wire the unclaimed-run warner: one process-wide sweep that warns, once, each attached
+    run still queued past `unclaimed_run_warn_s`.
+
+    Modelled on `_install_orphan_reaper`: the policy object owns no task, the loop is ONE
+    asyncio task on the App's own event loop (never one per run), and shutdown cancels it.
+
+    WHY its own task and not a second call inside the reaper's loop: (1) the reaper's loop does
+    not exist when `orphan_grace_s=0`, and an operator who turns reaping off must not also lose a
+    client-visible notice without a sign; (2) the reaper's cadence derives from ITS grace, and
+    two policies on one cadence is the "two knobs that disagree" shape `reaper.py` rejects;
+    (3) the inputs differ — the reaper listens to audience edges, this polls the runner's
+    accepted set.
+
+    INVARIANT: handed the REAL `registry`, never `app.state.interest` — a gate that answers
+    "someone is listening" for every topic would decide runs nobody can hear.
+    """
+    app.state.unclaimed_warner = None
+    app.state.unclaimed_warner_task = None
+    if not isinstance(job_runner, QueuedRuns) or settings.unclaimed_run_warn_s <= 0:
+        # WHY structural: only a queue-backed runner has runs that WAIT (the in-process runner
+        # starts at once), and it is the one that answers `accepted_ages()`. A stream-only App
+        # and `URL4_CLOUD_UNCLAIMED_RUN_WARN_S=0` install nothing, and no task is created.
+        return
+    warner = UnclaimedRunWarner(job_runner, registry, grace_s=settings.unclaimed_run_warn_s)
+    app.state.unclaimed_warner = warner
+
+    async def _sweep_forever() -> None:
+        while True:
+            await asyncio.sleep(warner.tick_s)
+            # INVARIANT: one failed sweep must not kill the warner — the notice is advisory, and
+            # a dead loop would put every later client back on a silent 16h socket.
+            try:
+                await warner.sweep()
+            except Exception:
+                _logger.exception("unclaimed-run sweep failed; retrying next interval")
+
+    async def _start() -> None:
+        app.state.unclaimed_warner_task = asyncio.get_running_loop().create_task(_sweep_forever())
+        _logger.info(
+            "unclaimed-run warner armed grace_s=%.0f tick_s=%.0f",
+            settings.unclaimed_run_warn_s,
+            warner.tick_s,
+        )
+
+    async def _stop() -> None:
+        task = app.state.unclaimed_warner_task
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

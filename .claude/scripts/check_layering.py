@@ -16,7 +16,7 @@ One image ships two modes, and the whole point of that shape is a rule about wha
                                                 import NOTHING from the run half.
 
   Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · reaper
-                 schemas · adapters.factory  (FastAPI, uvicorn)
+                 unclaimed · schemas · adapters.factory  (FastAPI, uvicorn)
   Run mode:      runner.executor (the url4 engine) · runner.main
   Worker:        worker (the claim loop, the supervisor, the exec wrapper)
 
@@ -78,6 +78,9 @@ CONTROL_PLANE = {
     # Runner Job import the control plane's orphan reaper. It watches WS subscriber counts and
     # calls the job runner from the serving process; it belongs to the control plane.
     "reaper",
+    # WHY named for the same reason as `reaper`: the unclaimed-run warner polls WS subscribers
+    # and sends notices from the serving process; left unlisted it would be a shared leaf.
+    "unclaimed",
     "rest",
     "schemas",
     "ws",
@@ -306,7 +309,9 @@ def check_layers() -> list[str]:
                 f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n      {shared_why}"
             )
     for path in python_files(SRC):
-        for module in sorted(imported_screamingface_engine_submodules(path) & REMOVED.keys()):
+        for module in sorted(
+            imported_screamingface_engine_submodules(path) & REMOVED.keys()
+        ):
             offenders.append(
                 f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n"
                 f"      {REMOVED[module]}; mount calls run as direct runs (rest.mounts)"
