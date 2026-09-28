@@ -1,13 +1,13 @@
 ---
 id: OME-1390
 linear_url: https://linear.app/openmined/issue/OME-1390/reports-say-a-case-is-missing-when-the-model-actually-ran-out-of
-status: in-progress
+status: done
 type: bug
 priority: medium
 labels: [screamingface-engine, agentic, design-session]
 parent: OME-1299
 created: 2026-09-28
-closed:
+closed: 2026-09-28
 ---
 
 # Reports say a case is missing when the model actually ran out of tokens
@@ -23,3 +23,4 @@ top-level code; a source error with no code keeps `missing_case_row`; `case_erro
 - 2026-09-28: filed.
 - 2026-09-28: owner decision recorded; implementation on branch
   `OME-1390-lift-missing-row-source-code`.
+- 2026-09-28: PR #1088 green (24 checks pass). Closed on merge.
