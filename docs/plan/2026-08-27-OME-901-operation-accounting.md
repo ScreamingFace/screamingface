@@ -112,3 +112,6 @@ explanations into a native About these numbers disclosure. Keep exact pricing an
 Owner follow-up: remove About these numbers and its explanation entirely; retain compact blocks.
 
 Owner approved removing the grey rule above the first cost block; retain inter-operation rules.
+
+Review fixes approved: render nonzero costs below USD 0.0001 with exact decimal precision,
+including run remainders. Type AccountingRow.stage as generation | synthesis | grading.

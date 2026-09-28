@@ -160,3 +160,17 @@ notebook appearance without adding an implementation-mirroring test.
 Separator outcome: verified in JupyterLab that the first operation has no top rule while
 subsequent operations retain separators. Full Client gates are green: lint, format, types,
 pytest/coverage, notebook provenance, build and distribution. No test or data changes.
+
+## Review fixes: tiny billed costs and stage typing
+
+Owner approved both review findings. Preserve exact nonzero amounts below USD 0.0001 using
+adaptive decimal formatting for operation costs and run remainders; retain existing normal/zero
+formatting and Unknown. Restrict AccountingRow.stage to the three existing Literal values.
+Add rendered-report regressions before code; run focused tests, types and full Client gates.
+
+Review-fix outcome: new precision regressions failed on four tiny-charge/remainder cases before
+implementation; all 25 focused tests pass after it. Full Client gates ALL GREEN: lint, format,
+pyright, full pytest with >=95% coverage, deterministic notebooks, build and distribution.
+Small nonzero costs use exact fixed-point decimals; normal and zero values keep existing
+formatting. AccountingRow.stage is a Literal of the three supported roles. No wire or total
+changes, and no prior tests edited in this iteration.

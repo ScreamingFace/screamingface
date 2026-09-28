@@ -10,7 +10,7 @@ from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from screamingface._report_primitives import CaseId, Usage
 from screamingface.case_result import CaseResult
@@ -27,7 +27,7 @@ class AccountingRow:
     """One semantic owner; a missing record remains explicitly unavailable."""
 
     case_id: CaseId
-    stage: str
+    stage: Literal["generation", "synthesis", "grading"]
     operation_id: str
     label: str
     member_id: str | None

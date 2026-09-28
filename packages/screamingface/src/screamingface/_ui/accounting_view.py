@@ -143,7 +143,12 @@ def _number(value: int | None) -> str:
 
 
 def _money(value: Decimal | None) -> str:
-    return "Unknown" if value is None else f"${value:,.4f}"
+    if value is None:
+        return "Unknown"
+    # WHY: a real charge must never look like a free call after display rounding.
+    if 0 < abs(value) < Decimal("0.0001"):
+        return "$" + format(value, ",f").rstrip("0")
+    return f"${value:,.4f}"
 
 
 def _time(value: int | None) -> str:
