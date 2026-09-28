@@ -135,6 +135,7 @@ jobs:
       # public-dataset questions, model answers and judge reasoning that can quote
       # the reference answer.
       - name: Upload debug bundle
+        id: debug-bundle
         if: always()
         uses: actions/upload-artifact@v6
         with:
@@ -142,3 +143,13 @@ jobs:
           path: /tmp/screamingface-paid-logs
           if-no-files-found: ignore
           retention-days: 14
+
+      # One click from the overview to the bundle, instead of scrolling to the run's
+      # Artifacts panel. artifact-url is empty when the upload found no files (a boot
+      # failure before the log dir exists), so no dead link is written then.
+      - name: Link the debug bundle from the overview
+        if: always() && steps.debug-bundle.outputs.artifact-url != ''
+        env:
+          BUNDLE_URL: ${{ steps.debug-bundle.outputs.artifact-url }}
+        run: |
+          echo "📦 [Download the debug bundle]($BUNDLE_URL) — stack logs, one Report per board, junit.xml (kept 14 days)" >> "$GITHUB_STEP_SUMMARY"
