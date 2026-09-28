@@ -74,6 +74,10 @@ are None" part of PRD test 23 with an exhaustive stdlib walk.
     Both fail the same way on clean `origin/main` on macOS (`setrlimit(RLIMIT_AS)` →
     `ValueError: current limit exceeds maximum limit`, the OME-1151 root cause). Not caused by
     this unit (no Engine src change); Linux CI is the arbiter. Coverage 94.21%.
+  - **Push blocked locally.** `.githooks/pre-push` reruns the Engine gate; on this machine it
+    also fails `tests/integration/test_run_queue_roundtrip.py` (2 tests) because a shared local
+    NATS at `localhost:4222` is reachable and carries other sessions' state. Not bypassed with
+    `--no-verify` — that is the owner's call.
 - **Deviations:**
   - `observed_at` accepts RFC 3339, not only `...:SSZ`: the out-of-band archive loader writes
     `+00:00` (seen in `test_cache_entry_archive_matched_row.py`). A strict format broke that
