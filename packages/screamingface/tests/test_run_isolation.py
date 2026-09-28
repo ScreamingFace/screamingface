@@ -177,3 +177,104 @@ async def test_async_a_failed_own_run_stop_is_logged_not_raised(
     assert caught.value.code == "websocket_disconnected"
     assert len(engine.state.deleted) == 1
     assert "Stopping the SF Engine Run also failed" in caplog.text
+
+
+# --- B1 (review): after an owner abort, a later Run stops its OWN Run -------------------
+
+
+def _lost_later() -> dict[str, RunPlan]:
+    # Every reconnect is refused with a transient 503, so the outage budget runs out.
+    return {url4_of("later"): RunPlan(first="drop", reconnects=[503] * 500)}
+
+
+def test_a_run_after_an_owner_abort_stops_its_own_run_when_its_budget_ends() -> None:
+    # INVARIANT (spec B1): the stale abort flag used to skip this stop, so the lost Run kept
+    # spending with nobody attached until the engine's reaper found it.
+    with isolation_engine(_lost_later()) as engine:
+        transport = Url4CloudTransport(
+            engine.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01
+        )
+        try:
+            transport.cancel_active()
+            with pytest.raises(ExecutionError) as caught:
+                transport.run(candidate("later"), None)
+        finally:
+            transport.close()
+
+    assert caught.value.code == "websocket_disconnected"
+    assert engine.state.deleted == [engine.state.capability_of(url4_of("later"))]
+
+
+@pytest.mark.asyncio
+async def test_async_a_run_after_an_owner_abort_stops_its_own_run_when_its_budget_ends() -> None:
+    with isolation_engine(_lost_later()) as engine:
+        transport = AsyncUrl4CloudTransport(
+            engine.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01
+        )
+        try:
+            await transport.cancel_active()
+            with pytest.raises(ExecutionError) as caught:
+                await transport.run(candidate("later"), None)
+        finally:
+            await transport.close()
+
+    assert caught.value.code == "websocket_disconnected"
+    assert engine.state.deleted == [engine.state.capability_of(url4_of("later"))]
+
+
+# --- 4.3 (review): the abort stays in effect while any Run of it still runs --------------
+
+
+def _swept_and_later() -> tuple[dict[str, RunPlan], threading.Event]:
+    hold = threading.Event()
+    return (
+        {url4_of("swept"): RunPlan(hold=hold), url4_of("later"): RunPlan(first="drop")},
+        hold,
+    )
+
+
+def test_an_abort_stays_in_effect_while_a_swept_run_still_runs() -> None:
+    # INVARIANT (spec 4.3): a Run started while the swept Runs still unwind belongs to the
+    # abort's window — it does not reconnect. Only when no Run is running does it end.
+    plans, hold = _swept_and_later()
+    with isolation_engine(plans) as engine:
+        transport = Url4CloudTransport(engine.url, reconnect_base_delay_s=0.01)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                swept = pool.submit(transport.run, candidate("swept"), None)
+                _wait_until_started(engine, "swept")
+                transport.cancel_active()
+                with pytest.raises(ExecutionError):
+                    transport.run(candidate("later"), None)
+                hold.set()
+                swept.result(timeout=10)
+        finally:
+            transport.close()
+
+    later = engine.state.capability_of(url4_of("later"))
+    assert later is not None
+    assert engine.state.handshakes[later] == 1  # no reconnect inside the abort's window
+
+
+@pytest.mark.asyncio
+async def test_async_an_abort_stays_in_effect_while_a_swept_run_still_runs() -> None:
+    # WHY the async twin needs its own proof: its sweep EMPTIES the registry (a cancelled
+    # Run leaves its capability for the sweep to clear), so "no capability registered" is
+    # not "no Run running" there.
+    plans, hold = _swept_and_later()
+    with isolation_engine(plans) as engine:
+        transport = AsyncUrl4CloudTransport(engine.url, reconnect_base_delay_s=0.01)
+        try:
+            swept = asyncio.create_task(transport.run(candidate("swept"), None))
+            await asyncio.to_thread(_wait_until_started, engine, "swept")
+            await transport.cancel_active()
+            with pytest.raises(ExecutionError):
+                await transport.run(candidate("later"), None)
+            hold.set()
+            await asyncio.wait_for(swept, timeout=10)
+        finally:
+            await transport.close()
+
+    later = engine.state.capability_of(url4_of("later"))
+    assert later is not None
+    assert engine.state.handshakes[later] == 1

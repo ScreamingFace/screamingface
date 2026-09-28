@@ -104,8 +104,11 @@ Two stop operations, with different owners:
 
 ### 4.3 The abort flag belongs to one abort
 
-`_aborted` is set by `cancel_active()` and stays set only while the Runs of that abort
-unwind. When a new Run starts and no other Run is active, the transport clears it (B1).
+`_aborted` is set by `cancel_active()` (inside the registry lock, sync twin) and stays set
+only while the Runs of that abort unwind. When a new Run starts and no other Run is
+RUNNING, the transport clears it (B1). Both twins count in-flight `run()` calls
+(`_running`), not registered capabilities: the async sweep empties the registry while its
+Runs still unwind, and a Run can leave the registry before it ends (4.2).
 The prior test `test_owner_abort_does_not_retry_or_sweep_again` sets the attribute
 directly, so the attribute keeps its name and its bool meaning.
 

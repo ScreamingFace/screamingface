@@ -59,3 +59,20 @@ for owner answers Q1-Q3 (unit 4).
   pins "one Candidate's ExecutionError → `cancel_active()`", and the Partial Report changes
   the public surface. Until unit 4, a multi-Candidate Evaluation still sweeps on C1.
 - **Follow-ups / owner questions:** spec §7 Q1-Q5. Bug B1 (sticky `_aborted`) fixed here.
+- **Review round 1 (design review: accept with fixes):**
+  - Fix 3: sync `cancel_active` sets `_aborted` inside `_active_lock`, so a starting Run
+    cannot clear it between the flag and the snapshot.
+  - Fix 4: both twins count in-flight Runs (`_running`); `_end_finished_abort` clears the
+    flag only when none runs. The async sweep empties the registry, so "no capability" was
+    not "no Run" there. New tests `test_an_abort_stays_in_effect_while_a_swept_run_still_runs`
+    (+ async; the async one was RED before the fix). Spec §4.3 updated.
+  - B1 assertion: new tests `test_a_run_after_an_owner_abort_stops_its_own_run_when_its_budget_ends`
+    (+ async) — the later Run's own capability is the one `DELETE /`.
+  - Finding 8 (no change): `tests/_isolation_engine.py` already carries the knobs that
+    units 2-3 use (admission, drop, artifact). Accepted because the stack merges in order.
+  - Residual edge (unchanged, pinned by `test_owner_abort_does_not_retry_or_sweep_again`):
+    a Run started inside an abort's window does not stop its own Run on a lost stream.
+  - Gates after the fixes: ALL GREEN — pytest 1914 passed / 26 skipped, coverage 96 %.
+    One gate run hit a pre-existing flake, `test_cache_saved_cost_submission.py::test_archive_money_never_reaches_the_result_or_the_board`
+    (it asserts `"0.5"` is absent from `to_dict()`, which holds random ids and times); it
+    passed 5/5 alone and on the re-run. Not touched.

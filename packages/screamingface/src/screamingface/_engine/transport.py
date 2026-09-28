@@ -138,10 +138,13 @@ class Url4CloudTransport:
         self._reconnect_base_delay_s = reconnect_base_delay_s
         # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
         # the sweep already stopped every Run this client owns. Cleared when the next Run
-        # starts with none active (`_end_finished_abort`). Plain bool, GIL-atomic.
+        # starts with none running (`_end_finished_abort`). Plain bool, GIL-atomic.
         self._aborted = False
         self._active_lock = Lock()
         self._active_tokens: set[str] = set()
+        # How many `run()` calls are in flight — NOT the registry size: a Run can leave the
+        # registry before it ends. Guarded by `_active_lock`.
+        self._running = 0
 
     def run(
         self,
@@ -155,6 +158,7 @@ class Url4CloudTransport:
         with self._active_lock:
             self._end_finished_abort()
             self._active_tokens.add(minted[0])
+            self._running += 1
         lifecycle = _Lifecycle(candidate)
         started = time.monotonic()
         try:
@@ -173,17 +177,20 @@ class Url4CloudTransport:
         finally:
             with self._active_lock:
                 self._active_tokens.difference_update(minted)
+                self._running -= 1
 
     def _end_finished_abort(self) -> None:
-        """Clear the owner-abort flag when a Run starts and no Run is active (spec B1).
+        """Clear the owner-abort flag when a Run starts and no Run is running (spec B1).
 
         WHY: `cancel_active` sets `_aborted` so that the Runs it swept stop reconnecting. It
         used to stay set for the Client's whole life, so after ONE Ctrl-C every later Run on
         this Client neither reconnected nor stopped its own Run after a lost stream.
-        INVARIANT: while any Run of that abort is still registered, the flag stays set.
+        INVARIANT: while any Run is still running, the flag stays set — the Runs of that
+        abort may still be unwinding. Both twins count running Runs, not registered
+        capabilities, because the async sweep empties the registry while its Runs unwind.
         AIDEV-NOTE: the caller holds `_active_lock`.
         """
-        if not self._active_tokens:
+        if self._running == 0:
             self._aborted = False
 
     def _run_reconnecting(
@@ -370,8 +377,10 @@ class Url4CloudTransport:
     def cancel_active(self) -> None:
         """Stop every run currently owned by this synchronous Client."""
 
-        self._aborted = True
+        # WHY inside the lock: a Run starting between the flag and the snapshot could clear
+        # the flag (`_end_finished_abort`) for an abort that is only now taking effect.
         with self._active_lock:
+            self._aborted = True
             tokens = tuple(self._active_tokens)
         if not tokens:
             return
@@ -461,6 +470,8 @@ class AsyncUrl4CloudTransport:
         # twin. One loop per instance; plain bool, no lock (see the class INVARIANT above).
         self._aborted = False
         self._active_tokens: set[str] = set()
+        # In-flight `run()` calls; see the sync twin (spec 4.3).
+        self._running = 0
 
     async def cancel_active(self) -> None:
         """Stop every Run currently owned by this asynchronous Client."""
@@ -495,6 +506,7 @@ class AsyncUrl4CloudTransport:
         minted = [await _mint_async(self._http, trace=trace)]
         self._end_finished_abort()
         self._active_tokens.add(minted[0])
+        self._running += 1
         cancelled = False
         started = time.monotonic()
         lifecycle = _Lifecycle(candidate)
@@ -521,12 +533,13 @@ class AsyncUrl4CloudTransport:
         except (WebSocketException, OSError, TimeoutError) as exc:
             raise _disconnected(exc, time.monotonic() - started) from exc
         finally:
+            self._running -= 1
             if not cancelled:
                 self._active_tokens.difference_update(minted)
 
     def _end_finished_abort(self) -> None:
         """Async twin of the sync `_end_finished_abort` (spec B1); no lock (class INVARIANT)."""
-        if not self._active_tokens:
+        if self._running == 0:
             self._aborted = False
 
     async def _run_reconnecting(
