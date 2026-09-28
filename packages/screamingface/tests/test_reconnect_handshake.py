@@ -11,6 +11,7 @@ The stub engine (`_reconnect_engine.py`) closes the first stream with 1012 after
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator, Generator, Mapping
 
@@ -29,15 +30,21 @@ _FAST_S = 10.0
 
 
 class _CountingAuth(_TransportAuth):
-    def __init__(self) -> None:
+    def __init__(self, *, login_s: float = 0.0) -> None:
         self.reauthentications = 0
+        self.timeouts: list[float] = []
+        # How long each "browser login" takes — a real one can take minutes.
+        self._login_s = login_s
 
     def reauthenticate(self, *, timeout: float = 300.0) -> None:
-        del timeout
         self.reauthentications += 1
+        self.timeouts.append(timeout)
+        time.sleep(self._login_s)
 
     async def reauthenticate_async(self, *, timeout: float = 300.0) -> None:
-        self.reauthenticate(timeout=timeout)
+        self.reauthentications += 1
+        self.timeouts.append(timeout)
+        await asyncio.sleep(self._login_s)
 
     def websocket_headers(self) -> Mapping[str, str]:
         return {}
@@ -59,16 +66,24 @@ class _CountingAuth(_TransportAuth):
         yield request
 
 
-def _sync_run(engine: StubEngine, auth: _TransportAuth, events: list[Event]) -> object:
-    transport = Url4CloudTransport(engine.url, auth, reconnect_base_delay_s=0.01)
+def _sync_run(
+    engine: StubEngine, auth: _TransportAuth, events: list[Event], *, budget_s: float = 90.0
+) -> object:
+    transport = Url4CloudTransport(
+        engine.url, auth, reconnect_budget_s=budget_s, reconnect_base_delay_s=0.01
+    )
     try:
         return transport.run(candidate(), events.append)
     finally:
         transport.close()
 
 
-async def _async_run(engine: StubEngine, auth: _TransportAuth, events: list[Event]) -> object:
-    transport = AsyncUrl4CloudTransport(engine.url, auth, reconnect_base_delay_s=0.01)
+async def _async_run(
+    engine: StubEngine, auth: _TransportAuth, events: list[Event], *, budget_s: float = 90.0
+) -> object:
+    transport = AsyncUrl4CloudTransport(
+        engine.url, auth, reconnect_budget_s=budget_s, reconnect_base_delay_s=0.01
+    )
     try:
         return await transport.run(candidate(), events.append)
     finally:
@@ -167,9 +182,10 @@ def test_reconnect_handshake_5xx_backs_off_and_resumes(status: int) -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_reconnect_handshake_5xx_backs_off_and_resumes() -> None:
+@pytest.mark.parametrize("status", [502, 503])
+async def test_async_reconnect_handshake_5xx_backs_off_and_resumes(status: int) -> None:
     events: list[Event] = []
-    with stub_engine(503) as engine:
+    with stub_engine(status) as engine:
         outcome = await _async_run(engine, _CountingAuth(), events)
 
     assert getattr(outcome, "result_body") == RESULT_BODY
@@ -192,3 +208,94 @@ def test_reconnect_handshake_5xx_still_ends_when_the_budget_is_spent() -> None:
 
     assert caught.value.code == "websocket_disconnected"
     assert engine.state.deletes == 1  # budget exhausted → sweep (G3)
+
+
+@pytest.mark.asyncio
+async def test_async_reconnect_handshake_5xx_still_ends_when_the_budget_is_spent() -> None:
+    with stub_engine(*([503] * 200)) as engine:
+        with pytest.raises(ExecutionError) as caught:
+            await _async_run(engine, _CountingAuth(), [], budget_s=0.3)
+
+    assert caught.value.code == "websocket_disconnected"
+    assert engine.state.deletes == 1
+
+
+@pytest.mark.parametrize("status", [503, 501, 505])
+def test_a_5xx_on_the_first_handshake_stays_fatal(status: int) -> None:
+    # INVARIANT (spec R3, second half; Q2): before the Run starts nothing is billed and
+    # nothing needs a resume, so a refused FIRST handshake fails at once.
+    with stub_engine(first=status) as engine:
+        with pytest.raises(ExecutionError) as caught:
+            _sync_run(engine, _CountingAuth(), [])
+
+    assert caught.value.code == "websocket_disconnected"
+    assert len(engine.state.handshake_tickets) == 1
+    assert engine.state.started_topic is None
+
+
+@pytest.mark.parametrize("status", [501, 505])
+def test_a_non_transient_5xx_on_the_reconnect_is_fatal(status: int) -> None:
+    # WHY: 501/505 say the server cannot speak this protocol; waiting does not change that.
+    with stub_engine(status) as engine:
+        with pytest.raises(ExecutionError) as caught:
+            _sync_run(engine, _CountingAuth(), [])
+
+    assert caught.value.code == "websocket_disconnected"
+    assert len(engine.state.handshake_tickets) == 2
+    assert engine.state.deletes == 1
+
+
+# --- The post-start Access re-login is bounded (review fix 1) ------------------------------
+#
+# WHY: while no client is attached the engine's orphan reaper (`orphan_grace_s` = 120 s)
+# counts down. An unbounded re-login — or an edge that challenges forever — outlives it.
+
+
+def test_a_repeatedly_challenging_edge_stops_after_the_challenge_cap() -> None:
+    auth = _CountingAuth()
+    with stub_engine("access", "access", "access", "access") as engine:
+        with pytest.raises(ExecutionError) as caught:
+            _sync_run(engine, auth, [])
+
+    assert caught.value.code == "websocket_disconnected"
+    assert auth.reauthentications == 2  # _MAX_RECONNECT_CHALLENGES
+    assert engine.state.deletes == 1
+
+
+@pytest.mark.asyncio
+async def test_async_a_repeatedly_challenging_edge_stops_after_the_challenge_cap() -> None:
+    auth = _CountingAuth()
+    with stub_engine("access", "access", "access", "access") as engine:
+        with pytest.raises(ExecutionError) as caught:
+            await _async_run(engine, auth, [])
+
+    assert caught.value.code == "websocket_disconnected"
+    assert auth.reauthentications == 2
+    assert engine.state.deletes == 1
+
+
+def test_a_re_login_is_bounded_by_the_outage_budget() -> None:
+    # The first login is admitted with at most the budget left; it outlasts it, so the
+    # next challenge is refused without a second prompt.
+    auth = _CountingAuth(login_s=0.5)
+    with stub_engine("access", "access") as engine:
+        with pytest.raises(ExecutionError) as caught:
+            _sync_run(engine, auth, [], budget_s=0.3)
+
+    assert caught.value.code == "websocket_disconnected"
+    assert auth.reauthentications == 1
+    assert 0 < auth.timeouts[0] <= 0.3
+    assert engine.state.deletes == 1
+
+
+@pytest.mark.asyncio
+async def test_async_a_re_login_is_bounded_by_the_outage_budget() -> None:
+    auth = _CountingAuth(login_s=0.5)
+    with stub_engine("access", "access") as engine:
+        with pytest.raises(ExecutionError) as caught:
+            await _async_run(engine, auth, [], budget_s=0.3)
+
+    assert caught.value.code == "websocket_disconnected"
+    assert auth.reauthentications == 1
+    assert 0 < auth.timeouts[0] <= 0.3
+    assert engine.state.deletes == 1

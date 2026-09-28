@@ -63,8 +63,7 @@ class _RunOutcome:
     client_version: str | None = None
 
 
-type ConnectionState = Literal["reconnecting", "reconnected"]
-_CONNECTION_STATES = frozenset({"reconnecting", "reconnected"})
+type _ConnectionState = Literal["reconnecting", "reconnected"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,18 +73,14 @@ class _ConnectionNotice:
     FEATURE: OME-1016 — the "reconnecting (attempt n)" progress line (spec 2026-09-28 R4).
     INVARIANT: it carries no URL, token, close code or exception text — only the step and
     its attempt number — so no renderer can leak transport internals.
-    AIDEV-NOTE: deliberately NOT a public `Event`. Whether the user's `on_event` should
-    also see it is an owner decision (spec 2026-09-28 Q1).
+    AIDEV-NOTE: deliberately NOT a public `Event`, and only the transport builds one, so
+    the `Literal` is the whole contract — no runtime validation. Whether the user's
+    `on_event` should also see it is an owner decision (spec 2026-09-28 Q1).
     """
 
-    state: ConnectionState
-    attempt: int
-
-    def __post_init__(self) -> None:
-        if self.state not in _CONNECTION_STATES:
-            raise ValueError("Connection notice state must be 'reconnecting' or 'reconnected'")
-        if isinstance(self.attempt, bool) or not isinstance(self.attempt, int) or self.attempt < 1:
-            raise ValueError("Connection notice attempt must be a positive integer")
+    state: _ConnectionState
+    # Set for `reconnecting` (the attempt now under way); `reconnected` needs none.
+    attempt: int | None = None
 
 
 @runtime_checkable

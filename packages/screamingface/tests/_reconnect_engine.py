@@ -17,16 +17,19 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import struct
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
+
+from _websocket_wire import cloudevent
+from _websocket_wire import read_client_text_frame as _read_client_text_frame
+from _websocket_wire import send_server_close as _send_close
+from _websocket_wire import send_server_text_frame as _send_text
 
 from screamingface._evaluation.model import Candidate, _compiled_candidate, _compiled_operation
 
@@ -43,6 +46,8 @@ class StubState:
     reconnect_script: list[HandshakeStep]
     # How many times the accepted stream drops with 1012 before it completes the Run.
     drops: int = 1
+    # The FIRST handshake's answer; "accept" starts the scenario.
+    first_handshake: HandshakeStep = "accept"
     lock: threading.Lock = field(default_factory=threading.Lock)
     topics: dict[str, str] = field(default_factory=dict)
     started_topic: str | None = None
@@ -104,9 +109,10 @@ class _Handler(BaseHTTPRequestHandler):
         with state.lock:
             first = not state.handshake_tickets
             state.handshake_tickets.append(ticket)
-            step: HandshakeStep = (
-                "accept" if first or not state.reconnect_script else state.reconnect_script.pop(0)
-            )
+            if first:
+                step: HandshakeStep = state.first_handshake
+            else:
+                step = state.reconnect_script.pop(0) if state.reconnect_script else "accept"
         if step == "access":
             self._empty(HTTPStatus.FORBIDDEN, {"cf-access-aud": _ACCESS_AUDIENCE})
         elif isinstance(step, int):
@@ -174,18 +180,7 @@ class _Server(ThreadingHTTPServer):
 
 
 def _frame(kind: str, data: dict[str, object], sequence: int) -> dict[str, object]:
-    return {
-        "specversion": "1.0",
-        "id": f"event_{sequence}",
-        "source": "/trace/reconnect/node/root",
-        "subject": "reconnect",
-        "time": datetime.now(UTC).isoformat(),
-        "type": kind,
-        "datacontenttype": "application/json",
-        "sequence": str(sequence),
-        "sequencetype": "Integer",
-        "data": data,
-    }
+    return cloudevent(kind, data, sequence, subject="reconnect")
 
 
 def _log(body: str) -> Any:
@@ -209,39 +204,11 @@ _FRAMES: dict[int, Any] = {
 }
 
 
-def _read_client_text_frame(stream: Any) -> str:
-    header = stream.read(2)
-    length = header[1] & 0x7F
-    if length == 126:
-        length = struct.unpack("!H", stream.read(2))[0]
-    elif length == 127:
-        length = struct.unpack("!Q", stream.read(8))[0]
-    mask = stream.read(4) if header[1] & 0x80 else b""
-    payload = stream.read(length)
-    if mask:
-        payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
-    return payload.decode()
-
-
-def _send_text(stream: Any, value: str) -> None:
-    payload = value.encode()
-    if len(payload) < 126:
-        header = bytes((0x81, len(payload)))
-    else:
-        header = bytes((0x81, 126)) + struct.pack("!H", len(payload))
-    stream.write(header + payload)
-    stream.flush()
-
-
-def _send_close(stream: Any, code: int) -> None:
-    payload = struct.pack("!H", code)
-    stream.write(bytes((0x88, len(payload))) + payload)
-    stream.flush()
-
-
 @contextmanager
-def stub_engine(*reconnect_script: HandshakeStep, drops: int = 1) -> Iterator[StubEngine]:
-    state = StubState(reconnect_script=list(reconnect_script), drops=drops)
+def stub_engine(
+    *reconnect_script: HandshakeStep, drops: int = 1, first: HandshakeStep = "accept"
+) -> Iterator[StubEngine]:
+    state = StubState(reconnect_script=list(reconnect_script), drops=drops, first_handshake=first)
     server = _Server(("127.0.0.1", 0), state)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

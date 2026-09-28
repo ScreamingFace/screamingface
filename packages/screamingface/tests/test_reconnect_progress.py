@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import io
 from datetime import UTC, datetime
-from typing import Any, cast
 
 import pytest
 from _reconnect_engine import RESULT_BODY, StubEngine, candidate, stub_engine
@@ -28,7 +27,7 @@ from screamingface._ui.evaluation_widget import _NotebookEvaluationView
 from screamingface.events import Event, Started
 
 _RECONNECTING = _ConnectionNotice(state="reconnecting", attempt=2)
-_RECONNECTED = _ConnectionNotice(state="reconnected", attempt=2)
+_RECONNECTED = _ConnectionNotice(state="reconnected")
 
 
 class _Listener:
@@ -52,9 +51,9 @@ def _transport(engine: StubEngine) -> Url4CloudTransport:
     return Url4CloudTransport(engine.url, reconnect_base_delay_s=0.01)
 
 
-def _expected_two_outages() -> list[tuple[str, int]]:
+def _expected_two_outages() -> list[tuple[str, int | None]]:
     # Two drops inside one outage window: the attempt count keeps growing (OME-1141).
-    return [("reconnecting", 1), ("reconnected", 1), ("reconnecting", 2), ("reconnected", 2)]
+    return [("reconnecting", 1), ("reconnected", None), ("reconnecting", 2), ("reconnected", None)]
 
 
 # --- Transport: one notice per attempt, one on resume -------------------------------------
@@ -113,13 +112,6 @@ def test_a_plain_callback_receives_only_public_events() -> None:
 
     assert events
     assert all(isinstance(event, Event) for event in events)
-
-
-def test_the_notice_rejects_an_unknown_state_and_a_non_positive_attempt() -> None:
-    with pytest.raises(ValueError, match="state"):
-        _ConnectionNotice(state=cast(Any, "lost"), attempt=1)
-    with pytest.raises(ValueError, match="attempt"):
-        _ConnectionNotice(state="reconnecting", attempt=0)
 
 
 # --- Runner: the bound observer forwards to the built-in output only -----------------------
@@ -185,7 +177,7 @@ def test_terminal_progress_prints_generic_reconnect_lines() -> None:
     stream = io.StringIO()
     observer = _ProgressObserver(stream)
     observer.connection(candidate(), _ConnectionNotice(state="reconnecting", attempt=1))
-    observer.connection(candidate(), _ConnectionNotice(state="reconnected", attempt=1))
+    observer.connection(candidate(), _ConnectionNotice(state="reconnected"))
 
     assert stream.getvalue().splitlines() == [
         "ScreamingFace · opus · connection lost — reconnecting (attempt 1)",

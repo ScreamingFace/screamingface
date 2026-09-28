@@ -18,6 +18,7 @@ shared across the two TestClient loops; the broker-backed resume itself is cover
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -41,6 +42,8 @@ LIFETIME_S = 58_800  # capability_lifetime_s (D1, OME-1016)
 SUBPROTOCOL = "cloudevents.json"
 EXPR = "(gpt,claude)!'hi'"
 T0 = datetime(2026, 9, 28, 9, 0, 0, tzinfo=UTC)
+_HEARTBEAT_S = 0.2
+_RESUME_DEADLINE_S = 10.0
 
 
 class _RecordingJobRunner(IdentityAwareJobRunner):
@@ -80,8 +83,14 @@ class _RecordingJobRunner(IdentityAwareJobRunner):
         return "running"
 
 
-def _app(stream: InMemoryEventStream, runner: _RecordingJobRunner, now: list[datetime]) -> FastAPI:
-    settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S, ws_heartbeat_s=30.0)
+def _app(
+    stream: InMemoryEventStream,
+    runner: _RecordingJobRunner,
+    now: list[datetime],
+    *,
+    heartbeat_s: float = 30.0,
+) -> FastAPI:
+    settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S, ws_heartbeat_s=heartbeat_s)
     return create_app(settings, stream=stream, job_runner=runner, clock=lambda: now[0])
 
 
@@ -120,11 +129,16 @@ def _new_app_resume(
     token: str, runner: _RecordingJobRunner, now: list[datetime], cursor: int, total: int
 ) -> list[dict[str, Any]]:
     """App B: a fresh instance. The SAME capability, attached from the cursor."""
-    with TestClient(_app(_history(_topic_of(token)), runner, now)) as app_b:
+    # WHY a short heartbeat: `receive_json` has no timeout in the TestClient, so a stalled
+    # resume would hang the suite. Heartbeats wake the loop, and the deadline then fails it.
+    app = _app(_history(_topic_of(token)), runner, now, heartbeat_s=_HEARTBEAT_S)
+    deadline = time.monotonic() + _RESUME_DEADLINE_S
+    with TestClient(app) as app_b:
         with app_b.websocket_connect(f"/ws?ticket={token}", subprotocols=[SUBPROTOCOL]) as ws:
             ws.send_json(_attach(cursor))
             rest: list[dict[str, Any]] = []
             while not rest or rest[-1]["type"] != "ai.url4.terminated":
+                assert time.monotonic() < deadline, f"resume stalled after {len(rest)} frames"
                 frame = ws.receive_json()
                 if frame.get("sequence") is not None:  # heartbeats carry no sequence
                     rest.append(frame)
@@ -176,6 +190,7 @@ def test_a_run_older_than_sixty_seconds_is_stoppable_by_its_caller() -> None:
 
 
 def test_a_capability_past_its_lifetime_can_no_longer_stop_the_run() -> None:
+    # Added boundary check, outside spec R6: the lifetime still ends.
     # INVARIANT: `exp` is the only lifetime rule — the boundary is exclusive (`now >= exp`).
     now = [T0]
     runner = _RecordingJobRunner()
