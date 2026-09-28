@@ -339,12 +339,22 @@ class _EvaluationProgress:
         # INVARIANT: a finished row keeps its outcome; a late notice must not relabel it.
         if row.status not in {"queued", "running"}:
             return
-        if notice.state == "reconnecting":
-            row.connection = f"Reconnecting (attempt {notice.attempt})"
-            self.announcement = f"{candidate.name} reconnecting (attempt {notice.attempt})"
-        else:
-            row.connection = None
-            self.announcement = f"{candidate.name} connection restored"
+        match notice.state:
+            case "reconnecting":
+                row.connection = f"Reconnecting (attempt {notice.attempt})"
+                self.announcement = f"{candidate.name} reconnecting (attempt {notice.attempt})"
+            case "reconnected":
+                row.connection = None
+                self.announcement = f"{candidate.name} connection restored"
+            case "waiting_for_capacity":
+                # FEATURE OME-1066: the row says the Candidate is queued at the Engine.
+                row.connection = f"Waiting for Engine capacity (attempt {notice.attempt})"
+                self.announcement = (
+                    f"{candidate.name} waiting for Engine capacity (attempt {notice.attempt})"
+                )
+            case "admitted":
+                row.connection = None
+                self.announcement = f"{candidate.name} Engine capacity available"
 
     @property
     def finished(self) -> bool:

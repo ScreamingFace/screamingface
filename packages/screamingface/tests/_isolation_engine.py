@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import select
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -190,11 +191,15 @@ class _Handler(BaseHTTPRequestHandler):
         # The Run starts only after the first attach (and after any admission refusals).
         state = self.server.state
         topic = state.topics[ticket]
-        waited = threading.Event()
         for _ in range(int(_WAIT_S / 0.01)):
             if topic in state.started:
                 break
-            waited.wait(0.01)
+            # A client that gives up before the start (an owner abort) closes the socket;
+            # answer its close at once, as the engine does, instead of sitting on it.
+            readable, _, _ = select.select([self.connection], [], [], 0.01)
+            if readable:
+                _send_close(self.wfile, 1000)
+                return
         else:
             _send_close(self.wfile, 1011)
             return

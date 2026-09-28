@@ -9,9 +9,11 @@ import logging
 import random
 import ssl
 import time
+from asyncio import Event as _AsyncEvent
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as _dataclass_replace
+from threading import Event as _ThreadEvent
 from threading import Lock
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -40,6 +42,7 @@ from screamingface._core.retry import (
     RetryingTransport,
 )
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.admission import _ADMISSION_BUDGET_S, _AdmissionWait
 from screamingface._engine.identity import engine_headers
 from screamingface._engine.reconnect import _RecoveryWindow
 from screamingface._engine.run_lifecycle import _Lifecycle, _LifecycleStep
@@ -116,6 +119,7 @@ class Url4CloudTransport:
         *,
         reconnect_budget_s: float = _RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
+        admission_budget_s: float = _ADMISSION_BUDGET_S,
     ) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
@@ -136,15 +140,37 @@ class Url4CloudTransport:
         # Test-only seams; production callers leave the defaults (spec §6 S3).
         self._reconnect_budget_s = reconnect_budget_s
         self._reconnect_base_delay_s = reconnect_base_delay_s
+        self._admission_budget_s = admission_budget_s
         # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
         # the sweep already stopped every Run this client owns. Cleared when the next Run
-        # starts with none running (`_end_finished_abort`). Plain bool, GIL-atomic.
-        self._aborted = False
+        # starts with none running (`_end_finished_abort`). WHY an Event behind `_aborted`:
+        # a worker waiting for Engine capacity must wake the moment the owner aborts
+        # (spec 2026-09-28 B3), not after a `Retry-After` that may be minutes long.
+        self._abort = _ThreadEvent()
         self._active_lock = Lock()
         self._active_tokens: set[str] = set()
         # How many `run()` calls are in flight — NOT the registry size: a Run can leave the
         # registry before it ends. Guarded by `_active_lock`.
         self._running = 0
+
+    @property
+    def _aborted(self) -> bool:
+        return self._abort.is_set()
+
+    @_aborted.setter
+    def _aborted(self, value: bool) -> None:
+        if value:
+            self._abort.set()
+        else:
+            self._abort.clear()
+
+    def _admission(self) -> _AdmissionWait:
+        """A fresh capacity wait for one Run start (spec 2026-09-28 §6, OME-1066)."""
+        return _AdmissionWait(
+            budget_s=self._admission_budget_s,
+            floor_s=self._reconnect_base_delay_s,
+            backoff=lambda attempt: _reconnect_delay(attempt, self._reconnect_base_delay_s),
+        )
 
     def run(
         self,
@@ -238,6 +264,9 @@ class Url4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
+                            admission=self._admission(),
+                            on_event=on_event,
+                            wait=self._abort.wait,
                         )
                         run_started = True
                     else:
@@ -472,6 +501,7 @@ class AsyncUrl4CloudTransport:
         *,
         reconnect_budget_s: float = _RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
+        admission_budget_s: float = _ADMISSION_BUDGET_S,
     ) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
@@ -489,13 +519,43 @@ class AsyncUrl4CloudTransport:
         # Test-only seams; production callers leave the defaults (spec §6 S3).
         self._reconnect_budget_s = reconnect_budget_s
         self._reconnect_base_delay_s = reconnect_base_delay_s
+        self._admission_budget_s = admission_budget_s
         # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
         # the sweep already stopped every Run this client owns. Cleared as in the sync
-        # twin. One loop per instance; plain bool, no lock (see the class INVARIANT above).
-        self._aborted = False
+        # twin; an Event for the same reason. One loop per instance, no lock (class
+        # INVARIANT). AIDEV-NOTE: imported by name, not via `asyncio.`, because tests
+        # replace this module's `asyncio` with a namespace of `sleep` and `wait_for` only.
+        self._abort = _AsyncEvent()
         self._active_tokens: set[str] = set()
         # In-flight `run()` calls; see the sync twin (spec 4.3).
         self._running = 0
+
+    @property
+    def _aborted(self) -> bool:
+        return self._abort.is_set()
+
+    @_aborted.setter
+    def _aborted(self, value: bool) -> None:
+        if value:
+            self._abort.set()
+        else:
+            self._abort.clear()
+
+    def _admission(self) -> _AdmissionWait:
+        """Async twin of the sync `_admission` — the same policy object."""
+        return _AdmissionWait(
+            budget_s=self._admission_budget_s,
+            floor_s=self._reconnect_base_delay_s,
+            backoff=lambda attempt: _reconnect_delay(attempt, self._reconnect_base_delay_s),
+        )
+
+    async def _wait_unless_aborted(self, delay: float) -> bool:
+        """Wait `delay` seconds; True at once if the owner aborts meanwhile (spec B3)."""
+        try:
+            await asyncio.wait_for(self._abort.wait(), timeout=delay)
+        except TimeoutError:
+            return False
+        return True
 
     async def cancel_active(self) -> None:
         """Stop every Run currently owned by this asynchronous Client."""
@@ -605,6 +665,9 @@ class AsyncUrl4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
+                            admission=self._admission(),
+                            on_event=on_event,
+                            wait=self._wait_unless_aborted,
                         )
                         run_started = True
                     else:
@@ -849,7 +912,45 @@ def _start_sync(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    admission: _AdmissionWait | None = None,
+    on_event: object = None,
+    wait: Callable[[float], bool] | None = None,
 ) -> None:
+    """Start the Run; while the Engine has no free capacity (503), wait and send it again.
+
+    FEATURE OME-1066: a 503 on start schedules nothing (spec 2026-09-28 E3), so the SAME
+    start is re-sent after the Engine's `Retry-After`, inside one bounded budget. `wait`
+    returns True when the owner aborted meanwhile — then the start is never re-sent (B3).
+    AIDEV-NOTE: the defaults keep the old call shape (`_start_sync(http, token, url4)`)
+    valid for direct callers; the transport always passes all three.
+    """
+    admission = admission or _default_admission()
+    wait = wait or _sleep_unaborted
+    trace_id = trace.trace_id if trace else None
+    while True:
+        response = _send_start_sync(http, token, url4, trace=trace, answer_seed=answer_seed)
+        if response.status_code != _NOT_ADMITTED:
+            break
+        delay = admission.next_delay(response, now=time.monotonic())
+        if delay is None:
+            raise _not_admitted(response, admission.waited_s(now=time.monotonic()), trace_id)
+        _notify_connection(on_event, "waiting_for_capacity", admission.attempts)
+        if wait(delay):
+            raise _start_abandoned(trace_id)
+    if admission.attempts:
+        _notify_connection(on_event, "admitted")
+    _accepted(response, trace_id=trace_id)
+
+
+def _send_start_sync(
+    http: httpx.Client,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None,
+    answer_seed: int | None,
+) -> httpx.Response:
+    """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             time.sleep(delay)
@@ -872,7 +973,60 @@ def _start_sync(
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response, trace_id=trace.trace_id if trace else None)
+    return response
+
+
+# The Engine's answer when it has no free run capacity (OME-1091) — and ONLY this status
+# means "not admitted": another 5xx keeps failing at once (OME-1066 acceptance).
+_NOT_ADMITTED = 503
+
+
+def _default_admission() -> _AdmissionWait:
+    return _AdmissionWait(
+        budget_s=_ADMISSION_BUDGET_S,
+        floor_s=_RECONNECT_BASE_DELAY_S,
+        backoff=lambda attempt: _reconnect_delay(attempt, _RECONNECT_BASE_DELAY_S),
+    )
+
+
+def _sleep_unaborted(delay: float) -> bool:
+    time.sleep(delay)
+    return False
+
+
+async def _sleep_unaborted_async(delay: float) -> bool:
+    await asyncio.sleep(delay)
+    return False
+
+
+def _not_admitted(
+    response: httpx.Response, waited_s: float, trace_id: str | None
+) -> ExecutionError:
+    """The Engine kept refusing the start for capacity until the budget ran out (OME-1066).
+
+    INVARIANT: the message names Engine capacity — not a generic transport failure — so a
+    researcher knows that waiting (or fewer Candidates at once) is the remedy.
+    """
+    detail, _code, problem = _problem_parts(response)
+    return ExecutionError(
+        f"SF Engine run capacity stayed full for {waited_s:.0f} s, so the Run did not "
+        f"start: {detail}",
+        code="engine_at_capacity",
+        status=response.status_code,
+        permanent=False,
+        details=problem,
+        hint="The Engine is busy with other Runs. Retry later, or evaluate fewer "
+        "Candidates at once.",
+        trace_id=trace_id,
+    )
+
+
+def _start_abandoned(trace_id: str | None) -> ExecutionError:
+    return ExecutionError(
+        "SF Engine Run start was abandoned because the Client stopped its Runs",
+        code="run_aborted",
+        trace_id=trace_id,
+    )
 
 
 def _stop_sync(http: httpx.Client, token: str) -> None:
@@ -927,7 +1081,38 @@ async def _start_async(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    admission: _AdmissionWait | None = None,
+    on_event: object = None,
+    wait: Callable[[float], Awaitable[bool]] | None = None,
 ) -> None:
+    """Async twin of `_start_sync` — the same capacity wait (OME-1066)."""
+    admission = admission or _default_admission()
+    wait = wait or _sleep_unaborted_async
+    trace_id = trace.trace_id if trace else None
+    while True:
+        response = await _send_start_async(http, token, url4, trace=trace, answer_seed=answer_seed)
+        if response.status_code != _NOT_ADMITTED:
+            break
+        delay = admission.next_delay(response, now=time.monotonic())
+        if delay is None:
+            raise _not_admitted(response, admission.waited_s(now=time.monotonic()), trace_id)
+        _notify_connection(on_event, "waiting_for_capacity", admission.attempts)
+        if await wait(delay):
+            raise _start_abandoned(trace_id)
+    if admission.attempts:
+        _notify_connection(on_event, "admitted")
+    _accepted(response, trace_id=trace_id)
+
+
+async def _send_start_async(
+    http: httpx.AsyncClient,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None,
+    answer_seed: int | None,
+) -> httpx.Response:
+    """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             await asyncio.sleep(delay)
@@ -950,7 +1135,7 @@ async def _start_async(
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response, trace_id=trace.trace_id if trace else None)
+    return response
 
 
 def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
@@ -1169,20 +1354,7 @@ def _raise_response(
     # here — mint, start, stop, artifact. A pre-first-frame failure is far more often an
     # Engine problem+json than an httpx transport error, so attaching the id only on the
     # transport branch would miss the common case.
-    code: str | None = None
-    problem: object = None
-    detail = _body_summary(response)
-    media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
-    if media_type == "application/problem+json":
-        try:
-            problem = response.json()
-        except ValueError:
-            problem = None
-        if isinstance(problem, dict):
-            if isinstance(problem.get("detail"), str):
-                detail = problem["detail"]
-            if isinstance(problem.get("type"), str):
-                code = problem["type"]
+    detail, code, details = _problem_parts(response)
     exception = AuthenticationError if response.status_code in {401, 403} else ExecutionError
     if exception is AuthenticationError:
         raise AuthenticationError(
@@ -1190,7 +1362,7 @@ def _raise_response(
             code=code,
             status=response.status_code,
             permanent=True,
-            details=problem if media_type == "application/problem+json" else None,
+            details=details,
             trace_id=trace_id,
         )
     raise ExecutionError(
@@ -1198,9 +1370,29 @@ def _raise_response(
         code=code,
         status=response.status_code,
         permanent=response.status_code < 500,
-        details=problem if media_type == "application/problem+json" else None,
+        details=details,
         trace_id=trace_id,
     )
+
+
+def _problem_parts(response: httpx.Response) -> tuple[str, str | None, object]:
+    """A failed response's (detail, code, details): the Engine's RFC 9457 fields, if any."""
+    code: str | None = None
+    problem: object = None
+    detail = _body_summary(response)
+    media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
+    if media_type != "application/problem+json":
+        return detail, code, None
+    try:
+        problem = response.json()
+    except ValueError:
+        problem = None
+    if isinstance(problem, dict):
+        if isinstance(problem.get("detail"), str):
+            detail = problem["detail"]
+        if isinstance(problem.get("type"), str):
+            code = problem["type"]
+    return detail, code, problem
 
 
 def _websocket_ssl_context(engine_url: str) -> ssl.SSLContext | None:
