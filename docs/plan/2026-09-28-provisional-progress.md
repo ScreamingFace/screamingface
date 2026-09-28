@@ -60,3 +60,7 @@ Reject the design if it requires benchmark-specific client logic, a second grade
 ## First draft implementation slice
 
 Expose `ScoredPath.iter_case_results(raw_rows, *, selected_cases, grading_material, case_metadata=None)` as an async iterator of canonical typed results. It owns the existing row validation and selected-order iteration. Final aggregation consumes this same interface, so it is exercised by all shipped boards. Preserve omitted results for finalizer reconciliation. This establishes incremental consumption during grading; moving built-in grade production earlier and publishing structured snapshots are explicitly subsequent work. No claim of completed notebook behavior in this draft.
+
+## IFEval execution proof
+
+Extract only IFEval's existing ScoredPath construction into a reusable factory. A test-local execution harness invokes the real checker and case-envelope routes, consumes one canonical grade per completed case, then finalizes the typed results. A gated second candidate proves timing, counters prove no duplicate checks/grade calls, and the old batch path is the payload-parity oracle. This deliberately leaves production expression migration for a subsequent change; it cannot by itself enable table updates.

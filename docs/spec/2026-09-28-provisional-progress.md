@@ -85,3 +85,9 @@ Outstanding proof obligations before calling this design clean:
 6. Compatibility with corrective attempts and all current board adapters.
 
 Assessment: architecturally feasible, but a medium shared grading refactor rather than a small logging change. Existing source supports a candidate seam; executable parity tests are still needed. No URL4 language change is indicated. The earlier assertion that all 32 boards can be guaranteed now was too strong: common ScoredPath usage establishes leverage, not completed compatibility proof.
+
+## IFEval proof result
+
+The test-only incremental execution uses the real IFEval check and case-evaluation node routes, the extracted canonical `scored_path(specs)` factory, and the unchanged finalizer. While candidate 2 is explicitly blocked, candidate 1's grade and provisional headline score are available. Both a passing and failing instruction response match the complete batch payload after finalization. Counters show exactly one checker and one grade-hook call per case on the incremental path.
+
+This proves reuse and timing under explicit early execution wiring. It does not prove production graph integration, cached grade transport, anonymous failure handling across singleton selections, or full-registry support. The shipped expression remains unchanged. Production integration still needs an explicit way to carry the typed grade into aggregation; the test's in-memory results list is not a proposed hidden run cache.

@@ -129,7 +129,26 @@ def aggregate(
     """
 
     selected = _selected_cases(specs, case_order, selected_case_count)
-    path = ScoredPath(
+    path = scored_path(specs)
+    return path.aggregate(
+        rows_json,
+        benchmark_id=benchmark_id,
+        benchmark_revision=IFEVAL_REVISION,
+        selected_cases=selected,
+        # The spec is verified present for every selected Case before any grading,
+        # so the spine's missing-material rung is unreachable on this board.
+        grading_material=lambda case_id: specs.get(case_id),
+        scorer=_ifeval_score,
+    )
+
+
+def scored_path(specs: Mapping[int, Mapping[str, Any]]) -> ScoredPath:
+    """Bind canonical IFEval validation and grading for batch or incremental use.
+
+    WHY: the early-grade proof must reuse the same failure and grading rules as
+    final aggregation, rather than grow a second implementation of IFEval scores.
+    """
+    return ScoredPath(
         reader=RowReader(
             benchmark_label="IFEval",
             error_type=AggregateError,
@@ -141,16 +160,6 @@ def aggregate(
         grading_failure_code="ifeval_checker_failed",
         grading_failure_message="the IFEval checker could not grade this Case",
         missing_row_result=_missing_row_result,
-    )
-    return path.aggregate(
-        rows_json,
-        benchmark_id=benchmark_id,
-        benchmark_revision=IFEVAL_REVISION,
-        selected_cases=selected,
-        # The spec is verified present for every selected Case before any grading,
-        # so the spine's missing-material rung is unreachable on this board.
-        grading_material=lambda case_id: specs.get(case_id),
-        scorer=_ifeval_score,
     )
 
 
@@ -400,4 +409,5 @@ __all__ = [
     "aggregate",
     "load_case_order",
     "load_specs",
+    "scored_path",
 ]
