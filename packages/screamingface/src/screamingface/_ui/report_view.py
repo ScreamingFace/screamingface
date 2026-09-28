@@ -10,6 +10,8 @@ from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING, Any
 
+from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
+from screamingface._ui.accounting_view import accounting_html
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
@@ -24,6 +26,7 @@ _TEXT_CLIP = 10_000
 
 _STYLE = (
     STYLE
+    + ACCOUNTING_STYLE
     + f"""<style>
 .sf-report{{padding:4px 14px 14px}}
 .sf-report__head-row{{display:flex;align-items:flex-start;gap:12px}}
@@ -313,6 +316,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
+        f"{accounting_html(candidate)}"
         f"{_recipe_html(candidate)}</div>"
     )
 

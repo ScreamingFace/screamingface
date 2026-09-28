@@ -417,6 +417,32 @@ Every `CandidateResult` exposes the Engine-owned top-level `coverage` ratio. A p
 available alongside the Cases that could not be graded, and the notebook Report panel labels the
 result as partial rather than silently presenting it as a complete evaluation.
 
+### Completed accounting breakdown
+
+Each Candidate exposes derived views of the Engine's retained operation and grading records:
+
+```python
+breakdown = report.candidates[0].accounting
+breakdown.by_stage  # generation, synthesis, grading
+breakdown.by_operation  # (stage, operation/check id)
+breakdown.by_member  # direct model-member operation ids
+breakdown.by_model  # request model; None when unknown
+breakdown.by_case  # original Case ids
+breakdown.unattributed_cost_usd
+```
+
+Each group has `usage`, `calls`, `cache`, `provider_latency_ms`, and `provider_attempts`.
+These summarize retained observations; they do not replace the authoritative run total.
+Missing observations remain unknown. Calls count consumed responses, not provider retries.
+Provider time sums attempt latencies and is not wall time. Unknown or unpriced costs prevent
+an exact remainder; inconsistent records disable the breakdown (`consistent=False`).
+Loop internals and composite-member ownership remain unattributed where the retained contract
+cannot prove their scope. Derived group views are not added to Report JSON.
+
+Displaying a completed Report includes the operation table and expandable per-Case details.
+Try [the offline review notebook](examples/14_report_accounting.ipynb) without credentials or
+paid calls. Its synthetic figures are explicitly labelled; actual evaluations use the same UI.
+
 ## Ownership boundary
 
 ```text

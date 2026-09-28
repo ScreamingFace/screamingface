@@ -11,6 +11,7 @@ from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Ev
 from screamingface._evaluation.operation_accounting import decode_operation_accounting
 from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
+from screamingface.accounting import member_usage
 from screamingface.case_result import (
     CaseOperation,
     CaseStatus,
@@ -157,7 +158,11 @@ def _candidate_result(
                     models=member.models,
                     failures=None,
                     duration_ms=None,
-                    usage=None,
+                    usage=(
+                        member_usage(cases, member.operation_id)
+                        if candidate.kind == "fusion" and member.kind == "model"
+                        else None
+                    ),
                 )
                 for member in candidate.members
             ),

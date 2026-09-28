@@ -78,3 +78,20 @@ Before implementation, confirm:
 - CorrectiveLoop nested detail and failed-path accounting remain deferred;
 - the live evaluation widget remains unchanged;
 - implementation may begin with `OME-1030`.
+
+## Client delivery notes — 2026-09-28
+
+OME-1032 already delivered steps 1–2 of the Client slice. The owner authorized the remaining
+OME-1031 implementation and a draft PR with a Jupyter review notebook on 2026-09-28.
+
+- `CandidateResult.accounting` returns immutable derived rows and grouped summaries via
+  `by_stage`, `by_operation`, `by_model`, `by_member`, and `by_case`.
+- Member totals use exact direct-model operation identity in every retained Case. Composite
+  members and loop internals stay unavailable rather than infer ownership from DAG dependencies.
+- Missing records poison group totals. Cost reconciliation subtracts only existing, priced,
+  disjoint Engine-owned records; unpriced retained records or an unknown root prevent a remainder.
+- Duplicate/unknown operation identities and negative cost remainders disable the view with a
+  payload-free diagnostic. Equal accounting values on different legitimate owners are not duplicates.
+- Completed Report HTML uses native disclosures and a keyboard-scrollable table; no new JavaScript.
+- `examples/14_report_accounting.ipynb` is an output-free deterministic, offline review notebook
+  with explicitly synthetic observations. Its executable assertions also run in Client tests.
