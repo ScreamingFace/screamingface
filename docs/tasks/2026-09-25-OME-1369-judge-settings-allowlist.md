@@ -1,13 +1,13 @@
 ---
 id: OME-1369
 linear_url: https://linear.app/openmined/issue/OME-1369/an-imported-benchmarks-judge-settings-can-be-silently-ignored-changing
-status: in_progress
+status: done
 type: improvement
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1299
 created: 2026-09-25
-closed:
+closed: 2026-09-28
 ---
 
 # An imported benchmark's judge settings can be silently ignored, changing the exam
@@ -22,3 +22,4 @@ name, and refuse tool-bearing judge calls.
   (`6ca658a2`). Remaining gap: `cache`, one of the five settings inspect passes down from an
   eval to every model, was missing from the allowlist. Branch
   `OME-1369-allow-inherited-judge-cache`.
+- 2026-09-28: PR #1089 merged (`054a06a8`). Closed Done.
