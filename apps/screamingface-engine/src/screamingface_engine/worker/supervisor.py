@@ -880,7 +880,7 @@ class RunSupervisor:
         """
         env = dict(decode_message(msg.data))
         # INVARIANT: an incoming queue message cannot escalate deployment privacy policy.
-        env[job_env.ACTIVITY_LEVEL] = os.environ.get(job_env.ACTIVITY_LEVEL, "off")
+        env[job_env.ACTIVITY_LEVEL] = os.environ.get(job_env.ACTIVITY_LEVEL, "full")
         return env
 
     def _child_env(self, msg: ClaimedMessage) -> dict[str, str]:

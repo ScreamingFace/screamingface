@@ -41,7 +41,7 @@ def test_resolved_historical_start_is_not_reported_as_unknown(monkeypatch):
     assert "outcome not observed" not in html
 
 
-def test_timeline_pages_count_operations_while_retaining_events(monkeypatch):
+def test_timeline_displays_operations_while_retaining_events(monkeypatch):
     monkeypatch.setattr("screamingface._ui.activity_view.time.time", lambda: 100)
     log = ActivityLog()
     for i in range(101):
@@ -49,10 +49,7 @@ def test_timeline_pages_count_operations_while_retaining_events(monkeypatch):
         log.observe(0, record(2, id=str(i), state="completed"))
     panel = CandidateActivityRow(log, ("candidate",), 0)
     panel.toggle.value = True
-    assert panel.page.max == 1
-    assert panel.html.value.count('class="sf-activity__call"') == 100
-    panel.page.value = 1
-    assert panel.html.value.count('class="sf-activity__call"') == 1
+    assert panel.html.value.count('class="sf-activity__call"') == 101
     assert len(log.history()) == 202
 
 

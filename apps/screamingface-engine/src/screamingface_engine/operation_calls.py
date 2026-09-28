@@ -164,6 +164,12 @@ def record_operation_call(
             recorder.append(request_accounting)
 
 
+def current_model_request_key() -> ModelRequestKey | None:
+    """The exact authored request being executed, when run capture is enabled."""
+    identity = _identity.get()
+    return identity.request_key if identity is not None else None
+
+
 def current_request_accounting() -> RequestAccountingRecorder | None:
     """The innermost payload-free run ledger, or None outside an owned scope."""
 
@@ -177,6 +183,7 @@ __all__ = [
     "capture_operation_calls",
     "capture_request_accounting",
     "current_request_accounting",
+    "current_model_request_key",
     "operation_call_identity",
     "record_operation_call",
     "suspend_request_accounting",

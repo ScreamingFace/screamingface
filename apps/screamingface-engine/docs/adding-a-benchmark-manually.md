@@ -262,6 +262,19 @@ numbering by explicit identity, not event order. Do not put prompts, answers, pr
 benchmark material or raw exception text into logs. Activity is best-effort and bounded;
 scores and reports must never depend on its delivery.
 
+For model judges, register each exact request with `register_grading_request` before
+executing it. The shared connector observation uses that Engine-owned request-to-Case
+binding for judge activity as well as accounting. Do not infer identity from a model
+name or call order: ambiguous ownership remains unattributed. Imperative scorers can
+instead establish `grading_call_scope(case_id)` around their awaited judge calls.
+Candidate execution cannot borrow the registered judge identity.
+
+Exercise the complete installed recipe with a real connector and a simulated Gateway,
+including solo and fusion candidates. Check each model call's Case identity, terminal
+outcome, and the ordering of judge completion before the Case verdict. The shared
+catalogue audit is in `tests/unit/test_builtin_judge_activity.py` and
+`tests/unit/inspect/test_imported_catalogue_activity.py`.
+
 ## Step 6 — register
 
 A flat, hand-edited list — no entry points, no discovery. Three edits in

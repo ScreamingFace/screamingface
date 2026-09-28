@@ -58,7 +58,7 @@ STYLE = """<style>
  outline-offset:-2px}
 .sf-candidate-row .sf-eval__table td:first-child,
 .sf-candidate-head .sf-eval__table th:first-child{padding-left:36px}
-.sf-candidate-details{border-top:1px solid var(--sf-line)}
+.sf-candidate-details{border-top:1px solid var(--sf-line);position:relative}
 .sf-candidate-details .widget-html{margin:0}
 .sf-candidate-details .sf-activity-console{border:0}
 .sf-candidate-row .sf-eval__table,.sf-candidate-head .sf-eval__table{min-width:820px}
@@ -87,6 +87,8 @@ def _case_prefix(facts: dict[str, str | int | float], *, model: bool) -> str:
 
 def _stage_label(row: ActivityRow, label: str, outcome: str) -> str:
     facts = dict(row.record.facts)
+    if facts.get("action") == "recording":
+        return "Answer recorded" if outcome == "completed" else "Recording answer"
     if row.record.kind == "case_loading":
         label = "Loading benchmark cases"
         if outcome == "completed":
@@ -97,7 +99,7 @@ def _stage_label(row: ActivityRow, label: str, outcome: str) -> str:
     if row.record.kind == "aggregation":
         label = "Scores aggregated" if outcome == "completed" else "Aggregating scores"
     if outcome == "completed":
-        label = {"Answering": "Answered", "Grading": "Graded"}.get(label, label)
+        label = {"Answering": "Answered", "Grading": "Grading complete"}.get(label, label)
     return label
 
 
@@ -106,18 +108,39 @@ def _call_label(name: str, outcome: str) -> str:
     return {
         "started": f"Calling {name}",
         "running": f"Calling {name}",
-        "completed": f"Completed {name} call",
+        "completed": f"Called {name}",
         "retrying": f"Retrying {name} call",
     }.get(outcome, f"{name} call {outcome}")
 
 
-def _description(row: ActivityRow, label: str, *, model: bool = False) -> str:
+def _model_label(name: str, outcome: str, *, judge: bool, graded: bool) -> str:
+    if judge and outcome in {"started", "running"}:
+        return f"Grading with {name}"
+    if judge and outcome == "completed" and graded:
+        return f"Graded with {name}"
+    return _call_label(f"judge {name}" if judge else name, outcome)
+
+
+def _description(
+    row: ActivityRow,
+    label: str,
+    *,
+    model: bool = False,
+    graded: bool = False,
+    full_id: bool = False,
+) -> str:
     facts = dict(row.record.facts)
     prefix = _case_prefix(facts, model=model)
     name = facts.get("model_id")
     outcome = _outcome(row)
     label = _stage_label(row, label, outcome)
-    subject = _call_label(str(name), outcome) if model and name else label
+    if model and name and not full_id:
+        name = str(name).removeprefix("openrouter/")
+    subject = (
+        _model_label(str(name), outcome, judge=facts.get("role") == "judge", graded=graded)
+        if model and name
+        else label
+    )
     details = []
     if failure := facts.get("failure_code"):
         details.append(str(failure).replace("_", " "))
@@ -170,16 +193,52 @@ def visible_operations(log: ActivityLog, candidate: int) -> list[tuple[ActivityR
             and _outcome(stage) in {"started", "running", "completed"}
         ):
             hidden.add((stage.run, stage.record.id))
-    # INVARIANT: dict insertion order is first observation, not last update time.
-    return [
+    for row in rows:
+        if dict(row.record.facts).get("action") == "recording" and _outcome(row) in {
+            "started",
+            "running",
+            "completed",
+        }:
+            hidden.add((row.run, row.record.id))
+    # Equal timestamps retain observed event order, including nested terminal events.
+    order = {}
+    for index, event in enumerate(log.history()):
+        key = (event.run, event.record.id)
+        if event.candidate == candidate and (key not in order or _completion_summary(event)):
+            order[key] = index
+    visible = [
         (row, labels.get((row.run, row.record.id), LABELS[row.record.kind]))
         for row in log.rows(detailed=True)
         if row.candidate == candidate and (row.run, row.record.id) not in hidden
     ]
+    return sorted(
+        visible,
+        key=lambda entry: (
+            _display_time(entry[0]),
+            order.get((entry[0].run, entry[0].record.id), -1),
+        ),
+    )
+
+
+def _completion_summary(row: ActivityRow) -> bool:
+    return row.record.state == "completed" and row.record.kind in {
+        "case_loading",
+        "grading",
+        "aggregation",
+    }
+
+
+def _display_time(row: ActivityRow) -> int:
+    if _completion_summary(row) or row.first_observed_ms is None:
+        return row.record.observed_at_ms
+    return row.first_observed_ms
 
 
 def _marker(row: ActivityRow) -> str:
-    outcome = _outcome(row)
+    return _outcome_marker(_outcome(row))
+
+
+def _outcome_marker(outcome: str) -> str:
     if outcome in {"started", "running", "retrying"}:
         label = "Retrying" if outcome == "retrying" else "Running"
         icon = '<span class="sf-activity-spinner"></span>'
@@ -198,36 +257,52 @@ def _marker(row: ActivityRow) -> str:
 
 
 def _timestamp(row: ActivityRow) -> str:
-    observed = row.first_observed_ms
-    if observed is None:
-        observed = row.record.observed_at_ms
+    observed = _display_time(row)
+    description = "Completion observed" if _completion_summary(row) else "First observed"
+    return _time_html(observed, description)
+
+
+def _time_html(observed: int, description: str) -> str:
     try:
         stamp = datetime.fromtimestamp(observed / 1000, UTC)
     except (ValueError, OverflowError, OSError):
         return '<span class="sf-activity-time" title="Time unavailable">--:--:--</span>'
     return (
         f'<time class="sf-activity-time" datetime="{stamp.isoformat()}" '
-        f'title="First observed: {stamp:%Y-%m-%d %H:%M:%S} UTC">{stamp:%H:%M:%S}</time>'
+        f'title="{description}: {stamp:%Y-%m-%d %H:%M:%S} UTC">{stamp:%H:%M:%S}</time>'
     )
 
 
-def _line(row: ActivityRow, label: str) -> str:
+def _line(row: ActivityRow, label: str, *, graded: bool = False) -> str:
     model = row.record.kind == "model_call"
     kind = "call" if model else "stage"
+    full_name = str(dict(row.record.facts).get("model_id", ""))
+    copy = _description(row, label, model=model, graded=graded, full_id=True)
+    metadata = (
+        f' title="{escape(full_name, quote=True)}" data-copy="{escape(copy, quote=True)}"'
+        if model and full_name.startswith("openrouter/")
+        else ""
+    )
     return (
         f'<div class="sf-activity__{kind}">{_timestamp(row)}{_marker(row)}'
-        f'<span class="sf-activity__{row.record.state}">'
-        f"{escape(_description(row, label, model=model))}</span></div>"
+        f'<span class="sf-activity__{row.record.state}"{metadata}>'
+        f"{escape(_description(row, label, model=model, graded=graded))}</span></div>"
     )
 
 
 def _copy_control() -> str:
-    # INVARIANT: copy only this rendered page; raw event bodies never enter the DOM.
+    # INVARIANT: copy only the rendered retained logs; raw event bodies never enter the DOM.
     action = r"""event.stopPropagation();(async()=>{
       const button=this;
       const content=button.closest('.sf-activity-console').querySelector('.sf-activity-content');
       const text=Array.from(content.children)
-        .map(line=>line.innerText.replace(/\n+/g,' ')).join('\n');
+        .map(line=>{
+          const time=line.querySelector('time');
+          const message=line.querySelector('span[class^="sf-activity__"]');
+          if(message) return [time?.textContent, message.dataset.copy || message.textContent]
+            .filter(Boolean).join('  ');
+          return line.innerText.replace(/\n+/g,' ');
+        }).join('\n');
       try {
         await navigator.clipboard.writeText(text);
         button.textContent='Copied';
@@ -248,12 +323,10 @@ def activity_html(
     candidates: tuple[str, ...],
     *,
     candidate: int = 0,
-    page: int = 0,
     finished: bool = False,
+    completed_at_ms: int | None = None,
 ) -> str:
     rows = visible_operations(log, candidate)
-    page = max(0, min(page, max(0, (len(rows) - 1) // 100)))
-    selected = rows[max(0, len(rows) - (page + 1) * 100) : len(rows) - page * 100]
     notices = [
         ("evaluation history entries evicted", log.truncated),
         ("operation revision gaps", log.gaps),
@@ -263,7 +336,20 @@ def activity_html(
         ("Engine bridge Logs dropped", log.bridge_loss.get(candidate, 0)),
     ]
     notice = "; ".join(f"{n} {label}" for label, n in notices if n)
-    content = "".join(_line(row, label) for row, label in selected)
+    graded_cases = {
+        (row.run, str(dict(row.record.facts)["case_id"]))
+        for row, _ in rows
+        if row.record.kind == "grading"
+        and row.record.state == "completed"
+        and dict(row.record.facts).get("scope") == "case"
+        and "case_id" in dict(row.record.facts)
+    }
+    content = "".join(
+        _line(
+            row, label, graded=(row.run, str(dict(row.record.facts).get("case_id"))) in graded_cases
+        )
+        for row, label in rows
+    )
     if not content:
         content = (
             "<p>"
@@ -273,6 +359,13 @@ def activity_html(
                 else "No structured activity received yet."
             )
             + "</p>"
+        )
+    if finished and completed_at_ms is not None:
+        content += (
+            '<div class="sf-activity__stage">'
+            + _time_html(completed_at_ms, "Completion observed")
+            + _outcome_marker("completed")
+            + '<span class="sf-activity__completed">Evaluation complete</span></div>'
         )
     label = escape(candidates[candidate], quote=True)
     return (

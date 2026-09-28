@@ -122,7 +122,10 @@ decision.
 Boards created through `single_shot_board` inherit loading, answering, grading and
 aggregation observations. The shared Inspect scorer emits case-grading start and
 terminal facts around actual scoring, including judge-backed scoring; merely recording
-an answer is not grading completion. Candidate-internal corrective checks do not emit
+an answer emits an answering operation with `action=recording` (displayed as
+“Answer recorded”), and packaging its attempt emits no grading event. Judge calls
+carry the explicit `role=judge` and grading Case ID; the Client joins that ID to
+the selected position from answering. Candidate-internal corrective checks do not emit
 benchmark case-grading facts.
 
 No per-board logging decorator or custom stage name is needed. Keep the installed async
@@ -148,7 +151,8 @@ handful of rows if the eval's `record_to_sample` has any unusual shape.
 
 The shared activity integration tests live in
 `tests/unit/inspect/test_inspect_aggregation_activity.py` and
-`test_inspect_grading_activity.py`. For a new scorer/execution path, verify events through
+`test_inspect_grading_activity.py`, plus the complete fake-Gateway recipe in
+`test_imported_activity_lifecycle.py`. For a new scorer/execution path, verify events through
 the actual installed aggregation route, including failure and observation-disabled
 parity; a direct-scorer test alone misses async/context boundaries.
 
