@@ -213,6 +213,27 @@ def _smoke_one_board(client: _sf.Client, board: str, reports_dir: Path) -> list[
     return problems + _report_problems(board, report)
 
 
+def _no_graded_reason(codes: list[str]) -> str:
+    """Say why no Case was graded, advising a rerun only when that is honest.
+
+    WHY branch on the codes: "rerun" is the right advice only when every Case died on
+    a tolerated code. The first paid press printed it for `missing_case_row`, which is
+    a real failure. The empty case is guarded because all() over zero failures is
+    True, which would bring the false claim back.
+
+    Args:
+        codes: every failure code across the board's Cases, in Case order.
+
+    Returns:
+        The tail of the board's "no Case was graded" verdict.
+    """
+    if not codes:
+        return "and no Case reported a failure"
+    if all(code in TOLERATED_MODEL_SIDE_CODES for code in codes):
+        return "every attempt died on a tolerated model-side code; rerun"
+    return "see its case failures below"
+
+
 def _report_problems(board: str, report: _sf.Report) -> list[str]:
     """Read one board's Report like a referee: did the pipe carry every Case to a
     grade, and did anything fail that was not the model misbehaving?"""
@@ -228,9 +249,10 @@ def _report_problems(board: str, report: _sf.Report) -> list[str]:
     # prompts essentially never doubly refuse, so the rare flake costs a cents-level
     # rerun; the silent alternative costs trust in every green run.
     if not any(case.status == "scored" for case in candidate.cases):
+        codes: list[str] = [failure.code for case in candidate.cases for failure in case.failures]
         problems.append(
-            f"{board}: no Case was graded — every attempt died on a tolerated "
-            f"model-side code, so this run proved nothing about the board; rerun"
+            f"{board}: no Case was graded, so this run proved nothing about the board — "
+            f"{_no_graded_reason(codes)}"
         )
     for case in candidate.cases:
         for failure in case.failures:
