@@ -135,7 +135,7 @@ An admitted run that no worker claims stays `scheduled` with a silent socket for
 ## Open owner questions
 
 - Q1. Fail an unclaimed run after a bound shorter than 16 h (typed terminal error + tombstone)?
-  This unit only warns.
+  This unit only warns. **Decided 2026-09-28 (owner): no — keep the 16 h bound** (spec §5 Q1).
 - Q2. Where do queue alert rules live (SigNoz or the chart)?
 - Q3. Is 300 s the wanted default for the client notice? Under normal long-evaluation load every
   run that waits more than 300 s gets it.

@@ -110,6 +110,6 @@ are None" part of PRD test 23 with an exhaustive stdlib walk.
   - Gates after the fixes: aigateway ALL GREEN (4998 passed, 89 skipped); screamingface ALL
     GREEN (1868 passed, 26 skipped); Engine ruff/pyright green, unit 3992 passed, 18 skipped.
   - Not pushed (coordinator instruction; the local pre-push blocker above still applies).
-- **Follow-ups / owner questions:** spec §4 Q1 (same format / Engine agnostic sign-off), Q2
+- **Follow-ups / owner questions:** spec §4 Q1 (same format / Engine agnostic sign-off — **decided 2026-09-28: keep the `cache.reference` shape**), Q2
   (`hypothesis`), Q3 (runtime schema validation — proposed `improvement-ideas`), Q4 (Engine span
   `gen_ai.response.model` could read `cache.reference.response_model` on a hit).
