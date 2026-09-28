@@ -361,3 +361,28 @@ async def test_delete_when_the_queue_is_unreadable_is_503_and_purges_nothing() -
 
     assert resp.status_code == 503
     assert stream._log[topic] != [], "the stream must NOT be deleted on an unknown state"  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_every_broker_down_503_carries_the_same_retry_after() -> None:
+    """Design review: the unreadable-queue 503s (the 409 pre-check and `DELETE /`) and the
+    unavailable-queue 503 at schedule time are one condition — the broker is not answering — so
+    they tell the client the SAME retry cadence, from one named constant."""
+    from screamingface_engine.adapters.jetstream import QueueReadError
+    from screamingface_engine.rest.routes import QUEUE_UNAVAILABLE_RETRY_AFTER_S
+
+    class _Unreadable(RecordingJobRunner):
+        async def exists(self, topic: str) -> bool:
+            raise QueueReadError("stream tail unreadable")
+
+        async def stop(self, topic: str) -> None:
+            raise QueueReadError("stream tail unreadable")
+
+    app = _make_app(job_runner=_Unreadable(), gate_present=True)
+    async with _client(app) as client:
+        get = await client.get("/", params={"q": "gpt()"}, headers=_cap("topic-ra"))
+        delete = await client.delete("/", params={"topic": "topic-ra"}, headers=_cap("topic-ra"))
+
+    assert QUEUE_UNAVAILABLE_RETRY_AFTER_S == 5
+    assert get.status_code == delete.status_code == 503
+    assert get.headers["Retry-After"] == delete.headers["Retry-After"] == "5"

@@ -54,6 +54,8 @@ _logger = logging.getLogger(__name__)
 # WHY 5 and not the capacity path's constant 1: an unreachable broker is a reconnect or a
 # failover in flight, which takes seconds — a client told to retry in 1 s spends its retries
 # inside the outage. There is no drain estimate to derive a better value from.
+# INVARIANT: every "broker down" 503 (unreadable queue tail, unavailable queue at schedule time)
+# uses THIS value; the capacity 503 keeps its drain estimate.
 QUEUE_UNAVAILABLE_RETRY_AFTER_S = 5
 
 _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
@@ -196,6 +198,7 @@ async def _refuse_existing(deps: _Deps, topic: str) -> None:
             status=503,
             title="Service Unavailable",
             detail="the run queue could not be read; retry",
+            headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S)},
         ) from None
     if already_exists:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
@@ -712,6 +715,7 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             status=503,
             title="Service Unavailable",
             detail="the run queue could not be read; retry",
+            headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S)},
         ) from None
     # WHY delete_stream and not purge: this is the run's terminal teardown, and `delete_stream`
     # purges the subject on the shared events stream while KEEPING the terminal frame — the

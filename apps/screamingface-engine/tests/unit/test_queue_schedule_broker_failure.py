@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 import nats.errors
+import nats.js.errors
 import pytest
 from httpx import ASGITransport
 
@@ -209,3 +210,67 @@ async def test_the_rest_edge_answers_a_retryable_503_problem(queue: _FailingQueu
     assert body["detail"] == "the run queue is unavailable — retry shortly"
     for internal in ("nats", "jetstream", "stream", "timeout"):
         assert internal not in body["detail"].lower()
+
+
+# --- only AVAILABILITY failures are retryable (design review) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        nats.js.errors.ServiceUnavailableError(),
+        nats.errors.NoRespondersError(),
+        nats.errors.StaleConnectionError(),
+        nats.errors.ConnectionReconnectingError(),
+    ],
+    ids=["js-503", "no-responders", "stale", "reconnecting"],
+)
+async def test_every_availability_failure_is_retryable(error: Exception) -> None:
+    runner = _runner(_FailingQueue(publish_error=error))
+
+    with pytest.raises(RunQueueUnavailable):
+        await runner.schedule("t", "'hi'", 60, identity=CALLER)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        nats.errors.MaxPayloadError(),
+        nats.errors.BadSubjectError(),
+        # The stream-config conflict `RunQueue.ensure_stream` re-raises ON PURPOSE.
+        nats.js.errors.BadRequestError(),
+    ],
+    ids=["max-payload", "bad-subject", "config-conflict"],
+)
+async def test_a_non_retryable_broker_error_is_not_relabelled_as_retry_shortly(
+    error: Exception,
+) -> None:
+    """INVARIANT: "retry shortly" must be TRUE. A payload too large, a bad subject or a stream
+    config conflict fails identically on every retry — it stays the 500 it is, so an operator
+    sees a defect instead of a client retrying into it. The reservation is still released."""
+    queue = _FailingQueue(publish_error=error)
+    runner = _runner(queue, caller_inflight_cap=1)
+
+    with pytest.raises(type(error)):
+        await runner.schedule("t1", "'hi'", 60, identity=CALLER)
+    queue.publish_error = None
+    await runner.schedule("t2", "'hi'", 60, identity=CALLER)
+
+
+async def test_a_non_retryable_broker_error_answers_500_at_the_edge() -> None:
+    app = create_app(
+        Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S),
+        stream=InMemoryEventStream(),
+        job_runner=_runner(_FailingQueue(publish_error=nats.errors.MaxPayloadError())),
+        clock=lambda: T0,
+        interest=_Gate(),
+    )
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get(
+            "/",
+            params={"q": "gpt()"},
+            headers={"URL4-Capability": _token("topic-bad"), "Prefer": "respond-async"},
+        )
+
+    assert resp.status_code == 500

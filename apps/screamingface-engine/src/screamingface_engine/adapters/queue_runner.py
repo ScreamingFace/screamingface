@@ -41,7 +41,6 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 import nats
-import nats.errors
 from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.errors import NoRespondersError
@@ -51,6 +50,7 @@ from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.run_evidence import adopt_or_mint_traceparent, log_scheduled
 from screamingface_engine.runner_queue import (
+    BROKER_UNAVAILABLE_ERRORS,
     DEFAULT_CALLER_INFLIGHT_CAP,
     DEFAULT_DEPTH_CEILING,
     DEFAULT_IO_CONCURRENCY,
@@ -289,12 +289,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
         Raises:
             JobRunnerAtCapacity: the queue is at its depth ceiling, or the caller has too
                 many runs in flight (503 + `Retry-After` at the REST edge).
-            RunQueueUnavailable: the broker failed on the admission read or the publish
-                (503 + a constant `Retry-After` at the REST edge).
+            RunQueueUnavailable: the broker was unreachable on the admission read or the
+                publish (503 + a constant `Retry-After` at the REST edge). Any other broker
+                error propagates unchanged (a 500): it would fail the same way on retry.
         """
         try:
             reservation = await self._admit_or_raise(identity, topic)
-        except nats.errors.Error as exc:
+        except BROKER_UNAVAILABLE_ERRORS as exc:
             # WHY translated here and not at the REST edge: the route must not learn the
             # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
             # reserves only after its last broker read — so there is nothing to release.
@@ -340,7 +341,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # FIRST, still-running admission too, under-counting the caller from then on.
             # The release removes exactly the reservation this attempt minted.
             await self._release_reservation(topic, caller_key(identity), reservation)
-            if isinstance(exc, nats.errors.Error):
+            if isinstance(exc, BROKER_UNAVAILABLE_ERRORS):
                 # AFTER the release, so the translation can never skip it (a leaked
                 # reservation refuses the caller's next run for a run that never queued).
                 raise RunQueueUnavailable("the run could not be durably queued") from exc

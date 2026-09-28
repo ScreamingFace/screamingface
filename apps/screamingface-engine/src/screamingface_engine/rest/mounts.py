@@ -50,6 +50,7 @@ from screamingface_engine.rest.routes import (
     wait_terminal_or_gone,
 )
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER
+from screamingface_engine.runner_queue import RunQueueUnavailable
 from screamingface_engine.world.serving import MountDescriptor, MountTable, mount_http_status
 from screamingface_engine.world.wire import url4_error_body
 from url4.streaming.protocol import ResultEvent, TerminatedEvent
@@ -217,6 +218,18 @@ async def _call(request: Request, mount: MountDescriptor, **kwargs: Any) -> Resp
     return response
 
 
+def _shed_message(problem: ProblemException) -> str:
+    """The message of a mount call's 503, by cause.
+
+    WHY by cause: `overloaded` is the only 503 code url4 clients know, so it is kept for every
+    503, but a broker outage (`RunQueueUnavailable`) is not "at capacity" and must not be
+    reported as one.
+    """
+    if isinstance(problem.__cause__, RunQueueUnavailable):
+        return "the run queue is unavailable, retry shortly"
+    return "server at capacity, retry shortly"
+
+
 def _problem_code(status: int) -> str:
     return {404: "result_unavailable", 409: "conflict"}.get(status, "upstream_error")
 
@@ -300,9 +313,7 @@ async def _respond(
         if exc.problem.status != 503:
             raise
         # url4's `overloaded` shed shape (the removed node tier's), the drain estimate kept.
-        raise _Refused(
-            _envelope(503, "overloaded", "server at capacity, retry shortly", exc.headers)
-        ) from None
+        raise _Refused(_envelope(503, "overloaded", _shed_message(exc), exc.headers)) from None
     outcome: Any = None
     try:
         outcome = await wait_terminal_or_gone(deps.stream, topic, bound, request.is_disconnected)

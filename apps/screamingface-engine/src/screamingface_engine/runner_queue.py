@@ -40,7 +40,7 @@ from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StorageType
-from nats.js.errors import BadRequestError
+from nats.js.errors import BadRequestError, ServiceUnavailableError
 
 from screamingface_engine import job_env, subjects
 from screamingface_engine.client_provenance import CLIENT_VERSION_ENV, valid_version
@@ -299,15 +299,34 @@ call sites cannot drift apart."""
 class RunQueueUnavailable(RuntimeError):
     """The run could not be durably queued because the broker failed — not because it is full.
 
-    Raised by `QueueJobRunner.schedule()` in place of the `nats.errors.Error` that the admission
-    depth read or the durable publish raised (a timeout, a closed connection, no servers, a
-    JetStream API error). The broker's error is the `__cause__`.
+    Raised by `QueueJobRunner.schedule()` in place of a `BROKER_UNAVAILABLE_ERRORS` member that
+    the admission depth read or the durable publish raised (a timeout, a closed connection, no
+    servers, JetStream's own 503). The broker's error is the `__cause__`.
 
     WHY a typed error distinct from `JobRunnerAtCapacity`: a FULL queue and an UNREACHABLE one
     are both retryable 503s at the REST edge, but only the first has a drain estimate to derive
     `Retry-After` from. Left untyped, the broker error escaped as a naked plain-text 500 — "the
     server is broken", which clients do not retry — for a fault an identical retry usually cures.
     """
+
+
+BROKER_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
+    nats.errors.TimeoutError,
+    nats.errors.ConnectionClosedError,
+    nats.errors.ConnectionReconnectingError,
+    nats.errors.NoServersError,
+    nats.errors.NoRespondersError,
+    nats.errors.StaleConnectionError,
+    ServiceUnavailableError,
+)
+"""The broker errors that mean "not reachable right now" — the ONLY ones `RunQueueUnavailable`
+stands for.
+
+INVARIANT: "retry shortly" must be true. Everything else in `nats.errors.Error` — a payload over
+the limit, a bad subject, the stream-config conflict `ensure_stream` re-raises on purpose — fails
+the same way on every retry, so it stays an unhandled 500: a defect an operator must see, not a
+wait a client should sit through. `StaleConnectionError` covers `UnexpectedEOF`; the timeout
+covers `FlushTimeoutError`."""
 
 
 STREAM_NAME_IN_USE = 10058
@@ -1185,6 +1204,7 @@ class RunQueue:
 
 
 __all__ = [
+    "BROKER_UNAVAILABLE_ERRORS",
     "DEFAULT_ACK_WAIT_S",
     "DEFAULT_BUCKET_COUNT",
     "DEFAULT_CALLER_INFLIGHT_CAP",
