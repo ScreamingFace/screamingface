@@ -188,7 +188,8 @@ export function fusionFromSlots(
 
 function quoteIntent(text: string): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
-  return `'${oneLine.replace(/'/g, "\\'")}'`;
+  const escaped = oneLine.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  return `'${escaped}'`;
 }
 
 function paramQuery(params: ModelParam[]): string {
