@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1392
 stack: repo
 status: in_progress
 started: 2026-09-28
@@ -35,7 +35,7 @@ download link to that run's bundle.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned (workflow + this ledger + the OME-1392 mirror).
+- **Commits:** `93147b15` — ci(screamingface): link the paid smoke debug bundle from the run summary
+- **Gates:** pre-commit (check yaml, whitespace, EOF) passed; yamllint relaxed passed. No Python touched.
+- **Deviations:** none. Acceptance waits on the owner's paid press (agents never press it).
