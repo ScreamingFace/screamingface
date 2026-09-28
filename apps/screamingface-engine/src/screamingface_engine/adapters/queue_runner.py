@@ -41,6 +41,7 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 import nats
+import nats.errors
 from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.errors import NoRespondersError
@@ -55,6 +56,7 @@ from screamingface_engine.runner_queue import (
     DEFAULT_IO_CONCURRENCY,
     DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
+    RunQueueUnavailable,
     caller_key,
     encode_message,
 )
@@ -287,8 +289,16 @@ class QueueJobRunner(IdentityAwareJobRunner):
         Raises:
             JobRunnerAtCapacity: the queue is at its depth ceiling, or the caller has too
                 many runs in flight (503 + `Retry-After` at the REST edge).
+            RunQueueUnavailable: the broker failed on the admission read or the publish
+                (503 + a constant `Retry-After` at the REST edge).
         """
-        reservation = await self._admit_or_raise(identity, topic)
+        try:
+            reservation = await self._admit_or_raise(identity, topic)
+        except nats.errors.Error as exc:
+            # WHY translated here and not at the REST edge: the route must not learn the
+            # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
+            # reserves only after its last broker read — so there is nothing to release.
+            raise RunQueueUnavailable("the run queue could not be read at admission") from exc
         # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
         # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
         # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
@@ -314,7 +324,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             log_scheduled(
                 logger, topic=topic, traceparent=run_traceparent, job_name=job_name(topic)
             )
-        except BaseException:
+        except BaseException as exc:
             # WHY BaseException and not Exception: a task cancelled mid-publish (a client
             # disconnect, an upstream timeout) raises `CancelledError`, which since 3.8 is
             # NOT an Exception — the release below was skipped and the reservation leaked
@@ -330,6 +340,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # FIRST, still-running admission too, under-counting the caller from then on.
             # The release removes exactly the reservation this attempt minted.
             await self._release_reservation(topic, caller_key(identity), reservation)
+            if isinstance(exc, nats.errors.Error):
+                # AFTER the release, so the translation can never skip it (a leaked
+                # reservation refuses the caller's next run for a run that never queued).
+                raise RunQueueUnavailable("the run could not be durably queued") from exc
             raise
         self._scheduled_at[topic] = self._clock()
         return job_name(topic)

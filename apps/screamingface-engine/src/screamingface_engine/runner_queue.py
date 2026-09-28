@@ -296,6 +296,20 @@ co-located supervisor, each of which SIGKILLs its live child. Named once here so
 call sites cannot drift apart."""
 
 
+class RunQueueUnavailable(RuntimeError):
+    """The run could not be durably queued because the broker failed — not because it is full.
+
+    Raised by `QueueJobRunner.schedule()` in place of the `nats.errors.Error` that the admission
+    depth read or the durable publish raised (a timeout, a closed connection, no servers, a
+    JetStream API error). The broker's error is the `__cause__`.
+
+    WHY a typed error distinct from `JobRunnerAtCapacity`: a FULL queue and an UNREACHABLE one
+    are both retryable 503s at the REST edge, but only the first has a drain estimate to derive
+    `Retry-After` from. Left untyped, the broker error escaped as a naked plain-text 500 — "the
+    server is broken", which clients do not retry — for a fault an identical retry usually cures.
+    """
+
+
 STREAM_NAME_IN_USE = 10058
 """JetStream's err_code for "stream name already in use" — the ONE `BadRequestError` the
 queue treats as benign. The type alone cannot say: the server answers a real configuration
@@ -1188,6 +1202,7 @@ __all__ = [
     "QUEUE_CONSUMER",
     "QUEUE_REPLICAS",
     "RunQueue",
+    "RunQueueUnavailable",
     "caller_key",
     "decode_message",
     "encode_message",
