@@ -1,0 +1,23 @@
+---
+id: OME-1339
+linear_url: https://linear.app/openmined/issue/OME-1339/imported-benchmarks-judge-reasoning-is-missing-from-the-notebook
+status: in_progress
+type: improvement
+priority: medium
+labels: [screamingface-engine, agentic, autonomous]
+parent: OME-1299
+created: 2026-09-25
+closed:
+---
+
+# Imported benchmarks' judge reasoning is missing from the notebook report
+
+The inspect adapter kept a judge's words only in the evidence's `raw_output`; the report
+reads `explanation`. The adapter now fills `explanation` from the same text, except when that
+text is just the candidate's own answer (inspect's match, choice, pattern and math scorers
+echo it), so exact-match boards stay as they were. Pairs with `OME-1340`, which lands first.
+
+- 2026-09-25: filed.
+- 2026-09-28: owner decision: fill `explanation` only when it differs from the graded answer.
+  No committed replay fixture carries inspect evidence, so nothing needed re-recording.
+  Implementation on branch `OME-1339-inspect-judge-explanation`.

@@ -233,3 +233,56 @@ async def test_non_mapping_material_metadata_is_rejected() -> None:
             match(numeric=True),
             _request(material={"target": "42", "metadata": "research"}),
         )
+
+
+# ── the judge's reasoning reaches the report (OME-1339) ─────────────────────
+# FEATURE: the notebook report shows evidence.explanation under each verdict; the shim
+# kept a judge's words only in raw_output, so imported boards showed a bare FAIL.
+# STORY: as a researcher reading an imported judged case, I see why it scored what it did.
+
+
+def _evidence(outcome: CaseGradeOutcome) -> dict[str, Any]:
+    """The single evidence item the shim writes for a graded Case."""
+
+    return outcome.checks[0]["evidence"][0]
+
+
+@pytest.mark.asyncio
+async def test_a_judges_reasoning_fills_the_explanation_the_report_reads() -> None:
+    reasoning = "Item 1: names the ligand (+5).\nItem 2: no controls (0).\n\nVERDICT: 5"
+    outcome = await _graded(
+        _scorer_returning(Score(value=0.5, explanation=reasoning)),
+        _request(answer="Use ligand L."),
+    )
+
+    evidence = _evidence(outcome)
+    assert evidence["explanation"] == reasoning
+    # INVARIANT: raw_output stays the verbatim audit record, byte for byte.
+    assert evidence["raw_output"] == reasoning
+
+
+@pytest.mark.asyncio
+async def test_an_echoed_answer_is_not_reported_as_reasoning() -> None:
+    """inspect's match/choice/pattern/math scorers set explanation to the candidate's
+    own completion — that explains nothing, so it must not show as the judge's reasoning
+    (owner decision, 2026-09-28)."""
+
+    answer = "The sum is small.\n\nANSWER: 42"
+    outcome = await _graded(match(numeric=True), _request(answer=answer))
+
+    evidence = _evidence(outcome)
+    assert "explanation" not in evidence
+    # The echoed text is still the audit record, exactly as before.
+    assert evidence["raw_output"] == answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explanation", [None, ""])
+async def test_no_explanation_leaves_the_field_absent(explanation: str | None) -> None:
+    outcome = await _graded(
+        _scorer_returning(Score(value=CORRECT, explanation=explanation)), _request()
+    )
+
+    # WHY absent, not "": the wire model omits a None explanation, so a scorer that
+    # explains nothing produces the same evidence it always did.
+    assert "explanation" not in _evidence(outcome)
