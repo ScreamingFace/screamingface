@@ -56,6 +56,16 @@ ANSWER_SEED_HEADER = "X-Answer-Seed"
 CACHE_CONTROL_HEADER = "Cache-Control"
 TRACEPARENT_HEADER = "traceparent"
 
+# FEATURE (OME-1381, Stage D of OME-1138): selector-less provider access. Engine ingress refuses a
+# stated `X-Profile` instead of carrying it; the gateway is still the only interpreter of a legacy
+# selector already on a queued run. ONE code and ONE message for every Engine surface, REST
+# (RFC 9457 `code` member) and sync mount (url4 envelope) alike.
+# INVARIANT: the message never names the requested value — it is neither echoed nor logged.
+X_PROFILE_UNSUPPORTED = "x_profile_unsupported"
+X_PROFILE_UNSUPPORTED_MESSAGE = (
+    "the X-Profile header is no longer supported; send the request without it"
+)
+
 
 class RequestScopeError(RuntimeError):
     """Read of the request scope with nothing bound.
@@ -188,6 +198,17 @@ def trace_from_headers(headers: Mapping[str, str]) -> TraceContext | None:
     return TraceContext(trace_id=trace_id, root_span_id=span_id)
 
 
+def requests_selector(values: Iterable[str]) -> bool:
+    """Whether any of a request's ``X-Profile`` values states a selector.
+
+    INVARIANT: the same "blank is absence" rule the node applies (`_optional`), so an ingress and
+    the node can never disagree about what counts as a selector. EVERY value is judged, not the
+    first: a blank first value must not hide a named second one, which a first-value reader would
+    drop without a word — the silent ignore Stage D exists to close.
+    """
+    return any(_optional(value) is not None for value in values)
+
+
 def _optional(raw: str | None) -> str | None:
     """A present-but-blank header is absence, not an empty value."""
     return (raw or "").strip() or None
@@ -293,6 +314,8 @@ __all__ = [
     "CACHE_CONTROL_HEADER",
     "PROFILE_HEADER",
     "TRACEPARENT_HEADER",
+    "X_PROFILE_UNSUPPORTED",
+    "X_PROFILE_UNSUPPORTED_MESSAGE",
     "AnswerSeedError",
     "RequestScope",
     "RequestScopeError",
@@ -301,5 +324,6 @@ __all__ = [
     "forwarded_headers",
     "request_scope",
     "request_scope_from_headers",
+    "requests_selector",
     "trace_from_headers",
 ]

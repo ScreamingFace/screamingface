@@ -367,12 +367,15 @@ def test_the_rest_edge_drops_a_malformed_inbound_traceparent() -> None:
 
 
 def test_the_rest_edge_carries_a_valid_inbound_traceparent_through() -> None:
+    """OME-1381: the request no longer carries `X-Profile: prof` and the old
+    `caller.profile == "prof"` becomes `is None` — a stated selector is refused at this edge (see
+    `test_selector_refusal.py`), so the `Caller` it builds is always selector-less."""
     inbound = "00-" + "9" * 32 + "-" + "8" * 16 + "-01"
 
-    caller = _caller(_fake_request({"traceparent": inbound, "X-Profile": "prof"}))
+    caller = _caller(_fake_request({"traceparent": inbound}))
 
     assert caller.traceparent == inbound
-    assert caller.profile == "prof"
+    assert caller.profile is None
 
 
 @pytest.mark.asyncio

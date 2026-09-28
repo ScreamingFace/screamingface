@@ -69,14 +69,15 @@ sequenceDiagram
     App-->>Client: 101 Switching Protocols + heartbeats
 
     Note over Client,Bus: Phase 2 — start the run (REST control plane)
-    Client->>+Edge: GET /?q=<url4 expr><br/>URL4-Capability: <jwt><br/>X-Profile: <opt><br/>traceparent: <W3C opt><br/>Prefer: respond-async|wait=<s>
+    Client->>+Edge: GET /?q=<url4 expr><br/>URL4-Capability: <jwt><br/>traceparent: <W3C opt><br/>Prefer: respond-async|wait=<s>
     Note right of Edge: Envoy verifies Cloudflare Access,<br/>strips any client copy and re-injects X-User-Email
     Edge->>+App: GET /?q=...<br/>X-User-Email: <verified>
     App->>App: auth dep verifies URL4-Capability JWT → VerifiedClaims; topic = sub
+    App->>App: refuse_selector: nonblank X-Profile ⇒ 400 x_profile_unsupported
     App->>App: _require_q(q); _require_subscriber(interest, topic)
     App->>Reg: interest.has_subscriber(topic)
     Note right of Reg: no WS attached ⇒ 428 Precondition Required
-    App->>App: job_env.identity_from_headers(request.headers); profile
+    App->>App: job_env.identity_from_headers(request.headers)
     App->>App: _schedule: admission gate — queue depth ceiling +<br/>per-caller in-flight cap ⇒ 503 + Retry-After
     App->>+Bus: RunQueue.publish(encode_message(...))<br/>Nats-Msg-Id = topic (broker dedupe ⇒ 409 on retry),<br/>Url4-Enqueued-At = acceptance wall-clock
     Bus-->>App: ack (durably accepted)
@@ -96,8 +97,8 @@ sequenceDiagram
     Child->>Child: cli.main(["run"]) → lazily imports screamingface_engine.runner.main
     Child->>Child: params_from_env → RunnerParams(topic,url4,nats_url)
     Child->>Child: build_executor(env); load_config → /etc/url4/url4.toml
-    alt [aigateway] declared (token required)
-        Child->>+Conn: build_aigateway_world(cfg, token, profile, tavily_api_key)
+    alt [aigateway] declared
+        Child->>+Conn: build_aigateway_world(cfg, tavily_api_key=…)<br/>no token; identity (and a legacy profile) ride the per-request scope
         Conn->>Conn: routes_for(declared models) → one Url4Node route per model
         Conn-->>Child: AigatewayWorld(node, world_aclose)
     else no [aigateway] table
@@ -109,7 +110,7 @@ sequenceDiagram
         Child->>Child: url4.dag.run(url4, io=node, observer=_Bridge)
         Note right of Child: sync Observer → async generator bridge
         Child->>+Conn: node dispatches processor route /<provider>/<model>
-        Conn->>+AGW: POST /v1/chat/completions<br/>{model, messages[, tools]}<br/>X-User-Email, X-Profile
+        Conn->>+AGW: POST /v1/chat/completions<br/>{model, messages[, tools]}<br/>X-User-Email[, X-Profile: legacy message only]
         opt web tools enabled (Tavily key present)
             AGW-->>Conn: choices[0].message.tool_calls
             par parallel tool execution
@@ -192,12 +193,15 @@ the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
 2. It is NOT plain header pass-through: the App and the run's child process are different
    processes and the outgoing request does not exist yet. The App serializes it into the
    queue message's per-run env as `URL4_CLOUD_IDENTITY_USER_EMAIL` (plain env, not a Secret —
-   identity authorizes nothing on its own), and the child re-renders it. `AIGATEWAY_PROFILE`
-   comes from `X-Profile` the same way.
+   identity authorizes nothing on its own), and the child re-renders it. No run is scheduled
+   with `AIGATEWAY_PROFILE` any more (OME-1381): ingress refuses a nonblank `X-Profile`, and the
+   worker drops an ambient value instead of inheriting it. A queue message accepted before that
+   change still carries the field, and it is honoured until the drain.
 3. The run mode's `build_executor` (`runner/main.py`) branches on the declared world in
    `url4.toml`:
    - an `[aigateway]` table → `build_aigateway_world` builds a `Url4Node` whose declared routes
-     call `POST /v1/chat/completions` with `X-User-Email` and `X-Profile`;
+     call `POST /v1/chat/completions` with `X-User-Email` (and `X-Profile` only for a legacy
+     message that still carries `AIGATEWAY_PROFILE`);
    - no table → the run's IO is `deny_by_default_world()` (empty `StaticIOLayer` — no routes,
      no holdings, no fetch map).
 4. **No bearer token is carried anywhere.** aigateway runs `cloudflare_headers` when deployed

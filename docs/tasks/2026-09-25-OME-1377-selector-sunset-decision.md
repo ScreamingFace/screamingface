@@ -31,3 +31,11 @@ or destructive cleanup happens in this issue.
   `docs/work/2026-09-25-OME-1377-selector-sunset-decision.md`. The metamodel-first gate is passed.
   Still open: the census landing (production evidence needs `OME-1333` permission), the evidence
   window and sunset date, and the remaining landings.
+- 2026-09-26: the owner waived the separate census on 2026-09-25, as recorded on `OME-1381`. The
+  dev evidence and the absence of first-party callers that send `X-Profile` are sufficient to
+  proceed to Engine producer-off (`OME-1381`).
+
+  The waiver is recorded in the tracked spec (§3.6, §6.2, D4) and plan (stage row D, the Stage D
+  rollout paragraph, G5b). It lands in the `OME-1381` PR (`Refs: OME-1381, OME-1377`), with no
+  separate landing. The sunset date (the gateway reject) and the env audit are still open. This
+  issue stays In Progress.

@@ -6,8 +6,10 @@ both sides, and the tests that pin it (PRD + test ID). Tags as in `erd.md`.
 ## C1 — Sync run: Client → App, sync, HTTP `GET /?q=`
 
 - **Shape.** Request: `q` (url4 expression), header `URL4-Capability: <jwt>` (required),
-  optional `Prefer: wait=<s>` or `respond-async`, `X-Profile`, `traceparent`,
-  `X-Answer-Seed`. Identity header `X-User-Email` comes from the edge.
+  optional `Prefer: wait=<s>` or `respond-async`, `traceparent`, `X-Answer-Seed`. Identity
+  header `X-User-Email` comes from the edge. A nonblank `X-Profile` is refused with 400
+  `x_profile_unsupported` before anything is scheduled; absent or blank, it is ignored
+  (OME-1381).
   `[existing rest/routes.py:497]` Response: 200 result body (media type from `ResultData`),
   202 (`Location`, `Link`, `Preference-Applied`), 401, 409, 428 (async only after this
   change), 502, 503 (`Retry-After`), 504. `[existing rest/routes.py]` + delta `[stated ans:Q1]`
@@ -22,7 +24,9 @@ both sides, and the tests that pin it (PRD + test ID). Tags as in `erd.md`.
 
 - **Shape.** Request: path from the MOUNT_DESCRIPTOR set; `q` (required for endpoints,
   optional for data routes); `X-User-Email` (edge-verified, required); optional
-  `X-Profile`, `traceparent`, `X-Answer-Seed`, `Prefer: wait=<s>`. No token.
+  `traceparent`, `X-Answer-Seed`, `Prefer: wait=<s>`. No token. A nonblank `X-Profile` is
+  refused with url4's envelope 400 `x_profile_unsupported`, after the identity check and
+  before anything queues; absent or blank, the direct run carries no profile (OME-1381).
   `[existing D4]` + `[stated ans:Q5]` Response: 200 (handler body, handler media type), 303
   (`Location: /artifacts/{id}?exp&sig`), 400, 403, 404 (unknown path), 414, 502, 503
   (`Retry-After`), 504. Every mount is a `GET` operation in `/openapi.json`, tag `Mounts`.
@@ -110,8 +114,10 @@ both sides, and the tests that pin it (PRD + test ID). Tags as in `erd.md`.
 
 ## C10 — Model call: Child → aigateway, sync, HTTP `POST /v1/chat/completions`
 
-- **Shape and policies.** Unchanged: headers `X-User-Email`, `X-Profile`, `traceparent`; no
-  `Authorization`. `[existing world/connector.py:1048-1080]`
+- **Shape and policies.** Unchanged: headers `X-User-Email`, `traceparent`; no
+  `Authorization`. `[existing world/connector.py:1048-1080]` `X-Profile` only for a legacy
+  run whose message still carries `AIGATEWAY_PROFILE` (accepted before OME-1381), until the
+  drain.
 - **Delta.** Direct runs now make this call from a child process instead of from a node pod.
   The aigateway NetworkPolicy already admits the runner pods (`url4-runner`).
   `[existing apps/aigateway/charts/aigateway/values-prod.yaml:66-72]`

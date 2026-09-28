@@ -31,10 +31,11 @@ from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse
 
 from screamingface_engine import job_env
-from screamingface_engine.auth import ProblemException
+from screamingface_engine.auth import PROBLEM_MEDIA_TYPE, ProblemException
 from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import CatalogError, Credential, ModelParameterSource
 from screamingface_engine.rest.conditional import validator_matches
+from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +43,17 @@ router = APIRouter()
 
 # INVARIANT: names every header that can change the response body. Without it a shared cache is
 # free to serve one caller's catalog to another — the header-level counterpart of keying the cache
-# by caller (spec §5.2, §6.3).
+# by caller (spec §5.2, §6.3). `X-Profile` stays although it no longer selects anything
+# (OME-1381): whether it is present still decides between a catalog and a 400, and a cache that
+# served the catalog to a request stating a selector would ignore that selector in silence.
 _VARY = "X-Profile, X-User-Email"
 
 # RFC 9110 §11.6.1: a 401 must carry a challenge. `Bearer` with no realm is deliberate — a realm
 # would name this deployment's identity provider to an unauthenticated caller. Only used to relay
 # an upstream refusal now; this route no longer refuses anyone itself.
 _CHALLENGE = {"WWW-Authenticate": "Bearer"}
+# The Engine's own refusals are RFC 9457 problems; declared so a generated client can read them.
+_PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}}
 _MODEL_PARAMETER_HEADERS = {
     "Cache-Control": "private, no-store",
     "Vary": _VARY,
@@ -68,6 +73,12 @@ _MODEL_PARAMETER_OPENAPI = {
 _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
     200: {"description": "The models this caller can address."},
     304: {"description": "The catalog is unchanged since the supplied `If-None-Match`."},
+    400: {
+        "description": (
+            "The request states the unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+        ),
+        "content": _PROBLEM_CONTENT,
+    },
     401: {"description": "aigateway refused the caller's identity."},
     502: {"description": "aigateway returned an unusable catalog."},
     503: {"description": "The catalog is not configured on this deployment."},
@@ -76,7 +87,16 @@ _MODELS_RESPONSES: dict[int | str, dict[str, object]] = {
 
 _MODEL_PARAMETER_RESPONSES: dict[int | str, dict[str, object]] = {
     200: {"description": "AI Gateway's model-parameter contract."},
-    400: {"description": "The canonical model id is invalid."},
+    # WHY two media types: the Engine's own refusals (`model` missing, a stated `X-Profile`) are
+    # problems, while an invalid canonical model id is AI Gateway's verbatim JSON, relayed as-is.
+    400: {
+        "description": (
+            "The Engine refuses the request (`application/problem+json`): `model` is missing, or "
+            "the request states the unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+            " Or AI Gateway refuses the canonical model id, relayed verbatim (`application/json`)."
+        ),
+        "content": {**_PROBLEM_CONTENT, "application/json": {"schema": {}}},
+    },
     401: {"description": "The selected profile requires authentication."},
     403: {"description": "The caller cannot access the selected profile."},
     404: {
@@ -114,9 +134,7 @@ _MODEL_PARAMETER_RESPONSES: dict[int | str, dict[str, object]] = {
 )
 async def list_models(
     request: Request,
-    x_profile: Annotated[
-        str | None, Header(alias="X-Profile", description="Optional aigateway routing profile.")
-    ] = None,
+    _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
     if_none_match: Annotated[
         str | None, Header(alias="If-None-Match", description="Conditional-request validator.")
     ] = None,
@@ -129,8 +147,9 @@ async def list_models(
     Retained documents are passed through unchanged. Responses are cached per caller, so
     ``Cache-Control`` is ``private`` and ``ETag``/``If-None-Match`` are scoped to that caller.
     """
+    refuse_selector(request.headers)
     service = _require_service(request)
-    credential = _caller(x_profile, request.headers)
+    credential = _caller(request.headers)
     try:
         catalog = await service.fetch(credential)
     except CatalogError as exc:
@@ -171,12 +190,11 @@ async def list_models(
 )
 async def model_parameters(
     request: Request,
-    x_profile: Annotated[
-        str | None, Header(alias="X-Profile", description="Optional AI Gateway profile.")
-    ] = None,
+    _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
 ) -> Response:
-    """Return one caller/profile-specific AI Gateway model contract."""
+    """Return one caller-specific AI Gateway model contract."""
 
+    refuse_selector(request.headers, problem_headers=_MODEL_PARAMETER_HEADERS)
     model = request.query_params.get("model")
     if model is None:
         raise ProblemException(
@@ -188,7 +206,7 @@ async def model_parameters(
     source = _require_model_parameter_source(request)
     try:
         result = await source.fetch_model_parameters(
-            _caller(x_profile, request.headers),
+            _caller(request.headers),
             model,
         )
     except CatalogError as exc:
@@ -244,7 +262,7 @@ def _model_parameter_headers(status: int) -> dict[str, str]:
     return _MODEL_PARAMETER_HEADERS
 
 
-def _caller(profile: str | None, headers: Mapping[str, str]) -> Credential:
+def _caller(headers: Mapping[str, str]) -> Credential:
     """Resolve who is asking, from the verified identity header the mesh gateway injects.
 
     WHY there is no 401 here any more: screamingface-engine cannot know which auth
@@ -258,8 +276,12 @@ def _caller(profile: str | None, headers: Mapping[str, str]) -> Credential:
     AIDEV-NOTE: this drops the old "an unauthenticated request costs aigateway nothing" short
     circuit (spec §11 acceptance 2), which was only sound while a bearer token was mandatory. The
     flood protection that remains is `catalog.cache`'s entry cap and single-flight bulkhead.
+
+    INVARIANT (OME-1381): selector-less. The route has already refused a stated ``X-Profile``, and
+    the absent-profile key is the one a selector-less caller always had, so no cached catalog is
+    invalidated by the producer-off change.
     """
-    return Credential.derive(profile, job_env.identity_from_headers(headers))
+    return Credential.derive(None, job_env.identity_from_headers(headers))
 
 
 __all__ = ["router"]

@@ -56,9 +56,11 @@ Notes the boxes can't carry:
 
 - `GET /?q=` also reads two headers before scheduling: a strictly W3C-valid `traceparent`
   (checked by `url4.streaming.trace.valid_traceparent`; malformed → dropped, the run mints a
-  fresh trace) and the optional `X-Profile` / Envoy-verified `X-User-Email` pair. Provider
-  credentials never travel on this request — they are stored via `rest/connections.py` →
-  AI Gateway, and the run selects one by profile.
+  fresh trace) and the Envoy-verified `X-User-Email`. A nonblank `X-Profile` is refused with
+  `400 x_profile_unsupported` right after the capability check, before anything else runs
+  (OME-1381); absent or blank, the run carries no selector. Provider credentials never travel on
+  this request — they are stored via `rest/connections.py` → AI Gateway, which resolves the
+  caller's provider access.
 - The 428 check in the GET pipeline goes through the `SubscriberGate` **port**
   (`rest/interest.py`); `ws/registry.py`'s live-WS counts are what answer it.
 - The sync scanner and the WS bridge are **independent consumers** of the same JetStream

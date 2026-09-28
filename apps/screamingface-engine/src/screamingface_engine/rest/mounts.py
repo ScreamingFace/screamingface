@@ -10,6 +10,8 @@ The answers match the removed node tier's (MNT-C2, MNT-9): url4's error envelope
 (`{"error": {"code", "message"}}`) and the status url4 would have given the code.
 
 - identity: the verified `X-User-Email`, from the same source as `GET /?q=` — none → 403
+- a stated `X-Profile` → 400 `x_profile_unsupported`, after identity and before every other
+  answer below (OME-1381); a blank one is absence
 - endpoint without `q` → 400 `missing_intent`; a bad `X-Answer-Seed` → 400 `malformed_header`
 - target over 8 KiB → 414; admission refused → 503 `overloaded` + `Retry-After`
 - bound (`min(Prefer wait, 30 s)`) passes → the run is STOPPED, then 504 (ans:Q9)
@@ -29,6 +31,12 @@ from screamingface_engine import job_env
 from screamingface_engine.artifacts.signing import signed_artifact_path
 from screamingface_engine.auth.problem import ProblemException
 from screamingface_engine.auth.token import new_topic
+from screamingface_engine.request_scope import (
+    PROFILE_HEADER,
+    X_PROFILE_UNSUPPORTED,
+    X_PROFILE_UNSUPPORTED_MESSAGE,
+    requests_selector,
+)
 from screamingface_engine.rest.routes import (
     WAIT_GONE,
     _converge_cache,
@@ -41,6 +49,7 @@ from screamingface_engine.rest.routes import (
     default_clock,
     wait_terminal_or_gone,
 )
+from screamingface_engine.rest.selector import X_PROFILE_PARAMETER
 from screamingface_engine.world.serving import MountDescriptor, MountTable, mount_http_status
 from screamingface_engine.world.wire import url4_error_body
 from url4.streaming.protocol import ResultEvent, TerminatedEvent
@@ -64,7 +73,10 @@ RUN_HEADER = "X-Url4-Run"
 _MOUNT_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {"description": "The handler's body, with the route's media type."},
     303: {"description": "The result is over 1 MiB: `Location` is a signed artifact URL."},
-    400: {"description": "`missing_intent`, a malformed `q`, or a bad `X-Answer-Seed`."},
+    400: {
+        "description": "`missing_intent`, a malformed `q`, a bad `X-Answer-Seed`, or an "
+        "unsupported `X-Profile` header (`x_profile_unsupported`)."
+    },
     403: {"description": "No verified caller identity."},
     404: {"description": "The world has no such handler."},
     414: {"description": "The path plus query is longer than 8 KiB."},
@@ -161,7 +173,8 @@ def _handler_for(
         ] = None,
         prefer: Annotated[str | None, Header(alias="Prefer")] = None,
         traceparent: Annotated[str | None, Header(alias="traceparent")] = None,
-        x_profile: Annotated[str | None, Header(alias="X-Profile")] = None,
+        # Documents the refusal in OpenAPI; `_validated` is what decides.
+        _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
         x_answer_seed: Annotated[str | None, Header(alias="X-Answer-Seed")] = None,
         cache_control: Annotated[str | None, Header(alias="Cache-Control")] = None,
     ) -> Response:
@@ -172,7 +185,6 @@ def _handler_for(
             q=q,
             prefer=prefer,
             traceparent=traceparent,
-            profile=x_profile,
             answer_seed=x_answer_seed,
             cache_control=cache_control,
         )
@@ -224,6 +236,11 @@ def _validated(
         raise _Refused(
             _envelope(403, "identity_access_denied", "a verified caller identity is required")
         )
+    # INVARIANT (OME-1381): a stated `X-Profile` never reaches a run — refused after the identity
+    # check (authentication first) and before every other answer, where the removed node-tier
+    # forwarder refused it. Local mode requires no identity, so there it is the first answer.
+    if requests_selector(request.headers.getlist(PROFILE_HEADER)):
+        raise _Refused(_envelope(400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE))
     if mount.kind == "endpoint" and q is None:
         raise _Refused(
             _envelope(400, "missing_intent", f"endpoint {mount.path} needs q=(context)!intent")
@@ -251,7 +268,6 @@ async def _respond(
     q: str | None,
     prefer: str | None,
     traceparent: str | None,
-    profile: str | None,
     answer_seed: str | None,
     cache_control: str | None,
 ) -> Response:
@@ -273,7 +289,6 @@ async def _respond(
             topic,
             target,
             traceparent=traceparent,
-            profile=profile,
             identity=identity,
             cache=_converge_cache(deps, topic, cache_control, clock),
             answer_seed=seed,

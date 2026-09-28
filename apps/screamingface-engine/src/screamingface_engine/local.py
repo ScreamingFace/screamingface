@@ -53,9 +53,13 @@ from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
 from screamingface_engine.request_scope import (
+    PROFILE_HEADER,
+    X_PROFILE_UNSUPPORTED,
+    X_PROFILE_UNSUPPORTED_MESSAGE,
     AnswerSeedError,
     bind_sync_request,
     forwarded_headers,
+    requests_selector,
 )
 from screamingface_engine.rest.mounts import register_mounts
 from screamingface_engine.runner.fair_share import FairShareGate
@@ -240,6 +244,12 @@ class _LocalNodeMount:
         # until startup has built a node — so a node always exists by the time this runs.
         node_asgi = self._holder["asgi"]
         raw_headers = Headers(scope=scope)
+        # INVARIANT (OME-1381): the eval path refuses a stated `X-Profile` before binding the
+        # request, as the mount routes and `GET /` do — local mode must not accept a selector
+        # production refuses. A blank one still rides the allowlist; the node reads it as absence.
+        if requests_selector(raw_headers.getlist(PROFILE_HEADER)):
+            await send_url4_error(send, 400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE)
+            return
         with ExitStack() as stack:
             try:
                 # `bind_sync_request` binds the request scope, the trace (FX-64) and the
