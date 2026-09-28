@@ -71,21 +71,40 @@ export function createNode(kind: RecipeKind): RecipeNode {
   return createSolo();
 }
 
-// Switch a node's kind in place (keeps its id so it stays put in its parent). A solo that
-// already has a model is preserved as the first member/stage when expanding, so configuration
-// isn't lost when a unit grows into a fusion or pipeline.
+// The nodes a conversion should try to carry forward: a solo with a model carries itself
+// (as a singleton, under a fresh id so it doesn't collide with the new root), a fusion
+// carries its members, a pipeline carries its stages.
+function carriableChildren(node: RecipeNode): RecipeNode[] {
+  if (node.kind === "solo") return node.model ? [{ ...node, id: createUuid() }] : [];
+  if (node.kind === "fusion") return node.members;
+  return node.stages;
+}
+
+// Switch a node's kind in place (keeps its id so it stays put in its parent). Existing
+// configuration is preserved wherever the target kind can represent it: a solo's model
+// carries into the first member/stage; a fusion's members or a pipeline's stages carry
+// straight across when converting between the two; a fusion's synthesizer is kept when the
+// node stays a fusion. Only genuinely unrepresentable state (e.g. collapsing several
+// members into a single solo) is dropped, and even then the first child's config is kept
+// when it fits.
 export function convertKind(node: RecipeNode, kind: RecipeKind): RecipeNode {
   if (node.kind === kind) return node;
-  const carry: RecipeNode | null =
-    node.kind === "solo" && node.model ? { ...node, id: createUuid() } : null;
-  if (kind === "solo") return { ...createSolo(), id: node.id, name: node.name };
+  const carried = carriableChildren(node);
+  if (kind === "solo") {
+    const first = carried[0];
+    if (first?.kind === "solo" && first.model) {
+      return { ...first, id: node.id, name: node.name };
+    }
+    return { ...createSolo(), id: node.id, name: node.name };
+  }
   if (kind === "fusion") {
     const base = createFusion();
     return {
       ...base,
       id: node.id,
       name: node.name,
-      members: carry ? [carry, createSolo()] : base.members,
+      members: carried.length ? carried : base.members,
+      synthesizer: node.kind === "fusion" ? node.synthesizer : base.synthesizer,
     };
   }
   const base = createPipeline();
@@ -93,8 +112,21 @@ export function convertKind(node: RecipeNode, kind: RecipeKind): RecipeNode {
     ...base,
     id: node.id,
     name: node.name,
-    stages: carry ? [carry, createSolo()] : base.stages,
+    stages: carried.length ? carried : base.stages,
   };
+}
+
+// Human-readable summary of a recipe's top-level shape, for list/card views. Replaces the
+// old "voting strategy" label — the recipe-native model has no such concept, so that field
+// no longer reflects what was actually built.
+export function describeRecipeKind(root: RecipeNode): string {
+  if (root.kind === "solo") return "Solo";
+  if (root.kind === "fusion") {
+    const count = root.members.length;
+    return `Fusion · ${count} member${count === 1 ? "" : "s"}`;
+  }
+  const count = root.stages.length;
+  return `Pipeline · ${count} stage${count === 1 ? "" : "s"}`;
 }
 
 // ── Traversal ────────────────────────────────────────────────────────────────
@@ -107,18 +139,25 @@ export function collectSolos(node: RecipeNode): SoloNode[] {
   return node.stages.flatMap(collectSolos);
 }
 
-// Solos that "answer" (everything except a fusion root's own synthesizer) — used to feed the
-// mock RunsPanel's member list without double-counting the synthesizer.
+// Solos that "answer" — for a fusion, everything except its own synthesizer; for a pipeline,
+// every stage except the last (which is the graded/final stage, not a parallel member).
+// Used to feed the mock RunsPanel's member list without double-counting the grading step.
 export function memberSolos(root: RecipeNode): SoloNode[] {
   if (root.kind === "fusion") return root.members.flatMap(collectSolos);
+  if (root.kind === "pipeline") return root.stages.slice(0, -1).flatMap(collectSolos);
   return collectSolos(root);
 }
 
-// The root fusion's synthesizer, when it is a single Model — surfaced as the run's synthesis
-// step. Nested / composite synthesizers return null (the mock simply omits the step).
+// The node that grades/produces the final result — a fusion's synthesizer, or a pipeline's
+// last stage — when it is a single Model. Surfaced as the run's synthesis/judge step. Nested
+// / composite graders return null (the mock simply omits the step).
 export function rootSynthesizerSolo(root: RecipeNode): SoloNode | null {
   if (root.kind === "fusion" && root.synthesizer.kind === "solo" && root.synthesizer.model) {
     return root.synthesizer;
+  }
+  if (root.kind === "pipeline") {
+    const last = root.stages[root.stages.length - 1];
+    if (last?.kind === "solo" && last.model) return last;
   }
   return null;
 }

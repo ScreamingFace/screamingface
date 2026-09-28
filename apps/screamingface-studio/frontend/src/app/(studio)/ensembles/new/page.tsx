@@ -26,6 +26,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
+import type { KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1972,6 +1973,20 @@ function PipelineBody({
   );
 }
 
+// Shared state machine behind every click-pencil-to-rename control: a boolean "editing" flag,
+// and Enter/Escape both closing the field (neither one reverts in-progress text — closing is
+// the only behavior either key needs to trigger here).
+function useInlineRename() {
+  const [editing, setEditing] = useState(false);
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" || event.key === "Escape") {
+      event.preventDefault();
+      setEditing(false);
+    }
+  }
+  return { editing, setEditing, handleKeyDown };
+}
+
 function NodeLabel({
   node,
   roleLabel,
@@ -1981,7 +1996,7 @@ function NodeLabel({
   roleLabel: string;
   onChange: (next: RecipeNode) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const { editing, setEditing, handleKeyDown } = useInlineRename();
   const named = Boolean(node.name && node.name.trim());
   if (editing) {
     return (
@@ -1994,12 +2009,7 @@ function NodeLabel({
         onClick={(event) => event.stopPropagation()}
         onChange={(event) => onChange({ ...node, name: event.target.value })}
         onBlur={() => setEditing(false)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === "Escape") {
-            event.preventDefault();
-            event.currentTarget.blur();
-          }
-        }}
+        onKeyDown={handleKeyDown}
       />
     );
   }
@@ -2215,7 +2225,11 @@ function EnsembleComposer() {
   const providers = useModelStore((state) => state.providers);
   const addLibraryModels = useModelStore((state) => state.addLibraryModels);
   const [name, setName] = useState("fusion-1");
-  const [editingName, setEditingName] = useState(false);
+  const {
+    editing: editingName,
+    setEditing: setEditingName,
+    handleKeyDown: handleNameKeyDown,
+  } = useInlineRename();
   const [root, setRoot] = useState<RecipeNode>(() => createFusion());
   const [runHistory, setRunHistory] = useState<SavedRun[]>([]);
   const [tab, setTab] = useState<"compose" | "runs">("compose");
@@ -2290,7 +2304,7 @@ function EnsembleComposer() {
     () => buildDraft(ensembleId, name, root, runHistory),
     [ensembleId, name, root, runHistory],
   );
-  const draftSnapshot = JSON.stringify(draft);
+  const draftSnapshot = useMemo(() => JSON.stringify(draft), [draft]);
   const ready = loadedEnsembleId === ensembleId;
   const dirty = ready && draftSnapshot !== savedSnapshot;
 
@@ -2396,11 +2410,7 @@ function EnsembleComposer() {
                   )
                 }
                 onBlur={() => setEditingName(false)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === "Escape") {
-                    setEditingName(false);
-                  }
-                }}
+                onKeyDown={handleNameKeyDown}
               />
             ) : (
               <button
