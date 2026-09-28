@@ -13,8 +13,7 @@ same bytes as before. The pinned release-fixture hashes depend on that.
 
 from __future__ import annotations
 
-import json
-from importlib.resources import files
+import logging
 from typing import Any
 
 import pytest
@@ -27,6 +26,7 @@ from aigateway.plugins.taxonomy.entry_metadata import (
     cache_reference_from_entry_metadata,
 )
 from aigateway.plugins.taxonomy.render import render_aigw_metadata
+from aigateway.plugins.taxonomy.types import MAX_RESPONSE_MODEL_BYTES
 
 _OBSERVED_AT = "2026-09-28T10:11:12Z"
 _RESPONSE_MODEL = "anthropic/claude-fable-5"
@@ -55,11 +55,6 @@ def _block(**overrides: Any) -> CacheEntryMetadata:
     }
     values.update(overrides)
     return CacheEntryMetadata(**values)
-
-
-def _schema() -> dict[str, Any]:
-    resource = files("aigateway.plugins.taxonomy").joinpath("usage_accounting.schema.json")
-    return json.loads(resource.read_text(encoding="utf-8"))
 
 
 def _hit_metadata(reference: CacheReference) -> dict[str, Any]:
@@ -184,6 +179,42 @@ def test_a_malformed_stored_field_is_dropped_and_the_price_still_certifies() -> 
     )
 
 
+@pytest.mark.parametrize(
+    "impossible",
+    ["2026-99-99T99:99:99+99:99", "2026-02-30T00:00:00Z", "2026-09-28T24:00:00Z"],
+)
+def test_an_impossible_timestamp_is_refused_even_when_it_looks_right(impossible: str) -> None:
+    # The shape check alone admits these; a real calendar check must not.
+    with pytest.raises(ValueError, match="observed_at"):
+        CacheReference(observed_at=impossible)
+    payload = cache_reference_from_entry_metadata(_block(observed_at=impossible)).as_json()
+    assert "observed_at" not in payload
+    assert payload["direct_cost"] == _COST
+
+
+def test_a_dropped_field_is_logged_by_name_and_never_by_value(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A silent drop would hide a producer defect; logging the value could leak it."""
+    secretish = "2026-99-99T99:99:99+99:99"
+    with caplog.at_level(logging.WARNING, logger="aigateway.plugins.taxonomy.entry_metadata"):
+        cache_reference_from_entry_metadata(_block(observed_at=secretish, response_model="m" * 513))
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "cache-entry metadata field dropped field=observed_at" in messages
+    assert "cache-entry metadata field dropped field=response_model" in messages
+    assert secretish not in caplog.text
+    assert "m" * 513 not in caplog.text
+
+
+def test_a_valid_or_absent_field_logs_nothing(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="aigateway.plugins.taxonomy.entry_metadata"):
+        cache_reference_from_entry_metadata(_block())
+        cache_reference_from_entry_metadata(_block(observed_at=None, response_model=None))
+
+    assert caplog.records == []
+
+
 def test_a_corrupt_price_still_maps_to_the_narrow_error() -> None:
     """S11 is unchanged for the fields that carry money: the caller falls back on this error."""
     with pytest.raises(CacheEntryMetadataReferenceError):
@@ -193,16 +224,16 @@ def test_a_corrupt_price_still_maps_to_the_narrow_error() -> None:
 # --- the handoff schema ----------------------------------------------------------------------
 
 
-def test_the_schema_accepts_a_hit_with_both_fields() -> None:
+def test_the_schema_accepts_a_hit_with_both_fields(accounting_schema: dict[str, Any]) -> None:
     reference = cache_reference_from_entry_metadata(_block())
 
-    Draft202012Validator(_schema()).validate(_hit_metadata(reference))
+    Draft202012Validator(accounting_schema).validate(_hit_metadata(reference))
 
 
-def test_the_schema_accepts_a_hit_without_either_field() -> None:
+def test_the_schema_accepts_a_hit_without_either_field(accounting_schema: dict[str, Any]) -> None:
     reference = cache_reference_from_entry_metadata(_block(observed_at=None, response_model=None))
 
-    Draft202012Validator(_schema()).validate(_hit_metadata(reference))
+    Draft202012Validator(accounting_schema).validate(_hit_metadata(reference))
 
 
 @pytest.mark.parametrize(
@@ -216,7 +247,9 @@ def test_the_schema_accepts_a_hit_without_either_field() -> None:
         ("fill_region", "eu"),
     ],
 )
-def test_the_schema_refuses_a_wrong_field_or_an_unknown_key(field: str, bad: object) -> None:
+def test_the_schema_refuses_a_wrong_field_or_an_unknown_key(
+    field: str, bad: object, accounting_schema: dict[str, Any]
+) -> None:
     # `null` is refused on purpose: the renderer OMITS an unknown value, so a `null` on the wire
     # means a producer that does not follow the contract.
     metadata = _hit_metadata(
@@ -225,4 +258,18 @@ def test_the_schema_refuses_a_wrong_field_or_an_unknown_key(field: str, bad: obj
     metadata["usage_accounting"]["cache"]["reference"][field] = bad
 
     with pytest.raises(ValidationError):
-        Draft202012Validator(_schema()).validate(metadata)
+        Draft202012Validator(accounting_schema).validate(metadata)
+
+
+def test_the_reference_and_the_attempt_share_one_model_id_definition(
+    accounting_schema: dict[str, Any],
+) -> None:
+    # One bound, declared once: the reference only adds "never empty", because it OMITS an
+    # unknown model where an attempt renders a null.
+    defs = accounting_schema["$defs"]
+    reference = defs["cache_reference"]["properties"]["response_model"]
+    attempt = defs["attempt"]["properties"]["response_model"]
+
+    assert reference == {"$ref": "#/$defs/model_id", "minLength": 1}
+    assert {"$ref": "#/$defs/model_id"} in attempt["oneOf"]
+    assert defs["model_id"]["maxLength"] == MAX_RESPONSE_MODEL_BYTES

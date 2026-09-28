@@ -192,14 +192,32 @@ def test_the_engine_ignores_the_reference_fields_it_does_not_price() -> None:
     assert avoided_usd_from_aigw(aigw).usd == Decimal(_SAVED)
 
 
+def _regenerate(produced: list[dict[str, Any]]) -> None:
+    """Write the stream, then FAIL: a regeneration run must never look like a green build.
+
+    Mirrors ``packages/screamingface/tests/test_public_surface.py``. Refused under ``CI`` so a
+    stray variable in a workflow cannot rewrite the contract and pass against itself.
+    """
+    if os.environ.get("CI"):
+        pytest.fail(f"{REGENERATE}=1 is refused under CI; regenerate locally.", pytrace=False)
+    RUN_EVENTS.parent.mkdir(parents=True, exist_ok=True)
+    RUN_EVENTS.write_text(json.dumps(produced, indent=2) + "\n", encoding="utf-8")
+    pytest.fail(
+        f"cache-hit run-events fixture regenerated at {RUN_EVENTS.name}.\n"
+        "This failure is deliberate so a regeneration run is never mistaken for a green build.\n"
+        "Review the diff, run packages/screamingface/tests/test_cache_hit_contract.py, commit,\n"
+        "then re-run plainly.",
+        pytrace=False,
+    )
+
+
 @pytest.mark.asyncio
 async def test_the_checked_in_run_events_are_what_the_engine_publishes() -> None:
     events, _, _ = await _published_run()
     produced = _normalized(events)
 
     if os.environ.get(REGENERATE) == "1":
-        RUN_EVENTS.parent.mkdir(parents=True, exist_ok=True)
-        RUN_EVENTS.write_text(json.dumps(produced, indent=2) + "\n", encoding="utf-8")
+        _regenerate(produced)
     assert RUN_EVENTS.exists(), f"missing {RUN_EVENTS}; generate it with {REGENERATE}=1"
     assert json.loads(RUN_EVENTS.read_text(encoding="utf-8")) == produced, (
         f"the Engine's run stream for the gateway hit changed. If that is deliberate, regenerate "

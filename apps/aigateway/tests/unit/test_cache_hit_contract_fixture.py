@@ -23,27 +23,20 @@ from __future__ import annotations
 import json
 import os
 import re
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
-from tests.unit import test_chat_cache_entry_metadata as chat_cache
 from tests.unit.test_chat_cache_entry_metadata import (
     _create_connection,
     _install_real,
     _post,
     _priced_dispatch,
 )
-
-# The arrangement of the chat-route slice, reused rather than copied: an admin-authenticated
-# client with the request cache on, and a VALID key-readiness result (autouse there, so it is
-# re-bound here to apply to this module too).
-chat_client = chat_cache.chat_client
-_api_key_validation_ok = chat_cache._api_key_validation_ok
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/cache_hit_contract/openrouter_hit.json"
 REGENERATE = "SF_REGENERATE_CONTRACT_FIXTURES"
@@ -92,19 +85,36 @@ def _normalized(response: Any) -> dict[str, Any]:
     }
 
 
-def _schema() -> dict[str, Any]:
-    resource = files("aigateway.plugins.taxonomy").joinpath("usage_accounting.schema.json")
-    return json.loads(resource.read_text(encoding="utf-8"))
+def _regenerate(produced: dict[str, Any]) -> None:
+    """Write the fixture, then FAIL: a regeneration run must never look like a green build.
+
+    Mirrors ``packages/screamingface/tests/test_public_surface.py``. Refused under ``CI`` so a
+    stray variable in a workflow cannot rewrite the contract and pass against itself.
+    """
+    if os.environ.get("CI"):
+        pytest.fail(f"{REGENERATE}=1 is refused under CI; regenerate locally.", pytrace=False)
+    FIXTURE.parent.mkdir(parents=True, exist_ok=True)
+    FIXTURE.write_text(json.dumps(produced, indent=2) + "\n", encoding="utf-8")
+    pytest.fail(
+        f"cache-hit contract fixture regenerated at {FIXTURE.name}.\n"
+        "This failure is deliberate so a regeneration run is never mistaken for a green build.\n"
+        "Review the diff, regenerate the Engine's run-events fixture the same way, commit both,\n"
+        "then re-run plainly.",
+        pytrace=False,
+    )
 
 
 def test_the_checked_in_hit_fixture_is_what_the_gateway_sends(
-    credential_blobs: Any, chat_client: TestClient
+    credential_blobs: Any,
+    valid_api_key_readiness: None,
+    cache_chat_client: TestClient,
+    accounting_schema: dict[str, Any],
 ) -> None:
-    _create_connection(chat_client)
-    store = _install_real(chat_client)
+    _create_connection(cache_chat_client)
+    store = _install_real(cache_chat_client)
     with patch("litellm.acompletion", _priced_dispatch()):
-        assert _post(chat_client).headers["X-AIGW-Cache"] == "miss"
-        hit = _post(chat_client)
+        assert _post(cache_chat_client).headers["X-AIGW-Cache"] == "miss"
+        hit = _post(cache_chat_client)
     assert hit.status_code == 200, hit.text
     assert hit.headers["X-AIGW-Cache"] == "hit"
     (write,) = store.set_calls
@@ -119,11 +129,10 @@ def test_the_checked_in_hit_fixture_is_what_the_gateway_sends(
     assert reference["direct_cost"] == write.metadata.direct_cost
 
     produced = _normalized(hit)
-    Draft202012Validator(_schema()).validate(produced["body"]["_aigw"])
+    Draft202012Validator(accounting_schema).validate(produced["body"]["_aigw"])
 
     if os.environ.get(REGENERATE) == "1":
-        FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-        FIXTURE.write_text(json.dumps(produced, indent=2) + "\n", encoding="utf-8")
+        _regenerate(produced)
     assert FIXTURE.exists(), f"missing {FIXTURE}; generate it with {REGENERATE}=1"
     assert json.loads(FIXTURE.read_text(encoding="utf-8")) == produced, (
         f"the gateway's hit shape changed. If that is deliberate, regenerate with {REGENERATE}=1 "

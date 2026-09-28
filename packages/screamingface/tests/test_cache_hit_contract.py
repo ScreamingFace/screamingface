@@ -57,11 +57,14 @@ def _decoded() -> _RunOutcome:
 
 
 class _StreamedCacheTransport(_ReplayTransport):
-    """The replay Candidate, with its cost and cache evidence taken from the decoded stream.
+    """The replay Candidate, with three fields copied from the decoded stream onto it.
 
-    WHY only those fields: the stream is a plain model call, not a Benchmark run, so its result
-    body is not a Candidate Result. The money is what this contract is about, and it comes from
-    the stream untouched.
+    WHAT IS TESTED WHERE: the hop under test is `_RunState` decoding the Engine's real stream
+    (`_decoded`, asserted directly above the Report test). This transport then copies
+    `root_usage`, `cache_saved_cost_usd` and `cache_saved_cost_archive_usd` from that decoded
+    outcome onto a benchmark-shaped replay outcome, because the stream is a plain model call and
+    its result body is not a Candidate Result. The Report / `_submission` assertions therefore
+    check the Client's PLUMBING from `_RunOutcome` onward, not a second decode.
     """
 
     def run(self, candidate: object, on_event: object) -> _RunOutcome:

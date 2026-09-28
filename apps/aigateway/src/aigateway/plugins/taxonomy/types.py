@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Self
 
 from .money import MAX_AMOUNT_FRACTIONAL_DIGITS, MAX_AMOUNT_INTEGER_DIGITS
@@ -109,8 +110,19 @@ def is_valid_cache_response_model(value: object) -> bool:
 
 
 def is_valid_cache_observed_at(value: object) -> bool:
-    """Whether ``value`` may ride on a :class:`CacheReference` as its ``observed_at``."""
-    return type(value) is str and _OBSERVED_AT.fullmatch(value) is not None
+    """Whether ``value`` may ride on a :class:`CacheReference` as its ``observed_at``.
+
+    WHY two checks: the regex pins the SHAPE (no space separator, no bare date, no basic
+    format), and ``fromisoformat`` pins the CALENDAR — the regex alone admits
+    ``2026-99-99T99:99:99+99:99``.
+    """
+    if type(value) is not str or _OBSERVED_AT.fullmatch(value) is None:
+        return False
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _is_canonical_decimal(value: str) -> bool:

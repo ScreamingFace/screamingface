@@ -21,8 +21,6 @@ reasoning ``0``), so a ``value or None`` / ``if value:`` slip anywhere on the pa
 from __future__ import annotations
 
 import itertools
-import json
-from importlib.resources import files
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -118,14 +116,10 @@ def test_every_none_combination_round_trips_through_json_exactly() -> None:
         assert restored.as_json_dict() == meta.as_json_dict(), (status, present)
 
 
-def test_every_none_combination_maps_to_a_faithful_hit_reference() -> None:
-    validator = Draft202012Validator(
-        json.loads(
-            files("aigateway.plugins.taxonomy")
-            .joinpath("usage_accounting.schema.json")
-            .read_text(encoding="utf-8")
-        )
-    )
+def test_every_none_combination_maps_to_a_faithful_hit_reference(
+    accounting_schema: dict[str, Any],
+) -> None:
+    validator = Draft202012Validator(accounting_schema)
     for status, cost, usage, present in _combinations():
         case = (status, cost["status"], present)
         meta = _block(status, cost, usage, present)

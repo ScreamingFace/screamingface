@@ -28,6 +28,7 @@ from ...call_context import new_gateway_call_id as _new_gateway_call_id
 from ...core.http_status import valid_http_status
 from .classify import FAILURE_CODES, outcome_for_status
 from .types import (
+    MAX_RESPONSE_MODEL_BYTES,
     CallOutcome,
     CaptureStatus,
     DirectCost,
@@ -346,7 +347,7 @@ class RequestAccountingCollector:
             outcome=send.outcome,
             requested_model=_bounded_utf8(self.requested_model, max_bytes=512),
             response_model=(
-                _bounded_utf8(evidence.response_model, max_bytes=512)
+                _bounded_utf8(evidence.response_model, max_bytes=MAX_RESPONSE_MODEL_BYTES)
                 if evidence is not None
                 else None
             ),
