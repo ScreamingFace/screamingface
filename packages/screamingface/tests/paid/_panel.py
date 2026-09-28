@@ -24,8 +24,12 @@ SYNTHESIZER_MODEL: Final[str] = "openrouter/google/gemini-3-flash-preview"
 
 # WHY temperature 0 and a generous cap: the smoke asserts the pipe, not the answer —
 # determinism-ish output and headroom against `model_token_cap` keep the signal about
-# wiring, not sampling luck. Same shape as examples/12_inspect_evals_benchmarks.ipynb.
-PANEL_PARAMS: Final[dict[str, int | float]] = {"max_tokens": 8192, "temperature": 0.0}
+# wiring, not sampling luck.
+# WHY 32768 for every board: the first press ran out of tokens at 8192 on reasoning
+# boards (aime24/25, frontierscience, lab_bench cloning), leaving no graded Case to
+# prove the grading pipe. Short-answer boards stop long before the cap, so raising it
+# for all of them costs nothing, and there is no list of reasoning boards to maintain.
+PANEL_PARAMS: Final[dict[str, int | float]] = {"max_tokens": 32768, "temperature": 0.0}
 
 # WHY board-agnostic wording: one panel serves every imported board (math, MCQ,
 # yes/no, free-text science), so the prompt asks for reconciliation and one committed final answer
@@ -37,8 +41,13 @@ SYNTHESIS_PROMPT: Final[str] = (
 )
 
 #: One evaluation = this many Cases per board — the cost cap that keeps a whole-shelf
-#: smoke under a dollar.
+#: smoke to a few dollars at most.
 CASE_LIMIT: Final[int] = 2
+
+#: Boards evaluated at once. More boards at once means a shorter wall time at the same
+#: spend, but also more provider 429s, and a board whose Cases all hit 429 fails with
+#: "no Case graded". Four keeps flash-model 429s rare.
+BOARD_CONCURRENCY: Final[int] = 4
 
 
 def fusion_panel() -> _sf.Fusion:

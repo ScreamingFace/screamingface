@@ -15,11 +15,15 @@ refused, or truncated model answer still passes, because model quality is not wi
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from contextlib import AbstractContextManager
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from _panel import CASE_LIMIT, fusion_panel
+from _panel import BOARD_CONCURRENCY, CASE_LIMIT, fusion_panel
 from conftest import PaidStack
 
 if TYPE_CHECKING:
@@ -73,23 +77,37 @@ def test_every_imported_board_runs_end_to_end(
             "was its venv synced with --extra benchmarks?"
         )
 
-        # WHY print past pytest's capture: this is one test looping over the whole
-        # shelf, so `-v` shows a single line until every board is done. The owner
-        # watching a press (terminal or CI log) needs to see a broken board the
-        # moment it finishes, not after the whole paid run.
-        with capsys.disabled():
-            header: str = f"[paid smoke] {len(boards)} imported boards, {CASE_LIMIT} Cases each"
-            print(f"\n{header}", flush=True)
+    # WHY print past pytest's capture: this is one test looping over the whole
+    # shelf, so `-v` shows a single line until every board is done. The owner
+    # watching a press (terminal or CI log) needs to see a broken board the
+    # moment it finishes, not after the whole paid run.
+    with capsys.disabled():
+        print(
+            f"\n[paid smoke] {len(boards)} imported boards, {CASE_LIMIT} Cases each, "
+            f"{BOARD_CONCURRENCY} at a time",
+            flush=True,
+        )
 
-        problems: list[str] = []
-        for position, board in enumerate(boards, start=1):
-            started: float = time.monotonic()
-            board_problems: list[str] = _smoke_one_board(
-                client, board, paid_stack.log_dir / "reports"
-            )
+    # WHY parallel boards: reasoning boards take minutes each, so a serial shelf ran
+    # for about an hour. Cost is unchanged, since every board still runs once.
+    # WHY one client per board: a worker thread owns its client for the whole run;
+    # none is shared across threads. Progress prints from THIS thread only, because
+    # `capsys.disabled()` toggles global capture state and is not thread-safe.
+    open_client: Callable[[], AbstractContextManager[_sf.Client]] = partial(
+        sf.Client, engine_url=paid_stack.engine_url
+    )
+    reports_dir: Path = paid_stack.log_dir / "reports"
+    problems: list[str] = []
+    with ThreadPoolExecutor(max_workers=BOARD_CONCURRENCY) as pool:
+        running: dict[Future[tuple[list[str], float]], str] = {
+            pool.submit(_smoke_board_timed, open_client, board, reports_dir): board
+            for board in boards
+        }
+        for finished, future in enumerate(as_completed(running), start=1):
+            board_problems, seconds = future.result()
             problems.extend(board_problems)
             line: str = _progress_line(
-                position, len(boards), board, board_problems, time.monotonic() - started
+                finished, len(boards), running[future], board_problems, seconds
             )
             with capsys.disabled():
                 print(line, flush=True)
@@ -110,7 +128,8 @@ def _progress_line(
     reads ``… ok (42s)``. The problem text itself stays in the final assertion.
 
     Args:
-        position: 1-based index of this board in the shelf.
+        position: how many boards have finished, this one included (boards run in
+            parallel, so this is completion order, not shelf order).
         total: how many boards this press runs.
         board: the imported benchmark id.
         problems: the board's infrastructure problems; empty means healthy.
@@ -124,6 +143,33 @@ def _progress_line(
         noun: str = "problem" if len(problems) == 1 else "problems"
         verdict = f"FAILED: {len(problems)} {noun}"
     return f"[{position}/{total}] {board} … {verdict} ({round(seconds)}s)"
+
+
+def _smoke_board_timed(
+    open_client: Callable[[], AbstractContextManager[_sf.Client]], board: str, reports_dir: Path
+) -> tuple[list[str], float]:
+    """One parallel worker: open a client of its own, smoke one board, time it.
+
+    INVARIANT: always returns a verdict, never raises. An exception escaping a worker
+    would surface from its future and abort the collection loop, hiding every other
+    board's verdict. `_smoke_one_board` already catches evaluate's failures, so this
+    catch covers only the client's own open and close.
+
+    Args:
+        open_client: builds a fresh client context manager (one per worker thread).
+        board: the imported benchmark id.
+        reports_dir: where the board's Report is kept (see `_smoke_one_board`).
+
+    Returns:
+        The board's problems (empty when healthy) and its wall time in seconds.
+    """
+    started: float = time.monotonic()
+    try:
+        with open_client() as client:
+            problems: list[str] = _smoke_one_board(client, board, reports_dir)
+    except Exception as exc:  # noqa: BLE001
+        problems = [f"{board}: client failed — {exc!r}"]
+    return problems, time.monotonic() - started
 
 
 def _smoke_one_board(client: _sf.Client, board: str, reports_dir: Path) -> list[str]:

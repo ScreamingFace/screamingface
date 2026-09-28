@@ -2,8 +2,8 @@
 # real — a Fusion of three flash-tier seeded models, 2 Cases per board — through the
 # full product path, and fail on any infrastructure failure code.
 #
-# workflow_dispatch ONLY, on purpose: this lane spends real money (a fraction of a
-# dollar per run) through the OPENROUTER_API_KEY repo secret. It is a button the
+# workflow_dispatch ONLY, on purpose: this lane spends real money (bounded: 2 Cases
+# per board) through the OPENROUTER_API_KEY repo secret. It is a button the
 # owner presses after wrapper/gateway/route refactors or new imports — never a merge
 # gate, never on push/pull_request. The local twin is
 # `just screamingface test-paid-inspect`.
