@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,7 +26,7 @@ from screamingface_engine.artifacts import (
     S3ArtifactStore,
 )
 from screamingface_engine.artifacts.wiring import s3_config_from_values
-from screamingface_engine.auth import Clock, install_problem_handlers
+from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.catalog import build_executable_catalog_service
@@ -60,6 +61,7 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
+from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
@@ -150,6 +152,14 @@ def create_app(
     app.state.interest = interest if interest is not None else app.state.registry
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     _install_orphan_reaper(app, app.state.registry, job_runner, settings)
+    # FEATURE: warn the client about an unclaimed queued run (under OME-1086).
+    _install_unclaimed_run_warner(
+        app,
+        app.state.registry,
+        job_runner,
+        settings,
+        clock if clock is not None else default_clock,
+    )
     # FEATURE: a run the queue gave up on must end in a named failure, not silence
     # (OME-1090).
     _install_max_deliveries_advisor(app, settings)
@@ -308,21 +318,7 @@ def _install_orphan_reaper(
     app.state.reaper = reaper
     registry.listen(reaper)
 
-    async def _sweep_forever() -> None:
-        while True:
-            await asyncio.sleep(reaper.tick_s)
-            # INVARIANT: one failed sweep must not kill the reaper. An unhandled exception here
-            # would end the task silently and every later orphan would run to the 16h ceiling
-            # with no signal at all — worse than the bug this fixes, because it would LOOK fixed.
-            # Log and keep the cadence. `CancelledError` is a BaseException and still propagates,
-            # so shutdown is unaffected.
-            try:
-                await reaper.sweep()
-            except Exception:
-                _logger.exception("orphan sweep failed; retrying next interval")
-
-    async def _start() -> None:
-        app.state.reaper_task = asyncio.get_running_loop().create_task(_sweep_forever())
+    def _armed() -> None:
         # AIDEV-NOTE: the single-replica assumption is LOGGED, not merely noted in the chart. The
         # audience count lives in this process's memory, so a second replica would answer "nobody
         # is listening" for runs another replica is streaming and stop healthy runs. Multi-replica
@@ -333,8 +329,54 @@ def _install_orphan_reaper(
             reaper.tick_s,
         )
 
+    # INVARIANT: one failed sweep must not kill the reaper. An unhandled exception would end the
+    # task silently and every later orphan would run to the 16h ceiling with no signal at all —
+    # worse than the bug this fixes, because it would LOOK fixed.
+    _install_periodic(
+        app,
+        task_attr="reaper_task",
+        tick_s=reaper.tick_s,
+        sweep=reaper.sweep,
+        failure_message="orphan sweep failed; retrying next interval",
+        on_start=_armed,
+    )
+
+
+def _install_periodic(
+    app: FastAPI,
+    *,
+    task_attr: str,
+    tick_s: float,
+    sweep: Callable[[], Awaitable[object]],
+    failure_message: str,
+    on_start: Callable[[], None],
+) -> None:
+    """Run ``sweep`` every ``tick_s`` seconds as ONE asyncio task on the App's own event loop,
+    stored on ``app.state.<task_attr>``, started at startup and cancelled at shutdown.
+
+    The shared loop of the grace-bounded control-plane policies (the orphan reaper, the
+    unclaimed-run warner): each policy owns no task, and this is the one place the loop is
+    written.
+
+    INVARIANT: a failed sweep is logged with ``failure_message`` and the cadence continues — a
+    policy whose loop died silently would LOOK like "nothing happened". `CancelledError` is a
+    BaseException and still propagates, so shutdown is unaffected.
+    """
+
+    async def _sweep_forever() -> None:
+        while True:
+            await asyncio.sleep(tick_s)
+            try:
+                await sweep()
+            except Exception:
+                _logger.exception(failure_message)
+
+    async def _start() -> None:
+        setattr(app.state, task_attr, asyncio.get_running_loop().create_task(_sweep_forever()))
+        on_start()
+
     async def _stop() -> None:
-        task = app.state.reaper_task
+        task = getattr(app.state, task_attr)
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -342,6 +384,64 @@ def _install_orphan_reaper(
 
     app.router.on_startup.append(_start)
     app.router.on_shutdown.append(_stop)
+
+
+def _install_unclaimed_run_warner(
+    app: FastAPI,
+    registry: ConnectionRegistry,
+    job_runner: JobRunner | None,
+    settings: Settings,
+    clock: Clock,
+) -> None:
+    """Wire the unclaimed-run warner: one process-wide sweep that warns, once, each attached
+    run still queued past `unclaimed_run_warn_s`.
+
+    Same shape as `_install_orphan_reaper`: the policy object owns no task, and the loop is the
+    shared `_install_periodic` — ONE task per App process, never one per run.
+
+    WHY its own task and not a second call inside the reaper's loop: (1) the reaper's loop does
+    not exist when `orphan_grace_s=0`, and an operator who turns reaping off must not also lose a
+    client-visible notice without a sign; (2) the reaper's cadence derives from ITS grace, and
+    two policies on one cadence is the "two knobs that disagree" shape `reaper.py` rejects;
+    (3) the inputs differ — the reaper listens to audience edges, this polls the runner's
+    accepted set.
+
+    INVARIANT: handed the REAL `registry`, never `app.state.interest` — a gate that answers
+    "someone is listening" for every topic would decide runs nobody can hear.
+    """
+    app.state.unclaimed_warner = None
+    app.state.unclaimed_warner_task = None
+    if not isinstance(job_runner, QueuedRuns) or settings.unclaimed_run_warn_s <= 0:
+        # WHY structural: only a queue-backed runner has runs that WAIT (the in-process runner
+        # starts at once), and it is the one that answers `accepted_ages()`. A stream-only App
+        # and `URL4_CLOUD_UNCLAIMED_RUN_WARN_S=0` install nothing, and no task is created.
+        return
+    warner = UnclaimedRunWarner(
+        job_runner, registry, grace_s=settings.unclaimed_run_warn_s, frame_clock=clock
+    )
+    app.state.unclaimed_warner = warner
+
+    def _armed() -> None:
+        # AIDEV-NOTE: the single-replica limit is LOGGED, like the reaper's. Only the replica that
+        # scheduled a run remembers it (`accepted_ages` is in-process), and a notice reaches only
+        # sockets attached to THAT replica — with more than one App replica, a client whose WS
+        # lands elsewhere is simply never warned.
+        _logger.info(
+            "unclaimed-run warner armed grace_s=%.0f tick_s=%.0f (assumes a single replica)",
+            settings.unclaimed_run_warn_s,
+            warner.tick_s,
+        )
+
+    # INVARIANT: one failed sweep must not kill the warner — the notice is advisory, and a dead
+    # loop would put every later client back on a silent 16h socket.
+    _install_periodic(
+        app,
+        task_attr="unclaimed_warner_task",
+        tick_s=warner.tick_s,
+        sweep=warner.sweep,
+        failure_message="unclaimed-run sweep failed; retrying next interval",
+        on_start=_armed,
+    )
 
 
 def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:

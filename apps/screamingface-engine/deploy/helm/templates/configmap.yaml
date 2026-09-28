@@ -18,6 +18,10 @@ data:
   # replica is streaming and stop healthy runs. Multi-replica needs a shared subscriber gate
   # (NATS consumer interest) before this can be scaled out. 0 disables the reaper.
   URL4_CLOUD_ORPHAN_GRACE_S: {{ .Values.config.orphanGraceS | quote }}
+  # How long a queued run may wait with no frame before its attached client gets ONE generic
+  # WARN notice (under OME-1086). Advisory only; 0 disables it. Assumes `replicaCount: 1`: only the
+  # replica that scheduled a run warns, and only sockets attached to that replica.
+  URL4_CLOUD_UNCLAIMED_RUN_WARN_S: {{ .Values.config.unclaimedRunWarnS | quote }}
   # Per-run downstream in-flight budget (OME-908). This is the APP's setting — the value it
   # writes onto every run as an explicit env entry (which beats this ConfigMap's `envFrom`,
   # so a stale copy here can never reach a run).

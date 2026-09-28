@@ -35,6 +35,16 @@ latency is `grace` to `grace + grace/8`, so an operator tunes ONE knob and gets 
 overshoot, instead of two knobs that can be set into disagreement."""
 
 
+def tick_for_grace(grace_s: float) -> float:
+    """Seconds between sweeps for a policy bounded by ``grace_s``: an eighth of it, floored at
+    one second.
+
+    Shared with the unclaimed-run warner (`unclaimed.py`) so every grace-bounded control-plane
+    sweep derives its cadence by ONE rule.
+    """
+    return max(_MIN_TICK_S, grace_s / _TICKS_PER_GRACE)
+
+
 class Audience(Protocol):
     """The subscriber question, as `ConnectionRegistry` answers it."""
 
@@ -81,9 +91,7 @@ class RunReaper:
         self._audience = audience
         self._grace_s = grace_s
         self._clock = clock
-        self._tick_s = (
-            tick_s if tick_s is not None else max(_MIN_TICK_S, grace_s / _TICKS_PER_GRACE)
-        )
+        self._tick_s = tick_s if tick_s is not None else tick_for_grace(grace_s)
         self._deadlines: dict[str, float] = {}
         self._reaped_total = 0
 

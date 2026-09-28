@@ -122,6 +122,18 @@ class Settings(BaseSettings):
     # INVARIANT: this bounds SPEND, not correctness — job_deadline_s (16h) remains the backstop.
     # Raising it costs money per orphaned run; lowering it risks stopping a live one.
     orphan_grace_s: float = Field(default=120.0, ge=0.0)
+    # FEATURE: warn the client about an unclaimed queued run (under OME-1086).
+    #
+    # WHY 300s: a queued run with no frame after this long gets ONE generic WARN notice ("the
+    # runner service is at capacity; your run is queued and has not started yet"). A healthy
+    # claim takes seconds — the publish sends a wake-up nudge an idle pull answers at once — so
+    # five minutes is two orders of magnitude above it and fires only on a pool that is
+    # saturated or absent. That is the lesson of the removed queue-position notice, which fired
+    # on every run of a healthy stack. It also sits above `orphan_grace_s`, so a client whose
+    # socket died is reaped before it could be warned. 0 disables the warner.
+    #
+    # INVARIANT: advisory only — the run is never failed or stopped by this bound.
+    unclaimed_run_warn_s: float = Field(default=300.0, ge=0.0)
     # INVARIANT: stateless iat window (seconds) — now a CLOCK-SKEW tolerance only: a mint
     # from more than one window in the future is rejected. It never bounds lifetime.
     iat_window_s: int = 60
