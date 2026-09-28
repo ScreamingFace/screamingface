@@ -67,6 +67,8 @@ class StubState:
     deleted: list[str] = field(default_factory=list)  # capabilities named by DELETE /
     delete_status: HTTPStatus = HTTPStatus.NO_CONTENT
     artifact_requested: threading.Event = field(default_factory=threading.Event)
+    # Capabilities whose client sent an in-band `ai.url4.stop` after the terminal frame.
+    stop_frames: list[str] = field(default_factory=list)
 
     def mint(self) -> str:
         with self.lock:
@@ -204,6 +206,27 @@ class _Handler(BaseHTTPRequestHandler):
         if plan.hold is not None:
             plan.hold.wait(_WAIT_S)
         self._send_frames(ticket, 3, 5)
+        self._record_client_reply(ticket)
+
+    def _record_client_reply(self, ticket: str) -> None:
+        """Read what the client sends after the terminal frame: a stop, or its close."""
+        self.connection.settimeout(_WAIT_S)
+        try:
+            header = self.rfile.read(2)
+            length = header[1] & 0x7F
+            if length == 126:
+                length = int.from_bytes(self.rfile.read(2), "big")
+            elif length == 127:
+                length = int.from_bytes(self.rfile.read(8), "big")
+            mask = self.rfile.read(4) if header[1] & 0x80 else b""
+            payload = bytes(
+                byte ^ mask[index % 4] for index, byte in enumerate(self.rfile.read(length))
+            )
+        except (OSError, IndexError):
+            return
+        if header[0] & 0x0F == 0x1 and b"ai.url4.stop" in payload:
+            with self.server.state.lock:
+                self.server.state.stop_frames.append(ticket)
 
     def _send_frames(self, ticket: str, first: int, last: int) -> None:
         state = self.server.state
