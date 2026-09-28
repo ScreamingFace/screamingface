@@ -70,3 +70,7 @@ or owner sweep) can reach a completed Run (B2).
   - Fix 7 (placed here, where the asymmetry began): the async twin has its own `_retire`
     and uses it in `run()`'s `finally`, like the sync twin.
   - Gates after the fixes: ALL GREEN — 1922 passed / 26 skipped, coverage 96 %.
+
+## Owner approval — append-only exception (2026-09-28)
+
+After #1105 (`OME-1071`, `65ab8d13`) merged, the test stub `packages/screamingface/tests/_isolation_engine.py` counts as a prior test on `main`. This unit changes it (one `StubState.stop_frames` field and one `_record_client_reply` helper, additions only). The owner approved this change on 2026-09-28: the file is a fake-Engine test helper that the same stack added that day, not a prior test with assertions. The branch was pushed with `--no-verify` because of this check only. All other gates are green (`run_gates.py screamingface --base origin/main --skip-append-only`). CI does not run the append-only check.
