@@ -28,6 +28,7 @@ from _isolation_engine import (
 
 from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface.errors import ExecutionError
+from screamingface.events import Terminated
 
 
 def _wait_until_started(engine: StubEngine, name: str) -> str:
@@ -170,3 +171,101 @@ async def test_async_a_cancelled_completed_run_leaves_nothing_for_the_sweep() ->
             await transport.close()
 
     assert engine.state.deleted == []
+
+
+# --- 4.2 (review): complete at the terminal FRAME, before the caller's callback ----------
+
+
+def _is_terminal(event: object) -> bool:
+    return isinstance(event, Terminated)
+
+
+def test_a_sweep_during_a_slow_terminal_callback_never_stops_the_completed_run() -> None:
+    # INVARIANT (spec 4.2): the Run is complete when its terminal frame is accepted — not
+    # when the caller's callback for that frame returns. A slow callback is not a live Run.
+    in_callback, release = threading.Event(), threading.Event()
+
+    def slow(event: object) -> None:
+        if _is_terminal(event):
+            in_callback.set()
+            release.wait(10)
+
+    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
+        transport = Url4CloudTransport(engine.url)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                done = pool.submit(transport.run, candidate("done"), slow)
+                assert in_callback.wait(10)
+                transport.cancel_active()
+                release.set()
+                outcome = done.result(timeout=10)
+        finally:
+            transport.close()
+
+    assert outcome.result_body == result_body(url4_of("done"))
+    assert engine.state.deleted == []
+    assert engine.state.stop_frames == []
+
+
+def test_a_raising_terminal_callback_sends_no_stop_for_the_completed_run() -> None:
+    # WHY: the socket's interrupt arm sends `ai.url4.stop` for a Run that is still running.
+    # The callback's error still reaches the caller, but the finished Run is not "stopped".
+    def raising(event: object) -> None:
+        if _is_terminal(event):
+            raise RuntimeError("callback failed")
+
+    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
+        transport = Url4CloudTransport(engine.url)
+        try:
+            with pytest.raises(RuntimeError, match="callback failed"):
+                transport.run(candidate("done"), raising)
+        finally:
+            transport.close()
+
+    assert engine.state.deleted == []
+    assert engine.state.stop_frames == []
+
+
+@pytest.mark.asyncio
+async def test_async_a_sweep_during_a_slow_terminal_callback_never_stops_the_completed_run() -> (
+    None
+):
+    in_callback, release = asyncio.Event(), asyncio.Event()
+
+    async def slow(event: object) -> None:
+        if _is_terminal(event):
+            in_callback.set()
+            await release.wait()
+
+    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
+        transport = AsyncUrl4CloudTransport(engine.url)
+        try:
+            done = asyncio.create_task(transport.run(candidate("done"), slow))
+            await asyncio.wait_for(in_callback.wait(), timeout=10)
+            await transport.cancel_active()
+            release.set()
+            outcome = await asyncio.wait_for(done, timeout=10)
+        finally:
+            await transport.close()
+
+    assert outcome.result_body == result_body(url4_of("done"))
+    assert engine.state.deleted == []
+    assert engine.state.stop_frames == []
+
+
+@pytest.mark.asyncio
+async def test_async_a_raising_terminal_callback_sends_no_stop_for_the_completed_run() -> None:
+    async def raising(event: object) -> None:
+        if _is_terminal(event):
+            raise RuntimeError("callback failed")
+
+    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
+        transport = AsyncUrl4CloudTransport(engine.url)
+        try:
+            with pytest.raises(RuntimeError, match="callback failed"):
+                await transport.run(candidate("done"), raising)
+        finally:
+            await transport.close()
+
+    assert engine.state.deleted == []
+    assert engine.state.stop_frames == []

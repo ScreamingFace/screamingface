@@ -42,7 +42,7 @@ from screamingface._core.retry import (
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.identity import engine_headers
 from screamingface._engine.reconnect import _RecoveryWindow
-from screamingface._engine.run_lifecycle import _Lifecycle
+from screamingface._engine.run_lifecycle import _Lifecycle, _LifecycleStep
 from screamingface._engine.trace import TraceContext, new_trace_context
 from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
@@ -244,12 +244,7 @@ class Url4CloudTransport:
                         websocket.send(lifecycle.resume_attach())
                         _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
-                    outcome = self._run_connected(websocket, lifecycle, on_event)
-                    # INVARIANT (spec 2026-09-28 run isolation, 4.2): the terminal frame is
-                    # in, so the Run is complete. Retire its capabilities NOW — before the
-                    # socket closes and the artifact fetch starts — so no stop, own or owner
-                    # sweep, can reach a Run that has already finished.
-                    self._retire(minted)
+                    outcome = self._run_connected(websocket, lifecycle, on_event, minted)
                 # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
                 # By now the run is over and the WS is closed — a fetch failure here
                 # must surface as its own error, never trip the socket-scoped
@@ -411,12 +406,20 @@ class Url4CloudTransport:
         if errors:
             raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
+    def _settled(self, step: _LifecycleStep, minted: list[str]) -> _RunOutcome | None:
+        """The Run's outcome if this step completed it — its capabilities retired first."""
+        if step.outcome is not None:
+            self._retire(minted)
+        return step.outcome
+
     def _run_connected(
         self,
         websocket: SyncConnection,
         lifecycle: _Lifecycle,
         on_event: SyncEventCallback | None,
+        minted: list[str],
     ) -> _RunOutcome:
+        outcome: _RunOutcome | None = None
         try:
             while True:
                 try:
@@ -427,13 +430,20 @@ class Url4CloudTransport:
                 if step.command is not None:
                     websocket.send(step.command)
                     continue
+                # INVARIANT (spec 2026-09-28 run isolation, 4.2): once the terminal frame is
+                # accepted the Run is complete, and `_settled` retires its capabilities NOW —
+                # before the caller's callback for this frame, the socket close and the
+                # artifact fetch — so no stop, own or owner sweep, can reach a finished Run.
+                outcome = self._settled(step, minted)
                 if step.event is not None and on_event is not None:
                     _observe_sync(on_event, step.event)
-                if step.outcome is not None:
-                    return step.outcome
-        # WHY: interruption must stop otherwise-invisible paid work.
+                if outcome is not None:
+                    return outcome
+        # WHY: interruption must stop otherwise-invisible paid work — but a complete Run is
+        # not running, so a callback that raises on its terminal frame sends no stop.
         except BaseException as exc:
-            _record_stop_failure(exc, _try_send_sync(websocket, lifecycle.stop()))
+            if outcome is None:
+                _record_stop_failure(exc, _try_send_sync(websocket, lifecycle.stop()))
             raise
 
     def close(self) -> None:
@@ -549,7 +559,11 @@ class AsyncUrl4CloudTransport:
         finally:
             self._running -= 1
             if not cancelled:
-                self._active_tokens.difference_update(minted)
+                self._retire(minted)
+
+    def _retire(self, minted: list[str]) -> None:
+        """Async twin of the sync `_retire`; no lock (class INVARIANT)."""
+        self._active_tokens.difference_update(minted)
 
     def _end_finished_abort(self) -> None:
         """Async twin of the sync `_end_finished_abort` (spec B1); no lock (class INVARIANT)."""
@@ -597,10 +611,7 @@ class AsyncUrl4CloudTransport:
                         await websocket.send(lifecycle.resume_attach())
                         _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
-                    outcome = await self._run_connected(websocket, lifecycle, on_event)
-                    # INVARIANT (spec 4.2): see the sync twin. This also keeps a completed
-                    # Run off the list a CANCELLED Run leaves behind for the sweep.
-                    self._active_tokens.difference_update(minted)
+                    outcome = await self._run_connected(websocket, lifecycle, on_event, minted)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
@@ -690,12 +701,20 @@ class AsyncUrl4CloudTransport:
         except Exception as stop_error:  # noqa: BLE001 - see the sync twin
             _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
 
+    def _settled(self, step: _LifecycleStep, minted: list[str]) -> _RunOutcome | None:
+        """The Run's outcome if this step completed it — its capabilities retired first."""
+        if step.outcome is not None:
+            self._retire(minted)
+        return step.outcome
+
     async def _run_connected(
         self,
         websocket: AsyncClientConnection,
         lifecycle: _Lifecycle,
         on_event: AsyncEventCallback | None,
+        minted: list[str],
     ) -> _RunOutcome:
+        outcome: _RunOutcome | None = None
         try:
             while True:
                 try:
@@ -709,14 +728,18 @@ class AsyncUrl4CloudTransport:
                 if step.command is not None:
                     await websocket.send(step.command)
                     continue
+                # INVARIANT (spec 4.2): see the sync twin. This also keeps a completed Run off
+                # the list a CANCELLED Run leaves behind for the sweep.
+                outcome = self._settled(step, minted)
                 if step.event is not None and on_event is not None:
                     await _observe_async(on_event, step.event)
-                if step.outcome is not None:
-                    return step.outcome
-        # WHY: cancellation must stop otherwise-invisible paid work.
+                if outcome is not None:
+                    return outcome
+        # WHY: cancellation must stop otherwise-invisible paid work — not a complete Run.
         except BaseException as exc:
-            stop_error = await _try_send_async(websocket, lifecycle.stop())
-            _record_stop_failure(exc, stop_error)
+            if outcome is None:
+                stop_error = await _try_send_async(websocket, lifecycle.stop())
+                _record_stop_failure(exc, stop_error)
             raise
 
     async def close(self) -> None:

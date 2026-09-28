@@ -60,3 +60,13 @@ or owner sweep) can reach a completed Run (B2).
   one candidate; siblings continue" holds at the transport; at the Evaluation level it needs
   unit 4 (spec Q1-Q3), because the runner still sweeps when one Candidate raises. The
   report distinction "stream failed" vs "aborted" is also unit 4 (spec §5).
+- **Review round 1 (design review: accept with fixes):**
+  - Fix 2: a Run is complete at its terminal FRAME. `_run_connected` (both twins) retires
+    the capabilities through `_settled` before the caller's callback for that frame runs,
+    and its interrupt arm sends no `ai.url4.stop` once the outcome is in. New tests (sync +
+    async): a sweep during a slow terminal callback sends no `DELETE /`; a raising terminal
+    callback sends no stop frame (all four RED before the fix). The stub now records a stop
+    frame sent after the terminal frame.
+  - Fix 7 (placed here, where the asymmetry began): the async twin has its own `_retire`
+    and uses it in `run()`'s `finally`, like the sync twin.
+  - Gates after the fixes: ALL GREEN — 1922 passed / 26 skipped, coverage 96 %.
