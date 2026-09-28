@@ -165,3 +165,31 @@ def test_opening_the_full_text_hides_the_now_redundant_preview() -> None:
     # WHY: open, the full text starts with the preview's 400 characters — showing both
     # would make the reader read the opening twice.
     assert ".sf-check__label:has(>.sf-check__full[open])>.sf-check__why{display:none}" in html
+
+
+def test_short_reasoning_row_is_the_whole_pre_change_row() -> None:
+    row: str = _check_row("It fails to specify 'variance-weighted'.")
+
+    # INVARIANT: byte for byte the row main rendered — label, judge, preview, nothing else.
+    assert row == (
+        "<div class='sf-check'><span class='sf-check__label'>inspect scorer verdict"
+        "<span class='sf-check__who'>inspect/scorer</span>"
+        "<div class='sf-check__why'>It fails to specify &#x27;variance-weighted&#x27;.</div>"
+        "</span>"
+    )
+
+
+def test_the_full_text_sits_beside_the_preview_inside_the_label() -> None:
+    row: str = _check_row(_breakdown(8))
+
+    # WHY: the hide-the-preview rule matches direct children of the label only
+    # (:has(>…)); a wrapper around either element would silently show both.
+    assert "</div><details class='sf-check__full'>" in row
+    assert row.endswith("</details></span>")
+
+
+def test_a_huge_explanation_is_capped_like_every_free_text() -> None:
+    # WHY: after OME-1339 any inspect scorer's explanation lands here, and a scorer
+    # may write an execution log; the report caps free text at 10,000 characters.
+    huge: str = "y" * 10_001
+    assert _full_text(_check_row(huge)) == "y" * 10_000 + "\n… 1 more characters"

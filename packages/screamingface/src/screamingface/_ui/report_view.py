@@ -873,9 +873,11 @@ def _reasoning_html(why: str) -> str:
     if len(why) <= _REASONING_PREVIEW:
         return preview
     # WHY: escaped like the preview — the same untrusted judge output, now at full length.
+    # Capped at _TEXT_CLIP like every free text here: once OME-1339 routes any inspect
+    # scorer's explanation into this block, one could be a multi-megabyte log.
     return (
         f"{preview}<details class='sf-check__full'><summary>full reasoning</summary>"
-        f"<div class='sf-check__full-text'>{escape(why)}</div></details>"
+        f"<div class='sf-check__full-text'>{escape(_clip(why))}</div></details>"
     )
 
 

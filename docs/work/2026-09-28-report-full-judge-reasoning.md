@@ -54,4 +54,8 @@ section holding the whole escaped text with its line breaks.
   (`:has`) hides the preview, because the full text repeats its first 400 characters.
   Browsers without `:has` show both, which is harmless. Verified visually in headless
   Chrome, closed and open. `report_view.py` was already over the 450-line guideline
-  (934 lines) and is now 966; splitting it is out of scope.
+  (934 lines) and is now 966; splitting it is out of scope. Review follow-up (same
+  day): the full text is capped at `_TEXT_CLIP` (10,000 characters) like every free text in
+  the report, because OME-1339 routes any inspect scorer's explanation here; three more
+  tests pin the exact short row, the preview/full-text sibling structure the `:has` rule
+  needs, and the cap (9 tests total, gates green again).
