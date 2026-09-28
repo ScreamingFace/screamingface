@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface (+ screamingface-engine tests)
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-28
-finished:
+finished: 2026-09-28
 ---
 
 # sdk-reconnect-hardening — close the reconnect test gaps of OME-1016 and show reconnects
@@ -57,8 +57,60 @@ reconnect is only a log warning, so a researcher does not know why the Run stops
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
+- **Actual files:** as planned, plus the shared test stub
+  `packages/screamingface/tests/_reconnect_engine.py`. No change to `_ui/activity_*`.
+  - SDK src: `_engine/transport.py`, `_core/ports.py`, `_evaluation/runner.py`,
+    `_evaluation/progress.py`, `_ui/evaluation_state.py`, `_ui/evaluation_view.py`,
+    `_ui/evaluation_widget.py`.
+  - SDK tests: `tests/_reconnect_engine.py`, `tests/test_reconnect_handshake.py` (10),
+    `tests/test_reconnect_progress.py` (14).
+  - Engine tests: `apps/screamingface-engine/tests/integration/test_run_control_resilience.py` (3).
 - **Commits:**
+  - `15cdf443` docs(screamingface): spec and plan for SDK reconnect hardening
+  - `960d8511` fix(screamingface): resume the same capability after a reconnect Access challenge
+  - `cd196010` feat(screamingface): show reconnecting and connection-restored progress lines
+  - `628b7291` test(screamingface-engine): pin resume across an App restart and stop past 60 s
 - **Gates:**
+  - `run_gates.py screamingface --base origin/main`: ALL GATES GREEN — 1888 passed,
+    26 skipped; coverage 96 % (floor 95 %); notebooks, build, distribution checks green.
+  - `run_gates.py screamingface-engine --base origin/main`: ALL GATES GREEN with
+    `URL4_CLOUD_TEST_NATS_URL=nats://127.0.0.1:1` — 4021 passed, 61 skipped; coverage 94 %.
+    With the local NATS at `localhost:4222` reachable, 2 tests in
+    `tests/integration/test_worker_spine.py` fail (`spawn_failed: expected a READY line`).
+    They fail the same way on a clean `origin/main` worktree, so they are an environment
+    fault here and not from this unit.
+- **Bugs found (TDD, RED first):**
+  - **F1** — Access challenge on a reconnect after the Run started minted a NEW
+    capability. Each mint names a new topic, so the resume attached to an empty topic and
+    looped until the 90 s budget ended (RED: `websocket_disconnected` after ~97 s, close
+    1008 from the stub). Fix: re-authenticate and resume on the SAME capability.
+  - **F2** — a 5xx handshake refusal on a reconnect was FATAL and swept every Run (RED:
+    `InvalidStatus` HTTP 502/503 after 0.0 s). Spec §6 S3 says BACKOFF. Fix: after the
+    start, a 5xx uses the same backoff and outage budget as a dropped socket.
 - **Deviations:**
+  - The notice goes to the built-in progress output only (terminal + notebook), not to the
+    user's `on_event` and not to the public `Event` set (spec Q1, owner decision).
+  - The 5xx backoff applies only after the Run started; a 5xx on the first connect stays
+    FATAL (spec Q2).
+  - The pre-start Access remint is kept because
+    `test_an_access_challenge_retries_with_a_freshly_minted_capability` pins it.
+  - The App-restart test is in-process (two App instances with the same secret and the
+    same history), not a `docker kill` of a real App. Each App has its own
+    `InMemoryEventStream` copy of the history, because an `asyncio.Condition` cannot cross
+    the two TestClient loops.
 - **Follow-ups:**
+  - Real-socket App-kill test (plan step 6, first bullet): kind case "K-new: delete the
+    App pod mid-Run → SDK `Url4CloudTransport.run` completes, sequences 1..N once each,
+    report equal to an unkilled Run". Blocker: the kind harness port-forward binds ONE pod
+    (`tests/kind/conftest.py` `app_base_url`), so the SDK needs a stable endpoint that
+    survives the pod (a NodePort/ingress in `deploy/kind/`, or a local TCP proxy that
+    re-forwards). The local kind cluster is shared with other agents, so this unit did
+    not kill pods there.
+  - Pin the real engine's WS handshake status for an invalid/expired ticket (spec
+    2026-08-26 §9 assumption; audit item 19) — still open.
+  - Owner questions Q1 (public `Reconnecting` Event?) and Q2 (5xx backoff on the first
+    connect?) in `docs/spec/2026-09-28-sdk-reconnect-hardening.md`.
+  - OME-1071 not touched: `cancel_active()` still sweeps every Run of the client on a
+    fatal reconnect. It did not block these tests.
+  - Repeated Access challenges on a reconnect still retry with no backoff and no budget
+    (pre-existing; bounded only by `reauthenticate()` raising).

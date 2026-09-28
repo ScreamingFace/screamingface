@@ -1,6 +1,6 @@
 # Plan — SDK reconnect hardening (OME-1016 gaps)
 
-Status: approved (user order: "spec + plan, then code"). Spec:
+Status: implemented (user order: "spec + plan, then code"). Spec:
 `docs/spec/2026-09-28-sdk-reconnect-hardening.md`. Language: ASD-STE100.
 Worktree/branch: `sdk-reconnect-hardening`. Ledger: `docs/work/2026-09-28-sdk-reconnect-hardening.md`.
 

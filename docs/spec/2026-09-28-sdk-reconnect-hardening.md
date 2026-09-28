@@ -1,5 +1,5 @@
 ---
-status: approved-design
+status: implemented
 parent-epic: OME-1016
 ticket: unfiled
 date: 2026-09-28
