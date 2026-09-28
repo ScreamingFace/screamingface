@@ -110,3 +110,5 @@ Group calls/cache, input/output tokens, and provider time into three stable colu
 explanations into a native About these numbers disclosure. Keep exact pricing and unknowns.
 
 Owner follow-up: remove About these numbers and its explanation entirely; retain compact blocks.
+
+Owner approved removing the grey rule above the first cost block; retain inter-operation rules.

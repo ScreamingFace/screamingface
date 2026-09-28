@@ -23,7 +23,8 @@ STYLE = """<style>
 .sf-answer-view,.sf-cost-view{display:none}
 .sf-view-answer:checked~.sf-answer-view,.sf-view-cost:checked~.sf-cost-view{display:block}
 .sf-cost-view p,.sf-run-accounting-note{font-size:12px;color:var(--sf-ink-2)}
-.sf-cost-block{border-top:1px solid var(--sf-line);padding:12px 0}
+.sf-cost-block{padding:12px 0}
+.sf-cost-block+.sf-cost-block{border-top:1px solid var(--sf-line)}
 .sf-cost-block header{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
 .sf-cost-price{font:500 14px "IBM Plex Mono",ui-monospace,monospace;
   color:var(--sf-ink);white-space:nowrap}

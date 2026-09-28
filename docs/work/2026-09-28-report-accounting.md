@@ -149,3 +149,14 @@ full Client gates and refreshed JupyterLab; update the existing draft PR.
 Help-removal outcome: all eight focused rendering tests pass and the full Client gates are
 green (lint, format, types, full pytest/coverage, notebooks, build and distribution). Verified
 JupyterLab renders the cost blocks directly under the tabs with the requested text absent.
+
+## Owner-approved separator refinement
+
+Remove the first cost block's top rule while retaining rules between adjacent operations.
+Use the adjacent-sibling CSS selector; preserve the active-tab underline and all content.
+This is a reversible CSS-only refinement; verify existing rendering tests, full gates and
+notebook appearance without adding an implementation-mirroring test.
+
+Separator outcome: verified in JupyterLab that the first operation has no top rule while
+subsequent operations retain separators. Full Client gates are green: lint, format, types,
+pytest/coverage, notebook provenance, build and distribution. No test or data changes.
