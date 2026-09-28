@@ -38,6 +38,7 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.contracteval.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.spine.incremental import Scoring
 from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
@@ -90,17 +91,29 @@ def aggregate(
     benchmark_revision: str,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
+    return scoring(
+        root, benchmark_id=benchmark_id, benchmark_revision=benchmark_revision, case_ids=case_ids
+    ).aggregate(raw_rows)
+
+
+def scoring(
+    root: Path,
+    *,
+    benchmark_id: str,
+    benchmark_revision: str,
+    case_ids: tuple[int, ...],
+) -> Scoring:
     """Score every selected Case on the shared scored path, then the paper's F1."""
 
     answers: dict[int, dict[str, Any] | None] = {
         case_id: load_answer(root, case_id) for case_id in case_ids
     }
-    return _PATH.aggregate(
-        raw_rows,
+    return Scoring(
+        path=_PATH,
         benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        selected_cases=selected_cases(root, case_ids),
-        grading_material=lambda case_id: answers.get(case_id),
+        revision=benchmark_revision,
+        selected=selected_cases(root, case_ids),
+        material=lambda case_id: answers.get(case_id),
         scorer=_confusion_matrix_score,
     )
 

@@ -44,6 +44,11 @@ from screamingface_engine.benchmarks.evaluation import (
     attempt_records_endpoint,
     benchmark_unavailable,
 )
+from screamingface_engine.benchmarks.spine.incremental import Scoring
+from screamingface_engine.benchmarks.spine.incremental_routes import (
+    aggregate_result_endpoint,
+    case_result_endpoint,
+)
 from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -131,6 +136,7 @@ class ServedBoard:
     check: CheckFactory
     bind_case_evaluation: CaseEvaluationBinder
     reduce: BoardReducer
+    scoring: Callable[..., Scoring] | None = None
 
     @property
     def routes(self) -> BoardRoutes:
@@ -167,6 +173,29 @@ def install_board(node: Url4Node, root: Path, board: ServedBoard) -> None:
             ),
         ),
     )
+    if board.scoring is not None:
+        scoring = board.scoring
+
+        def load(count: int) -> Scoring:
+            return scoring(
+                root,
+                benchmark_id=board.benchmark_id,
+                benchmark_revision=board.revision,
+                case_ids=tuple(range(1, count + 1)),
+            )
+
+        endpoints = (
+            *endpoints[:-1],
+            (routes.aggregate + "/case-result", case_result_endpoint(load)),
+            (
+                routes.aggregate,
+                aggregate_result_endpoint(
+                    label=board.label,
+                    available_case_count=board_case_count(root, declared=board.declared_case_count),
+                    load=load,
+                ),
+            ),
+        )
     for route, handler in endpoints:
         if route not in installed:
             node.endpoint(route)(handler)

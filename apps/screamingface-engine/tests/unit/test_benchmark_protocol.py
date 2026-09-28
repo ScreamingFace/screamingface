@@ -288,11 +288,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # OME-1228: repin the explicit Case envelope; model input equivalence is tested separately.
         # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
         # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
-        (DRACO, "8e2889308b182192ad4164733a0fd993a0726cf0be08a86fee0c14da1f6537ff"),
+        (DRACO, "e3422106c97861a02fd2380f318185f70184f6a2c5b0957c4ecc94c5f643569c"),
         (IFEVAL, "e67fe0629ff85701abe8131c833af042b26ff0bf6701a305fa67d6d273e13709"),
         (
             HEALTHBENCH_WORST30,
-            "61001f00042bd9320a0b83f6d7826467505640d6e5c75a95ae594fc36e175939",
+            "b3c3c806d470561442404e8f6288a345f383ce702f4e7df1a1de3255072fb8ca",
         ),
     ),
 )

@@ -25,7 +25,7 @@ from screamingface_engine.benchmarks.contracteval.runtime import _cases, _check
 from url4.peer.server import Request
 
 # Captured 2026-09-21 from the pre-migration board (base of this branch).
-_GOLDEN_REVISION = "f9a076a10a6ae4c6"
+_GOLDEN_REVISION = "6a3409304ec744be"
 
 _GOLD_SPAN = "This Agreement is governed by Delaware law."
 

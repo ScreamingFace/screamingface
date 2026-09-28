@@ -76,4 +76,8 @@ async def _run(registration, root, fusion):
         finally:
             await run.aclose()
             await world.aclose()
-    return json.loads(result), [e.attributes for e in events.events if isinstance(e, Log)]
+    return json.loads(result), [
+        e.attributes
+        for e in events.events
+        if isinstance(e, Log) and e.attributes.get("sf.activity.schema")
+    ]

@@ -28,7 +28,7 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 # Captured 2026-09-21 from the pre-migration board (base of this branch).
-_GOLDEN_REVISION = "791a7d5b2e961f1c"
+_GOLDEN_REVISION = "9d03319d78ccb380"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
 _QUESTION = "Which agent is indicated? Answer Choices: " + " ".join(

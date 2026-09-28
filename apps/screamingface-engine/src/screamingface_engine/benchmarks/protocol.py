@@ -138,3 +138,20 @@ __all__ = [
     "build_evaluation_protocol",
     "preserve_candidate_outcome",
 ]
+
+
+def early_result(execution: Node, *, aggregate_route: str, selected_case_count: int) -> Node:
+    """Carry the canonical grade into aggregation before admitting the next case."""
+    return expr(
+        src(execution, name="execution", weight=0.0),
+        src(
+            RelExpr(
+                path=aggregate_route + "/case-result",
+                context="$execution",
+                intent=Text(f"$index:{selected_case_count}"),
+            ),
+            name="graded",
+            weight=0.0,
+        ),
+        intent=Text("$graded"),
+    )

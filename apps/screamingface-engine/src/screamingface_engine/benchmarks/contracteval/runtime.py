@@ -130,6 +130,7 @@ BOARD = ServedBoard(
     check=_check,
     bind_case_evaluation=bind_case_evaluation,
     reduce=reducing.aggregate,
+    scoring=reducing.scoring,
 )
 
 __all__ = ["BOARD", "install", "preflight"]

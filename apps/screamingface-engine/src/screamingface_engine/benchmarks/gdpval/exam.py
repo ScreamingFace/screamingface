@@ -48,6 +48,7 @@ from screamingface_engine.benchmarks.gdpval.rubric_filter import FILTER_REVISION
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    early_result,
     preserve_candidate_outcome,
 )
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
@@ -115,6 +116,7 @@ def exam_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -
                 DATASET_REVISION,
                 protocol_revision,
                 EVALUATION_PROTOCOL_REVISION,
+                "early-graded-results-v1",
                 CANDIDATE_RESULT_SCHEMA,
                 PREPARER_REVISION,
                 FILTER_REVISION,
@@ -230,10 +232,14 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
     )
     return build_evaluation_protocol(
         cases_route=routes.cases,
-        case_evaluation=preserve_candidate_outcome(
-            candidate_invocation=candidate_invocation,
-            grading=case_evaluation,
-            case_id="$item.id",
+        case_evaluation=early_result(
+            preserve_candidate_outcome(
+                candidate_invocation=candidate_invocation,
+                grading=case_evaluation,
+                case_id="$item.id",
+            ),
+            aggregate_route=routes.aggregate,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=available_case_count,

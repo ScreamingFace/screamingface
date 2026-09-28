@@ -97,7 +97,7 @@ async def test_healthy_boards_preserve_requests_and_full_results(
     assert observed_requests == requests
     assert observed["score"] is not None, observed
     assert not [e for e in off if isinstance(e, Log)]
-    logs = [e for e in events if isinstance(e, Log)]
+    logs = [e for e in events if isinstance(e, Log) and e.attributes.get("sf.activity.schema")]
     completed = {
         e.attributes["sf.activity.kind"]
         for e in logs

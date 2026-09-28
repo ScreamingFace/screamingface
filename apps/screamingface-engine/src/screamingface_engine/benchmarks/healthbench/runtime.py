@@ -27,15 +27,14 @@ from typing import Any
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
     candidate_answer,
     case_evaluation_endpoint,
     compact_json,
     json_object,
     positive_case_id,
 )
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
@@ -58,6 +57,10 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.spine.incremental_routes import (
+    aggregate_result_endpoint,
+    case_result_endpoint,
+)
 from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
@@ -122,6 +125,10 @@ def _install_protocol_once(
     install_cases(node, cases_route, _cases(root, case_ids))
     routes = frozenset(node.processor_routes())
     endpoints = (
+        (
+            aggregate_route + "/case-result",
+            case_result_endpoint(_scoring(root, benchmark_id, benchmark_revision, case_ids, mean)),
+        ),
         (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),
         # The mid-run check surface the corrective loop consumes. It closes over `node`
         # so the judge route resolves per request — installation must still work in a
@@ -140,10 +147,10 @@ def _install_protocol_once(
         ),
         (
             aggregate_route,
-            aggregate_endpoint(
+            aggregate_result_endpoint(
                 label="HealthBench",
                 available_case_count=len(case_ids),
-                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids, mean),
+                load=_scoring(root, benchmark_id, benchmark_revision, case_ids, mean),
             ),
         ),
     )
@@ -342,6 +349,25 @@ def _aggregate(
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         return reducing.aggregate(
             case_evaluations,
+            root,
+            benchmark_id=benchmark_id,
+            benchmark_revision=benchmark_revision,
+            case_ids=case_ids[:selected_case_count],
+            mean=mean,
+        )
+
+    return aggregate_handler
+
+
+def _scoring(
+    root: Path,
+    benchmark_id: str,
+    benchmark_revision: str,
+    case_ids: tuple[int, ...],
+    mean: ExamMean,
+):
+    def aggregate_handler(selected_case_count: int):
+        return reducing.scoring(
             root,
             benchmark_id=benchmark_id,
             benchmark_revision=benchmark_revision,

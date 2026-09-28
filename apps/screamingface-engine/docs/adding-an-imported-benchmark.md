@@ -240,3 +240,11 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 - `docs/spec/2026-09-09-OME-1113-inspect-evals-import.md` — the import spec (§4 dual
   registration, §5 snapshots, §6 revision identity).
 - Diagram source: `diagrams/importer-pipeline.drawio` (draw.io, `sf-dark` palette).
+
+### Running notebook scores
+
+The shared async aggregation path publishes a running score after canonical case grading,
+including model-judged boards. No per-board logging hook or client scoring formula is needed.
+Judging occurs during aggregation for imported boards, so scores update as judges finish,
+not merely when candidate answers are recorded. The final CandidateResult overrides the
+optional cumulative snapshots; dropped or coalesced snapshots never affect grading.

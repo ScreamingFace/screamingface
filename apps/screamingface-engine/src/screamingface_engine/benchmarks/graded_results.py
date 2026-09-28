@@ -36,6 +36,7 @@ def decode_results(
     revision: str,
     selected: Sequence[SelectedCase],
     failure: Callable[[SelectedCase, int, list[dict[str, Any]] | None], CaseResult],
+    allow_extra_metadata: bool = False,
 ) -> list[CaseResult]:
     """Validate ordered transport; only a collected error uses board failure mapping.
 
@@ -50,11 +51,15 @@ def decode_results(
             results.append(failure(case, index, None))
             continue
         row = json.loads(rows[index]) if isinstance(rows[index], str) else rows[index]
-        results.append(_decode_row(row, case, index, benchmark_id, revision, failure))
+        results.append(
+            _decode_row(row, case, index, benchmark_id, revision, failure, allow_extra_metadata)
+        )
     return results
 
 
-def _decode_row(row, case, index, benchmark_id, revision, failure) -> CaseResult:
+def _decode_row(
+    row, case, index, benchmark_id, revision, failure, allow_extra_metadata=False
+) -> CaseResult:
     if isinstance(row, Mapping) and "error" in row:
         if not isinstance(row["error"], Mapping) or set(row) - {"error", "case_id"}:
             raise ValueError("invalid collected Case failure")
@@ -69,7 +74,15 @@ def _decode_row(row, case, index, benchmark_id, revision, failure) -> CaseResult
     if (decoded.benchmark_id, decoded.revision) != (benchmark_id, revision):
         raise ValueError("graded result belongs to another Benchmark or revision")
     result = decoded.result
-    if (result.case_id, result.input, result.metadata) != (case.case_id, case.input, case.metadata):
+    metadata_matches = (
+        all(
+            key in result.metadata and result.metadata[key] == value
+            for key, value in case.metadata.items()
+        )
+        if allow_extra_metadata
+        else result.metadata == case.metadata
+    )
+    if (result.case_id, result.input) != (case.case_id, case.input) or not metadata_matches:
         raise ValueError("graded result does not match the selected Case")
     if any(item.case_id not in (None, case.case_id) for item in result.failures):
         raise ValueError("graded result failure belongs to another Case")

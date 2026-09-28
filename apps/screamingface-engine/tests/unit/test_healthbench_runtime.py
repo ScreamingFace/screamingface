@@ -271,22 +271,17 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     )
     assert isinstance(case_evaluation, dict)
     assert case_evaluation["schema"] == CASE_EVALUATION_SCHEMA
-    result = await _call(
+    graded = await _call(
         node,
-        WORST30_EXAM.routes.aggregate,
-        json.dumps(
-            [
-                case_execution_payload(
-                    _CASE_ID,
-                    encode_candidate_invocation(_ANSWER, None, None),
-                    [case_evaluation],
-                )
-            ]
+        WORST30_EXAM.routes.aggregate + "/case-result",
+        case_execution_payload(
+            _CASE_ID,
+            encode_candidate_invocation(_ANSWER, None, None),
+            [case_evaluation],
         ),
-        # v2 intent: "aggregate:<selected>" — the count of Cases this run selected
-        # (how a limit=N run tells the reducer to score only the first N).
-        "aggregate:1",
+        "0:1",
     )
+    result = await _call(node, WORST30_EXAM.routes.aggregate, json.dumps([graded]), "aggregate:1")
     assert isinstance(result, dict)
     # The single +8 item was met — the Case scores 1.0 and the mean follows.
     assert result["score"] == 1.0

@@ -10,6 +10,7 @@ from screamingface_engine.benchmarks.aggregation import SelectedCase, finalize_c
 from screamingface_engine.benchmarks.graded_results import decode_results, encode_result
 from screamingface_engine.benchmarks.ifeval import grade
 from screamingface_engine.benchmarks.ifeval.definition import BENCHMARK_ID, REVISION
+from screamingface_engine.benchmarks.progress import completed_case
 from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
@@ -48,6 +49,7 @@ def case_result(root: Path):
             ]
             if len(results) != 1:
                 raise ValueError("IFEval must produce one Case result")
+            completed_case(BENCHMARK_ID, REVISION, results[0], grade._ifeval_score)
             return encode_result(results[0], benchmark_id=BENCHMARK_ID, revision=REVISION)
         except (OSError, KeyError, TypeError, ValueError) as exc:
             raise CaseFinalizationError(

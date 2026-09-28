@@ -31,14 +31,13 @@ from screamingface_engine.benchmarks.draco.exam import (
 )
 from screamingface_engine.benchmarks.draco.prompts import judge_context, judge_intent
 from screamingface_engine.benchmarks.draco.verdict import bind, binding_key
+from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
     candidate_answer,
     case_evaluation_endpoint,
     compact_json,
     json_object,
 )
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
@@ -47,6 +46,10 @@ from screamingface_engine.benchmarks.failure_classes import (
 )
 from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.spine.incremental_routes import (
+    aggregate_result_endpoint,
+    case_result_endpoint,
+)
 from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
@@ -87,13 +90,16 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
             bind=bind_case_evaluation,
         )
     )
+    node.endpoint(exam.routes.aggregate + "/case-result")(
+        case_result_endpoint(_scoring(assets, exam))
+    )
     node.endpoint(exam.routes.aggregate)(
-        aggregate_endpoint(
+        aggregate_result_endpoint(
             label="DRACO",
             # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
             # resolution, so the eager `len(selected_cases)` this replaced was always equal.
             available_case_count=CASE_COUNT,
-            aggregate=_aggregate(
+            load=_scoring(
                 assets,
                 exam,
             ),
@@ -308,6 +314,23 @@ def _aggregate(
         _cases_json, selected_cases, rubrics = assets()
         return grading.aggregate(
             case_evaluations,
+            rubrics,
+            exam.id,
+            selected_cases=selected_cases[:selected_case_count],
+            judge_passes=exam.judge_passes,
+            benchmark_revision=exam.revision,
+        )
+
+    return aggregate
+
+
+def _scoring(
+    assets: Callable[[], ProtocolAssets],
+    exam: DracoExam,
+):
+    def aggregate(selected_case_count: int):
+        _cases_json, selected_cases, rubrics = assets()
+        return grading.scoring(
             rubrics,
             exam.id,
             selected_cases=selected_cases[:selected_case_count],

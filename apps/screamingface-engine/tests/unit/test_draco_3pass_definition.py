@@ -46,7 +46,7 @@ from url4.peer.server import Url4Node
 # reasoning_effort=low (max_tokens stays the paper's 4096), and judge params are hashed
 # into the board identity — a different exam is a different revision.
 #  Scoreboard seeds, cache seeds, and goldens re-record against this value.
-CANONICAL_REVISION = "62718f04ea1a980f"
+CANONICAL_REVISION = "80b415af3c5e762d"
 
 
 def _url4(benchmark, limit: int | None = None) -> str:

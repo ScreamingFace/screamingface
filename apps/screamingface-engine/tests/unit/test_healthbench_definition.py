@@ -111,7 +111,7 @@ def test_the_worst30_revision_is_frozen_against_refactors() -> None:
     this literal AND re-seeds the board in the same breath.
     """
 
-    assert WORST30_EXAM.revision == "39cfd96b068f7230"
+    assert WORST30_EXAM.revision == "8243eab2419cd5bd"
 
 
 def test_both_healthbench_boards_link_the_openai_healthbench_dataset() -> None:

@@ -1,6 +1,6 @@
 # OME-932 — implementation and verification plan
 
-Status: proposed; no runtime implementation performed.
+Status: implementation and verification in progress.
 See docs/spec/2026-09-28-provisional-progress.md for evidence and timing limitations.
 
 ## 1. Characterize before changing behavior
@@ -33,7 +33,7 @@ Run repository-required Engine gates, replay parity and review before a draft PR
 
 ## 5. Separate client follow-up
 
-Consume the versioned structured snapshot; do not infer scores from activity text. Label partial scores provisional, use completed grading coverage as its denominator, retain existing active-case display semantics, and replace with authoritative final results. Test dropped snapshots, no-gradeable outcomes and independently finishing candidates. This is outside the Engine-only ticket.
+Consume the versioned structured snapshot; do not infer scores from activity text. Display the running numeric score without an extra provisional label (user-directed), retain existing active-case display semantics, and replace with authoritative final results. Test dropped snapshots, no-gradeable outcomes and independently finishing candidates. This is outside the Engine-only ticket.
 
 ## Approval decision
 
@@ -72,3 +72,13 @@ See docs/spec/2026-09-28-early-grade-transport.md. Proposed production design ca
 ## Approved production IFEval slice
 
 User approved production wiring on 2026-09-28. Add a versioned typed result row and a board-bound case-result endpoint after preserved execution. Change the canonical IFEval build to call it and final aggregation to consume those rows. Advance the IFEval protocol revision. The existing raw aggregate Python function remains a parity oracle; the production route must not accept both formats heuristically. New tests exercise actual generated execution and no-regrading replay. Snapshot/test migrations require the separately requested existing-test approval.
+
+## Live preview iteration
+
+Implement the scalar snapshot port and optional activity accumulator; invoke from IFEval's case-result endpoint. Add a pure Client snapshot parser/state, then connect existing score/qualifier properties without changing layout. Verify Engine timing through real URL4 logs and Client widget rendering before refreshing the local notebook. This bounded IFEval integration does not claim all-board early grading support. No new URL4 fields or expression change.
+
+## All-board implementation iteration
+1. Cover real built-in routes and blocked async grading with new progress tests; publish from shared aggregate consumption.
+2. Generalize early canonical-result production and typed-result transport for the remaining built-in families, preserving case positions and board-specific metadata/failure mappings.
+3. Migrate revisions/expression and replay fixtures only with existing-test approval; compare canonical outcomes and model request counts.
+4. Verify the registry, including every imported board, run stack gates and refresh the preview. Aggregate-only progress is an intermediate step, not completion of built-in early scoring.

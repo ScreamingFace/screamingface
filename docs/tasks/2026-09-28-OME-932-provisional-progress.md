@@ -4,7 +4,7 @@ linear_url: https://linear.app/openmined/issue/OME-932/publish-terminal-benchmar
 status: In Progress
 type: task
 priority: 2
-labels: [screamingface-engine, agentic, deferred]
+labels: [screamingface-engine, agentic, autonomous]
 created: 2026-08-21
 closed:
 ---
@@ -12,6 +12,6 @@ closed:
 
 Parent: OME-887. Linear is the scope/status authority.
 
-Current draft establishes incremental consumption of canonical case results. It does not complete provisional-score publication or notebook rendering. Early case finalization, structured snapshots and separate Client work remain, as detailed in docs/spec/2026-09-28-provisional-progress.md and docs/plan/2026-09-28-provisional-progress.md.
+Draft #1096 now implements canonical early grades for all eight built-in boards and shared async progress for imported boards. Scalar cumulative snapshots use native board scoring, and the Client shows the running numeric Score until the authoritative final result arrives. The issue remains In Progress until review and merge.
 
-Implementation ledger: docs/work/2026-09-28-incremental-case-results.md.
+Implementation ledgers: docs/work/2026-09-28-incremental-case-results.md, docs/work/2026-09-28-live-provisional-scores.md, docs/work/2026-09-28-all-benchmark-live-scores.md.

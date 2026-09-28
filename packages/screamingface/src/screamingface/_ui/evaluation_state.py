@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import cast
 
 from screamingface._evaluation.model import Candidate
+from screamingface._ui.provisional_score import ProvisionalScore, advance, parse_snapshot
 from screamingface.events import Event, Log, Span, Started, Terminated, Usage
 from screamingface.report import CandidateResult, Report
 
@@ -38,6 +39,7 @@ class _CandidateProgress:
     stage: str | None = None
     active_cases: str | None = None
     result: CandidateResult | None = None
+    provisional: ProvisionalScore | None = None
     workflow_status: str | None = None
     started_elapsed_seconds: float | None = None
     started_at: datetime | None = None
@@ -59,11 +61,13 @@ class _CandidateProgress:
 
     @property
     def score(self) -> float | None:
-        return None if self.result is None else self.result.score
+        if self.result is not None:
+            return self.result.score
+        return None if self.provisional is None else self.provisional.score
 
     @property
     def score_available(self) -> bool:
-        return self.result is not None
+        return self.result is not None or self.provisional is not None
 
     @property
     def qualifier(self) -> str | None:
@@ -131,6 +135,10 @@ class _CandidateProgress:
             self._observe_started(event, elapsed_seconds)
         elif isinstance(event, Log):
             self._observe_cache_log(event)
+            if self.result is None:
+                self.provisional = advance(
+                    self.provisional, parse_snapshot(event, self.total_cases)
+                )
         elif isinstance(event, Usage):
             self._observe_usage(event)
         elif isinstance(event, Terminated):

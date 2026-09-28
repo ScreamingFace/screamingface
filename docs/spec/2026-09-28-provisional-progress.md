@@ -99,3 +99,12 @@ IFEval now carries a versioned, benchmark-bound canonical CaseResult from each i
 This intentionally changes the IFEval protocol revision and expression. URL4 syntax/SDK and the public CandidateResult shape are unchanged. The original 50-case replay preserved score 0.9184, all case statuses, failures and coverage before its fingerprint/revision were migrated. Real production-expression tests establish early availability and full batch-payload parity. No callback-owned cache is introduced.
 
 This slice does not yet publish provisional score events, change the Client table, or move other benchmarks' grading earlier. Those remain follow-up work; the original test-only proof above describes the preceding slice.
+
+## Approved live IFEval preview
+
+After each production IFEval grade, dispatch an optional observation fact with explicit benchmark/revision and canonical scorer. The enabled activity adapter maintains per-run, per-benchmark result state for cumulative scalar snapshots. It never regrades or owns the authoritative result. Repeated case facts replace by identity without double counting; rapid updates may coalesce, and the final CandidateResult remains authoritative. No arbitrary score inference in the Client. Initial rollout is explicitly IFEval; other boards need their corresponding production callback integration and acceptance tests.
+
+Snapshot attributes: `sf.progress.schema=screamingface.benchmark-progress.v1`, `sf.progress.benchmark`, `sf.progress.benchmark_revision`, `sf.progress.revision`, `sf.progress.completed`, `sf.progress.graded`, and nullable finite `sf.progress.score`. The Client presents score zero correctly, rejects malformed/out-of-order snapshots, and marks partial scores Provisional. Active case numbering stays independent.
+
+## Approved all-board extension
+The user approved extending live score updates to all benchmarks. Publish canonical grade completion through the shared scored path for aggregate-time judges. Built-in early grading must carry the same typed result into final aggregation rather than grade twice. Preserve each board's scorer (including ContractEval confusion-matrix F1), failure mappings and metadata. This requires explicit built-in protocol/fixture migrations. The Client remains generic and shows only the running numeric score, without provisional text.

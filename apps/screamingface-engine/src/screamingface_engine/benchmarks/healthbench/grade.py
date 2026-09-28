@@ -22,6 +22,7 @@ from typing import Any
 from screamingface_engine.benchmarks.healthbench.case_evaluation import decode_case_evaluation
 from screamingface_engine.benchmarks.healthbench.scoring import case_score
 from screamingface_engine.benchmarks.spine.exam import exam_scorer
+from screamingface_engine.benchmarks.spine.incremental import Scoring
 from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
 from screamingface_engine.benchmarks.spine.scored import ScoredPath
@@ -80,6 +81,23 @@ def aggregate(
     case_ids: tuple[int, ...],
     mean: Callable[[Sequence[float]], float | None],
 ) -> dict[str, Any]:
+    return scoring(
+        root,
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        case_ids=case_ids,
+        mean=mean,
+    ).aggregate(raw_rows)
+
+
+def scoring(
+    root: Path,
+    *,
+    benchmark_id: str,
+    benchmark_revision: str,
+    case_ids: tuple[int, ...],
+    mean: Callable[[Sequence[float]], float | None],
+) -> Scoring:
     """Score every selected Case on the shared scored path, with this board's hooks.
 
     ``case_ids`` is authoritative: a Case that produced no row stays visible without a
@@ -91,14 +109,14 @@ def aggregate(
     diverging on spread (sample stdev, see ``spine.exam.sample_stdev``).
     """
 
-    return _PATH.aggregate(
-        raw_rows,
+    return Scoring(
+        path=_PATH,
         benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        selected_cases=read_selected_cases(
+        revision=benchmark_revision,
+        selected=read_selected_cases(
             root, case_ids, benchmark_label="HealthBench", error_type=AggregateError
         ),
-        grading_material=lambda case_id: load_rubric_points(root, case_id),
+        material=lambda case_id: load_rubric_points(root, case_id),
         scorer=exam_scorer(mean),
     )
 
