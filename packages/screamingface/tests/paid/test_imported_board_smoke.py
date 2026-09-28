@@ -14,6 +14,7 @@ refused, or truncated model answer still passes, because model quality is not wi
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,7 +48,9 @@ TOLERATED_MODEL_SIDE_CODES: frozenset[str] = frozenset(
 )
 
 
-def test_every_imported_board_runs_end_to_end(paid_stack: PaidStack) -> None:
+def test_every_imported_board_runs_end_to_end(
+    paid_stack: PaidStack, capsys: pytest.CaptureFixture[str]
+) -> None:
     """INVARIANT: each imported board's full product pipe can execute a real run.
 
     One loop, not per-board parametrize: the board list lives on the live engine,
@@ -70,14 +73,57 @@ def test_every_imported_board_runs_end_to_end(paid_stack: PaidStack) -> None:
             "was its venv synced with --extra benchmarks?"
         )
 
+        # WHY print past pytest's capture: this is one test looping over the whole
+        # shelf, so `-v` shows a single line until every board is done. The owner
+        # watching a press (terminal or CI log) needs to see a broken board the
+        # moment it finishes, not after the whole paid run.
+        with capsys.disabled():
+            header: str = f"[paid smoke] {len(boards)} imported boards, {CASE_LIMIT} Cases each"
+            print(f"\n{header}", flush=True)
+
         problems: list[str] = []
-        for board in boards:
-            problems.extend(_smoke_one_board(client, board, paid_stack.log_dir / "reports"))
+        for position, board in enumerate(boards, start=1):
+            started: float = time.monotonic()
+            board_problems: list[str] = _smoke_one_board(
+                client, board, paid_stack.log_dir / "reports"
+            )
+            problems.extend(board_problems)
+            line: str = _progress_line(
+                position, len(boards), board, board_problems, time.monotonic() - started
+            )
+            with capsys.disabled():
+                print(line, flush=True)
 
     assert not problems, (
         "imported boards failed the paid smoke (board: stage/code — message):\n"
         + "\n".join(problems)
     )
+
+
+def _progress_line(
+    position: int, total: int, board: str, problems: list[str], seconds: float
+) -> str:
+    """Say one finished board's verdict in a single line the owner can scan live.
+
+    Example: board 4 of 24 with one infrastructure problem after 7.0s reads
+    ``[4/24] inspect-frontierscience … FAILED: 1 problem (7s)``; a healthy board
+    reads ``… ok (42s)``. The problem text itself stays in the final assertion.
+
+    Args:
+        position: 1-based index of this board in the shelf.
+        total: how many boards this press runs.
+        board: the imported benchmark id.
+        problems: the board's infrastructure problems; empty means healthy.
+        seconds: wall time the board took, rounded to whole seconds for display.
+
+    Returns:
+        The progress line, without a trailing newline.
+    """
+    verdict: str = "ok"
+    if problems:
+        noun: str = "problem" if len(problems) == 1 else "problems"
+        verdict = f"FAILED: {len(problems)} {noun}"
+    return f"[{position}/{total}] {board} … {verdict} ({round(seconds)}s)"
 
 
 def _smoke_one_board(client: _sf.Client, board: str, reports_dir: Path) -> list[str]:
