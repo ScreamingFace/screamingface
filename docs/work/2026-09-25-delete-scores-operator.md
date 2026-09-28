@@ -92,3 +92,19 @@ command started. My test checked the backup's content, never that it existed bef
 case-insensitive digest, and three CLI paths). The tests in this PR's own new files were updated
 for the new `--yes` contract; they are not prior-cycle tests. Mutation: disabling the digest
 comparison fails 2 tests. Gates: ALL GREEN vs `origin/main`, no append-only exception.
+
+## Review round 2 (2026-09-28, owner's review)
+
+1. **Medium, verified: the selected rows were not locked.** The selection was read without
+   `FOR UPDATE`. The benchmark lock serialises submit and replay, but `ScoreStore.mark_verified`
+   updates a score without it (no production caller today, only tests), so a row could change
+   after its digest matched the reviewed backup and before it was deleted. **Fix:** the selection
+   is `select_for_update()` inside the deleting transaction. **Test:**
+   `test_delete_scores_postgres.py`, added to the PostgreSQL CI lane: a second connection tries
+   `SELECT ... FOR UPDATE NOWAIT` on the row at delete time. RED before the fix (`['acquired']`),
+   green after (`['locked']`), run against a throwaway Docker PostgreSQL 16.
+2. **Medium, verified: the spec still described the discarded contract** (stdout in both modes,
+   no `--expect-sha256`, the old confirmed command). **Fix:** spec §1 and §2 rewritten to the
+   two-step, digest-bound, row-locked contract, with a revision note.
+
+Gates: ALL GREEN vs `origin/main`, no append-only exception.

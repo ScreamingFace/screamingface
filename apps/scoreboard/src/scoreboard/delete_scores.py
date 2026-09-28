@@ -189,7 +189,12 @@ async def delete_scores(
             query = query.filter(id__in=list(score_ids))
         else:
             query = query.filter(submitted_at__lt=submitted_before)
-        selected = await query.order_by("submitted_at", "id")
+        # INVARIANT (review round 2, 2026-09-26): the selected rows are locked from here to the
+        # delete. The benchmark lock above serialises submit and replay, but not every write takes
+        # it (`ScoreStore.mark_verified` updates a score directly), so without a row lock a score
+        # could change after its digest matched the reviewed backup and before it was deleted.
+        # Pinned on PostgreSQL by `test_delete_scores_postgres.py`.
+        selected = await query.order_by("submitted_at", "id").select_for_update()
 
         if len(selected) != expected:
             raise DeletionRefused(
