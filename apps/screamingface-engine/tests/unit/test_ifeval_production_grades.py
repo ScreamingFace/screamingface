@@ -66,7 +66,7 @@ async def test_aggregate_reuses_serialized_grade_without_checking(tmp_path, monk
     from test_ifeval_incremental_proof import _call
 
     from screamingface_engine.benchmarks.ifeval.definition import CASE_RESULT_ROUTE
-    from screamingface_engine.benchmarks.ifeval.incremental import aggregate
+    from screamingface_engine.benchmarks.ifeval.scoring import scoring
 
     _assets(tmp_path)
     node = Url4Node("test")
@@ -75,7 +75,7 @@ async def test_aggregate_reuses_serialized_grade_without_checking(tmp_path, monk
     row = json.loads(json.dumps(_evaluation(2, [True], [True])))
     raw = json.loads(row["grading"][0]) if isinstance(row["grading"][0], str) else row["grading"][0]
     raw["attempts"][0]["instruction_id_list"] = ["punctuation:no_comma"]
-    encoded = await _call(node, CASE_RESULT_ROUTE, json.dumps(row), "2")
+    encoded = await _call(node, CASE_RESULT_ROUTE, json.dumps(row), "1:2")
 
     def forbidden(*args, **kwargs):
         pytest.fail("replayed typed result must never run grading or checking")
@@ -84,7 +84,7 @@ async def test_aggregate_reuses_serialized_grade_without_checking(tmp_path, monk
     monkeypatch.setattr(grading, "check_case", forbidden)
     # Preserve selected position 2 and its earlier failure across the serialized boundary.
     error = {"error": {"message": "unavailable", "code": "provider_error"}}
-    result = aggregate(tmp_path)(json.dumps([error, encoded]), 2)
+    result = await scoring(tmp_path, 2).finish(json.dumps([error, encoded]))
     assert result["score"] == 1.0
     assert result["coverage"] == 0.5
     assert result["cases"][0]["failures"][0]["metadata"]["row_index"] == 0
@@ -96,7 +96,7 @@ async def test_corrupt_grading_is_not_downgraded_to_failed_case(tmp_path) -> Non
     from test_ifeval_incremental_proof import _call
 
     from screamingface_engine.benchmarks.ifeval.definition import CASE_RESULT_ROUTE
-    from screamingface_engine.benchmarks.ifeval.incremental import aggregate
+    from screamingface_engine.benchmarks.ifeval.scoring import scoring
     from url4.core.errors import ResolutionError
     from url4.dag.nodes._shared import _error_payload
 
@@ -105,10 +105,10 @@ async def test_corrupt_grading_is_not_downgraded_to_failed_case(tmp_path) -> Non
     install(node, tmp_path)
     # The case-2 record declares quotation checking; installed spec expects no commas.
     with pytest.raises(ResolutionError) as error:
-        await _call(node, CASE_RESULT_ROUTE, json.dumps(_evaluation(2, [True], [True])), "2")
+        await _call(node, CASE_RESULT_ROUTE, json.dumps(_evaluation(2, [True], [True])), "1:2")
     collected = _error_payload(error.value)
     with pytest.raises(ValueError):
-        aggregate(tmp_path)(json.dumps([collected]), 1)
+        await scoring(tmp_path, 1).finish(json.dumps([collected]))
 
 
 @pytest.mark.asyncio

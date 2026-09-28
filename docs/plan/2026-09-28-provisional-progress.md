@@ -85,3 +85,6 @@ Implement the scalar snapshot port and optional activity accumulator; invoke fro
 
 ### Review correction
 Add a real MedXpert batch-versus-early grading-failure regression, then validate decoded results against base selection before checking optional enrichment. Run full Engine gates and update the draft. Public single-case API and IFEval orchestration consolidation remain separate cleanup.
+
+### IFEval consolidation steps
+Prove shared binding parity with real fixtures, then replace the IFEval-specific transport module with a board-owned Scoring factory and shared runtime/protocol adapters. Migrate approved route tests and revision fingerprints; run cache-only replay and stack gates before updating #1096.

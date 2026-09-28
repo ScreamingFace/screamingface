@@ -333,13 +333,13 @@ class ScoredPath:
         case_ids = tuple(int(selected.case_id) for selected in selected_cases)
         indexed = self.reader.index(raw_rows, case_ids)
         for index, selected in enumerate(selected_cases):
-            result = await self._case_result(
+            result = await self.case_result(
                 selected, index, indexed, grading_material, case_metadata
             )
             if result is not None:
                 yield result
 
-    async def _case_result(
+    async def case_result(
         self,
         selected_case: SelectedCase,
         selected_index: int,
@@ -347,6 +347,11 @@ class ScoredPath:
         grading_material: Callable[[int], object | None],
         case_metadata: Callable[[int], Mapping[str, Any]] | None,
     ) -> CaseResult | None:
+        """Grade one selected Case with the same failure ladder as batch grading.
+
+        The original selected index preserves anonymous failure attribution.
+        ``None`` retains a board's explicit omission policy.
+        """
         case_id: int = int(selected_case.case_id)
         row: dict[str, Any] | None = indexed.rows.get(case_id)
         material: object | None = grading_material(case_id)

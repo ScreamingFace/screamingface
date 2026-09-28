@@ -111,3 +111,6 @@ The user approved extending live score updates to all benchmarks. Publish canoni
 
 ### Reviewed failure metadata correction
 Typed grade validation must accept canonical grading failures that retain selected-case metadata without optional grading enrichment. Board-added metadata remains required for scored results; any supplied enrichment must match authoritative values even on failures. Identity, revision, input, and failure attribution checks remain strict.
+
+### IFEval consolidation
+IFEval must bind its existing canonical ScoredPath and native scorer into the shared Scoring transport. Preserve installed case order, anonymous error positions, no-regrading and corrupt-envelope rejection. Runtime uses shared endpoint adapters; the user approved migration of the endpoint intent to selected index/count and its fixtures.

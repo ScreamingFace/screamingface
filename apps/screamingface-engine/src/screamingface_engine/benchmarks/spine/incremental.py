@@ -37,7 +37,7 @@ class Scoring:
 
     async def grade_row(self, raw: str, index: int) -> str:
         selected = self.selected[index]
-        result = await self.path._case_result(
+        result = await self.path.case_result(
             selected,
             index,
             self.path.reader.index(json.dumps([raw]), (int(selected.case_id),)),
@@ -80,7 +80,7 @@ class Scoring:
             indexed = self.path.reader.index(
                 json.dumps([] if row is None else [row]), (int(selected.case_id),)
             )
-            result = await self.path._case_result(
+            result = await self.path.case_result(
                 selected, index, indexed, self.material, self.metadata
             )
             return result

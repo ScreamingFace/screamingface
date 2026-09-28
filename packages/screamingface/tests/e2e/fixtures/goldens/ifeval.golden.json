@@ -1,13 +1,13 @@
 {
   "schema": "screamingface.golden-report.v1",
   "board": "ifeval",
-  "revision": "eaec07c847ccb964",
+  "revision": "c3804cc2db99ea47",
   "models": [
     "openrouter/mistralai/ministral-3b-2512",
     "openrouter/microsoft/phi-4"
   ],
   "limit": 50,
-  "expression_sha": "41d44e7fc86a7e57b4782eb604b709e0cc739c252d599fff06b93c648782aeb5",
+  "expression_sha": "032f8a844f08ac8be8bcdcc07bc33600d8bfb513adb1415768daf5aa6ffb2cce",
   "final_score": "0.9184",
   "case_count": 50,
   "gradeable_count": 49,

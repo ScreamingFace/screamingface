@@ -289,7 +289,7 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
         # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
         (DRACO, "e3422106c97861a02fd2380f318185f70184f6a2c5b0957c4ecc94c5f643569c"),
-        (IFEVAL, "e67fe0629ff85701abe8131c833af042b26ff0bf6701a305fa67d6d273e13709"),
+        (IFEVAL, "0abf9dc8c1b22ef08350fad5ad017cbf723d844485e0461a47b71f7eb51b46d0"),
         (
             HEALTHBENCH_WORST30,
             "b3c3c806d470561442404e8f6288a345f383ce702f4e7df1a1de3255072fb8ca",

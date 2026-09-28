@@ -9,19 +9,18 @@ from typing import Any
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
+from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
     candidate_answer,
     compact_json,
     json_object,
 )
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
 from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.ifeval import grade as scoring
-from screamingface_engine.benchmarks.ifeval import grading, incremental
+from screamingface_engine.benchmarks.ifeval import grading
 from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
 from screamingface_engine.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
@@ -31,6 +30,11 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     CASES_ROUTE,
     CHECK_ROUTE,
     CHECK_SURFACE_ROUTE,
+)
+from screamingface_engine.benchmarks.ifeval.scoring import scoring as scoring_binding
+from screamingface_engine.benchmarks.spine.incremental_routes import (
+    aggregate_result_endpoint,
+    case_result_endpoint,
 )
 from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
@@ -42,17 +46,21 @@ def install(node: Url4Node, root: Path) -> None:
 
     install_cases(node, CASES_ROUTE, _cases(root))
     routes = frozenset(node.processor_routes())
+
+    def load(count: int):
+        return scoring_binding(root, count)
+
     endpoints = (
         (CHECK_ROUTE, _check(root)),
         (CHECK_SURFACE_ROUTE, _check_surface(root)),
         (CASE_EVALUATION_ROUTE, _case_evaluation),
-        (CASE_RESULT_ROUTE, incremental.case_result(root)),
+        (CASE_RESULT_ROUTE, case_result_endpoint(load)),
         (
             AGGREGATE_ROUTE,
-            aggregate_endpoint(
+            aggregate_result_endpoint(
                 label="IFEval aggregation",
                 available_case_count=CASE_COUNT,
-                aggregate=incremental.aggregate(root),
+                load=load,
             ),
         ),
     )

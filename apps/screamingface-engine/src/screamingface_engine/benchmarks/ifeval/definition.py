@@ -15,6 +15,7 @@ from screamingface_engine.benchmarks.definition import (
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    early_result,
     preserve_candidate_outcome,
 )
 from url4 import Node, RelExpr, Text, expr, render, src, struct
@@ -28,9 +29,9 @@ DATASET_REVISION = "966cd89545d6b6acfd7638bc708b98261ca58e84"
 # The pip-installable, bug-fixed fork that inspect_evals pins — vendored under ./vendor.
 VERIFIER_REPOSITORY = "josejg/instruction_following_eval"
 VERIFIER_REVISION = "0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
-# WHY: v3 transports canonical per-case grades before final aggregation.
+# WHY: v4 uses the shared selected-index/count early-grade transport.
 # Official case keys and the pinned prompt correction from v2 remain unchanged.
-PROTOCOL_REVISION = "ifeval-early-graded-results-v3"
+PROTOCOL_REVISION = "ifeval-shared-graded-results-v4"
 CANDIDATE_WEB_SEARCH = False
 
 # The verifier code is the grading contract, so changing it changes the Benchmark revision.
@@ -56,8 +57,8 @@ CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
 # $candidate only ever sees $input — the adapter resolves the case behind the route.
 CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface"
 CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
-CASE_RESULT_ROUTE = f"{ROUTE_PREFIX}/case-result"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
+CASE_RESULT_ROUTE = f"{AGGREGATE_ROUTE}/case-result"
 
 
 def _build(case_count: int) -> Node:
@@ -94,22 +95,14 @@ def _build(case_count: int) -> Node:
     )
     return build_evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=expr(
-            src(
-                preserve_candidate_outcome(
-                    candidate_invocation=candidate_invocation,
-                    grading=checked,
-                    case_id="$item.id",
-                ),
-                name="execution",
-                weight=0.0,
+        case_evaluation=early_result(
+            preserve_candidate_outcome(
+                candidate_invocation=candidate_invocation,
+                grading=checked,
+                case_id="$item.id",
             ),
-            src(
-                RelExpr(path=CASE_RESULT_ROUTE, context="$execution", intent=Text("$item.id")),
-                name="graded",
-                weight=0.0,
-            ),
-            intent=Text("$graded"),
+            aggregate_route=AGGREGATE_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
