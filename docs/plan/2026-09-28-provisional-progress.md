@@ -64,3 +64,7 @@ Expose `ScoredPath.iter_case_results(raw_rows, *, selected_cases, grading_materi
 ## IFEval execution proof
 
 Extract only IFEval's existing ScoredPath construction into a reusable factory. A test-local execution harness invokes the real checker and case-envelope routes, consumes one canonical grade per completed case, then finalizes the typed results. A gated second candidate proves timing, counters prove no duplicate checks/grade calls, and the old batch path is the payload-parity oracle. This deliberately leaves production expression migration for a subsequent change; it cannot by itself enable table updates.
+
+## Transport direction after the proof
+
+See docs/spec/2026-09-28-early-grade-transport.md. Proposed production design carries a typed grade in a versioned execution row; final aggregation validates and reduces it, and accounting remains final-run reconciled. This supersedes any suggestion that an observer-only change can deliver early built-in scores. Confirm the protocol-migration scope before implementing it; then follow the transport/failure/cache acceptance matrix in that proposal.
