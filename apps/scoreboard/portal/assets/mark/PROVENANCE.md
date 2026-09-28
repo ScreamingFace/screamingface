@@ -1,7 +1,3 @@
-<!-- This file is inside the served portal tree and is publicly fetchable.
-     Keep it free of ticket ids, repository paths and anything else internal;
-     tests/unit/test_portal_static.py enforces that. -->
-
 # The 😱 mark — vendored asset
 
 The ScreamingFace mark, set **as the lowercase "o"** in the landing hero

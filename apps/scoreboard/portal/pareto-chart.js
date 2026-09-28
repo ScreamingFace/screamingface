@@ -1,4 +1,4 @@
-/* Score/cost Pareto chart for the public benchmark board (OME-923 part C).
+/* Score/cost Pareto chart for the public benchmark board.
  *
  * The pure model is exported to Node for the existing portal test gate. The browser half renders
  * an SVG with DOM APIs only: spec ids are community input, so no value ever reaches innerHTML.
@@ -43,9 +43,8 @@
     };
   }
 
-  // FEATURE: OME-923 Part C — one model feeds every visual element in the chart.
-  //
-  // INVARIANT: membership is never recomputed here. The table mark is a whole-board server
+  // One model feeds every visual element in the chart. Membership is never recomputed here:
+  // the table mark is a whole-board server
   // decision, so the chart consumes the exact same strict field. Recomputing over the bounded
   // page would let a row hidden below `top` dominate a visible point while the chart still drew
   // that point as efficient.

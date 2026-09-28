@@ -76,7 +76,7 @@ body {
 
 /* ---- type --------------------------------------------------------- */
 h1 {
-  font-family: var(--f-display); font-weight: var(--weight-display); /* the documented serif-display weight (500) — semibold was a drift from the 2026-07-16 decision */
+  font-family: var(--f-display); font-weight: var(--weight-display); /* the documented serif-display weight (500) */
   font-size: var(--text-display); letter-spacing: var(--tracking-normal);
   line-height: var(--leading-tight); color: var(--ink); margin: 0 0 var(--space-4);
 }
@@ -108,7 +108,7 @@ p { margin: 0 0 var(--space-4); }
 small, .small { font-size: var(--text-sm); }
 .meta { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-2); }
 /* .faint — de-emphasized supporting prose (section deks). Uses the SECONDARY text role
-   (--ink-2 = --text-2, APCA Lc 75 contracted — raised from 60 on 2026-07-17), NOT --ink-3:
+   (--ink-2 = --text-2, APCA Lc 75 contracted), NOT --ink-3:
    that's neutral-8, a border/decoration step never contracted for reading (~WCAG 2.0 on
    light). Text only ever uses the two contracted text roles — --ink (Lc 90) or --ink-2 (Lc 75). */
 .faint { color: var(--ink-2); }
@@ -153,7 +153,7 @@ p, li, .desc, .note { text-wrap: pretty; }
 /* capital variant — the mark set AS a capital O (e.g. "S😱TA"): occupies the cap band,
    baseline-shared with a whisker of overshoot, side margins ≈ a cap O's bearings. Never
    set the raw OS emoji inside display type — its glyph box word-spaces the letters apart
-   and dips below baseline like a descender (kerning audit 2026-07-17). */
+   and dips below baseline like a descender. */
 .o-mark--cap { height: .66em; transform: translateY(.014em); margin: 0 .025em; }
 
 /* ---- masthead ----------------------------------------------------- */
@@ -586,8 +586,8 @@ figure svg circle[fill="none"] { stroke-width: 1.3px; }  /* ring markers keep th
 /* secondary — the ladder's outline tier: the LABEL matches the OUTLINE (both the family's
    text-low role), hover is the family's component tint (never a solid invert). Default
    accent only — gold is MARKETING-ONLY. (The marketing register's outline tier is already
-   gold by default, so no modifier is needed there; a `.gain` gold-on-product variant used to
-   exist and was retired — gold must not enter the product register.) */
+   gold by default, so no modifier is needed there; gold must not enter the product
+   register.) */
 .btn--sec { display: inline-flex; align-items: center; gap: var(--space-2); --sec: var(--accent-text-low); --sec-h: var(--accent-component); font-family: var(--f-mono); font-size: var(--text-sm); font-weight: var(--weight-semibold); background: none; color: var(--sec); border: var(--border-hairline) solid var(--sec); padding: var(--space-2) var(--space-4); text-decoration: none; cursor: pointer; border-radius: var(--radius-none); transition: background .12s; }
 .btn--sec:hover { background: var(--sec-h); }
 /* primary action — the product register's filled-blue CTA. Accent-solid fill with

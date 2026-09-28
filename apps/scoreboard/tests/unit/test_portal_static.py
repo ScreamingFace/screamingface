@@ -253,3 +253,42 @@ def test_portal_index_filters_private_boards_through_the_shared_logic_module() -
     logic_at = index.index('<script src="leaderboard-logic.js"')
     caller_at = index.index('<script src="main.js"')
     assert logic_at < caller_at
+
+
+def test_every_served_asset_carries_no_internal_references(tmp_path: Path) -> None:
+    """The mounted portal tree is a public response surface, including source comments."""
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    files = sorted(path for path in portal.rglob("*") if path.is_file())
+    assert files, "expected files under portal/"
+
+    forbidden = {
+        "internal ticket prefix": re.compile(rb"\bOME-", re.IGNORECASE),
+        "agent-only note": re.compile(rb"\bAIDEV-NOTE\b", re.IGNORECASE),
+        "agent-only feature anchor": re.compile(rb"\bFEATURE:", re.IGNORECASE),
+        "internal invariant anchor": re.compile(rb"\bINVARIANT\b", re.IGNORECASE),
+        "hidden repository path": re.compile(rb"\.(?:agents|claude|git|github)/", re.IGNORECASE),
+        "agent worktree path": re.compile(rb"\bworktrees/", re.IGNORECASE),
+        "repository source path": re.compile(
+            rb"\b(?:apps|packages|tests)/|\bdocs/(?:plan|spec|tasks|work)/",
+            re.IGNORECASE,
+        ),
+        "Python source path": re.compile(
+            rb"\b(?:[A-Za-z_][\w.-]*/)*[A-Za-z_][\w.-]*\.py(?:::[A-Za-z_]\w*)?\b"
+        ),
+    }
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for path in files:
+            route = "/" + path.relative_to(portal).as_posix()
+            response = client.get(route)
+            assert response.status_code == 200, route
+            assert response.content == path.read_bytes(), (
+                f"{route} did not serve the expected asset"
+            )
+
+            # Search raw response bytes so an unknown or generic MIME type cannot bypass the
+            # public boundary. These ASCII-only markers are safe to match in binary assets too.
+            leaks = [
+                name for name, pattern in forbidden.items() if pattern.search(response.content)
+            ]
+            assert not leaks, f"{route} publicly exposes {', '.join(leaks)}"
