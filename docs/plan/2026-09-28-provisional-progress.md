@@ -88,3 +88,6 @@ Add a real MedXpert batch-versus-early grading-failure regression, then validate
 
 ### IFEval consolidation steps
 Prove shared binding parity with real fixtures, then replace the IFEval-specific transport module with a board-owned Scoring factory and shared runtime/protocol adapters. Migrate approved route tests and revision fingerprints; run cache-only replay and stack gates before updating #1096.
+
+### Bounds/progress review fixes
+Add loader-spy endpoint and immediate failed-case snapshot regressions first. Require board count in endpoint wiring, publish aggregation-created failures, and exempt unscored failure completion from coalescing. Retain final-result authority and verify repeated aggregation deduplication.

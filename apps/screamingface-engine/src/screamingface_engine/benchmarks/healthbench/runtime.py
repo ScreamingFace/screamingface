@@ -127,7 +127,10 @@ def _install_protocol_once(
     endpoints = (
         (
             aggregate_route + "/case-result",
-            case_result_endpoint(_scoring(root, benchmark_id, benchmark_revision, case_ids, mean)),
+            case_result_endpoint(
+                _scoring(root, benchmark_id, benchmark_revision, case_ids, mean),
+                available_case_count=len(case_ids),
+            ),
         ),
         (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),
         # The mid-run check surface the corrective loop consumes. It closes over `node`

@@ -79,7 +79,10 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
     endpoints = (
         (
             exam.routes.aggregate + "/case-result",
-            case_result_endpoint(_scoring(root, exam.id, exam.revision, exam.case_ids, exam.mean)),
+            case_result_endpoint(
+                _scoring(root, exam.id, exam.revision, exam.case_ids, exam.mean),
+                available_case_count=len(exam.case_ids),
+            ),
         ),
         (exam.routes.tasks, _rubric_tasks(root, exam.case_ids, exam.id)),
         # Closes over `node` so the judge route resolves per request — installation must still

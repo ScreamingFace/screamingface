@@ -15,7 +15,7 @@ class CaseFinalizationError(ResolutionError):
     """Invalid grade transport cannot be downgraded to a missing case."""
 
 
-def case_result_endpoint(load: Callable[[int], Scoring]):
+def case_result_endpoint(load: Callable[[int], Scoring], *, available_case_count: int):
     # WHY: installed assets are immutable; retain only one selection to avoid rereading
     # the whole answer key for every case without an unbounded per-limit cache.
     selection = lru_cache(maxsize=1)(load)
@@ -25,7 +25,7 @@ def case_result_endpoint(load: Callable[[int], Scoring]):
         try:
             index_text, count_text = request.intent.split(":")
             index, count = int(index_text), int(count_text)
-            if not 0 <= index < count:
+            if not 0 < count <= available_case_count or not 0 <= index < count:
                 raise ValueError("invalid selected Case position")
             return await selection(count).grade_row(request.context, index)
         except (OSError, IndexError, KeyError, TypeError, ValueError) as exc:

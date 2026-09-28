@@ -71,9 +71,12 @@ class Scoring:
         ).as_payload()
 
     async def _completed_row(self, row, selected, index) -> CaseResult | None:
-        if isinstance(row, Mapping) and isinstance(row.get("error"), Mapping):
-            if row["error"].get("kind") == "CaseFinalizationError":
-                raise ValueError("invalid completed Case result")
+        if (
+            isinstance(row, Mapping)
+            and isinstance(row.get("error"), Mapping)
+            and row["error"].get("kind") == "CaseFinalizationError"
+        ):
+            raise ValueError("invalid completed Case result")
         if row is None or isinstance(row, Mapping) and "error" in row:
             # WHY: only absent/failed execution uses the failure ladder. A completed
             # grade is never sent to the grader a second time.
@@ -83,6 +86,10 @@ class Scoring:
             result = await self.path.case_result(
                 selected, index, indexed, self.material, self.metadata
             )
+            if result is not None:
+                # WHY: these terminal failures had no early grade to publish.
+                # The run observer deduplicates retries of the same canonical result.
+                completed_case(self.benchmark_id, self.revision, result, self.scorer)
             return result
         result = decode_results(
             json.dumps([row]),

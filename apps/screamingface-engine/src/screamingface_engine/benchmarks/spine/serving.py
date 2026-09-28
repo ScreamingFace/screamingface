@@ -186,7 +186,13 @@ def install_board(node: Url4Node, root: Path, board: ServedBoard) -> None:
 
         endpoints = (
             *endpoints[:-1],
-            (routes.aggregate + "/case-result", case_result_endpoint(load)),
+            (
+                routes.aggregate + "/case-result",
+                case_result_endpoint(
+                    load,
+                    available_case_count=board_case_count(root, declared=board.declared_case_count),
+                ),
+            ),
             (
                 routes.aggregate,
                 aggregate_result_endpoint(

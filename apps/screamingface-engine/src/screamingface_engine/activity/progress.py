@@ -30,7 +30,11 @@ class Progress:
         now = time.monotonic()
         # WHY: avoid reducing every prefix in a fast batch. Final results reconcile
         # coalesced tails; the next snapshot independently recovers dropped logs.
-        if now - self.emitted_at < 0.1:
+        terminal_failure = bool(result.failures) and (
+            result.grade is None or result.grade.score is None
+        )
+        # INVARIANT: an unscored terminal failure still advances completed coverage.
+        if not terminal_failure and now - self.emitted_at < 0.1:
             return
         graded = tuple(
             c for c in self.cases.values() if c.grade is not None and c.grade.score is not None

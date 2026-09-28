@@ -114,3 +114,6 @@ Typed grade validation must accept canonical grading failures that retain select
 
 ### IFEval consolidation
 IFEval must bind its existing canonical ScoredPath and native scorer into the shared Scoring transport. Preserve installed case order, anonymous error positions, no-regrading and corrupt-envelope rejection. Runtime uses shared endpoint adapters; the user approved migration of the endpoint intent to selected index/count and its fixtures.
+
+### Direct endpoint bounds and terminal failures
+Early-grade routes validate selected count against board availability before invoking loaders. Canonical failures first resolved during aggregation publish completion through the deduplicated progress observer. Failure completion is not dropped by fast-score coalescing; it must not create a numeric score for ungradeable cases.

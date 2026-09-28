@@ -54,7 +54,7 @@ def install(node: Url4Node, root: Path) -> None:
         (CHECK_ROUTE, _check(root)),
         (CHECK_SURFACE_ROUTE, _check_surface(root)),
         (CASE_EVALUATION_ROUTE, _case_evaluation),
-        (CASE_RESULT_ROUTE, case_result_endpoint(load)),
+        (CASE_RESULT_ROUTE, case_result_endpoint(load, available_case_count=CASE_COUNT)),
         (
             AGGREGATE_ROUTE,
             aggregate_result_endpoint(

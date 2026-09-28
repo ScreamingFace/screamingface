@@ -91,7 +91,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
         )
     )
     node.endpoint(exam.routes.aggregate + "/case-result")(
-        case_result_endpoint(_scoring(assets, exam))
+        case_result_endpoint(_scoring(assets, exam), available_case_count=CASE_COUNT)
     )
     node.endpoint(exam.routes.aggregate)(
         aggregate_result_endpoint(
