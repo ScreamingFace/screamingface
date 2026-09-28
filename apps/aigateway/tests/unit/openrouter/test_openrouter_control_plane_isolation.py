@@ -43,7 +43,6 @@ def _request(client, **overrides):
     }
     return client.post(
         "/v1/chat/completions",
-        headers={"X-Profile": "isolated-openrouter"},
         json=body,
     )
 

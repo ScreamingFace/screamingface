@@ -225,13 +225,12 @@ def test_the_route_builds_the_pinned_material_and_caches_it(
         built.append(global_keys._canonical_mapping(dto))
         return dto
 
-    headers = {"X-Profile": _PROFILE}
     with (
         patch(_DISPATCH_TARGET, new=dispatch),
         patch.object(global_keys, "build_global_cache_key_dto", _spy),
     ):
-        miss = cache_client.post(_CHAT_PATH, json=_body(extra), headers=headers)
-        hit = cache_client.post(_CHAT_PATH, json=_body(extra), headers=headers)
+        miss = cache_client.post(_CHAT_PATH, json=_body(extra))
+        hit = cache_client.post(_CHAT_PATH, json=_body(extra))
 
     assert (miss.status_code, hit.status_code) == (200, 200), (miss.text, hit.text)
     assert (miss.headers["X-AIGW-Cache"], hit.headers["X-AIGW-Cache"]) == ("miss", "hit")

@@ -49,6 +49,7 @@ from ..core.provider_access import (
     CredentialTarget,
     ProviderAccess,
     Selector,
+    SelectorPolicy,
     apply_authorization,
     provider_access_for,
 )
@@ -242,6 +243,14 @@ async def _dispatch_and_finalize_accounting(
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
+    # INVARIANT (OME-1207): the header is interpreted ONCE, here, by the port's own parser.
+    # The route no longer spells the normalisation, so absent/blank/whitespace all mean the
+    # implicit default in exactly one place and the Stage D sunset policy has a single seat.
+    with refusals_as_http():
+        selector = Selector.from_header(
+            request.headers.get("X-Profile"), policy=SelectorPolicy.REJECT_EXPLICIT
+        )
+
     try:
         body = await request.json()
     except ValueError:
@@ -273,10 +282,6 @@ async def chat_completions(request: Request, response: Response, current: Curren
             begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise
 
-    # INVARIANT (OME-1207): the header is interpreted ONCE, here, by the port's own parser.
-    # The route no longer spells the normalisation, so absent/blank/whitespace all mean the
-    # implicit default in exactly one place and the Stage D sunset policy has a single seat.
-    selector = Selector.from_header(request.headers.get("X-Profile"))
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:

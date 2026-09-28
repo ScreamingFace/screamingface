@@ -1,11 +1,10 @@
-"""GET /v1/model-parameters — profile-bound detailed parameter contract (OME-479).
+"""GET /v1/model-parameters — account-bound detailed parameter contract (OME-479).
 
-The client sends the same gateway auth + ``X-Profile`` it will use for chat. This
-route REUSES the chat credential-target resolution and derives the auth mode from
-the stored profile/connection; it never accepts a caller-declared auth type,
-credential, or provider origin. The provider is selected by the canonical model
-prefix (a unique registry key), and the response is per-account/profile —
-``private, no-store`` and varying by authorization + profile.
+The route REUSES the chat credential-target resolution and derives the auth mode
+from the stored connection; it never accepts a caller-declared auth type,
+credential, provider origin, or connection selector. The provider is selected by
+the canonical model prefix (a unique registry key), and the response is
+``private, no-store`` and varying only by authorization.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ from ..core.discovery_runtime import (
 )
 from ..core.model_capabilities import canonical_model_id
 from ..core.model_parameter_contract import build_model_parameter_document
-from ..core.provider_access import ResolvePolicy, Selector, provider_access_for
+from ..core.provider_access import ResolvePolicy, Selector, SelectorPolicy, provider_access_for
 from ..core.registry import ProviderRegistry
 from .provider_access_http import refusals_as_http
 
@@ -62,16 +61,15 @@ async def _discovery_outcome(
 
 
 # INVARIANT: this policy belongs to the ROUTE, not to its happy path — EVERY
-# response it produces, success or error, is per-account/profile and unshareable.
+# response it produces, success or error, is per-account and unshareable.
 # WHY it must be applied twice: FastAPI merges the injected ``Response`` into the
 # reply only on a NORMAL RETURN, while a raised ``HTTPException`` is rendered by
 # ``http_exception_handler`` from the EXCEPTION's own headers. A policy set only on
 # the injected response is therefore structurally invisible to every raise — and the
-# raises are exactly the profile-dependent 401/404/409 whose bodies carry the
-# requested profile name and a profile-specific reauth URL.
+# raises are exactly the account-dependent 401/404/409 responses.
 _PRIVATE_CACHE_HEADERS: dict[str, str] = {
     "Cache-Control": "private, no-store",
-    "Vary": "Authorization, X-Profile",
+    "Vary": "Authorization",
 }
 
 
@@ -82,6 +80,11 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     (see ``_PRIVATE_CACHE_HEADERS``): every exit below — including the ones raised
     inside the shared chat credential resolution — passes through that one boundary.
     """
+    with refusals_as_http():
+        selector = Selector.from_header(
+            request.headers.get("X-Profile"), policy=SelectorPolicy.REJECT_EXPLICIT
+        )
+
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
         raise HTTPException(status_code=400, detail="model must be provider-prefixed")
@@ -112,7 +115,6 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
                 detail={"code": "model_not_found", "provider": provider, "model": model},
             )
 
-    selector = Selector.from_header(request.headers.get("X-Profile"))
     # The SAME port call chat makes (same 409/401 on a pending/errored target, same 404 on an
     # explicitly NAMED missing one) so summary, detail and dispatch agree on context. The one
     # divergence (OME-1167) is the policy: DATASHEET admits a target-less DEFAULT selector —

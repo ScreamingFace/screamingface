@@ -28,9 +28,8 @@ from ..core.provider_access import (
     WriteConflict,
 )
 
-_AMBIGUOUS_MESSAGE = (
-    "Multiple active connections exist. Select one by setting X-Profile to the connection label."
-)
+_AMBIGUOUS_MESSAGE = "Multiple active Connections exist. Remove extra Connections, then retry."
+_UNSUPPORTED_SELECTOR_MESSAGE = "X-Profile is no longer supported; omit the header."
 _CONNECTION_CONFLICT_MESSAGE = "Connection changed during auth-type repair"
 _INDEX_CONFLICT_MESSAGE = "Profile metadata update conflicted. Try again."
 
@@ -129,7 +128,7 @@ def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
     if isinstance(exc, SelectorUnsupported):
         return HTTPException(
             status_code=400,
-            detail={"code": "x_profile_unsupported", "requested_label": exc.requested},
+            detail={"code": "x_profile_unsupported", "message": _UNSUPPORTED_SELECTOR_MESSAGE},
         )
     if isinstance(exc, ProviderUnknown):
         # `routes/auth.py::upsert_api_key_profile` :1264-1266 at 248b0b6d (the PUT shape; the

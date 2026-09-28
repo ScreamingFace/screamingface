@@ -180,11 +180,10 @@ def test_toplevel_auth_error_single_dispatch_sanitized_and_scoped(
 ) -> None:
     account_id = _account_id(authenticated_client)
     _create_connection(authenticated_client, "work-or")
-    _create_connection(authenticated_client, "backup-or")
 
     calls = {"n": 0}
     _counting_wire(lambda: _wire_response(200, _top_level_error(401, _SECRET)), calls, monkeypatch)
-    resp = _post_chat(authenticated_client, profile="work-or")
+    resp = _post_chat(authenticated_client)
 
     assert calls["n"] == 1
     assert resp.status_code == 401
@@ -192,8 +191,8 @@ def test_toplevel_auth_error_single_dispatch_sanitized_and_scoped(
     # Gateway-authored message only — the raw provider text (which for a 401 is
     # also persisted into connection error state) must never leak.
     assert _SECRET not in resp.text
-    # D9 local: only the selected connection flips to error.
-    assert _active_labels(authenticated_client, account_id) == ["backup-or"]
+    # D9 local: the effective connection flips to error.
+    assert _active_labels(authenticated_client, account_id) == []
 
 
 def test_toplevel_malformed_status_sanitized_to_502_never_500(

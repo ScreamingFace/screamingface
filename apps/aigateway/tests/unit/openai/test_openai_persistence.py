@@ -199,20 +199,15 @@ def test_account_scoped_credential_names_do_not_collide() -> None:
     assert second.startswith("aigateway:openai:")
 
 
-def test_chat_selects_openai_api_key_connection_by_label(authenticated_client) -> None:
+def test_chat_uses_effective_openai_api_key_connection(authenticated_client) -> None:
     authenticated_client.app.state.api_key_validation_service = _StubValidationService(
         _valid_result()
     )
-    selected = authenticated_client.post(
+    effective = authenticated_client.post(
         "/v1/oauth/connections/api-key",
-        json={"provider": "openai", "label": "selected", "api_key": _OLD_KEY},
+        json={"provider": "openai", "label": "effective", "api_key": _OLD_KEY},
     )
-    other = authenticated_client.post(
-        "/v1/oauth/connections/api-key",
-        json={"provider": "openai", "label": "other", "api_key": _NEW_KEY},
-    )
-    assert selected.status_code == 201, selected.text
-    assert other.status_code == 201, other.text
+    assert effective.status_code == 201, effective.text
     plugin = authenticated_client.app.state.providers.get("openai")
     captured: dict = {}
 
@@ -243,7 +238,6 @@ def test_chat_selects_openai_api_key_connection_by_label(authenticated_client) -
     with patch.object(plugin, "chat_completion", new=capture):
         response = authenticated_client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": "selected"},
             json={
                 "model": "openai/gpt-5.6-sol",
                 "messages": [{"role": "user", "content": "ping"}],
@@ -289,16 +283,15 @@ def test_openai_profiles_are_account_isolated(
     assert authenticated_client.get("/v1/auth/openai/profiles/private").status_code == 404
 
 
-def test_chat_selects_named_openai_profile(authenticated_client) -> None:
+def test_chat_uses_effective_openai_profile(authenticated_client) -> None:
     authenticated_client.app.state.api_key_validation_service = _StubValidationService(
         _valid_result()
     )
-    for name, key in (("first", _OLD_KEY), ("second", _NEW_KEY)):
-        created = authenticated_client.put(
-            f"/v1/auth/openai/profiles/{name}/api-key",
-            json={"api_key": key},
-        )
-        assert created.status_code == 200, created.text
+    created = authenticated_client.put(
+        "/v1/auth/openai/profiles/default/api-key",
+        json={"api_key": _NEW_KEY},
+    )
+    assert created.status_code == 200, created.text
     plugin = authenticated_client.app.state.providers.get("openai")
     captured: dict = {}
 
@@ -319,11 +312,10 @@ def test_chat_selects_named_openai_profile(authenticated_client) -> None:
         }
 
     # OME-884 (authorized test-isolation fix): scoped, for the reason spelled out in
-    # ``test_chat_selects_openai_api_key_connection_by_label`` above.
+    # ``test_chat_uses_effective_openai_api_key_connection`` above.
     with patch.object(plugin, "chat_completion", new=capture):
         response = authenticated_client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": "second"},
             json={
                 "model": "openai/gpt-5.6-sol",
                 "messages": [{"role": "user", "content": "ping"}],

@@ -1,4 +1,4 @@
-"""Phase 3 (OME-479): GET /v1/model-parameters — profile-bound detailed contract.
+"""Phase 3 (OME-479): GET /v1/model-parameters — caller-bound detailed contract.
 
 Exercises the real app/registry so the endpoint is proven end-to-end WITHOUT
 hardcoding any provider inventory: canonical-id lookup, reuse of the existing
@@ -21,6 +21,10 @@ from aigateway.core.profile_models import (
 )
 
 _MODEL = "anthropic/claude-opus-4-8"
+_UNSUPPORTED_DETAIL = {
+    "code": "x_profile_unsupported",
+    "message": "X-Profile is no longer supported; omit the header.",
+}
 
 
 def _account_id(client: TestClient) -> str:
@@ -54,10 +58,9 @@ async def test_returns_locked_headers_and_v1_envelope(credential_blobs, authenti
 
     resp = _get(authenticated_client)
     assert resp.status_code == 200, resp.text
-    # Locked cache/vary headers: a profile-bound contract must never be shared.
+    # Locked cache/vary headers: a caller-bound contract must never be shared.
     assert resp.headers["cache-control"] == "private, no-store"
-    vary = resp.headers["vary"]
-    assert "Authorization" in vary and "X-Profile" in vary
+    assert resp.headers["vary"] == "Authorization"
 
     body = resp.json()
     assert body["schema_version"] == 1
@@ -192,8 +195,8 @@ async def test_response_never_exposes_account_id_or_secrets(credential_blobs, au
 #
 # INVARIANT: the private cache policy is a property of the ROUTE, not of its happy
 # path. Every response it produces — success or error — must be marked
-# unshareable, because the error bodies are the ones carrying caller-identifying
-# data (the requested profile name and a profile-specific reauth URL).
+# unshareable, because error bodies may carry caller-specific target state and a
+# target-specific reauth URL.
 #
 # WHY these need their own tests: in FastAPI the injected ``Response`` reaches the
 # wire only on a normal return; a raised HTTPException is rendered from the
@@ -230,8 +233,7 @@ def _get_as_profile(client: TestClient, profile: str, model: str = _MODEL):
 
 def _assert_private_cache_policy(resp) -> None:
     assert resp.headers.get("cache-control") == "private, no-store", resp.headers
-    vary = resp.headers.get("vary") or ""
-    assert "Authorization" in vary and "X-Profile" in vary, resp.headers
+    assert resp.headers.get("vary") == "Authorization", resp.headers
 
 
 def test_unknown_provider_error_carries_private_cache_policy(authenticated_client):
@@ -253,13 +255,11 @@ def test_model_not_found_error_carries_private_cache_policy(authenticated_client
     _assert_private_cache_policy(resp)
 
 
-def test_profile_not_found_error_carries_private_cache_policy(authenticated_client):
-    # Profile-dependent 404: the body echoes the requested profile name.
+def test_explicit_selector_error_is_value_free_and_private(authenticated_client):
     resp = _get_as_profile(authenticated_client, "no-such-profile")
-    assert resp.status_code == 404
-    detail = resp.json()["detail"]
-    assert detail["code"] == "profile_not_found"
-    assert detail["name"] == "no-such-profile"
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "no-such-profile" not in resp.text
     _assert_private_cache_policy(resp)
 
 
@@ -267,18 +267,16 @@ def test_profile_not_found_error_carries_private_cache_policy(authenticated_clie
 async def test_pending_profile_conflict_carries_private_cache_policy(
     credential_blobs, authenticated_client
 ):
-    # A DISTINCT X-Profile value (not "default") proves the policy is not tied to
-    # the default-profile path, and that Vary: X-Profile is truthful on errors.
     account_id = _account_id(authenticated_client)
     await _seed_profile_record(
-        credential_blobs, account_id, name="staging", state=ProfileState.PENDING
+        credential_blobs, account_id, name="default", state=ProfileState.PENDING
     )
 
-    resp = _get_as_profile(authenticated_client, "staging")
+    resp = _get(authenticated_client)
     assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert detail["code"] == "profile_pending_auth"
-    assert detail["name"] == "staging"
+    assert detail["name"] == "default"
     _assert_private_cache_policy(resp)
 
 
@@ -290,14 +288,14 @@ async def test_auth_required_error_keeps_reauth_url_and_private_cache_policy(
     # The boundary must ADD headers without disturbing the detail payload.
     account_id = _account_id(authenticated_client)
     await _seed_profile_record(
-        credential_blobs, account_id, name="broken", state=ProfileState.ERROR
+        credential_blobs, account_id, name="default", state=ProfileState.ERROR
     )
 
-    resp = _get_as_profile(authenticated_client, "broken")
+    resp = _get(authenticated_client)
     assert resp.status_code == 401
     detail = resp.json()["detail"]
     assert detail["code"] == "auth_required"
-    assert detail["reauth_url"] == "/v1/auth/anthropic/profiles/broken"
+    assert detail["reauth_url"] == "/v1/auth/anthropic/profiles/default"
     _assert_private_cache_policy(resp)
 
 

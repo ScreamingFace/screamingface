@@ -7,8 +7,8 @@ system-role messages). A historical Profile default, still stored during the com
 window, neither changes my request nor my cache key, and cannot refuse my request.
 
 INVARIANT: the chat route reads no Profile before the cache and merges nothing. A request keys on
-what the caller sent — so two Profiles with different historical defaults share one row for the
-same bare body, and that row is the N2 bare digest (`test_chat_global_cache_key_parity.py`).
+what the caller sent — so changes to the default target's historical defaults retain one row for
+the same bare body, and that row is the N2 bare digest (`test_chat_global_cache_key_parity.py`).
 
 AIDEV-NOTE: the tests marked RED here failed on the pre-change code (`a1719014`) for the reason in
 their docstring; N1b is a baseline that passed before and after. Never "fix" a failure here by
@@ -178,37 +178,37 @@ def _install(client: TestClient, store: _Store) -> _Store:
     return store
 
 
-def _post(client: TestClient, body: dict[str, Any], *, profile: str):
-    return client.post(_CHAT_PATH, json=body, headers={"X-Profile": profile})
+def _post(client: TestClient, body: dict[str, Any]):
+    return client.post(_CHAT_PATH, json=body)
 
 
 # --- N1a (RED): historical defaults neither key nor dispatch -----------------
 
 
 @pytest.mark.parametrize(
-    ("first", "second"),
+    ("first_defaults", "second_defaults"),
     [
-        (("pirate", _EVERY_SAVED_FIELD), ("legal", ProfileDefaults(system_prompt="be formal"))),
-        (("plain", ProfileDefaults()), ("pirate", _EVERY_SAVED_FIELD)),
+        (_EVERY_SAVED_FIELD, ProfileDefaults(system_prompt="be formal")),
+        (ProfileDefaults(), _EVERY_SAVED_FIELD),
     ],
     ids=["two-different-saved-sets", "empty-then-saved"],
 )
-def test_two_profiles_with_different_historical_defaults_share_one_bare_key(
+def test_default_target_historical_default_changes_share_one_bare_key(
     credential_blobs,
     cache_client,
-    first: tuple[str, ProfileDefaults],
-    second: tuple[str, ProfileDefaults],
+    first_defaults: ProfileDefaults,
+    second_defaults: ProfileDefaults,
 ) -> None:
     """RED before Stage C: the merge ran before the key, so the second request MISSED."""
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    for name, defaults in (first, second):
-        _seed(credential_blobs, account_id, name=name, defaults=defaults)
+    _seed(credential_blobs, account_id, name="default", defaults=first_defaults)
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
     with patch(f"{_ANTHROPIC_PLUGIN}.chat_completion", new=dispatch):
-        filled = _post(cache_client, _body(), profile=first[0])
-        served = _post(cache_client, _body(), profile=second[0])
+        filled = _post(cache_client, _body())
+        _seed(credential_blobs, account_id, name="default", defaults=second_defaults)
+        served = _post(cache_client, _body())
 
     assert (filled.status_code, served.status_code) == (200, 200), (filled.text, served.text)
     assert (filled.headers["X-AIGW-Cache"], served.headers["X-AIGW-Cache"]) == ("miss", "hit")
@@ -229,16 +229,15 @@ def test_explicit_system_messages_key_distinctly_and_dispatch_only_the_callers_o
     """GREEN before and after: a caller's system message always won over a stored prompt."""
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed(
-        credential_blobs, account_id, name="pirate", defaults=ProfileDefaults(system_prompt="arr")
+        credential_blobs, account_id, name="default", defaults=ProfileDefaults(system_prompt="arr")
     )
-    _seed(credential_blobs, account_id, name="plain", defaults=ProfileDefaults())
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
     with patch(f"{_ANTHROPIC_PLUGIN}.chat_completion", new=dispatch):
-        terse = _post(cache_client, _body(system="be terse"), profile="pirate")
-        verbose = _post(cache_client, _body(system="be verbose"), profile="pirate")
-        shared = _post(cache_client, _body(system="be terse"), profile="plain")
+        terse = _post(cache_client, _body(system="be terse"))
+        verbose = _post(cache_client, _body(system="be verbose"))
+        shared = _post(cache_client, _body(system="be terse"))
 
     assert [r.headers["X-AIGW-Cache"] for r in (terse, verbose, shared)] == ["miss", "miss", "hit"]
     assert terse.headers["X-AIGW-Cache-Key"] != verbose.headers["X-AIGW-Cache-Key"]
@@ -255,7 +254,7 @@ def test_a_stream_on_a_profile_with_historical_defaults_carries_none_of_them(
 ) -> None:
     """RED before Stage C: the merge ran before the stream/cache split, so it reached the stream."""
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed(credential_blobs, account_id, name="pirate", defaults=_EVERY_SAVED_FIELD)
+    _seed(credential_blobs, account_id, name="default", defaults=_EVERY_SAVED_FIELD)
     store = _install(cache_client, _Store())
     streamed: list[dict[str, Any]] = []
 
@@ -264,7 +263,7 @@ def test_a_stream_on_a_profile_with_historical_defaults_carries_none_of_them(
         yield SimpleNamespace(model_dump=lambda: {"choices": [{"delta": {"content": "hi"}}]})
 
     with patch(f"{_ANTHROPIC_PLUGIN}.chat_completion_stream", _fake_stream):
-        responses = [_post(cache_client, _body(stream=True), profile="pirate") for _ in range(2)]
+        responses = [_post(cache_client, _body(stream=True)) for _ in range(2)]
 
     for response in responses:
         assert response.status_code == 200, response.text
@@ -292,8 +291,7 @@ def test_an_index_unreadable_before_planning_causes_no_bypass_and_no_wrong_hit(
     resolution on a miss, and never on a hit.
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed(credential_blobs, account_id, name="plain", defaults=ProfileDefaults())
-    _seed(credential_blobs, account_id, name="pirate", defaults=_EVERY_SAVED_FIELD)
+    _seed(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
     events: list[str] = []
     store = _install(cache_client, _Store(events))
     dispatch = _Dispatch()
@@ -306,17 +304,18 @@ def test_an_index_unreadable_before_planning_causes_no_bypass_and_no_wrong_hit(
         events.append("index.get")
         return await real_get(self, *args, **kwargs)
 
-    def _send(body: dict[str, Any], profile: str) -> tuple[Any, list[str]]:
+    def _send(body: dict[str, Any]) -> tuple[Any, list[str]]:
         events.clear()
-        return _post(cache_client, body, profile=profile), list(events)
+        return _post(cache_client, body), list(events)
 
     with (
         patch(f"{_ANTHROPIC_PLUGIN}.chat_completion", new=dispatch),
         patch.object(ProfileIndexStore, "get", _unreadable_before_planning),
     ):
-        filled, _ = _send(_body(), "plain")
-        served, served_events = _send(_body(), "pirate")
-        other, _ = _send(_body(system="you are a pirate"), "pirate")
+        filled, _ = _send(_body())
+        _seed(credential_blobs, account_id, name="default", defaults=_EVERY_SAVED_FIELD)
+        served, served_events = _send(_body())
+        other, _ = _send(_body(system="you are a pirate"))
 
     for response in (filled, served, other):
         assert response.status_code == 200, response.text
