@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
+from screamingface._core.ports import _ConnectionNotice
 from screamingface._evaluation.model import Candidate
 from screamingface.events import Event, Log, Span, Started, Terminated, Usage
 from screamingface.report import CandidateResult, Report
@@ -36,6 +37,8 @@ class _CandidateProgress:
     cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
     activity: str | None = None
     stage: str | None = None
+    # FEATURE: OME-1016 — "Reconnecting (attempt n)" while the Run's stream reconnects.
+    connection: str | None = None
     active_cases: str | None = None
     result: CandidateResult | None = None
     workflow_status: str | None = None
@@ -327,6 +330,21 @@ class _EvaluationProgress:
         except KeyError:
             raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
         row.begin()
+
+    def connection(self, candidate: Candidate, notice: _ConnectionNotice) -> None:
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        # INVARIANT: a finished row keeps its outcome; a late notice must not relabel it.
+        if row.status not in {"queued", "running"}:
+            return
+        if notice.state == "reconnecting":
+            row.connection = f"Reconnecting (attempt {notice.attempt})"
+            self.announcement = f"{candidate.name} reconnecting (attempt {notice.attempt})"
+        else:
+            row.connection = None
+            self.announcement = f"{candidate.name} connection restored"
 
     @property
     def finished(self) -> bool:

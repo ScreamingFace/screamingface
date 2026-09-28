@@ -27,7 +27,13 @@ from websockets.typing import Subprotocol
 from screamingface._access.auth import _default_caller_auth
 from screamingface._access.base import _TransportAuth
 from screamingface._access.contract import _challenge_audience
-from screamingface._core.ports import _ResultArtifact, _RunOutcome
+from screamingface._core.ports import (
+    ConnectionState,
+    _ConnectionListener,
+    _ConnectionNotice,
+    _ResultArtifact,
+    _RunOutcome,
+)
 from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.identity import engine_headers
@@ -211,6 +217,7 @@ class Url4CloudTransport:
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
+                        _notify_connection(on_event, "reconnected", recovery.attempts)
                     recovery.connected(time.monotonic())
                     outcome = self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
@@ -219,17 +226,25 @@ class Url4CloudTransport:
                 # stop-on-interrupt arm into writing to a dead connection.
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
-                if not (run_started and _is_transient_rejection(exc)):
+                if run_started and _is_transient_rejection(exc):
+                    self._back_off(recovery, exc, started, on_event)
+                else:
                     self._on_handshake_rejection(exc, minted, run_started, trace)
                     recovery.attempts += 1
-                    continue
-                failure: WebSocketException | OSError | TimeoutError = exc
             except (WebSocketException, OSError, TimeoutError) as exc:
-                failure = exc
-            deadline = recovery.failed(time.monotonic())
-            recovery.attempts = self._on_stream_failure(
-                failure, recovery.attempts, deadline, started
-            )
+                self._back_off(recovery, exc, started, on_event)
+
+    def _back_off(
+        self,
+        recovery: _RecoveryWindow,
+        exc: WebSocketException | OSError | TimeoutError,
+        started: float,
+        on_event: SyncEventCallback | None,
+    ) -> None:
+        """Spend one attempt of the outage budget, then announce the next connect (R4)."""
+        deadline = recovery.failed(time.monotonic())
+        recovery.attempts = self._on_stream_failure(exc, recovery.attempts, deadline, started)
+        _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     def _on_handshake_rejection(
         self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
@@ -502,22 +517,31 @@ class AsyncUrl4CloudTransport:
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
+                        _notify_connection(on_event, "reconnected", recovery.attempts)
                     recovery.connected(time.monotonic())
                     outcome = await self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
-                if not (run_started and _is_transient_rejection(exc)):
+                if run_started and _is_transient_rejection(exc):
+                    await self._back_off(recovery, exc, started, on_event)
+                else:
                     await self._on_handshake_rejection(exc, minted, run_started, trace)
                     recovery.attempts += 1
-                    continue
-                failure: WebSocketException | OSError | TimeoutError = exc
             except (WebSocketException, OSError, TimeoutError) as exc:
-                failure = exc
-            deadline = recovery.failed(time.monotonic())
-            recovery.attempts = await self._on_stream_failure(
-                failure, recovery.attempts, deadline, started
-            )
+                await self._back_off(recovery, exc, started, on_event)
+
+    async def _back_off(
+        self,
+        recovery: _RecoveryWindow,
+        exc: WebSocketException | OSError | TimeoutError,
+        started: float,
+        on_event: AsyncEventCallback | None,
+    ) -> None:
+        """Async twin of the sync `_back_off`."""
+        deadline = recovery.failed(time.monotonic())
+        recovery.attempts = await self._on_stream_failure(exc, recovery.attempts, deadline, started)
+        _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     async def _on_handshake_rejection(
         self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
@@ -623,6 +647,22 @@ async def _observe_async(callback: AsyncEventCallback, event: Event) -> None:
     # WHY: preserve arbitrary application callback errors and cancellation without translation.
     except BaseException as exc:
         raise _ObserverRaised(exc) from exc
+
+
+def _notify_connection(on_event: object, state: ConnectionState, attempt: int) -> None:
+    """Tell the built-in progress output about one reconnect step (spec 2026-09-28 R4).
+
+    Sent after the backoff sleep, right before the connect it announces, so the line reads
+    true: attempt n is under way. A plain `on_event` function is not a listener and gets
+    nothing — the public Event stream is unchanged.
+    """
+    if not isinstance(on_event, _ConnectionListener):
+        return
+    try:
+        on_event.connection(_ConnectionNotice(state=state, attempt=attempt))
+    # WHY: progress is decorative; a renderer defect must never end a paid Run.
+    except Exception:  # noqa: BLE001 - see the WHY above
+        _logger.warning("ScreamingFace progress could not show a reconnect step", exc_info=True)
 
 
 def _event_stream_timeout() -> ExecutionError:

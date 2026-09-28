@@ -7,6 +7,7 @@ import sys
 import unicodedata
 from typing import Protocol, TextIO
 
+from screamingface._core.ports import _ConnectionNotice
 from screamingface._environment import ipykernel_loaded as _in_notebook
 from screamingface._evaluation.model import Candidate
 from screamingface.events import Event, Log, Span, Started, Terminated
@@ -102,6 +103,17 @@ class _ProgressObserver:
 
     def begin(self, candidate: Candidate) -> None:
         del candidate
+
+    def connection(self, candidate: Candidate, notice: _ConnectionNotice) -> None:
+        # WHY the Candidate name here and nowhere else: a deploy drops every in-flight
+        # Run at once, and N identical "reconnecting" lines would not say whose they are.
+        message = (
+            f"connection lost — reconnecting (attempt {notice.attempt})"
+            if notice.state == "reconnecting"
+            else "connection restored"
+        )
+        self._stream.write(f"ScreamingFace · {_terminal_text(candidate.name)} · {message}\n")
+        self._stream.flush()
 
     def reconcile(self, report: Report) -> None:
         del report

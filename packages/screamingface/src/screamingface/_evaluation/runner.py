@@ -7,13 +7,19 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from screamingface.errors import PlanningError
 
-from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
+from screamingface._core.ports import (
+    AsyncRunTransport,
+    SyncRunTransport,
+    _ConnectionNotice,
+    _RunOutcome,
+)
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
@@ -238,7 +244,11 @@ class _SyncEventObserver:
                 if self._callback is not None:
                     self._callback(event)
 
-        return observe
+        def connection(notice: _ConnectionNotice) -> None:
+            with self._lock:
+                _connection_progress(self._builtin, candidate, notice)
+
+        return _BoundObserver(observe, connection)
 
     def candidate_result(self, result: CandidateResult) -> None:
         selected = getattr(self._builtin, "candidate_result", None)
@@ -280,7 +290,13 @@ class _AsyncEventObserver:
                     if inspect.isawaitable(returned):
                         await returned
 
-        return observe
+        def connection(notice: _ConnectionNotice) -> None:
+            # WHY no `self._lock`: it is an asyncio.Lock and this runs on the same loop
+            # with no await, so it cannot interleave with a half-done `observe` of the
+            # built-in renderer (whose call is itself synchronous).
+            _connection_progress(self._builtin, candidate, notice)
+
+        return _BoundObserver(observe, connection)
 
     def candidate_result(self, result: CandidateResult) -> None:
         selected = getattr(self._builtin, "candidate_result", None)
@@ -295,6 +311,33 @@ class _AsyncEventObserver:
 
     def close(self) -> None:
         _close_progress(self._builtin)
+
+
+@dataclass(frozen=True, slots=True)
+class _BoundObserver[R]:
+    """One Candidate's `on_event`, which is also a `_ConnectionListener` (spec 2026-09-28 R4).
+
+    INVARIANT: a connection notice reaches the built-in progress output only — never the
+    user's callback, whose contract is the public Event set (spec R5).
+    """
+
+    observe: Callable[[Event], R]
+    notify: Callable[[_ConnectionNotice], None]
+
+    def __call__(self, event: Event) -> R:
+        return self.observe(event)
+
+    def connection(self, notice: _ConnectionNotice) -> None:
+        self.notify(notice)
+
+
+def _connection_progress(
+    observer: object | None, candidate: Candidate, notice: _ConnectionNotice
+) -> None:
+    # WHY optional: a custom or older renderer may not draw connection state at all.
+    selected = getattr(observer, "connection", None)
+    if callable(selected):
+        _observe_progress(selected, candidate, notice)
 
 
 def _close_event_observer(observer: object) -> None:

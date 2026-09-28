@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from screamingface._evaluation.model import Candidate
@@ -61,6 +61,42 @@ class _RunOutcome:
     # including for a run whose frames never arrived.
     trace_id: str | None = None
     client_version: str | None = None
+
+
+type ConnectionState = Literal["reconnecting", "reconnected"]
+_CONNECTION_STATES = frozenset({"reconnecting", "reconnected"})
+
+
+@dataclass(frozen=True, slots=True)
+class _ConnectionNotice:
+    """One reconnect step of a Run's event stream, for the built-in progress output only.
+
+    FEATURE: OME-1016 — the "reconnecting (attempt n)" progress line (spec 2026-09-28 R4).
+    INVARIANT: it carries no URL, token, close code or exception text — only the step and
+    its attempt number — so no renderer can leak transport internals.
+    AIDEV-NOTE: deliberately NOT a public `Event`. Whether the user's `on_event` should
+    also see it is an owner decision (spec 2026-09-28 Q1).
+    """
+
+    state: ConnectionState
+    attempt: int
+
+    def __post_init__(self) -> None:
+        if self.state not in _CONNECTION_STATES:
+            raise ValueError("Connection notice state must be 'reconnecting' or 'reconnected'")
+        if isinstance(self.attempt, bool) or not isinstance(self.attempt, int) or self.attempt < 1:
+            raise ValueError("Connection notice attempt must be a positive integer")
+
+
+@runtime_checkable
+class _ConnectionListener(Protocol):
+    """An `on_event` observer that also renders connection notices.
+
+    WHY a capability check and not a second `run()` argument: the transport port stays
+    unchanged for every implementation, and only the runner's bound observer opts in.
+    """
+
+    def connection(self, notice: _ConnectionNotice) -> None: ...
 
 
 class SyncRunTransport(Protocol):
