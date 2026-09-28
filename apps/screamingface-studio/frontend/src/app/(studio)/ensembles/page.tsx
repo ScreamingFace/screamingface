@@ -16,6 +16,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useEnsembleStore } from "@/lib/ensemble-store";
 import { PROVIDER_COLORS, useModelStore } from "@/lib/model-store";
+import { describeRecipeKind } from "@/lib/recipe";
+
+const LEGACY_STRATEGY_LABEL = {
+  majority_vote: "Majority Vote",
+  weighted_avg: "Weighted Average",
+  best_of_n: "Best-of-N",
+  merge: "Merge",
+} as const;
 
 export default function EnsemblesPage() {
   const router = useRouter();
@@ -192,14 +200,9 @@ export default function EnsemblesPage() {
                     </h2>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {ensemble.slots.length} models ·{" "}
-                      {
-                        {
-                          majority_vote: "Majority Vote",
-                          weighted_avg: "Weighted Average",
-                          best_of_n: "Best-of-N",
-                          merge: "Merge",
-                        }[ensemble.strategy]
-                      }
+                      {ensemble.root
+                        ? describeRecipeKind(ensemble.root)
+                        : LEGACY_STRATEGY_LABEL[ensemble.strategy]}
                     </p>
                   </div>
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
