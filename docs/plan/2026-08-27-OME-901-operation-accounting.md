@@ -108,3 +108,5 @@ the prior cost-summary/disclosure design.
 Approved visual polish: underline-only case tabs; operation title and cost share a header.
 Group calls/cache, input/output tokens, and provider time into three stable columns. Move
 explanations into a native About these numbers disclosure. Keep exact pricing and unknowns.
+
+Owner follow-up: remove About these numbers and its explanation entirely; retain compact blocks.

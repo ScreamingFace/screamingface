@@ -46,14 +46,13 @@ def test_native_tab_groups_are_unique_and_answer_is_default():
     assert "<script" not in first
 
 
-def test_cost_is_in_activity_header_and_explanations_are_collapsed():
+def test_cost_is_in_activity_header_without_help_disclosure():
     from xml.etree import ElementTree
 
     panel = ElementTree.fromstring(f"<div>{case_accounting(result())[1]}</div>")
     help_section = panel.find("details")
-    assert help_section is not None
-    assert "open" not in help_section.attrib
-    assert help_section.findtext("summary") == "About these numbers"
+    assert help_section is None
+    assert "About these numbers" not in "".join(panel.itertext())
     block = panel.find("section")
     assert block is not None
     header = block.find("header")

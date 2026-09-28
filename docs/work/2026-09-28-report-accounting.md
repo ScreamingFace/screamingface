@@ -138,3 +138,14 @@ Polish outcome: ALL GATES GREEN from the full Client runner (lint, format, types
 >=95% coverage, deterministic notebook checks, build and distribution checks). The existing
 approved snapshot/presentation transition still requires --skip-append-only; this polish adds
 one test and changes no prior assertions. Preview execution outputs are excluded from Git.
+
+## Owner-requested help removal
+
+Remove About these numbers and its explanatory paragraph from Case accounting. Remove unused
+help styles and update the corresponding presentation assertions to require absence, preserving
+header/field coverage. Owner explicitly requested this reversal. Verify focused rendering tests,
+full Client gates and refreshed JupyterLab; update the existing draft PR.
+
+Help-removal outcome: all eight focused rendering tests pass and the full Client gates are
+green (lint, format, types, full pytest/coverage, notebooks, build and distribution). Verified
+JupyterLab renders the cost blocks directly under the tabs with the requested text absent.

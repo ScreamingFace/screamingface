@@ -23,10 +23,6 @@ STYLE = """<style>
 .sf-answer-view,.sf-cost-view{display:none}
 .sf-view-answer:checked~.sf-answer-view,.sf-view-cost:checked~.sf-cost-view{display:block}
 .sf-cost-view p,.sf-run-accounting-note{font-size:12px;color:var(--sf-ink-2)}
-.sf-cost-help{margin:0 0 12px;color:var(--sf-ink-2);font-size:12px}
-.sf-cost-help summary{cursor:pointer;width:fit-content}
-.sf-cost-help summary:focus-visible{outline:2px solid var(--sf-accent);outline-offset:2px}
-.sf-cost-help p{margin:8px 0}
 .sf-cost-block{border-top:1px solid var(--sf-line);padding:12px 0}
 .sf-cost-block header{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
 .sf-cost-price{font:500 14px "IBM Plex Mono",ui-monospace,monospace;
@@ -80,14 +76,8 @@ def case_accounting(candidate: CandidateResult) -> dict[CaseId, str]:
     groups: dict[CaseId, list[AccountingRow]] = {case.case_id: [] for case in candidate.cases}
     for row in view.rows:
         groups[row.case_id].append(row)
-    note = (
-        '<details class="sf-cost-help"><summary>About these numbers</summary>'
-        "<p>Recorded usage for this case only. Unknown means not reported. "
-        "Provider time is summed across attempts, not wall time.</p></details>"
-    )
     return {
-        case_id: note
-        + (
+        case_id: (
             "".join(_activity(row) for row in rows)
             if view.consistent and rows
             else "<p>Accounting unavailable for this case. See the whole-run totals above.</p>"

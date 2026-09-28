@@ -15,7 +15,7 @@ def test_report_renders_breakdown_and_case_disclosures():
     assert "sf-cost-block" in html
     assert "Input tokens" in html
     assert "Output tokens" in html
-    assert "not wall time" in html
+    assert "not wall time" not in html
     assert "sf-cost-fields" in html
 
 
