@@ -31,6 +31,7 @@ async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, reg
         "criterion-evaluation": "grading",
         "rubric-evaluation": "grading",
         "case-evaluation": "grading",
+        "case-result": "grading",
         "aggregate": "aggregation",
         "draco-pass.v1": "grading",
         "healthbench-pass.v1": "grading",

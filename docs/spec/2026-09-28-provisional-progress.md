@@ -91,3 +91,11 @@ Assessment: architecturally feasible, but a medium shared grading refactor rathe
 The test-only incremental execution uses the real IFEval check and case-evaluation node routes, the extracted canonical `scored_path(specs)` factory, and the unchanged finalizer. While candidate 2 is explicitly blocked, candidate 1's grade and provisional headline score are available. Both a passing and failing instruction response match the complete batch payload after finalization. Counters show exactly one checker and one grade-hook call per case on the incremental path.
 
 This proves reuse and timing under explicit early execution wiring. It does not prove production graph integration, cached grade transport, anonymous failure handling across singleton selections, or full-registry support. The shipped expression remains unchanged. Production integration still needs an explicit way to carry the typed grade into aggregation; the test's in-memory results list is not a proposed hidden run cache.
+
+## Approved production IFEval slice
+
+IFEval now carries a versioned, benchmark-bound canonical CaseResult from each iteration into aggregation. The new case-result endpoint reads the authoritative instruction for that case and uses the same scored-path adapter; final aggregation validates ordered case identity, inputs, metadata and revision, then finalizes the carried grades without regrading. Collected execution failures retain their selected position. A malformed grading result remains a run-level contract error despite iteration error collection.
+
+This intentionally changes the IFEval protocol revision and expression. URL4 syntax/SDK and the public CandidateResult shape are unchanged. The original 50-case replay preserved score 0.9184, all case statuses, failures and coverage before its fingerprint/revision were migrated. Real production-expression tests establish early availability and full batch-payload parity. No callback-owned cache is introduced.
+
+This slice does not yet publish provisional score events, change the Client table, or move other benchmarks' grading earlier. Those remain follow-up work; the original test-only proof above describes the preceding slice.

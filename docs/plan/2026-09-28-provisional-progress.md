@@ -68,3 +68,7 @@ Extract only IFEval's existing ScoredPath construction into a reusable factory. 
 ## Transport direction after the proof
 
 See docs/spec/2026-09-28-early-grade-transport.md. Proposed production design carries a typed grade in a versioned execution row; final aggregation validates and reduces it, and accounting remains final-run reconciled. This supersedes any suggestion that an observer-only change can deliver early built-in scores. Confirm the protocol-migration scope before implementing it; then follow the transport/failure/cache acceptance matrix in that proposal.
+
+## Approved production IFEval slice
+
+User approved production wiring on 2026-09-28. Add a versioned typed result row and a board-bound case-result endpoint after preserved execution. Change the canonical IFEval build to call it and final aggregation to consume those rows. Advance the IFEval protocol revision. The existing raw aggregate Python function remains a parity oracle; the production route must not accept both formats heuristically. New tests exercise actual generated execution and no-regrading replay. Snapshot/test migrations require the separately requested existing-test approval.
