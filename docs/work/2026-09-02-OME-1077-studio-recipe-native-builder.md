@@ -101,15 +101,50 @@ Also flagged: `NodeLabel` (recipe-tree node rename) and the `EnsembleComposer` t
 independently reimplemented the same click-pencil→edit→Enter/Escape/blur-commits state
 machine, with the two copies already drifting (propagation handling, escape behavior).
 
-Fix: extracted a shared `useInlineRename()` hook (editing flag + Enter/Escape key handler)
-used by both; each call site keeps its own markup/styling and value-transform (the title
-editor still dash/lowercases as you type). Verified manually in the running dev server: the
-title rename (Enter-to-commit) and a node rename (Escape-to-commit) both still work
-identically post-refactor.
+Fix: extracted a shared `useInlineRename()` local helper (editing flag + Enter/Escape key
+handler) used by both; each call site keeps its own markup/styling and value-transform (the
+title editor still dash/lowercases as you type). Considered promoting it to `src/hooks/`
+(this repo's convention for shared hooks — `use-mobile.ts`, `use-is-tauri.ts`) but both
+usages are within this single file, unlike those cross-cutting hooks (each consumed from 4+
+files); kept it local, same as the other local helper components already in `page.tsx`
+(`NodeLabel`, `RunsPanel`, etc). Promote it if a third rename control appears elsewhere.
+Verified manually in the running dev server: the title rename (Enter-to-commit) and a node
+rename (Escape-to-commit) both still work identically post-refactor.
+
+## Follow-on: docs/spec + docs/plan + docs/tasks backfill (2026-09-28)
+
+Review finding #7: no `docs/spec`/`docs/plan` artifact existed for this ticket despite
+substantial shipped implementation (`recipe.ts`, the `ensembles/new/page.tsx` rewrite),
+violating CLAUDE.md rule 3 ("spec before plan, plan before code ... hard prerequisites").
+`docs/tasks/` was also missing (required by the `task-management` skill for every Linear
+issue). The design decisions themselves were already made and recorded in OME-1077's own
+Linear issue body (single-ticket lightweight-iteration process, Solo/Fusion/Pipeline
+contract, frontend-only/mock scope) — this was a missing-artifact gap, not a missing-decision
+gap.
+
+Fix: backfilled `docs/spec/2026-09-02-OME-1077-studio-recipe-native-builder.md`,
+`docs/plan/2026-09-02-OME-1077-studio-recipe-native-builder.md`, and
+`docs/tasks/2026-09-02-OME-1077-studio-recipe-native-builder.md`, each explicitly marked as
+written retroactively and mirroring the decisions/work already recorded in the Linear issue
+and this ledger, rather than presenting them as if written in advance.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:** Phase 1/2 delivered as planned (see commit history on
+  `OME-1077-studio-builder`); the 2026-09-22 code-review round touched `src/lib/recipe.ts`
+  and `ensembles/(new/page.tsx|page.tsx)` only — no new files beyond what was planned.
+- **Commits:** `b1ad64a7` — fix(studio): address code-review findings on recipe builder
+  (Refs: OME-1077); plus the earlier Phase 1/2 commits on this branch.
+- **Gates:** No `run_gates.py`/typecheck/test script registered for this stack yet (deferred
+  per the ticket's own scope note). `npx tsc --noEmit` and `npx eslint` clean on every file
+  touched by the 2026-09-22 fix round; manual dev-server verification for each UI-visible
+  change.
+- **Deviations:** `src/components/builder/*` (planned in Phase 2) was not split out as a
+  separate directory — the recursive builder UI, `RunsPanel`, and helpers (`NodeLabel`,
+  `useInlineRename`) live inline in `ensembles/new/page.tsx` instead. The planned
+  `src/lib/recipe-templates.ts` + template-gallery picker was **not delivered** — no template
+  file or template UI exists in this codebase as of this backfill (grepped for "template",
+  no hits in `ensembles/new/page.tsx`); the spec/plan's "templates seed prebuilt recipes"
+  acceptance criterion is therefore not met and should be re-scoped or explicitly dropped by
+  the ticket owner rather than left silently unmet. The test-harness standup (vitest +
+  Testing Library) referenced in the Test plan above remains deferred, as explicitly scoped.
