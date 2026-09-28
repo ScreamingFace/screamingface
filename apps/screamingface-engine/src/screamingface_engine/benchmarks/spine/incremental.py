@@ -84,26 +84,26 @@ class Scoring:
                 selected, index, indexed, self.material, self.metadata
             )
             return result
-        else:
-            if self.metadata is not None:
-                selected = selected.model_copy(
-                    update={
-                        "metadata": {
-                            **selected.metadata,
-                            **self.metadata(int(selected.case_id)),
-                        }
-                    }
-                )
-            return (
-                decode_results(
-                    json.dumps([row]),
-                    benchmark_id=self.benchmark_id,
-                    revision=self.revision,
-                    selected=[selected],
-                    failure=_unexpected_failure,
-                    allow_extra_metadata=True,
-                )
-            )[0]
+        result = decode_results(
+            json.dumps([row]),
+            benchmark_id=self.benchmark_id,
+            revision=self.revision,
+            selected=[selected],
+            failure=_unexpected_failure,
+            allow_extra_metadata=True,
+        )[0]
+        if self.metadata is not None:
+            # WHY: canonical grading failures retain selected metadata but may never
+            # acquire grading enrichment. Supplied tags must still be authoritative.
+            unscored_failure = bool(result.failures) and (
+                result.grade is None or result.grade.score is None
+            )
+            for key, value in self.metadata(int(selected.case_id)).items():
+                if key not in result.metadata and unscored_failure:
+                    continue
+                if key not in result.metadata or result.metadata[key] != value:
+                    raise ValueError("graded result metadata does not match the selected Case")
+        return result
 
 
 def _unexpected_failure(*args) -> CaseResult:

@@ -108,3 +108,6 @@ Snapshot attributes: `sf.progress.schema=screamingface.benchmark-progress.v1`, `
 
 ## Approved all-board extension
 The user approved extending live score updates to all benchmarks. Publish canonical grade completion through the shared scored path for aggregate-time judges. Built-in early grading must carry the same typed result into final aggregation rather than grade twice. Preserve each board's scorer (including ContractEval confusion-matrix F1), failure mappings and metadata. This requires explicit built-in protocol/fixture migrations. The Client remains generic and shows only the running numeric score, without provisional text.
+
+### Reviewed failure metadata correction
+Typed grade validation must accept canonical grading failures that retain selected-case metadata without optional grading enrichment. Board-added metadata remains required for scored results; any supplied enrichment must match authoritative values even on failures. Identity, revision, input, and failure attribution checks remain strict.

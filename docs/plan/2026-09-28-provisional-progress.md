@@ -82,3 +82,6 @@ Implement the scalar snapshot port and optional activity accumulator; invoke fro
 2. Generalize early canonical-result production and typed-result transport for the remaining built-in families, preserving case positions and board-specific metadata/failure mappings.
 3. Migrate revisions/expression and replay fixtures only with existing-test approval; compare canonical outcomes and model request counts.
 4. Verify the registry, including every imported board, run stack gates and refresh the preview. Aggregate-only progress is an intermediate step, not completion of built-in early scoring.
+
+### Review correction
+Add a real MedXpert batch-versus-early grading-failure regression, then validate decoded results against base selection before checking optional enrichment. Run full Engine gates and update the draft. Public single-case API and IFEval orchestration consolidation remain separate cleanup.
