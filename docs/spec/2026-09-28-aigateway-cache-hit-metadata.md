@@ -30,8 +30,8 @@
 
 ### 2.2 Out of scope
 
-- The "same format as a live call, Engine agnostic" decision (see Q1). The `cache.reference`
-  shape stays.
+- The "same format as a live call, Engine agnostic" decision (see Q1; decided 2026-09-28: the
+  `cache.reference` shape stays).
 - Ranking on full cost (OME-1382, OME-1143). Live OpenRouter tests. Linear, Asana.
 - Runtime validation of the schema (see Q3). It stays a follow-up.
 
@@ -137,6 +137,10 @@ the file) and one **consumer** test (it reads the file and asserts what must sur
   format as a live call. The code keeps the historical cost in `cache.reference` and a current cost
   of 0, and the Engine reads the hit on its own path. This unit keeps that shape. The owner must
   confirm the deviation on OME-1155, or ask for a format change.
+  - **DECIDED (owner, 2026-09-28): keep the current shape.** Separating the historical cache
+    cost (`cache.reference`) from the live cost (0 on a hit) is the intended behavior, not a
+    deviation. Do not change the hit format to look like a live call. Recorded on `OME-1397`
+    and `OME-1155`.
 - **Q2 — `hypothesis`.** Do we add `hypothesis` as a dev dependency of `apps/aigateway` to close
   PRD test 23 at `level: property`? This unit does not add it.
 - **Q3 — runtime schema validation.** The item is not well defined: where the check runs (each

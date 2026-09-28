@@ -133,7 +133,7 @@ reconnect is only a log warning, so a researcher does not know why the Run stops
     not kill pods there.
   - Pin the real engine's WS handshake status for an invalid/expired ticket (spec
     2026-08-26 §9 assumption; audit item 19) — still open.
-  - Owner questions Q1 (public `Reconnecting` Event?) and Q2 (5xx backoff on the first
+  - Owner questions Q1 (public `Reconnecting` Event? **decided 2026-09-28: no, keep it internal**) and Q2 (5xx backoff on the first
     connect?) in `docs/spec/2026-09-28-sdk-reconnect-hardening.md`.
   - OME-1071 not touched: `cancel_active()` still sweeps every Run of the client on a
     fatal reconnect. It did not block these tests.

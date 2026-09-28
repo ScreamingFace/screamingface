@@ -92,6 +92,9 @@ only a log warning (`_engine/transport.py`, `_on_stream_failure`).
 - **Q1.** Must the user's `on_event` callback also get a public `Reconnecting` Event? This
   changes the public API snapshot, so the owner must decide. This unit sends the notice
   to the built-in progress output only.
+  - **DECIDED (owner, 2026-09-28): no.** Keep the notice internal (option a): it goes to the
+    built-in progress output only. Do not add a public `Reconnecting` Event, and do not send
+    the notice to `on_event`. The public API does not change. Recorded on `OME-1396`.
 - **Q3.** The outage budget is 90 s and the engine orphan reaper grace is 120 s. A
   post-start re-login now gets at most the rest of the 90 s budget. A real browser login
   often needs more than that. Must the owner accept this (the reaper would kill the Run

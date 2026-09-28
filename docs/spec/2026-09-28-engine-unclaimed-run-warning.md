@@ -146,6 +146,9 @@ a run STOP, which this is not.
 - Q1. Should an unclaimed run FAIL after a bound shorter than 16 h (a typed terminal error,
   for example `Terminated(failed, run_not_started)` plus a tombstone so a late claim skips it)?
   This spec only warns.
+  - **DECIDED (owner, 2026-09-28): no.** Keep the 16 h bound; the warning stays advisory only.
+    Runners run heavy workloads, so a claim that takes hours is an expected case, not a fault.
+    Do not add an early failure for an unclaimed run. Recorded on `OME-1395`.
 - Q2. Where must the queue alert rules live (SigNoz, or a `PrometheusRule` in the chart)? See
   the ledger follow-up for the proposed rules.
 - Q3. Is 300 s the wanted default for the notice? Under normal long-evaluation load (all slots
