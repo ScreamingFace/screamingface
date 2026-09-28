@@ -27,8 +27,18 @@ from websockets.typing import Subprotocol
 from screamingface._access.auth import _default_caller_auth
 from screamingface._access.base import _TransportAuth
 from screamingface._access.contract import _challenge_audience
-from screamingface._core.ports import _ResultArtifact, _RunOutcome
-from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
+from screamingface._core.ports import (
+    _ConnectionListener,
+    _ConnectionNotice,
+    _ConnectionState,
+    _ResultArtifact,
+    _RunOutcome,
+)
+from screamingface._core.retry import (
+    _RETRYABLE_STATUS,
+    RetryingAsyncTransport,
+    RetryingTransport,
+)
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.identity import engine_headers
 from screamingface._engine.reconnect import _RecoveryWindow
@@ -177,7 +187,8 @@ class Url4CloudTransport:
         resumes from the last accepted stream sequence with the SAME capability (valid for
         the Run's whole life after OME-1018). A handshake 401/403 that is not an Access
         challenge is FATAL — dead credentials, no probe on a single-engine fleet (D5). A
-        connect/OS/timeout failure backs off with full jitter; when the outage recovery budget
+        connect/OS/timeout failure — or, once the Run started, a 5xx handshake refusal —
+        backs off with full jitter; when the outage recovery budget
         is spent, everything this client owns is stopped and the Run surfaces as
         `websocket_disconnected`.
         """
@@ -210,6 +221,7 @@ class Url4CloudTransport:
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
+                        _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
                     outcome = self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
@@ -218,18 +230,33 @@ class Url4CloudTransport:
                 # stop-on-interrupt arm into writing to a dead connection.
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
-                self._on_handshake_rejection(exc, minted, run_started, trace)
-                recovery.attempts += 1
-                continue
+                if run_started and _is_transient_rejection(exc):
+                    self._back_off(recovery, exc, started, on_event)
+                else:
+                    self._on_handshake_rejection(exc, minted, run_started, trace, recovery)
+                    recovery.attempts += 1
             except (WebSocketException, OSError, TimeoutError) as exc:
-                deadline = recovery.failed(time.monotonic())
-                recovery.attempts = self._on_stream_failure(
-                    exc, recovery.attempts, deadline, started
-                )
-                continue
+                self._back_off(recovery, exc, started, on_event)
+
+    def _back_off(
+        self,
+        recovery: _RecoveryWindow,
+        exc: WebSocketException | OSError | TimeoutError,
+        started: float,
+        on_event: SyncEventCallback | None,
+    ) -> None:
+        """Spend one attempt of the outage budget, then announce the next connect (R4)."""
+        deadline = recovery.failed(time.monotonic())
+        recovery.attempts = self._on_stream_failure(exc, recovery.attempts, deadline, started)
+        _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     def _on_handshake_rejection(
-        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
+        self,
+        exc: InvalidStatus,
+        minted: list[str],
+        run_started: bool,
+        trace: TraceContext,
+        recovery: _RecoveryWindow,
     ) -> None:
         """Classify a refused handshake: Access challenge remints; anything else is FATAL.
 
@@ -238,8 +265,17 @@ class Url4CloudTransport:
         rather than orphan it (G3).
         """
         if _is_access_websocket_rejection(exc):
-            self._remint_after_challenge(minted, trace)
-            return
+            if not run_started:
+                self._remint_after_challenge(minted, trace)
+                return
+            # INVARIANT (spec 2026-09-28 F1): after the Run started, resume on the SAME
+            # capability. Every mint names a NEW topic, so a fresh capability would attach
+            # to a topic that holds none of this Run's frames.
+            allowed_s = recovery.admit_challenge(time.monotonic())
+            if allowed_s is not None:
+                self._caller_auth.reauthenticate(timeout=allowed_s)
+                return
+            _logger.warning("SF Engine reconnect re-login limit reached; stopping Runs")
         if run_started:
             self._sweep_after_disconnect()
         raise exc
@@ -286,8 +322,12 @@ class Url4CloudTransport:
     def _remint_after_challenge(self, minted: list[str], trace: TraceContext) -> None:
         """Refresh Access auth and mint a fresh capability after a WS challenge.
 
-        WHY a NEW capability rather than the one in hand: its iat window is 60s and the
-        re-login can take minutes — see the async twin's inline comment.
+        Only BEFORE the Run starts: the capability in hand has not started anything yet,
+        so replacing it is free. WHY replace it at all: a re-authentication can take
+        minutes and the challenge may predate the last mint; a fresh capability keeps the
+        start independent of how long the login took. AIDEV-NOTE: the 60 s iat window that
+        first motivated this is gone (OME-1018); `test_an_access_challenge_retries_with_a_
+        freshly_minted_capability` still pins the pre-start remint.
         """
         self._caller_auth.reauthenticate()
         minted.append(_mint_sync(self._http, trace=trace))
@@ -489,34 +529,55 @@ class AsyncUrl4CloudTransport:
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
+                        _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
                     outcome = await self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
-                await self._on_handshake_rejection(exc, minted, run_started, trace)
-                recovery.attempts += 1
-                continue
+                if run_started and _is_transient_rejection(exc):
+                    await self._back_off(recovery, exc, started, on_event)
+                else:
+                    await self._on_handshake_rejection(exc, minted, run_started, trace, recovery)
+                    recovery.attempts += 1
             except (WebSocketException, OSError, TimeoutError) as exc:
-                deadline = recovery.failed(time.monotonic())
-                recovery.attempts = await self._on_stream_failure(
-                    exc, recovery.attempts, deadline, started
-                )
-                continue
+                await self._back_off(recovery, exc, started, on_event)
+
+    async def _back_off(
+        self,
+        recovery: _RecoveryWindow,
+        exc: WebSocketException | OSError | TimeoutError,
+        started: float,
+        on_event: AsyncEventCallback | None,
+    ) -> None:
+        """Async twin of the sync `_back_off`."""
+        deadline = recovery.failed(time.monotonic())
+        recovery.attempts = await self._on_stream_failure(exc, recovery.attempts, deadline, started)
+        _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     async def _on_handshake_rejection(
-        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
+        self,
+        exc: InvalidStatus,
+        minted: list[str],
+        run_started: bool,
+        trace: TraceContext,
+        recovery: _RecoveryWindow,
     ) -> None:
         """Async twin of the sync handshake classification — see its docstring (D5, G3)."""
         if _is_access_websocket_rejection(exc):
-            await self._caller_auth.reauthenticate_async()
-            # WHY a NEW capability rather than the one already in hand: a
-            # re-authentication can take minutes, and the challenge may predate the
-            # last mint. Minting is unauthenticated and per-Run, so replacing the
-            # token is cheaper than widening any window.
-            minted.append(await _mint_async(self._http, trace=trace))
-            self._active_tokens.add(minted[-1])
-            return
+            if not run_started:
+                await self._caller_auth.reauthenticate_async()
+                # WHY a NEW capability before the start: see the sync `_remint_after_challenge`.
+                minted.append(await _mint_async(self._http, trace=trace))
+                self._active_tokens.add(minted[-1])
+                return
+            # INVARIANT (spec 2026-09-28 F1): see the sync twin — the SAME capability, and a
+            # re-login bounded by the outage budget and the challenge cap.
+            allowed_s = recovery.admit_challenge(time.monotonic())
+            if allowed_s is not None:
+                await self._caller_auth.reauthenticate_async(timeout=allowed_s)
+                return
+            _logger.warning("SF Engine reconnect re-login limit reached; stopping Runs")
         if run_started:
             await self._sweep_after_disconnect()
         raise exc
@@ -607,6 +668,24 @@ async def _observe_async(callback: AsyncEventCallback, event: Event) -> None:
     # WHY: preserve arbitrary application callback errors and cancellation without translation.
     except BaseException as exc:
         raise _ObserverRaised(exc) from exc
+
+
+def _notify_connection(
+    on_event: object, state: _ConnectionState, attempt: int | None = None
+) -> None:
+    """Tell the built-in progress output about one reconnect step (spec 2026-09-28 R4).
+
+    Sent after the backoff sleep, right before the connect it announces, so the line reads
+    true: attempt n is under way. A plain `on_event` function is not a listener and gets
+    nothing — the public Event stream is unchanged.
+    """
+    if not isinstance(on_event, _ConnectionListener):
+        return
+    try:
+        on_event.connection(_ConnectionNotice(state=state, attempt=attempt))
+    # WHY: progress is decorative; a renderer defect must never end a paid Run.
+    except Exception:  # noqa: BLE001 - see the WHY above
+        _logger.warning("ScreamingFace progress could not show a reconnect step", exc_info=True)
 
 
 def _event_stream_timeout() -> ExecutionError:
@@ -1069,6 +1148,22 @@ def _trace_headers(trace: TraceContext | None) -> dict[str, str]:
 
 def _http_origin(http: httpx.Client | httpx.AsyncClient) -> str:
     return str(http.base_url).rstrip("/")
+
+
+def _is_transient_rejection(error: InvalidStatus) -> bool:
+    """A handshake refusal from the edge or a restarting App, not from the credentials.
+
+    WHY (spec 2026-08-26 §6 S3, "connect refused / 5xx / timeout -> BACKOFF"): while the
+    App restarts, the edge answers the reconnect with 502/503. Treating that as FATAL
+    swept every Run at exactly the moment the reconnect loop exists for.
+    WHY `_RETRYABLE_STATUS` and not ">= 500": the reconnect crosses the same Cloudflare
+    edge as the HTTP calls, so the same set applies (502-504, 520-524, 408, 429); 501/505
+    say the server cannot speak the protocol, and waiting does not change that.
+    WHY `Retry-After` is ignored here: the full-jitter backoff is already bounded by the
+    outage budget, which must stay inside the engine's 120 s reaper grace — obeying a
+    longer server hint would only let the reaper win.
+    """
+    return error.response.status_code in _RETRYABLE_STATUS
 
 
 def _is_access_websocket_rejection(error: InvalidStatus) -> bool:

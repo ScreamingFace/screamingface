@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from screamingface._core.ports import _ConnectionNotice
 from screamingface._evaluation.model import Candidate
 from screamingface._ui.activity_groups import active_cases, stage_status
 from screamingface._ui.activity_state import ActivityLog
@@ -117,6 +118,13 @@ class _NotebookEvaluationView:
     def begin(self, candidate: Candidate) -> None:
         with self._lock:
             self._progress.begin(candidate)
+            if not self._tick:
+                self._refresh()
+        self._dirty.set()
+
+    def connection(self, candidate: Candidate, notice: _ConnectionNotice) -> None:
+        with self._lock:
+            self._progress.connection(candidate, notice)
             if not self._tick:
                 self._refresh()
         self._dirty.set()
