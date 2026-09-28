@@ -98,6 +98,17 @@ def safe_fact(name: str, value: object) -> Scalar:
             integer=True,
             minimum=1 if name in {"attempt", "case_position", "case_count"} else 0,
         )
+    else:
+        result = _detail_fact(name, value)
+    return result
+
+
+def _detail_fact(name: str, value: object) -> Scalar:
+    if name in {"role", "action"}:
+        expected = {"role": "judge", "action": "recording"}[name]
+        if value != expected:
+            raise ValueError("unknown activity role/action")
+        result: Scalar = expected
     elif name == "retry_delay_ms":
         result = _number(value)
     elif name == "finish_reason":

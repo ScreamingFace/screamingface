@@ -10,5 +10,5 @@ from screamingface_engine.observations import ObserverFactory
 
 
 def observation_factories(env: Mapping[str, str]) -> tuple[ObserverFactory, ...]:
-    level = ActivityLevel(env.get(job_env.ACTIVITY_LEVEL, "off"))
+    level = ActivityLevel(env.get(job_env.ACTIVITY_LEVEL, "full"))
     return (partial(ActivityObserver, enabled=level == ActivityLevel.FULL),)

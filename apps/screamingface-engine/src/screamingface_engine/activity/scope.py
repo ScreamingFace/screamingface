@@ -40,6 +40,7 @@ class Operation:
         self._started = 0.0
         self._revision = 0
         self._closed = False
+        self._terminal_credit = False
         self._terminal: str | None = None
         self._token: Token[Operation | None] | None = None
         self._task: asyncio.Task[None] | None = None
@@ -97,7 +98,20 @@ class Operation:
             ),
             PREFIX + "observed_at_ms": int(self._session.wall() * 1000),
         }
-        self._session.emit(self._emit, message(self.kind, state), attributes)
+        # INVARIANT: an admitted start pays for its terminal event up front, so
+        # parallel judge completions cannot exhaust the shared outcome reserve.
+        terminal = state in TERMINAL
+        admitted = self._session.emit(
+            self._emit,
+            message(self.kind, state),
+            attributes,
+            reserve_terminal=state == "started",
+            prepaid_terminal=terminal and self._terminal_credit,
+        )
+        if state == "started":
+            self._terminal_credit = admitted
+        elif terminal:
+            self._terminal_credit = False
 
     def finish(self, *, outcome: str = "completed", **values: object) -> None:
         if not self.enabled or self._terminal is not None:
