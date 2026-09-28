@@ -39,7 +39,7 @@ would refuse its own inherited setting.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus the `docs/tasks` mirror (none existed for OME-1369).
-- **Commits:** one — `fix(screamingface-engine): let a judge keep the cache setting an eval hands it`.
+- **Commits:** `054a06a8` — `fix(screamingface-engine): let a judge keep the cache setting an eval hands it` (#1089, squash-merged).
 - **Gates:** `uv run --extra inspect pytest -q -rs tests/unit/inspect` 360 passed (was 359);
   ruff check, ruff format --check, pyright, check_layering green. Paid lanes not run.
 - **Deviations:** the ticket's main change (allowlist + tools refusal) was already merged in
