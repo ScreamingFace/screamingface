@@ -813,11 +813,19 @@ class BaselineSchema(BaseModel):
 
 
 class FrontierPoint(BaseModel):
-    """One step of the open-share trend (OME-1145, D-L): the frontier's open share at the moment
-    a submission changed it. Replaces OME-323's score-holder walk."""
+    """One step of the open-share trend (OME-1145, D-L): the frontier's open share at the END of a
+    UTC day, emitted only when it differs from the previous point. Replaces OME-323's score-holder
+    walk.
+
+    INVARIANT (D-U, amended in review round 1): daily sampling, not per submission. Changes within
+    one day collapse to that day's end state, so a share that moves and moves back on the same day
+    shows neither move. `at` is the day's last submission, a real event time. See `frontier.py`'s
+    `FrontierReplay` for why: per-submission replay was quadratic on a public endpoint.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
+    # The last submission of the day this point summarises.
     at: datetime
     # None when that frontier held nothing classifiable (D-S).
     open_share: float | None

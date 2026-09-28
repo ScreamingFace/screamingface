@@ -63,9 +63,22 @@ Every field on one basis (D-L). Proposed:
 `current` is removed: "who holds the frontier" is the old score-only story (D-L). The
 portal tooltip that read it changes with it.
 
-**Trend (D-L):** replay the comparable submissions in `submitted_at` order. At each one, recompute
-the best-per-spec frontier as it stood then, and emit a point when `open_share` changes. The
-classification of historical members reuses §3's bounded read over the union of their ids.
+**Trend (D-L, daily since review round 1):** replay the comparable submissions in `submitted_at`
+order, and recompute the best-per-spec frontier **once at the end of each UTC day that had
+submissions**. Emit a point when that day's `open_share` differs from the previous point's,
+stamped with the day's last submission. Members are classified once per request and reuse §3's
+bounded read over the union of their ids.
+
+**What daily sampling gives up.** Changes within one day collapse to that day's end state. If the
+share moves and moves back on the same day, the trend shows neither move. The trend answers "how
+open was the frontier at the end of each day", not "every moment it changed".
+
+**Why (review round 1, owner 2026-09-26).** Per-submission replay recomputed the whole frontier
+after every row, twice per request, on a public endpoint whose spec ids the client chooses: 2,000
+crafted rows took about 7 s per request. Daily costs (days with submissions) × (m log m): a burst of
+any size within a day is one step, and a submitter cannot create days. Measured: a 2,000-row
+one-day burst 0.01 s; 2,000 rows over 365 days 0.43 s; 5,000 over 365 days 1.29 s. If boards grow
+past that, the next step is materialising the trend on write.
 
 ## §5 Decisions (owner, 2026-09-25)
 
@@ -74,7 +87,7 @@ classification of historical members reuses §3's bounded read over the union of
 | **D-Q4** | `openness_override` loses its only consumers. | **Keep it working**: set on a frontier entry, it decides that entry's verdict and the models are not consulted (§3). No migration; the operator correction path stays. Closes OME-1179 Q4. |
 | **D-S** | `open_share` when nothing is classifiable (empty frontier, every entry unidentified, or no registered revision). | **`null`**. 0% asserts a closed frontier; nothing measured asserts nothing. The portal shows no percentage. |
 | **D-T** | How the unrecognised models are shown (D4). | **The distinct routes, capped at 20**, as `unrecognised_models`. Already public in `url4_expression`; the list names what to add to the registry. |
-| **D-U** | The trend. | **Kept**, as the open-share-over-time series (D-L). One point on dev until real costs land (D-K). |
+| **D-U** | The trend. | **Kept**, as the open-share-over-time series (D-L). One point on dev until real costs land (D-K). **Amended 2026-09-26 (review round 1): sampled once per UTC day, not per submission** — see §4. Intraday changes collapse to the day's end state. |
 
 ## §6 Test plan (new files)
 

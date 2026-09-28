@@ -326,3 +326,26 @@ def test_each_member_is_classified_once_per_request(monkeypatch: pytest.MonkeyPa
     _compute(entries, members)
 
     assert len(classified) == 10
+
+
+def test_an_intraday_change_that_reverts_leaves_no_trend_point() -> None:
+    """The documented cost of daily sampling (D-U, amended): a share that moves and moves back
+    within one day is invisible in the trend, which reports each day's end state only."""
+    rows = [
+        # Day 0: one closed entry. Share 0.0.
+        HistoryRow("closed", "closed", 0.5, Decimal("1.00"), T0),
+        # Day 1, morning: an open entry joins the frontier (share would read 0.5) ...
+        HistoryRow("open", "open", 0.9, Decimal("2.00"), T0 + timedelta(days=1)),
+        # ... and by evening a closed entry dominates it again. End of day 1: share 0.0.
+        HistoryRow("closed-2", "closed-2", 0.95, Decimal("1.50"), T0 + timedelta(days=1, hours=8)),
+    ]
+    current = [ParetoEntry(r.source_id, r.spec_id, None, r.score, r.run_cost_usd) for r in rows]
+    members = {
+        "closed": _member("closed", CLOSED),
+        "open": _member("open", OPEN),
+        "closed-2": _member("closed-2", CLOSED),
+    }
+
+    result = compute_frontier_openness(current, replay_frontier(rows), members, pinned=True)
+
+    assert [p.open_share for p in result.trend] == [0.0]

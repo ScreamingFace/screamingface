@@ -110,3 +110,15 @@ Four findings, all verified against the code before fixing.
 New tests: 3 in `test_frontier_openness.py` (one computation per day, day stamps, one
 classification per member), 2 in `test_route_read_snapshot.py`, 1 PostgreSQL-only. Gates ALL GREEN
 (append-only flags only the approved files).
+
+## Review round 2 (2026-09-28, owner's review)
+
+1. **Medium, verified: the contract still promised per-submission history.** Spec §4 said to
+   recompute "at each" submission and `FrontierPoint`'s docstring said "at the moment a submission
+   changed it", while round 1 made the trend daily. **Fix:** spec §4 now states daily sampling, what
+   it gives up (a same-day move and move-back is invisible) and why (the measured quadratic cost);
+   D-U in §5 carries the amendment; `FrontierPoint`'s docstring and `at` field say end of UTC day.
+   **New test:** `test_an_intraday_change_that_reverts_leaves_no_trend_point` pins the trade-off,
+   so it is a documented behaviour rather than a surprise.
+
+Gates ALL GREEN (append-only flags only the approved files).
