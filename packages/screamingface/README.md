@@ -439,7 +439,8 @@ an exact remainder; inconsistent records disable the breakdown (`consistent=Fals
 Loop internals and composite-member ownership remain unattributed where the retained contract
 cannot prove their scope. Derived group views are not added to Report JSON.
 
-Displaying a completed Report includes the operation table and expandable per-Case details.
+Each completed Report Case has **Answer & grading** and **Cost & usage** views.
+The latter shows labelled activity blocks; whole-run totals remain above the Cases.
 Try [the offline review notebook](examples/14_report_accounting.ipynb) without credentials or
 paid calls. Its synthetic figures are explicitly labelled; actual evaluations use the same UI.
 

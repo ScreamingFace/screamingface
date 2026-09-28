@@ -1,126 +1,134 @@
-"""Benchmark-neutral completed accounting table; all data is derived from retained records."""
+"""Case-scoped accounting blocks and script-free notebook view selectors."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from screamingface.accounting import AccountingRow, AccountingSummary, summarize
 
 if TYPE_CHECKING:
+    from screamingface._report_primitives import CaseId
     from screamingface.report import CandidateResult
 
 STYLE = """<style>
-.sf-accounting{margin-top:12px;border-top:1px solid var(--sf-line);padding-top:12px}
-.sf-accounting h4{font-size:13px;font-weight:600;margin:0 0 8px;color:var(--sf-ink)}
-.sf-accounting p{font-size:12px;color:var(--sf-ink-2);margin:8px 0}
-.sf-accounting__scroll{overflow-x:auto}
-.sf-accounting table{width:100%;border-collapse:collapse;font-size:12px;color:var(--sf-ink)}
-.sf-accounting th,.sf-accounting td{padding:8px;border-bottom:1px solid var(--sf-line);
-  text-align:left;vertical-align:top;background:var(--sf-bg)}
-.sf-accounting th{font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.08em}
-.sf-accounting .sf-accounting__number{text-align:right;white-space:nowrap;
-  font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
-.sf-accounting td:first-child{min-width:120px;overflow-wrap:anywhere}
-.sf-accounting summary{cursor:pointer;padding:8px;color:var(--sf-ink-2)}
-.sf-accounting__scroll:focus-visible,.sf-accounting summary:focus-visible{
-  outline:2px solid var(--sf-accent);outline-offset:2px}
-.sf-accounting details{border:1px solid var(--sf-line);margin-top:8px}
+.sf-case-views{margin-top:16px}
+.sf-view-radio{position:absolute;opacity:0;width:1px;height:1px}
+.sf-view-label{display:inline-block;padding:8px 12px;border:1px solid var(--sf-line);
+  color:var(--sf-ink-2);cursor:pointer;font-size:13px;margin-bottom:16px}
+.sf-view-radio:checked+.sf-view-label{color:var(--sf-ink);border-bottom:2px solid var(--sf-accent);
+  background:var(--sf-surface)}
+.sf-view-radio:focus-visible+.sf-view-label{outline:2px solid var(--sf-accent);outline-offset:2px}
+.sf-answer-view,.sf-cost-view{display:none}
+.sf-view-answer:checked~.sf-answer-view,.sf-view-cost:checked~.sf-cost-view{display:block}
+.sf-cost-view p,.sf-run-accounting-note{font-size:12px;color:var(--sf-ink-2)}
+.sf-cost-block{border-top:1px solid var(--sf-line);padding:16px 0}
+.sf-cost-block h4{font-size:14px;font-weight:600;margin:0 0 4px;color:var(--sf-ink)}
+.sf-cost-model{font-size:12px;color:var(--sf-ink-2);overflow-wrap:anywhere}
+.sf-report dl.sf-cost-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+  gap:16px;margin:16px 0 0}
+.sf-report .sf-cost-fields>div{display:flex;flex-direction:column;min-width:0}
+.sf-report .sf-cost-fields dt{float:none;width:auto;
+  font-size:11px;color:var(--sf-ink-2);font-weight:400}
+.sf-report .sf-cost-fields dd{font-size:13px;color:var(--sf-ink);margin:4px 0 0;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;overflow-wrap:anywhere}
 </style>"""
 
 
-def accounting_html(candidate: CandidateResult) -> str:
-    """Render one candidate's disjoint operation totals plus optional Case detail."""
+def case_tabs(answer: str, cost: str) -> str:
+    """Native radio semantics provide keyboard switching without sanitizable scripts."""
+    # WHY: render instances, including the same Report displayed twice, must not share controls.
+    key = f"sf-view-{uuid4().hex}"
+    return (
+        "<div class='sf-case-views' role='group' aria-label='Case view'>"
+        f"<input class='sf-view-radio sf-view-answer' type='radio' name='{key}' "
+        f"id='{key}-answer' checked><label class='sf-view-label' for='{key}-answer'>"
+        "Answer &amp; grading</label>"
+        f"<input class='sf-view-radio sf-view-cost' type='radio' name='{key}' "
+        f"id='{key}-cost'><label class='sf-view-label' for='{key}-cost'>Cost &amp; usage</label>"
+        f"<div class='sf-answer-view'>{answer}</div>"
+        f"<div class='sf-cost-view' aria-label='Cost and usage for this case'>{cost}</div></div>"
+    )
+
+
+def run_accounting_note(candidate: CandidateResult) -> str:
+    """A remainder belongs to the run, never to an individual Case by inference."""
     view = candidate.accounting
     if not view.consistent:
-        return (
-            '<p class="sf-report__warn">Accounting breakdown unavailable: inconsistent records.</p>'
-        )
-    groups: dict[tuple[str, str], list[AccountingRow]] = {}
+        text = "Accounting breakdown unavailable: inconsistent records."
+    elif view.unattributed_cost_usd == 0:
+        return ""
+    else:
+        text = f"Unattributed run cost: {_money(view.unattributed_cost_usd)}."
+    return f'<p class="sf-run-accounting-note">{escape(text)}</p>'
+
+
+def case_accounting(candidate: CandidateResult) -> dict[CaseId, str]:
+    """Group once per Candidate, retaining only the selected Case's actual owners."""
+    view = candidate.accounting
+    groups: dict[CaseId, list[AccountingRow]] = {case.case_id: [] for case in candidate.cases}
     for row in view.rows:
-        groups.setdefault((row.stage, row.operation_id), []).append(row)
-    body = "".join(_group_row(rows) for rows in groups.values())
-    remainder = _remainder_html(view.unattributed_cost_usd)
-    cases = _case_sections(view.rows)
+        groups[row.case_id].append(row)
+    note = (
+        "<p>Recorded usage for this case only. Unknown means not reported. "
+        "Provider time is summed across attempts, not wall time.</p>"
+    )
+    return {
+        case_id: note
+        + (
+            "".join(_activity(row) for row in rows)
+            if view.consistent and rows
+            else "<p>Accounting unavailable for this case. See the whole-run totals above.</p>"
+        )
+        for case_id, rows in groups.items()
+    }
+
+
+def _activity(row: AccountingRow) -> str:
+    summary = summarize([row.accounting])
+    stage = {
+        "generation": "Answer generation",
+        "synthesis": "Combine answers",
+        "grading": "Judging",
+    }
+    fields = (
+        ("Cost", _money(summary.usage.cost_usd)),
+        ("Calls", _number(summary.calls)),
+        ("Cache", _cache(summary)),
+        ("Input tokens", _number(summary.usage.input_tokens)),
+        ("Output tokens", _number(summary.usage.output_tokens)),
+        ("Provider time", _time(summary.provider_latency_ms)),
+    )
+    values = "".join(
+        f"<div><dt>{label}</dt><dd>{escape(value)}</dd></div>" for label, value in fields
+    )
     return (
-        '<section class="sf-accounting" aria-label="Operation accounting">'
-        "<h4>Operation accounting</h4>"
-        "<p>Retained observations only. Unknown means unavailable, not zero. "
-        "Provider time sums upstream attempts; it is not wall time. "
-        "Cache: hits / misses / bypasses / unknown. Tokens: input / output.</p>"
-        f"{_table(body + remainder)}{cases}</section>"
+        f'<section class="sf-cost-block"><h4>{escape(row.label)}</h4>'
+        f'<div class="sf-cost-model">{stage[row.stage]} · '
+        f"{escape(row.model or 'Unknown model')}</div>"
+        f'<dl class="sf-cost-fields">{values}</dl></section>'
     )
-
-
-def _table(body: str) -> str:
-    headers = ("Operation", "Stage", "Model", "Calls", "Cache", "Tokens", "Cost", "Provider time")
-    head = "".join(
-        f'<th scope="col" class="{"sf-accounting__number" if index >= 3 else ""}">{name}</th>'
-        for index, name in enumerate(headers)
-    )
-    return (
-        '<div class="sf-accounting__scroll" tabindex="0" role="region" '
-        'aria-label="Scrollable operation accounting"><table><thead><tr>'
-        + head
-        + "</tr></thead><tbody>"
-        + body
-        + "</tbody></table></div>"
-    )
-
-
-def _group_row(rows: list[AccountingRow]) -> str:
-    summary = summarize([row.accounting for row in rows])
-    models = tuple(dict.fromkeys(row.model or "Unknown" for row in rows))
-    values = (
-        rows[0].label,
-        rows[0].stage.capitalize(),
-        ", ".join(models),
-        _number(summary.calls),
-        _cache(summary),
-        f"{_number(summary.usage.input_tokens)} / {_number(summary.usage.output_tokens)}",
-        _money(summary.usage.cost_usd),
-        _time(summary.provider_latency_ms),
-    )
-    cells = []
-    for index, value in enumerate(values):
-        title = _cell_title(index)
-        css = ' class="sf-accounting__number"' if index >= 3 else ""
-        cells.append(f"<td{css}{title}>{escape(value)}</td>")
-    return "<tr>" + "".join(cells) + "</tr>"
 
 
 def _cache(summary: AccountingSummary) -> str:
     cache = summary.cache
     if cache is None:
         return "Unknown"
-    return f"{cache.hits} / {cache.misses} / {cache.bypasses} / {cache.unknown}"
-
-
-def _cell_title(index: int) -> str:
-    titles = {4: "Cache: hits / misses / bypasses / unknown", 5: "Input / output tokens"}
-    return f' title="{titles[index]}"' if index in titles else ""
-
-
-def _remainder_html(cost: Decimal | None) -> str:
-    return (
-        '<tr><td>Unattributed</td><td colspan="5">Cost outside retained priced operations</td>'
-        f'<td class="sf-accounting__number">{_money(cost)}</td><td>Unknown</td></tr>'
+    counts = (
+        (cache.hits, "hit", "hits"),
+        (cache.misses, "miss", "misses"),
+        (cache.bypasses, "bypass", "bypasses"),
+        (cache.unknown, "unknown", "unknown"),
     )
-
-
-def _case_sections(rows: tuple[AccountingRow, ...]) -> str:
-    cases: dict[int | str, list[AccountingRow]] = {}
-    for row in rows:
-        cases.setdefault(row.case_id, []).append(row)
-    return "".join(_case_html(case_id, records) for case_id, records in cases.items())
-
-
-def _case_html(case_id: int | str, rows: list[AccountingRow]) -> str:
-    body = "".join(_group_row([row]) for row in rows)
     return (
-        f"<details><summary>Accounting for Case {escape(str(case_id))}</summary>"
-        f"{_table(body)}</details>"
+        " · ".join(
+            f"{count:,} {singular if count == 1 else plural}"
+            for count, singular, plural in counts
+            if count
+        )
+        or "No calls"
     )
 
 

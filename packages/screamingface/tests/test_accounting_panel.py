@@ -8,14 +8,15 @@ import screamingface as sf
 def test_report_renders_breakdown_and_case_disclosures():
     c = result()
     html = sf.Report(benchmark=c.benchmark, case_count=1, candidates=[c])._repr_html_()
-    assert "Operation accounting" in html
+    assert "Cost &amp; usage" in html
     assert "Provider time" in html
     assert "Unattributed" in html
     assert "$0.2000" in html
-    assert "Accounting for Case 1" in html
-    assert "Input / output" in html
+    assert "sf-cost-block" in html
+    assert "Input tokens" in html
+    assert "Output tokens" in html
     assert "not wall time" in html
-    assert "sf-accounting__number" in html
+    assert "sf-cost-fields" in html
 
 
 def test_unknown_values_and_inconsistent_totals_are_explained():
@@ -36,8 +37,8 @@ def test_accounting_labels_are_escaped():
     assert "&lt;img src=x onerror=evil()&gt;" in html
 
 
-def test_wide_table_can_be_scrolled_with_keyboard_and_explains_counts():
+def test_case_view_uses_native_keyboard_controls_and_named_cache_counts():
     c = result()
     html = sf.Report(benchmark=c.benchmark, case_count=1, candidates=[c])._repr_html_()
-    assert 'tabindex="0" role="region"' in html
-    assert "Cache: hits / misses / bypasses / unknown" in html
+    assert "type='radio'" in html
+    assert "1 miss" in html

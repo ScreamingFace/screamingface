@@ -77,3 +77,42 @@ distribution checks). The approved JSON snapshot adds exactly two property entri
 previous snapshot values and Python test sources remain identical. Final notebook cells execute
 without errors. Commit: `feat(client): show completed operation accounting`. Delivery is a draft
 PR; the issue remains open for review and merge.
+
+## Readability follow-up — 2026-09-28
+
+Owner found the operation accounting table hard to digest after reviewing JupyterLab. Continue
+this draft PR in its isolated worktree. Plan: make cost and plain-language cache outcomes the
+primary view, put call/token/provider details behind a disclosure, and preserve exact accounting
+and per-Case access. Keep existing tests unchanged and add presentation regressions before code.
+Validate full Client gates and inspect the refreshed notebook preview. No public contract changes.
+
+## Approved case-tab revision
+
+Owner approved replacing the separate accounting section with Answer & grading / Cost & usage
+views within each selected Case, using readable activity blocks instead of subtables. This
+supersedes the uncommitted cost-summary iteration. Preserve run totals at the top, keep run-wide
+unattributed cost labelled there, and never imply a Case total or remainder from incomplete data.
+Use native radio controls styled as tabs for keyboard support and script-free notebook rendering.
+Update the presentation tests to the explicitly approved new layout while preserving accounting,
+escaping, unknown-value and inconsistent-data assertions. No accounting API changes.
+
+### Case-tab validation and review
+
+The final layout removes the separate operation table. Case panels retain their question and
+verdict above native Answer & grading / Cost & usage controls. Each retained operation or judge
+observation has a labelled block with cost, calls, named cache outcomes, input/output tokens and
+provider time. Unknowns remain explicit; run-wide unattributed cost stays with the run summary.
+
+Added three regressions for Case isolation, labelled values without subtables, and independent
+native control groups. Updated only the draft's panel/notebook presentation assertions to the
+approved layout; numeric, missing-data, inconsistency and escaping checks remain. Focused
+accounting checks: 24 passed. JupyterLab and light/dark standalone renderings were inspected;
+click switching works in JupyterLab and native keyboard switching works in standalone HTML.
+JupyterLab needs more specific definition-list CSS to prevent its notebook styles overriding
+the responsive field layout. No accounting calculations, public API or wire records changed.
+
+Final follow-up gate run: `uv run .claude/scripts/run_gates.py screamingface --skip-append-only`
+reported ALL GATES GREEN (ruff, formatting, pyright, full pytest with >=95% coverage,
+notebook provenance, package build and distribution checks). The skip covers the owner-approved
+snapshot and presentation assertion transitions described above. Notebook source remains
+output-free and deterministic. Deliver this revision to the existing draft PR #1097.

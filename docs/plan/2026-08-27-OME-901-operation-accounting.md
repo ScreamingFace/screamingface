@@ -95,3 +95,12 @@ OME-1031 implementation and a draft PR with a Jupyter review notebook on 2026-09
 - Completed Report HTML uses native disclosures and a keyboard-scrollable table; no new JavaScript.
 - `examples/14_report_accounting.ipynb` is an output-free deterministic, offline review notebook
   with explicitly synthetic observations. Its executable assertions also run in Client tests.
+
+Owner review follow-up (2026-09-28): simplify the first view to activity, cost and labelled cache
+outcomes; retain the full required operation columns in a collapsed details table. Keep Case
+expansion within those details. Hide zero remainder in the first view, preserve it in details.
+
+Owner approved the final layout: remove the separate accounting section, use native radio tabs
+inside each Case (Answer & grading / Cost & usage), and show labelled activity blocks without
+tables. Whole-run totals and any Unattributed run cost remain above the Cases. This supersedes
+the prior cost-summary/disclosure design.

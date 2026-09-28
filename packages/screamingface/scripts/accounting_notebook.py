@@ -156,7 +156,7 @@ def cells() -> tuple[NotebookNode, ...]:
             "## Check the numbers\n\nThe total is USD 0.08: "
             "generation USD 0.04, synthesis USD 0.03, "
             "grading USD 0.01. Case 2 has a cache hit for Member B, costing zero. "
-            "Expand **Accounting for Case 1/2** for the retained observations. "
+            "Select a Case, then open **Cost & usage** to inspect its activity blocks. "
             "Provider time is summed processing time, not elapsed run duration."
         ),
         code(
@@ -179,7 +179,7 @@ def cells() -> tuple[NotebookNode, ...]:
         md(
             "## Your own run\n\nAfter running any supported benchmark with this Client, "
             "display the returned `report` and inspect `report.candidates[0].accounting`. "
-            "The same table works across benchmarks. Availability depends on retained Engine "
+            "The same views work across benchmarks. Availability depends on retained Engine "
             "records; loop internals remain unattributed. No live widget behavior changes."
         ),
     )

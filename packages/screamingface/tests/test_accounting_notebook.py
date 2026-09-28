@@ -20,4 +20,4 @@ def test_review_notebook_executes_without_network_or_paid_calls(monkeypatch):
     complete, missing = displayed
     assert complete.candidates[0].accounting.by_case[2].cache.hits == 1
     assert missing.candidates[0].accounting.by_member["b"].usage.cost_usd is None
-    assert "Operation accounting" in complete._repr_html_()
+    assert "Cost &amp; usage" in complete._repr_html_()
