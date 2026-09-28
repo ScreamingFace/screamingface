@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -47,12 +48,18 @@ class BoardSummary:
     output_tokens: int | None = None
     reasoning_tokens: int | None = None
     run_id: str | None = None
-    failure_codes: tuple[str, ...] = ()
+    #: (real code, outer code when wrapped else None) → how many Cases failed with it.
+    failure_counts: tuple[tuple[str, str | None, int], ...] = ()
 
     @property
     def ok(self) -> bool:
         """Healthy when the referee found no problem — the only pass/fail source."""
         return not self.problems
+
+    @property
+    def failure_codes(self) -> tuple[str, ...]:
+        """The failure counts as display text, a wrapped code named by its real reason."""
+        return _format_counts(self.failure_counts)
 
 
 def summarize_board(
@@ -99,7 +106,7 @@ def summarize_board(
         reasoning_tokens=_int_or_none(usage.get("reasoning_tokens")),
         run_id=candidate.get("run_id"),
         # Stage 3 — collapsed failure codes, real reason first.
-        failure_codes=_failure_codes(cases),
+        failure_counts=_failure_counts(cases),
     )
 
 
@@ -151,20 +158,64 @@ def run_summary_markdown(summaries: list[BoardSummary], wall_seconds: float) -> 
             f"| {_tokens(summary.output_tokens)} | {round(summary.seconds)}s | {run} "
             f"| {', '.join(summary.failure_codes) or '—'} |"
         )
+    rows.append(_total_row(summaries, wall_seconds))
     return "\n".join(rows) + "\n"
+
+
+def _total_row(summaries: list[BoardSummary], wall_seconds: float) -> str:
+    """The table's last row: every column totalled across the press.
+
+    WHY wall time, not a sum of board times: boards run in parallel, so their times
+    overlap and a sum would overstate how long the press took. Failure codes sum
+    per (real code, wrapped code), so the row still shows what hid the real reason.
+    """
+    healthy: int = sum(1 for summary in summaries if summary.ok)
+    counts: Counter[tuple[str, str | None]] = Counter()
+    for summary in summaries:
+        for code, wrapped, count in summary.failure_counts:
+            counts[(code, wrapped)] += count
+    total_counts: tuple[tuple[str, str | None, int], ...] = tuple(
+        (code, wrapped, count) for (code, wrapped), count in counts.items()
+    )
+    return (
+        f"| **Total** | {healthy}/{len(summaries)} ok "
+        f"| {_sum(summary.graded for summary in summaries)}"
+        f"/{_sum(summary.cases for summary in summaries)} "
+        f"| {_sum(summary.correct for summary in summaries)}"
+        f"/{_sum(summary.scored for summary in summaries)} "
+        f"| {_cost(_total_cost(summaries))} "
+        f"| {_tokens(_sum(summary.output_tokens for summary in summaries))} "
+        f"| {_wall(wall_seconds)} wall | — "
+        f"| {', '.join(_format_counts(total_counts)) or '—'} |"
+    )
 
 
 def _totals(summaries: list[BoardSummary], wall_seconds: float) -> str:
     """One line of press totals — the first thing a reader of the log or CI page sees."""
     healthy: int = sum(1 for summary in summaries if summary.ok)
-    graded: int = sum(summary.graded or 0 for summary in summaries)
-    cases: int = sum(summary.cases or 0 for summary in summaries)
-    cost: Decimal = sum((summary.cost_usd or Decimal(0) for summary in summaries), Decimal(0))
-    minutes, seconds = divmod(round(wall_seconds), _SECONDS_PER_MINUTE)
+    graded: int = _sum(summary.graded for summary in summaries)
+    cases: int = _sum(summary.cases for summary in summaries)
     return (
         f"{healthy}/{len(summaries)} ok · {len(summaries) - healthy} failed · "
-        f"{graded} Cases graded / {cases} · {_cost(cost)} total · {minutes}m{seconds:02d}s wall"
+        f"{graded} Cases graded / {cases} · {_cost(_total_cost(summaries))} total · "
+        f"{_wall(wall_seconds)} wall"
     )
+
+
+def _sum(values: Iterable[int | None]) -> int:
+    """Sum the known numbers; a board without a Report adds nothing."""
+    return sum(value or 0 for value in values)
+
+
+def _total_cost(summaries: list[BoardSummary]) -> Decimal:
+    """The press's spend, summed exactly (Decimal, as exported)."""
+    return sum((summary.cost_usd or Decimal(0) for summary in summaries), Decimal(0))
+
+
+def _wall(wall_seconds: float) -> str:
+    """Wall time as minutes and seconds (1022s → 17m02s)."""
+    minutes, seconds = divmod(round(wall_seconds), _SECONDS_PER_MINUTE)
+    return f"{minutes}m{seconds:02d}s"
 
 
 def _failed_first(summaries: list[BoardSummary]) -> list[BoardSummary]:
@@ -172,8 +223,8 @@ def _failed_first(summaries: list[BoardSummary]) -> list[BoardSummary]:
     return sorted(summaries, key=lambda summary: (summary.ok, summary.board))
 
 
-def _failure_codes(cases: list[dict[str, Any]]) -> tuple[str, ...]:
-    """Count failure codes across Cases, naming a wrapped code by its real reason."""
+def _failure_counts(cases: list[dict[str, Any]]) -> tuple[tuple[str, str | None, int], ...]:
+    """Count failure codes across Cases, keyed by real code and wrapping outer code."""
     counted: Counter[tuple[str, str | None]] = Counter()
     for case in cases:
         for failure in case.get("failures") or []:
@@ -181,9 +232,14 @@ def _failure_codes(cases: list[dict[str, Any]]) -> tuple[str, ...]:
             source: Any = ((failure.get("metadata") or {}).get("source_error") or {}).get("code")
             wrapped: str | None = outer if source and source != outer else None
             counted[(str(source) if wrapped else outer, wrapped)] += 1
+    return tuple((code, wrapped, count) for (code, wrapped), count in counted.items())
+
+
+def _format_counts(counts: tuple[tuple[str, str | None, int], ...]) -> tuple[str, ...]:
+    """`code ×n`, plus `(reported as outer)` when the real code arrived wrapped."""
     return tuple(
         f"{code} ×{count}" + (f" (reported as {wrapped})" if wrapped else "")
-        for (code, wrapped), count in counted.items()
+        for code, wrapped, count in counts
     )
 
 

@@ -138,3 +138,19 @@ def test_markdown_table_lists_failed_boards_first(tmp_path: Path) -> None:
     assert "1/2 ok · 1 failed" in markdown
     assert rows[0].startswith("| inspect-bad | ❌ failed | 0/2 |")
     assert rows[1].startswith("| inspect-ok | ✅ ok | 2/2 |")
+
+
+def test_markdown_table_ends_with_a_total_row(tmp_path: Path) -> None:
+    """The last row totals the press, so a reader never adds a column by hand.
+
+    Time is the press's WALL time, not the sum of board times: boards run in
+    parallel, so their times overlap and a sum would overstate how long it took.
+    Failure codes aggregate across boards with the wrapped reason kept.
+    """
+    markdown: str = run_summary_markdown(_summaries(tmp_path), wall_seconds=1022.0)
+    last_row: str = markdown.rstrip("\n").splitlines()[-1]
+
+    assert last_row == (
+        "| **Total** | 1/2 ok | 2/4 | 2/2 | $0.0132 | 16.9k | 17m02s wall | — "
+        "| model_token_cap ×2 (reported as missing_case_row) |"
+    )
