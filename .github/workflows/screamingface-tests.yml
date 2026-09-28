@@ -6,12 +6,18 @@ on:
       - "docs/spec/fixtures/ome_400/**"
       - "packages/screamingface/**"
       - "packages/url4/**"
+      # the cache-hit contract fixtures that tests/test_cache_hit_contract.py consumes
+      - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
+      - "apps/screamingface-engine/tests/unit/data/cache_hit_contract/**"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
       - "docs/spec/fixtures/ome_400/**"
       - "packages/screamingface/**"
       - "packages/url4/**"
+      # the cache-hit contract fixtures that tests/test_cache_hit_contract.py consumes
+      - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
+      - "apps/screamingface-engine/tests/unit/data/cache_hit_contract/**"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 
