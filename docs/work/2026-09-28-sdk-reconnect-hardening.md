@@ -98,7 +98,32 @@ reconnect is only a log warning, so a researcher does not know why the Run stops
     same history), not a `docker kill` of a real App. Each App has its own
     `InMemoryEventStream` copy of the history, because an `asyncio.Condition` cannot cross
     the two TestClient loops.
+- **Review round 1 (design review: ACCEPT WITH FIXES), applied:**
+  1. Post-start Access re-login is bounded: at most `_MAX_RECONNECT_CHALLENGES = 2` in a
+     row (reset on a successful connect), each login gets `timeout=` the time left in the
+     outage budget, and none starts after the budget is spent. A tripped limit sweeps and
+     raises `websocket_disconnected`. RED first; 4 tests (cap and budget, sync and async).
+  2. RFC 6455 helpers moved to `tests/_websocket_wire.py`; `_reconnect_engine.py` imports
+     them. **Deviation:** `test_run_resume_reconnect.py` keeps its own copy — the
+     append-only test gate (`run_gates.py`) protects helper bodies in prior test files, and
+     changing a prior test is an owner decision (sdlc rule 5).
+  3. Added: 5xx (503/501/505) on the FIRST handshake stays fatal; async budget-exhaustion
+     twin; async 5xx covers 502 and 503.
+  4. `_is_transient_rejection` reuses `_core/retry.py` `_RETRYABLE_STATUS` (408, 429,
+     502-504, 520-524) instead of `>= 500`; 501/505 on a reconnect are fatal (test added).
+     `Retry-After` is ignored on purpose (WHY comment): the budget bounds the backoff.
+  5. `ConnectionState` → `_ConnectionState`; runtime checks and their test removed;
+     `attempt` is optional and `reconnected` sends none.
+  6. `_new_app_resume` has a 10 s deadline, woken by 0.2 s heartbeats (the TestClient
+     `receive_json` has no timeout). Test 3 (lifetime boundary → 401) is named in the spec
+     as an addition outside R6.
+  - Gates after the round: `screamingface` ALL GREEN — 1898 passed, 26 skipped, coverage
+    96 %; `screamingface-engine` ALL GREEN (NATS-bound tests skipped as above).
 - **Follow-ups:**
+  - Reaper interaction (review fix 1): while no client is attached, the engine orphan
+    reaper (`orphan_grace_s = 120`) counts down. A post-start re-login now fits inside the
+    90 s budget, so a slow browser login fails the Run on the client side before the reaper
+    does. Owner question Q3 in the spec.
   - Real-socket App-kill test (plan step 6, first bullet): kind case "K-new: delete the
     App pod mid-Run → SDK `Url4CloudTransport.run` completes, sequences 1..N once each,
     report equal to an unkilled Run". Blocker: the kind harness port-forward binds ONE pod

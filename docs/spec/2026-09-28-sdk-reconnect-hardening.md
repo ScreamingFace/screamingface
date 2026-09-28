@@ -44,6 +44,10 @@ only a log warning (`_engine/transport.py`, `_on_stream_failure`).
   re-authenticate, then attach again with the SAME capability and
   `from_sequence = cursor`. Do not mint. Before the Run starts, keep the current behavior
   (mint a fresh capability — pinned by `test_an_access_challenge_retries_with_a_freshly_minted_capability`).
+  Bound the post-start re-login (review fix 1): allow at most 2 challenges in a row
+  (`_MAX_RECONNECT_CHALLENGES`), give each login only the time left in the outage budget
+  (`reauthenticate(timeout=...)`), and refuse the login when the budget is spent. When a
+  limit trips, run the sweep and raise `websocket_disconnected`.
 - **R3.** Reconnect handshake refused with a 5xx status after the Run started: use the
   same BACKOFF and outage budget as a connection loss. Before the Run starts, keep the
   current behavior (FATAL).
@@ -64,6 +68,7 @@ only a log warning (`_engine/transport.py`, `_on_stream_failure`).
   - App instance A closes during a Run; instance B, on the same event stream, resumes the
     SAME capability from the cursor. The frames have no gap and no duplicate.
   - `DELETE /` on a Run older than 60 s gives 204.
+  - Added (outside R6): a capability at its lifetime boundary gets 401 on `DELETE /`.
 
 ## 4. Design
 
@@ -87,5 +92,9 @@ only a log warning (`_engine/transport.py`, `_on_stream_failure`).
 - **Q1.** Must the user's `on_event` callback also get a public `Reconnecting` Event? This
   changes the public API snapshot, so the owner must decide. This unit sends the notice
   to the built-in progress output only.
+- **Q3.** The outage budget is 90 s and the engine orphan reaper grace is 120 s. A
+  post-start re-login now gets at most the rest of the 90 s budget. A real browser login
+  often needs more than that. Must the owner accept this (the reaper would kill the Run
+  anyway), or change the reaper grace for a caller that re-authenticates?
 - **Q2.** Must a 5xx handshake on the FIRST connect (before the Run starts) also back off?
   This unit keeps it FATAL.
