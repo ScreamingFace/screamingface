@@ -137,7 +137,8 @@ class Url4CloudTransport:
         self._reconnect_budget_s = reconnect_budget_s
         self._reconnect_base_delay_s = reconnect_base_delay_s
         # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
-        # the sweep already stopped every Run this client owns. Plain bool, GIL-atomic.
+        # the sweep already stopped every Run this client owns. Cleared when the next Run
+        # starts with none active (`_end_finished_abort`). Plain bool, GIL-atomic.
         self._aborted = False
         self._active_lock = Lock()
         self._active_tokens: set[str] = set()
@@ -152,6 +153,7 @@ class Url4CloudTransport:
         trace = new_trace_context()
         minted = [_mint_sync(self._http, trace=trace)]
         with self._active_lock:
+            self._end_finished_abort()
             self._active_tokens.add(minted[0])
         lifecycle = _Lifecycle(candidate)
         started = time.monotonic()
@@ -171,6 +173,18 @@ class Url4CloudTransport:
         finally:
             with self._active_lock:
                 self._active_tokens.difference_update(minted)
+
+    def _end_finished_abort(self) -> None:
+        """Clear the owner-abort flag when a Run starts and no Run is active (spec B1).
+
+        WHY: `cancel_active` sets `_aborted` so that the Runs it swept stop reconnecting. It
+        used to stay set for the Client's whole life, so after ONE Ctrl-C every later Run on
+        this Client neither reconnected nor stopped its own Run after a lost stream.
+        INVARIANT: while any Run of that abort is still registered, the flag stays set.
+        AIDEV-NOTE: the caller holds `_active_lock`.
+        """
+        if not self._active_tokens:
+            self._aborted = False
 
     def _run_reconnecting(
         self,
@@ -262,7 +276,7 @@ class Url4CloudTransport:
 
         A non-Access 401/403 means dead credentials — retrying cannot help and no probe
         is needed on a single-engine fleet (D5). If the Run already started, stop it
-        rather than orphan it (G3).
+        rather than orphan it (G3) — this Run only, never its siblings.
         """
         if _is_access_websocket_rejection(exc):
             if not run_started:
@@ -275,9 +289,11 @@ class Url4CloudTransport:
             if allowed_s is not None:
                 self._caller_auth.reauthenticate(timeout=allowed_s)
                 return
-            _logger.warning("SF Engine reconnect re-login limit reached; stopping Runs")
+            _logger.warning("SF Engine reconnect re-login limit reached; stopping the Run")
         if run_started:
-            self._sweep_after_disconnect()
+            # INVARIANT (spec 2026-09-28 run isolation, C2): the refusal is about THIS
+            # stream's handshake. Sibling Runs have their own sockets — stop only this one.
+            self._stop_own_run(minted[-1])
         raise exc
 
     def _on_stream_failure(
@@ -318,6 +334,23 @@ class Url4CloudTransport:
             self.cancel_active()
         except Exception as stop_error:  # noqa: BLE001 - see the WHY above
             _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
+
+    def _stop_own_run(self, token: str) -> None:
+        """Stop ONLY the Run this capability started (spec 2026-09-28 run isolation, §4).
+
+        WHY not `cancel_active`: that sweep stops every Run this Client owns, and it is the
+        OWNER's tool — an interrupt or a shutdown. One Run that cannot continue is not a
+        reason to kill healthy siblings (incident 2026-09-01, OME-1071).
+        Best-effort, like the sweep: a failed stop is logged and must not mask the Run's
+        own error. The capability leaves the registry first, so a later owner sweep does
+        not stop it a second time.
+        """
+        with self._active_lock:
+            self._active_tokens.discard(token)
+        try:
+            _stop_sync(self._http, token)
+        except Exception as stop_error:  # noqa: BLE001 - see the WHY above
+            _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
 
     def _remint_after_challenge(self, minted: list[str], trace: TraceContext) -> None:
         """Refresh Access auth and mint a fresh capability after a WS challenge.
@@ -424,8 +457,8 @@ class AsyncUrl4CloudTransport:
         self._reconnect_budget_s = reconnect_budget_s
         self._reconnect_base_delay_s = reconnect_base_delay_s
         # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
-        # the sweep already stopped every Run this client owns. One loop per instance;
-        # plain bool, no lock (see the class INVARIANT above).
+        # the sweep already stopped every Run this client owns. Cleared as in the sync
+        # twin. One loop per instance; plain bool, no lock (see the class INVARIANT above).
         self._aborted = False
         self._active_tokens: set[str] = set()
 
@@ -460,6 +493,7 @@ class AsyncUrl4CloudTransport:
         # INVARIANT (OME-967): see the sync twin — the trace precedes the first call.
         trace = new_trace_context()
         minted = [await _mint_async(self._http, trace=trace)]
+        self._end_finished_abort()
         self._active_tokens.add(minted[0])
         cancelled = False
         started = time.monotonic()
@@ -489,6 +523,11 @@ class AsyncUrl4CloudTransport:
         finally:
             if not cancelled:
                 self._active_tokens.difference_update(minted)
+
+    def _end_finished_abort(self) -> None:
+        """Async twin of the sync `_end_finished_abort` (spec B1); no lock (class INVARIANT)."""
+        if not self._active_tokens:
+            self._aborted = False
 
     async def _run_reconnecting(
         self,
@@ -577,9 +616,10 @@ class AsyncUrl4CloudTransport:
             if allowed_s is not None:
                 await self._caller_auth.reauthenticate_async(timeout=allowed_s)
                 return
-            _logger.warning("SF Engine reconnect re-login limit reached; stopping Runs")
+            _logger.warning("SF Engine reconnect re-login limit reached; stopping the Run")
         if run_started:
-            await self._sweep_after_disconnect()
+            # INVARIANT (spec 2026-09-28 run isolation, C2): see the sync twin.
+            await self._stop_own_run(minted[-1])
         raise exc
 
     async def _on_stream_failure(
@@ -614,6 +654,14 @@ class AsyncUrl4CloudTransport:
             await self.cancel_active()
         except Exception as stop_error:  # noqa: BLE001 - see the WHY above
             _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
+
+    async def _stop_own_run(self, token: str) -> None:
+        """Async twin of the sync `_stop_own_run` — this Run only, best-effort."""
+        self._active_tokens.discard(token)
+        try:
+            await _stop_async(self._http, token)
+        except Exception as stop_error:  # noqa: BLE001 - see the sync twin
+            _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
 
     async def _run_connected(
         self,
