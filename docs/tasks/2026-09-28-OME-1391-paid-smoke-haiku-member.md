@@ -1,13 +1,13 @@
 ---
 id: OME-1391
 linear_url: https://linear.app/openmined/issue/OME-1391/keep-the-paid-smoke-from-leaving-boards-ungraded-when-a-panel-model
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [client-sf, agentic, autonomous]
 parent: OME-1299
 created: 2026-09-28
-closed:
+closed: 2026-09-28
 ---
 
 # Keep the paid smoke from leaving boards ungraded when a panel model runs out of tokens
@@ -22,3 +22,4 @@ Owner decisions (2026-09-28): a Case still dies when any member fails (quorum st
 OME-559); swap the model rather than raise `max_tokens`.
 
 - 2026-09-28: filed at PR-open; ledger `docs/work/2026-09-28-paid-smoke-haiku-member.md`.
+- 2026-09-28: PR #1090 opened; closed on merge.

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1391
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-28
-finished:
+finished: 2026-09-28
 ---
 
 # paid-smoke-haiku-member — swap the paid smoke's deepseek member for claude-haiku-4.5
@@ -42,5 +42,5 @@ swap.
 
 - **Actual files:** as planned — `packages/screamingface/tests/paid/_panel.py`, plus this ledger.
 - **Commits:** `test(screamingface): swap the paid smoke's deepseek member for claude-haiku-4.5`
-- **Gates:** free paid-lane guards `SCREAMINGFACE_TEST_PAID=1 pytest tests/paid --deselect <the paid smoke>` → 25 passed (incl. `test_panel_models_are_gateway_seeds`); ruff check + format clean. Paid re-press pending (owner).
+- **Gates:** free paid-lane guards `SCREAMINGFACE_TEST_PAID=1 pytest tests/paid --deselect <the paid smoke>` → 25 passed (incl. `test_panel_models_are_gateway_seeds`); ruff check + format clean. Paid re-press left to the owner (acceptance 2).
 - **Deviations:** none.
