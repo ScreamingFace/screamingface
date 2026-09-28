@@ -1,0 +1,87 @@
+---
+ticket: OME-1275
+stack: py-screamingface
+status: done
+started: 2026-09-23
+finished: 2026-09-25
+---
+
+# OME-1275 — Add a manually-run paid smoke test that runs every imported benchmark with real models
+
+## Intent
+
+Every imported inspect_evals board can be green in mocked/replay tests and still be broken at first real run — the runtime-only wiring class has no test. This unit adds an opt-in "paid" pytest lane: per imported board, one real Fusion evaluation (2 flash-tier members + 1 synthesizer, all from the gateway seed list) at 2 cases, through the full product path (SDK → gateway → OpenRouter → engine). Assertions are shape-only (no infrastructure failure codes), never score. Manually invoked (`just` recipe + `workflow_dispatch` workflow); never a merge gate. Owner presses the paid button — the agent never spends.
+
+## Planned changes
+
+- `packages/screamingface/tests/paid/` — new lane: conftest (gating + stack boot with real key), the parametrized per-board smoke test.
+- `packages/screamingface/tests/e2e/harness/` — reuse subprocess plumbing (`_local_proc.py`) via imports only; the replay harness's clean-env invariant stays byte-untouched.
+- `packages/screamingface/pyproject.toml` — register the `paid` marker beside `e2e`.
+- `justfile` (or the package's just recipes) — `test-paid-inspect` target.
+- `.github/workflows/` — `workflow_dispatch`-only workflow running the lane with `OPENROUTER_API_KEY` from secrets.
+- `docs/tasks/2026-09-23-paid-inspect-smoke.md` — mirror.
+
+## Test plan
+
+- Skip path (free, runs in CI): without `SCREAMINGFACE_TEST_PAID=1` or `OPENROUTER_API_KEY`, every paid test skips with the exact reason — invariant: spend is opt-in by construction.
+- Enumeration (free): the board list comes from the engine registry rows with `origin="inspect_evals"` — invariant: a new import is covered with zero test edits (wholesale lane, no hand list).
+- Model pins (free): the three pinned models are present in the gateway seed list — invariant: the lane can never 404 on an unseeded model.
+- Paid path (owner-run only): per board, run completes; each of the 2 cases carries a grade or a model-side status; no infrastructure failure codes.
+
+## Acceptance
+
+1. `just test-paid-inspect` with key + flag runs every imported board once (Fusion, 2 cases); spend < $1.
+2. Without flag/key the lane skips loudly; merge gates unaffected.
+3. `workflow_dispatch` workflow runs the same lane on demand.
+4. A broken runtime route fails with the board name + infrastructure failure code visible.
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:** as planned — `packages/screamingface/tests/paid/{_panel,conftest,test_imported_board_smoke,test_panel_models}.py` (new lane), `packages/screamingface/pyproject.toml` (`paid` marker), `packages/screamingface/pyrightconfig.json` (tests/paid execution env resolving the e2e harness import), `packages/screamingface/justfile` (`test-paid-inspect`), `.github/workflows/screamingface-paid-inspect-smoke.yml` (workflow_dispatch only), plus this ledger + the `docs/tasks/` mirror.
+- **Commits:** on branch `OME-1275-paid-inspect-smoke` (shas in the Linear close comment; docs flip to done as the last pre-merge commit).
+- **Gates:** run_gates.py screamingface — ALL GATES GREEN (append-only ✓, ruff ✓, format ✓, pyright ✓, pytest cov≥95 ✓, notebooks ✓, build ✓, distribution ✓).
+- **Deviations:** (1) 17 imported boards, not the ~13 estimated at design time — cost still well under $1. (2) The paid path itself cannot be self-verified by an agent (spend is the owner's); agent-side proof is the loud skip on both gate branches (flag missing, key missing — both exercised), the free seed-pin test, and pyright typechecking the smoke against the real SDK surface. (3) The panel synthesizer/second member differ from the example notebook's (those models are not gateway seeds); pinned to seeded flash-tier models instead, guarded by `test_panel_models.py`.
+
+## Review round (PR #1035, 2026-09-24)
+
+Action-required (both fixed): (1) the paid button could go green having proven nothing — a pytest skip exits 0; added `SCREAMINGFACE_PAID_REQUIRED=1` (set only by the just recipe + workflow) turning every gate skip into `pytest.fail`, pinned by 5 free tests in `tests/paid/test_gating.py`; (2) `done < <(--list-bundles)` didn't trip `set -e` on a failed listing — both prepare loops now write the bundle list to a temp file first. Nonblocking (both taken): a board can no longer pass with 0 graded Cases (strict fail, rationale anchored — genuine double refusals are a cents-level rerun); `_smoke_one_board` also catches non-SDK exceptions as that board's verdict so the loop's "one broken board never hides the rest" promise holds. Minor: workflow timeout 60→90; bundle ids from `--list-bundles` refused if path-like before `rm -rf`; the prepare-loop fold note now points at a preparer `--only-missing` flag as the real home.
+
+## Rebase + review round 2 (2026-09-25)
+
+Rebased onto main `1f1218ee` (50 commits; zero conflicts). Main added six LAB-Bench boards and frontierscience, so the live-catalog enumeration now covers 24 boards with no code change — exactly the wholesale-lane property. From the review: hard-coded "17" counts removed from every file this PR owns (the pre-existing count in the `local-stack-notebooks` recipe comment is left alone — not this PR's line); the cost wording now names the frontier-model judge of LLM-judged boards (frontierscience → gpt-5.4) instead of "flash-tier only, under $1"; the smoke's tolerance comment records why judged boards stay strict (a rate-limited judge surfaces as `scorer_error`, indistinguishable from a broken judge route). Workflow: timeout 90→120 and the asset cache split into restore + save-right-after-prepare, because the all-in-one cache action saves only on a successful job — a failing smoke would have discarded every fresh download. Verified: the engine preparer uses no HF token and no gated dataset is baked, so the workflow needs none. #1060 (failures re-attributed to the candidate stage) needs no change — the smoke filters on code, not stage. Gates: ALL GREEN, exit code read before commit.
+
+## Close (2026-09-25)
+
+Merged via PR #1035 (squash). Agent-side acceptance met: 2 (loud skip, free gating tests) and 4 (per-board failure verdict with the code visible). Acceptance 1 and 3 are the paid path and the owner's to run: the workflow's "Run workflow" button exists only once the file is on `main`, and it needs the `OPENROUTER_API_KEY` repo secret, which was not configured at merge time. The first press is recorded as the owner-verify item in the Linear close comment.
+
+## Debug bundle (2026-09-25, owner request)
+
+Owner asked that every press — CI and local — leave everything needed to debug it. The smoke now exports each board's full Report (`report.export`, the SDK's complete report JSON) into `<log dir>/reports/<board>.json` before judging it, so a failing board keeps its per-case evidence (member + synthesizer answers, grade, judge reasoning, run/trace ids) instead of only failure strings. pytest writes `junit.xml` into the same directory. CI uploads the whole directory as `paid-smoke-debug-bundle` (renamed from `paid-smoke-stack-logs`); the just recipe pins it to `<data dir>/paid-smoke-logs/<UTC timestamp>/` and prints the path on pass and fail. Owner accepted the public-repo exposure (reports republish public-dataset questions, answers, judge reasoning for the 14-day retention). The per-board function was split — run+keep vs `_report_problems` judging — to stay inside the complexity budget. Free tests: `tests/paid/test_report_export.py` (a failing board still leaves its report; a board that raised writes none). Append-only guard skipped deliberately: the change edits this PR's own unmerged smoke test and fixture, required by the request; no prior assertion weakened.
+
+## Live progress + manual-only fence (2026-09-28, owner request)
+
+During the first local press the terminal stayed silent: the smoke is one test looping over the whole shelf, so pytest printed a single line until every board finished. The smoke now prints a header (`[paid smoke] N imported boards, 2 Cases each`) and one line per finished board (`[4/24] inspect-frontierscience … FAILED: 1 problem (7s)`) past pytest's capture via `capsys.disabled()`, in the terminal and the CI log alike. Pure formatter `_progress_line`, pinned for free by `tests/paid/test_progress_line.py`.
+
+Owner rule: `tests/paid/` must never run automatically — only on a button press. Before this, merge CI's plain `pytest` collected the lane (the smoke skipped, the free gate tests ran). `tests/conftest.py` now deselects every `tests/paid/` item unless `SCREAMINGFACE_TEST_PAID=1`; deselection, not `collect_ignore`, because the ignore list does not apply to a path named on the command line. Both button surfaces (just recipe, workflow) dropped `-m paid` so the lane's free gate tests run on every press instead of nowhere. Pinned by `tests/test_paid_lane_isolation.py` (subprocess collection: no flag → nothing collected even when the directory is named; flag → smoke + gate tests collected). Pyright still typechecks `tests/paid` in merge CI — static, spends nothing.
+
+Gates: ALL GREEN with `--skip-append-only`, taken deliberately: the progress line has to live inside the smoke's own loop (this PR's unmerged test); no assertion changed, only the loop re-wrapped. The `SCREAMINGFACE_TEST_PAID` skip branch in `require_paid_stack` is now unreachable in practice (the lane is deselected first) and kept as defense in depth; its free test still pins it.
+
+## Parallel boards + larger token budget (2026-09-28, owner request)
+
+The first local press took about an hour serially: short-answer boards finish in 20–45s, reasoning boards in 3–5 min, and aime24/25, frontierscience and lab_bench cloning ran out of tokens at `max_tokens=8192`. Owner decisions: boards run 4 at a time (`BOARD_CONCURRENCY` in `_panel.py`), one `sf.Client` per worker thread (the sync client has no shared global state), and progress prints from the main thread only, because `capsys.disabled()` is not thread-safe. The progress position is now completion order. `_smoke_board_timed` wraps the client's own open and close, so a worker always returns a verdict and never raises. This keeps the rule that one broken board never hides the rest (free tests: `tests/paid/test_parallel_board_worker.py`). `max_tokens` is 32768 for every board, not a per-board list: short-answer boards stop long before the cap, and a list of reasoning boards would go stale with every import. The gateway's model-parameters contract has no upper bound on `max_tokens` (only `minimum: 1`), so the providers' own output limits are the only ceiling. The next press verifies that.
+
+Label check (read-only investigation): token exhaustion on shared-path boards comes back as case code `missing_case_row`, with the real code in `metadata.source_error.code = model_token_cap`. That is the documented OME-1127 wrapper (`spine/scored.py:504`), not a regression. Only IFEval (OME-1197, #1060) puts the real code on top. Owner decision: fix it in the engine under a separate ticket (contract + goldens change), not in the smoke. Until then, a wrapped model-side failure still fails its board, which is correct.
+
+Gates: ALL GREEN with `--skip-append-only`. The skip is deliberate because the loop lives inside this PR's own unmerged smoke test, and no assertion changed.
+
+## First press result + honest "no Case graded" verdict (2026-09-28)
+
+First local press, head `9f0ab38a`, serial, `max_tokens=8192`: 18 of 24 boards passed in 50m52s, and no infrastructure failure code appeared. The 6 failing boards (aime24, aime25, lab_bench_seqqa, lab_bench_cloning_scenarios, frontierscience, wmdp_cyber) lost 12 Cases to token exhaustion, wrapped as `missing_case_row` (filed as OME-1390), and 1 to a retryable OpenRouter `provider_error`. The board-level "no Case was graded" verdict claimed "tolerated model-side code; rerun" even for `missing_case_row`. `_no_graded_reason` now advises a rerun only when every code is tolerated, and it guards the empty-failures case, where `all()` over nothing is True (free tests: `tests/paid/test_no_graded_case_message.py`). Gates: ALL GREEN with `--skip-append-only` (the helper lives in this PR's own unmerged smoke file; no assertion weakened).
+
+## Press overview for devs and researchers (2026-09-28, owner request)
+
+Each board's progress line now has a stats line under it: graded k/n · correct k/n · cost · output tokens (reasoning share) · short run id, plus an indented `└─` line of failure codes. A wrapped code shows its real reason first (`model_token_cap ×2 (reported as missing_case_row)`, see OME-1390). After the last board comes a totals block (ok/failed, Cases graded, total cost, wall time), then one line per failed board. The same overview is written as `summary.md` in the debug bundle, and the workflow appends it to `$GITHUB_STEP_SUMMARY`, so the run page shows the table without a download. It is written before the verdict, so a failing press keeps it. One home: pure module `tests/paid/_board_summary.py`, which reads each board's kept `reports/<board>.json` back in. `_smoke_one_board`, `_smoke_board_timed` and their pinned tests stay unchanged, and the log can never disagree with the evidence on disk. "correct" is display-only: 2 Cases are noise and never fail a board, but 0 correct on an easy board flags broken answer extraction. Verified against the first press's 24 real reports ($0.0914 total and 38/48 graded, matching the earlier cost sum). The smoke test body was split into `_run_shelf` and `_publish_overview` to stay inside the statement budget. Free tests: `tests/paid/test_board_summary.py` (7). Gates: ALL GREEN with `--skip-append-only` (this PR's own unmerged smoke file; no assertion weakened).
+
+## Second press + total row (2026-09-28)
+
+Second local press, head `11032236` (32k tokens, 4 at a time): 19/24 ok · 43/48 Cases graded · $0.1540 · 36m12s wall. Every board graded at least one Case, and no infrastructure failure code appeared. The 5 failed boards each lost one Case: 4 wrapped `model_token_cap` (aime24/25, lab_bench litqa/seqqa; OME-1390) and 1 wrapped `provider_error` (lab_bench cloning: a `deepseek-v4-flash` call ran 445s, then the gateway returned 502; this board's second provider_error in two presses). The two slowest first-wave boards (arc_*, about 546s) were provider latency, not tokens: their Gemini synthesizer calls took about 295s for about 1.4k output tokens. Owner request: `summary.md` now ends with a **Total** row. Its Time cell is the press's wall time, because board times overlap in parallel. Failure codes sum per (real code, wrapped code). To aggregate codes, `BoardSummary` now stores structured `failure_counts`, and `failure_codes` is a display property over them (pinned tests unchanged; new test `test_markdown_table_ends_with_a_total_row`). Verified on the second press's real reports: the total row matches the header (19/24, 43/48, $0.1540). Gates: ALL GREEN with `--skip-append-only`. Only the formatter module `_board_summary.py` trips it, because it lives under `tests/`; no test was changed.
