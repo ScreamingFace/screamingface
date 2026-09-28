@@ -41,8 +41,11 @@ Worked example — three Cases selected, `case_ids = (1, 2, 3)`:
     rows[1] = {"error": {...}}   (no case_id)    → RowIndex.collected_errors[2]
     rows[2] = an envelope whose grading errored  → RowIndex.grading_failures[3]
 
-Case 2 ends with no row at all, so the grader reports it as `missing_case_row` — and the
-orphan error retained above it is what tells the reader *why*.
+Case 2 ends with no row at all, so the grader reports it as missing — and the orphan error
+retained above it is what tells the reader *why*. On the spine's default missing-row step, the
+orphan's code (say `model_token_cap`) becomes the Case's failure code; a Case with no orphan,
+or an orphan naming no code, reads as `missing_case_row`. Boards that own their missing-row
+step (IFEval, DRACO) spell it their own way.
 
 INVARIANT: the row is an OPAQUE board-owned envelope. This module files it and never looks
 inside, so nothing here can freeze "a candidate's answer is text". The kind taxonomy is

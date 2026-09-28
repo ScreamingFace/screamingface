@@ -24,8 +24,9 @@ One aggregate call = marking one class's exam.
     a visible failure in the results — never silently dropped:
         - the grading step itself errored earlier → benchmark's own failure code
         - there's nothing to grade against (rubric asset missing) → missing_rubric_asset
-        - no paper turned up for this student at all → missing_case_row, with the reason
-          the row went missing attached
+        - no paper turned up for this student at all → missing_case_row; when the lost
+          row left a named cause (the model ran out of tokens → model_token_cap), that
+          cause is the code instead, with the source error kept in metadata
         - a paper turned up but it's an error report, not an answer → case_error
         - Example: Case 7's row is an error row → it gets a case_error result and skips Stage 4.
 - Stage 4 — mark the survivors. For each Case that passed the ladder, call grade_case,
@@ -183,7 +184,8 @@ class ScoredPath:
         grading_failure_message: its default public message.
         missing_row_result: optional board-owned builder for the WHOLE missing-row
             CaseResult (wording, codes, grade shape). ``None`` keeps the spine
-            default (``missing_case_row`` with the orphan cause attached). WHY
+            default (the orphan's own code when it names one, e.g. ``model_token_cap``,
+            else ``missing_case_row``; the orphan cause attached either way). WHY
             (OME-1101): ifeval's recorded golden pins its own collected-row wording
             (stage "grading", the diagnostic's code), and OME-981 owns the
             candidate-vs-grading boundary decision — the spine must not default it.
@@ -504,6 +506,14 @@ class ScoredPath:
             "missing_case_row",
             **({"collected_errors": orphan_errors[:3]} if orphan_errors else {}),
         )
+        # WHY (OME-1390, owner decision): "missing" must not cover for a real cause.
+        # A token-exhausted Case read as missing_case_row, so the report and the paid
+        # smoke (which tolerates model_token_cap) blamed the engine. The source code
+        # is already sanitized into the closed vocabulary by public_error, and a
+        # source error with no code of its own defaults to missing_case_row — so an
+        # orphan with no named cause still reads as missing.
+        if (source_error := failure["metadata"].get("source_error")) is not None:
+            failure["code"] = source_error["code"]
         return self._failed_result(selected, None, [], failure, extra_metadata)
 
     def _failed_result(
