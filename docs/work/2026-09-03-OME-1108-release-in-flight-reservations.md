@@ -1,9 +1,9 @@
 ---
 ticket: OME-1108
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-03
-finished:
+finished: 2026-09-08
 ---
 
 # OME-1108 — release in-flight reservations when a run actually finishes
