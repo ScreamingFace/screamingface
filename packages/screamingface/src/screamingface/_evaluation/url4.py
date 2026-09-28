@@ -14,6 +14,7 @@ from screamingface._evaluation.model import (
     _compiled_candidate,
     _compiled_operation,
     _member_projection,
+    _with_answer_seed,
 )
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
@@ -32,6 +33,7 @@ def evaluate_url4_sync(
     url4: str,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
+    answer_seed: int | None = None,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
@@ -44,6 +46,9 @@ def evaluate_url4_sync(
 
     _evaluation_options(on_event, progress)
     candidate = _candidate_from_url4(url4)
+    if answer_seed is not None:
+        # FEATURE (OME-1193): a replayed sitting is the reproduction use case itself.
+        candidate = _with_answer_seed(candidate, answer_seed)
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -67,6 +72,7 @@ async def evaluate_url4_async(
     url4: str,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
+    answer_seed: int | None = None,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
@@ -79,6 +85,9 @@ async def evaluate_url4_async(
 
     _evaluation_options(on_event, progress)
     candidate = _candidate_from_url4(url4)
+    if answer_seed is not None:
+        # FEATURE (OME-1193): see the sync twin.
+        candidate = _with_answer_seed(candidate, answer_seed)
     observer = _async_event_observer(
         on_event,
         progress,

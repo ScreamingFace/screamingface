@@ -245,18 +245,23 @@ async def test_a_malformed_header_falls_back_to_the_default_rather_than_failing_
 
 
 @pytest.mark.asyncio
-async def test_the_cache_policy_travels_beside_profile_and_identity_not_instead_of_them(
+async def test_the_cache_policy_travels_beside_identity_not_instead_of_it(
     scheduled: list[dict[str, Any]],
 ) -> None:
-    """One more per-run value on the same hop — it must not displace the ones already there."""
+    """One more per-run value on the same hop — it must not displace the ones already there.
+
+    OME-1381: was `..._beside_profile_and_identity_not_instead_of_them`, which sent
+    `X-Profile: prod` and pinned `call["profile"] == "prod"`. The hop carries no profile any more
+    (a stated one is refused before it), so identity is the value the policy travels beside.
+    """
     await _start(
         _gated_app(),
         "conv-beside",
-        **{"Cache-Control": "no-store", "X-Profile": "prod", "X-User-Email": "a@b.c"},
+        **{"Cache-Control": "no-store", "X-User-Email": "a@b.c"},
     )
 
     call = scheduled[0]
-    assert call["profile"] == "prod"
+    assert "profile" not in call
     assert call["identity"] == {"X-User-Email": "a@b.c"}
     assert call["cache"] == CachePolicy(participate=False)
 

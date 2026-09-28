@@ -1,19 +1,40 @@
-"""DRACO's deterministic binding of a Judge reply to an Engine-known criterion.
+"""DRACO's verdict dialect — a shape declaration over the shared spine parser.
 
-INVARIANT: Case, criterion, sequence, and producer identity come from Engine-owned URL4 bindings;
-the Judge supplies only the verdict payload and cannot relabel its Evidence.
+INVARIANT: Case, criterion, sequence, and producer identity come from Engine-owned URL4
+bindings; the Judge supplies only the verdict payload and cannot relabel its Evidence.
+
+The parsing work lives once in ``spine.verdict`` (OME-1099); this module keeps what is
+DRACO's to own: its ``MET``/``UNMET`` enum dialect with a required explanation, its
+reason vocabulary, and its own ``call``/``binding_key`` — DRACO's binding carries a
+``sequence`` and an opaque criterion id, unlike the rubric boards' integer pair.
 """
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
-from typing import Any
-
 from screamingface_engine.benchmarks.draco.validation import require_text
+from screamingface_engine.benchmarks.spine.verdict import (
+    VerdictShape,
+    parse_verdict,
+    require_positive_int,
+)
 from url4 import Node, RelExpr, Text, render
 
 SCHEMA = "screamingface.criterion-verdict.v1"
+
+SHAPE = VerdictShape(
+    schema=SCHEMA,
+    status_field="criterion_status",
+    statuses=("MET", "UNMET"),
+    explanation_required=True,
+    reasons={
+        "empty": "empty",
+        "not_json": "invalid_json",
+        "not_object": "invalid_shape",
+        "bad_explanation": "invalid_shape",
+        "missing_status": "invalid_shape",
+        "bad_status": "invalid_status",
+    },
+)
 
 
 def call(
@@ -74,106 +95,16 @@ def bind(
 ) -> dict[str, object]:
     """Validate ``raw`` and attach Engine-known case and criterion identifiers."""
 
-    if isinstance(case_id, bool) or not isinstance(case_id, int) or case_id < 1:
-        raise ValueError("case_id must be a positive integer")
-    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
-        raise ValueError("sequence must be a positive integer")
+    require_positive_int(case_id, "case_id")
+    require_positive_int(sequence, "sequence")
     selected_id = require_text(criterion_id, "criterion_id")
     selected_producer = require_text(producer_id, "producer_id")
-    decoded = _decode_object(raw)
-    reason = _invalid_reason(raw, decoded)
-    if reason is not None:
-        return _invalid(
-            raw,
-            case_id=case_id,
-            criterion_id=selected_id,
-            sequence=sequence,
-            producer_id=selected_producer,
-            reason=reason,
-        )
-    assert isinstance(decoded, Mapping)
-    explanation = decoded.get("explanation")
-    status = decoded.get("criterion_status")
-    assert isinstance(explanation, str) and status in ("MET", "UNMET")
-    return {
-        "schema": SCHEMA,
-        "case_id": case_id,
-        "criterion_id": selected_id,
-        "sequence": sequence,
-        "producer_type": "model",
-        "producer_id": selected_producer,
-        "valid": True,
-        "explanation": explanation,
-        "criterion_status": status,
-        "raw_output": raw,
-    }
-
-
-def _invalid_reason(raw: object, decoded: object) -> str | None:
-    if not isinstance(raw, str) or not raw.strip():
-        reason = "empty"
-    elif decoded is None:
-        reason = "invalid_json"
-    elif not isinstance(decoded, Mapping):
-        reason = "invalid_shape"
-    elif not isinstance(decoded.get("explanation"), str) or "criterion_status" not in decoded:
-        reason = "invalid_shape"
-    elif decoded.get("criterion_status") not in ("MET", "UNMET"):
-        reason = "invalid_status"
-    else:
-        reason = None
-    return reason
-
-
-def _decode_object(raw: object) -> Any:
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    text = _without_fences(raw.strip())
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return _first_json_value(text)
-
-
-def _without_fences(text: str) -> str:
-    if "```" not in text:
-        return text
-    return "\n".join(
-        line for line in text.splitlines() if not line.strip().startswith("```")
-    ).strip()
-
-
-def _first_json_value(text: str) -> Any:
-    start = text.find("{")
-    if start < 0:
-        return None
-    try:
-        value, _ = json.JSONDecoder().raw_decode(text[start:])
-    except json.JSONDecodeError:
-        return None
-    return value
-
-
-def _invalid(
-    raw: str,
-    *,
-    case_id: int,
-    criterion_id: str,
-    sequence: int,
-    producer_id: str,
-    reason: str,
-) -> dict[str, object]:
-    return {
-        "schema": SCHEMA,
-        "case_id": case_id,
-        "criterion_id": criterion_id,
-        "sequence": sequence,
-        "producer_type": "model",
-        "producer_id": producer_id,
-        "valid": False,
-        "reason": reason,
-        "raw_output": raw,
-    }
+    return parse_verdict(
+        raw,
+        shape=SHAPE,
+        identity=(("case_id", case_id), ("criterion_id", selected_id), ("sequence", sequence)),
+        producer_id=selected_producer,
+    ).record()
 
 
 __all__ = ["SCHEMA", "bind", "binding_key", "call"]

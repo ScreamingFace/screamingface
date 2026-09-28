@@ -28,6 +28,7 @@ from screamingface.report import (
     Failure,
     MemberResult,
     Report,
+    RunCostStatus,
     Usage,
 )
 
@@ -128,6 +129,15 @@ def _candidate_result(
         return CandidateResult(
             benchmark=evaluation.benchmark,
             run_id=outcome.run_id,
+            # OME-1121: carried across the boundary verbatim. The transport stamped the id
+            # the CLIENT minted (OME-967) rather than reading one back off a frame, so a
+            # user quoting it is quoting what actually travelled — including for a run whose
+            # frames never arrived. Do not re-derive it here.
+            trace_id=outcome.trace_id,
+            client_version=outcome.client_version,
+            # FEATURE (OME-1193): the sitting stamped on the compiled Candidate at
+            # evaluate() time — the same value the transport sent as X-Answer-Seed.
+            answer_seed=candidate.answer_seed,
             started_at=outcome.started_at,
             completed_at=outcome.completed_at,
             name=candidate.name,
@@ -153,9 +163,37 @@ def _candidate_result(
             ),
             failures=failures,
             usage=outcome.root_usage or Usage(),
+            run_cost_status=_run_cost_status(outcome),
+            # OME-1326: the REPORTED sum only, the same one the status above reads. Never the
+            # archive sum, and never the two added (OME-1251 D3).
+            cache_saved_cost_usd=outcome.cache_saved_cost_usd,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
+
+
+def _run_cost_status(outcome: _RunOutcome) -> RunCostStatus:
+    """What this run's cost is worth, per `OME-1251` D4.
+
+    INVARIANT: `partial` is decided by the REPORTED sum alone. `archive_matched` money is a real
+    amount measured from a different call of the same model and kind, not from this row, and
+    `OME-1251` D3 decided it is not published. A run whose only evidence is archive-matched has
+    nothing publishable about its own cost, so it is `unavailable` — not `partial`.
+
+    INVARIANT: the two sums are never added. url4 keeps them as two differently-named fields
+    "precisely so the two can never be summed — a single amount plus a label invites a consumer
+    to add the labels away" (PRD S5), and the engine carries a structural test forbidding a third
+    accumulator. Doing it here would defeat both.
+
+    A cost is absent exactly when the Engine reported `pricing_version == "unpriced"`, which is
+    what `contract.py` turns into a null `cost_usd`.
+    """
+    usage = outcome.root_usage
+    if usage is not None and usage.cost_usd is not None:
+        return "complete"
+    if outcome.cache_saved_cost_usd is not None:
+        return "partial"
+    return "unavailable"
 
 
 def _candidate_payload(
@@ -502,10 +540,11 @@ def _evidence_outcome(
 
 
 def _case_status(value: object) -> CaseStatus:
+    # WHY no `refused` branch (OME-1037): the value no longer exists on the wire —
+    # a graded refusal is `scored` with refusal text, an ungradeable one `failed`
+    # with a provider_refusal failure. An Engine still emitting it fails loudly.
     if value == "scored":
         return "scored"
-    if value == "refused":
-        return "refused"
     if value == "failed":
         return "failed"
     raise ExecutionError("Case Result status is unsupported")

@@ -152,20 +152,6 @@ describe("the rest of the form", () => {
     expect(screen.getByText(/X-Profile/)).toBeInTheDocument();
   });
 
-  it("puts a numeric failure on the field that was mistyped", () => {
-    renderFields({ state: { ok: false, error: "Max tokens must be a number.", field: "max_tokens" } });
-
-    expect(screen.getByLabelText(/max tokens/i)).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText(/temperature/i)).not.toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByRole("alert")).toHaveTextContent("Max tokens must be a number.");
-  });
-
-  it("puts a temperature failure on the temperature field", () => {
-    renderFields({ state: { ok: false, error: "Temperature must be a number.", field: "temperature" } });
-
-    expect(screen.getByLabelText(/temperature/i)).toHaveAttribute("aria-invalid", "true");
-  });
-
   it("speaks a failure with no control of its own at the top of the form", () => {
     renderFields({
       state: { ok: false, error: "No account was identified for this key.", field: "account_id" },
@@ -198,5 +184,36 @@ describe("the rest of the form", () => {
       "href",
       "/accounts/acct-1",
     );
+  });
+});
+
+describe("saved request defaults (OME-1322)", () => {
+  // FEATURE: OME-1138 Stage C — request parameters are the caller's, per request; the console no
+  // longer offers to save them on a credential.
+  it("offers no control for a saved default", () => {
+    const { container } = renderFields();
+
+    expect(screen.queryByText(/defaults/i)).toBeNull();
+    for (const label of [/^model$/i, /temperature/i, /max tokens/i]) {
+      expect(screen.queryByLabelText(label)).toBeNull();
+    }
+    for (const name of [
+      "model",
+      "system_prompt",
+      "max_tokens",
+      "temperature",
+      "timeout_seconds",
+      "reasoning_effort",
+    ]) {
+      expect(container.querySelector(`[name="${name}"]`)).toBeNull();
+    }
+    expect(container.querySelector("fieldset")).toBeNull();
+  });
+
+  it("still submits the account, provider, name and write-only key", () => {
+    const { container } = renderFields();
+
+    const names = Array.from(container.querySelectorAll("[name]"), (el) => el.getAttribute("name"));
+    expect(names).toEqual(["account_id", "provider", "name", "api_key"]);
   });
 });

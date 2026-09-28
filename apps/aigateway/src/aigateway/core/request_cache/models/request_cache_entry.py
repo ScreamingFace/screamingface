@@ -25,6 +25,13 @@ class BaseRequestCacheEntry(Model):
     expires_at = fields.DatetimeField(index=True, null=True)
     last_hit_at = fields.DatetimeField(null=True)
     hit_count = fields.IntField(default=0)
+    # A2 / ERD 3.1: the standard cache-entry metadata block (aigw.cache-entry-metadata.v1) as a
+    # serialized JSON string. Declared LAST because migration 0011 appends it last in the
+    # database: a fresh bootstrap takes its order from this model, and CANONICAL_COLUMNS (the
+    # snapshot COPY layout) must agree with whichever produced the table.
+    # INVARIANT (ERD E7): NULL means "unknown" and is never read as 0. Legacy rows, and every
+    # Tavily-lane row, hold NULL forever.
+    metadata_json = fields.TextField(null=True)
 
 
 class RequestCacheEntry(BaseRequestCacheEntry):

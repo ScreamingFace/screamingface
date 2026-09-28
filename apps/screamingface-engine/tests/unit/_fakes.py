@@ -10,6 +10,7 @@ import pytest
 from _pytest.mark import ParameterSet
 
 from screamingface_engine.adapters.jetstream import JetStreamConsumer, JetStreamPublisher
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.interfaces import (
@@ -139,6 +140,7 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         self._exists = exists
         self._conflict = conflict_on_schedule
         self.scheduled: list[ScheduledRun] = []
+        self.shapes: list[str] = []
         self.stopped: list[str] = []
 
     async def schedule(
@@ -154,14 +156,19 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         # Accepted so this fake still satisfies the port, and deliberately NOT recorded onto
         # `ScheduledRun`: that tuple is compared whole by an existing test, so widening it would
         # change what an already-written assertion means. A test that needs to observe the policy
-        # subclasses this and records it there.
+        # subclasses this and records it there. `answer_seed` (OME-1038) rides the same rule.
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
+        client_version: str | None = None,
+        shape: RunShape = "expression",
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)
         self.scheduled.append(
             ScheduledRun(topic, url4, deadline_s, traceparent, credential, profile, identity)
         )
+        # Recorded beside, not on, `ScheduledRun` — see the `cache` note above.
+        self.shapes.append(shape)
         return job_name(topic)
 
     async def stop(self, topic: str) -> None:

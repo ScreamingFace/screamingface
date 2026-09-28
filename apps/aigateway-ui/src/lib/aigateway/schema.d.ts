@@ -657,6 +657,12 @@ export interface paths {
          *     ``id`` + effective ``supported_parameters``/``supported_tools`` + literal
          *     ``reject`` + a same-origin detail URL), composed from each plugin's own
          *     provider-local rule set.
+         *
+         *     OME-972 (snapshot-or-fallback): a provider with a healthy live-catalog
+         *     snapshot lists that snapshot's rows verbatim — the provider owns the merge
+         *     of operator-explicit and discovered entries, so core never learns seed
+         *     provenance. A cold or degraded catalog falls back to the provider's
+         *     compiled ``register_models()`` seeds, byte-identical to static behavior.
          */
         get: operations["list_models_v1_models_get"];
         put?: never;
@@ -704,6 +710,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/provider-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Provider Access
+         * @description List, for the signed-in caller, each registered provider and whether it can be used.
+         *
+         *     `status` is one of `not_connected`, `pending`, `connected`, `needs_reauth` or `error`; a row
+         *     carries nothing else. The listing is private to the caller and never cached. The `X-Profile`
+         *     header is ignored: the listing is per caller, not per selection.
+         */
+        get: operations["list_provider_access_v1_provider_access_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model-parameters": {
         parameters: {
             query?: never;
@@ -715,6 +745,50 @@ export interface paths {
         get: operations["model_parameters_v1_model_parameters_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retrieval/tavily/cache/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lookup Tavily Retrieval
+         * @description Answer whether this exact retrieval is already stored.
+         */
+        post: operations["lookup_tavily_retrieval_v1_retrieval_tavily_cache_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/retrieval/tavily/cache/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fill Tavily Retrieval
+         * @description Store a result the caller has just paid for. Insert-only; first fill wins.
+         *
+         *     WHY ``200`` with an outcome rather than ``201 Location``: the caller already holds the
+         *     value, nothing dereferences a location, and a failed fill must never look like a
+         *     failed request — the Runner logs it and carries on.
+         */
+        post: operations["fill_tavily_retrieval_v1_retrieval_tavily_cache_entries_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -866,6 +940,11 @@ export interface components {
             inserted_rows?: number | null;
             /** Updated Rows */
             updated_rows?: number | null;
+            /**
+             * Metadata Degraded
+             * @default 0
+             */
+            metadata_degraded: number;
             /**
              * Manifest Present
              * @default false
@@ -1139,7 +1218,6 @@ export interface components {
         };
         /** PatchAdminProfileRequest */
         PatchAdminProfileRequest: {
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
             /** Account Label */
             account_label?: string | null;
         };
@@ -1150,7 +1228,6 @@ export interface components {
         };
         /** PatchProfileRequest */
         PatchProfileRequest: {
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
             /** Account Label */
             account_label?: string | null;
         };
@@ -1178,6 +1255,27 @@ export interface components {
          */
         ProfileState: "pending" | "authenticated" | "error";
         /**
+         * ProviderAccessAvailability
+         * @description The listing body: `{"providers": [{"provider": ..., "status": ...}]}`.
+         */
+        ProviderAccessAvailability: {
+            /** Providers */
+            providers: components["schemas"]["ProviderAccessAvailabilityRow"][];
+        };
+        /**
+         * ProviderAccessAvailabilityRow
+         * @description One registered provider and the caller's standing with it.
+         */
+        ProviderAccessAvailabilityRow: {
+            /** Provider */
+            provider: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_connected" | "pending" | "connected" | "needs_reauth" | "error";
+        };
+        /**
          * SetAdminApiKeyRequest
          * @description Attach or replace a provider API key on a tenant's profile.
          *
@@ -1190,7 +1288,6 @@ export interface components {
              * Format: password
              */
             api_key: string;
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
         };
         /** SetApiKeyRequest */
         SetApiKeyRequest: {
@@ -1199,7 +1296,6 @@ export interface components {
              * Format: password
              */
             api_key: string;
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
         };
         /**
          * SetConnectionApiKeyRequest
@@ -1216,7 +1312,6 @@ export interface components {
         StartAuthRequest: {
             /** Name */
             name: string;
-            defaults?: components["schemas"]["ProfileDefaults"] | null;
             /** Redirect Uri */
             redirect_uri?: string | null;
         };
@@ -1264,6 +1359,52 @@ export interface components {
         _AdmitRequest: {
             /** Model Id */
             model_id: string;
+        };
+        /**
+         * _Description
+         * @description A retrieval request as the Runner describes it. Never a key, never a credential.
+         *
+         *     INVARIANT: extra fields are FORBIDDEN, never ignored. This is a cache-key endpoint:
+         *     every output-affecting field must either be in the key or be rejected. A silently
+         *     ignored field would key a request WITHOUT a policy the caller actually sent — the
+         *     wrong-hit path OME-1044 review F1 reproduced with Tavily's native
+         *     ``exclude_domains`` spelling, which is not a member of this model and must be a
+         *     ``422``, not a keyed request.
+         */
+        _Description: {
+            /** Provider */
+            provider: string;
+            /** Tool */
+            tool: string;
+            /** Query */
+            query?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Search Depth */
+            search_depth?: string | null;
+            /** Max Results */
+            max_results?: number | null;
+            /** Excluded Domains */
+            excluded_domains?: string[];
+        };
+        /** _FillRequest */
+        _FillRequest: {
+            /** Provider */
+            provider: string;
+            /** Tool */
+            tool: string;
+            /** Query */
+            query?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Search Depth */
+            search_depth?: string | null;
+            /** Max Results */
+            max_results?: number | null;
+            /** Excluded Domains */
+            excluded_domains?: string[];
+            /** Result */
+            result: string;
         };
     };
     responses: never;
@@ -2626,6 +2767,26 @@ export interface operations {
             };
         };
     };
+    list_provider_access_v1_provider_access_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccessAvailability"];
+                };
+            };
+        };
+    };
     model_parameters_v1_model_parameters_get: {
         parameters: {
             query: {
@@ -2636,6 +2797,76 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lookup_tavily_retrieval_v1_retrieval_tavily_cache_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_Description"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fill_tavily_retrieval_v1_retrieval_tavily_cache_entries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_FillRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

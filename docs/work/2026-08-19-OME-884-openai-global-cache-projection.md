@@ -668,3 +668,11 @@ LiteLLM from 1.95.0 to 1.97.0, before publishing the branch.
 - GREEN: the four directly affected suites returned `92 passed`, OpenAI plus OpenRouter returned
   `1097 passed`, and the full AIGateway gate returned `ALL GATES GREEN` with the already authorized
   append-only decision applied. `git diff --check` remained clean.
+
+## Closure (2026-09-03)
+
+PR #675 merged to main as `13fa4ea3` on 2026-08-21 — the owner review the cycle-2 outcome
+above was awaiting concluded in that merge, superseding its "awaiting owner review /
+nothing committed" status line. Linear OME-884 moved to Done on 2026-09-03 with the close
+comment (commits, gates, deviations); this note closes the repo-side record to match
+Linear, the status authority.

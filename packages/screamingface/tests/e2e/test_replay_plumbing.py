@@ -126,3 +126,16 @@ def test_the_engine_boots_against_the_replay_gateway_and_serves_the_sdk(
         assert json.loads(catalogue.text) is not None
     finally:
         engine.stop()
+
+
+def test_keyless_replay_discovery_uses_unknown_access_compatibility(
+    synthetic_gateway: str, synthetic_tape: LoadedTape
+) -> None:
+    model = synthetic_tape.exchanges()[0].normalized.model
+    response = httpx.get(
+        f"{synthetic_gateway}/v1/model-parameters", params={"model": model}, timeout=10.0
+    )
+    assert response.status_code == 200
+    document = response.json()
+    assert "execution_access" not in document["context"]
+    assert document["parameters"]

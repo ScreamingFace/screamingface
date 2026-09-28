@@ -132,7 +132,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         (
             lambda: sf.Failure(
                 stage="candidate",
-                code="x",
+                code="candidate_failed",
                 message="x",
                 retryable=cast(Any, 1),
                 operation_id="op_1",
@@ -142,7 +142,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         (
             lambda: sf.Failure(
                 stage=cast(Any, "planning"),
-                code="x",
+                code="candidate_failed",
                 message="x",
                 retryable=False,
                 operation_id="op_1",
@@ -152,7 +152,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
         (
             lambda: sf.Failure(
                 stage="candidate",
-                code="x",
+                code="candidate_failed",
                 message="x",
                 retryable=False,
                 operation_id=" ",
@@ -262,7 +262,7 @@ def test_candidate_metrics_preserve_json_compatible_values() -> None:
                 failures=(
                     sf.Failure(
                         stage="candidate",
-                        code="failed",
+                        code="candidate_failed",
                         message="failed",
                         retryable=False,
                         operation_id="op_1",
@@ -435,7 +435,7 @@ def test_fusion_member_operation_ids_must_be_unique() -> None:
 def test_candidate_result_rejects_unknown_operation_references() -> None:
     unknown_failure = sf.Failure(
         stage="candidate",
-        code="failed",
+        code="candidate_failed",
         message="failed",
         retryable=False,
         operation_id="op_missing",

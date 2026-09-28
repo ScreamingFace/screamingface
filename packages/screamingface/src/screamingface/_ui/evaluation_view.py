@@ -30,8 +30,8 @@ _STYLE = (
 .sf-eval__table{width:100%;min-width:820px;table-layout:fixed;border-collapse:collapse;
   font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;
   font-variant-numeric:tabular-nums}
-.sf-eval__col--candidate{width:27%}
-.sf-eval__col--status{width:17%}
+.sf-eval__col--candidate{width:22%}
+.sf-eval__col--status{width:22%}
 .sf-eval__col--cases{width:10%}
 .sf-eval__col--score{width:17%}
 .sf-eval__col--cost{width:14%}
@@ -47,7 +47,8 @@ _STYLE = (
 .sf-eval__table tbody tr:hover{background:var(--sf-surface)}
 .sf-eval__table tbody tr:last-child td{border-bottom:0}
 .sf-eval__candidate{font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:500;
-  color:var(--sf-ink)}
+  color:var(--sf-ink);display:block;max-width:100%;white-space:nowrap;
+  overflow-x:auto;overflow-y:hidden;overflow-wrap:normal}
 .sf-eval__status{display:inline-flex;align-items:center;gap:8px;color:var(--sf-ink-2);
   font-family:"IBM Plex Sans",system-ui,sans-serif;white-space:nowrap}
 .sf-eval__status-sq{width:9px;height:9px;flex:0 0 auto;background:var(--sf-ink-3)}
@@ -78,11 +79,13 @@ def _evaluation_fragments(
     benchmark: str | None = None,
     elapsed: float | None = None,
     check_disclosure: str | None = None,
+    *,
+    expandable: bool = False,
 ) -> tuple[str, str, str]:
     title = escape(benchmark) if benchmark else "Evaluation"
     return (
         _STYLE + _evaluation_header_html(progress, title, check_disclosure),
-        _candidate_table_html(progress, elapsed),
+        _table_html("") if expandable else _candidate_table_html(progress, elapsed),
         _terminal_html(progress),
     )
 
@@ -200,11 +203,17 @@ def _receipt_html(progress: _EvaluationProgress) -> str:
         output_tokens = _compact(progress.output_tokens)
         parts.append(f"{input_tokens} in / {output_tokens} out")
     if not parts:
-        return ""
+        # WHY: Keep the table below the same summary row before usage arrives.
+        parts.append("0 model calls")
     return f"<div class='sf-eval__receipt'>{' · '.join(parts)}</div>"
 
 
 def _candidate_table_html(progress: _EvaluationProgress, elapsed: float | None) -> str:
+    body = "".join(_candidate_row_html(row, elapsed) for row in progress.rows)
+    return _table_html(body)
+
+
+def _table_html(body: str) -> str:
     headers = (
         ("Candidate", False),
         ("Status", False),
@@ -217,7 +226,6 @@ def _candidate_table_html(progress: _EvaluationProgress, elapsed: float | None) 
         f"<th scope='col'{" class='sf-eval__num'" if numeric else ''}>{header}</th>"
         for header, numeric in headers
     )
-    body = "".join(_candidate_row_html(row, elapsed) for row in progress.rows)
     columns = "".join(
         f"<col class='sf-eval__col--{name}'>"
         for name in ("candidate", "status", "cases", "score", "cost", "cache")
@@ -236,11 +244,13 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
         "queued": "Queued",
         "running": "Running",
         "finished": "Finished",
-        "run_failed": "Run failed",
+        "run_failed": "Failed",
         "stopped": "Stopped",
-        "timed_out": "Timed out",
-        "not_run": "Not run",
+        "timed_out": "Timeout",
+        "not_run": "Skipped",
     }[row.status]
+    if row.status == "running" and row.stage is not None:
+        status = escape(row.stage)
     details: list[str] = []
     if row.status == "running" and elapsed is not None:
         started = row.started_elapsed_seconds or 0.0
@@ -250,7 +260,7 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
     suffix = "".join(f" · {escape(detail)}" for detail in details)
     score = (
         "Not scored yet"
-        if not row.score_available and row.status in {"queued", "running"}
+        if not row.score_available and row.status in {"queued", "running", "finished"}
         else "Not scored"
         if not row.score_available or row.score is None
         else f"{row.score:g}"
@@ -265,7 +275,9 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
     progress_html = _case_progress_html(row)
     return (
         "<tr>"
-        f"<td><span class='sf-eval__candidate'>{escape(row.candidate.name)}</span></td>"
+        "<td><span class='sf-eval__candidate' tabindex='0' "
+        "onclick=\"this.closest('.sf-candidate-summary')?.querySelector('button')?.click()\">"
+        f"{escape(row.candidate.name)}</span></td>"
         f"<td><span class='sf-eval__status sf-eval__status--{row.status}'>"
         f"<span class='sf-eval__status-sq' aria-hidden='true'></span>{status}{suffix}</span></td>"
         f"<td class='sf-eval__num'>{progress_html}</td>"
@@ -276,6 +288,8 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
 
 
 def _case_progress_html(row: _CandidateProgress) -> str:
+    if row.status == "running" and row.active_cases is not None:
+        return f"<span class='sf-eval__cases'>{escape(row.active_cases)}</span>"
     if row.total_cases is None:
         unit = "case" if row.completed_cases == 1 else "cases"
         return f"<span class='sf-eval__unavailable'>{row.completed_cases} {unit} finished</span>"

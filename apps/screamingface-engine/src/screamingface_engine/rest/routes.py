@@ -10,28 +10,33 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
+import math
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Request, Response
-from fastapi.responses import FileResponse
 
 from screamingface_engine import job_env, notices
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.artifacts import ArtifactStore
 from screamingface_engine.auth import (
     PROBLEM_MEDIA_TYPE,
     JwtCodec,
     ProblemException,
     VerifiedClaims,
+    default_clock,
     new_topic,
 )
+from screamingface_engine.cache_intent import parse_cache_control
+from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
 from screamingface_engine.ports import IdentityAwareJobRunner
-from screamingface_engine.rest.cache_header import parse_cache_control
+from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
+from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from url4.streaming.interfaces import (
     EventConsumer,
@@ -50,10 +55,6 @@ _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "timed_out": (504, "Gateway Timeout", "the run exceeded its deadline"),
     "stopped": (409, "Conflict", "the run was stopped"),
 }
-
-
-def _default_clock() -> datetime:
-    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,25 @@ def _as_float(value: str) -> float | None:
         return None
 
 
+def _parse_answer_seed(raw: str | None) -> int | None:
+    """Read the caller's declared answer seed, or raise 400 on a non-integer (OME-1038).
+
+    Caller input, so refused at the edge — a run silently scheduled without its declared
+    seed would publish a score claiming a sitting it never had. Any integer is legal:
+    aigateway's ``seed`` is an arbitrary-integer sampling control (OME-585).
+    """
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return int(raw.strip())
+    except ValueError:
+        raise ProblemException(
+            status=400,
+            title="Bad Request",
+            detail="the X-Answer-Seed header must be an integer",
+        ) from None
+
+
 def _require_q(q: str | None) -> str:
     """Return the url4 expression, or raise 400 if the ``q`` query parameter is missing/empty."""
     if not q:
@@ -151,60 +171,106 @@ async def _require_subscriber(interest: SubscriberGate, topic: str) -> None:
         )
 
 
+async def _refuse_existing(deps: _Deps, topic: str) -> None:
+    """Raise 409 if a run already exists for ``topic`` (503 if that cannot be read).
+
+    WHY a step of its own, BEFORE a sync request's hold (PRD 02 SY-D5): the hold is an audience
+    transition, and the orphan reaper listens to those. A duplicate request that held the topic
+    for a moment would disarm and re-arm the reaper of the run already there — resetting the
+    grace of a run nobody is watching.
+    """
+    try:
+        already_exists = await deps.job_runner.exists(topic)
+    except QueueReadError:
+        # V-3: an unreadable queue tail is UNKNOWN, and a 409 would assert — definitively,
+        # in a form clients do not retry — that a run exists for a topic that may be brand
+        # new. 503 says "this server could not read the queue; retry": honest, retryable,
+        # and no state change either way.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the run queue could not be read; retry",
+        ) from None
+    if already_exists:
+        raise ProblemException(status=409, title="Conflict", detail="a run already exists")
+
+
 async def _schedule(
     deps: _Deps,
     topic: str,
     url4: str,
     *,
     traceparent: str | None = None,
-    profile: str | None = None,
     identity: Mapping[str, str] | None = None,
     cache: CachePolicy,
+    answer_seed: int | None = None,
+    client_version: str | None = None,
+    shape: job_env.RunShape = "expression",
+    deadline_s: int | None = None,
 ) -> None:
-    """Schedule the run on the job runner, or raise 409 if one already exists for ``topic``.
+    """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
-    Topics are single-shot: both the pre-check and the runner's own ``JobAlreadyExists`` guard
-    against a race collapse into the same 409 problem.
+    Topics are single-shot: `_refuse_existing` (the pre-check, before any hold) and the runner's
+    own ``JobAlreadyExists`` guard against a race collapse into the same 409 problem.
 
     ``cache`` is the run's RESOLVED cache policy — the one thing both carriers converged on, and
     required rather than optional so that "nobody decided" cannot reach this hop. It travels
-    beside ``profile`` and ``identity`` because it is the same kind of value: per-RUN, captured at
-    the REST edge, re-rendered onto the aigateway call by the Runner. It is deliberately NOT world
-    config; a per-run value parked on the shared aigateway configuration would leak across runs.
+    beside ``identity`` because it is the same kind of value: per-RUN, captured at the REST edge,
+    re-rendered onto the aigateway call by the Runner. It is deliberately NOT world config; a
+    per-run value parked on the shared aigateway configuration would leak across runs.
+
+    INVARIANT (OME-1381, producer-off): no profile is passed, for either run shape. Both ingresses
+    that schedule — ``GET /`` (sync or ``respond-async``) and the mount routes' direct runs —
+    refuse a stated ``X-Profile`` before this hop, so every run this Engine schedules is
+    selector-less; the port keeps its ``profile`` argument only until the URL4 cleanup removes it.
     """
-    if await deps.job_runner.exists(topic):
-        raise ProblemException(status=409, title="Conflict", detail="a run already exists")
     try:
         await deps.job_runner.schedule(
             topic,
             url4,
-            deps.settings.job_deadline_s,
+            deps.settings.job_deadline_s if deadline_s is None else deadline_s,
             traceparent=traceparent,
-            profile=profile,
             identity=identity,
             cache=cache,
+            answer_seed=answer_seed,
+            client_version=client_version,
+            shape=shape,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
         _logger.info(
-            "run scheduled topic=%s url4_chars=%d profile=%s cache=%s",
+            "run scheduled topic=%s url4_chars=%d cache=%s",
             topic,
             len(url4),
-            profile,
             cache,
         )
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
     except JobRunnerAtCapacity as exc:
         # WHY 503 and not 429: nothing about THIS caller or request was rate-limited — the
-        # substrate is saturated, and an identical retry later succeeds. Only a runner that owns a
-        # finite local resource (the in-process one) can raise this; a cluster-backed runner lets
-        # the scheduler queue instead.
+        # substrate is saturated, and an identical retry later succeeds. Which substrates can
+        # saturate, and why retrying is safe, is `JobRunnerAtCapacity`'s own contract (the
+        # shapes: one shared event loop, a queue-depth ceiling, a scheduler's exhausted quota)
+        # — this handler maps, it does not restate; the port's docstring stays the one source.
+        #
+        # WHY a derived `Retry-After` (OME-1091): the queue-backed runner attaches its drain
+        # estimate — how long until the queue has room, from depth and observed throughput — so a
+        # client told to retry in 1 second when the true wait is minutes does not retry into a
+        # wall. A runner with no estimate (the in-process and k8s ones) keeps the constant 1.
+        retry_after = exc.retry_after_s
         raise ProblemException(
             status=503,
             title="Service Unavailable",
             detail="the runner is at capacity — retry shortly",
-            headers={"Retry-After": "1"},
+            # CEIL at the boundary, not trust in the producer: `Retry-After` is
+            # delta-seconds per RFC 7231 — a non-negative decimal INTEGER. The port
+            # types the estimate as `int | None` and today's only producer ceils, but
+            # the header is where the value becomes protocol, so the boundary renders
+            # ANY future adapter's fractional estimate as a valid integer — rounding
+            # UP, so a caller is never told to retry sooner than the estimate.
+            headers={
+                "Retry-After": str(math.ceil(retry_after)) if retry_after is not None else "1"
+            },
         ) from exc
 
 
@@ -250,7 +316,9 @@ async def _await_terminal(
         return None
 
 
-def _result_response(result: ResultEvent | None, store: ArtifactStore | None = None) -> Response:
+async def _result_response(
+    result: ResultEvent | None, store: ArtifactStore | None = None
+) -> Response:
     """Build the 200 response body from the run's ``ResultEvent``, or an empty 200 if none.
 
     FEATURE: deliver large results in full (OME-892) — a result frame may carry an artifact
@@ -261,8 +329,11 @@ def _result_response(result: ResultEvent | None, store: ArtifactStore | None = N
         return Response(status_code=200)
     artifact = result.data.artifact
     if artifact is not None:
-        path = store.path_for(artifact.id) if store is not None else None
-        if path is None:
+        media_type = result.data.media_type or "application/json"
+        response = (
+            await artifact_response(store, artifact.id, media_type) if store is not None else None
+        )
+        if response is None:
             # WHY 404 and not an empty 200: the run DID produce a result; serving nothing as
             # success would be a quieter cousin of the truncation bug this feature removes.
             raise ProblemException(
@@ -271,7 +342,7 @@ def _result_response(result: ResultEvent | None, store: ArtifactStore | None = N
                 detail=f"the run's result was spilled to artifact {artifact.id!r}, which has "
                 "already been fetched or swept",
             )
-        return FileResponse(path, media_type=result.data.media_type or "application/json")
+        return response
     return Response(
         content=result.data.body,
         media_type=result.data.media_type or "application/json",
@@ -279,7 +350,7 @@ def _result_response(result: ResultEvent | None, store: ArtifactStore | None = N
     )
 
 
-def _terminal_response(
+async def _terminal_response(
     terminated: TerminatedEvent,
     result: ResultEvent | None,
     store: ArtifactStore | None = None,
@@ -287,7 +358,7 @@ def _terminal_response(
     """Map a terminal frame to its HTTP response: the Result body on success, else a problem."""
     status = terminated.data.status
     if status == "succeeded":
-        return _result_response(result, store)
+        return await _result_response(result, store)
     # `.get` and not `[...]`: a terminal status added to the protocol but not mapped here would
     # otherwise surface as an unhandled KeyError — a bare 500 with a traceback, rather than a
     # response that still tells the caller the run ended and did not succeed.
@@ -333,18 +404,70 @@ def _converge_cache(
     return resolution.effective
 
 
-async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
-    """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses.
+_DISCONNECT_POLL_S = 0.5
+"""How often a sync wait checks that its caller is still connected (PRD 02 §4: the hold is
+released within 1 s of a disconnect)."""
+
+
+async def _until_disconnected(is_disconnected: Callable[[], Awaitable[bool]]) -> None:
+    while not await is_disconnected():
+        await asyncio.sleep(_DISCONNECT_POLL_S)
+
+
+WAIT_GONE = object()
+"""`wait_terminal_or_gone`'s answer when the caller disconnected first."""
+
+
+async def wait_terminal_or_gone(
+    stream: EventConsumer,
+    topic: str,
+    bound_s: float,
+    is_disconnected: Callable[[], Awaitable[bool]],
+) -> tuple[TerminatedEvent, ResultEvent | None] | None | object:
+    """Race the run's terminal frame (bounded by `bound_s`) against the caller leaving.
+
+    The terminal frame and its result; ``None`` when the bound passed first; ``WAIT_GONE`` when
+    the caller disconnected first. Both tasks are cancelled and reaped on every exit. Shared by
+    the sync `GET /?q=` and the mount calls, which differ only in what they do with the answer.
+    """
+    wait = asyncio.ensure_future(_await_terminal(stream, topic, bound_s))
+    gone = asyncio.ensure_future(_until_disconnected(is_disconnected))
+    try:
+        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in (wait, gone):
+            task.cancel()
+        await asyncio.gather(wait, gone, return_exceptions=True)
+    if wait.cancelled():
+        return WAIT_GONE
+    return wait.result()
+
+
+async def _run_sync(
+    deps: _Deps,
+    topic: str,
+    wait_s: float | None,
+    is_disconnected: Callable[[], Awaitable[bool]],
+) -> Response:
+    """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses
+    — or stop waiting when the caller disconnects.
 
     The wait is capped at ``settings.sync_max_wait_s`` regardless of a caller-supplied
     ``wait_s`` (RFC 7240 ``Prefer: wait=``), so a client can shorten but never lengthen it.
+
+    WHY watch the connection: the caller's hold keeps the run's audience alive, so a caller
+    that is gone must release it promptly, or the orphan reaper would wait the full bound
+    before its grace even starts. The run itself is not stopped: the token can still attach.
     """
     cap = deps.settings.sync_max_wait_s
     bound = cap if wait_s is None else min(wait_s, cap)
-    outcome = await _await_terminal(deps.stream, topic, bound)
-    if outcome is None:
+    outcome = await wait_terminal_or_gone(deps.stream, topic, bound, is_disconnected)
+    if outcome is None or outcome is WAIT_GONE:
+        # The bound passed (the client may attach a WebSocket) — or the caller is gone and
+        # nobody reads this response.
         return _accepted(topic)
-    return _terminal_response(outcome[0], outcome[1], deps.artifact_store)
+    terminated, result = outcome  # type: ignore[misc]
+    return await _terminal_response(terminated, result, deps.artifact_store)
 
 
 @router.post(
@@ -356,7 +479,7 @@ async def _run_sync(deps: _Deps, topic: str, wait_s: float | None) -> Response:
 async def mint_token(request: Request) -> dict[str, str]:
     """Mint a fresh topic and its HS256 capability JWT. Unauthenticated (see route summary)."""
     settings: Settings = request.app.state.settings
-    clock = getattr(request.app.state, "clock", _default_clock)
+    clock = getattr(request.app.state, "clock", default_clock)
     codec = JwtCodec(
         secret=settings.jwt_secret,
         iat_window_s=settings.iat_window_s,
@@ -386,7 +509,10 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
             },
         },
     },
-    400: _problem("The url4 expression query parameter `q` is required."),
+    400: _problem(
+        "The url4 expression query parameter `q` is required, or the request states the "
+        "unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+    ),
     409: _problem("A run already exists for this topic (single-shot)."),
     428: _problem("Attach a WebSocket to the topic before starting the run."),
     502: _problem("The run failed."),
@@ -424,8 +550,9 @@ _START_DESC = (
     "An inbound ``traceparent`` header, when strictly W3C-valid, is forwarded to the run so its "
     "trace is adopted downstream; absent or malformed, nothing is forwarded — a fresh trace is "
     'minted instead (W3C "restart" rule: garbage never propagates).\n\n'
-    "The optional ``X-Profile`` header selects which of the resolved caller's stored aigateway "
-    "credentials to route through; absent, the gateway's default profile applies.\n\n"
+    "``X-Profile`` is no longer supported: a request that states one (any nonblank value) is "
+    "refused with ``400`` and ``code: x_profile_unsupported`` before anything is scheduled. "
+    "Absent or blank, the run uses the caller's provider access.\n\n"
     "The caller's verified identity header (``X-User-Email``) is read off the inbound request and "
     "carried to the run, which renders it onto its aigateway calls. Envoy strips and re-injects it "
     "after re-verifying Cloudflare Access's assertion, so a client cannot forge it. Absent, the "
@@ -453,13 +580,21 @@ async def start_run(
         str | None,
         Header(alias="traceparent", description="W3C trace context to adopt for this run."),
     ] = None,
-    x_profile: Annotated[
+    # Documents the refusal in OpenAPI; `refuse_selector` below is what decides.
+    _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
+    x_answer_seed: Annotated[
         str | None,
-        Header(alias="X-Profile", description="Optional aigateway routing profile label."),
+        Header(
+            alias="X-Answer-Seed",
+            description="Optional integer answer seed: stamped as the `seed` param on every "
+            "answer call the run makes (calls pinning their own seed win), so N seeded runs "
+            "are N labelled samples and a re-run with the same seed replays the same sitting. "
+            "Absent, the run's requests are byte-identical to an unseeded run's.",
+        ),
     ] = None,
     # DECLARED HERE, RESOLVED IN `_converge_cache`. The run's cache intent has two carriers — this
     # header and the WS attach frame — and the header wins when both speak. Reading it into a
-    # policy is therefore not this handler's business alone: `cache_header.parse_cache_control`
+    # policy is therefore not this handler's business alone: `cache_intent.parse_cache_control`
     # turns the field into intent, and convergence reconciles it with the frame's declaration
     # before the run is scheduled. The parameter lands here so the ingress contract and its
     # OpenAPI documentation are one thing, not two.
@@ -468,38 +603,62 @@ async def start_run(
         Header(alias="Cache-Control", description=_CACHE_CONTROL_DESC),
     ] = None,
 ) -> Response:
-    """Require an attached subscriber, then schedule the run for the token's topic, forwarding
-    the adopted traceparent and the caller's verified identity; hold for the terminal frame by
-    default, or return ``202`` immediately under ``Prefer: respond-async``.
+    """Schedule the run for the token's topic, forwarding the adopted traceparent and the
+    caller's verified identity; hold for the terminal frame by default, or return ``202``
+    immediately under ``Prefer: respond-async``.
+
+    A sync request needs no WebSocket: it holds the topic's audience itself while it waits
+    (PRD 02). ``respond-async`` still requires an attached subscriber (428 otherwise).
 
     ``claims: VerifiedClaims`` is a FastAPI dependency, so JWT verification runs before this
     body executes — no code path here touches the topic without an already-verified capability
     token.
     """
+    refuse_selector(request.headers)
     deps = _deps(request)
     topic = str(claims["sub"])
     url4 = _require_q(q)
-    await _require_subscriber(deps.interest, topic)
+    pref = _parse_prefer(prefer or "")
+    if pref.respond_async:
+        # The client reads this run's frames on a WebSocket, so one must be attached first.
+        await _require_subscriber(deps.interest, topic)
     inbound_traceparent = valid_traceparent(traceparent)
     # WHY read identity off `request` instead of declaring another `Header(...)` param: the mesh
     # gateway owns it, not the caller, so there is no client-facing contract for a signature to
     # document. `or None`: absent identity is None, the same "nothing to forward" every other
     # optional forwarded value uses — one representation rather than an empty mapping meaning it.
     identity = job_env.identity_from_headers(request.headers) or None
-    clock = getattr(request.app.state, "clock", _default_clock)
-    await _schedule(
-        deps,
-        topic,
-        url4,
-        traceparent=inbound_traceparent,
-        profile=x_profile,
-        identity=identity,
-        cache=_converge_cache(deps, topic, cache_control, clock),
+    answer_seed = _parse_answer_seed(x_answer_seed)
+    clock = getattr(request.app.state, "clock", default_clock)
+    client_version = (
+        parse_user_agent(request.headers.get("User-Agent"))
+        if len(request.headers.getlist("User-Agent")) == 1
+        else None
     )
-    pref = _parse_prefer(prefer or "")
+    await _refuse_existing(deps, topic)
+
+    async def schedule() -> None:
+        await _schedule(
+            deps,
+            topic,
+            url4,
+            traceparent=inbound_traceparent,
+            identity=identity,
+            cache=_converge_cache(deps, topic, cache_control, clock),
+            answer_seed=answer_seed,
+            client_version=client_version,
+        )
+
     if pref.respond_async:
+        await schedule()
         return _accepted(topic)
-    return await _run_sync(deps, topic, pref.wait_s)
+    # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps the
+    # reaper disarmed while it waits. ONE block covers gate, schedule and wait, so every exit —
+    # a 503 from admission, the bound, a disconnect, an error — releases it.
+    async with deps.sessions.hold_sync(topic):
+        await _require_subscriber(deps.interest, topic)
+        await schedule()
+        return await _run_sync(deps, topic, pref.wait_s, request.is_disconnected)
 
 
 @router.delete(
@@ -522,10 +681,23 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             detail="the capability token is not authorized for that topic",
         )
     _logger.info("run stop requested topic=%s", sub)
-    await deps.job_runner.stop(sub)
-    # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
-    # stream empties it but leaves the stream object, its consumer state and its filestore
-    # directory behind — one permanent stream per run, forever. `delete_stream` defaults to
-    # `purge` for adapters with nothing broker-side to reclaim, so both modes stay correct.
+    try:
+        await deps.job_runner.stop(sub)
+    except QueueReadError:
+        # V-2: an unreadable tail used to make `stop()` a SILENT no-op, and this handler
+        # fell through to deleting the stream of a possibly-live run while answering 204.
+        # The raise keeps the state unchanged and the answer honest: 503, retryable, and
+        # the stream deletion below does not run.
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the run queue could not be read; retry",
+        ) from None
+    # WHY delete_stream and not purge: this is the run's terminal teardown, and `delete_stream`
+    # purges the subject on the shared events stream while KEEPING the terminal frame — the
+    # evidence a run ended (the queue's dedupe gate, the runner's own admission bookkeeping, and
+    # a repeated `DELETE /` all read that frame). Plain `purge` drops it too, and an empty
+    # subject reads exactly like a run still queued — there is no per-run stream object left to
+    # tell the two apart in a shared stream (erd.md §5).
     await deps.stream.delete_stream(sub)
     return Response(status_code=204)

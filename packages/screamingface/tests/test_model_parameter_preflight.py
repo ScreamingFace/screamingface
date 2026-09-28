@@ -133,7 +133,7 @@ def _engine(
     return httpx.MockTransport(handler)
 
 
-def test_parameter_free_evaluation_does_not_fetch_model_details() -> None:
+def test_parameter_free_evaluation_fetches_details_for_access_preflight() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
     client = sf.Client(
@@ -146,7 +146,7 @@ def test_parameter_free_evaluation_does_not_fetch_model_details() -> None:
         client.evaluate(sf.Model("provider/opus"), benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == []
+    assert detail_models == ["provider/opus"]
 
 
 def test_valid_explicit_params_fetch_each_distinct_model_once() -> None:
@@ -169,7 +169,7 @@ def test_valid_explicit_params_fetch_each_distinct_model_once() -> None:
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/opus"]
+    assert detail_models == ["provider/opus", "provider/synth"]
 
 
 def test_repeated_model_route_retains_an_explicit_parameter_assignment() -> None:
@@ -206,7 +206,12 @@ def test_repeated_model_route_retains_an_explicit_parameter_assignment() -> None
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/opus"]
+    assert detail_models == [
+        "provider/opus",
+        "provider/other",
+        "provider/inner-synth",
+        "provider/outer-synth",
+    ]
 
 
 def test_synthesizer_params_are_preflighted_against_its_model() -> None:
@@ -226,7 +231,7 @@ def test_synthesizer_params_are_preflighted_against_its_model() -> None:
         client.evaluate(candidate, benchmark="fixture")
 
     assert transport.called is True
-    assert detail_models == ["provider/synth"]
+    assert detail_models == ["provider/opus", "provider/synth"]
 
 
 @pytest.mark.parametrize(

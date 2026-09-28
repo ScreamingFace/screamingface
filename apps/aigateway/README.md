@@ -116,6 +116,13 @@ local/single-worker convenience only.
 parameters are enabled, their JSON Schema, and each one's cache behavior. Provider-native
 parameters are addressed under a `provider_params` object rather than at the top level.
 
+The response's `context.execution_access` is `configured` or `missing` for the authenticated
+account and selected `X-Profile`, including supported environment-key and no-auth access.
+This reports configuration only: it does not validate credentials, refresh tokens, run inference,
+or guarantee provider acceptance. Default credential-free datasheets remain available with
+`missing`; explicit profile selection errors keep their existing status codes. Responses are
+`private, no-store`. Consumers of older Gateways must treat an absent field as unknown.
+
 OpenRouter callers can additionally constrain a request by unit price and downstream data policy —
 see [OpenRouter price and privacy routing controls](docs/openrouter-routing-controls.md).
 

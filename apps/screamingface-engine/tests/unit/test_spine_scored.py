@@ -1,0 +1,979 @@
+"""OME-1097: the shared scored path behind the `grade_case` hook.
+
+The scored path is the marking room: one row per Case comes back from the fan-out,
+each script is marked against the board's rubric, and the marks fold into the exam
+result. This module proves the marking room lives ONCE in the spine and that the
+only per-board seam is `grade_case` — an async, data-in/data-out callable.
+
+INVARIANT (the hourglass waist): a `GradeRequest` carries ONLY plain, serializable
+data — kind-tagged payloads, the decoded row mapping, the board's grading material.
+No `Path`, no engine objects, no callbacks. Three consumers force this: an enclave
+judge across a privacy boundary, the inspect_evals scorer shim, and future agentic
+boards whose answer is not a string.
+
+INVARIANT: every unusable state stays a VISIBLE failed Case with a named code, and
+message wording stays board-owned — the spine moves logic, never words.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+import pytest
+from pydantic import ValidationError
+
+from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
+from screamingface_engine.benchmarks.case_execution import case_execution_payload
+from screamingface_engine.benchmarks.contract import (
+    CaseGrade,
+    CaseResult,
+    Failure,
+    encode_candidate_invocation,
+)
+from screamingface_engine.benchmarks.spine.exam import exam_scorer
+from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
+from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
+from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
+from screamingface_engine.benchmarks.spine.scored import (
+    CaseGradeOutcome,
+    GradeRequest,
+    ScoredPath,
+)
+
+MESSAGES = {
+    "missing_rubric_asset": "test: rubric asset gone",
+    "missing_case_row": "test: no row reached the aggregate",
+    "case_error": "test: error row collected",
+    "incomplete_verdicts": "test: verdicts incomplete",
+    "no_positive_points": "test: no positive points",
+}
+
+
+class BoardError(ValueError):
+    """Stands in for a board's own ``AggregateError``."""
+
+
+def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
+    """Stub board decoder: hand the grading envelope through untouched."""
+
+    assert isinstance(grading, Mapping)
+    return dict(grading)
+
+
+def _mean(scores: Sequence[float]) -> float | None:
+    return sum(scores) / len(scores) if scores else None
+
+
+def _grading(case_id: int, *, status: str = "completed", **extra: Any) -> dict[str, Any]:
+    """One decoded-row-shaped grading envelope with a hoisted candidate record."""
+
+    refusal = extra.pop("refusal", None)
+    return {
+        "case": {
+            "case_id": case_id,
+            "status": status,
+            "output": None if refusal else f"output-{case_id}",
+            "finish_reason": "content_filter" if refusal else "stop",
+            "refusal": refusal,
+            "execution": None,
+            "metadata": {},
+        },
+        **extra,
+    }
+
+
+def _envelope(case_id: int, grading: Mapping[str, Any]) -> dict[str, object]:
+    return case_execution_payload(
+        case_id,
+        encode_candidate_invocation(f"output-{case_id}", "stop", None),
+        [dict(grading)],
+    )
+
+
+def _selected(*case_ids: int) -> list[SelectedCase]:
+    return [
+        SelectedCase(case_id=case_id, input=f"input-{case_id}", metadata={}) for case_id in case_ids
+    ]
+
+
+class _Hook:
+    """A recording stub `grade_case` — the board hook the spine must treat as opaque."""
+
+    def __init__(self, outcome: CaseGradeOutcome | None = None) -> None:
+        self.requests: list[GradeRequest] = []
+        self.outcome = outcome or CaseGradeOutcome(
+            score=0.5,
+            metrics={"judged": 2, "expected": 2, "invalid_replies": 0},
+            checks=[],
+        )
+
+    async def __call__(self, request: GradeRequest) -> CaseGradeOutcome:
+        # WHY the sleep: proves the sync aggregate really drives an async hook —
+        # a hook that suspends must still complete (enclave calls are network hops).
+        await asyncio.sleep(0)
+        self.requests.append(request)
+        return self.outcome
+
+
+def _path(hook: _Hook, **overrides: Any) -> ScoredPath:
+    values: dict[str, Any] = {
+        "reader": RowReader(
+            benchmark_label="TestBoard",
+            error_type=BoardError,
+            decode_case_evaluation=_decode,
+        ),
+        "grade_case": hook,
+        "failure_messages": MESSAGES,
+        "method": "rubric",
+        "grading_failure_code": "test_grading_failed",
+        "grading_failure_message": "test: the grader could not grade this Case",
+    }
+    values.update(overrides)
+    return ScoredPath(**values)
+
+
+def _aggregate(
+    path: ScoredPath,
+    rows: Sequence[Mapping[str, Any]],
+    selected: list[SelectedCase],
+    material: Any = (5, -3),
+) -> dict[str, Any]:
+    return path.aggregate(
+        json.dumps(rows),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=selected,
+        grading_material=lambda case_id: material,
+        scorer=exam_scorer(_mean),
+    )
+
+
+# ── payloads ────────────────────────────────────────────────────────────────
+
+
+def test_text_payload_is_kind_tagged_and_frozen() -> None:
+    payload = TextPayload(text="an answer")
+    assert payload.kind == "text"
+    with pytest.raises(AttributeError):
+        payload.text = "rewritten"  # type: ignore[misc]
+    # Today's union has one member; the alias is the extension point (OME-1103).
+    assert CasePayload is TextPayload
+
+
+# ── the hook contract ───────────────────────────────────────────────────────
+
+
+def test_the_hook_receives_plain_kind_tagged_data() -> None:
+    hook = _Hook()
+    material = {"points": [5, -3]}
+    result = _aggregate(_path(hook), [_envelope(1, _grading(1))], _selected(1), material=material)
+
+    assert len(hook.requests) == 1
+    request = hook.requests[0]
+    assert request.case_id == 1
+    assert request.input == TextPayload(text="input-1")
+    assert request.answer == TextPayload(text="output-1")
+    # The board's grading material and decoded row pass through untouched…
+    assert request.material is material
+    assert request.row["case"]["status"] == "completed"
+    # …and the whole request is plain data: nothing here can hold a Path or an
+    # engine object, so the same call works across an enclave boundary.
+    assert not isinstance(request.material, Path)
+    json.dumps({"row": dict(request.row), "material": material})
+    assert result["cases"][0]["status"] == "scored"
+
+
+def test_a_refusal_answer_stays_a_payload_and_a_scored_refusal() -> None:
+    # INVARIANT (OME-1037): a refusal the board graded is an ordinary scored Case.
+    hook = _Hook()
+    grading = _grading(1, status="refused", refusal="I cannot help with that.")
+    result = _aggregate(_path(hook), [_envelope(1, grading)], _selected(1))
+
+    assert hook.requests[0].answer is None  # a refusal carries no output payload
+    case = result["cases"][0]
+    assert case["status"] == "scored"
+    assert case["refusal"] == "I cannot help with that."
+    assert case["grade"]["score"] == 0.5
+
+
+def test_the_hook_grade_lands_in_the_case_result_verbatim() -> None:
+    checks = [
+        {
+            "type": "rubric_item",
+            "id": "1",
+            "label": "[1] c1",
+            "outcome": "MET",
+            "evidence": [],
+            "metadata": {"points": 5},
+        }
+    ]
+    hook = _Hook(
+        CaseGradeOutcome(
+            score=0.25,
+            metrics={"judged": 1, "expected": 1, "invalid_replies": 0},
+            checks=checks,
+        )
+    )
+    result = _aggregate(_path(hook), [_envelope(1, _grading(1))], _selected(1))
+
+    grade = result["cases"][0]["grade"]
+    assert grade["method"] == "rubric"
+    assert grade["score"] == 0.25
+    assert grade["metrics"] == {"judged": 1, "expected": 1, "invalid_replies": 0}
+    assert [check["id"] for check in grade["checks"]] == ["1"]
+
+
+def test_a_hook_failure_code_takes_the_board_wording_and_counts() -> None:
+    hook = _Hook(
+        CaseGradeOutcome(
+            score=None,
+            metrics={"judged": 1, "expected": 2, "invalid_replies": 0},
+            checks=[],
+            failure_code="incomplete_verdicts",
+        )
+    )
+    result = _aggregate(_path(hook), [_envelope(1, _grading(1))], _selected(1))
+
+    case = result["cases"][0]
+    assert case["status"] == "failed"
+    failure = case["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "incomplete_verdicts")
+    assert failure["message"] == MESSAGES["incomplete_verdicts"]
+    assert failure["metadata"] == {"judged": 1, "expected": 2}
+    assert case["grade"]["score"] is None
+
+
+# ── the pre-hook ladder: unusable states never reach the hook ───────────────
+
+
+def test_missing_grading_material_never_calls_the_hook() -> None:
+    hook = _Hook()
+    result = _aggregate(_path(hook), [_envelope(1, _grading(1))], _selected(1), material=None)
+
+    assert hook.requests == []
+    failure = result["cases"][0]["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "missing_rubric_asset")
+    assert failure["message"] == MESSAGES["missing_rubric_asset"]
+
+
+def test_a_missing_row_surfaces_its_orphan_cause_without_the_hook() -> None:
+    hook = _Hook()
+    orphan = {"error": {"kind": "transport", "message": "boom"}}
+    result = _aggregate(_path(hook), [orphan], _selected(1))
+
+    assert hook.requests == []
+    failure = result["cases"][0]["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("candidate", "missing_case_row")
+    assert failure["message"] == "boom"
+
+
+def test_an_identified_error_row_becomes_case_error_without_the_hook() -> None:
+    hook = _Hook()
+    row = {"case_id": 1, "error": {"kind": "api_error", "message": "judge exploded"}}
+    result = _aggregate(_path(hook), [row], _selected(1))
+
+    assert hook.requests == []
+    failure = result["cases"][0]["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("candidate", "case_error")
+    assert failure["message"] == "judge exploded"
+
+
+def test_a_grading_failure_row_keeps_the_board_code_and_the_answer() -> None:
+    hook = _Hook()
+    grading_error = {"error": {"kind": "api_error", "message": "grading step failed"}}
+    row = case_execution_payload(
+        1, encode_candidate_invocation("output-1", "stop", None), [grading_error]
+    )
+    result = _aggregate(_path(hook), [row], _selected(1))
+
+    assert hook.requests == []
+    case = result["cases"][0]
+    assert case["status"] == "failed"
+    assert case["output"] == "output-1"  # the Candidate's answer is retained
+    assert case["failures"][0]["stage"] == "grading"
+
+
+def test_every_selected_case_stays_on_the_roll_call() -> None:
+    # INVARIANT: dropping a failed Case inflates the mean — Case 2 must stay
+    # visible as failed while Case 1 scores.
+    hook = _Hook()
+    result = _aggregate(_path(hook), [_envelope(1, _grading(1))], _selected(1, 2))
+
+    by_id = {case["case_id"]: case["status"] for case in result["cases"]}
+    assert by_id == {1: "scored", 2: "failed"}
+    assert result["coverage"] == 0.5
+
+
+# ── the shared exam scorer: mean is the parameter, vocabulary is fixed ──────
+
+
+def test_exam_metric_vocabulary_is_pinned_and_the_mean_is_the_boards() -> None:
+    graded = CaseGradeOutcome(
+        score=1.0,
+        metrics={"judged": 2, "expected": 2, "invalid_replies": 1},
+        checks=[
+            {
+                "type": "rubric_item",
+                "id": "1",
+                "label": "[1] c1",
+                "outcome": "MET",
+                "evidence": [],
+                "metadata": {},
+            },
+            {
+                "type": "rubric_item",
+                "id": "2",
+                "label": "[1] c2",
+                "outcome": "UNMET",
+                "evidence": [],
+                "metadata": {},
+            },
+        ],
+    )
+    hook = _Hook(graded)
+    result = _aggregate(
+        _path(hook),
+        [_envelope(1, _grading(1)), _envelope(2, _grading(2))],
+        _selected(1, 2),
+    )
+
+    assert result["score"] == 1.0  # _mean over [1.0, 1.0]
+    assert set(result["metrics"]) == {
+        "pass_rate",
+        "scored_cases",
+        "score_sd",
+        "verdict_coverage",
+        "judge_invalid_replies",
+    }
+    assert result["metrics"]["scored_cases"] == 2
+    assert result["metrics"]["pass_rate"] == 0.5  # 2 MET of 4 judged
+    assert result["metrics"]["judge_invalid_replies"] == 2
+    assert result["metrics"]["verdict_coverage"] == 1.0
+    assert result["metrics"]["score_sd"] == 0.0
+
+
+# ── the scorer is a board parameter: metric vocabulary is the board's ───────
+
+
+def test_a_non_rubric_scorer_publishes_its_own_metric_vocabulary() -> None:
+    """OME-1101: the deterministic board's metrics are not rubric vocabulary —
+    the whole CandidateScore builder is the parameter, not just the mean."""
+
+    def deterministic_scorer(cases: Sequence[CaseResult]) -> CandidateScore:
+        scores = [
+            float(case.grade.score)
+            for case in cases
+            if case.grade is not None and case.grade.score is not None
+        ]
+        return CandidateScore(
+            score=sum(scores) / len(scores),
+            metrics={"prompt_level_strict_accuracy": sum(scores) / len(scores)},
+        )
+
+    hook = _Hook(CaseGradeOutcome(score=1.0, metrics={}, checks=[]))
+    result = _path(hook).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: (5,),
+        scorer=deterministic_scorer,
+    )
+
+    assert result["score"] == 1.0
+    assert set(result["metrics"]) == {"prompt_level_strict_accuracy"}
+
+
+# ── the board-owned missing-row hook: wording stays the board's ─────────────
+
+
+def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
+    """OME-1101: ifeval's collected-row failure wording is pinned by its golden —
+    a board may supply the whole missing-row CaseResult; the spine only files it."""
+
+    calls: list[tuple[int, int, list[dict[str, Any]] | None]] = []
+
+    def board_missing_row(
+        selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
+    ) -> CaseResult:
+        calls.append((int(selected.case_id), index, orphans))
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output=None,
+            finish_reason=None,
+            refusal=None,
+            grade=None,  # INVARIANT: the board's shape, not the spine's grade envelope
+            failures=[
+                Failure(
+                    stage="grading",
+                    # WHY case_error (OME-1234): boards now pick from the DECLARED
+                    # vocabulary — the former free-spelling hatch is closed, and an
+                    # undeclared code refuses at the Failure model (see the sibling
+                    # test below). The board still owns the CaseResult shape.
+                    code="case_error",
+                    message="the board's own wording",
+                    retryable=False,
+                    case_id=selected.case_id,
+                    metadata={"row_index": index},
+                )
+            ],
+            metadata={},
+        )
+
+    hook = _Hook()
+    orphan = {"error": {"kind": "transport", "message": "boom"}}
+    result = _path(hook, missing_row_result=board_missing_row).aggregate(
+        json.dumps([orphan]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+    )
+
+    assert hook.requests == []
+    assert calls == [(1, 0, [orphan])]
+    case = result["cases"][0]
+    assert case["grade"] is None
+    failure = case["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "case_error")
+    assert failure["message"] == "the board's own wording"
+
+
+def test_a_board_cannot_mint_an_undeclared_failure_code() -> None:
+    # INVARIANT (OME-1234): the board-owned escape hatch is closed — a board
+    # supplying a code outside DECLARED_FAILURE_CODES fails loudly at the
+    # Failure model instead of publishing a spelling nobody declared.
+    with pytest.raises(ValidationError, match="undeclared failure code"):
+        Failure(
+            stage="grading",
+            code="board_owned_code",
+            message="the board's own wording",
+            retryable=False,
+            case_id=1,
+            metadata={},
+        )
+
+
+def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
+    # A rows array shorter than the roll call: the tail Case has no row AND no
+    # collected cause — the board hook must be able to tell the two apart.
+    seen: list[list[dict[str, Any]] | None] = []
+
+    def board_missing_row(
+        selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
+    ) -> CaseResult:
+        seen.append(orphans)
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output=None,
+            finish_reason=None,
+            refusal=None,
+            grade=None,
+            failures=[
+                Failure(
+                    stage="aggregation",
+                    code="case_result_missing",
+                    message="no row at all",
+                    retryable=None,
+                    case_id=selected.case_id,
+                    metadata={},
+                )
+            ],
+            metadata={},
+        )
+
+    hook = _Hook()
+    _path(hook, missing_row_result=board_missing_row).aggregate(
+        json.dumps([]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+    )
+
+    assert seen == [None]
+
+
+# ── the board-owned failure hooks (OME-1100): draco's shapes as seams ───────
+
+
+def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
+    # OME-1100: draco reports a missing row via the finalizer's `case_result_missing`
+    # (its zip simply dropped the Case) — the hook returns None and the spine files
+    # nothing, so the finalizer materialises the missing Case itself.
+    hook = _Hook()
+    result = _path(hook, missing_row_result=lambda selected, index, orphans: None).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1, 2),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+    )
+
+    case = result["cases"][1]
+    assert case["failures"][0]["code"] == "case_result_missing"
+    assert case["grade"] is None
+    assert result["coverage"] == 0.5
+
+
+def _board_error_row(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
+    """The draco shape: the upstream error's own code, no grade envelope at all."""
+
+    error: Any = row["error"]
+    return CaseResult(
+        status="failed",
+        case_id=selected.case_id,
+        input=selected.input,
+        output=None,
+        finish_reason=None,
+        refusal=None,
+        grade=None,
+        failures=[
+            Failure(
+                stage="candidate",
+                code=str(error["code"]),
+                message=str(error["message"]),
+                retryable=True,
+                case_id=selected.case_id,
+                metadata={"row_index": index, "error_kind": str(error["kind"])},
+            )
+        ],
+        metadata={},
+    )
+
+
+def test_a_board_owned_error_row_hook_replaces_the_case_error_result() -> None:
+    # draco's e2e tapes pin the UPSTREAM code ("rate_limited") on an error row,
+    # not the spine's fixed `case_error` — the board supplies the whole result.
+    hook = _Hook()
+    row = {
+        "case_id": 1,
+        "error": {"kind": "GatewayError", "code": "rate_limited", "message": "provider limit"},
+    }
+    result = _aggregate(_path(hook, error_row_result=_board_error_row), [row], _selected(1))
+
+    assert hook.requests == []
+    case = result["cases"][0]
+    assert case["grade"] is None
+    assert case["failures"][0]["code"] == "rate_limited"
+    assert case["failures"][0]["metadata"] == {"row_index": 0, "error_kind": "GatewayError"}
+
+
+def test_a_board_owned_error_row_outranks_missing_material() -> None:
+    # draco's ladder order: a broken row is reported before the board's own missing
+    # asset — a board that owns its error rows owns their rank too.
+    hook = _Hook()
+    row = {"case_id": 1, "error": {"kind": "E", "code": "provider_error", "message": "x"}}
+    result = _aggregate(
+        _path(hook, error_row_result=_board_error_row), [row], _selected(1), material=None
+    )
+
+    assert result["cases"][0]["failures"][0]["code"] == "provider_error"
+
+
+def test_a_board_owned_missing_material_hook_replaces_the_default_result() -> None:
+    # draco's missing-rubric Case pins its own code ("missing_case_rubric"), a
+    # row_index, and NO grade envelope — with the Candidate's answer retained
+    # off the row the board hook receives.
+    def board_missing_material(
+        selected: SelectedCase, index: int, row: Mapping[str, Any] | None
+    ) -> CaseResult:
+        assert row is not None
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output=str(row["case"]["output"]),
+            finish_reason="stop",
+            refusal=None,
+            grade=None,
+            failures=[
+                Failure(
+                    stage="grading",
+                    code="missing_case_rubric",
+                    message="the selected Case has no installed rubric",
+                    retryable=None,
+                    case_id=selected.case_id,
+                    metadata={"row_index": index},
+                )
+            ],
+            metadata={},
+        )
+
+    hook = _Hook()
+    result = _aggregate(
+        _path(hook, missing_material_result=board_missing_material),
+        [_envelope(1, _grading(1))],
+        _selected(1),
+        material=None,
+    )
+
+    assert hook.requests == []
+    case = result["cases"][0]
+    assert case["grade"] is None
+    assert case["output"] == "output-1"
+    failure = case["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "missing_case_rubric")
+    assert failure["metadata"] == {"row_index": 0}
+
+
+def test_a_board_owned_hook_failure_result_replaces_the_failed_assembly() -> None:
+    # draco's incomplete Case keeps its FULL zeroed metric block and its checks in
+    # the grade (audit material) plus a row_index — shapes the default assembly
+    # (empty metrics, judged/expected metadata) must not touch.
+    outcome_metrics: dict[str, Any] = {"pass_rate": 0.0, "axis_scores": {}, "n_runs": 0}
+    hook = _Hook(
+        CaseGradeOutcome(
+            score=None,
+            metrics=outcome_metrics,
+            checks=[],
+            failure_code="judge_reply_invalid",
+        )
+    )
+
+    def board_hook_failure(
+        selected: SelectedCase, index: int, row: Mapping[str, Any], outcome: CaseGradeOutcome
+    ) -> CaseResult:
+        assert outcome.failure_code == "judge_reply_invalid"
+        return CaseResult(
+            status="failed",
+            case_id=selected.case_id,
+            input=selected.input,
+            output="output-1",
+            finish_reason="stop",
+            refusal=None,
+            grade=CaseGrade.model_validate(
+                {
+                    "method": "rubric",
+                    "score": None,
+                    "metrics": dict(outcome.metrics),
+                    "checks": list(outcome.checks),
+                }
+            ),
+            failures=[
+                Failure(
+                    stage="grading",
+                    code=str(outcome.failure_code),
+                    message="board wording",
+                    retryable=None,
+                    case_id=selected.case_id,
+                    metadata={"row_index": index},
+                )
+            ],
+            metadata={},
+        )
+
+    result = _aggregate(
+        _path(hook, hook_failure_result=board_hook_failure),
+        [_envelope(1, _grading(1))],
+        _selected(1),
+    )
+
+    case = result["cases"][0]
+    assert case["grade"]["metrics"] == outcome_metrics
+    assert case["failures"][0]["metadata"] == {"row_index": 0}
+
+
+def test_a_scored_outcome_never_reaches_the_hook_failure_result() -> None:
+    hook = _Hook()  # scores 0.5, failure_code None
+
+    def never(
+        selected: SelectedCase, index: int, row: Mapping[str, Any], outcome: CaseGradeOutcome
+    ) -> CaseResult:
+        raise AssertionError("a scored outcome must take the scored path")
+
+    result = _aggregate(
+        _path(hook, hook_failure_result=never), [_envelope(1, _grading(1))], _selected(1)
+    )
+
+    assert result["cases"][0]["status"] == "scored"
+
+
+# ── OME-1149: the two seams a fixed-answer board needs ──────────────────────
+
+
+def test_case_metadata_rides_scored_and_failed_results() -> None:
+    """OME-1149: MedXpertQA's slice tags come from the PRIVATE answer asset, not the
+    row — a per-case loader must reach scored, ladder-failed, and missing-row
+    results alike, so failure-mode analysis can group by the same axes."""
+
+    hook = _Hook()
+    result = _path(hook).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1, 2),
+        grading_material=lambda case_id: (5,),
+        scorer=exam_scorer(_mean),
+        case_metadata=lambda case_id: {"body_system": f"slice-{case_id}"},
+    )
+
+    scored, failed = result["cases"]
+    assert scored["status"] == "scored"
+    assert scored["metadata"]["body_system"] == "slice-1"
+    assert failed["status"] == "failed"  # missing row — slice tag must survive
+    assert failed["metadata"]["body_system"] == "slice-2"
+
+
+def test_omitting_case_metadata_changes_nothing() -> None:
+    hook = _Hook()
+    result = _aggregate(_path(hook), [_envelope(1, _grading(1))], _selected(1))
+
+    assert result["cases"][0]["metadata"] == {}
+
+
+def test_the_material_missing_code_is_board_named() -> None:
+    """OME-1149: an MCQ board publishing `missing_rubric_asset` would contradict its
+    own message — the rung's published code is the board's, not spine vocabulary."""
+
+    hook = _Hook()
+    messages = dict(MESSAGES) | {"missing_answer_asset": "test: answer key gone"}
+    result = _path(
+        hook,
+        failure_messages=messages,
+        missing_material_code="missing_answer_asset",
+    ).aggregate(
+        json.dumps([_envelope(1, _grading(1))]),
+        benchmark_id="test-board",
+        benchmark_revision="rev",
+        selected_cases=_selected(1),
+        grading_material=lambda case_id: None,
+        scorer=exam_scorer(_mean),
+    )
+
+    assert hook.requests == []
+    failure = result["cases"][0]["failures"][0]
+    assert (failure["stage"], failure["code"]) == ("grading", "missing_answer_asset")
+    assert failure["message"] == "test: answer key gone"
+
+
+# ── the shared rubric hook factory: both boards' marking, written once ──────
+
+
+def _evidence(rubric_id: int, met: bool | None) -> dict[str, Any]:
+    """met=None models an invalid judge reply."""
+
+    valid = met is not None
+    # WHY no producer_id: proves the factory stamps the board's judge identity onto
+    # replies that arrive without one — even a malformed reply has a known producer.
+    evidence: dict[str, Any] = {
+        "rubric_id": rubric_id,
+        "producer_type": "model",
+        "valid": valid,
+        "raw_output": "{}",
+    }
+    if valid:
+        evidence["criteria_met"] = met
+        evidence["explanation"] = "…"
+    else:
+        evidence["reason"] = "malformed"
+    return evidence
+
+
+def _evaluations(verdicts: Mapping[int, bool | None]) -> list[dict[str, Any]]:
+    return [
+        {
+            "rubric_id": rubric_id,
+            "rubric": {"rubric_item": f"[1] c{rubric_id}"},
+            "evidence": _evidence(rubric_id, met),
+        }
+        for rubric_id, met in verdicts.items()
+    ]
+
+
+def _case_score(points: Sequence[int], verdicts: Mapping[int, bool]) -> float | None:
+    best = sum(point for point in points if point > 0)
+    if best <= 0:
+        return None
+    earned = sum(point for index, point in enumerate(points, start=1) if verdicts.get(index))
+    return earned / best
+
+
+def _request(verdicts: Mapping[int, bool | None], points: Sequence[int] | None) -> GradeRequest:
+    return GradeRequest(
+        case_id=1,
+        input=TextPayload(text="input-1"),
+        answer=TextPayload(text="output-1"),
+        row={"case": {"status": "completed"}, "rubric_evaluations": _evaluations(verdicts)},
+        material=points,
+    )
+
+
+def _run_hook(request: GradeRequest) -> CaseGradeOutcome:
+    hook = rubric_grade_case(case_score=_case_score, judge_producer_id="test/judge")
+
+    async def call() -> CaseGradeOutcome:
+        return await hook(request)
+
+    return asyncio.run(call())
+
+
+def _grade(verdicts: Mapping[int, bool | None], points: Sequence[int] | None) -> CaseGradeOutcome:
+    return _run_hook(_request(verdicts, points))
+
+
+def test_rubric_hook_scores_complete_verdicts_with_the_board_formula() -> None:
+    outcome = _grade({1: True, 2: False, 3: True}, [5, 3, -3])
+
+    assert outcome.failure_code is None
+    assert outcome.score == pytest.approx((5 - 3) / 8)
+    assert outcome.metrics == {"judged": 3, "expected": 3, "invalid_replies": 0}
+    checks = list(outcome.checks)
+    assert [check["outcome"] for check in checks] == ["MET", "UNMET", "MET"]
+    assert [check["metadata"] for check in checks] == [
+        {"points": 5},
+        {"points": 3},
+        {"points": -3},
+    ]
+    assert checks[0]["evidence"][0]["producer"]["id"] == "test/judge"
+
+
+def test_rubric_hook_reports_incomplete_verdicts_never_a_default() -> None:
+    # INVARIANT: a missing verdict on a penalty item would erase the penalty —
+    # partial verdict sets fail, they are never defaulted to "not hit".
+    outcome = _grade({1: True}, [5, -3])
+
+    assert outcome.failure_code == "incomplete_verdicts"
+    assert outcome.score is None
+    assert outcome.metrics == {"judged": 1, "expected": 2, "invalid_replies": 0}
+
+
+def test_rubric_hook_counts_invalid_replies_and_fails_the_case() -> None:
+    outcome = _grade({1: True, 2: None}, [5, -3])
+
+    assert outcome.failure_code == "incomplete_verdicts"
+    assert outcome.metrics["invalid_replies"] == 1
+    # The invalid reply's check stays outcome-less: unjudged, not failed.
+    invalid_check = list(outcome.checks)[1]
+    assert "outcome" not in invalid_check
+    assert invalid_check["evidence"][0]["metadata"] == {"rejection_reason": "malformed"}
+
+
+def test_rubric_hook_names_a_complete_but_unscorable_case() -> None:
+    outcome = _grade({1: True, 2: True}, [0, -3])
+
+    assert outcome.failure_code == "no_positive_points"
+    assert outcome.score is None
+
+
+def test_rubric_hook_dedupes_duplicate_judge_entries() -> None:
+    # Retry noise: the same rubric_id judged twice must not widen judged counts.
+    evaluations = _evaluations({1: True}) + _evaluations({1: False})
+    request = GradeRequest(
+        case_id=1,
+        input=TextPayload(text="input-1"),
+        answer=None,
+        row={"case": {"status": "completed"}, "rubric_evaluations": evaluations},
+        material=[5],
+    )
+    outcome = _run_hook(request)
+
+    assert outcome.metrics["judged"] == 1
+    assert len(list(outcome.checks)) == 1  # last entry wins, one check per rubric_id
+
+
+# ── the shared selected-cases reader ────────────────────────────────────────
+
+
+def test_selected_cases_reader_returns_the_roll_call_in_order(tmp_path: Path) -> None:
+    (tmp_path / "cases.json").write_text(
+        json.dumps([{"id": 2, "input": "two"}, {"id": 1, "input": "one"}]), encoding="utf-8"
+    )
+    selected = read_selected_cases(
+        tmp_path, (1, 2), benchmark_label="TestBoard", error_type=BoardError
+    )
+    assert [(case.case_id, case.input) for case in selected] == [(1, "one"), (2, "two")]
+
+
+def test_selected_cases_reader_names_the_board_in_its_errors(tmp_path: Path) -> None:
+    with pytest.raises(BoardError, match="TestBoard cases are unavailable"):
+        read_selected_cases(tmp_path, (1,), benchmark_label="TestBoard", error_type=BoardError)
+
+    (tmp_path / "cases.json").write_text(json.dumps([{"id": 1, "input": " "}]), encoding="utf-8")
+    with pytest.raises(BoardError, match="TestBoard Case 1 has no public input"):
+        read_selected_cases(tmp_path, (1,), benchmark_label="TestBoard", error_type=BoardError)
+
+
+# ── the hook's execution context ────────────────────────────────────────────
+
+
+def test_the_hook_sees_the_callers_context_under_a_running_loop() -> None:
+    """INVARIANT (OME-1240): the caller's ContextVars reach the hook even on the
+    running-loop path, where the hook chain is driven on a worker thread.
+
+    WHY it matters: the url4 executor binds the run's usage sink as a ContextVar
+    around the aggregate; a judge-calling hook (a model-graded imported board)
+    reports its tokens through that sink. A worker thread that starts from an
+    empty context silently drops the judge's cost from the run — a judged score
+    that omits judge cost is wrong by construction.
+    """
+
+    import contextvars
+
+    sink_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+        "test_usage_sink", default=None
+    )
+    seen: list[str | None] = []
+
+    class _ContextReadingHook(_Hook):
+        async def __call__(self, request: GradeRequest) -> CaseGradeOutcome:
+            seen.append(sink_var.get())
+            return await super().__call__(request)
+
+    hook = _ContextReadingHook()
+    path = _path(hook)
+
+    async def run_with_bound_sink() -> dict[str, Any]:
+        # The executor binds sinks in the resolving task's context; the aggregate
+        # runs synchronously inside that task, blocking its (running) loop.
+        sink_var.set("the-run-usage-sink")
+        return _aggregate(path, [_envelope(1, _grading(1))], _selected(1))
+
+    result = asyncio.run(run_with_bound_sink())
+    assert result["cases"][0]["grade"]["score"] == 0.5
+    assert seen == ["the-run-usage-sink"]
+
+
+def test_the_async_aggregate_face_runs_hooks_on_the_callers_loop() -> None:
+    """INVARIANT (OME-1240): `aggregate_async` never spawns a second loop — a
+    judged board's hook awaits model calls through the run's shared HTTP client,
+    whose pooled connections are bound to the run's OWN loop; httpx raises
+    "bound to a different event loop" on any other (reproduced, 2026-09-24).
+    """
+
+    seen_loops: list[Any] = []
+
+    class _LoopRecordingHook(_Hook):
+        async def __call__(self, request: GradeRequest) -> CaseGradeOutcome:
+            seen_loops.append(asyncio.get_running_loop())
+            return await super().__call__(request)
+
+    hook = _LoopRecordingHook()
+    path = _path(hook)
+
+    async def run() -> dict[str, Any]:
+        outer = asyncio.get_running_loop()
+        result = await path.aggregate_async(
+            json.dumps([_envelope(1, _grading(1))]),
+            benchmark_id="test-board",
+            benchmark_revision="rev",
+            selected_cases=_selected(1),
+            grading_material=lambda case_id: (5, -3),
+            scorer=exam_scorer(_mean),
+        )
+        assert seen_loops == [outer]
+        return result
+
+    result = asyncio.run(run())
+    assert result["cases"][0]["grade"]["score"] == 0.5

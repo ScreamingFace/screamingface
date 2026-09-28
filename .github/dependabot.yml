@@ -323,3 +323,13 @@ updates:
         applies-to: version-updates
         patterns: ["*"]
         update-types: ["major"]
+
+  - package-ecosystem: "uv"
+    directory: "/apps/analytics"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      analytics-python:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

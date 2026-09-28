@@ -39,7 +39,7 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.benchmarks.ifeval.aggregate import _accuracy
+from screamingface_engine.benchmarks.ifeval.grade import _accuracy
 from screamingface_engine.benchmarks.ifeval.grading import check_case
 from screamingface_engine.benchmarks.ifeval.vendor import evaluation as official
 

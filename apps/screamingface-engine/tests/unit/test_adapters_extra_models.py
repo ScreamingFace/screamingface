@@ -1,4 +1,5 @@
-"""OME-880: both adapters carry the admitted overlay into a run's environment.
+"""OME-880: the queue codec and the inprocess adapter carry the admitted overlay into a run's
+environment.
 
 FEATURE: run any OpenRouter model (OME-878). An admitted model is only real if
 the RUN can route it — the runner builds its world from the run's env, so the
@@ -6,7 +7,7 @@ App writes the overlay's ids onto every scheduled run as
 `URL4_CLOUD_EXTRA_MODELS` (a provider callable, read at SCHEDULE time so a
 model admitted a second ago reaches the very next run).
 
-INVARIANT: the two adapters render ONE contract — a key one writes and the
+INVARIANT: the two renderings are ONE contract — a key one writes and the
 other omits is a local run that silently diverges from a deployed one.
 """
 
@@ -14,49 +15,35 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any
-
-import pytest
-from _k8s_fakes import FakeCreatedJob, fake_created_job
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
-from screamingface_engine.adapters.k8s import K8sJobRunner
+from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 
 _TARGET = "openrouter/qwen/qwen2.5-7b-instruct"
 
 
-class _RecordingBatchApi:
-    def __init__(self) -> None:
-        self.created: list[dict[str, Any]] = []
-
-    def create_namespaced_job(
-        self, namespace: str, body: Any, *, _request_timeout: float | None = None
-    ) -> FakeCreatedJob:
-        self.created.append(dict(body))
-        return fake_created_job(f"uid-{body['metadata']['name']}")
-
-    def read_namespaced_job(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
-    ) -> Any:  # pragma: no cover
-        raise NotImplementedError
-
-    def delete_namespaced_job(
-        self,
-        name: str,
-        namespace: str,
-        *,
-        propagation_policy: str = "",
-        _request_timeout: float | None = None,
-    ) -> object:  # pragma: no cover
-        raise NotImplementedError
+def _codec_env_of(extra_models: tuple[str, ...] = ()) -> dict[str, str]:
+    return decode_message(encode_message("t", "gpt(hi)", 60, extra_models=extra_models))
 
 
-def _job_env_of(api: _RecordingBatchApi) -> dict[str, str]:
-    container = api.created[0]["spec"]["template"]["spec"]["containers"][0]
-    return {e["name"]: e["value"] for e in container["env"] if "value" in e}
+def test_the_queue_codec_writes_the_overlay_onto_the_run() -> None:
+    assert json.loads(_codec_env_of((_TARGET,))[job_env.EXTRA_MODELS]) == [_TARGET]
+
+
+def test_an_empty_overlay_writes_a_neutralizing_empty_entry() -> None:
+    # INVARIANT (review F4): the key is ALWAYS written explicitly — an explicit env
+    # entry beats `envFrom`, so an empty value is what keeps a stale
+    # URL4_CLOUD_EXTRA_MODELS left in the Helm ConfigMap out of every run.
+    assert _codec_env_of(())[job_env.EXTRA_MODELS] == ""
+
+
+def test_no_overlay_provider_still_neutralizes_the_ambient_key() -> None:
+    # A deployment wired without a catalog (no admission) must be just as immune
+    # to a leftover ConfigMap value as one with an empty overlay.
+    assert _codec_env_of()[job_env.EXTRA_MODELS] == ""
 
 
 class _NeverExecutor(Executor):
@@ -67,42 +54,6 @@ class _NeverExecutor(Executor):
     ) -> AsyncIterator[ExecStep]:  # pragma: no cover - the run is never started
         raise NotImplementedError
         yield  # pragma: no cover - unreachable; makes this an async generator
-
-
-@pytest.mark.asyncio
-async def test_the_k8s_adapter_writes_the_overlay_onto_the_job() -> None:
-    api = _RecordingBatchApi()
-    runner = K8sJobRunner(api, image="runner:test", extra_models=lambda: (_TARGET,))
-
-    await runner.schedule("t", "gpt(hi)", 60)
-
-    assert json.loads(_job_env_of(api)[job_env.EXTRA_MODELS]) == [_TARGET]
-
-
-@pytest.mark.asyncio
-async def test_an_empty_overlay_writes_a_neutralizing_empty_entry() -> None:
-    # INVARIANT (review F4): the key is ALWAYS written explicitly — an explicit env
-    # entry beats `envFrom`, so an empty value is what keeps a stale
-    # URL4_CLOUD_EXTRA_MODELS left in the Helm ConfigMap out of every Job. This is
-    # the k8s rendering of the inprocess adapter's unconditional pop.
-    api = _RecordingBatchApi()
-    runner = K8sJobRunner(api, image="runner:test", extra_models=lambda: ())
-
-    await runner.schedule("t", "gpt(hi)", 60)
-
-    assert _job_env_of(api)[job_env.EXTRA_MODELS] == ""
-
-
-@pytest.mark.asyncio
-async def test_no_overlay_provider_still_neutralizes_the_ambient_key() -> None:
-    # A deployment wired without a catalog (no admission) must be just as immune
-    # to a leftover ConfigMap value as one with an empty overlay.
-    api = _RecordingBatchApi()
-    runner = K8sJobRunner(api, image="runner:test")
-
-    await runner.schedule("t", "gpt(hi)", 60)
-
-    assert _job_env_of(api)[job_env.EXTRA_MODELS] == ""
 
 
 def test_the_inprocess_adapter_renders_the_same_key() -> None:

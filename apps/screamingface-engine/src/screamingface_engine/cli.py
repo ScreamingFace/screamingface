@@ -1,19 +1,22 @@
-"""``screamingface-engine`` console entrypoint — one image, two modes.
+"""``screamingface-engine`` console entrypoint — one image, three modes plus admin.
 
-    screamingface-engine serve   # the control plane: mint tokens, bridge WS, schedule Runner Jobs
-    screamingface-engine run     # one url4 evaluation, streamed to NATS, then exit
+    screamingface-engine serve    # the control plane: mint tokens, bridge WS, schedule Runner Jobs
+    screamingface-engine run      # one url4 evaluation, streamed to NATS, then exit
+    screamingface-engine worker   # claim runs from the durable queue, supervise each as a child
+    screamingface-engine admin purge-legacy-streams [--dry-run]   # one-shot rollout step
 
 WHY one artifact with a mode argument rather than two images: the two halves already shared
 their whole wire vocabulary (`job_env`, `subjects`, the JetStream binding), and keeping them in
 separate distributions meant maintaining hand-synced duplicates of all three plus contract tests
 whose only job was to catch the copies drifting. The run mode's dependencies are a strict subset
 of the serving mode's, so merging cost no new dependency — only the serving-side packages now
-sitting unused on a Job's disk.
+sitting unused on a Job's disk. The worker mode (OME-1089) is the third mode: it imports the
+serving half and the queue, and spawns the run as a child process rather than importing it.
 
 INVARIANT: the mode is chosen by ARGV, never sniffed from the environment.
-`K8sJobRunner` schedules `["screamingface-engine", "run"]` explicitly, so a Job that
-is missing its env fails loudly at boot instead of silently booting a web server that
-nothing will ever dial.
+The worker pool's Deployment pins `["screamingface-engine", "worker"]` and the run
+mode is entered by the worker's child processes, so a pod that is missing its env fails
+loudly at boot instead of silently booting a web server that nothing will ever dial.
 
 ``serve`` is the default when no subcommand is given, which is what keeps the
 image's ``CMD ["screamingface-engine"]`` and the chart's
@@ -72,16 +75,61 @@ def _serve_local() -> None:
     )
 
 
-def _run() -> None:
-    """Execute one url4 run from the Job's environment, then exit."""
+def _run(*, warm: bool = False) -> None:
+    """Execute one url4 run from the Job's environment, then exit — or, `warm`, prepare first
+    and read the run from the worker (uniform executor PRD 03)."""
     # WHY: lazy, and the reason the layering rule earns its keep — importing the run path must
     # not drag in FastAPI/uvicorn/kubernetes, and importing `serve` must not drag in the engine.
     from screamingface_engine.runner.main import main as run_main
+    from screamingface_engine.runner.main import warm_main
 
-    run_main()
+    if warm:
+        warm_main()
+    else:
+        run_main()
 
 
-def main(argv: list[str] | None = None) -> None:
+def _worker() -> None:
+    """Claim runs from the durable queue and supervise each as a child process."""
+    # WHY: lazy, like the other modes — the worker's import graph is the serving half's plus
+    # the queue, and a mode that is not running must not pay for it.
+    from screamingface_engine.worker.loop import run_worker
+
+    run_worker()
+
+
+def _purge_legacy_streams(*, dry_run: bool) -> None:
+    """Delete the per-run streams of the former layout, printing each name (erd.md §10).
+
+    The new App and worker do the same deletion at startup (owner decision 2026-09-27), so a
+    rollout needs no manual step; this command is for a `--dry-run` preview, or a broker a
+    lazy-path process (a child, a test harness) refused to declare the shared stream on.
+    """
+    import asyncio
+
+    import nats
+
+    from screamingface_engine.adapters.jetstream import purge_legacy_streams
+    from screamingface_engine.config import Settings
+
+    async def _purge() -> list[str]:
+        settings = Settings()
+        nc = await nats.connect(settings.nats_url)
+        try:
+            return await purge_legacy_streams(
+                nc.jetstream(), dry_run=dry_run, run_queue_stream=settings.run_queue_stream
+            )
+        finally:
+            await nc.close()
+
+    names = asyncio.run(_purge())
+    verb = "would delete" if dry_run else "deleted"
+    for name in names:
+        print(f"{verb} {name}")
+    print(f"{verb} {len(names)} legacy stream(s)")
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
         description="screamingface-engine — the control plane, or one url4 run.",
@@ -104,15 +152,51 @@ def main(argv: list[str] | None = None) -> None:
             "loopback only."
         ),
     )
-    sub.add_parser("run", help="execute one url4 expression from the environment, then exit")
+    run_parser = sub.add_parser(
+        "run", help="execute one url4 expression from the environment, then exit"
+    )
+    run_parser.add_argument(
+        "--warm",
+        action="store_true",
+        help=(
+            "warm child of the worker pool: prepare, signal READY on the control pipe, then "
+            "read ONE run spec from stdin (not for direct use)"
+        ),
+    )
+    sub.add_parser(
+        "worker",
+        help=(
+            "claim runs from the durable run queue and supervise each as a child process "
+            "(the fixed worker pool of OME-1086)"
+        ),
+    )
+    admin = sub.add_parser("admin", help="one-shot operator commands")
+    admin_sub = admin.add_subparsers(dest="admin_command", required=True)
+    purge = admin_sub.add_parser(
+        "purge-legacy-streams",
+        help=(
+            "delete every per-run stream (url4-cloud_<topic>) of the former layout; run it "
+            "after draining and BEFORE starting this version"
+        ),
+    )
+    purge.add_argument("--dry-run", action="store_true", help="list the streams, delete none")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = _parser()
     args = parser.parse_args(argv)
 
     # BEFORE dispatch, and for every mode: a Job's logs are as load-bearing as the control
     # plane's, and neither `uvicorn.run` nor `run_main` configures anything for this package.
     configure_logging()
 
-    if args.mode == "run":
-        _run()
+    if args.mode == "admin":
+        _purge_legacy_streams(dry_run=args.dry_run)
+    elif args.mode == "worker":
+        _worker()
+    elif args.mode == "run":
+        _run(warm=args.warm)
     elif args.local:
         _serve_local()
     else:

@@ -83,6 +83,9 @@ TIE_BREAK_INSTRUCTION = (
     "Every candidate answer already satisfies the requirements. Pick the best-written "
     "one. Reply with exactly one candidate label and nothing else."
 )
+# INVARIANT (OME-1168): the coach's per-member verdict projection carries ONLY
+# these check-surface fields — never the record's Candidate Invocation envelope.
+_COACH_VERDICT_FIELDS = ("answer", "feedback")
 
 CORRECTIVE_FLOW = (
     "at most max_rounds attempts; every member answers each executed attempt; an "
@@ -104,6 +107,9 @@ CORRECTIVE_PROTOCOL_REVISION = hashlib.sha256(
             CHECK_SURFACE_SCHEMA,
             str(_MIN_MEMBERS),
             MEMBER_LABEL_SCHEME,
+            # WHY hashed: the coach prompt's verdict shape is Client-rendered
+            # behavior — reshaping it (OME-1168) must move the revision.
+            ",".join(_COACH_VERDICT_FIELDS),
             RETRY_INSTRUCTION,
             SELF_FEEDBACK_INSTRUCTION,
             JUDGE_FEEDBACK_INSTRUCTION,
@@ -424,11 +430,25 @@ class _LoopRenderer:
                 f" | {SELF_FEEDBACK_INSTRUCTION}"
             )
         else:
+            # WHY a projection, not the round object (OME-1168): the round's
+            # records carry each member's full Candidate Invocation envelope
+            # (accounting/usage token counts, provider/model identity) for the
+            # SELECT endpoint's verbatim-selection invariant. Pasting that into
+            # the coach prompt makes a recorded run unreplayable (live token
+            # counts vs replay's cache-hit zeros re-key the request) and leaks
+            # member identity the judge's role design withholds. The coach
+            # consumes exactly answer + check feedback per member.
             context = _structured_context(
                 {
                     "request": "$input",
                     "task": JUDGE_FEEDBACK_INSTRUCTION,
-                    "verdicts": f"$loop_round_{attempt}",
+                    "verdicts": {
+                        label: {
+                            field: f"$loop_check_{attempt}_{label}.{field}"
+                            for field in _COACH_VERDICT_FIELDS
+                        }
+                        for label in self._labels
+                    },
                 }
             )
         resolved, captured = self._captured(

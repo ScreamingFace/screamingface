@@ -91,6 +91,7 @@ def test_write_carries_no_expiry_identity_or_prompt() -> None:
         "model",
         "response",
         "response_size_bytes",
+        "metadata",
     }
 
 
@@ -103,7 +104,7 @@ async def test_set_if_absent_then_get_round_trips_the_response(store) -> None:
 
     assert await store.set_if_absent(entry) == "stored"
 
-    assert await store.get(_KEY) == _RESPONSE
+    assert (await store.get(_KEY)).response == _RESPONSE
     row = await RequestCacheEntry.get(key_hash=_KEY)
     assert row.response_json == json.dumps(_RESPONSE, separators=(",", ":"), ensure_ascii=False)
 
@@ -115,11 +116,11 @@ async def test_get_preserves_the_exact_lexical_decimal_for_accounting(store) -> 
     row.response_json = '{"id":"cmpl","choices":[],"usage":{"cost":0.0038799200000000002}}'
     await row.save(update_fields=["response_json"])
 
-    response = await store.get(_KEY)
+    entry = await store.get(_KEY)
 
-    assert response is not None
-    assert response["usage"]["cost"] == Decimal("0.0038799200000000002")
-    assert type(response["usage"]["cost"]) is Decimal
+    assert entry is not None
+    assert entry.response["usage"]["cost"] == Decimal("0.0038799200000000002")
+    assert type(entry.response["usage"]["cost"]) is Decimal
 
 
 @pytest.mark.asyncio
@@ -138,7 +139,7 @@ async def test_null_expiry_row_is_readable_however_old_it_is(store) -> None:
     row.created_at = datetime.now(UTC) - timedelta(days=365)
     await row.save(update_fields=["created_at"])
 
-    assert await store.get(_KEY) == _RESPONSE
+    assert (await store.get(_KEY)).response == _RESPONSE
 
 
 @pytest.mark.asyncio
@@ -156,7 +157,7 @@ async def test_the_ttl_purge_keeps_indefinite_rows_and_deletes_expired_rows(stor
     await aged.save(update_fields=["expires_at"])
 
     assert await store.delete_expired() == 1
-    assert await store.get(_KEY) == _RESPONSE
+    assert (await store.get(_KEY)).response == _RESPONSE
 
 
 @pytest.mark.asyncio
@@ -194,7 +195,7 @@ async def test_second_writer_loses_the_race_and_the_winner_survives(store) -> No
     assert await store.set_if_absent(loser) == "race_lost"
 
     assert await RequestCacheEntry.filter(key_hash=_KEY).count() == 1
-    assert await store.get(_KEY) == _RESPONSE
+    assert (await store.get(_KEY)).response == _RESPONSE
 
 
 # --- atomic hit metadata -------------------------------------------------------------------------
@@ -220,7 +221,9 @@ async def test_a_concurrent_increment_is_not_lost_by_the_hit_update(db, gate: _G
 
     await RequestCacheEntry.filter(key_hash=_KEY).update(hit_count=F("hit_count") + 5)
 
-    assert await store.get(_KEY) == _RESPONSE
+    entry = await store.get(_KEY)
+    assert entry is not None
+    assert entry.response == _RESPONSE
 
     row = await RequestCacheEntry.get(key_hash=_KEY)
     assert row.hit_count == 6, "the concurrent increment was overwritten — the update is not atomic"
@@ -236,7 +239,7 @@ async def test_hit_metadata_failure_still_returns_the_hit(store, monkeypatch) ->
 
     monkeypatch.setattr("aigateway.core.request_cache.store.record_hit_metadata", _broken_update)
 
-    assert await store.get(_KEY) == _RESPONSE
+    assert (await store.get(_KEY)).response == _RESPONSE
 
 
 @pytest.mark.asyncio
@@ -249,7 +252,7 @@ async def test_unexpected_hit_metadata_failure_still_returns_the_hit(store, monk
 
     monkeypatch.setattr("aigateway.core.request_cache.store.record_hit_metadata", _broken_update)
 
-    assert await store.get(_KEY) == _RESPONSE
+    assert (await store.get(_KEY)).response == _RESPONSE
 
 
 # --- write failure -------------------------------------------------------------------------------
@@ -356,7 +359,7 @@ async def test_a_plaintext_json_object_row_is_served(store) -> None:
     row.response_json = json.dumps({"id": "injected", "choices": ["ATTACKER-CONTROLLED"]})
     await row.save(update_fields=["response_json"])
 
-    assert await store.get(_KEY) == {
+    assert (await store.get(_KEY)).response == {
         "id": "injected",
         "choices": ["ATTACKER-CONTROLLED"],
     }

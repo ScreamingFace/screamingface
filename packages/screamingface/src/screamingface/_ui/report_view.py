@@ -5,12 +5,13 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING, Any
 
-from screamingface._ui.style import FUSION_GRADIENT_Y, STYLE
+from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
+from screamingface.report import _candidate_failures
 
 if TYPE_CHECKING:
     from screamingface.case_result import CaseResult
@@ -104,6 +105,11 @@ _STYLE = (
 .sf-report__fail{{margin-top:14px;padding:8px 10px;border-left:2px solid var(--sf-blind);
   background:var(--sf-blind-bg);color:var(--sf-blind);
   font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;white-space:pre-wrap}}
+.sf-report__failure-group{{margin-top:10px;white-space:normal}}
+.sf-report__failure-group h4{{margin:0 0 4px;font-family:inherit;font-size:12px;
+  font-weight:600;line-height:1.5;color:inherit}}
+.sf-report__failure-group ul{{margin:0;padding-left:20px}}
+.sf-report__failure-group li{{white-space:pre-wrap;overflow-wrap:anywhere}}
 /* ---- master / detail over cases (pure CSS selection) ---- */
 .sf-master{{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);
   align-items:start}}
@@ -183,7 +189,8 @@ def report_html(report: Report) -> str:
 
     cards = "".join(_card_html(item, report) for item in report.candidates)
     return (
-        f"{_STYLE}<div class='sf-ui sf-report' aria-label='ScreamingFace evaluation report'>"
+        f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
+        "aria-label='ScreamingFace evaluation report'>"
         f"{_head_html(report)}"
         f"{_strip_html(report)}"
         f"{cards}"
@@ -334,13 +341,13 @@ def _coverage_notice_html(candidate: CandidateResult) -> str:
     else:
         heading = "score unavailable"
         states = tuple(_case_state(case) for case in candidate.cases)
-        incomplete = tuple(state for state in states if state in {"refused", "failed", "unscored"})
+        incomplete = tuple(state for state in states if state in {"failed", "unscored"})
         message = ""
         if incomplete:
             total = len(candidate.cases)
             parts = tuple(
                 f"{incomplete.count(state)} {state}"
-                for state in ("refused", "failed", "unscored")
+                for state in ("failed", "unscored")
                 if state in incomplete
             )
             message = (
@@ -507,15 +514,11 @@ def _failures_html(report: Report) -> str:
     failures = report.failures
     if not failures:
         return ""
-    groups: dict[tuple[str, str, str], list[Any]] = {}
-    for item in failures:
-        key = (
-            str(getattr(item, "stage", "?")),
-            str(getattr(item, "code", "") or ""),
-            str(getattr(item, "message", item)),
-        )
-        groups.setdefault(key, []).append(item)
-    lines = "\n".join(_failure_line(key, items) for key, items in groups.items())
+    candidates = getattr(report, "candidates", ())
+    if len(candidates) > 1:
+        summary = "".join(_candidate_failures_html(candidate) for candidate in candidates)
+    else:
+        summary = escape("\n".join(_grouped_failure_lines(failures)))
     count = f"{len(failures)} failure" + ("" if len(failures) == 1 else "s")
     details = json.dumps(
         [item.to_dict() for item in failures],
@@ -523,10 +526,30 @@ def _failures_html(report: Report) -> str:
         indent=2,
     )
     return (
-        f"<div class='sf-report__fail' role='alert'>{escape(count)}\n{escape(lines)}</div>"
+        f"<div class='sf-report__fail' role='alert'>{escape(count)}\n{summary}</div>"
         "<details><summary>failure details</summary>"
         f"<pre class='sf-report__pre'>{escape(details)}</pre></details>"
     )
+
+
+def _candidate_failures_html(candidate: CandidateResult) -> str:
+    lines = _grouped_failure_lines(_candidate_failures(candidate))
+    if not lines:
+        return ""
+    items = "".join(f"<li>{escape(line)}</li>" for line in lines)
+    return (
+        "<div class='sf-report__failure-group'>"
+        f"<h4>{escape(candidate.name)}</h4><ul>{items}</ul></div>"
+    )
+
+
+def _grouped_failure_lines(failures: Iterable[Any]) -> list[str]:
+    # WHY: identical Case ids on different Candidates are distinct failures (OME-983).
+    groups: dict[tuple[str, str, str], list[Any]] = {}
+    for item in failures:
+        key = (item.stage, item.code or "", item.message)
+        groups.setdefault(key, []).append(item)
+    return [_failure_line(key, items) for key, items in groups.items()]
 
 
 def _failure_line(key: tuple[str, str, str], items: list[Any]) -> str:
@@ -630,7 +653,6 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
         + {
             "passed": "",
             "incorrect": " sf-mark--bad",
-            "refused": " sf-mark--warn",
             "failed": " sf-mark--warn",
             "unscored": " sf-mark--warn",
         }[state]
@@ -638,7 +660,6 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
     glyph = {
         "passed": "&check;",
         "incorrect": "&times;",
-        "refused": "!",
         "failed": "!",
         "unscored": "?",
     }[state]
@@ -656,7 +677,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
     state = _case_state(case)
     # WHY (OME-793): tri-state verdict — "failed" (warning) is neither correct nor
     # incorrect; the case was never graded, and the badge must say so.
-    if state in {"refused", "failed", "unscored"}:
+    if state in {"failed", "unscored"}:
         verdict = _badge(state, good=False, warn=True)
     else:
         verdict = _badge("correct" if state == "passed" else "incorrect", good=state == "passed")
@@ -673,8 +694,10 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
         if answer
         else ""
     )
+    # WHY the neutral label (OME-1037): the text may be the model's own graded
+    # decline (a scored Case) or provider-refusal evidence on a failed Case.
     refusal_html = (
-        "<div class='sf-detail__k'>provider refusal</div>"
+        "<div class='sf-detail__k'>refusal</div>"
         f"<pre class='sf-report__pre'>{escape(case.refusal)}</pre>"
         if case.refusal is not None
         else ""
@@ -756,10 +779,13 @@ def _case_passed(case: CaseResult) -> bool:
 
 
 def _case_state(case: CaseResult) -> str:
-    """Present the Engine outcome without re-deriving it from Benchmark semantics."""
+    """Present the Engine outcome without re-deriving it from Benchmark semantics.
 
-    if case.status == "refused":
-        return "refused"
+    WHY no `refused` state (OME-1037): a refusal the benchmark graded is a scored
+    Case (its verdict is real — DRACO grades a decline as passed), and an
+    ungradeable one is a failed Case carrying a provider_refusal failure.
+    """
+
     if case.status == "failed":
         return "unscored" if case.grade is not None else "failed"
     return "passed" if _case_passed(case) else "incorrect"

@@ -60,6 +60,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "aigateway.fullname" . }}
+            {{- if include "aigateway.tracingHasSecret" . }}
+            # The OTLP collector credential (OME-1184). Referenced only when one EXISTS —
+            # tracing to the in-cluster collector needs no credential, and naming a Secret that
+            # is never created would stop the pod from starting on an unresolvable envFrom.
+            - secretRef:
+                name: {{ include "aigateway.tracingSecretName" . }}
+            {{- end }}
             {{- if .Values.snapshot.enabled }}
             # The snapshot key pair: either the chart-owned Secret or the operator's
             # existingSecret (the key names are the env vars the app reads).

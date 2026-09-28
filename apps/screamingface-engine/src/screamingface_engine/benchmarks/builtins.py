@@ -4,11 +4,16 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.benchmarks.contracteval.definition import (
+    ASSET_BUNDLE_ID as CONTRACTEVAL_ASSET_BUNDLE_ID,
+)
+from screamingface_engine.benchmarks.contracteval.definition import CONTRACTEVAL
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
     BenchmarkDeployment,
     BenchmarkRegistration,
 )
+from screamingface_engine.benchmarks.discovery import discovered_registrations
 from screamingface_engine.benchmarks.draco.definition import (
     ASSET_BUNDLE_ID as DRACO_ASSET_BUNDLE_ID,
 )
@@ -28,6 +33,10 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     ASSET_BUNDLE_ID as IFEVAL_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
+from screamingface_engine.benchmarks.medxpert.definition import (
+    ASSET_BUNDLE_ID as MEDXPERT_ASSET_BUNDLE_ID,
+)
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 
 
 def _prepare_draco(out: Path) -> Mapping[str, Any]:
@@ -50,6 +59,18 @@ def _prepare_gdpval(out: Path) -> Mapping[str, Any]:
     return prepare(out)
 
 
+def _prepare_medxpert(out: Path) -> Mapping[str, Any]:
+    from screamingface_engine.benchmarks.medxpert.prepare import prepare
+
+    return prepare(out)
+
+
+def _prepare_contracteval(out: Path) -> Mapping[str, Any]:
+    from screamingface_engine.benchmarks.contracteval.prepare import prepare
+
+    return prepare(out)
+
+
 def _prepare_healthbench(out: Path) -> Mapping[str, Any]:
     from screamingface_engine.benchmarks.healthbench.prepare import prepare
 
@@ -59,6 +80,11 @@ def _prepare_healthbench(out: Path) -> Mapping[str, Any]:
 DRACO_ASSETS = BenchmarkAssetBundle(id=DRACO_ASSET_BUNDLE_ID, prepare=_prepare_draco)
 IFEVAL_ASSETS = BenchmarkAssetBundle(id=IFEVAL_ASSET_BUNDLE_ID, prepare=_prepare_ifeval)
 GDPVAL_ASSETS = BenchmarkAssetBundle(id=GDPVAL_ASSET_BUNDLE_ID, prepare=_prepare_gdpval)
+MEDXPERT_ASSETS = BenchmarkAssetBundle(id=MEDXPERT_ASSET_BUNDLE_ID, prepare=_prepare_medxpert)
+CONTRACTEVAL_ASSETS = BenchmarkAssetBundle(
+    id=CONTRACTEVAL_ASSET_BUNDLE_ID,
+    prepare=_prepare_contracteval,
+)
 HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
     id=HEALTHBENCH_ASSET_BUNDLE_ID,
     prepare=_prepare_healthbench,
@@ -69,22 +95,26 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 # prepares it once: the two HealthBench boards are independent identities over one baked
 # answer key, and the two DRACO boards re-run the same archived case/rubric assets with
 # different judge-pass counts.
-BUILTIN_DEPLOYMENT = BenchmarkDeployment(
-    (
-        BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
-        BenchmarkRegistration(benchmark=DRACO_3PASS, asset_bundle=DRACO_ASSETS),
-        BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
-        BenchmarkRegistration(
-            benchmark=HEALTHBENCH_WORST30,
-            asset_bundle=HEALTHBENCH_ASSETS,
-        ),
-        BenchmarkRegistration(
-            benchmark=HEALTHBENCH_PROFESSIONAL,
-            asset_bundle=HEALTHBENCH_ASSETS,
-        ),
-        BenchmarkRegistration(benchmark=GDPVAL_TEXT, asset_bundle=GDPVAL_ASSETS),
-    )
+BUILTIN_REGISTRATIONS = (
+    BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),
+    BenchmarkRegistration(benchmark=DRACO_3PASS, asset_bundle=DRACO_ASSETS),
+    BenchmarkRegistration(benchmark=IFEVAL, asset_bundle=IFEVAL_ASSETS),
+    BenchmarkRegistration(
+        benchmark=HEALTHBENCH_WORST30,
+        asset_bundle=HEALTHBENCH_ASSETS,
+    ),
+    BenchmarkRegistration(
+        benchmark=HEALTHBENCH_PROFESSIONAL,
+        asset_bundle=HEALTHBENCH_ASSETS,
+    ),
+    BenchmarkRegistration(benchmark=GDPVAL_TEXT, asset_bundle=GDPVAL_ASSETS),
+    BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=MEDXPERT_ASSETS),
+    BenchmarkRegistration(benchmark=CONTRACTEVAL, asset_bundle=CONTRACTEVAL_ASSETS),
 )
+# FEATURE: plugin-contributed benchmarks (OME-1115). The built-in tuple comes first and the
+# discovered extensions after, so with the entry-point group empty (no plugin, or the
+# plugin's optional dependencies absent) this deployment is byte-identical to before.
+BUILTIN_DEPLOYMENT = BenchmarkDeployment((*BUILTIN_REGISTRATIONS, *discovered_registrations()))
 BUILTIN_BENCHMARKS = BUILTIN_DEPLOYMENT.benchmarks
 
-__all__ = ["BUILTIN_BENCHMARKS", "BUILTIN_DEPLOYMENT"]
+__all__ = ["BUILTIN_BENCHMARKS", "BUILTIN_DEPLOYMENT", "BUILTIN_REGISTRATIONS"]

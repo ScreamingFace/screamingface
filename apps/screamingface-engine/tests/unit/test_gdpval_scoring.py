@@ -81,7 +81,7 @@ def test_mean_is_not_clipped() -> None:
 
 
 def test_sample_stdev_of_fewer_than_two_values_is_zero() -> None:
-    from screamingface_engine.benchmarks.gdpval.scoring import sample_stdev
+    from screamingface_engine.benchmarks.spine.exam import sample_stdev
 
     assert sample_stdev([]) == 0.0
     assert sample_stdev([0.5]) == 0.0
@@ -90,18 +90,18 @@ def test_sample_stdev_of_fewer_than_two_values_is_zero() -> None:
 def test_sample_stdev_uses_the_n_minus_one_denominator() -> None:
     # WHY pinned: population stdev of [0, 1] is 0.5; the sample form is 0.7071. A silent switch
     # would understate spread on exactly the small partial runs a reader sees most.
-    from screamingface_engine.benchmarks.gdpval.scoring import sample_stdev
+    from screamingface_engine.benchmarks.spine.exam import sample_stdev
 
     assert sample_stdev([0.0, 1.0]) == pytest.approx(0.7071067811865476)
 
 
 def test_verdict_coverage_is_the_judged_fraction() -> None:
-    from screamingface_engine.benchmarks.gdpval.scoring import verdict_coverage
+    from screamingface_engine.benchmarks.spine.exam import verdict_coverage
 
     assert verdict_coverage(3, 4) == pytest.approx(0.75)
 
 
 def test_verdict_coverage_of_nothing_is_zero_not_a_division_error() -> None:
-    from screamingface_engine.benchmarks.gdpval.scoring import verdict_coverage
+    from screamingface_engine.benchmarks.spine.exam import verdict_coverage
 
     assert verdict_coverage(0, 0) == 0.0

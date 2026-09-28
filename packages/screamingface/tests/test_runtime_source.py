@@ -162,6 +162,22 @@ def test_live_module_verification_names_the_stale_import(tmp_path: Path) -> None
         source.verify_live_modules(resolved, {"aigateway": live, "url4": stale})
 
 
+def test_live_module_verification_rejects_a_venv_inside_the_checkout(tmp_path: Path) -> None:
+    root = _checkout(tmp_path)
+    resolved = source.resolve_source({}, anchor=_anchor(root))
+    stale = types.ModuleType("url4")
+    stale.__file__ = str(
+        root / "packages/screamingface/.venv/lib/python3.12/site-packages/url4/__init__.py"
+    )
+
+    # INVARIANT: "live" means under a live SOURCE directory, not merely under the
+    # checkout root — the dev venv lives inside the root, and its frozen url4 copy
+    # passed the old check while the stack crashed on `url4.cli._config` (2026-09-25).
+    with pytest.raises(RuntimeError, match="url4") as raised:
+        source.verify_live_modules(resolved, {"url4": stale})
+    assert "uv sync --reinstall-package screamingface" in str(raised.value)
+
+
 def test_live_module_verification_is_a_no_op_for_the_installed_package() -> None:
     stale = types.ModuleType("url4")
     stale.__file__ = "/venv/site-packages/url4/__init__.py"

@@ -82,27 +82,18 @@ def render(node: Node, *, check: bool = True) -> str:
     """
     text = _render_top(node)
     if check:
-        _verify(node, text)
+        verify(node, text)
     return text
 
 
-def _render_top(node: Node) -> str:
-    if isinstance(node, Expression):
-        result = _render_expression(node, top=True)
-    elif isinstance(node, Iteration):
-        result = _render_top_iteration(node)
-    elif isinstance(node, (Binding, Source, RelExpr, RemoteExpr)):
-        # WHY: a composite source renders as a bare fragment root — the old
-        # paren wrap became an intent-less group, which the grammar rejects
-        # (`OME-508`). Shapes whose fragment form reparses differently (an
-        # inline `!` or a hoistable tail) fail _verify and raise RenderError.
-        result = _render_source(node)
-    else:
-        result = _render_value(node)
-    return result
+def verify(node: Node, text: str) -> None:
+    """Raise :class:`RenderError` unless ``text`` reparses to exactly ``node``.
 
-
-def _verify(node: Node, text: str) -> None:
+    What ``render(check=True)`` does, exposed so a caller that rendered with
+    ``check=False`` can pay for the check only once something downstream has
+    already failed — see :func:`url4.peer.client._blaming_render`. Returns
+    normally when the tree is faithful, leaving the blame with the run.
+    """
     from url4.core.parser import build  # runtime-only: parser is a higher layer
 
     expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
@@ -115,6 +106,22 @@ def _verify(node: Node, text: str) -> None:
             f"rendered text {text!r} reparses to a different tree — "
             f"the grammar cannot faithfully carry {node!r}"
         )
+
+
+def _render_top(node: Node) -> str:
+    if isinstance(node, Expression):
+        result = _render_expression(node, top=True)
+    elif isinstance(node, Iteration):
+        result = _render_top_iteration(node)
+    elif isinstance(node, (Binding, Source, RelExpr, RemoteExpr)):
+        # WHY: a composite source renders as a bare fragment root — the old
+        # paren wrap became an intent-less group, which the grammar rejects
+        # (`OME-508`). Shapes whose fragment form reparses differently (an
+        # inline `!` or a hoistable tail) fail verify() and raise RenderError.
+        result = _render_source(node)
+    else:
+        result = _render_value(node)
+    return result
 
 
 # --- expressions ---------------------------------------------------------------
@@ -684,4 +691,4 @@ _VALUE_RENDERERS: dict[type, Callable] = {
     Iteration: _render_value_iteration,
 }
 
-__all__ = ["render"]
+__all__ = ["render", "verify"]

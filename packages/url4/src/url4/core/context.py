@@ -37,6 +37,20 @@ class Context:
             frame = frame.parent
         raise ScopeError(f"unbound url4 reference: ${name}")
 
+    def get(self, name: str, default: Any = None) -> Any:
+        """Return the nearest binding for ``name``, or ``default`` if unbound.
+
+        The non-throwing twin of :meth:`lookup` for a name that is normally
+        absent — asking "is this binding present?" must not build and catch an
+        exception on the common miss path.
+        """
+        frame: Context | None = self
+        while frame is not None:
+            if name in frame.bindings:
+                return frame.bindings[name]
+            frame = frame.parent
+        return default
+
     def child(self, **bindings: Any) -> Context:
         """Return a child frame carrying ``bindings``, with ``self`` as parent."""
         return Context(bindings=dict(bindings), parent=self)

@@ -229,12 +229,12 @@ discover. Set `config.requestCache.enabled=false` to opt out.
 
 ### What it does
 
-- **Cross-user replay of the *effective* request.** The key is built from the call as the gateway
-  will actually send it — **after** the caller's own profile defaults have been resolved and merged,
-  with explicit body values winning. Two callers share a stored response when their requests are
-  identical *once each has had their own defaults applied*. So two callers whose profiles carry
-  different system prompts or sampling parameters correctly do **not** share one, and a caller whose
-  profile default happens to equal another caller's explicit parameter correctly **does**. Profile
+- **Cross-user replay of the *effective* request.** The key combines the caller's own request body
+  with the cacheable provider's declared projection of the output-affecting normalization it will
+  apply later; stored profile defaults are no longer merged into requests (OME-1323). Callers send
+  model parameters with each request and system instructions as system-role messages. Two callers
+  share a stored response when both the request and provider projection are identical, so callers
+  who send different system messages or sampling parameters correctly do **not** share one. Profile
   name and account identity never enter the key, and neither do auth mode, provider credentials, API
   keys or OAuth tokens. On a hit no provider request is made and no provider credential is read.
   There is no per-user or per-account partition; that is the feature, not a leak.
@@ -251,8 +251,8 @@ discover. Set `config.requestCache.enabled=false` to opt out.
 
 The access-control question the cross-user replay raises is not "who may read
 `request_cache_entries`" — it is **who may send a request that is answered from it**. Those are
-different sets and the second is larger, because reproducing a cached request needs only the request
-and the asker's own profile defaults, which may legitimately be empty — never a provider credential.
+different sets and the second is larger, because reproducing a cached request needs only the
+request itself — never a provider credential.
 
 **The boundary is the edge, not the gateway.** In `cloudflare_headers` mode the gateway *trusts*
 `X-User-Email` as already-verified identity; it does not authenticate the caller itself. Cloudflare
@@ -260,18 +260,14 @@ Access, plus `allowedNetworks` and the NetworkPolicy that keep the gateway inter
 decide who may ask. Review those before enabling the cache — there is no gateway-side setting that
 narrows who a hit may be served to.
 
-**A caller needs no provider credential — but the profile index must be readable.** A hit reads
-no provider API key and no OAuth token, and makes no provider request. It does resolve the
-caller's own profile defaults, because the key is built from the effective request, and that
-means a hit reads this account's profile index.
+**A caller needs no provider credential, and a hit reads no credential data at all.** A hit reads
+no provider API key and no OAuth token, makes no provider request, and does not read the caller's
+profile index: the key is built from the request body alone.
 
-Read that precisely: it is the index *read* that has to succeed, not the profile that has to
-exist. A caller with no profile configured for this provider has empty defaults and is served
-from cache normally — and so is a caller whose profile is still pending authorization or already
-errored, because the pre-cache read never inspects profile state
-(`routes/chat_profile_defaults.py`). What stands the cache down is a failed read: if the index
-cannot be fetched or decrypted, the request bypasses the cache and is dispatched with the
-defaults resolved further down, rather than keyed without them.
+So a caller with no profile configured for this provider is served from cache normally, and so is
+a caller whose profile is still pending authorization or already errored, because the lookup runs
+before any credential is resolved. An unreadable profile index no longer stands the cache down;
+on a miss the same fault can still fail credential resolution, exactly as before.
 
 What survives is the part that matters for access control: **a principal who has never configured a
 usable provider credential is still served responses another account paid for.** Treat this as a
@@ -285,8 +281,8 @@ The cached response is plaintext compact JSON in `response_json`. Reading it doe
 secret provider, validate an encryption canary or decrypt the response body.
 
 The caller's profile index is still a credential blob (`aigateway:index`) and remains encrypted under
-the credential master key. A hit reads that index to merge profile defaults before key construction,
-but it never reads the selected provider API key or OAuth token and never dispatches to the provider.
+the credential master key. A hit does not read it, never reads the selected provider API key or OAuth
+token, and never dispatches to the provider.
 
 ### A hit replays the first caller's credential *type*, not only their answer
 
@@ -347,12 +343,164 @@ endpoint for this — it is a deliberate database operation, on purpose.
 Global response rows are readable to anyone with database, replica, snapshot or backup access. If a
 class of response must not be stored or replayed across users, send `use-cache=false`.
 
-### Accounting boundary
+### Accounting boundary and the cached metadata block
 
-Usage and cost accounting for cache hits is **out of scope here** and tracked separately as OME-303.
-This feature writes no accounting or attribution fields, and a hit performs no provider dispatch —
-so a hit currently produces no provider-side usage record of its own. Do not read cache-hit volume
-out of provider billing.
+A cache hit is **in scope** for accounting as of migration `0011`. It still performs no provider
+dispatch, so a hit still produces no provider-side usage record of its own. Do not read cache-hit
+volume out of provider billing. Saved cost comes from the gateway's own stored metadata.
+
+**A nullable `metadata_json` column.** Migration `0011` appends `metadata_json` last on
+`request_cache_entries`. The column is nullable with no default. On Postgres the operation
+rewrites nothing and touches only the catalog — but it still needs `ACCESS EXCLUSIVE` for the
+instant it applies, and a *queued* request for that lock sits at the head of the lock queue, so
+every later cache read queues behind it too. The migration runs the `ADD COLUMN` under a
+3-second `SET LOCAL lock_timeout`. If it cannot get the lock inside that window the migration
+**fails** and the operator reruns it — this is deliberate, on purpose, and there is no retry: a
+waiting `ACCESS EXCLUSIVE` blocking every later reader is worse than a failed migration, so
+leaving the queue is the safe direction. Retrying was considered and dropped — five short
+attempts against a lock held by the snapshot exporter (`snapshot_export.py`, up to 600 s per
+export) would nearly always exhaust anyway, and making the migration non-atomic to allow retries
+would have cost the downgrade path its all-or-nothing property. The realistic conflicting holder
+is a snapshot export in progress; avoid running a migration and an export at the same time. On
+SQLite it is a plain in-place `ADD COLUMN`.
+
+**A snapshot merge takes no table lock, and does not stall serving.** An earlier revision of this
+feature had `merge` take `SHARE ROW EXCLUSIVE` on `request_cache_entries` for its whole
+transaction, to make the degraded-row count below exact. That was withdrawn: serving a cache
+**hit is a write** — it bumps `hit_count`/`last_hit_at` under an ordinary `UPDATE`, taking `ROW
+EXCLUSIVE`, which conflicts with `SHARE ROW EXCLUSIVE` — and the store awaits that bump before
+returning the cached body, so every hit on the table stalled for the merge's duration. That
+contradicts this deployment's standing guarantee that a load never blocks serving, and a sharper
+telemetry field does not buy it back. **A `merge` restore needs no maintenance window**; it runs
+beside live traffic, and the cost is that `metadata_degraded` is a lower bound rather than an
+exact count (below).
+
+**The block is roughly 400 bytes.** It holds the canonical token usage, the direct cost, the
+provider latency, the response model and a schema id. The gateway writes the block at write time
+from the raw provider response, so the block proves raw-JSON provenance. The block never enters
+`response_json`. The cache key and the response size cap are therefore unchanged. A block that
+somehow exceeds 2,048 bytes is dropped whole, not trimmed.
+
+**`NULL` means unknown, and it is never read as `0`.** Every legacy row keeps `metadata_json =
+NULL`: rows written before migration `0011`, rows loaded from a seed package that carries no
+metadata, and every Tavily retrieval row. A hit on such a row still serves the cached body, and
+the cost is reported as unknown. The
+gateway never infers a cost from `response_json`. A block that cannot be built, serialized or
+parsed also degrades to `NULL`. No metadata failure ever fails a request or loses an answer.
+
+**Restoring a pre-`0011` archive erases the metadata of every row it collides with.** This is the
+one way a row goes from known back to unknown, and it is easy to trigger by accident: a snapshot
+taken before migration `0011` has 12 columns and no `metadata_json`, so every staged row carries
+`NULL` there — and both load modes write content columns wholesale, `merge` included. Merging such
+an archive to patch a gap therefore sets `metadata_json = NULL` on each live row whose cache key it
+matches, discarding blocks the gateway had already accumulated. The erasure is still permitted —
+nothing fails — but it is no longer silent: the merge counts the rows it degrades and reports the
+total as `metadata_degraded` on the load outcome, on the job record, in the admin API, and as a
+warning. Those keys also stop reporting saved cost and start counting as
+`cache.saved_cost.unpriced_hits` on later runs. Before merging an archive, check whether its header lists `metadata_json`; if it
+does not, expect to lose the block on every overlapping key and re-accumulate it through live
+traffic. A post-`0011` archive is unaffected — it carries the column and restores real blocks.
+
+**`metadata_degraded` is a lower bound — read `0` as "none observed", never "none occurred".** It
+covers both ways a merge degrades a row: the archive carries no block for the key, and the archive
+carries the block the row already had beside a *different* `response_json`, which trips the
+stale-metadata trigger below. What it cannot cover is timing. The count is taken one statement
+before the merge and without a table lock, so a cache fill that commits in that window is degraded
+without being counted. The error only ever runs downward: the number never blames a restore for a
+degradation that did not happen. If you need to reconcile exactly, compare
+`count(*) FILTER (WHERE metadata_json IS NULL)` before and after the load on a quiet deployment.
+
+**A second, automatic path degrades a row the same way.** A Postgres-only `BEFORE UPDATE`
+trigger, `request_cache_entries_metadata_follows_response`, clears `metadata_json` on any
+`UPDATE` that changes `response_json` without setting `metadata_json` in the same statement. This
+is what protects the deployment from a **pre-`0011` binary** running against the widened table —
+a rolling upgrade or a rollback pod that has never heard of `metadata_json` still updates
+`response_json`, and without the trigger the row would keep its previous block, now describing an
+answer it did not produce. It is installed as `CREATE OR REPLACE TRIGGER`, which needs **Postgres
+14 or newer**. The trigger is scoped to `BEFORE UPDATE OF response_json`, so Postgres decides
+whether to even consider it from the statement's own `SET` list, before it looks at any row or
+its `WHEN` clause. An ordinary `hit_count`/`last_hit_at` bump never sets `response_json`, so the
+hot path skips the trigger entirely, at zero cost — **this is not because the `WHEN` clause is
+cheap.** Without the column list, the `WHEN` clause would still run on every hit, and comparing
+two equal, unchanged `response_json` values is not free: they are typically stored out-of-line
+and compressed, so Postgres would fetch both out of TOAST, decompress them, and `memcmp` the
+result, only to conclude "unchanged." The column list is what removes that cost, not the
+comparison itself. Like the merge above, this degrades to `NULL` — unknown — and never to a wrong
+number. It has one accepted false positive: a writer that replaces the body with a
+byte-identical block still loses it, because the trigger cannot tell "same answer" from "no
+answer computed."
+
+Together, this makes **a rollback to a pre-`0011` image safe for correctness and lossy for
+coverage.** The rolled-back binary can keep writing cache rows; every row it touches loses its
+metadata instead of carrying a stale one, and the deployment only pays for it in
+`cache.saved_cost.unpriced_hits`, never in a wrong number.
+
+**Two saved-cost totals per run.** A run report can carry two totals. Each total is a
+**counterfactual**: it states what the run would have paid without the cache. Both totals are
+labelled counterfactual wherever they are rendered.
+
+| run field | content |
+|---|---|
+| `cache.saved_cost_usd` | only `reported` amounts, authored by the provider |
+| `cache.saved_cost_archive_usd` | only `archive_matched` amounts, from an offline-priced seed load |
+
+**Never add the two totals together.** They hold money of different provenance. One combined
+figure would mix provider-authored money with archive-matched money.
+
+The report also carries the counts `cache.saved_cost.reported_hits`, `.archive_hits` and
+`.unpriced_hits`. These counts state the coverage of each total. A total is `null` only when the
+run had no hits of that provenance.
+
+Neither total changes `cost_usd`. A hit still counts as `0` spend in the run cost. **Neither
+total is submitted to the leaderboard.**
+
+## The Tavily Retrieval Cache (OME-1043/OME-1044)
+
+`POST /v1/retrieval/tavily/cache/lookup` and `.../entries` cache the results of the Runner's
+Tavily `web_search` and `web_fetch` calls.
+
+**This gateway never calls Tavily and never holds a Tavily API key.** The Runner keeps both. It
+sends a *description* of the retrieval it is about to make, this gateway derives the cache key
+from that description itself, and on a miss the Runner pays Tavily and posts the result back.
+The key is derived server-side deliberately: a client-supplied key would let two Runner versions
+with different normalization silently split or share rows.
+
+**It is always on.** There is no env var, no chart value and no availability gate — unlike the
+global response cache above, there is nothing to configure. A runtime store failure is reported
+as `X-AIGW-Cache: bypass` with `X-AIGW-Cache-Reason: cache_unavailable`, and the Runner then
+calls Tavily exactly as it would have anyway.
+
+**It shares `request_cache_entries` with the response cache.** Rows are told apart by
+`provider = 'tavily'`, with `model` holding the tool name (`web_search` / `web_fetch`). No
+migration was needed. Consequences for operators:
+
+- **Rows never expire**, the same as the response-cache lane — `expires_at` is NULL. This was a
+  deliberate choice of determinism over freshness: a re-run of a benchmark keys *and* answers
+  identically, which is what also lets the tool-loop continuation chat call hit the response
+  cache. The cost is that a stale web result can be served indefinitely.
+- **Cross-account replay applies here too.** Two callers whose retrieval descriptions are
+  identical share one row. Identity never enters the key.
+- **The exclusion list IS part of the key.** A row filled by a caller with no domain exclusions
+  is never served to one that excluded domains, because a cached hit returns an
+  already-formatted result string that can no longer be filtered. Do not remove
+  `excluded_domains` from the key — it is the only place a benchmark's retrieval policy can be
+  honoured.
+- **Results are plaintext in the database**, exactly like cached chat responses.
+
+To reset only this lane — after a Tavily behaviour change, or to drop stale pages — use the same
+per-provider delete the response cache already documents:
+
+```sql
+DELETE FROM request_cache_entries WHERE provider = 'tavily';
+```
+
+The next caller re-fills what was removed. Growth is unbounded and unswept, so watch this table
+the same way you watch the response-cache rows; `provider` lets you size the two lanes
+separately:
+
+```sql
+SELECT provider, count(*) AS rows FROM request_cache_entries GROUP BY provider;
+```
 
 ## Live OpenRouter Model Discovery (OME-972)
 

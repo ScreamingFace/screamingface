@@ -6,7 +6,7 @@ plugin source. This file pins what the shipped world must look like regardless o
 
 from __future__ import annotations
 
-from screamingface_engine.models.builtins import BUILTIN_MODEL_WORLD
+from screamingface_engine.world.models.builtins import BUILTIN_MODEL_WORLD
 
 
 def test_the_shipped_world_declares_every_compiled_provider() -> None:

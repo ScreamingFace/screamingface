@@ -253,7 +253,10 @@ class _FailingParameterSource:
         raise CatalogBadResponse("upstream included a secret-shaped detail")
 
 
-async def test_engine_returns_model_details_for_the_verified_identity_and_profile() -> None:
+async def test_engine_returns_model_details_for_the_verified_identity() -> None:
+    """OME-1381: was `..._for_the_verified_identity_and_profile`, which sent `X-Profile: research`
+    and pinned `credential.profile == "research"`. A stated selector is now refused (see
+    `test_selector_refusal.py`); the verbatim, private contract for the identity is unchanged."""
     source = _ParameterSource(ModelParameterResponse(status=200, content=_json_content(_CONTRACT)))
     app = create_app(
         Settings(jwt_secret="model-details-test"),
@@ -266,7 +269,7 @@ async def test_engine_returns_model_details_for_the_verified_identity_and_profil
         response = await client.get(
             "/v1/model-parameters",
             params={"model": _MODEL},
-            headers={"X-User-Email": "alice@example.com", "X-Profile": "research"},
+            headers={"X-User-Email": "alice@example.com"},
         )
 
     assert response.status_code == 200
@@ -275,7 +278,7 @@ async def test_engine_returns_model_details_for_the_verified_identity_and_profil
     assert response.headers["Vary"] == "X-Profile, X-User-Email"
     credential, model = source.seen[0]
     assert model == _MODEL
-    assert credential.profile == "research"
+    assert credential.profile is None
     assert credential.identity == _IDENTITY
 
 

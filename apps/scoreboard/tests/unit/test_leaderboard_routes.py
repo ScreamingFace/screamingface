@@ -45,6 +45,8 @@ def _submission(
         total_questions=total_questions,
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
+        run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
         ran_at_local=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
         client=ClientInfo(name="scoreboard-test", version="0.1.0", platform="test"),
         metadata={"source": "unit"},
@@ -202,6 +204,10 @@ async def test_get_spec_history_returns_submissions_newest_first(
         "correct_questions",
         "submitted_at",
         "submitted_by",
+        # OME-1051: history credits the exact author list, independently of ownership.
+        # Owner-approved contract change (2026-09-02), same reasoning as the two
+        # public field sets below: exact assertion kept, not loosened.
+        "authors",
         "verified_by_screamingface",
         # Widened for OME-770: the history response intentionally carries the run
         # cost. The set stays exhaustive on purpose — it is the guard that catches
@@ -473,12 +479,12 @@ async def test_get_spec_history_includes_the_run_cost(
     assert Decimal(returned) == Decimal("7.25")
 
 
-async def test_get_spec_history_reports_an_absent_cost_as_null(
+async def test_get_spec_history_reports_a_legacy_absent_cost_as_null(
     async_client: httpx.AsyncClient,
 ) -> None:
     store = ScoreStore()
     await _register_benchmark(store)
-    await store.submit(_submission(spec_id="uncosted-history"))
+    await store.submit(_legacy_uncosted("uncosted-history"))
 
     response = await async_client.get("/v1/leaderboard/hle/uncosted-history/history")
 
@@ -534,6 +540,11 @@ def _costed(spec_id: str, cost: str) -> ScoreSubmission:
     return _submission(spec_id=spec_id).model_copy(update={"run_cost_usd": Decimal(cost)})
 
 
+def _legacy_uncosted(spec_id: str) -> ScoreSubmission:
+    """Model a row written before OME-822, bypassing the new request contract."""
+    return _submission(spec_id=spec_id).model_copy(update={"run_cost_usd": None})
+
+
 @pytest.mark.parametrize(
     ("submitted", "expected"),
     [
@@ -573,14 +584,14 @@ async def test_spec_history_serializes_the_cost_at_a_fixed_scale(
     assert response.json()["submissions"][0]["run_cost_usd"] == "1000.000000"
 
 
-async def test_an_absent_cost_serializes_as_null_not_a_string(
+async def test_a_legacy_absent_cost_serializes_as_null_not_a_string(
     async_client: httpx.AsyncClient,
 ) -> None:
     # INVARIANT (D5): absent must stay absent on the wire — not "0.000000", and
     # not the string "None".
     store = ScoreStore()
     await _register_benchmark(store)
-    await store.submit(_submission(spec_id="null-scale"))
+    await store.submit(_legacy_uncosted("null-scale"))
 
     response = await async_client.get("/v1/leaderboard/hle")
 
@@ -598,7 +609,7 @@ async def test_get_leaderboard_includes_the_run_cost(
     store = ScoreStore()
     await _register_benchmark(store)
     await store.submit(_costed("costed-board", "7.25"))
-    await store.submit(_submission(spec_id="uncosted-board"))
+    await store.submit(_legacy_uncosted("uncosted-board"))
 
     response = await async_client.get("/v1/leaderboard/hle")
 
@@ -675,6 +686,11 @@ _PUBLIC_BENCHMARK_FIELDS = {
     "revision",
 }
 _PUBLIC_BOARD_ENTRY_FIELDS = {
+    # OME-1051: owner-approved contract change (2026-09-02) — the public payload gains
+    # `authors`. The assertion stays EXACT rather than being loosened to a subset
+    # check, matching the OME-775 precedent: a subset check would let a future field
+    # enter the public payload with no test noticing.
+    "authors",
     "benchmark_revision",
     # OME-923 part B: a deliberate addition to the public board. Owner-approved change to
     # this OME-894 guard (2026-08-29); the assertion stays exact so any OTHER field
@@ -692,6 +708,11 @@ _PUBLIC_BOARD_ENTRY_FIELDS = {
     "verified_by_screamingface",
 }
 _PUBLIC_HISTORY_ITEM_FIELDS = {
+    # OME-1051: owner-approved contract change (2026-09-02) — the public payload gains
+    # `authors`. The assertion stays EXACT rather than being loosened to a subset
+    # check, matching the OME-775 precedent: a subset check would let a future field
+    # enter the public payload with no test noticing.
+    "authors",
     "benchmark_revision",
     "correct_questions",
     "id",
@@ -752,6 +773,7 @@ async def test_ome894_guard_public_board_is_unchanged_anonymously(
     assert [entry["score"] for entry in entries] == [0.90, 0.60]
     # INVARIANT (OME-834): the domain is never published, on any path.
     assert [entry["submitted_by"] for entry in entries] == ["bob", "alice"]
+    assert [entry["authors"] for entry in entries] == [["bob"], ["alice"]]
 
 
 async def test_ome894_guard_public_history_is_unchanged_anonymously(
@@ -766,6 +788,7 @@ async def test_ome894_guard_public_history_is_unchanged_anonymously(
     assert set(body) == {"benchmark_id", "spec_id", "submissions"}
     assert set(body["submissions"][0]) == _PUBLIC_HISTORY_ITEM_FIELDS
     assert body["submissions"][0]["submitted_by"] == "alice"
+    assert body["submissions"][0]["authors"] == ["alice"]
 
 
 async def test_ome894_guard_public_frontier_is_unchanged_anonymously(
@@ -820,6 +843,8 @@ def _private_submission(
         total_questions=100,
         correct_questions=int(score * 100),
         ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
         benchmark_revision=revision,
     )
 
@@ -1287,6 +1312,9 @@ async def test_the_frontier_route_passes_the_registered_case_count(
                 "score": score,
                 "total_questions": total,
                 "ran_with_providers": ["openrouter"],
+                "run_cost_usd": "1.000000",
+                # OME-822: the amount and its status are a validated pair on the request.
+                "run_cost_status": "complete",
             },
         )
         assert response.status_code == 201, response.text
@@ -1352,9 +1380,10 @@ async def _row(
     `submitted_at`.
     """
     created, _ = await store.submit(_submission(spec_id=spec_id, score=score))
-    updates: dict[str, object] = {"benchmark_revision": revision}
-    if cost is not None:
-        updates["run_cost_usd"] = Decimal(cost)
+    updates: dict[str, object] = {
+        "benchmark_revision": revision,
+        "run_cost_usd": Decimal(cost) if cost is not None else None,
+    }
     await Score.filter(id=created.id).update(**updates)
 
 
@@ -1389,8 +1418,7 @@ async def test_get_leaderboard_marks_the_pareto_frontier(
 async def test_get_leaderboard_marks_nothing_when_no_row_reports_a_cost(
     async_client: httpx.AsyncClient,
 ) -> None:
-    """Today's real board: OME-770 shipped the column, nothing has ever filled it. It must
-    render as an ordinary board, not error and not mark anything."""
+    """A legacy/imported board with no cost data renders without marks or errors."""
     store = ScoreStore()
     # WHY pinned: with an unregistered revision the D12 gate returns an empty frontier before
     # compute_pareto_frontier is ever called, so this test passed no matter how a null cost was

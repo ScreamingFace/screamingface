@@ -1,7 +1,8 @@
 """`InProcessJobRunner` — the `JobRunner` over an `asyncio.Task` per run (local mode).
 
-The local-mode counterpart to `K8sJobRunner`: same port, same deterministic `job_name(topic)`
-identity, same single-use 409 guard — a task registry instead of a cluster.
+The local-mode counterpart to the queue-backed runner: same port, same deterministic
+`job_name(topic)` identity, same single-use 409 guard — a task registry instead of a
+queue and a worker pool.
 
 # INVARIANT: engine-free. The concrete `Executor` arrives through an injected
 # factory, so this module imports neither the url4 engine nor
@@ -14,9 +15,18 @@ identity, same single-use 409 guard — a task registry instead of a cluster.
 import asyncio
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 
 from screamingface_engine import job_env
+from screamingface_engine.client_provenance import ProvenanceExecutor
 from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.run_evidence import (
+    TerminalWatch,
+    adopt_or_mint_traceparent,
+    log_scheduled,
+    log_terminated,
+    outcome_of,
+)
 from url4.streaming.interfaces import (
     EventPublisher,
     Executor,
@@ -65,8 +75,8 @@ def _map_status(task: asyncio.Task[None] | None) -> JobStatus:
 class InProcessJobRunner(IdentityAwareJobRunner):
     """`JobRunner` backed by a `dict[str, asyncio.Task]`, one task per run.
 
-    Differs from `K8sJobRunner` in two ways that follow from the substrate rather than from
-    choice:
+    Differs from the queue-backed runner in two ways that follow from the substrate rather
+    than from choice:
 
     * A completed task frees its `job_name` slot immediately (see `exists`), because there is no
       lingering substrate object to block a re-run — where a finished Job persists until its TTL.
@@ -109,11 +119,22 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
     # --- admission and bookkeeping ----------------------------------------------------------
 
-    def _on_done(self, _task: asyncio.Task[None]) -> None:
+    def _on_done(
+        self,
+        task: asyncio.Task[None],
+        *,
+        topic: str,
+        traceparent: str,
+        watch: TerminalWatch,
+    ) -> None:
         # INVARIANT: registered exactly once per schedule(), so each run decrements exactly once
         # however it ended.
         self._active -= 1
         self._prune_history()
+        # FEATURE (OME-940): the durable half of the evidence. Emitted for EVERY outcome — the
+        # failed run is the one whose record is needed, and it was the one previously losing it.
+        outcome, error = outcome_of(watch, task)
+        log_terminated(_logger, topic=topic, traceparent=traceparent, outcome=outcome, error=error)
 
     def _prune_history(self) -> None:
         if len(self._tasks) <= self._max_history:
@@ -141,12 +162,15 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         profile: str | None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
+        shape: job_env.RunShape = "expression",
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
-        Deliberately the same `job_env` keys `K8sJobRunner._env` writes onto a Job spec: the two
-        adapters are two renderings of ONE contract, so `build_executor` cannot tell a local run
-        from a Job's, and a variable added to one adapter is visibly missing from the other.
+        Deliberately the same `job_env` keys the queue codec writes onto a run's message: the
+        two adapters are two renderings of ONE contract, so `build_executor` cannot tell a local
+        run from a worker's, and a variable added to one adapter is visibly missing from the
+        other.
         """
         env = dict(self._base_env)
         env[job_env.TOPIC] = topic
@@ -181,12 +205,21 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         env.pop(job_env.EXTRA_MODELS, None)
         if self._extra_models is not None:
             env.update(job_env.extra_models_to_env(self._extra_models()))
+        # INVARIANT: same reset as cache/identity — a leftover seed in `_base_env` would stamp
+        # one caller's sitting onto the next caller's run, corrupting both records (OME-1038).
+        env.pop(job_env.ANSWER_SEED, None)
+        env.update(job_env.answer_seed_to_env(answer_seed))
         # INVARIANT (OME-908): local mode's downstream bound is the shared fair-share gate,
         # NEVER this env — a copy exported in the operator's shell would stack a per-run
         # `BoundedIOLayer` UNDER the gate and re-introduce exactly the static bound local
         # mode replaced. Popped unconditionally; the gate reaches runs through the
         # executor factory's `io_gate`, not through env.
         env.pop(job_env.IO_CONCURRENCY, None)
+        # Same reset: the shape is THIS run's, never an ambient value (uniform executor PRD 04).
+        env.pop(job_env.RUN_SHAPE, None)
+        env[job_env.SPEC_VERSION] = job_env.CURRENT_SPEC_VERSION
+        if shape == "direct":
+            env[job_env.RUN_SHAPE] = "direct"
         return env
 
     # --- the JobRunner port -----------------------------------------------------------------
@@ -202,6 +235,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
+        client_version: str | None = None,
+        shape: job_env.RunShape = "expression",
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -215,25 +251,44 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
-        env = self._env(topic, url4, deadline_s, traceparent, profile, identity, cache)
+        # FEATURE (OME-940): decide the run's traceparent HERE, adopting the caller's or minting
+        # one, so the control plane can name the run it is scheduling and `job_env.TRACEPARENT`
+        # is always set. Left to `lifecycle.run`, the id would be minted after this returns and
+        # this adapter — and the runner's log context — would never learn it.
+        run_traceparent = adopt_or_mint_traceparent(traceparent)
+        env = self._env(
+            topic,
+            url4,
+            deadline_s,
+            run_traceparent,
+            profile,
+            identity,
+            cache,
+            answer_seed=answer_seed,
+            shape=shape,
+        )
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a
         # failure inside the run terminates the topic properly. See `Url4Executor._resolve_world`.
         executor = self._factory(env)
+        watch = TerminalWatch(self._stream)
         task = asyncio.get_running_loop().create_task(
             lifecycle_run(
-                self._stream,
-                executor,
+                watch,
+                ProvenanceExecutor(executor, client_version),
                 topic,
                 url4,
-                traceparent=traceparent,
+                traceparent=run_traceparent,
                 deadline_s=deadline_s,
             ),
             name=f"url4-run:{name}",
         )
-        task.add_done_callback(self._on_done)
+        task.add_done_callback(
+            partial(self._on_done, topic=topic, traceparent=run_traceparent, watch=watch)
+        )
         self._tasks[name] = task
         self._active += 1
+        log_scheduled(_logger, topic=topic, traceparent=run_traceparent, job_name=name)
         return name
 
     async def stop(self, topic: str) -> None:
@@ -241,7 +296,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
         Cancelling is what produces the run's `Terminated(stopped)` frame: `lifecycle.run`
         publishes it on the way out. No purge here — the REST DELETE route purges separately and
-        the WS stop path deliberately does not, which mirrors `K8sJobRunner`.
+        the WS stop path deliberately does not, which mirrors the queue runner.
         """
         task = self._tasks.get(job_name(topic))
         if task is not None and not task.done():

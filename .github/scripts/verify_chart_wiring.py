@@ -48,6 +48,11 @@ CONSOLE_RELEASE = "aigw-ui"
 # chart pins its name half with `nameOverride`; renaming the release would move every object name
 # anyway and defeat the pin. The two must be changed together, in OME-877, or not at all.
 ENGINE_RELEASE = "url4-cloud"
+# `fullname` is `<release>-<chart name>` (see the INVARIANT above), and the chart pins the chart-
+# name half to the release name too — so the fullname is this release name doubled. Pulled out
+# because the doubled f-string was spelled out at every call site that needs an engine object's
+# name.
+ENGINE_FULLNAME = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
 INTAKE_RELEASE = "reports"
 # What `values-cloud.yaml` deliberately leaves empty, because a chart cannot know a Gateway's name,
 # a Cloudflare application, a Pod CIDR or a mesh gateway's label — and refuses the render rather
@@ -161,6 +166,12 @@ def peer_names(policy: dict, direction: str) -> set[str]:
             ):
                 names.add(pod["app.kubernetes.io/name"])
     return names
+
+
+def _selects(selector: dict, labels: dict) -> bool:
+    """Whether every key/value `selector` names is present in `labels` — a Kubernetes selector
+    match is a SUBSET test, so `labels` carrying extra keys still matches."""
+    return all(labels.get(k) == v for k, v in selector.items())
 
 
 def settings_fields() -> list[tuple[str, ast.expr]]:
@@ -381,7 +392,9 @@ print("\naigateway snapshot wiring (bundled Garage)")
 # Garage must get its own scoped policy admitting exactly the gateway.
 gw_snap = render(GATEWAY_CHART, GATEWAY_RELEASE, "--set", "snapshot.enabled=true")
 gw_snap_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway")
-garage_policy = find_named(gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage")
+garage_policy = find_named(
+    gw_snap, "NetworkPolicy", f"{GATEWAY_RELEASE}-aigateway-garage"
+)
 garage_sts = find(gw_snap, "StatefulSet")
 gw_pod_labels = gw_deployment["spec"]["template"]["metadata"]["labels"]
 
@@ -414,7 +427,12 @@ check(
 # gate now renders the OVERRIDE path too: the Pod label and every selector must move together,
 # and the spelling that caused the outage must be refused outright.
 gw_component = render(
-    GATEWAY_CHART, GATEWAY_RELEASE, "--set", "componentLabel=server", "--set", "snapshot.enabled=true"
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    "--set",
+    "componentLabel=server",
+    "--set",
+    "snapshot.enabled=true",
 )
 gwc_deployment = find_named(gw_component, "Deployment", f"{GATEWAY_RELEASE}-aigateway")
 gwc_service = find_named(gw_component, "Service", f"{GATEWAY_RELEASE}-aigateway")
@@ -439,9 +457,9 @@ check(
 )
 check(
     any(
-        peer.get("podSelector", {}).get("matchLabels", {}).get(
-            "app.kubernetes.io/component"
-        )
+        peer.get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/component")
         == "server"
         for rule in gwc_garage_policy["spec"]["ingress"]
         for peer in rule.get("from", [])
@@ -460,17 +478,25 @@ check(
     "componentLabel, instead of silently emptying the Service",
 )
 check(
-    garage_sts["spec"]["template"]["metadata"]["labels"].get("app.kubernetes.io/component")
+    garage_sts["spec"]["template"]["metadata"]["labels"].get(
+        "app.kubernetes.io/component"
+    )
     == "garage",
     "bundled Garage Pods carry component: garage",
 )
 check(
-    garage_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    garage_policy["spec"]["podSelector"]["matchLabels"].get(
+        "app.kubernetes.io/component"
+    )
     == "garage",
     "the Garage NetworkPolicy selects ONLY Garage Pods",
 )
 check(
-    [p["port"] for rule in garage_policy["spec"]["ingress"] for p in rule.get("ports", [])]
+    [
+        p["port"]
+        for rule in garage_policy["spec"]["ingress"]
+        for p in rule.get("ports", [])
+    ]
     == [3900],
     "Garage admits exactly one ingress port: the S3 API on 3900",
 )
@@ -488,11 +514,13 @@ check(
     "Garage's 3900 ingress names THIS release's gateway Pods (name+instance+component)",
 )
 check(
-    all(gw_pod_labels.get(key) == value for key, value in admitted_peer.items()),
+    _selects(admitted_peer, gw_pod_labels),
     "the peer Garage admits IS the label set the gateway Deployment renders — the pair holds",
 )
 check(
-    gw_snap_policy["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/component")
+    gw_snap_policy["spec"]["podSelector"]["matchLabels"].get(
+        "app.kubernetes.io/component"
+    )
     == "gateway",
     "with snapshots on, the gateway policy still selects only gateway Pods",
 )
@@ -563,7 +591,8 @@ external_secret = find_named(
 )
 check(
     external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY"] == "AKIAEXTERNAL"
-    and external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY"] == "SKEXTERNAL",
+    and external_secret["stringData"]["AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY"]
+    == "SKEXTERNAL",
     "external mode renders the OPERATOR's pair verbatim — nothing is generated",
 )
 bundled_secret = find_named(
@@ -699,19 +728,76 @@ engine_chart = render(
     "--set-string",
     "config.natsUrl=nats://nats.example:4222",
 )
-url4_deployment = find(engine_chart, "Deployment")
-url4_config = find_data_owner(engine_chart, "URL4_CLOUD_RUNNER_IMAGE")
+# The chart renders TWO Deployments (the App and the runner pool, OME-1092) — the node tier
+# (unit 3) was removed (uniform executor PRD 05), so each is looked up by name rather than by
+# `find` (which would silently return whichever renders first).
+url4_deployment = find_named(engine_chart, "Deployment", ENGINE_FULLNAME)
+url4_runner_deployment = find_named(
+    engine_chart, "Deployment", f"{ENGINE_FULLNAME}-runner"
+)
 url4_app_image = url4_deployment["spec"]["template"]["spec"]["containers"][0]["image"]
-url4_runner_image = url4_config["data"]["URL4_CLOUD_RUNNER_IMAGE"]
+url4_runner_image = url4_runner_deployment["spec"]["template"]["spec"]["containers"][0][
+    "image"
+]
 url4_app_repository, url4_app_tag = url4_app_image.rsplit(":", 1)
 url4_runner_repository, url4_runner_tag = url4_runner_image.rsplit(":", 1)
 check(
     url4_runner_repository == f"{url4_app_repository}-benchmark",
-    "derives the Runner repository from the control-plane repository",
+    "derives the Runner pool image from the control-plane repository",
 )
 check(
     url4_runner_tag == url4_app_tag,
-    "pins the Runner and control-plane images to the same tag",
+    "pins the Runner pool and control-plane images to the same tag",
+)
+
+# --- FX-80/FX-90: every selector matches EXACTLY its own Deployment's pod template -----------
+# The bug this closes: the node used to share the App's {name, instance} pair, so the App's own
+# Service and Deployment selectors (a plain {name, instance}, no component) were a SUPERSET
+# match for the node's pods too — silently routing public traffic and eviction/replace churn to
+# a tier that was never meant to receive either. The node tier is gone (uniform executor PRD
+# 05), but the same class of bug can recur between the App and the runner pool, so the check
+# stays generic and now covers only the objects the chart still renders: the App's Service and
+# Deployment, and the runner pool's Deployment and PodDisruptionBudget (a default render has no
+# NetworkPolicy left to check).
+engine_pod_templates = {
+    doc["metadata"]["name"]: doc["spec"]["template"]["metadata"]["labels"]
+    for doc in engine_chart
+    if doc.get("kind") == "Deployment"
+}
+_ENGINE_SELECTOR_OWNERS = {
+    ("Service", ENGINE_FULLNAME): ENGINE_FULLNAME,
+    ("Deployment", ENGINE_FULLNAME): ENGINE_FULLNAME,
+    ("Deployment", f"{ENGINE_FULLNAME}-runner"): f"{ENGINE_FULLNAME}-runner",
+    ("PodDisruptionBudget", f"{ENGINE_FULLNAME}-runner"): f"{ENGINE_FULLNAME}-runner",
+}
+
+
+def _selector_of(doc: dict) -> dict:
+    if doc["kind"] == "Service":
+        return doc["spec"]["selector"]
+    if doc["kind"] == "NetworkPolicy":
+        return doc["spec"]["podSelector"]["matchLabels"]
+    return doc["spec"]["selector"]["matchLabels"]
+
+
+_selector_mismatches: list[str] = []
+for (kind, name), owner in _ENGINE_SELECTOR_OWNERS.items():
+    selector = _selector_of(find_named(engine_chart, kind, name))
+    for deployment_name, pod_labels in engine_pod_templates.items():
+        matches = _selects(selector, pod_labels)
+        if deployment_name == owner and not matches:
+            _selector_mismatches.append(
+                f"{kind}/{name} does not even match its OWN pods"
+            )
+        elif deployment_name != owner and matches:
+            _selector_mismatches.append(
+                f"{kind}/{name} ALSO matches {deployment_name}'s pods"
+            )
+check(
+    not _selector_mismatches,
+    "every Service/Deployment/PDB selector matches EXACTLY its intended Deployment's pod "
+    "template and no other"
+    + (f" — {_selector_mismatches}" if _selector_mismatches else ""),
 )
 
 print("\nreport-intake chart")
@@ -1352,6 +1438,38 @@ check(
     release_benchmark_tags
     and not any(tag.endswith(":latest") for tag in release_benchmark_tags),
     "the benchmark image is published only under immutable version tags",
+)
+
+# analytics publishes from ONE lane — the dev lane on every merge to main. There is no release
+# lane yet, so unlike the pairs above there is no second publisher to agree with: the chart default
+# and this lane are the whole agreement, which is why it is asserted here rather than left to a
+# release lane that does not exist. A chart naming an image nobody pushes is installable and
+# permanently ImagePullBackOff.
+analytics_chart_values = yaml.safe_load(
+    (REPO / "apps/analytics/charts/analytics/values.yaml").read_text()
+)
+analytics_dev_lane = yaml.safe_load(
+    (REPO / ".github/workflows/dev-build-analytics.yml").read_text()
+)
+analytics_dev_tags = [
+    tag.strip()
+    for tag in analytics_dev_lane["jobs"]["image"]["steps"][-1]["with"]["tags"].split(
+        "\n"
+    )
+    if tag.strip()
+]
+check(
+    any(
+        tag.rsplit(":", 1)[0] == analytics_chart_values["image"]["repository"]
+        for tag in analytics_dev_tags
+    ),
+    f"analytics's dev lane pushes the SAME image repository the chart names "
+    f"({analytics_chart_values['image']['repository']})",
+)
+check(
+    all(":main-" in tag for tag in analytics_dev_tags)
+    and not any(tag.endswith(":latest") for tag in analytics_dev_tags),
+    "analytics's dev lane publishes only immutable main-<sha> tags — never :latest",
 )
 
 # A shared GHA cache scope between images with disjoint layer sets (uv/Python vs node/Next.js) is

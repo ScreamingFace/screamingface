@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from collections.abc import Sequence
 from typing import Any
 
@@ -56,6 +57,13 @@ def format_jsonl(rows: Sequence[ScoreSchema]) -> str:
     return "\n".join(lines)
 
 
+def format_jsonl_bytes(rows: Sequence[ScoreSchema]) -> bytes:
+    """The exact bytes written by the export CLI and certified by the purge command."""
+    output = format_jsonl(rows)
+    # INVARIANT: every non-empty JSONL export ends in one newline; an empty export is zero bytes.
+    return f"{output}\n".encode() if output else b""
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Export every submission on a benchmark, including private boards.",
@@ -68,11 +76,11 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _run(benchmark_id: str) -> str:
+async def _run(benchmark_id: str) -> bytes:
     settings = Settings()
     await init_db(settings.database_url)
     try:
-        return format_jsonl(await collect_submissions(benchmark_id))
+        return format_jsonl_bytes(await collect_submissions(benchmark_id))
     finally:
         await close_db()
 
@@ -85,8 +93,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     except LookupError as exc:
         parser.error(str(exc))
     else:
-        if output:
-            print(output)
+        sys.stdout.buffer.write(output)
 
 
 if __name__ == "__main__":

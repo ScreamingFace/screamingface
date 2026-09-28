@@ -54,7 +54,16 @@ class _Sequencer:
         self._n = 0
 
     def next(self, traceparent: str, tracestate: str | None = None) -> _Envelope:
+        # INVARIANT: emitted sequence numbers are strictly monotonic and gap-free.
+        # ``previous`` is the last number emitted (``0`` before the first frame), so the
+        # counter just advanced must be exactly ``previous + 1`` — and therefore at least
+        # ``1``. A consumer finds missing frames by these numbers, so a gap is
+        # unrecoverable; this turns it into a loud producer-side failure instead of a silent
+        # hole in the stream. Inline on purpose: this runs once per streamed frame, and
+        # ``-O`` strips an assert statement but not a call to a method containing one.
+        previous = self._n
         self._n += 1
+        assert self._n == previous + 1 >= 1, f"sequence gap: {previous} -> {self._n}"
         return _Envelope(
             id=uuid4().hex,
             source=self._source,
@@ -79,6 +88,9 @@ def _error_info(exc: BaseException) -> ErrorInfo:
     code = getattr(exc, "code", None)
     permanent = getattr(exc, "permanent", None)
     return ErrorInfo(
+        # "internal_error" deliberately mirrors ErrorCode.INTERNAL_ERROR as a bare
+        # literal: url4.streaming is a concepts-only wire contract and must not
+        # import url4.core (see test_import_isolation).
         code=code if isinstance(code, str) else "internal_error",
         message=str(exc) or exc.__class__.__name__,
         permanent=permanent if isinstance(permanent, bool) else True,

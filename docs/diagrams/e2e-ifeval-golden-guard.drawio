@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="e2e-ifeval-replay">
+    <mxGraphModel dx="1000" dy="800" grid="1" gridSize="10" background="#0a0f1c" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="How one paid ifeval run becomes a FREE, permanent guard for the example notebooks" style="text;html=1;align=center;verticalAlign=middle;fontFamily=Courier New;fontSize=17;fontStyle=1;fontColor=#dbe4f0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="15" width="1520" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- LANE A -->
+        <mxCell id="laneA" value="① THE PROMISE — notebooks users run (live AI, costs money)" style="swimlane;startSize=34;html=1;fontFamily=Courier New;fontSize=14;fontStyle=1;fontColor=#dbe4f0;fillColor=#1a2233;strokeColor=#8b98ab;swimlaneFillColor=#0d1424;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="1520" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="examples/*.ipynb&#xa;the user-facing notebooks" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#1a2233;strokeColor=#8b98ab;" vertex="1" parent="laneA">
+          <mxGeometry x="30" y="70" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="sf.evaluate(&quot;ifeval&quot;)&#xa;one call grades an exam&#xa;of 50 questions" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#0c2530;strokeColor=#2dd4bf;" vertex="1" parent="laneA">
+          <mxGeometry x="320" y="70" width="280" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="ScreamingFace engine&#xa;+ AI gateway&#xa;(the product pipeline)" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#0c2530;strokeColor=#2dd4bf;" vertex="1" parent="laneA">
+          <mxGeometry x="660" y="70" width="280" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="real AI models 💵&#xa;2 panel models + 1 judge&#xa;(corrective loop, ≤3 rounds)" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#2e250f;strokeColor=#d7b357;" vertex="1" parent="laneA">
+          <mxGeometry x="1000" y="70" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" value="Report&#xa;score 0.9184" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#0a2b1e;strokeColor=#34d399;" vertex="1" parent="laneA">
+          <mxGeometry x="1300" y="70" width="190" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- LANE B -->
+        <mxCell id="laneB" value="② THE REPLAY — CI re-runs the SAME call on every code change (free, zero AI keys)" style="swimlane;startSize=34;html=1;fontFamily=Courier New;fontSize=14;fontStyle=1;fontColor=#dbe4f0;fillColor=#33240a;strokeColor=#e8b339;swimlaneFillColor=#0d1424;" vertex="1" parent="1">
+          <mxGeometry x="40" y="320" width="1520" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="ifeval.snapshot.gz&#xa;THE TAPE&#xa;177 recorded AI answers&#xa;sealed with a fingerprint" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#221a33;strokeColor=#a78bfa;" vertex="1" parent="laneB">
+          <mxGeometry x="30" y="55" width="260" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="AI gateway — ZERO keys&#xa;answers ONLY from the tape&#xa;missing answer = loud failure,&#xa;a live paid call is impossible" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#33240a;strokeColor=#e8b339;" vertex="1" parent="laneB">
+          <mxGeometry x="400" y="60" width="340" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="real engine — the exact&#xa;pipeline code from ①&#xa;sf.evaluate(&quot;ifeval&quot;), same&#xa;50 questions" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#0c2530;strokeColor=#2dd4bf;" vertex="1" parent="laneB">
+          <mxGeometry x="850" y="60" width="340" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="b6" value="fresh Report&#xa;score + 50 case&#xa;results + failure&#xa;reasons" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#1a2233;strokeColor=#8b98ab;" vertex="1" parent="laneB">
+          <mxGeometry x="1290" y="60" width="200" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- LANE C -->
+        <mxCell id="laneC" value="③ THE ANSWER KEY — the replay must match the real run, five locks" style="swimlane;startSize=34;html=1;fontFamily=Courier New;fontSize=14;fontStyle=1;fontColor=#dbe4f0;fillColor=#0a2b1e;strokeColor=#34d399;swimlaneFillColor=#0d1424;" vertex="1" parent="1">
+          <mxGeometry x="40" y="580" width="1520" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="ifeval.golden.json&#xa;the frozen answer key&#xa;(blessed once from the&#xa;real run&#x27;s report)" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#0a2b1e;strokeColor=#34d399;" vertex="1" parent="laneC">
+          <mxGeometry x="30" y="110" width="260" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="FIVE LOCKS, checked in order:&#xa;&#xa;① recipe fingerprint (sha-256)&#xa;② all 50 case statuses — 49 scored · 1 failed&#xa;③ WHY each failed case failed&#xa;④ coverage: 49 / 50 gradeable&#xa;⑤ final score = 0.9184, digit for digit" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=14;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#1a2233;strokeColor=#8b98ab;" vertex="1" parent="laneC">
+          <mxGeometry x="360" y="70" width="420" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="all 5&#xa;match?" style="rhombus;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#1a2233;strokeColor=#8b98ab;" vertex="1" parent="laneC">
+          <mxGeometry x="850" y="110" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="CI GREEN ✓&#xa;the pipeline behaves exactly as the&#xa;notebooks expect — safe to merge" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#0a2b1e;strokeColor=#34d399;" vertex="1" parent="laneC">
+          <mxGeometry x="1090" y="55" width="400" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="CI RED ✗&#xa;the merge is blocked BEFORE the change&#xa;can break a user&#x27;s notebook" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#2c1218;strokeColor=#e06c75;" vertex="1" parent="laneC">
+          <mxGeometry x="1090" y="185" width="400" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Lane A edges -->
+        <mxCell id="e1" value="runs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneA" source="a1" target="a2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneA" source="a2" target="a3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="asks, pays&#xa;per answer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneA" source="a3" target="a4">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="0" y="-40" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e4" value="graded into" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneA" source="a4" target="a5">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="0" y="-25" as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- recording edge A -> B -->
+        <mxCell id="e5" value="every AI answer recorded ONCE (one paid run, 2026-08-25)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#d7b357;fontFamily=Courier New;fontSize=11;fontColor=#d7b357;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="a4" target="b1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1160" y="300" />
+              <mxPoint x="200" y="300" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Lane B edges -->
+        <mxCell id="e6" value="the ONLY source&#xa;of AI answers" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="b1" target="b2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="serves recorded&#xa;answers" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="b2" target="b3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="grades &amp;&#xa;aggregates" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneB" source="b3" target="b6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- B -> C and C edges -->
+        <mxCell id="e9" value="the FRESH result" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="b6" target="c2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1390" y="560" />
+              <mxPoint x="610" y="560" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="the EXPECTED result" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneC" source="c1" target="c2">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="0" y="-22" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="laneC" source="c2" target="c3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#34d399;fontFamily=Courier New;fontSize=11;fontColor=#34d399;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.25;entryX=0;entryY=0.5;" edge="1" parent="laneC" source="c3" target="c4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="any lock breaks" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e06c75;fontFamily=Courier New;fontSize=11;fontColor=#e06c75;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.75;entryX=0;entryY=0.5;" edge="1" parent="laneC" source="c3" target="c5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- footer note -->
+        <mxCell id="footer" value="Why this protects the notebooks: same product code, same 50 questions, same recorded AI answers — the ONLY variable left is the code change under review. If a change alters anything a notebook user would see (the recipe, a case result, the score), one of the five locks breaks and CI stops the merge. Runs on every pull request, costs nothing, needs no AI keys." style="rounded=1;dashed=1;whiteSpace=wrap;html=1;align=left;spacingLeft=14;spacingRight=14;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;fillColor=#0d1424;strokeColor=#8b98ab;" vertex="1" parent="1">
+          <mxGeometry x="40" y="940" width="1160" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- legend -->
+        <mxCell id="legend" value="Legend" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#8b98ab;verticalAlign=top;fontStyle=1;fontFamily=Courier New;fontSize=12;fontColor=#dbe4f0;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="940" width="300" height="158" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1" value="" style="rounded=0;html=1;fillColor=#221a33;strokeColor=#a78bfa;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="28" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1t" value="recorded data (the tape)" style="text;html=1;align=left;verticalAlign=middle;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="26" width="240" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" value="" style="rounded=0;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="52" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2t" value="real product code" style="text;html=1;align=left;verticalAlign=middle;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="50" width="240" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" value="" style="rounded=0;html=1;fillColor=#2e250f;strokeColor=#d7b357;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="76" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3t" value="costs money / done once" style="text;html=1;align=left;verticalAlign=middle;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="74" width="240" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" value="" style="rounded=0;html=1;fillColor=#0a2b1e;strokeColor=#34d399;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="100" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4t" value="match / safe to merge" style="text;html=1;align=left;verticalAlign=middle;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="98" width="240" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" value="" style="rounded=0;html=1;fillColor=#2c1218;strokeColor=#e06c75;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="124" width="30" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5t" value="mismatch / merge blocked" style="text;html=1;align=left;verticalAlign=middle;fontFamily=Courier New;fontSize=11;fontColor=#dbe4f0;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="122" width="240" height="20" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

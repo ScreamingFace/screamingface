@@ -1,6 +1,11 @@
 """Usage-accounting taxonomy, normalization and response rendering plugin."""
 
 from .collector import RequestAccountingCollector, new_gateway_call_id
+from .entry_metadata import (
+    CacheEntryMetadataReferenceError,
+    cache_entry_metadata_from_session,
+    cache_reference_from_entry_metadata,
+)
 from .money import canonical_amount, sum_amounts
 from .types import (
     SCHEMA_PROVIDER_ATTEMPT,
@@ -33,6 +38,7 @@ __all__ = [
     "TRANSPORT_LITELLM_ASYNC_HTTP",
     "AccountingCapability",
     "CacheReference",
+    "CacheEntryMetadataReferenceError",
     "CacheWriteTTL",
     "CallOutcome",
     "CaptureStatus",
@@ -50,6 +56,8 @@ __all__ = [
     "UsageAccountingStrategy",
     "UsageSource",
     "canonical_amount",
+    "cache_entry_metadata_from_session",
+    "cache_reference_from_entry_metadata",
     "new_gateway_call_id",
     "sum_amounts",
 ]

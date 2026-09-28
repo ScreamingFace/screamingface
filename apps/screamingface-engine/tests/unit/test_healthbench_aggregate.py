@@ -10,14 +10,14 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.healthbench.aggregate import (
-    AggregateError,
-    aggregate,
-    load_rubric_points,
-)
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
+)
+from screamingface_engine.benchmarks.healthbench.grade import (
+    AggregateError,
+    aggregate,
+    load_rubric_points,
 )
 from screamingface_engine.benchmarks.healthbench.records import CASE_SCHEMA, RUBRIC_SCHEMA
 from screamingface_engine.benchmarks.healthbench.scoring import clipped_mean, unclipped_mean
@@ -409,7 +409,7 @@ def test_provider_refusals_are_mapped_by_case_and_preserved_exactly(tmp_path: Pa
 
     assert result["score"] == 0.5
     assert result["coverage"] == 1.0
-    assert [case["status"] for case in result["cases"]] == ["refused", "refused"]
+    assert [case["status"] for case in result["cases"]] == ["scored", "scored"]  # OME-1037
     assert [case["refusal"] for case in result["cases"]] == [first, second]
     assert [case["finish_reason"] for case in result["cases"]] == [
         "content_filter",

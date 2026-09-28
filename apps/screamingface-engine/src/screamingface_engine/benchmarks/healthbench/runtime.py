@@ -24,6 +24,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
@@ -34,7 +36,14 @@ from screamingface_engine.benchmarks.evaluation import (
     positive_case_id,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.healthbench import aggregate as reducing
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
+from screamingface_engine.benchmarks.grading_activity import grading_activity
+from screamingface_engine.benchmarks.healthbench import grade as reducing
 from screamingface_engine.benchmarks.healthbench import records
 from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     bind_case_evaluation,
@@ -49,6 +58,7 @@ from screamingface_engine.benchmarks.healthbench.prompts import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -109,8 +119,7 @@ def _install_protocol_once(
     case_ids: tuple[int, ...],
     mean: ExamMean,
 ) -> None:
-    if cases_route not in getattr(node, "_data", {}):
-        node.data(cases_route, _cases(root, case_ids), media_type="application/json")
+    install_cases(node, cases_route, _cases(root, case_ids))
     routes = frozenset(node.processor_routes())
     endpoints = (
         (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),
@@ -169,13 +178,14 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
         if reducing.load_rubric_points(root, case_id) is None:
             problems.append(f"rubric asset for case {case_id} missing or invalid")
     if problems:
-        raise _unavailable("HealthBench assets failed preflight: " + "; ".join(problems[:8]))
+        raise _definition_error("HealthBench assets failed preflight: " + "; ".join(problems[:8]))
 
 
 def _cases(root: Path, case_ids: tuple[int, ...]):
     # Reference counterpart: the example selection at the top of the reference's
     # eval loop (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py)
     # — here the selection is this board's case list, served from the baked assets.
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         preflight(root, case_ids)
         raw = _read(root / "cases.json", "HealthBench cases")
@@ -190,9 +200,11 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     # PRIVATE rubric off disk — the first time the answer key touches the flow.
     # Reference counterpart: the prompt-construction half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
+    @observe_stage(ActivityKind.GRADING)
     def rubric_tasks(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = candidate_answer(request.context)
             evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "HealthBench cases")
@@ -245,6 +257,8 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                     }
                 )
         except (OSError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         return compact_json(tasks)
 
@@ -257,6 +271,7 @@ def _rubric_verdict(benchmark_id: str):
     # never trusted from the judge).
     # Reference counterpart: the parse-and-retry half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
+    @observe_stage(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
             case_id, rubric_id = binding_key(request.intent)
@@ -267,7 +282,7 @@ def _rubric_verdict(benchmark_id: str):
                 producer_id=JUDGE_MODEL,
             )
         except ValueError as exc:
-            raise _unavailable(str(exc)) from exc
+            raise _contract_error(str(exc)) from exc
         if record.get("valid") is not True:
             # WHY transient, not a returned record: the expression's `;retry=` on this
             # route re-resolves the NESTED judge call, so each re-ask draws a fresh
@@ -296,6 +311,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
+@observe_stage(ActivityKind.GRADING)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)
@@ -312,7 +328,7 @@ def _rubric_evaluation(request: Request) -> str:
             json_object(payload["evidence"], "Rubric verdict"),
         )
     except (TypeError, ValueError) as exc:
-        raise _unavailable(str(exc)) from exc
+        raise _contract_error(str(exc)) from exc
     return compact_json(result)
 
 

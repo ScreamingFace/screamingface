@@ -230,12 +230,18 @@ def prepare_nltk(out: Path) -> dict[str, Any]:
 
 
 def _prepare(out: Path, limit: int | None) -> dict[str, Any]:
+    # WHY the corpus FIRST: `cases.json` is this bundle's completion marker — a resumable
+    # bake treats a directory holding it as finished. `build` writes it as its last effect,
+    # so downloading the corpus afterwards left a window where an interrupted run looked
+    # complete while `nltk_data/` was missing, and grading then failed at run time with
+    # manual deletion as the only recovery. Every preparer must leave `cases.json` last.
+    nltk_summary = prepare_nltk(out)
     summary = build(
         load_rows(limit),
         out,
         expected_count=CASE_COUNT if limit is None else limit,
     )
-    return summary | prepare_nltk(out)
+    return summary | nltk_summary
 
 
 def prepare(out: Path) -> dict[str, Any]:

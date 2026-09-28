@@ -1,12 +1,12 @@
 ---
 id: OME-967
 linear_url: https://linear.app/openmined/issue/OME-967/originate-the-traceparent-in-the-client-and-surface-trace-id-to-the
-status: in_progress
+status: done
 type: null
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-24
-closed:
+closed: 2026-09-02
 ---
 
 # Originate the traceparent in the client and surface `trace_id` to the user

@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import re
 import warnings
+from typing import cast, get_args
 
 from url4.core._scan import skip_quoted
 from url4.core.errors import ParseError
-from url4.core.nodes import IterationDirectives, Params
+from url4.core.nodes import IterationDirectives, OnErrorPolicy, Params
 
 # §8.1.3 — keys that can ONLY be source-level execution annotations; the first
 # one encountered in a sugar-form ``;`` chain triggers the boundary. ``coord.*``
@@ -31,7 +32,10 @@ EXCLUSIVE_SOURCE_KEYS = frozenset(
     {"mode", "retry", "required", "optional", "accept", "expand", "coord"}
 )
 
-_VALID_ON_ERROR = ("skip", "fail", "collect")
+# The one definition of the accepted policy set is OnErrorPolicy's Literal in
+# core.nodes; this validator derives from it so the wire grammar and the
+# dataclass cannot drift apart.
+_VALID_ON_ERROR = get_args(OnErrorPolicy)
 
 
 def split_annotation_pairs(parts: list[str]) -> Params:
@@ -121,7 +125,6 @@ def validate_param(key: str, value: str | None) -> None:
     if not _PARAM_KEY_RE.fullmatch(key):
         raise ParseError(
             f"invalid param key {key!r} — `param-key` takes ALPHA / DIGIT / '.' / '_'",
-            code="malformed_source",
         )
     if not value or key in EXPRESSION_BEARING_KEYS or _is_quoted(value):
         return
@@ -129,7 +132,6 @@ def validate_param(key: str, value: str | None) -> None:
         raise ParseError(
             f"invalid param value {value!r} for {key!r} — `param-value` takes "
             "ALPHA / DIGIT / '.' / '-' / '_' / ',' / ':' / '/'",
-            code="malformed_source",
         )
 
 
@@ -205,7 +207,7 @@ def _parse_directive(name: str, value: str) -> object:
     return parser(value)
 
 
-def _parse_on_error(value: str) -> str:
+def _parse_on_error(value: str) -> OnErrorPolicy:
     result = value.strip()
     if result == "abort":
         warnings.warn(
@@ -218,7 +220,9 @@ def _parse_on_error(value: str) -> str:
         raise ParseError(
             f"invalid iteration.on_error={result!r}; expected one of {', '.join(_VALID_ON_ERROR)}"
         )
-    return result
+    # The membership check above IS the runtime proof; the type system cannot
+    # see it, so this cast only records what was established.
+    return cast(OnErrorPolicy, result)
 
 
 def _parse_concurrency(value: str) -> int:

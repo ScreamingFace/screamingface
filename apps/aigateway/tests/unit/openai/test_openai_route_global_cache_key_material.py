@@ -1,20 +1,17 @@
 """OME-884 — what enters a direct-OpenAI cache key at the ROUTE, and what cannot.
 
 FEATURE: one globally shared exact-request cache (OME-305). The key is built from the
-EFFECTIVE request, so anything the gateway merges in before the cache stage is key
-material — and anything about WHO is asking must not be.
+caller's request — since OME-1323 (D2) the gateway merges no stored Profile default into
+it — and anything about WHO is asking must not be in it.
 
 STORY: as a benchmark operator I re-run a suite from a second account that holds no OpenAI
 key of its own, and the identical calls are served from the first run's rows — no OpenAI
 credential is read or decrypted to serve them.
 
-INVARIANT under test, in two halves that pull in opposite directions:
-  IN  — a profile-defaulted ``max_tokens`` isolates exactly like an explicit one, and an
-        explicit value equal to the default shares the row (the body-wins merge runs
-        before cache planning, OME-305 ruling 57);
-  OUT — account, profile, auth mode and credential are structurally absent, which is what
-        licenses cross-account replay. A hit reads no provider credential, dispatches
-        nothing, and reports no accounting rather than a failed accounting mapper.
+INVARIANT under test: account, profile, auth mode and credential are structurally absent,
+which is what licenses cross-account replay. A hit reads no provider credential, dispatches
+nothing, and reports no accounting rather than a failed accounting mapper. (Explicit caller
+parameters keying apart is pinned by ``test_chat_global_cache_key_parity.py``.)
 """
 
 from __future__ import annotations
@@ -31,60 +28,6 @@ from .route_harness import dispatching as _dispatching
 from .route_harness import install as _install
 from .route_harness import post as _post
 from .route_harness import seed_profile as _seed_profile
-from .route_harness import system_contents as _system_contents
-
-# --- profile defaults enter the key, provenance does not ----------------------
-
-
-def test_a_profile_default_max_tokens_isolates_and_an_explicit_equal_value_shares(
-    cache_client,
-) -> None:
-    """Two ceilings, two rows — and a caller who types the ceiling joins the row.
-
-    INVARIANT (OME-305 ruling 57): the key covers the EFFECTIVE request, so a stored
-    default is in it. It does NOT cover where the value came from, so an explicit 64
-    and a defaulted 64 are one request.
-    """
-    _seed_profile(cache_client, name="tight", defaults={"max_tokens": 64})
-    _seed_profile(cache_client, name="roomy", defaults={"max_tokens": 4000})
-    _seed_profile(cache_client, name="plain")
-    store = _install(cache_client, _Store())
-    dispatch = _Dispatch()
-
-    with _dispatching(cache_client, dispatch):
-        tight = _post(cache_client, _body(), profile="tight")
-        roomy = _post(cache_client, _body(), profile="roomy")
-        explicit = _post(cache_client, _body(max_tokens=64), profile="plain")
-
-    assert [tight.headers["X-AIGW-Cache"], roomy.headers["X-AIGW-Cache"]] == ["miss", "miss"]
-    assert tight.headers["X-AIGW-Cache-Key"] != roomy.headers["X-AIGW-Cache-Key"]
-    assert explicit.headers["X-AIGW-Cache"] == "hit", (
-        "an explicitly sent ceiling was keyed apart from the identical stored default; "
-        "the key captured provenance rather than the request"
-    )
-    assert explicit.headers["X-AIGW-Cache-Key"] == tight.headers["X-AIGW-Cache-Key"]
-    assert len(store.rows) == 2
-    assert [body["max_tokens"] for body in dispatch.bodies] == [64, 4000]
-
-
-def test_two_stored_system_prompts_isolate_through_the_effective_messages(cache_client) -> None:
-    """Different stored prompts ask OpenAI two different questions, so two rows."""
-    _seed_profile(cache_client, name="pirate", defaults={"system_prompt": "you are a pirate"})
-    _seed_profile(cache_client, name="lawyer", defaults={"system_prompt": "you are a lawyer"})
-    store = _install(cache_client, _Store())
-    dispatch = _Dispatch()
-
-    with _dispatching(cache_client, dispatch):
-        pirate = _post(cache_client, _body(), profile="pirate")
-        lawyer = _post(cache_client, _body(), profile="lawyer")
-
-    assert [pirate.headers["X-AIGW-Cache"], lawyer.headers["X-AIGW-Cache"]] == ["miss", "miss"]
-    assert pirate.headers["X-AIGW-Cache-Key"] != lawyer.headers["X-AIGW-Cache-Key"]
-    assert len(store.rows) == 2
-    # The half that makes the miss CORRECT rather than merely different.
-    assert _system_contents(dispatch.bodies[0]) == ["you are a pirate"]
-    assert _system_contents(dispatch.bodies[1]) == ["you are a lawyer"]
-
 
 # --- identity is structurally absent from the key -----------------------------
 
@@ -130,10 +73,10 @@ def test_a_hit_reads_no_openai_credential_dispatches_nothing_and_reports_no_acco
 ) -> None:
     """What a hit must NOT do — the whole point of placing the stage before Stage 2.
 
-    The guard allows ``aigateway:index`` because ``profile_defaults_for_key`` reads the
-    profile index to build the EFFECTIVE request, which is a documented, accepted read.
-    Everything under ``aigateway:openai:`` is a provider credential: reading it would
-    mean decrypting a secret to serve a response that needs none.
+    The guard refuses only ``aigateway:openai:`` provider credentials: reading one would
+    mean decrypting a secret to serve a response that needs none. The request that
+    reaches the cache is exactly the caller's body (OME-1323, D2), and no Profile read
+    runs to supplement it.
 
     Also pinned here: the accounting a hit reports. Direct OpenAI contributes no usage
     strategy, so ``accounting_not_supported`` is the honest answer, and its explicit

@@ -1,12 +1,12 @@
 ---
 id: OME-874
 linear_url: https://linear.app/openmined/issue/OME-874/replicate-the-leaderboard-mvp-landing-copy-and-ui-on-the-portal
-status: In Progress
+status: Done
 type: feature
 priority: 2
 labels: [scoreboard, agentic, autonomous]
 created: 2026-08-18
-closed:
+closed: 2026-08-19
 ---
 
 # Replicate the leaderboard-mvp landing copy and UI on the portal

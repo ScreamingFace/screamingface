@@ -22,7 +22,9 @@ Stages of one rehearsal, in execution order:
    answers 200 so the stand-in boots like the real gateway, and ``GET /v1/models``
    answers the OpenAI-style listing of EXACTLY the tape's models — the SDK's run
    planning reads the engine's catalogue (which proxies this route) before any model
-   call, and a projection of the tape is still the tape, not an improvised answer.
+   call. ``GET /v1/model-parameters`` projects minimal configured-access metadata
+   for those same taped identities. A projection of the tape is still the tape,
+   not an improvised answer.
 3. **Refuse loudly** — anything else gets a named 404 and a row in ``refusals``:
    an untaped model is ``fake_gateway_unmatched_request`` (the Tape contract —
    ``lookup`` returns the exchange or ``None``, and ``None`` surfaces as a loud error,
@@ -51,7 +53,7 @@ import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 from .tape import RecordedExchange, Tape
 
@@ -86,6 +88,10 @@ class FakeGateway:
     def __init__(self, tape: Tape) -> None:
         self._by_model = _index_by_model(tape)
         self._refusals: list[RefusedRequest] = []
+        # OME-1105: every inbound request's headers, in arrival order. The engine is the
+        # only caller, so this is the wire between engine and gateway — the one place a
+        # test can see whether trace context actually crossed it.
+        self._inbound_headers: list[dict[str, str]] = []
         self._lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -138,12 +144,40 @@ class FakeGateway:
         with self._lock:
             self._by_model = by_model
             self._refusals.clear()
+            self._inbound_headers.clear()
 
     @property
     def refusals(self) -> tuple[RefusedRequest, ...]:
         """Every off-script request served the loud error, in arrival order."""
         with self._lock:
             return tuple(self._refusals)
+
+    @property
+    def inbound_headers(self) -> tuple[dict[str, str], ...]:
+        """Headers of every request the engine made to this gateway, in arrival order.
+
+        INVARIANT (OME-1105): this lives on the CONCRETE backend, never on
+        ``ports.ReplayBackend``. That protocol is exactly ``start()``/``stop()`` and its
+        docstring forbids growing it with introspection — a header hook there would couple
+        the engine boot to one backend's internals.
+        """
+        with self._lock:
+            return tuple(dict(h) for h in self._inbound_headers)
+
+    def trace_ids_seen(self) -> set[str]:
+        """Distinct W3C trace ids observed on inbound ``traceparent`` headers."""
+        found = set()
+        for headers in self.inbound_headers:
+            value = headers.get("traceparent")
+            if value:
+                parts = value.split("-")
+                if len(parts) == 4 and len(parts[1]) == 32:
+                    found.add(parts[1])
+        return found
+
+    def _record_headers(self, headers: dict[str, str]) -> None:
+        with self._lock:
+            self._inbound_headers.append(headers)
 
     # -- handler callbacks (each request runs on its own server thread) ---------------
     def _lookup_model(self, model: str | None) -> RecordedExchange | None:
@@ -206,15 +240,50 @@ class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler naming
+        self.gateway._record_headers(dict(self.headers))
         if self.path == _HEALTH_PATH:
             self._reply(200, b'{"status":"ok"}', "application/json")
             return
         if self.path == _MODELS_PATH:
             self._reply(200, self.gateway._catalog_projection(), "application/json")
             return
-        self._refuse_unroutable()
+        parsed = urlsplit(self.path)
+        if parsed.path == "/v1/model-parameters":
+            self._reply_model_details(parsed.query)
+        else:
+            self._refuse_unroutable()
+
+    def _reply_model_details(self, query: str) -> None:
+        model = parse_qs(query).get("model", [None])[0]
+        exchange = self.gateway._lookup_model(model)
+        if exchange is None:
+            self._refuse_unmatched(model)
+            return
+        # WHY: taped failures require configured access so evaluation reaches
+        # the scripted completion. Discovery must never invent untaped models.
+        document = {
+            "schema_version": 1,
+            "contract_id": "authored-replay",
+            "model": {
+                "id": exchange.normalized.model,
+                "gateway_provider": exchange.normalized.provider,
+                "upstream_id": exchange.normalized.model.split("/", 1)[-1],
+            },
+            "context": {
+                "scope": "account_profile",
+                "auth_mode": "none",
+                "revision": "authored-replay",
+                "execution_access": "configured",
+            },
+            "parameters": {},
+            "tools": {},
+            "transport": {},
+            "freshness": {"stale": False, "degraded": False},
+        }
+        self._reply(200, json.dumps(document).encode(), "application/json")
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler naming
+        self.gateway._record_headers(dict(self.headers))
         if self.path != _COMPLETIONS_PATH:
             self._refuse_unroutable()
             return

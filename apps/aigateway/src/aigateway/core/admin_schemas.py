@@ -117,11 +117,11 @@ class SetAdminApiKeyRequest(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     api_key: SecretStr
-    defaults: ProfileDefaults | None = None
 
 
 class PatchAdminProfileRequest(BaseModel):
-    defaults: ProfileDefaults | None = None
+    # WHY no `defaults` (OME-1323, D2): saved defaults are no longer written; a body that still
+    # carries the member is refused by the route before this model matters.
     account_label: str | None = None
 
 
@@ -163,6 +163,21 @@ class AdminCacheJobOut(BaseModel):
     """Merge mode only, best-effort: derived from the before/after counts, not row RETURNING."""
 
     updated_rows: int | None = None
+    metadata_degraded: int = 0
+    """AT LEAST this many live rows were turned from "priced" back to "unknown" by this load.
+
+    Two things do it: a legacy archive carries no metadata block and the merge treats the block as
+    content, and a staged row carrying the SAME block beside a different response trips the
+    stale-metadata trigger. Either way the row loses what its response cost, irreversibly —
+    reported here so the restore is what gets blamed, not a later run's drifting saved-cost
+    coverage.
+
+    A LOWER BOUND, not an exact count. It is measured a statement before the merge and without
+    holding a table lock, because the load must never block serving (OME-951 spec §7), so a fill
+    committing in that window is degraded without being counted. The error only ever runs
+    downward: this number never claims a degradation that did not happen. Read `0` as "none
+    observed", never as "none occurred"."""
+
     manifest_present: bool = False
     forced: bool = False
     """A revision mismatch was overridden with ``force`` — visible on the job and the audit line."""

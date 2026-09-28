@@ -149,6 +149,9 @@ def _benchmark(entry: _BenchmarkEntry) -> Benchmark:
         description=entry.description,
         revision=entry.revision,
         case_count=entry.case_count,
+        origin=entry.origin,
+        interaction=entry.interaction,
+        difficulty=entry.difficulty,
     )
 
 

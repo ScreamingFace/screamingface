@@ -43,15 +43,16 @@ import json
 import httpx
 import pytest
 
-from screamingface_engine.runner.cache_readback import (
+from screamingface_engine.request_scope import RequestScope, request_scope
+from screamingface_engine.runner.executor import _RunState
+from screamingface_engine.world.cache_readback import (
     CacheOutcome,
     CacheStatus,
     read_cache_outcome,
     requires_revalidation,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.runner.executor import _RunState
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.dag import run as url4_run
 from url4.observe import ModelResponse, NodeFinished, NodeStarted, ObservationEvent
 from url4.streaming.interfaces import Traced
@@ -393,8 +394,12 @@ async def _run_against(
     cfg = AigatewayConfig(models=(ModelSpec(id=_MODEL),), default_model=_MODEL)
     rec = _Recorder()
     async with gateway.client() as client:
-        world = await build_aigateway_world(cfg, client=client, cache=cache)
-        result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec)
+        world = await build_aigateway_world(cfg, client=client)
+        # F2: the cache policy travels in the request scope, not on the world.
+        with request_scope(
+            RequestScope(origin="run", cache=cache if cache is not None else CachePolicy())
+        ):
+            result = await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec)
     return result, rec
 
 
@@ -631,3 +636,19 @@ def test_a_round_trip_reporting_no_outcome_does_not_erase_an_earlier_one() -> No
 def test_an_outcome_for_an_unknown_span_is_dropped_not_fabricated() -> None:
     # Mirrors `_fold_usage`'s guard: an event for a span this run never opened must not invent one.
     assert _RunState().map(ModelResponse("ghost", "stop", None, "hit", None)) == []
+
+
+# ── the retry flag: carried, never inferred ───────────────────────────────────────────────
+
+
+def test_an_outcome_defaults_to_not_retried() -> None:
+    """Every existing construction site omits the flag, so the default must be the safe one."""
+    assert CacheOutcome(status="hit", reason=None, key=None, age_s=None).retried is False
+
+
+def test_read_cache_outcome_passes_the_retried_flag_through() -> None:
+    # `read_cache_outcome` never derives this fact from the headers — only `_post_completion`
+    # knows a retry happened, and the flag is a plain passthrough onto the parsed outcome.
+    outcome = read_cache_outcome({"X-AIGW-Cache": "hit"}, retried=True)
+
+    assert outcome.retried is True

@@ -83,8 +83,25 @@ class _FakeVBox(_FakeBox):
     pass
 
 
+class _FakeControl:
+    def __init__(self, **values: Any) -> None:
+        self.__dict__.update(values)
+        self.layout = values.get("layout", _FakeLayout())
+
+    def observe(self, callback: Any, *, names: str) -> None:
+        pass
+
+    def on_click(self, callback: Any) -> None:
+        pass
+
+
 def _fake_widgets() -> SimpleNamespace:
     return SimpleNamespace(
+        HBox=_FakeBox,
+        ToggleButton=_FakeControl,
+        Button=_FakeControl,
+        Label=_FakeControl,
+        BoundedIntText=_FakeControl,
         Box=_FakeBox,
         HTML=_FakeHTML,
         Layout=_FakeLayout,
@@ -325,7 +342,7 @@ def report_for(
                 else (
                     sf.Failure(
                         stage="grading",
-                        code="missing_grade",
+                        code="grading_failed",
                         message="fixture grade unavailable",
                         case_id=case_id,
                         metadata={},
@@ -420,7 +437,7 @@ def test_async_candidate_runner_uses_one_bound_observer_per_run() -> None:
     assert sorted(observed) == [("gpt", "run_gpt"), ("opus", "run_opus")]
 
 
-def test_final_report_is_the_only_score_and_finished_authority() -> None:
+def test_final_report_is_score_authority_after_execution_finishes() -> None:
     opus = candidate("opus")
     progress = _EvaluationProgress(candidates=(opus,), case_count=1)
     progress.observe(
@@ -447,7 +464,7 @@ def test_final_report_is_the_only_score_and_finished_authority() -> None:
         ),
     )
 
-    assert progress.rows[0].status == "running"
+    assert progress.rows[0].status == "finished"
     assert progress.rows[0].score is None
     assert progress.rows[0].score_available is False
 
@@ -586,7 +603,7 @@ def test_terminal_engine_evidence_wins_over_workflow_abort_inference() -> None:
 
     html = _runtime_fragments_html(progress, "DRACO", elapsed=20)
     table = html.split("<table", 1)[1].split("</table>", 1)[0]
-    assert ">Stopped<" in table
+    assert ">Stopped · 1s<" in table
     assert "Run stopped" not in table
     assert "sf-eval__activity" not in table
     assert "<details" not in html
@@ -636,7 +653,7 @@ def test_candidate_table_uses_the_approved_columns_and_truthful_values() -> None
     assert html.count("scope='col'") == len(headers)
     assert "<table" in html
     assert "table-layout:fixed" in html
-    widths = {"candidate": 27, "status": 17, "cases": 10, "score": 17, "cost": 14, "cache": 15}
+    widths = {"candidate": 22, "status": 22, "cases": 10, "score": 17, "cost": 14, "cache": 15}
     for name, width in widths.items():
         assert f".sf-eval__col--{name}{{width:{width}%}}" in html
     assert "opus" in html
@@ -658,7 +675,8 @@ def test_candidate_table_owns_the_responsive_scroll_boundary() -> None:
     assert "overflow-x:auto" in html
     assert ".sf-eval__table-scroll .sf-eval__table-wrap{overflow:visible}" in html
     assert "min-width:820px" in html
-    assert "tabindex='0'" not in html
+    assert "class='sf-eval__table-wrap' tabindex='0'" not in html
+    assert "class='sf-eval__candidate' tabindex='0'" in html
     assert "role='region'" not in html
     assert "aria-label='Candidate evaluation table'" not in html
     assert ".sf-eval{border:0;padding:0 0 14px;" in html
@@ -959,7 +977,7 @@ def test_notebook_view_clock_advances_and_abort_leaves_a_frozen_panel(
 
     assert view._done.is_set()
     assert view._table is scroll
-    assert "Run failed" in _widget_text(view._html)
+    assert "Failed" in _widget_text(view._html)
     assert "result decode failed" in _widget_text(view._html)
 
 
@@ -994,7 +1012,10 @@ def test_notebook_view_lifecycle_shows_once_and_reconciles_authoritative_report(
     assert scroll.tabbable is True
     assert scroll.tooltip == "Candidate evaluation table"
     assert scroll._dom_classes == ["sf-eval__table-scroll"]
-    assert view._html._dom_classes == ["sf-ui", "sf-eval"]
+    # OME-1226: the two trailing names are the maths-typesetter opt-out. Kept an EXACT list
+    # rather than a membership check — the exactness is what makes an accidental class
+    # change on this root loud instead of silent.
+    assert view._html._dom_classes == ["sf-ui", "sf-eval", "mathjax_ignore", "tex2jax_ignore"]
 
     view.begin(opus)
     assert view._dirty.is_set()
@@ -1048,6 +1069,8 @@ def test_live_widget_uses_one_runtime_fragment_projection(monkeypatch: Any) -> N
         benchmark: str | None,
         elapsed: float | None,
         check_disclosure: str | None,
+        *,
+        expandable: bool = False,
     ) -> tuple[str, str, str]:
         del progress, check_disclosure
         calls.append((benchmark or "", elapsed))
@@ -1101,3 +1124,56 @@ def test_table_html_widget_is_the_only_focusable_scroll_owner(monkeypatch: Any) 
 def test_colab_theme_qualifiers_cannot_override_explicit_notebook_hosts() -> None:
     assert f':where(html[theme="light"]) .sf-ui{{{_LIGHT}}}' in STYLE
     assert f':where(html[theme="dark"]) .sf-ui{{{_DARK}}}' in STYLE
+
+
+def test_finished_candidate_timer_stops_while_sibling_runs() -> None:
+    first, second = candidate("first"), candidate("second")
+    progress = _EvaluationProgress(candidates=(first, second), case_count=2)
+    for item in (first, second):
+        progress.observe(
+            item,
+            sf.events.Started(
+                id="start_" + item.name,
+                run_id="run_" + item.name,
+                sequence=1,
+                timestamp=_START,
+                source="/trace/" + item.name,
+                url4=item.url4,
+            ),
+            elapsed_seconds=0,
+        )
+    progress.observe(
+        first,
+        sf.events.Terminated(
+            id="child_end",
+            run_id="run_first",
+            sequence=2,
+            timestamp=_START + timedelta(seconds=5),
+            source="/trace/first/child",
+            status="succeeded",
+        ),
+        elapsed_seconds=5,
+    )
+    assert progress.rows[0].status == "running"
+    assert progress.rows[0].duration_seconds is None
+    progress.observe(
+        first,
+        sf.events.Terminated(
+            id="end",
+            run_id="run_first",
+            sequence=2,
+            timestamp=_START + timedelta(seconds=12),
+            source="/trace/first",
+            status="succeeded",
+        ),
+        elapsed_seconds=12,
+    )
+    assert progress.rows[0].status == "finished"
+    assert progress.rows[0].duration_seconds == 12
+    assert progress.rows[1].status == "running"
+    assert not progress.finished
+    from screamingface._ui.evaluation_view import _candidate_row_html
+
+    assert "Finished · 12s" in _candidate_row_html(progress.rows[0], 60)
+    assert "Finished" not in _candidate_row_html(progress.rows[1], 60)
+    assert progress.rows[0].score is None

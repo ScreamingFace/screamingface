@@ -5,9 +5,9 @@ from pathlib import Path
 
 from screamingface_engine.benchmarks import Benchmark, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL
-from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.corrective import install_corrective_runtime
 from url4.peer.server import Url4Node
 
 _DEFAULT_MODEL_ROUTES = (f"/{JUDGE_MODEL}",)

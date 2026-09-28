@@ -1,9 +1,9 @@
 ---
 ticket: OME-967
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-01
-finished:
+finished: 2026-09-02
 ---
 
 # OME-967 — Originate the traceparent in the client and surface `trace_id`

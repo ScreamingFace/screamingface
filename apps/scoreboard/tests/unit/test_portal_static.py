@@ -176,3 +176,80 @@ def test_served_markdown_carries_no_internal_references(tmp_path: Path) -> None:
                 f"{route} is publicly served and leaks {leaks}. Keep internal references out of "
                 "the portal tree — put the reasoning in docs/work/ instead."
             )
+
+
+def test_pareto_chart_shell_is_bounded_provenanced_and_loaded_before_its_caller() -> None:
+    """Part C stays hidden by default and explains the limits of its public claim."""
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    html = (portal / "benchmark.html").read_text(encoding="utf-8")
+    script = (portal / "benchmark.js").read_text(encoding="utf-8")
+
+    assert re.search(r'<section[^>]*id="pareto-chart-section"[^>]*hidden', html)
+    assert re.search(r'<div[^>]*class="pareto-chart-scroll"[^>]*tabindex="0"', html)
+    assert 'aria-label="Pareto Frontier (cost/score) chart, horizontally scrollable"' in html
+    assert 'id="pareto-chart"' in html
+    assert 'aria-hidden="true"' in html
+    assert "Costs are self-reported, not verified by re-running." in html
+    assert "Frontier membership considers the full board" in html
+    assert "plots only the submissions shown on this page" in html
+
+    logic_at = html.index('<script src="leaderboard-logic.js"')
+    chart_at = html.index('<script src="pareto-chart.js"')
+    caller_at = html.index('<script src="benchmark.js"')
+    assert logic_at < chart_at < caller_at
+    assert "SFParetoChart.render" in script
+
+
+def test_pareto_chart_dark_theme_uses_the_right_paint_property_for_each_element() -> None:
+    """SVG diamonds need fill while the HTML key swatch needs background."""
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    css = (portal / "portal.css").read_text(encoding="utf-8")
+    point = re.search(r'\[data-theme="dark"\]\s+\.pareto-chart__frontier-point\s*\{([^}]*)\}', css)
+    key = re.search(r'\[data-theme="dark"\]\s+\.pareto-chart-key__frontier\s*\{([^}]*)\}', css)
+
+    assert point is not None
+    assert "fill: var(--info-solid)" in point.group(1)
+    assert key is not None
+    assert "background: var(--info-solid)" in key.group(1)
+
+
+def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
+    """FEATURE (OME-1146 part 1): the chart carries the name the rest of the page uses.
+
+    INVARIANT: heading and `aria-label` are renamed as one. Only the label was previously
+    asserted, so a rename that touched the heading alone — or the label alone — would leave the
+    page describing itself two ways, silently, to two different audiences.
+
+    INVARIANT: the disclaimer assertion below is not incidental. OME-1146 also asks to delete it,
+    and this unit deliberately does not. Nothing else in the suite pins "renamed but still
+    disclaimed", which is exactly the state this unit ships.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    html = (portal / "benchmark.html").read_text(encoding="utf-8")
+
+    assert "<h2>Pareto Frontier (cost/score)</h2>" in html
+    assert 'aria-label="Pareto Frontier (cost/score) chart, horizontally scrollable"' in html
+    assert "Score for cost" not in html
+    assert "Costs are self-reported, not verified by re-running." in html
+
+
+def test_portal_index_filters_private_boards_through_the_shared_logic_module() -> None:
+    """FEATURE (OME-1147): the index lists established boards only.
+
+    INVARIANT: the rule living in `leaderboard-logic.js` is not the same as the rule being
+    applied. `tests/portal/leaderboard-logic.test.js` proves the helper behaves; it cannot see
+    `main.js`, so a correct helper that nothing calls passes every behavioural test. This asserts
+    the call, and the script order that makes the call resolvable — the two ways the wiring
+    breaks silently while the logic stays perfect.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    logic = (portal / "leaderboard-logic.js").read_text(encoding="utf-8")
+    main = (portal / "main.js").read_text(encoding="utf-8")
+    index = (portal / "index.html").read_text(encoding="utf-8")
+
+    assert "listedBenchmarks: listedBenchmarks," in logic
+    assert "listedBenchmarks(" in main
+
+    logic_at = index.index('<script src="leaderboard-logic.js"')
+    caller_at = index.index('<script src="main.js"')
+    assert logic_at < caller_at

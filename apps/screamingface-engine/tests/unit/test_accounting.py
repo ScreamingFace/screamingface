@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.runner.accounting import (
+from screamingface_engine.world.accounting import (
     OPENROUTER_CREDIT_UNIT,
     PRICING_VERSION,
     accumulate,

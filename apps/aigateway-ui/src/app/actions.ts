@@ -17,7 +17,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { AdminCacheJob, AdminErrorKind, ProfileDefaults } from "@/lib/aigateway/client";
+import type { AdminCacheJob, AdminErrorKind } from "@/lib/aigateway/client";
 import {
   AdminApiError,
   createAccount,
@@ -66,19 +66,6 @@ function revalidateConsole(): void {
 function text(formData: FormData, key: string): string {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
-}
-
-/**
- * Read an optional number.
- *
- * Three-way result: `null` = the field was left blank (send no default), a number = parsed,
- * `undefined` = the operator typed something that is not a number and must be told.
- */
-function optionalNumber(formData: FormData, key: string): number | null | undefined {
-  const raw = text(formData, key);
-  if (!raw) return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 /** Never let a value that contains the submitted key reach the browser. */
@@ -157,6 +144,10 @@ export async function setAccountActiveAction(
  * `api_key` is read, forwarded and forgotten: it is trimmed (a pasted key routinely carries a
  * trailing newline) into a local that leaves this function only as an argument to the client, and
  * is passed to `failure()` solely so an error message containing it can be replaced.
+ *
+ * INVARIANT (OME-1138 Stage C, OME-1322): the key is the whole write. Saved request defaults are
+ * no longer authored here — fields a stale form still posts (`model`, `temperature`, …) are never
+ * read, never validated and never forwarded, so a replacement cannot block on them or carry them.
  */
 export async function setApiKeyAction(
   _prevState: FormState,
@@ -178,36 +169,8 @@ export async function setApiKeyAction(
     return { ok: false, error: "Paste the provider API key.", field: "api_key" };
   }
 
-  const maxTokens = optionalNumber(formData, "max_tokens");
-  if (maxTokens === undefined) {
-    return { ok: false, error: "Max tokens must be a number.", field: "max_tokens" };
-  }
-  const temperature = optionalNumber(formData, "temperature");
-  if (temperature === undefined) {
-    return { ok: false, error: "Temperature must be a number.", field: "temperature" };
-  }
-  const timeoutSeconds = optionalNumber(formData, "timeout_seconds");
-  if (timeoutSeconds === undefined) {
-    return { ok: false, error: "Timeout must be a number of seconds.", field: "timeout_seconds" };
-  }
-
-  const defaults: ProfileDefaults = {
-    model: text(formData, "model") || null,
-    system_prompt: text(formData, "system_prompt") || null,
-    max_tokens: maxTokens,
-    temperature,
-    timeout_seconds: timeoutSeconds,
-    reasoning_effort: text(formData, "reasoning_effort") || null,
-  };
-  // An all-blank defaults block is sent as null, so replacing a key does not quietly wipe the
-  // defaults a previous form submission set.
-  const anyDefault = Object.values(defaults).some((value) => value !== null);
-
   try {
-    await setApiKey(accountId, provider, name, {
-      api_key: apiKey,
-      defaults: anyDefault ? defaults : null,
-    });
+    await setApiKey(accountId, provider, name, { api_key: apiKey });
   } catch (error) {
     return failure(error, "api_key", apiKey);
   }

@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.runner.cache import policy_to_body_field
+from screamingface_engine.world.cache import policy_to_body_field
 from url4.streaming.protocol import CachePolicy
 
 # The full input space, one tuple per `CachePolicy` field. `_AXES` is asserted against

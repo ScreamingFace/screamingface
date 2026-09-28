@@ -1,0 +1,1 @@
+"""Opt-in event ingestion."""

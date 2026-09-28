@@ -114,10 +114,19 @@ def test_the_worst30_revision_is_frozen_against_refactors() -> None:
     assert WORST30_EXAM.revision == "39cfd96b068f7230"
 
 
+def test_both_healthbench_boards_link_the_openai_healthbench_dataset() -> None:
+    # WHY the literal, on both boards: the leaderboard renders this as a clickable target for
+    # the public. The shared suite can only check that boards sharing a bundle agree — and
+    # both boards read one constant, so they would agree on a wrong value too (OME-1095).
+    assert HEALTHBENCH_WORST30.dataset_url == "https://huggingface.co/datasets/openai/healthbench"
+    assert HEALTHBENCH_PROFESSIONAL.dataset_url == HEALTHBENCH_WORST30.dataset_url
+
+
 def test_a_limit_slices_the_worst30_run() -> None:
     limited = HEALTHBENCH_WORST30.resource(3)
     assert limited["case_count"] == 157
-    assert "slice=0:3" in _url4(HEALTHBENCH_WORST30, 3)
+    assert "iteration.slice=0:3" in _url4(HEALTHBENCH_WORST30, 3)
+    assert ")!'3'" in _url4(HEALTHBENCH_WORST30, 3)
 
 
 # ── Board 2 — the full professional exam ─────────────────────────────────────────────
@@ -155,7 +164,8 @@ def test_a_limit_slices_the_professional_run_without_redefining_the_board() -> N
     # The board still IS the 525-case exam; a smoke run just executes fewer of its Cases.
     assert limited["case_count"] == 525
     assert limited["selected_case_count"] == 3
-    assert "slice=0:3" in _url4(HEALTHBENCH_PROFESSIONAL, 3)
+    assert "iteration.slice=0:3" in _url4(HEALTHBENCH_PROFESSIONAL, 3)
+    assert ")!'3'" in _url4(HEALTHBENCH_PROFESSIONAL, 3)
 
 
 def test_the_professional_check_surface_sits_under_its_own_prefix() -> None:

@@ -19,15 +19,20 @@ credential verdict, which is core's own vocabulary (profiles/connections).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.model_capabilities import canonical_model_id
-from .chat_credentials import _credential_target_for_chat
+from ..core.provider_access import (
+    ProviderAccessRefusal,
+    Selector,
+    TargetPending,
+    TargetReauthRequired,
+    provider_access_for,
+)
 
 router = APIRouter()
 
@@ -95,40 +100,38 @@ async def _credential_verdict(
 ) -> tuple[bool, tuple[str, str] | None]:
     """(credentialed, relayed refusal) for the calling account on ``provider``.
 
-    Reuses the chat path's credential resolution verbatim so admission and
-    dispatch cannot disagree about what "credentialed" means. A profile that
-    EXISTS but is in a reauth/pending state is not "no key" (review F6): those
-    two states are relayed as their own (code, message) so the user is told to
-    finish or redo the connection — not to re-add a key they already have. Every
-    other refusal (typically a missing profile) collapses to plain
-    not-credentialed, and the plugin's ladder words that diagnosis.
+    Makes the SAME port call chat makes, so admission and dispatch cannot disagree about
+    what "credentialed" means. A target that EXISTS but is in a reauth/pending state is not
+    "no key" (review F6): those two states are relayed as their own (code, message) so the
+    user is told to finish or redo the connection — not to re-add a key they already have.
+    Every other refusal (typically a missing target) collapses to plain not-credentialed,
+    and the plugin's ladder words that diagnosis.
+
+    # INVARIANT (OME-1207): the relayed CODE STRINGS are this endpoint's own wire contract,
+    # not the HTTP edge's. They happen to spell the same two words `render_refusal` uses,
+    # but a refusal here is a 200 ANSWER — so this route reads the typed refusal directly
+    # instead of round-tripping through an `HTTPException` just to re-read its `code`.
     """
-    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
+    selector = Selector.from_header(request.headers.get("X-Profile"))
     try:
-        profile, connection, _defaults = await _credential_target_for_chat(
-            request,
-            account_id=account_id,
-            provider=provider,
-            profile_name=profile_name,
-            plugin=plugin,
+        target = await provider_access_for(request.app).resolve(
+            account_id, provider, selector, plugin=plugin
         )
-    except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, Mapping) else {}
-        code = detail.get("code")
-        if code == "auth_required":
-            return False, (
-                "auth_required",
-                f"the {provider} profile {profile_name!r} must be reconnected — "
-                "reauthorize it, then retry",
-            )
-        if code == "profile_pending_auth":
-            return False, (
-                "profile_pending_auth",
-                f"the {provider} profile {profile_name!r} is still connecting — "
-                "finish the connection, then retry",
-            )
+    except TargetReauthRequired:
+        return False, (
+            "auth_required",
+            f"the {provider} profile {selector.name!r} must be reconnected — "
+            "reauthorize it, then retry",
+        )
+    except TargetPending:
+        return False, (
+            "profile_pending_auth",
+            f"the {provider} profile {selector.name!r} is still connecting — "
+            "finish the connection, then retry",
+        )
+    except ProviderAccessRefusal:
         return False, None
-    return (profile is not None or connection is not None), None
+    return target.kind == "stored", None
 
 
 @router.post("/v1/models/admit")

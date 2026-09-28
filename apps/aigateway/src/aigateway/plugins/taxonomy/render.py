@@ -141,6 +141,7 @@ def render_aigw_metadata(
     supported: bool,
     cache_status: CacheStatusWord,
     gateway_call_id: str,
+    trace_id: str | None = None,
     cache_reference: CacheReference | None = None,
 ) -> dict[str, Any]:
     """Build bounded metadata from authoritative observed attempts."""
@@ -164,7 +165,15 @@ def render_aigw_metadata(
     for attempt in attempts_json:
         attempt["provider_extensions_truncated"] = False
     _bound_response_extensions(attempts_json)
-    metadata: dict[str, Any] = {
+    metadata: dict[str, Any] = {}
+    # FEATURE (OME-1120): the caller's trace id, echoed so a JSON caller can quote it.
+    # WHY at the `_aigw` TOP level and not inside `usage_accounting`: the trace is not an
+    # accounting fact, and `usage_accounting.schema.json` fixes that object's required keys —
+    # putting it there would change a published schema for a field that has nothing to do with
+    # usage. Streaming callers read the same value from the response header instead.
+    if trace_id is not None:
+        metadata["trace_id"] = trace_id
+    metadata |= {
         "usage_accounting": {
             "schema": SCHEMA_USAGE_ACCOUNTING,
             "capture_status": capture_status,

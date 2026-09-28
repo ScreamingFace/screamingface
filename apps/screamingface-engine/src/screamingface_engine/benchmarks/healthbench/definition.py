@@ -58,6 +58,8 @@ WORST30_EXAM, HEALTHBENCH_WORST30 = healthbench_benchmark(
     # worst-30% selection out of the dataset, so its fingerprint is taken over the
     # dataset's own stable row ids (subset.py).
     selection_sha=subset_sha(),
+    # By construction the 30% of the exam top models score worst on (OME-1257).
+    difficulty="hard",
     focus="Clinical safety, hardest cases",
     dataset_url=HEALTHBENCH_DATASET_URL,
 )
@@ -88,6 +90,9 @@ PROFESSIONAL_EXAM, HEALTHBENCH_PROFESSIONAL = healthbench_benchmark(
     # WHY the Case ids, not dataset row ids: this board's selection IS "every position in
     # the baked file", so the id list is the honest fingerprint of what it serves.
     selection_sha=case_ids_sha(PROFESSIONAL_CASE_IDS),
+    # Physician-rubric clinical safety: published frontier scores sit well under
+    # saturation, so the full exam is frontier work too (OME-1257).
+    difficulty="hard",
     focus="Clinical safety, full official exam",
     dataset_url=HEALTHBENCH_DATASET_URL,
 )

@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import math
 import platform
+import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
+
+# WHY the aliased import rather than `import json`: `_sync_json` and `_async_json` both take a
+# parameter named `json`, so the module name is shadowed inside exactly the functions most
+# likely to want it. Importing the one callable under its own name removes the trap.
+from json import dumps as _json_dumps
 from typing import NoReturn
 from urllib.parse import quote
 from uuid import UUID
@@ -25,6 +31,7 @@ from screamingface.leaderboard import (
     LeaderboardBaseline,
     LeaderboardEntry,
     LeaderboardInfo,
+    LeaderboardRankingNotice,
     LeaderboardScore,
 )
 from screamingface.report import CandidateResult
@@ -33,6 +40,18 @@ from screamingface.url4 import Url4
 _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 _SCORES_PATH = "/v1/scores"
+_AUTHOR_EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
+_MAX_AUTHORS = 10
+_MAX_AUTHOR_LENGTH = 255
+# INVARIANT (OME-1247): these mirror the Scoreboard's `validate_bounded_models` and `ModelRoute`
+# exactly — 32 routes, 255 characters each, 4096 bytes serialized. The board already refuses a
+# payload past any of them, so without a matching guard here the mismatch surfaces only in the
+# field, after a release, as a 422 on the WHOLE submission: `models` fails validation and takes
+# `ScoreSubmission` with it. The route GRAMMAR was deliberately mirrored across the two ends for
+# this reason; the bounds were not, which is the gap this closes.
+_MAX_MODELS = 32
+_MAX_MODEL_LENGTH = 255
+_MAX_MODELS_BYTES = 4096
 
 
 class Leaderboards:
@@ -68,8 +87,13 @@ class Leaderboards:
             )
         )
 
-    def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
-        payload = _submission(candidate_result)
+    def submit(
+        self,
+        candidate_result: CandidateResult,
+        *,
+        authors: Sequence[str] | None = None,
+    ) -> LeaderboardScore:
+        payload = _submission(candidate_result, authors=authors)
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -139,8 +163,13 @@ class AsyncLeaderboards:
             )
         )
 
-    async def submit(self, candidate_result: CandidateResult) -> LeaderboardScore:
-        payload = _submission(candidate_result)
+    async def submit(
+        self,
+        candidate_result: CandidateResult,
+        *,
+        authors: Sequence[str] | None = None,
+    ) -> LeaderboardScore:
+        payload = _submission(candidate_result, authors=authors)
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -245,13 +274,19 @@ def _response_json(
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
+        submission_conflict = response.status_code == 409 and operation == "submit a score to"
         raise LeaderboardError(
             f"Could not {operation} the Scoreboard: HTTP {response.status_code}{suffix}",
             scoreboard_url=scoreboard_url,
             code=_status_code(response.status_code, operation),
             status=response.status_code,
-            permanent=response.status_code < 500 and response.status_code != 429,
+            permanent=(
+                response.status_code < 500
+                and response.status_code != 429
+                and not submission_conflict
+            ),
             details=details,
+            hint="Retry the submission." if submission_conflict else None,
         )
     try:
         return response.json()
@@ -276,6 +311,7 @@ def _status_code(status: int, operation: str) -> str:
         400: "invalid_score_submission",
         401: "scoreboard_authentication_required",
         403: "score_submission_forbidden",
+        409: "score_submission_conflict",
         422: "invalid_score_submission",
     }.get(status, "scoreboard_contract_error")
 
@@ -356,9 +392,31 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             ),
             metadata=metadata,
             scoreboard_url=scoreboard_url,
+            authors=_decode_authors(root.get("authors"), "Leaderboard score authors"),
+            ranking_notice=_decode_ranking_notice(root),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _decode_ranking_notice(root: Mapping[str, object]) -> LeaderboardRankingNotice | None:
+    if "ranking_notice" not in root:
+        return None
+    notice = _mapping(root["ranking_notice"], "Leaderboard score ranking notice")
+    code = _text(notice.get("code"), "Leaderboard score ranking notice code")
+    if code != "benchmark_revision_mismatch":
+        _invalid("Leaderboard score ranking notice has an unsupported code")
+    return LeaderboardRankingNotice(
+        code="benchmark_revision_mismatch",
+        submitted_benchmark_revision=_optional_text(
+            notice.get("submitted_benchmark_revision"),
+            "Leaderboard score ranking notice submitted_benchmark_revision",
+        ),
+        registered_benchmark_revision=_text(
+            notice.get("registered_benchmark_revision"),
+            "Leaderboard score ranking notice registered_benchmark_revision",
+        ),
+    )
 
 
 def _cost_text(cost: Decimal | None) -> str | None:
@@ -381,19 +439,30 @@ def _cost_text(cost: Decimal | None) -> str | None:
     return None if cost is None else str(cost)
 
 
-def _submission(candidate_result: CandidateResult) -> dict[str, object]:
+def _submission(
+    candidate_result: CandidateResult,
+    *,
+    authors: Sequence[str] | None = None,
+) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
-    return {
+    selected_authors = _submission_authors(authors)
+    payload: dict[str, object] = {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
         "spec_id": candidate_result.name,
         "url4_expression": candidate_result.url4,
         "score": _score_value(candidate_result),
         "total_questions": len(candidate_result.cases),
+        "models": _submission_models(candidate_result.models),
         "ran_with_providers": list(_providers(candidate_result.models)),
         "ran_at_local": _timestamp_text(candidate_result.completed_at),
+        # INVARIANT (OME-1252 / OME-1251 D1): the amount and its status travel as a validated
+        # PAIR. The board refuses `complete` without an amount and an amount beside any other
+        # status, so sending a mismatched pair only moves a 422 from submit time into the field.
+        # `_run_cost_status` on the result already enforces the same rule at construction.
         "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
+        "run_cost_status": candidate_result.run_cost_status,
         "client": {
             "name": "screamingface",
             "version": _package_version(),
@@ -405,6 +474,68 @@ def _submission(candidate_result: CandidateResult) -> dict[str, object]:
             "run_id": candidate_result.run_id,
         },
     }
+    # INVARIANT (OME-1053): absence means "use the authenticated submitter" while a supplied
+    # list is exact. Never send null or auto-add an identity the caller did not name.
+    if selected_authors is not None:
+        payload["authors"] = list(selected_authors)
+    # INVARIANT (OME-1326, OME-1251 D5): sent beside the spend, never added to it; the board sums
+    # the two at the point of use. Omitted when absent rather than sent as null, so an uncached
+    # run's payload is unchanged and a board that predates the field 422s only cached runs.
+    if candidate_result.cache_saved_cost_usd is not None:
+        payload["cache_saved_cost_usd"] = _cost_text(candidate_result.cache_saved_cost_usd)
+    return payload
+
+
+def _submission_models(models: Sequence[str]) -> list[str]:
+    """The declared routes, refused here rather than by the board's 422.
+
+    INVARIANT: raise, never silently drop the field. Omitting `models` when it is over-cap
+    would let the submission succeed and the entry be classified from `ran_with_providers` —
+    which is the `OME-1145` bug this whole chain exists to fix. A visible local failure beats
+    an invisible wrong answer on the public board.
+
+    WHY this lives at the submission boundary and not on `Pipeline`: the caps are the
+    leaderboard's, not the toolkit's. Composing a 40-model ensemble locally stays legal;
+    only publishing it to a board that will refuse it does not.
+
+    Each message names the offending value as well as the limit. "at most 32 routes" tells a
+    user nothing actionable when they do not know they built 41.
+    """
+    selected = list(models)
+    if len(selected) > _MAX_MODELS:
+        raise ValueError(f"models must name at most {_MAX_MODELS} routes, not {len(selected)}")
+    for route in selected:
+        if len(route) > _MAX_MODEL_LENGTH:
+            raise ValueError(
+                f"each model route must be at most {_MAX_MODEL_LENGTH} characters, not {len(route)}"
+            )
+    # INVARIANT: measured the way the board measures it — compact separators, `ensure_ascii=False`,
+    # then encoded. Any other spelling makes the two ends disagree about what a byte is, and the
+    # disagreement only appears on a payload near the limit.
+    encoded = len(_json_dumps(selected, ensure_ascii=False, separators=(",", ":")).encode())
+    if encoded > _MAX_MODELS_BYTES:
+        raise ValueError(
+            f"models must serialize to at most {_MAX_MODELS_BYTES} bytes, not {encoded}"
+        )
+    return selected
+
+
+def _submission_authors(authors: Sequence[str] | None) -> tuple[str, ...] | None:
+    if authors is None:
+        return None
+    if isinstance(authors, (str, bytes)) or not isinstance(authors, Sequence):
+        raise TypeError("authors must be a sequence of email addresses")
+    selected = tuple(authors)
+    if not selected:
+        raise ValueError("authors must contain at least one email address")
+    if len(selected) > _MAX_AUTHORS:
+        raise ValueError(f"authors must contain at most {_MAX_AUTHORS} email addresses")
+    for author in selected:
+        if not isinstance(author, str):
+            raise TypeError("each author must be an email address string")
+        if len(author) > _MAX_AUTHOR_LENGTH or _AUTHOR_EMAIL.fullmatch(author) is None:
+            raise ValueError("each author must be a valid email address of at most 255 characters")
+    return selected
 
 
 def _score_value(candidate_result: CandidateResult) -> float:
@@ -476,6 +607,7 @@ def _decode_entry(value: object) -> LeaderboardEntry:
                 root.get("verified_by_screamingface"), "Leaderboard entry verified_by_screamingface"
             ),
             url4=Url4(_text(root.get("url4_expression"), "Leaderboard entry url4_expression")),
+            authors=_decode_authors(root.get("authors"), "Leaderboard entry authors"),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
@@ -510,6 +642,24 @@ def _mapping(value: object, label: str) -> Mapping[str, object]:
 def _array(value: object, label: str) -> list[object]:
     if not isinstance(value, list):
         _invalid(f"{label} must be an array")
+    return value
+
+
+def _decode_authors(value: object, label: str) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    selected = _array(value, label)
+    if not selected:
+        _invalid(f"{label} must not be empty")
+    # WHY no email validation: public Scoreboard JSON strips email domains before returning
+    # authors. These are public credit identifiers, while full email syntax and the write-side cap
+    # belong only to submissions. Preserve every nonblank value exactly as the read contract says.
+    return tuple(_public_author(author, f"{label} item") for author in selected)
+
+
+def _public_author(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        _invalid(f"{label} must be non-blank text")
     return value
 
 

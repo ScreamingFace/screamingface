@@ -1620,23 +1620,6 @@ def test_status_returns_pending_then_authenticated(client_with_index) -> None:
     assert s2["state"] == "authenticated"
 
 
-def test_patch_updates_defaults(client_with_index) -> None:
-    client, _ = client_with_index
-    client.app.state.anthropic_http_factory = _mock_token_factory()
-
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "y"})
-    client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
-
-    resp = client.patch(
-        "/v1/auth/anthropic/profiles/y",
-        json={"defaults": {"model": "anthropic/claude-opus-4-7", "max_tokens": 8192}},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["defaults"]["model"] == "anthropic/claude-opus-4-7"
-    assert body["defaults"]["max_tokens"] == 8192
-
-
 def test_exchange_code_runs_oauth(client_with_index) -> None:
     """POST /v1/auth/{provider}/exchange-code completes auth same as GET callback."""
     client, credential_blobs = client_with_index

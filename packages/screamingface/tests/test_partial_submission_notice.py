@@ -52,7 +52,7 @@ def _case(case_id: int, score: float | None) -> sf.CaseResult:
         else (
             sf.Failure(
                 stage="grading",
-                code="fixture_ungraded",
+                code="grading_failed",
                 message="the fixture Case could not be graded",
                 case_id=case_id,
             ),

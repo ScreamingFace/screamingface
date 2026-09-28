@@ -102,6 +102,12 @@ direct_cost_status == complete
 `cache.reference` describes only historical final-response evidence and is explicitly not incurred
 in the current request.
 
+A cache row can also carry a standard metadata block. The gateway captures that block at write
+time from the raw provider response, before any conversion. The block keeps its own direct-cost
+status. One status is `archive_matched`: the amount comes from a real logged call of the same kind
+and model, not from this row's own call. `archive_matched` money is never added to `reported`
+money.
+
 ## Money and precision
 
 Direct cost is provider-authored evidence only. Amounts are canonical non-negative fixed-point ASCII
@@ -113,9 +119,39 @@ strings with up to 18 integer and 33 fractional digits.
 - Converted integer token evidence can remain useful with `source=provider_converted_response`.
 - If only a converted floating-point cost remains, it must not be presented as exact direct cost
   unless that carrier is independently proven lossless.
-- Cached monetary evidence is never certified as exact direct cost. A cache row contains the
-  converted provider-compatible response and cannot prove original raw-JSON provenance, regardless
-  of whether its current Python carrier is `Decimal`, `int` or `float`.
+- Cached monetary evidence in `response_json` is never certified as exact direct cost. A cache row
+  contains the converted provider-compatible response and cannot prove original raw-JSON
+  provenance, regardless of whether its current Python carrier is `Decimal`, `int` or `float`.
+
+### Write-time carve-out for the metadata block
+
+The rule above applies to `response_json`. It does not apply to the `metadata_json` block. The
+gateway captures that block at write time from the raw provider response, before any conversion.
+The block therefore does prove raw-JSON provenance. A `metadata_json` block is the only cached
+monetary evidence the gateway certifies as exact provider-authored cost.
+
+The carve-out holds only for the write-time block:
+
+- A value re-read out of `response_json` stays uncertified, whatever its Python carrier is.
+- A block with `direct_cost.status == "reported"` holds the exact provider decimal and its original
+  unit. The status vocabulary also includes `absent`, `unavailable`, `invalid` and `unit_unknown`.
+- A block with `direct_cost.status == "archive_matched"` holds a real measured amount from a paired
+  logged call of the same kind and model. That call is not this row's own call, so the amount is
+  not exact provider-authored cost.
+- Never add `archive_matched` money to `reported` money. Keep the two totals separate at every
+  step. A consumer must not produce a third, combined figure.
+- A block with `absent`, `unavailable` or `invalid` status carries no amount. The value is unknown,
+  never zero.
+- A hit on a row with no block, or with an unreadable block, falls back to the cached-body rule
+  above. The gateway never infers a cost from `response_json`.
+
+**Open question — OpenAI and HuggingFace hit references.** Both providers return `None` from
+`cache_reference_from_cached_response`, so a hit on one of their rows publishes no cache reference
+at all and the stored block is never consulted. Those are two separate locked decisions, not one:
+OpenAI cites OME-884, HuggingFace cites OME-791. Each was taken when a cache row had nothing
+truthful to say about cost. A write-time block changes that premise, so adopting it for either
+provider is now defensible — but doing so re-opens the corresponding decision and must be argued
+there, not here. Both stay at `None` until then.
 
 Full raw JSON evidence is parsed only when decoded content is at most 256 KiB. Accounting metadata is
 also bounded: at most 64 rendered attempts and 64 KiB for the complete `_aigw` object. Bounds degrade

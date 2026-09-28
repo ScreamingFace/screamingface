@@ -1,8 +1,8 @@
 """OME-305 — the async half of the global cache stage for POST /v1/chat/completions.
 
-FEATURE: one globally shared exact-request cache. The route consults this stage after
-the caller's profile defaults are merged body-wins and before auth-mode or provider
-credential resolution.
+FEATURE: one globally shared exact-request cache. The route consults this stage with the
+caller's hardened body exactly as sent — since OME-1323 (D2) no stored Profile default is
+read or merged — and before auth-mode or provider credential resolution.
 
 STORY: as a benchmark operator I re-run a suite from a second account and the
 identical calls come back from the first run's stored responses, with no provider
@@ -27,16 +27,24 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from fastapi import Request, Response
 
 from ..core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS, CacheBypass
 from ..core.plugin_base import ProviderPluginBase
 from ..core.request_cache import CacheUnavailable, RequestCacheWrite
+from ..core.request_cache.entry_metadata import CacheEntryMetadata
 from ..core.request_cache.global_controls import GlobalCacheControls
 from ..core.request_cache.global_keys import GlobalCacheKeyResult
 from ..core.request_cache.global_plan import BYPASS_DISABLED, build_global_cache_plan
+from ..core.request_cache.store import CachedEntry
+from ..plugins.taxonomy.entry_metadata import cache_entry_metadata_from_session
+
+if TYPE_CHECKING:
+    # Annotation only: the route already receives the live session object, and the
+    # concrete type belongs to the taxonomy plugin, so no runtime import is needed here.
+    from ..plugins.taxonomy.session import AccountingSession
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +98,9 @@ class GlobalCacheOutcome:
     reason: str
     response: dict[str, Any] | None = None
     key: GlobalCacheKeyResult | None = None
+    # C2/ERD §5.5: the stored block for the row a hit served, or ``None`` for a miss,
+    # a bypass, a legacy row with no block, or a block that failed to parse.
+    metadata: CacheEntryMetadata | None = None
 
     @property
     def is_hit(self) -> bool:
@@ -125,21 +136,6 @@ def _closed_gate_reason(settings: Any) -> str:
     return BYPASS_DISABLED if not settings.request_cache_enabled else CACHE_UNAVAILABLE_REASON
 
 
-def defaults_unreadable_bypass() -> GlobalCacheOutcome:
-    """The outcome for "we could not read the defaults that belong in the key" (§57).
-
-    WHY it reuses ``cache_unavailable`` rather than adding a value: the published
-    vocabulary is read by URL4, and this is the same class of event every other member
-    of that value already names — a store the gateway depends on did not answer, so the
-    cache stood down. An operator's next action is identical.
-
-    INVARIANT: a bypass, never a miss. A miss would send the route on to WRITE a row
-    under a key built from a body whose defaults are missing — turning a failed read
-    into a permanently poisoned entry, since current rows never expire.
-    """
-    return GlobalCacheOutcome(status="bypass", reason=CACHE_UNAVAILABLE_REASON)
-
-
 async def look_up_global_cache(
     request: Request,
     *,
@@ -150,9 +146,9 @@ async def look_up_global_cache(
     """Decide eligibility and, when eligible, try to serve this request from cache.
 
     ``body`` must already have passed JSON shape validation, the gateway ingress
-    strip, the provider's own dispatch-control strip, cache-control removal and the
-    caller's profile-defaults merge (OME-305 §57 — the key covers the EFFECTIVE
-    request). It must NOT yet have a resolved auth mode or a credential.
+    strip, the provider's own dispatch-control strip and cache-control removal. No
+    stored Profile default is merged into it (OME-1323, D2): the key covers exactly
+    what the caller sent. It must NOT yet have a resolved auth mode or a credential.
 
     INVARIANT: totally non-raising. Every outcome is a status plus a published
     reason.
@@ -201,7 +197,16 @@ async def look_up_global_cache(
         key.model,
         key.key_hash[:KEY_PREFIX_LENGTH],
     )
-    return GlobalCacheOutcome(status="hit", reason="", response=cached, key=key)
+    return GlobalCacheOutcome(
+        status="hit",
+        reason="",
+        # A6/ERD 5.5: the store now returns a CachedEntry. Unwrap the replayed body here
+        # and C3: carry its metadata block out to the hit path. The isinstance shim
+        # tolerates a store double that still returns a bare body dict.
+        response=cached.response if isinstance(cached, CachedEntry) else cached,
+        key=key,
+        metadata=cached.metadata if isinstance(cached, CachedEntry) else None,
+    )
 
 
 def _is_a_whole_answer(result: dict[str, Any]) -> bool:
@@ -256,7 +261,11 @@ def _is_a_whole_answer(result: dict[str, Any]) -> bool:
 
 
 async def store_global_response(
-    request: Request, *, outcome: GlobalCacheOutcome, result: Any
+    request: Request,
+    *,
+    outcome: GlobalCacheOutcome,
+    result: Any,
+    accounting: AccountingSession | None = None,
 ) -> WriteStatus:
     """Fill the global entry after a successful dispatch. Never raises.
 
@@ -322,6 +331,13 @@ async def store_global_response(
             size_bytes,
         )
         return "not_stored"
+    # C1/ERD §5.4: the block is built from the AccountingSession — the same source
+    # ``attach_success_metadata`` renders ``_aigw`` from — and NEVER from a rendered
+    # ``_aigw`` block, which does not exist yet at this point. The locked order at the
+    # call site (store BEFORE attach_success_metadata) is what keeps the row
+    # provider-compatible and keeps ``response_size_bytes`` measuring the response only.
+    # A build failure yields ``None`` and the row is still written (S8).
+    metadata = cache_entry_metadata_from_session(accounting)
     try:
         written = await request.app.state.request_cache_store.set_if_absent(
             RequestCacheWrite(
@@ -333,6 +349,7 @@ async def store_global_response(
                 model=key.model,
                 response=result,
                 response_size_bytes=size_bytes,
+                metadata=metadata,
             )
         )
     except Exception:

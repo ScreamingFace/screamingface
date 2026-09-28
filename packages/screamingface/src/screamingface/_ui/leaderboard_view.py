@@ -9,6 +9,7 @@ from typing import overload
 
 from screamingface._ui.leaderboard_style import LEADERBOARD_STYLE
 from screamingface._ui.report_view import _score_text
+from screamingface._ui.style import NO_MATH
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
@@ -86,7 +87,7 @@ def leaderboard_catalog_html(values: Sequence[LeaderboardInfo]) -> str:
         "row.hidden=!row.dataset.sfSearch.includes(q)})"
     )
     return (
-        f"{LEADERBOARD_STYLE}<div class='sf-lb sf-lb-list' "
+        f"{LEADERBOARD_STYLE}<div class='sf-lb sf-lb-list {NO_MATH}' "
         "aria-label='ScreamingFace Leaderboards'>"
         "<div class='sf-lb-list__head'><h3 class='sf-lb__title'>Leaderboards</h3>"
         f"<span class='sf-lb-list__count'>{count}</span></div>"
@@ -110,7 +111,7 @@ def leaderboard_html(board: Leaderboard) -> str:
     title = escape(board.benchmark.display_name)
     benchmark_id = escape(board.benchmark.id)
     return (
-        f"{LEADERBOARD_STYLE}<div class='sf-lb sf-lb-board' "
+        f"{LEADERBOARD_STYLE}<div class='sf-lb sf-lb-board {NO_MATH}' "
         f"aria-label='ScreamingFace candidate leaderboard for {title}'>"
         "<div class='sf-lb__head'><h3 class='sf-lb__title'>Leaderboard</h3>"
         "<div class='sf-lb__controls'><span class='sf-lb__field'>"

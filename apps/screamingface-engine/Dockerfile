@@ -16,8 +16,8 @@
 # the editable install's relative paths stay valid at runtime.
 #
 # The runtime shape matches BOTH the helm chart's securityContext (deploy/helm/values.yaml) and
-# what K8sJobRunner._manifest hardens each Job Pod with: non-root uid/gid 1000 owning the venv,
-# `runAsNonRoot: true`-compatible, read-only rootfs, tini as PID 1 so activeDeadlineSeconds or a
+# what the runner pool's Deployment hardens each worker pod with: non-root uid/gid 1000 owning
+# the venv, `runAsNonRoot: true`-compatible, read-only rootfs, tini as PID 1 so a drain or a
 # stop tears a run down promptly with a clean SIGTERM.
 # INVARIANT: the builder and runtime Python minor MUST match. The runtime copies the builder's
 # venv wholesale (see the COPY below), and a venv is version-keyed — site-packages lives under
@@ -36,13 +36,19 @@ COPY packages/url4 ./packages/url4
 COPY apps/screamingface-engine/pyproject.toml apps/screamingface-engine/uv.lock ./apps/screamingface-engine/
 WORKDIR /app/apps/screamingface-engine
 # Deps first (cache-friendly): busts only when pyproject/lock change.
+# WHY --extra inspect: the imported inspect_evals boards call the upstream eval's OWN scorer and
+# prompt code, so a deployment without it registers none of them (`inspect_available()` answers
+# the empty contribution) and the catalogue silently loses ten boards. The benchmark image builds
+# FROM this one, so this is also what lets its preparer bake their dataset snapshots. Safe to
+# carry here, unlike in `packages/screamingface`, whose runtime extra pins litellm — the conflict
+# is declared between THOSE two, and this app depends on neither.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-dev --no-install-project --extra inspect
 # Now the app source (siblings above are already in place).
 COPY apps/screamingface-engine/src ./src
 COPY apps/screamingface-engine/url4.toml ./url4.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --extra inspect
 
 # Must track the builder's Python minor exactly — see the INVARIANT above.
 FROM python:3.13-slim-bookworm AS runtime
@@ -68,8 +74,8 @@ USER 1000
 EXPOSE 9108
 ENTRYPOINT ["tini", "--"]
 # Serving is the default mode, which is what keeps the chart's `command: [url4-cloud]` working.
-# A Job overrides it with `["url4-cloud", "run"]` (adapters/k8s.py); compose/k8s likewise override
-# it for the mock publisher.
-# INVARIANT: AIGATEWAY_BASE_URL is NOT baked here — it reaches each Runner Job from the chart's
+# The runner pool overrides it with `["screamingface-engine", "worker"]` (deployment-runner.yaml),
+# and the worker's children exec `screamingface-engine run` (worker/exec_wrapper.py).
+# INVARIANT: AIGATEWAY_BASE_URL is NOT baked here — it reaches each worker pod from the chart's
 # runner-env ConfigMap, so the endpoint follows the deployment, not the artifact (§9).
 CMD ["url4-cloud"]

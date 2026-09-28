@@ -21,13 +21,12 @@ dependencies = [
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.1",
     "pyjwt>=2.10.1",
-    "kubernetes>=31.0.0",
     "prometheus-client>=0.21.0",
     "pydantic-settings>=2.14.1",
     # --- both modes ---
     "pydantic>=2.13.4",
-    # The catalog's upstream aigateway client (`screamingface_engine.catalog`), and the run mode's
-    # aigateway + Tavily clients (`screamingface_engine.runner.connector`).
+    # The catalog's upstream aigateway client (`screamingface_engine.catalog`), and the shared
+    # world's aigateway + Tavily clients (`screamingface_engine.world.connector`).
     "httpx>=0.28.1",
     # Both directions of the run log: the App consumes (`adapters.jetstream.JetStreamConsumer`),
     # the run mode publishes (`JetStreamPublisher`) — one adapter module, shared.
@@ -41,29 +40,66 @@ dependencies = [
     "immutabledict>=4.2.0",
     "langdetect>=1.0.9",
     "nltk>=3.9.1",
+    "opentelemetry-sdk>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
 ]
 
 [project.scripts]
 screamingface-engine = "screamingface_engine.cli:main"
 screamingface-engine-runner = "screamingface_engine.runner.main:main"
-# COMPATIBILITY ALIASES — the app's previous name (OME-876). `K8sJobRunner` still schedules
-# `["url4-cloud", "run"]` deliberately: during a rolling upgrade an App pod running one release
-# schedules an image built from the other, because the image reference comes from the ConfigMap
-# while the command comes from Python, so the two change at different moments. Keeping these
-# names resolvable makes that window survivable in BOTH directions.
+# COMPATIBILITY ALIASES — the app's previous name (OME-876). The worker pool's children exec
+# `screamingface-engine run` (worker/exec_wrapper.py), so the aliases are no longer load-bearing
+# for scheduling — they exist for anything that still invokes the old names (compose files,
+# ad-hoc pods, operator muscle memory). OME-877 carries their removal.
 #
-# AIDEV-NOTE: these two and the `K8sJobRunner` command move together, one release later, or not
-# at all — flipping the command while dropping the aliases is the one combination that breaks.
-# OME-877 carries that change.
+# AIDEV-NOTE: these two move together, one release later, or not at all — dropping one while
+# keeping the other breaks whatever still calls the dropped name.
 url4-cloud = "screamingface_engine.cli:main"
 url4-cloud-runner = "screamingface_engine.runner.main:main"
+
+# EXACT == pins (spec OME-1113 §3.1): imported boards hash the pinned versions into
+# their revision identity — a floating pin would let the same revision mean two exams.
+[project.optional-dependencies]
+# What a DEPLOYED Engine needs to register the imported boards and run them.
+inspect = [
+    "inspect-ai==0.3.263",
+    "inspect-evals==0.20.0",
+    # WHY declared here although inspect-evals already requires it: inspect-evals does NOT
+    # pin it, so resolving this extra alone floats `datasets` to whatever is newest. The
+    # preparer's extraction is part of the answer key, so a float means two builds of the
+    # same board revision can ask different questions. Pinning it here is what makes the
+    # version a reviewable decision instead of a resolution accident. Keep in step with
+    # `benchmarks/gdpval/pins.py::PREPARER_REVISION`.
+    "datasets==5.0.0",
+]
+
+# Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
+# `inspect` because these two are installed in different places: `inspect` goes in the base
+# image, which ships, while this extra is only ever installed in a build stage that is
+# thrown away (Dockerfile.benchmark) or in a developer's checkout. Folding these into
+# `inspect` would put ~25MB of PDF/XML readers in every deployed Engine, which imports them
+# through `importlib` at build time and never at run time.
+benchmarks = [
+    "screamingface-engine[inspect]",
+    # GDPval's preparer flattens the task's reference PDFs and Word documents to text at
+    # build time, and that text is baked into the answer key. Pinned exactly for the same
+    # reason `datasets` is: a release whose extraction differs would silently change what
+    # every candidate is asked.
+    "pdfplumber==0.11.10",
+    "python-docx==1.2.0",
+]
+
+# The benchmark-plugin loading dock (spec OME-1113 §3.1): engine core discovers this
+# group generically (benchmarks/discovery.py) and never imports a plugin by name.
+[project.entry-points."screamingface_engine.benchmark_deployments"]
+inspect = "screamingface_engine_inspect.deployment:registrations"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/screamingface_engine"]
+packages = ["src/screamingface_engine", "src/screamingface_engine_inspect"]
 
 [tool.uv.sources]
 url4 = { path = "../../packages/url4", editable = true }
@@ -90,6 +126,7 @@ max-returns = 3
 known-first-party = [
     "url4",
     "screamingface_engine",
+    "screamingface_engine_inspect",
 ]
 
 [tool.pyright]
@@ -98,8 +135,17 @@ ignore = ["src/screamingface_engine/benchmarks/ifeval/vendor"]
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 testpaths = ["tests"]
+# `-m "not kind"`: the default run excludes tests/kind (uniform executor test-plan §5) — they
+# need a live cluster (kind context `kind-sf-uniform`, deploy/kind/up.sh) that CI's regular job
+# never brings up. `uv run pytest tests/kind -m kind` on the command line overrides this, since
+# a later `-m` wins over the one addopts supplies.
+addopts = "-m \"not kind\""
 filterwarnings = [
     "error::DeprecationWarning:screamingface_engine",
+]
+markers = [
+    "no_default_scope: turn off the autouse request scope (tests/conftest.py), so the test proves a production producer bound one (FX-61)",
+    "kind: needs the uniform executor kind environment (deploy/kind/up.sh); excluded from the default run by addopts above, and skips cleanly when kind context `kind-sf-uniform` is unreachable",
 ]
 
 [tool.coverage.run]
@@ -108,6 +154,7 @@ omit = ["src/screamingface_engine/benchmarks/ifeval/vendor/*"]
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "pyyaml>=6.0",
     "pyright>=1.1.409",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3,<2",

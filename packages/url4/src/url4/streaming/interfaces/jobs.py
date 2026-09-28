@@ -14,7 +14,16 @@ JobStatus = Literal[
     "not_found",
 ]
 """The run states (spec §3): ``scheduled → running → {succeeded|failed|stopped|timed_out}``, plus
-``not_found`` for an unknown/absent topic. Each adapter maps the substrate state it can observe."""
+``not_found`` for an unknown/absent topic. Each adapter maps the substrate state it can observe.
+
+``scheduled`` means the run is accepted but not yet started — i.e. queued. Do not add a
+``queued`` member: ``scheduled`` already covers it. Whether a substrate can OBSERVE the gap
+between acceptance and start is adapter-specific: one that starts a run the moment it accepts
+it — the in-process runner's tasks begin as soon as they are created — reports ``running`` from
+acceptance on, because that is the first state it can distinguish. Callers must not read
+``running`` as proof that execution has begun on such a substrate, nor wait for a
+``scheduled`` frame that its runner can never emit.
+"""
 
 
 class JobAlreadyExists(Exception):
@@ -28,15 +37,27 @@ class JobRunnerAtCapacity(Exception):
     help. This one is transient and carries no verdict about the request, so callers map it to a
     retry-after response rather than a conflict.
 
-    Only substrates that own a finite local resource raise it — an in-process runner shares one
-    event loop across every run it accepts, so admission is its own job. A cluster-backed runner
-    lets the scheduler absorb the load and never raises.
+    Any substrate with a finite declared ceiling raises it: an in-process runner shares one
+    event loop across every run it accepts, so admission is its own job; a queue-backed runner
+    raises it when its queue depth hits the ceiling; a cluster scheduler raises it when its
+    resource quota is exhausted. The port names the substrate SHAPES, not adapter classes — an
+    adapter is bound to this contract by its own tests, not by being enumerated here.
+
+    ``retry_after_s`` is the substrate's own drain estimate — how long the caller should wait
+    before retrying — when it can compute one (the queue-backed runner derives it from depth and
+    observed throughput). ``None`` means the caller falls back to its own constant.
+
+    DELTA-SECONDS, an integer: this value crosses to HTTP as the ``Retry-After`` header,
+    which RFC 7231 defines as a non-negative decimal integer (or an HTTP-date). An
+    adapter computing the estimate must CEIL it — never round down, or the caller
+    retries sooner than the substrate's own estimate.
     """
 
-    def __init__(self, active: int, limit: int) -> None:
+    def __init__(self, active: int, limit: int, *, retry_after_s: int | None = None) -> None:
         super().__init__(f"runner at capacity: {active} run(s) in flight, limit {limit}")
         self.active = active
         self.limit = limit
+        self.retry_after_s = retry_after_s
 
 
 def job_name(topic: str) -> str:

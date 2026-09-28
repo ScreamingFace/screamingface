@@ -116,7 +116,7 @@ async def _from_sequence_below_one_is_rejected(stream: EventStream, topic: str) 
         )
 
 
-async def _purge_drops_frames_but_keeps_counting(stream: EventStream, topic: str) -> None:
+async def _purge_drops_frames(stream: EventStream, topic: str) -> None:
     await stream.ensure_stream(topic)
     for i in range(2):
         await stream.publish(topic, _frame(topic, i))
@@ -124,8 +124,23 @@ async def _purge_drops_frames_but_keeps_counting(stream: EventStream, topic: str
     await stream.publish(topic, _frame(topic, 7))
     got = await _take(stream, topic, 1)
     assert _body(got[0]) == "body-7", f"purge must drop buffered frames, got {_body(got[0])!r}"
+
+
+async def _reclaim_keeps_counting(stream: EventStream, topic: str) -> None:
+    # WHY on `delete_stream` and not on `purge`: the reclaim is the one teardown that runs on a
+    # live system (the runner's grace, `DELETE /`), so it is where a rewound counter would reuse
+    # a sequence a client cursor already passed. A broker adapter whose sequence is the
+    # PRODUCER's (the shared events stream) keeps the counter by keeping the run's last frame;
+    # an in-process log keeps it in memory. Either way the next frame continues the count.
+    await stream.ensure_stream(topic)
+    for i in range(2):
+        await stream.publish(topic, _frame(topic, i))
+    await stream.delete_stream(topic)
+    await stream.publish(topic, _frame(topic, 7))
+    got = await _take(stream, topic, 1, from_sequence=3)
+    assert _body(got[0]) == "body-7", f"expected the post-reclaim frame, got {_body(got[0])!r}"
     assert got[0].sequence == "3", (
-        f"purge must NOT rewind the stream counter (a reused sequence would break replay), "
+        f"the reclaim must NOT rewind the stream counter (a reused sequence would break replay), "
         f"got {got[0].sequence}"
     )
 
@@ -175,7 +190,8 @@ _CHECKS = (
     _sequence_is_one_based_and_monotonic,
     _replay_from_sequence_is_inclusive_then_live,
     _from_sequence_below_one_is_rejected,
-    _purge_drops_frames_but_keeps_counting,
+    _purge_drops_frames,
+    _reclaim_keeps_counting,
     _subscribe_before_first_publish_works,
 )
 

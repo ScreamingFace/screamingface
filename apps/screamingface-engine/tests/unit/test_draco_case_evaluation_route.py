@@ -22,7 +22,7 @@ from screamingface_engine.benchmarks.draco.definition import (
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from screamingface_engine.benchmarks.draco.runtime import install
 from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
-from url4 import RelExpr, RelUrl, Text, expr, render, src
+from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
 
@@ -183,7 +183,7 @@ def test_case_record_requires_explicit_execution_provenance() -> None:
 
 async def _fetch_cases(node: Url4Node) -> str:
     expression = expr(
-        src(RelUrl(CASES_ROUTE), name="result", weight=0.0),
+        src(RelExpr(path=CASES_ROUTE, intent=Text("100")), name="result", weight=0.0),
         intent=Text("$result"),
     )
     return (await node.evaluate(render(expression))).text

@@ -37,6 +37,10 @@ _CALLER_CORRECTABLE_STATUSES = frozenset({400, 401, 403, 404, 409})
 # a bad credential (CatalogRejected, always surfaced as 401) rather than CatalogBadResponse.
 _REJECTION_STATUSES = frozenset({401, 403})
 
+# INVARIANT: two attempts total — one retry after a timeout, never a loop — so a genuinely
+# down gateway still fails within a bounded wall time (see `_request`, OME-1170).
+_TIMEOUT_ATTEMPTS = 2
+
 
 class AigatewayCatalogSource:
     """Fetch and minimally validate AI Gateway model discovery for one caller."""
@@ -125,16 +129,28 @@ class AigatewayCatalogSource:
         bad_response: type[CatalogBadResponse],
         params: dict[str, str] | None = None,
     ) -> httpx.Response:
-        """Issue one upstream GET and translate transport failures at the adapter boundary."""
+        """Issue one upstream GET and translate transport failures at the adapter boundary.
 
-        try:
-            return await self._client.get(path, params=params, headers=_headers(credential))
-        except httpx.TimeoutException as exc:
-            logger.warning("aigateway %s request timed out", label)
-            raise CatalogUnavailable(CatalogUnavailable.detail) from exc
-        except httpx.HTTPError as exc:
-            logger.warning("aigateway %s request failed at the transport layer", label)
-            raise bad_response(bad_response.detail) from exc
+        WHY one retry on timeout only (OME-1170): a cold gateway composes a parameter
+        datasheet slowly, and that failed slow attempt fills the gateway's cache — so an
+        immediate second attempt answers in milliseconds. Other transport failures (refused
+        connection, reset) gain nothing from an instant repeat, so they are not retried.
+        The retry is bounded: two attempts total, then ``CatalogUnavailable``.
+        """
+
+        for attempt in range(_TIMEOUT_ATTEMPTS):
+            try:
+                return await self._client.get(path, params=params, headers=_headers(credential))
+            except httpx.TimeoutException as exc:
+                if attempt + 1 < _TIMEOUT_ATTEMPTS:
+                    logger.warning("aigateway %s request timed out; retrying once", label)
+                    continue
+                logger.warning("aigateway %s request timed out", label)
+                raise CatalogUnavailable(CatalogUnavailable.detail) from exc
+            except httpx.HTTPError as exc:
+                logger.warning("aigateway %s request failed at the transport layer", label)
+                raise bad_response(bad_response.detail) from exc
+        raise AssertionError("unreachable: the final attempt returns or raises")
 
     def _decode_json(
         self,
@@ -192,12 +208,32 @@ def _reject_non_json_constant(value: str) -> Never:
 def _headers(credential: Credential) -> dict[str, str]:
     """Build the upstream request headers from the credential's identity and profile.
 
-    INVARIANT: the gateway-owned header is written LAST, mirroring ``runner.connector._headers`` —
+    INVARIANT: the gateway-owned header is written LAST, mirroring ``world.connector._headers`` —
     the identity mapping is not guaranteed to hold only identity keys, so no value in it can
     displace ``X-Profile``.
 
     No ``Authorization``: a deployed aigateway (``cloudflare_headers``) reads only the identity
     header, and a local one (``disabled``) reads nothing at all.
+
+    AIDEV-NOTE (OME-1119): this function carries NO ``traceparent``, and the three callers do not
+    all want that for the same reason — so do not "fix" it in one place.
+
+    - ``fetch`` genuinely must not carry one. ``CachedCatalog`` coalesces concurrent misses for a
+      credential onto a single upstream fetch (``cache.py``'s ``_inflight``, typed
+      ``Future[ModelCatalog]``) and serves the result to every waiter, so that call is *caused by*
+      whichever caller led the refresh and *consumed by* N others. Stamping the leader's trace
+      would put a call in their trace that also served people they never heard of, and leave the
+      other N-1 with a gap where a catalog read should be — both readings wrong, and the wrong one
+      looks right. Representing it honestly needs an OTel span Link (one span, many causes), which
+      is Phase 2, ``OME-1130``.
+    - ``fetch_model_parameters`` and ``admit_model`` are NOT coalesced — ``_inflight`` covers only
+      ``fetch``, and ``CachedCatalog.model_parameter_source`` is documented as "the uncached detail
+      source". ``rest/catalog.py`` calls the first straight from a route, one upstream call per
+      inbound request. Those two SHOULD carry the caller's traceparent; they do not yet, because
+      the value has to be threaded from the REST edge through ``catalog/executable.py`` rather than
+      taken from ``Credential`` — ``Credential`` holds a derived cache ``key``, so a per-request
+      field on it would give every request its own cache entry and destroy the catalog cache.
+      Tracked as ``OME-1134``.
     """
     headers = dict(credential.identity)
     if credential.profile is not None:

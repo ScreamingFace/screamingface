@@ -39,8 +39,8 @@ from screamingface_engine.catalog.port import (
     ModelParameterResponse,
     compute_etag,
 )
-from screamingface_engine.models.registry import EMPTY_MODEL_WORLD
-from screamingface_engine.world_config import WorldConfigError, parse_config, routes_for
+from screamingface_engine.world.config import WorldConfigError, parse_config, routes_for
+from screamingface_engine.world.models.registry import EMPTY_MODEL_WORLD
 
 _DECLARED = "openrouter/openai/gpt-5.5"
 _TARGET = "openrouter/qwen/qwen2.5-7b-instruct"

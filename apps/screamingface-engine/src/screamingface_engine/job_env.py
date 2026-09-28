@@ -19,10 +19,12 @@ format.
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
+from typing import Literal
 
 from url4.streaming.protocol import CachePolicy
 
@@ -119,6 +121,15 @@ Absent means the App stated nothing, which the run mode carries through as
 (:mod:`screamingface_engine.rest.cache_policy`) and is decided exactly once, there.
 """
 
+ANSWER_SEED = "URL4_CLOUD_ANSWER_SEED"
+"""The run's declared answer seed — one integer stamped onto every answer call (OME-1038).
+
+Per-run for the same reason ``AIGATEWAY_PROFILE`` is: it does not exist until a caller declares
+it, so Helm cannot supply it and the App must. Absent means the run declared nothing, and the
+connector then adds NO seed param at all — egress stays byte-identical to an unseeded run's,
+which is what keeps every request-keyed replay fixture valid.
+"""
+
 CACHE_MAX_AGE_S = "URL4_CLOUD_CACHE_MAX_AGE_S"
 """The caller's freshness bound in whole seconds, when they stated one.
 
@@ -127,6 +138,48 @@ key and BYPASSES on any other. It travels only so the value survives to read-bac
 age can be compared against it.
 """
 
+RUN_SHAPE = "URL4_CLOUD_RUN_SHAPE"
+"""What the run's EXPRESSION is (uniform executor PRD 04, erd.md §2): ``expression`` — a url4
+expression the run evaluates as a DAG — or ``direct`` — a mount call, ``<mount path>?<raw query>``,
+that runs ONE registered handler through ``url4.peer.dispatch_direct`` and never a DAG (D1).
+Absent means ``expression``, so a message from before the change still decodes."""
+
+SPEC_VERSION = "URL4_CLOUD_SPEC_VERSION"
+"""The run message's major version (erd.md §2). Absent means ``1``. A worker refuses an unknown
+major version with a ``failed`` terminal frame, code ``unsupported_spec_version``."""
+
+CURRENT_SPEC_VERSION = "2"
+SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+RECLAIM_OWNER = "URL4_CLOUD_RECLAIM_OWNER"
+"""Who reclaims a finished run's subject: absent (the run process itself, after its grace — a
+standalone `run`) or ``worker`` (the supervising worker, per process — the worker pool).
+
+WHY the worker: a child that sleeps its grace before it exits holds a WORKER SLOT for the whole
+grace (60 s) after its run is over. Under load every slot sat idle in grace and claims stopped —
+found by the kind suite (K6). The worker purges after the grace in a detached task, off the slot.
+A per-PROCESS key, set by the worker on the children it starts."""
+
+DIRECT_STREAM_GRACE_S = 5.0
+"""The reclaim grace of a DIRECT run: the child's wait between its terminal frame and its purge.
+
+WHY not :data:`DEFAULT_STREAM_GRACE_S` (60 s): that grace lets an attached WebSocket client drain
+the final frames. Nobody attaches to a mount run — the App reads its frames in-process and has
+answered by then — and the child holds a WORKER SLOT through the grace, so a 60 s grace would
+make every simple call occupy a slot for a minute after it answered."""
+MAX_DIRECT_TARGET_BYTES = 8 * 1024
+"""The longest ``<mount path>?<raw query>`` a direct run carries (erd.md §2; 414 over it)."""
+
+RunShape = Literal["expression", "direct"]
+
+
+def run_shape_from_env(env: Mapping[str, str]) -> RunShape:
+    """The run's shape; absent is ``expression``. An unknown value raises ``ValueError``."""
+    shape = env.get(RUN_SHAPE, "expression")
+    if shape not in ("expression", "direct"):
+        raise ValueError(f"{RUN_SHAPE}={shape!r} is not 'expression' or 'direct'")
+    return shape  # type: ignore[return-value]
+
+
 EXTRA_MODELS = "URL4_CLOUD_EXTRA_MODELS"
 """Dynamically admitted model ids this run's world must ALSO route (OME-880).
 
@@ -134,7 +187,7 @@ A JSON array of gateway model ids. Per-run for the same reason the identity is: 
 does not exist until the gateway admits something, so Helm cannot supply it — the App writes
 the CURRENT overlay onto every scheduled run, which is what lets a model admitted a second
 ago reach the very next run. The run mode merges these ADDITIVELY into the declared world
-(:func:`screamingface_engine.world_config.parse_config`); an id already declared keeps its declared
+(:func:`screamingface_engine.world.config.parse_config`); an id already declared keeps its declared
 spec, so the overlay can never weaken a compiled route.
 """
 
@@ -180,7 +233,7 @@ def cache_policy_from_env(env: Mapping[str, str]) -> CachePolicy:
 
     Returns a policy rather than ``CachePolicy | None`` because an all-unstated
     policy already IS "nothing declared":
-    :func:`screamingface_engine.runner.cache.policy_to_body_field` renders it as an
+    :func:`screamingface_engine.world.cache.policy_to_body_field` renders it as an
     absent `cache` field, which the gateway reads as participation. So a Job whose env
     carries no policy behaves like every other one WITHOUT the run mode re-deciding
     what silence means.
@@ -197,6 +250,38 @@ def cache_policy_from_env(env: Mapping[str, str]) -> CachePolicy:
         participate=None if raw_participate is None else raw_participate.strip().lower() == _TRUE,
         max_age=int(raw_max_age) if raw_max_age is not None and raw_max_age.isdigit() else None,
     )
+
+
+def answer_seed_to_env(answer_seed: int | None) -> dict[str, str]:
+    """Render a run's declared answer seed as the Job env key that carries it.
+
+    ``None`` renders NOTHING — an undeclared seed stays distinguishable from a declared one
+    all the way down, so the connector can express absence as an unchanged request body.
+    """
+    if answer_seed is None:
+        return {}
+    return {ANSWER_SEED: str(answer_seed)}
+
+
+def answer_seed_from_env(env: Mapping[str, str]) -> int | None:
+    """Read a run's declared answer seed back out of its environment.
+
+    WHY this one RAISES where the cache/io readers are total: their cheap failure is a missed
+    cache hit or a default budget, but a run silently executed WITHOUT its declared seed would
+    publish a score claiming a sitting it never had — the exact dishonesty answer seeds exist
+    to end. This env is App-written, so a non-integer value is a bug, and the loud answer is
+    the safe one. Negative seeds are legal: aigateway's ``seed`` is an arbitrary integer.
+
+    Raises:
+        ValueError: the variable is present but not an integer.
+    """
+    raw = env.get(ANSWER_SEED)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{ANSWER_SEED} must be an integer, got {raw!r}") from exc
 
 
 def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
@@ -216,6 +301,31 @@ def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
         return None
     value = int(raw)
     return value if value >= 1 else None
+
+
+def number_from_env[N: (int, float)](
+    env: Mapping[str, str], name: str, default: N, *, log: logging.Logger
+) -> N:
+    """One tolerant env-number parser, shared by every deploy-time int/float knob.
+
+    ``type(default)`` decides whether this parses an ``int`` or a ``float``, so one function
+    serves every deploy-time knob (`runner.main`, the worker).
+
+    INVARIANT: never raises. These are typo'd-knob readers for boot-time settings, and the
+    shipped default is the safe answer to a typo — the alternative is a pod that cannot start.
+
+    Args:
+        log: the caller's own logger, required so the warning is attributed to the module that
+            owns the setting (for example `runner.main`) rather than to `job_env` itself.
+    """
+    raw = env.get(name)
+    if raw is None:
+        return default
+    try:
+        return type(default)(raw)  # type: ignore[return-value]
+    except ValueError:
+        log.warning("ignoring unparseable %s=%r", name, raw)
+        return default
 
 
 # --- per-deploy: named by the chart, injected via envFrom ------------------------------------
@@ -243,7 +353,7 @@ DEFAULT_STREAM_GRACE_S = 60.0
 which any client can still hold a valid ticket and be attached to the run."""
 
 RUNNER_CONFIG = "URL4_RUNNER_CONFIG"
-"""Path to the declared world (:mod:`screamingface_engine.world_config`). Baked into
+"""Path to the declared world (:mod:`screamingface_engine.world.config`). Baked into
 the image; the App never writes it."""
 
 ARTIFACTS_DIR = "URL4_CLOUD_ARTIFACTS_DIR"
@@ -298,6 +408,20 @@ ARTIFACT_S3_ACCESS_KEY = "URL4_CLOUD_ARTIFACT_S3_ACCESS_KEY"
 ARTIFACT_S3_SECRET_KEY = "URL4_CLOUD_ARTIFACT_S3_SECRET_KEY"
 """Secret access key. INVARIANT: Secret only — never a ConfigMap, never logged. A ConfigMap is
 readable by anything with `get` on it and is printed in plain text by `helm get manifest`."""
+
+ARTIFACT_SIGNING_KEY = "URL4_CLOUD_ARTIFACT_SIGNING_KEY"
+"""Shared HMAC key for short-lived artifact URLs (OQ-3.2, contracts.md C6).
+
+The App SIGNS a mount result's 303 `Location` and VERIFIES it on `GET /artifacts/{id}`
+(uniform executor PRD 04). One name, so the signer and the verifier cannot be pointed at
+different keys by a one-sided edit — the same one-name invariant :data:`ARTIFACTS_DIR` states.
+
+INVARIANT: Secret only — a signing key is authorization material (a holder can mint a fetch
+credential for any artifact id), so it must never travel by ConfigMap or be logged.
+
+AIDEV-NOTE: not yet in :data:`DEPLOY_TIME`, though the chart does render this Secret
+(`deploy/helm/templates/secret-artifact-signing.yaml`). An unset key means the tier refuses to
+sign (a 502 at spill time, never an unsigned redirect)."""
 
 RESULT_INLINE_CAP_BYTES = "URL4_CLOUD_RESULT_INLINE_CAP_BYTES"
 """Largest result body (UTF-8 bytes) that rides the result frame inline; anything larger is
@@ -372,7 +496,7 @@ holding — re-adding a per-run secret must go through it rather than around it.
 
 REQUIRED = frozenset({TOPIC, EXPRESSION})
 """Absent ⇒ run mode raises ``runner.main.RunnerConfigError`` at boot (the PER-RUN env error; a
-bad declared world is ``world_config.WorldConfigError``). Every adapter must write these."""
+bad declared world is ``world.config.WorldConfigError``). Every adapter must write these."""
 
 WRITTEN_BY_APP = frozenset(
     {
@@ -382,10 +506,13 @@ WRITTEN_BY_APP = frozenset(
         STREAM_GRACE_S,
         TRACEPARENT,
         AIGATEWAY_PROFILE,
+        ANSWER_SEED,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,
         IO_CONCURRENCY,
+        RUN_SHAPE,
+        SPEC_VERSION,
         *IDENTITY_HEADER_ENV.values(),
     }
 )
@@ -399,6 +526,9 @@ whether that is benign depends entirely on what the fallback means: a byte count
 default, a storage LOCATION does not. Both directions are now checked —
 `test_deploy_time_chart_contract.py` asserts the chart actually writes these."""
 
+ACTIVITY_LEVEL = "URL4_CLOUD_ACTIVITY_LEVEL"
+"""Deployment-owned full/off activity policy; absent means full, never request-controlled."""
+
 DEPLOY_TIME = frozenset(
     {
         NATS_URL,
@@ -410,6 +540,7 @@ DEPLOY_TIME = frozenset(
         RESULT_INLINE_CAP_BYTES,
         RESULT_HARD_CAP_BYTES,
         BRIDGE_MEMORY_BUDGET_BYTES,
+        ACTIVITY_LEVEL,
         ARTIFACT_STORE,
         ARTIFACT_S3_ENDPOINT_URL,
         ARTIFACT_S3_BUCKET,
@@ -439,6 +570,7 @@ __all__ = [
     "ARTIFACT_S3_ENDPOINT_URL",
     "ARTIFACT_S3_REGION",
     "ARTIFACT_S3_SECRET_KEY",
+    "ARTIFACT_SIGNING_KEY",
     "ARTIFACT_STORE",
     "DEFAULT_ARTIFACT_S3_REGION",
     "DEPLOY_TIME",
@@ -465,4 +597,5 @@ __all__ = [
     "identity_from_env",
     "identity_from_headers",
     "identity_to_env",
+    "number_from_env",
 ]

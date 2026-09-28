@@ -13,15 +13,39 @@ spec:
     metadata:
       labels:
         {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
+        {{/* FX-93: OMIT the chart-owned keys before merging in `podLabels`. Rendering them
+        AFTER `podLabels` stops an override from winning, but the operator's own copy is still
+        written first — a duplicate mapping key that a strict parser refuses and a lenient one
+        resolves either way. `name`/`instance` come from `selectorLabels` above; `component` is
+        rendered below. */}}
+        {{- with (omit .Values.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component") }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        # FEATURE (unit 3, AC5): this component label is the one thing that distinguishes the
+        # App from the runner pool (both share name+instance so aigateway admits their calls),
+        # so a NetworkPolicy peer can name exactly the App.
+        #
+        # INVARIANT: CHART-OWNED. The `omit` above removes an operator's copy from `podLabels`,
+        # so there is no duplicate key, and this line renders after it, so it cannot be
+        # overridden. The aigateway chart lost an outage to exactly this:
+        # a platform's `podLabels` rendered later, changed `component`, and emptied a Service
+        # selector. Here the consequence would be a policy peer that no longer matches the App —
+        # lockout rather than a zero-endpoint Service. Adding a POD label is safe: `spec.selector`
+        # stays name+instance.
+        app.kubernetes.io/component: control-plane
       annotations:
         # INVARIANT: a ConfigMap/Secret value change alone does NOT roll the pod — see the
         # aigateway chart's identical annotation for the live failure this prevents (config
         # updated, running pod kept the OLD env, silently wrong behavior).
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if include "screamingface-engine.artifactSigningConfigured" . }}
+        # FX-81: the App SIGNS a mount result's 303 and VERIFIES it with this same key (OQ-3.2),
+        # so a rotated signing Secret must roll the App — without this annotation the App keeps
+        # the OLD key until its next unrelated restart.
+        # The checksum hashes the key's SOURCE — see the `artifactSigningChecksum` helper.
+        checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -33,8 +57,9 @@ spec:
       # `int("tcp://10.96.x.x:9108")`. Nothing here consumes those vars; the App is configured
       # solely by the ConfigMap + Secret below.
       enableServiceLinks: false
-      # The RBAC subject: this ServiceAccount is bound to the namespace Role that permits scheduling
-      # Runner Jobs (spec §9). The stateless App calls create/get/list/watch/delete on batch/jobs.
+      # The ServiceAccount exists for pod identity only (OME-1092): the Job-scheduling Role and
+      # RoleBinding are gone, so the control plane can no longer create Pods. The stateless App
+      # is configured solely by the ConfigMap + Secret below.
       serviceAccountName: {{ include "screamingface-engine.serviceAccountName" . }}
       # WHY: a pod marked Terminating is removed from endpoints and sent SIGTERM at the SAME
       # moment, and endpoint removal takes seconds to reach the ingress. This App holds
@@ -80,6 +105,13 @@ spec:
             # credential it is not merely forwarded to Jobs.
             - secretRef:
                 name: {{ include "screamingface-engine.artifactSecretName" . }}
+            {{- end }}
+            {{- if include "screamingface-engine.artifactSigningConfigured" . }}
+            # FEATURE (OQ-3.2; uniform executor PRD 05 DC-D3): the HMAC key the App SIGNS a
+            # mount's 303 artifact URL with and VERIFIES it against. Present only when a key is
+            # configured; without one a mount result over 1 MiB is streamed inline (MC-D9).
+            - secretRef:
+                name: {{ include "screamingface-engine.artifactSigningSecretName" . }}
             {{- end }}
           env:
             # HS256 topic-capability signing secret (spec §4). Never logged.

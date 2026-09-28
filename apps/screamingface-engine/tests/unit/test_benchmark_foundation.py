@@ -14,12 +14,12 @@ from fastapi import FastAPI
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks import (
     Benchmark,
+    BenchmarkDeclaration,
     BenchmarkInstaller,
     BenchmarkRegistry,
     candidate,
     link_candidate,
 )
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.contract import (
     CANDIDATE_BINDING,
     CANDIDATE_ROUTE,
@@ -33,11 +33,12 @@ from screamingface_engine.model_outcomes import (
     capture_model_outcomes,
     record_model_outcome,
 )
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.main import build_executor
-from screamingface_engine.runner.web_tools import _is_blocked
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.world.web_tools import _is_blocked
 from url4 import Node, RelExpr, RelUrl, build, expr, iterate, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -58,6 +59,11 @@ def _benchmark(
         "description": "One non-comparable structural probe.",
         "revision": "example-smoke-v1",
         "case_count": 3,
+        "declaration": BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+            difficulty="easy",
+        ),
         "build": build_protocol
         or (
             lambda selected: candidate(
@@ -117,6 +123,15 @@ async def test_list_is_complete_metadata_and_detail_is_an_exact_selection() -> N
                 "description": "One non-comparable structural probe.",
                 "revision": "example-smoke-v1",
                 "case_count": 3,
+                # OME-1112: provenance is part of the public catalog — every entry
+                # carries it, defaulting to the Engine's own authorship.
+                "origin": "screamingface",
+                # OME-1039: the declared grading contract is part of the public catalog —
+                # reviewers approve the policy by reading the manifest, never engine source.
+                "failure_policy": "coverage_declare",
+                "interaction": "single_shot",
+                # OME-1257: the hand-assigned easy→hard tier the listing groups by.
+                "difficulty": "easy",
                 "href": "/v1/benchmarks/example-smoke",
             }
         ],

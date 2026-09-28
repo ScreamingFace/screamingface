@@ -11,10 +11,11 @@ from url4.core.errors import (
     ResolutionError,
     Url4Error,
 )
-from url4.core.subrequest import encode_subrequest
+from url4.dag.semantics.collection import parse_collection
 from url4.io.http import HttpIOLayer
-from url4.io.layer import FetchRequest, FetchResult, fetch_result, parse_collection
+from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
 from url4.io.static import StaticIOLayer
+from url4.wire.subrequest import encode_subrequest
 
 
 @pytest.mark.asyncio
@@ -132,6 +133,24 @@ async def test_holdings_unconfigured_adapter_is_non_url4() -> None:
     with pytest.raises(ResolutionError) as identity_ref:
         await StaticIOLayer().fetch_holdings("emily", None)
     assert identity_ref.value.code == "identity_ref_on_non_url4"
+
+
+def test_resolve_shelf_exact_collection_wins() -> None:
+    assert resolve_shelf({None: "DEFAULT", "science": "SCI"}, "science") == "SCI"
+
+
+def test_resolve_shelf_falls_back_to_default_shelf() -> None:
+    assert resolve_shelf({None: "DEFAULT"}, "missing") == "DEFAULT"
+
+
+def test_resolve_shelf_none_collection_uses_default_shelf() -> None:
+    assert resolve_shelf({None: "DEFAULT", "science": "SCI"}, None) == "DEFAULT"
+
+
+def test_resolve_shelf_returns_none_when_absent() -> None:
+    assert resolve_shelf({}, "missing") is None
+    assert resolve_shelf({"science": "SCI"}, "missing") is None
+    assert resolve_shelf({}, None) is None
 
 
 # -- fetch_ex / fetch_result: media-type-aware port -------------------------------

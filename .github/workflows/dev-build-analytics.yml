@@ -1,0 +1,86 @@
+# Dev image on every merge to main (path-filtered): immutable main-<shortsha> tags
+# so a dev environment can track main automatically. Mirrors
+# dev-build-report-intake.yml. Single-arch (amd64) for speed; dev clusters are amd64.
+#
+# There is no release lane for analytics yet, so this is currently the ONLY
+# publisher of this image. The chart's `image.repository` default names the same
+# repository these tags do — verify_chart_wiring.py asserts it, because a chart
+# naming an image nobody pushes is installable and permanently ImagePullBackOff.
+#
+# THE IMAGE IS NOT WHAT MAKES THE SERVICE SAFE TO RUN. It ships disabled: without
+# ANALYTICS_ENABLED, an allowlisted HTTPS destination and a project token, the
+# settings validator refuses to start, /readyz answers 503 and no event is
+# forwarded. analytics-tests.yml asserts exactly that on the built image.
+#
+# SECURITY: no `run:` block interpolates a `${{ }}` expression carrying free text.
+# The two that interpolate at all read `github.sha` and the checkout's own git log;
+# no `github.event.*` value is referenced anywhere in this file.
+name: Dev build analytics
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/analytics/**"
+      - ".github/workflows/dev-build-analytics.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+  id-token: write # OIDC → Azure; no stored credentials
+concurrency:
+  group: dev-build-analytics-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Pin the image's embedded build timestamp to the commit's own timestamp.
+      # WHY: with a warm layer cache, two builds from different commits can
+      # reproduce an IDENTICAL config `created` time, and any consumer that
+      # orders these tags by build time — the deployment automation that
+      # promotes them does exactly that — treats a tie as not-newer and never
+      # ships the new build. Commit time is unique per merge and monotonic on
+      # main. Same reasoning as dev-build-report-intake.yml.
+      - id: epoch
+        run: echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+      - id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Platform registry (ACR) — the dev cluster pulls from here. OIDC only:
+      # sp-screamingface-ci is federated to this repo's main branch and holds
+      # AcrPush on acropenmined and nothing else. No secrets are stored here;
+      # the three vars below are non-secret identifiers.
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az acr login --name acropenmined
+      - uses: docker/build-push-action@v7
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.epoch }}
+        with:
+          # Context is the repo root — the Dockerfile COPYs apps/analytics paths
+          # from outside its own directory, matching the sibling lanes.
+          context: .
+          file: apps/analytics/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/screamingface/screamingface-analytics:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-analytics:main-${{ steps.sha.outputs.short }}
+            acropenmined.azurecr.io/screamingface-analytics:main-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          # Its OWN scope. Sharing one with a sibling lane whose layer set is disjoint
+          # is pure eviction pressure with no hits, and is the easy mistake when a lane
+          # is copied — verify_chart_wiring.py asserts every dev lane's scope is distinct.
+          cache-from: type=gha,scope=dev-analytics
+          cache-to: type=gha,scope=dev-analytics,mode=max

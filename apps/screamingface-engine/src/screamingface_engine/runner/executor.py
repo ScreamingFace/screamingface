@@ -2,10 +2,11 @@
 (`url4.dag.run`) and bridges its synchronous `url4.observe` callback events into the async
 `url4.streaming.protocol` wire frames the run publishes over NATS.
 
-This is the only module (besides `connector`) that may import the url4 ENGINE — the composition
-root (`runner.main`) types its world factory against `World`/`WorldFactory` here without ever
-importing the engine itself. `tests/unit/test_url4_executor.py` pins that pair over the whole
-distribution, control plane included.
+This module imports the url4 ENGINE and, since prd/01 F1, shares that allowance with the
+shared world package (`world.connector`, `world.factory`, and the candidate/corrective
+installers). `World` and `WorldFactory` are defined in `world.factory`, and every caller —
+`runner.main` included — imports them from there. `tests/unit/test_url4_executor.py` pins that
+allowance over the whole distribution, control plane included.
 """
 
 from __future__ import annotations
@@ -22,14 +23,24 @@ from decimal import Decimal
 from typing import Any, Literal, cast
 
 from screamingface_engine import job_env
-from screamingface_engine.artifacts import ArtifactWriter
-from screamingface_engine.runner.accounting import PRICING_VERSION, UNPRICED, accumulate
-from screamingface_engine.runner.cache_counters import RunCacheCounters
+from screamingface_engine.artifacts import (
+    ArtifactWriter,
+    ResultDelivery,
+    allowed_result_bytes,
+    decide_result_delivery,
+)
+from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.job_env import RunShape
+from screamingface_engine.observations import bridge_loss_attributes
+from screamingface_engine.request_scope import RequestScope, request_scope
+from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
-from url4.core.errors import ResolutionError
+from screamingface_engine.trace_scope import run_trace_scope
+from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
+from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
-from url4.io.static import StaticIOLayer
 from url4.observe import (
     Log,
     ModelResponse,
@@ -39,6 +50,8 @@ from url4.observe import (
     RunStarted,
     Usage,
 )
+from url4.peer import dispatch_direct
+from url4.peer.server import Url4Node
 from url4.streaming.interfaces import Completed, ExecStep, Executor, SpanRef, TraceContext, Traced
 from url4.streaming.protocol import (
     SEVERITY_NUMBER,
@@ -88,7 +101,7 @@ class _Bridge:
     """A bounded async event queue between the engine's synchronous `url4.observe` callback
     and the async streaming loop draining it.
 
-    Buffers up to `maxsize` events; beyond that, an incoming `Log` is dropped outright, while
+    At either capacity limit, an incoming `Log` is dropped outright, while
     an incoming non-Log event instead evicts the oldest buffered `Log` to make room (or, if no
     `Log` is buffered, evicts nothing and the buffer grows toward the hard cap) — since a `Log`
     is the only event kind safe to lose without corrupting the run's span/cost accounting.
@@ -156,19 +169,16 @@ class _Bridge:
     def on_event(self, event: ObservationEvent) -> None:
         """Called synchronously by the engine for every observation event.
 
-        Policy at the soft cap (`maxsize`): a `Log` is dropped outright (counted in
+        Policy at either the soft or hard cap: a `Log` is dropped outright (counted in
         `dropped`); anything else evicts the oldest buffered `Log` to make room, since a
         `Log` is the only event kind safe to lose without corrupting the run's span/cost
         accounting. Only once the backlog still exceeds the hard cap after that eviction does
         this raise `BridgeOverflowError`.
         """
-        # INVARIANT: with the default budget the hard cap sits far above `_max`, giving the
-        # buffer headroom past the soft cap before the budget binds — NOT a guarantee that a
-        # Log is available to evict. A backlog with no buffered Log at all is exactly the
-        # state that runs out that headroom and raises BridgeOverflowError. A budget below
-        # `_max` events' worth makes the hard cap bind first; the policy stays correct, the
-        # soft cap simply never gets to help.
-        if len(self._buf) >= self._max:
+        # INVARIANT: optional activity cannot consume the last slot needed by an
+        # authoritative event, even when the hard cap is below the soft cap.
+        # The buffer never exceeds the hard cap, so one eviction admits one event.
+        if len(self._buf) >= min(self._max, self._hard_cap):
             if isinstance(event, Log):
                 self._dropped += 1
                 return
@@ -296,6 +306,17 @@ class _SpanState:
     # beside a reason from another would describe a call that never happened.
     cache_status: Literal["hit", "miss", "bypass"] | None = field(default=None)
     cache_reason: str | None = field(default=None)
+    # FEATURE: saved cost (ans:Q2). ACCUMULATED, NOT last-wins — deliberately unlike the status
+    # above it. A status is categorical, so the last round trip's outcome is the turn's outcome;
+    # money is additive, so the last round trip's saving is not the turn's saving. A span that
+    # latched only the final hit would publish a third of the truth for a three-hit tool loop
+    # while the run counted all three, and a backend summing an attribute named for money across
+    # spans — the obvious thing to do with it — would land nowhere near the run's own total.
+    #
+    # The same two-accumulator type the run uses, so the never-mix rule (PRD S5/S7) is stated
+    # once. `None` in a total means no hit reported a priceable saving of that provenance —
+    # never zero.
+    saved_cost: SavedCostTotals = field(default_factory=SavedCostTotals)
 
 
 class _RunState:
@@ -399,6 +420,24 @@ class _RunState:
         # cost or saved money, so dropping it would under-report the run's own summary.
         self.cache_counters.record(event.cache_status, event.cache_reason)
         span = self.spans.get(event.span_id) if event.span_id is not None else None
+        if event.cache_status == "hit":
+            # Beside the outcome, and only for a HIT: a miss or a bypass avoided nothing, whatever
+            # price rides along with it. The counters keep the two provenances in separate
+            # accumulators, so the provider-authored total and the archive-paired total can never
+            # be summed into one figure (PRD S7).
+            #
+            # INVARIANT: the run tally and the span tally are taken under ONE guard, from one
+            # event. They are the same claim at two scopes — a saving the span reports that the
+            # run does not (or the reverse) is a contradiction no consumer can resolve — so the
+            # guards must not be free to drift apart. The span still folds only when this run
+            # opened it, for the fabrication reason above.
+            self.cache_counters.record_saved_cost(
+                event.cache_saved_cost_usd, event.cache_saved_cost_provenance
+            )
+            if span is not None:
+                span.saved_cost.add_saved_cost(
+                    event.cache_saved_cost_usd, event.cache_saved_cost_provenance
+                )
         if span is None:
             return
         if event.finish_reason is not None:
@@ -505,6 +544,13 @@ class _RunState:
             # read as "the cache refused this call" — a claim nobody made.
             cache_status=span.cache_status,
             cache_reason=span.cache_reason,
+            # The counterfactual this span's hits avoided, one total per provenance. Wire fields
+            # and NOT part of `CostBreakdown`, which is closed — mixing avoided money into the
+            # cost block would let one call be counted twice. Each is a SUM over this span's hits
+            # of that provenance, so summing either across a run's spans reproduces the run's own
+            # figure; summing the two together reproduces nothing (PRD S5).
+            cache_saved_cost_usd=span.saved_cost.saved_cost_usd,
+            cache_saved_cost_archive_usd=span.saved_cost.saved_cost_archive_usd,
             start=start,
             end=datetime.now(UTC),
             status="ok" if event.status == "ok" else "error",
@@ -543,6 +589,7 @@ class _RunState:
         inline_cap: int,
         hard_cap: int,
         store: ArtifactWriter | None,
+        media_type: str | None = None,
     ) -> ResultData:
         """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
 
@@ -568,17 +615,25 @@ class _RunState:
         path of GitHub #642 is unrepresentable here.
         """
         encoded = result_str.encode("utf-8")
-        allowed = hard_cap if store is not None else min(inline_cap, hard_cap)
-        if len(encoded) > allowed:
+        # The hard-cap-first decision lives in `decide_result_delivery`, so the boundary and
+        # which check wins are defined once (T6).
+        decision = decide_result_delivery(
+            len(encoded),
+            inline_cap=inline_cap,
+            hard_cap=hard_cap,
+            spill_available=store is not None,
+        )
+        if decision is ResultDelivery.TOO_LARGE:
+            allowed = allowed_result_bytes(inline_cap, hard_cap, spill_available=store is not None)
             raise ResolutionError(
                 f"result is {len(encoded)} bytes, cap is {allowed} bytes",
                 code="result_too_large",
                 permanent=True,
             )
-        if len(encoded) <= inline_cap:
-            return ResultData(body=result_str, media_type=None)
+        if decision is ResultDelivery.INLINE:
+            return ResultData(body=result_str, media_type=media_type)
         assert store is not None  # over inline yet allowed ⇒ a store existed above
-        return ResultData(media_type=None, artifact=store.write_bytes(encoded))
+        return ResultData(media_type=media_type, artifact=store.write_bytes(encoded))
 
     def build_subtree(self) -> CostUsageData:
         provider, model = self._subtree_provider_model()
@@ -632,7 +687,9 @@ def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
         frames.append(
             Traced(
                 payload=LogData.at(
-                    "WARN", f"dropped {bridge.dropped} log event(s) (telemetry overflow)"
+                    "WARN",
+                    f"dropped {bridge.dropped} log event(s) (telemetry overflow)",
+                    bridge_loss_attributes(bridge.dropped),
                 ),
                 span=None,
             )
@@ -675,18 +732,23 @@ def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
 def _log_frame(event: Log) -> LogData:
     # The engine's severity is a free string; anything the protocol does not name maps to INFO.
     severity = cast(Severity, event.severity.upper())
-    return LogData.at(severity if severity in SEVERITY_NUMBER else "INFO", event.body)
+    return LogData.at(
+        severity if severity in SEVERITY_NUMBER else "INFO", event.body, dict(event.attributes)
+    )
 
 
-World = tuple[IOLayer, Callable[[], Awaitable[None]] | None]
-"""A resolved world: its io layer plus the teardown that owns whatever it allocated.
+@dataclass(frozen=True, slots=True)
+class _EvalResult:
+    """One run's evaluated text plus the media type its route declares (S4).
 
-Exported so the composition root can type its factory WITHOUT importing the engine — only
-this module and `connector` may (pinned by
-``test_only_url4_executor_module_imports_url4``).
-"""
+    An expression run (`url4_run`) declares none; a direct run's `DirectResult` carries
+    whatever its route did. Returned by `_evaluate`/`_drive` rather than stashed on the
+    executor, so the media type flows to `state.build_result` as DATA, not as per-run state
+    an executor instance could carry stale between calls.
+    """
 
-WorldFactory = Callable[[], Awaitable[World]]
+    body: str
+    media_type: str | None = None
 
 
 class Url4Executor(Executor):
@@ -708,10 +770,21 @@ class Url4Executor(Executor):
         artifact_store: ArtifactWriter | None = None,
         world_aclose: Callable[[], Awaitable[None]] | None = None,
         world_factory: WorldFactory | None = None,
+        request_scope_factory: Callable[[], RequestScope] | None = None,
         io_wrap: Callable[[IOLayer], IOLayer] | None = None,
         io_concurrency: int | None = None,
+        run_shape: RunShape = "expression",
     ) -> None:
         self._io = io
+        # FEATURE (uniform executor PRD 04): a `direct` run is a MOUNT CALL — its "expression"
+        # is `<mount path>?<raw query>` and it runs ONE registered handler of the world node via
+        # `url4.peer.dispatch_direct`, never a DAG (D1). Same lifecycle, same frames.
+        self._run_shape = run_shape
+        # The world NODE a direct call dispatches on (`self._node`) is set ONLY by
+        # `_resolve_world` — from `self._io` before any wrap is applied, since a wrapper is
+        # not a node (a direct run is one call; there is nothing to fan out or bound).
+        # `execute` always calls `_resolve_world` before a direct run can dispatch, so there
+        # is no window where `_node` is read unset.
         self._queue_cap = queue_cap
         # WHY: `result_cap` is now the INLINE threshold (biggest body that rides the
         # result frame), not a truncation point; `hard_cap` bounds the spill path. The
@@ -726,6 +799,12 @@ class Url4Executor(Executor):
         self._artifact_store = artifact_store
         self._world_aclose = world_aclose
         self._world_factory = world_factory
+        # FEATURE (F2, prd/01): the child boot's caller-state producer, resolved lazily when the
+        # run starts so a malformed value fails INSIDE the run (a Terminated frame) rather than
+        # taking down the scheduling caller with nothing on the stream — the same reason the
+        # world itself is resolved lazily. `None` is a direct-IO executor (tests, the local
+        # spine): it binds nothing and relies on an outer producer's scope.
+        self._request_scope_factory = request_scope_factory
         # FEATURE (OME-908): the run's downstream admission policy, injected as data.
         # `io_wrap` is the LOCAL shape — one wrapper binding this run into the process's
         # shared `FairShareGate` — and when set it REPLACES URL4's per-run bound, so the
@@ -790,6 +869,18 @@ class Url4Executor(Executor):
         finally:
             await self._aclose_world()
 
+    def _scope_context(self) -> contextlib.AbstractContextManager[RequestScope | None]:
+        """The request scope bound around one run, or a no-op when no producer was supplied.
+
+        WHY a method rather than inline in `_drive`: the factory must run INSIDE the driving task
+        (a ContextVar token may not cross a task boundary) and inside the `bridge.close()` guard,
+        so the selection of "bind a scope or nothing" lives here. A factory that raises therefore
+        leaves the consumer's `drain` a closed bridge rather than one it waits on forever.
+        """
+        if self._request_scope_factory is None:
+            return contextlib.nullcontext()
+        return request_scope(self._request_scope_factory())
+
     async def _run_steps(
         self,
         url4: str,
@@ -808,18 +899,29 @@ class Url4Executor(Executor):
         reported as "never retrieved".
         """
 
-        async def _drive() -> str:
+        async def _drive() -> _EvalResult:
+            # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
+            # world's outbound aigateway calls carry it (`world.connector._headers`).
+            #
+            # WHY not around `execute`'s own `async for ... yield`: `execute` is an ASYNC
+            # GENERATOR, and consecutive steps of one can be driven from different contexts —
+            # `asyncio.ensure_future(gen.__anext__())` runs that step in a new Task with a COPIED
+            # context. A ContextVar token created in one and reset in another raises
+            # `ValueError: Token was created in a different Context`, which is what a cancelled
+            # run did (`test_a_cancelled_run_records_stopped`). This task is a single context for
+            # its whole life, and it is where every model call actually happens.
+            #
+            # FEATURE (F2): the request scope is bound in the SAME task and for the same reason.
+            # A producer (the child boot, or unit 3's sync layer) resolves the caller's state;
+            # binding it here is what lets the stateless connector read it and what makes every
+            # model call the run spawns inherit it (AC4).
+            #
+            # INVARIANT: `bridge.close()` is in the `finally` that ENCLOSES the factory call. A
+            # malformed scope value raising outside it would leave the consumer's `drain`
+            # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
             try:
-                if trace is not None:
-                    return await url4_run(
-                        url4,
-                        self._io,
-                        observer=bridge,
-                        trace_id=trace.trace_id,
-                        root_span_id=trace.root_span_id,
-                        **self._run_kwargs,
-                    )
-                return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                with run_trace_scope(trace), self._scope_context():
+                    return await self._evaluate(url4, trace, bridge)
             finally:
                 bridge.close()
 
@@ -828,7 +930,7 @@ class Url4Executor(Executor):
             async for ev in bridge.drain():
                 for frame in state.map(ev):
                     yield frame
-            result_str = await task
+            eval_result = await task
             for frame in _closing_logs(bridge, state.cache_counters):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
@@ -836,10 +938,11 @@ class Url4Executor(Executor):
             # pumps heartbeats, letting a client declare a FINISHING run dead.
             result = await asyncio.to_thread(
                 state.build_result,
-                result_str,
+                eval_result.body,
                 inline_cap=self._result_cap,
                 hard_cap=self._hard_cap,
                 store=self._artifact_store,
+                media_type=eval_result.media_type,
             )
             subtree = state.build_subtree()
             # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
@@ -856,6 +959,70 @@ class Url4Executor(Executor):
                     await task
             elif not task.cancelled():
                 task.exception()
+
+    async def _evaluate(
+        self, url4: str, trace: TraceContext | None, bridge: _Bridge
+    ) -> _EvalResult:
+        """Run the run's work on this task: a DAG for an expression, one handler for a direct
+        run (PRD 04). Either way the observation events reach `bridge`."""
+        if self._run_shape == "direct":
+            return await self._dispatch_direct(url4, trace, bridge)
+        if trace is not None:
+            body = await url4_run(
+                url4,
+                self._io,
+                observer=bridge,
+                trace_id=trace.trace_id,
+                root_span_id=trace.root_span_id,
+                **self._run_kwargs,
+            )
+        else:
+            body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+        return _EvalResult(body)
+
+    async def _dispatch_direct(
+        self, target: str, trace: TraceContext | None, bridge: _Bridge
+    ) -> _EvalResult:
+        """Run a direct run's ONE handler, reported to `bridge` as a one-node run.
+
+        `dispatch_direct` emits the events a single-call DAG run would (RunStarted, one
+        NodeStarted/NodeFinished pair with the handler's Usage and ModelResponse on it), so
+        `_RunState` maps them to the SAME span and cost frames — no second mapping to drift.
+
+        INVARIANT (D1): no DAG runs here. `dispatch_direct` has no path to the eval branch and
+        refuses an eval-path target with `direct_eval_refused` — the child's own check, after
+        the App's (MC-D1: a tampered queue message).
+
+        INVARIANT (D1): a direct run reaches only a MOUNT — a route `build_world` recorded
+        before Benchmarks installed. WHY the child checks too: its world also serves the
+        benchmark, candidate and judge endpoints, and a direct run carries `origin="sync"`, so a
+        tampered message naming one would run it with a caller-chosen `X-Answer-Seed`. It is
+        refused as `endpoint_not_found`, as the App refuses an unmounted path.
+        """
+        node = self._node
+        if not isinstance(node, Url4Node):
+            raise ResolutionError(
+                "a direct run needs a url4 node world", code="internal_error", permanent=True
+            )
+        path = target.partition("?")[0]
+        mounts = direct_mount_paths(node)
+        served = served_routes(node)
+        # Only a route the node SERVES but did not record as a mount is refused here; any other
+        # target keeps `dispatch_direct`'s own code (`direct_eval_refused`, `endpoint_not_found`).
+        if target not in mounts and path not in mounts and (target in served or path in served):
+            raise ResolutionError(
+                f"a direct run may reach only a mount, not {path!r}",
+                code=ErrorCode.ENDPOINT_NOT_FOUND,
+                permanent=True,
+            )
+        result = await dispatch_direct(
+            node,
+            target,
+            observer=bridge,
+            trace_id=trace.trace_id if trace is not None else None,
+            root_span_id=trace.root_span_id if trace is not None else None,
+        )
+        return _EvalResult(result.body, result.media_type)
 
     def _record_summary(
         self,
@@ -909,6 +1076,14 @@ class Url4Executor(Executor):
         """
         if self._io is None and self._world_factory is not None:
             self._io, self._world_aclose = await self._world_factory()
+        # The world NODE a direct call dispatches on — captured from `self._io` BEFORE any
+        # wrap below, whether `self._io` just came from the factory or was injected directly
+        # (a wrapper is not a node: a direct run is one call, with nothing to fan out or
+        # bound). Captured only once, gated on the same `_io_wrapped` flag the wrap below
+        # sets: on a later `execute` of the same executor, `self._io` is already the WRAPPED
+        # layer, and re-reading it here would replace the real node with its own wrapper.
+        if not self._io_wrapped:
+            self._node = self._io
         # FEATURE (OME-908): the admission wrapper binds ONCE, to whatever io this run
         # uses — the resolved world or a directly injected test io — and a second
         # `execute` on the same executor must not wrap the wrapper.
@@ -925,8 +1100,4 @@ class Url4Executor(Executor):
             _logger.warning("aigateway world teardown failed", exc_info=True)
 
 
-def deny_by_default_world() -> IOLayer:
-    return StaticIOLayer()
-
-
-__all__ = ["Url4Executor", "deny_by_default_world"]
+__all__ = ["Url4Executor"]

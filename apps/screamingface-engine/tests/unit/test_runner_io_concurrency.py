@@ -23,7 +23,7 @@ from screamingface_engine.local import create_local_app
 from screamingface_engine.runner import executor as executor_module
 from screamingface_engine.runner.fair_share import FairShareGate
 from screamingface_engine.runner.main import build_executor
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 
 MODEL = "anthropic/claude-haiku-4-5"
 

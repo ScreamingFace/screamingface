@@ -113,28 +113,4 @@ def clipped_mean(values: Sequence[float]) -> float | None:
     return min(1.0, max(0.0, sum(values) / len(values)))
 
 
-def sample_stdev(values: Sequence[float]) -> float:
-    """Sample standard deviation (n−1) over Case scores — a reporting-only metric.
-
-    WHY n−1: population stdev (÷n) understates spread ~10% at small n — the defect
-    review S-DR1 flagged in DRACO's scoring. This matches the July port's
-    ``statistics.stdev``; the simple-evals reference reports a BOOTSTRAP std of
-    clipped means instead (healthbench_eval.py:231-236) — a named reporting
-    deviation, with zero effect on the score itself.
-    """
-
-    if len(values) < 2:
-        return 0.0
-    mean = sum(values) / len(values)
-    return (sum((value - mean) ** 2 for value in values) / (len(values) - 1)) ** 0.5
-
-
-def verdict_coverage(judged: int, total: int) -> float:
-    """Fraction of rubric items with a valid verdict; 1.0 is required for a valid attempt."""
-
-    if total <= 0:
-        return 0.0
-    return judged / total
-
-
-__all__ = ["case_score", "clipped_mean", "sample_stdev", "unclipped_mean", "verdict_coverage"]
+__all__ = ["case_score", "clipped_mean", "unclipped_mean"]

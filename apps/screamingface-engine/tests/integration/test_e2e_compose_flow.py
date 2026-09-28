@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.testing.mock_runner import publish_mock_run
@@ -52,8 +53,11 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         # Accepted so this fake still satisfies the port; the mock run it publishes never reaches
-        # a gateway, so there is nothing here for a cache policy to change.
+        # a gateway, so there is nothing here for a cache policy — or an answer seed — to change.
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
+        client_version: str | None = None,
+        shape: RunShape = "expression",
     ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         self._tasks.append(asyncio.ensure_future(publish_mock_run(self._stream, topic, url4)))

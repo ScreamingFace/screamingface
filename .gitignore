@@ -58,3 +58,10 @@ release/
 # snapshot+manifest+golden triple (OME-964; the synthetic plumbing fixture stays
 # generated per-machine by generate_synthetic.py and remains ignored).
 !packages/screamingface/tests/e2e/fixtures/snapshots/draco-3pass.manifest.json
+!packages/screamingface/tests/e2e/fixtures/snapshots/ifeval.manifest.json
+!packages/screamingface/tests/e2e/fixtures/snapshots/gdpval-text.manifest.json
+
+# Local DRACO cache-seed corpora. The generator, the row set and the archive it prices from are
+# multi-hundred-MB working data produced and loaded out-of-band by an operator; the gateway ships
+# only the support for the metadata such a package carries, never the package itself.
+draco-cache-seed-*/

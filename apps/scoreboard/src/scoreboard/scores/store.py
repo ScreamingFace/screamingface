@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, NamedTuple, cast
@@ -11,7 +12,7 @@ from uuid import UUID
 from pypika_tortoise.analytics import RowNumber
 from pypika_tortoise.enums import Order
 from pypika_tortoise.queries import Query, QueryBuilder
-from tortoise import Tortoise
+from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.expressions import Q
 from tortoise.query_api import execute_pypika
@@ -26,6 +27,7 @@ from .schemas import (
     BenchmarkSchema,
     LeaderboardEntry,
     LeaderboardStoreEntry,
+    RunCostStatus,
     ScoreSchema,
     ScoreSubmission,
     Visibility,
@@ -33,14 +35,20 @@ from .schemas import (
 
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
-_RAW_ROW_FIELDS = ("ran_with_providers", "run_cost_usd")
+_RAW_ROW_FIELDS = ("ran_with_providers", "authors", "run_cost_usd")
 # Columns whose DTO type admits None, so an unreadable value can degrade in place.
 # Anything not listed here forces the row to be dropped instead — see _to_python_rows.
-_NULLABLE_RAW_FIELDS = frozenset({"run_cost_usd"})
+_NULLABLE_RAW_FIELDS = frozenset({"authors", "run_cost_usd"})
 
 logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_TTL = timedelta(hours=24)
+
+# INVARIANT: the id set handed to `models_for_score_ids` is as large as the board, because the
+# Pareto frontier is neither small nor bounded — every best-per-spec point can be non-dominated
+# and spec ids are client-controlled. A single `WHERE id IN (...)` would eventually exceed the
+# driver's bind-parameter limit (SQLite's default is 999), at a board size no test reproduces.
+_MODELS_READ_CHUNK = 500
 
 
 class _Unset:
@@ -81,6 +89,12 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         spec_id=model.spec_id,
         url4_expression=model.url4_expression,
         submitted_by=model.submitted_by,
+        authors=_resolved_authors(model.authors, model.submitted_by),
+        # INVARIANT: no fallback, unlike `authors` above. A NULL here means the routes were
+        # never declared, and deriving them from `ran_with_providers` is impossible — the
+        # Client's truncation is lossy. Inventing a value would turn "we do not know" into a
+        # confident claim about what a submission is made of.
+        models=model.models,
         submitted_at=model.submitted_at,
         score=model.score,
         total_questions=model.total_questions,
@@ -98,6 +112,14 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # construction, which is what actually enforces the invariant at runtime.
         openness_override=cast(Openness | None, model.openness_override),
         run_cost_usd=model.run_cost_usd,
+        # Same CharField narrowing as `openness_override` above. Null means the row predates
+        # OME-822, which is a different fact from the stored value "unavailable".
+        run_cost_status=cast("RunCostStatus | None", model.run_cost_status),
+        # INVARIANT (OME-1325): every stored cost field is projected. This is the ONLY path
+        # from a row to a receipt, a list, or the private export — the first version omitted
+        # this field, so it was stored and never left the database, and a purge-certifying
+        # export would have omitted data the purge deletes (review of PR #1055, P1).
+        cache_saved_cost_usd=model.cache_saved_cost_usd,
     )
 
 
@@ -117,6 +139,143 @@ def _resolve_benchmark_revision(submission: ScoreSubmission) -> str | None:
     return candidate if isinstance(candidate, str) and candidate else None
 
 
+def _derived_providers(submission: ScoreSubmission) -> list[str]:
+    """The providers to STORE, preferring the ones the declared routes imply.
+
+    `ran_with_providers` and `models` describe the same thing at different resolutions, and the
+    Client already computes the former from the latter. Recomputing it here means a submission
+    cannot assert a provider its own routes contradict, and the board never publishes a
+    Backends column its stored routes disagree with.
+
+    INVARIANT: this is the STORED value only. `_content_hash` keeps reading
+    `submission.ran_with_providers`, the wire value — see the note there. Correcting what is
+    stored is fine; rewriting recipe identity underneath existing rows is not.
+
+    WHY not reject a contradiction instead: a 422 would be the louder choice, but it turns a
+    field the board can compute for itself into a way for a client to fail. Nothing is lost by
+    correcting it, because the wire value survives in the hash.
+
+    No routes means nothing to derive from — the Client's truncation is lossy, so there is no
+    way back from ["openrouter"] to the models it stood for.
+    """
+    if not submission.models:
+        return submission.ran_with_providers
+    # Order is part of what happened rather than incidental serialization (OME-391), so first
+    # appearance wins and repeats collapse — the same rule the Client's own `_providers` uses.
+    return list(dict.fromkeys(route.split("/", 1)[0] for route in submission.models))
+
+
+# INVARIANT: every column `_replay_updates` can return, and nothing else. `_apply_replay_updates`
+# reads these off the locked row to report what the row HOLDS after a replay, so a field that can
+# be written but is missing here would be answered from a pre-lock read instead.
+_REPLAY_FIELDS: tuple[str, ...] = (
+    "authors",
+    "metadata",
+    "models",
+    "ran_with_providers",
+    "run_cost_usd",
+    "run_cost_status",
+    "cache_saved_cost_usd",
+)
+
+
+def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
+    """The ONLY fields a replay of an existing recipe may correct on the stored row.
+
+    FEATURE: OME-1054 — recipe identity deliberately excludes mutable provenance, so a
+    corrected credit line or metadata object updates the deduped row rather than pretending
+    success while discarding the correction.
+
+    INVARIANT: this is an allowlist, and its caller has already established that the replay
+    comes from the ORIGINAL submitter of the same recipe on the same benchmark. Nothing outside
+    this function may be written on the replay path, and nothing here may be written without
+    that guard — a public content hash is global across submitters, so anyone who copied a
+    team's candidate could otherwise rewrite that team's row.
+
+    INVARIANT: `None` means "not specified", so an older client replaying cannot erase newer
+    provenance. Empty containers stay meaningful explicit replacements where the wire contract
+    permits them (`metadata` may be `{}`; `authors=[]` and `models=[]` are rejected at
+    validation).
+    """
+    updates: dict[str, object] = {}
+    if submission.authors is not None:
+        updates["authors"] = submission.authors
+    if submission.metadata is not None:
+        updates["metadata"] = submission.metadata
+    # FEATURE: OME-1181 — how a row submitted before OME-1180 ever becomes classifiable.
+    # Without this a submitter who re-runs is deduplicated to their old row and the routes are
+    # discarded, leaving the board a permanent population the openness statistic cannot read.
+    #
+    # INVARIANT: FILL ONLY, never replace. `_content_hash` excludes `models`, so two
+    # submissions differing only in their routes share one identity — an earlier version
+    # updated unconditionally, which let a replay swap what an entry is made of, and so flip
+    # its published openness, without changing its identity or its url4 expression (review of
+    # PR #922). A conflicting populated value is retained, not overwritten: enrichment fills a
+    # gap, it does not arbitrate between two claims.
+    #
+    # WHY this is not merely defence against a hostile client: the same-owner guard already
+    # limits it to the original submitter. It is defence against the field becoming a way to
+    # rewrite a published verdict at all, by anyone, including by accident.
+    if submission.models is not None and existing.models is None:
+        updates["models"] = submission.models
+        # The stored providers are derived from the routes (`_derived_providers`), so a replay
+        # that fills one must fill the other or the two drift apart on this path alone.
+        updates["ran_with_providers"] = _derived_providers(submission)
+    # FEATURE: OME-822 — how a row stored before this field ever gains a cost status.
+    #
+    # INVARIANT: the amount and the status move TOGETHER or not at all. Filling one alone can
+    # leave a row `complete` with a null amount, or an amount whose status says it is
+    # unknowable — the exact incoherence the request validator refuses, reached through the
+    # back door. `_content_hash` excludes both, so a replay carrying a cost dedups to the
+    # stored row and would otherwise discard it silently (OME-770 D8).
+    #
+    # INVARIANT: FILL ONLY, never replace, for the reason `models` records above. A published
+    # cost is a frontier position; a replay must not be able to move one.
+    # INVARIANT: a null STATUS is not proof the amount is unfilled. Migration `0014` leaves the
+    # status null on EVERY pre-existing row, including rows carrying a real published
+    # `run_cost_usd`. Gating on the status alone therefore treats a migrated priced row as empty
+    # and lets the first same-owner replay overwrite both — an `unavailable` replay erasing a
+    # published amount, a `complete` one moving a frontier position. Reproduced in review of PR
+    # #841 against a row holding `9.000000` with a null status.
+    #
+    # This is the same class of bug `OME-1181` Q3 fixed for `models`, reintroduced by choosing
+    # the wrong sentinel. The AMOUNT is the sentinel; the status is a label on it.
+    # INVARIANT (OME-1325): spend, status and saving describe ONE execution and move as one
+    # snapshot — filled together from a single submission, or not at all. Review of PR #1055
+    # (P1) reproduced the alternative: an original that spent $2 with no saving, replayed by a
+    # fully cached run that spent $0 and saved $2, kept the old spend and gained the new saving —
+    # a $4 reproduction cost neither run produced. The accepted consequence is that a row
+    # already holding a spend never gains a saving by replay; the saving arrives on FIRST
+    # submission, from clients that send all three together.
+    if (
+        existing.run_cost_usd is None
+        and existing.run_cost_status is None
+        and existing.cache_saved_cost_usd is None
+    ):
+        updates["run_cost_status"] = submission.run_cost_status
+        updates["run_cost_usd"] = submission.run_cost_usd
+        updates["cache_saved_cost_usd"] = submission.cache_saved_cost_usd
+    elif existing.run_cost_status is None and existing.run_cost_usd is not None:
+        # A migrated priced row. The money is published and stays untouched; the missing label is
+        # recoverable without asking the client, because an amount IS the claim `complete` makes.
+        # Healing it here means the population `OME-1258` inherits is already correct.
+        updates["run_cost_status"] = "complete"
+    return updates
+
+
+def _resolved_authors(authors: list[str] | None, submitted_by: str | None) -> list[str] | None:
+    """The backwards-compatible author credit shown for one stored submission."""
+    if authors is not None:
+        return authors
+    return [submitted_by] if submitted_by is not None else None
+
+
+def _resolve_raw_row_authors(row: dict[str, Any]) -> None:
+    """Apply legacy author fallback only when a raw projection selected the field."""
+    if "authors" in row:
+        row["authors"] = _resolved_authors(row.get("authors"), row.get("submitted_by"))
+
+
 def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dict[str, object]:
     return {
         "benchmark_id": submission.benchmark_id,
@@ -125,10 +284,14 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
+        "authors": submission.authors,
+        "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
-        "ran_with_providers": submission.ran_with_providers,
+        # INVARIANT: derived from `models` when present, so the two stored fields cannot
+        # contradict each other. `_content_hash` below still reads the WIRE value.
+        "ran_with_providers": _derived_providers(submission),
         "ran_at_local": submission.ran_at_local,
         "client_name": submission.client.name if submission.client else None,
         "client_version": submission.client.version if submission.client else None,
@@ -138,6 +301,16 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         # execution, not of the recipe. Two runs of the same recipe can cost
         # different amounts and must still dedup to a single row (OME-391).
         "run_cost_usd": submission.run_cost_usd,
+        # INVARIANT (OME-1251 D1): the amount and its status are stored as a pair. The request
+        # validator already refuses `complete` without an amount and an amount without
+        # `complete`, so storing both verbatim keeps the column consistent with the wire.
+        # Deliberately absent from _content_hash for the same reason as the amount.
+        "run_cost_status": submission.run_cost_status,
+        # FEATURE (OME-1325 / OME-1251 D5): stored beside the spend, never folded into it. The
+        # reproduction cost is derived at the point of use; pre-summing here would destroy the
+        # submitter's real bill and leave a figure nothing could recompute.
+        # Deliberately absent from _content_hash for the same reason as the amount.
+        "cache_saved_cost_usd": submission.cache_saved_cost_usd,
         "content_hash": content_hash,
     }
 
@@ -170,6 +343,12 @@ def _content_hash(submission: ScoreSubmission, *, per_submitter: bool = False) -
         "url4_expression": submission.url4_expression,
         "score": submission.score,
         "total_questions": submission.total_questions,
+        # INVARIANT: the WIRE value, deliberately NOT `_derived_providers(submission)`.
+        # OME-1181: the stored column is corrected from `models`, but identity must stay what
+        # the submitter actually sent. Hashing the derived value would recompute identity for
+        # every row whose client-sent providers differ from its routes — including every row
+        # predating OME-1180 — so each would stop deduplicating to its stored twin and create a
+        # duplicate instead.
         "ran_with_providers": submission.ran_with_providers,
     }
     if per_submitter:
@@ -265,6 +444,9 @@ def _to_python_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     drop = True
                     break
         if not drop:
+            # NULL is not an empty credit line. It means a legacy/unspecified submission and
+            # therefore reads exactly as the old UI did: the submitter is its sole author.
+            _resolve_raw_row_authors(row)
             kept.append(row)
     return kept
 
@@ -371,6 +553,20 @@ class BenchmarkVisibilityChanged(Exception):
     """
 
 
+class ConcurrentScoreUpdate(Exception):
+    """A deduplicated row changed identity while its provenance was being corrected.
+
+    INVARIANT (OME-1054): the update is filtered on the row's immutable identity — id, benchmark,
+    content hash and submitter — so `rowcount != 1` means the row is no longer the one the request
+    resolved. Refusing beats returning an in-memory correction the database never accepted.
+
+    WHY its own type rather than `IntegrityError`: that subclasses `OperationalError`, which the
+    route maps to **503 store-unavailable**. A lost race is not the store being down, and telling a
+    client to come back later when the honest answer is "retry, someone else moved this row" sends
+    them to the wrong remedy. Mapped to 409, for the same reason `BenchmarkVisibilityChanged` is.
+    """
+
+
 class SubmitOutcome(NamedTuple):
     score: ScoreSchema
     created: bool
@@ -419,6 +615,7 @@ def _build_leaderboard_query(
             scores.ran_with_providers,
             scores.submitted_at,
             scores.submitted_by,
+            scores.authors,
             scores.verified_by_screamingface,
             scores.url4_expression,
             scores.run_cost_usd,
@@ -459,6 +656,7 @@ def _build_leaderboard_query(
             ranked.ran_with_providers,
             ranked.submitted_at,
             ranked.submitted_by,
+            ranked.authors,
             ranked.verified_by_screamingface,
             ranked.url4_expression,
             ranked.run_cost_usd,
@@ -766,6 +964,7 @@ class ScoreStore:
         existing: Score,
         submission: ScoreSubmission,
         *,
+        content_hash: str,
         per_submitter: bool,
         identity_verified: bool,
     ) -> Score:
@@ -788,7 +987,122 @@ class ScoreStore:
         )
         if readable is None:
             raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
+
+        # INVARIANT: a public content hash is global across submitters. Requiring the SAME stored
+        # hash, benchmark and submitter prevents someone who copied another team's candidate (or
+        # merely reused its idempotency key) from rewriting that team's credit. In production the
+        # submitter is mesh-verified; disabled mode explicitly trusts this field for development.
+        #
+        # This guard is the ONLY thing standing between a replay and `_replay_updates`' field
+        # allowlist — read that function before widening either.
+        same_candidate_owner = (
+            existing.content_hash == content_hash
+            and cast(str, getattr(existing, "benchmark_id")) == submission.benchmark_id
+            and submission.submitted_by is not None
+            and existing.submitted_by == submission.submitted_by
+        )
+        # A CHEAP PRE-CHECK ONLY. It decides whether this replay is worth a transaction; it does
+        # NOT decide what gets written. `existing` was read before the lock, so every value it
+        # carries may be stale by the time the write lands — see the recompute below.
+        if not (_replay_updates(submission, existing) if same_candidate_owner else {}):
+            return readable
+
+        async with in_transaction() as connection:
+            # This is now a write path. Take the same benchmark lock as insertion so a visibility
+            # flip cannot turn a public, unverified replay into a private-row mutation mid-write.
+            await self._revalidate_visibility(
+                submission.benchmark_id,
+                per_submitter,
+                connection=connection,
+                lock=True,
+            )
+            settled = await self._apply_replay_updates(
+                submission,
+                connection,
+                score_id=existing.id,
+                content_hash=content_hash,
+            )
+
+        for name, value in settled.items():
+            setattr(readable, name, value)
         return readable
+
+    async def _apply_replay_updates(
+        self,
+        submission: ScoreSubmission,
+        connection: Any,
+        *,
+        score_id: Any,
+        content_hash: str,
+    ) -> dict[str, object]:
+        """Decide and write the replay's corrections against the LOCKED row. Returns what it holds.
+
+        INVARIANT: the fill-only rule of `_replay_updates` is a check-then-act, so it is only
+        sound against a row this transaction holds a lock on. The first version decided from a
+        `Score` loaded before the transaction and then wrote with a filter on identity columns
+        alone — `id`, `benchmark_id`, `content_hash`, `submitted_by`, none of which change when
+        `models` is filled. Two same-owner replays could therefore both observe a null and both
+        pass the filter, so the second silently replaced the first and flipped the entry's
+        published openness (review of PR #922, round 2).
+
+        WHY the recompute rather than a `models IS NULL` predicate on the update: the three
+        correctable fields share one statement and one `updated != 1` refusal, so a predicate
+        that fails for a concurrently-filled `models` would also reject a legitimate `authors`
+        or `metadata` correction riding the same request.
+
+        WHY it returns the settled values: the caller's response must report what the row HOLDS.
+        After a concurrent fill this request writes nothing, and echoing back its own rejected
+        claim would tell the client its routes were stored when another replay's were.
+        """
+        locked = await self.replay_row_query(
+            score_id=score_id,
+            benchmark_id=submission.benchmark_id,
+            content_hash=content_hash,
+            submitted_by=submission.submitted_by,
+            connection=connection,
+        ).first()
+        if locked is None:
+            # The row's immutable identity changing would violate the model contract. Refuse
+            # instead of returning an in-memory correction the database did not accept.
+            raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
+
+        updates = _replay_updates(submission, locked)
+        if updates:
+            updated = await Score.filter(id=locked.id).using_db(connection).update(**updates)
+            if updated != 1:
+                raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
+
+        return {field: updates.get(field, getattr(locked, field)) for field in _REPLAY_FIELDS}
+
+    def replay_row_query(
+        self,
+        *,
+        score_id: Any,
+        benchmark_id: str,
+        content_hash: str,
+        submitted_by: str | None,
+        connection: Any = None,
+    ) -> QuerySet[Score]:
+        """The locking re-read `_apply_replay_updates` runs, exposed so a test can render its SQL.
+
+        INVARIANT: a MODEL projection, and `select_for_update()` applied last. `values()` and
+        `values_list()` build a fresh query without copying the lock state, so projecting drops
+        `FOR UPDATE` silently — no error, no lock, and a claim in the docstring that nothing
+        checks. SQLite implements no row lock at all, so the only way to hold this claim is to
+        render the query on the asyncpg dialect: `test_the_replay_row_read_really_locks_the_row`.
+
+        The filter is the full identity tuple, not `id` alone: it re-proves under the lock exactly
+        what `same_candidate_owner` proved before it.
+        """
+        rows = Score.filter(
+            id=score_id,
+            benchmark_id=benchmark_id,
+            content_hash=content_hash,
+            submitted_by=submitted_by,
+        )
+        if connection is not None:
+            rows = rows.using_db(connection)
+        return rows.select_for_update()
 
     def visibility_query(
         self,
@@ -917,6 +1231,7 @@ class ScoreStore:
             confirmed = await self._confirm_replayable(
                 existing,
                 submission,
+                content_hash=content_hash,
                 per_submitter=per_submitter,
                 identity_verified=identity_verified,
             )
@@ -971,6 +1286,7 @@ class ScoreStore:
                 confirmed = await self._confirm_replayable(
                     existing,
                     submission,
+                    content_hash=content_hash,
                     per_submitter=per_submitter,
                     identity_verified=identity_verified,
                 )
@@ -1111,6 +1427,11 @@ class ScoreStore:
                 ran_with_providers=row.ran_with_providers,
                 submitted_at=row.submitted_at,
                 submitted_by=row.submitted_by,
+                # A private board is currently the ONLY surface where a participant sees a credit
+                # line at all (OME-894 D2 scopes reads to the submitter, and `entries` is empty
+                # for everyone), so omitting this dropped the feature exactly where it matters and
+                # degraded silently rather than raising, because the DTO field has a default.
+                authors=_resolved_authors(row.authors, row.submitted_by),
                 verified_by_screamingface=row.verified_by_screamingface,
                 url4_expression=row.url4_expression,
                 run_cost_usd=row.run_cost_usd,
@@ -1118,14 +1439,46 @@ class ScoreStore:
             for row in rows
         ]
 
-    async def list_all_for_benchmark(self, benchmark_id: str) -> list[ScoreSchema]:
+    async def list_all_for_benchmark(
+        self,
+        benchmark_id: str,
+        *,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> list[ScoreSchema]:
         """Every Score row for a benchmark, chronologically — unlike `leaderboard()`
         (best-per-spec only), this is what OME-323's frontier trend needs: the full
         submission history across all specs, deliberately benchmark-wide (spec §6's
         frontier-scope resolution).
         """
-        rows = await Score.filter(benchmark_id=benchmark_id).order_by("submitted_at")
+        rows = await (
+            Score.filter(benchmark_id=benchmark_id).using_db(using_db).order_by("submitted_at")
+        )
         return [_score_to_schema(score) for score in rows]
+
+    async def models_for_score_ids(self, score_ids: Sequence[str]) -> dict[str, list[str] | None]:
+        """Declared model routes for a given set of score ids, read in chunks.
+
+        FEATURE: OME-1181 — the second query behind the openness statistic. Membership comes
+        from `leaderboard_pareto_inputs` + `compute_pareto_frontier_ids`, which stay minimal;
+        this fills in only what those deliberately omit.
+
+        INVARIANT: selects `id` and `models` and nothing else. `leaderboard.py:270-275` records
+        why the whole-board read is minimal — client-controlled recipes and display metadata
+        must never be materialised en masse. This read is scoped to the frontier rather than the
+        board, but the frontier is still unbounded, so the same rule applies. Do NOT widen it
+        into a general row fetch.
+
+        An id with no row is simply absent from the result; a row with no declared routes maps
+        to `None`, which is not the same as absent and must stay distinguishable — the contract
+        excludes undeclared rows from the statistic rather than counting them closed.
+        """
+        found: dict[str, list[str] | None] = {}
+        for start in range(0, len(score_ids), _MODELS_READ_CHUNK):
+            chunk = score_ids[start : start + _MODELS_READ_CHUNK]
+            rows = await Score.filter(id__in=chunk).values("id", "models")
+            for row in rows:
+                found[str(row["id"])] = cast("list[str] | None", row["models"])
+        return found
 
     async def mark_verified(self, score_id: UUID | str) -> None:
         await Score.filter(id=score_id).update(verified_by_screamingface=True)

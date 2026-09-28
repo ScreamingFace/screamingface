@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="ladder-and-policy">
+    <mxGraphModel dx="1200" dy="800" background="#0a0f1c" grid="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="lad" value="failure ladder — spine-owned, runs first" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="440" height="560" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" value="1 · grading failure?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
+          <mxGeometry x="80" y="50" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="2 · error_row_result hook&#xa;(optional, board-set)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
+          <mxGeometry x="80" y="130" width="280" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="3 · missing grading material?&#xa;→ missing_material_code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
+          <mxGeometry x="80" y="220" width="280" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r4" value="4 · row missing for the Case?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
+          <mxGeometry x="80" y="310" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r5" value="5 · &quot;error&quot; in the row?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
+          <mxGeometry x="80" y="390" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r6" value="gradeable → your grade_case" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="lad">
+          <mxGeometry x="80" y="480" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="eL1" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="lad" source="r1" target="r2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eL2" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="lad" source="r2" target="r3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eL3" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="lad" source="r3" target="r4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eL4" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="lad" source="r4" target="r5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eL5" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="lad" source="r5" target="r6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ladnote" value="any &quot;yes&quot; rung → a failed Case with a NAMED failure code" style="text;html=1;align=center;verticalAlign=middle;fontColor=#e06c75;fontFamily=Courier New;fontSize=11;" vertex="1" parent="lad">
+          <mxGeometry x="40" y="530" width="360" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pol" value="failure_policy — 157 questions, 33 sheets lost" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="560" y="40" width="560" height="560" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" value="&quot;withhold&quot;&#xa;&#xa;lost sheets COUNT AGAINST the candidate&#xa;score = earned / 157&#xa;coverage always reads 100%&#xa;&#xa;⚠ an infra outage makes the&#xa;model look WORSE&#xa;&#xa;valid — but ZERO boards use it today" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="pol">
+          <mxGeometry x="30" y="60" width="500" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" value="&quot;coverage_declare&quot;  (all 7 boards)&#xa;&#xa;lost sheets EXCLUDED and DECLARED&#xa;score = earned / the 124 graded&#xa;published next to &quot;scored 124 of 157&quot;&#xa;each excluded Case keeps its failure code&#xa;&#xa;an outage makes the score less&#xa;COMPLETE, not lower" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="pol">
+          <mxGeometry x="30" y="310" width="500" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="polnote" value="same model behavior, different numbers — declared per benchmark, never defaulted" style="text;html=1;align=center;verticalAlign=middle;fontColor=#d7b357;fontFamily=Courier New;fontSize=11;" vertex="1" parent="pol">
+          <mxGeometry x="30" y="525" width="500" height="20" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

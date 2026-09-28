@@ -319,3 +319,47 @@ test("formatCost does not render one cent in two different formats", () => {
   // Genuinely sub-cent values still keep their four places.
   assert.equal(L.formatCost({ run_cost_usd: "0.009000" }), "$0.0090");
 });
+
+// --- OME-1147: the portal index lists only established boards -------------------------------
+// The card for a private board is empty for every anonymous visitor, because the server refuses
+// its rankings. Dropping it from the index is cosmetic — the access rule is enforced server-side
+// and is not touched here — so the filter is deliberately FAIL-OPEN: only the exact string
+// "private" removes a card. Anything else, including a field the API stops sending, stays listed
+// rather than silently vanishing from the public catalogue.
+
+test("listedBenchmarks drops a private board and keeps a public one", () => {
+  const listed = L.listedBenchmarks([
+    { id: "draco-3pass", visibility: "public" },
+    { id: "healthbench-worst30", visibility: "private" },
+  ]);
+
+  assert.deepEqual(
+    listed.map((b) => b.id),
+    ["draco-3pass"],
+  );
+});
+
+test("listedBenchmarks keeps a board whose visibility it cannot read", () => {
+  // Fail-open (spec D3). An absent, null or unrecognised value must not erase a board: this
+  // filter buys no privacy, so guessing "hide it" only risks emptying the public catalogue on a
+  // serialisation change.
+  const listed = L.listedBenchmarks([
+    { id: "absent" },
+    { id: "null-valued", visibility: null },
+    { id: "unrecognised", visibility: "unlisted" },
+  ]);
+
+  assert.deepEqual(
+    listed.map((b) => b.id),
+    ["absent", "null-valued", "unrecognised"],
+  );
+});
+
+test("listedBenchmarks tolerates a non-array and leaves its input alone", () => {
+  assert.deepEqual(L.listedBenchmarks(undefined), []);
+  assert.deepEqual(L.listedBenchmarks(null), []);
+
+  const input = [{ id: "a", visibility: "public" }, { id: "b", visibility: "private" }];
+  L.listedBenchmarks(input);
+  assert.equal(input.length, 2, "the caller's array must not be filtered in place");
+});

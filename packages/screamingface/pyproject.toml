@@ -1,6 +1,6 @@
 [project]
 name = "screamingface"
-version = "0.1.1.post7"
+version = "0.1.1.post9"
 description = "Evaluate Models and Fusions on URL4-native research benchmarks"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,6 +39,13 @@ screamingface = "screamingface._runtime.cli:main"
 notebook = [
     "ipywidgets>=8.1",
 ]
+# WHY exact ==: the .eval log contract is version-shaped, and the Engine's inspect extra
+# (apps/screamingface-engine) already pins this exact version as revision identity — the
+# exporter and the importer must speak the same dialect. FEATURE: OME-1117 one-way
+# report export in inspect's log format.
+inspect = [
+    "inspect-ai==0.3.263",
+]
 runtime = [
     "aiosqlite==0.22.1",
     "bcrypt==5.0.0",
@@ -51,6 +58,9 @@ runtime = [
     "litellm==1.98.0",
     "nats-py>=2.9.0",
     "nltk>=3.9.1",
+    # WHY: pip resolves this extra, not the bundled Engine/Gateway tracing requirements.
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "opentelemetry-sdk>=1.30.0",
     # WHY pinned exactly, like `datasets`: these flatten GDPval's reference PDFs and Word
     # documents to text at BUILD time, and that text is baked into the answer key. A version
     # whose extraction differs would silently change what every candidate is asked, without
@@ -67,6 +77,24 @@ runtime = [
     "tortoise-orm[asyncpg]==1.1.8",
     "uvicorn[standard]>=0.52.3",
 ]
+
+# WHY: inspect-ai==0.3.263 (hard aioboto3 dependency) and the runtime extra's
+# litellm==1.98.0 cannot co-install on ANY platform (verified 2026-09-16: their boto3
+# windows never intersect). The extras serve different personas — runtime bundles the
+# local engine stack, inspect adds the one-way log exporter — so declare the genuine
+# conflict instead of loosening either contract pin. Export from a runtime env means a
+# separate env (e.g. uvx) for the inspect extra.
+[tool.uv]
+conflicts = [
+    [
+        { extra = "inspect" },
+        { extra = "runtime" },
+    ],
+]
+# WHY the build hook: it decides what an editable install ships (a .pth to the live
+# sources, never a copy). uv only rebuilds the editable install when a cache key changes,
+# so without this a hook fix would not reach existing dev venvs.
+cache-keys = [{ file = "pyproject.toml" }, { file = "scripts/runtime_build_hook.py" }]
 
 [build-system]
 requires = ["hatchling"]
@@ -106,6 +134,9 @@ markers = [
     # Gated like aigateway's needs_postgres lane: set SCREAMINGFACE_TEST_E2E=1 and have
     # Docker running, or the tests skip loudly with the reason.
     "e2e: end-to-end replay tests against the locally booted stack (docker + env-gated)",
+    # OME-1275: spends real money through a real OpenRouter key. Never a merge gate —
+    # gated on SCREAMINGFACE_TEST_PAID=1 + OPENROUTER_API_KEY + docker, or it skips loudly.
+    "paid: paid smoke of every imported benchmark against the real provider (opt-in)",
 ]
 
 [tool.coverage.run]
@@ -115,6 +146,8 @@ omit = ["src/screamingface/_runtime/*"]
 
 [dependency-groups]
 dev = [
+    "editables>=0.5",
+    "hatchling>=1.31",
     "ipykernel>=6.29",
     "jupyterlab>=4.6.3",
     "nbclient>=0.10",

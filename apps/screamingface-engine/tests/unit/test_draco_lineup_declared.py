@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine import job_env
-from screamingface_engine.world_config import ModelSpec, load_config
+from screamingface_engine.world.config import ModelSpec, load_config
 
 _RUNNER_CONFIG = Path(__file__).resolve().parents[2] / "url4.toml"
 

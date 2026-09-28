@@ -12,6 +12,9 @@ The Engine is the trust boundary: it holds provider credentials (via the AI
 gateway), the benchmark answer keys, and the grading. Prompts cross to the
 models; answer keys and rubrics do not.
 
+Adding a new benchmark? The author walk-through is
+[`docs/adding-a-benchmark-manually.md`](docs/adding-a-benchmark-manually.md) (hand-authored boards) or [`docs/adding-an-imported-benchmark.md`](docs/adding-an-imported-benchmark.md) (imported inspect_evals boards).
+
 REST + WebSocket url4 execution runner (k8s Jobs + NATS). Design: `docs/spec/2026-07-21-url4-cloud.md`
 · epic OME-513.
 
@@ -22,9 +25,11 @@ the environment:
 - **`screamingface-engine serve`** — the stateless control-plane App (REST + WebSocket). The **default** when
   no subcommand is given, which is what keeps the image's `CMD ["screamingface-engine"]` and the chart's
   Deployment command working.
-- **`screamingface-engine run`** — the one-shot Job mode (`screamingface_engine/runner/`) that executes one url4
-  expression, publishes telemetry to NATS and exits. `K8sJobRunner` schedules the App's **own**
-  image with `command: ["screamingface-engine", "run"]`.
+- **`screamingface-engine run`** — the one-shot run mode (`screamingface_engine/runner/`) that executes one url4
+  expression, publishes telemetry to NATS and exits. The worker pool's children enter it
+  (`worker/exec_wrapper.py` execs `screamingface-engine run`).
+- **`screamingface-engine worker`** — the fixed worker pool (OME-1089): claims runs from the durable
+  queue and forks each as a supervised child process.
 - **`screamingface-engine serve --local`** — both halves fused in one process, for development. Runs execute
   as `asyncio` tasks (`InProcessJobRunner`) and frames travel an in-memory log
   (`InMemoryEventStream`) instead of JetStream, so neither Kubernetes nor NATS is needed.
@@ -54,7 +59,7 @@ concrete lives there.
 | the wire protocol | `url4.streaming.protocol` | the CloudEvents frame models |
 | abstract classes | `url4.streaming` | `EventPublisher`/`EventConsumer`, `Executor`, `JobRunner` |
 | pure logic over them | `url4.streaming` | the run lifecycle, the frame codec, `job_name`, `parse_traceparent` |
-| every implementation | the half that runs it | `K8sJobRunner`, the model catalog (serve) · `Url4Executor`, the aigateway connector (run) · the JetStream adapter (a shared leaf) |
+| every implementation | the half that runs it | the queue-backed runner + the worker pool (serve) · `Url4Executor`, the aigateway connector (run) · the JetStream adapter (a shared leaf) |
 
 The rule that decides it: **if it names a broker, a scheduler or a framework, it is not a concept** —
 it belongs to whichever half runs it. `url4.streaming` therefore has no NATS client, no
@@ -70,13 +75,13 @@ that property was given up when the contract moved here, and nothing enforces it
 > image prove nothing, so `.claude/scripts/check_layering.py` proves it instead, as an
 > intra-package rule with the same doctrine. `screamingface_engine.runner.*` must not import the control
 > plane (`app`, `rest`, `ws`, `auth`, `catalog`, `config`, `metrics`, `ops`, `schemas`,
-> `adapters.k8s`, `adapters.factory`), and the control plane must not import `screamingface_engine.runner.*`.
+> `adapters.factory`), and the control plane must not import `screamingface_engine.runner.*`.
 > They share exactly three leaves: **`job_env`, `subjects`, `adapters.jetstream`**. `cli.py` is
 > exempt — dispatching to both is its entire job, and it imports each lazily inside the branch that
 > runs it.
 >
 > What that buys, verified empirically: importing `screamingface_engine.runner.main` loads **none** of
-> fastapi, uvicorn, starlette, kubernetes, jwt or prometheus_client. A Job's cold start stays the
+> fastapi, uvicorn, starlette, kubernetes, jwt or prometheus_client. A run's cold start stays the
 > engine plus httpx plus nats-py — the cost the separate slim image used to buy structurally.
 
 In a **deployed** App the serving half is the control plane and executes nothing: it mints tokens,
@@ -120,10 +125,10 @@ What differs from a deployed App — and nothing else does:
 
 | Concern | Deployed | `--local` |
 | --- | --- | --- |
-| Run substrate | `K8sJobRunner` (one batch/v1 Job per run) | `InProcessJobRunner` (one `asyncio.Task`) |
+| Run substrate | the durable queue + worker pool (OME-1092) | `InProcessJobRunner` (one `asyncio.Task`) |
 | Event stream | JetStream | `InMemoryEventStream` |
 | Caller identity | the verified `X-User-Email` Envoy injects | none — aigateway is anonymous |
-| Admission | the cluster queues surplus Jobs | `local_max_concurrent_runs`, else `503` + `Retry-After` |
+| Admission | queue depth + per-caller in-flight cap (OME-1091) | `local_max_concurrent_runs`, else `503` + `Retry-After` |
 | JWT secret | `_require_prod_secret` refuses the dev default | dev default allowed, so the bind is loopback-only |
 
 Runs still require an attached WebSocket subscriber first — the `428` gate is protocol discipline
@@ -133,6 +138,98 @@ The declared world (`url4.toml`) is baked into the image at `/etc/url4/url4.toml
 installed by the wheel, so in a checkout local mode falls back to the checkout's `url4.toml`. Set
 `URL4_RUNNER_CONFIG` to override. Tuning: `URL4_CLOUD_LOCAL_MAX_CONCURRENT_RUNS`,
 `URL4_CLOUD_LOCAL_STREAM_MAX_FRAMES`, `URL4_CLOUD_LOCAL_MAX_RUN_HISTORY`.
+
+## Sync surface — `GET /<mount>?q=(context)!intent`
+
+The sync surface calls one handler one time. It does not mint a token, open a WebSocket, or wait
+for a queued run. Use it for a fast single-model call. The ensemble path stays the path for heavy
+work.
+
+A caller sends a direct mount path with a `q` query:
+
+```sh
+curl -H 'X-User-Email: alice@example.com' --get \
+  --data-urlencode 'q=(Hello)!Reply with exactly: PARIS' \
+  'https://engine.example.com/anthropic/claude-haiku-4-5'
+```
+
+A mount call runs on the App itself: the route handler queues a `shape=direct` run on the SAME
+worker queue and warm child pool that `GET /?q=` uses, holds the topic while it waits, and answers
+from the run's terminal frame (`rest/mounts.py`, uniform executor PRD 04). Every mount call goes
+through that one workflow — same queue, same child, same events and cost records — so
+`/openapi.json` lists a real `GET` operation, with a `q` parameter and documented responses, for
+every declared mount. `serve --local` registers the same mount routes, backed by
+`InProcessJobRunner`; only the eval path (`/v1?q=<expression>`) is additionally served in-process
+there, for development — production has no route for it (`404`).
+
+### Rules that shape a sync call
+
+- **Edge-verified identity only.** The App reads `X-User-Email` from the edge (Cloudflare Access
+  or Envoy), the same source `GET /?q=` uses. No capability token is used (D4). A request with no
+  verified identity gets `403` and is never queued.
+- **`q` is a URL.** Edge proxies limit a request URL to about 8 KiB. Some allow 8-16 KiB. A large
+  context cannot go on this surface. `url4` is GET-only, so there is no POST variant. A path plus
+  query over 8 KiB gets `414` before anything is queued. Send large context on the ensemble path.
+- **30 s budget.** The App stops a mount call after `min(the client's Prefer wait, 30 s)` and
+  returns `504`; the run itself is stopped, not left running.
+- **In-flight cap.** A mount call shares admission with the ensemble path — queue depth plus the
+  per-caller in-flight cap (OME-1091). Over the cap, `503` with `Retry-After`.
+- **Prefer `web_search = false`.** A web-tool mount usually uses the whole 30 s budget before it
+  reaches its iteration count. Set `web_search = false` on the model routes that the sync surface
+  serves (`[[aigateway.models]]` in `url4.toml`).
+- **Large result.** A body over 1 MiB spills to the artifact store. With
+  `URL4_CLOUD_ARTIFACT_SIGNING_KEY` set (chart: `artifactSigning.signingKey`), the caller gets
+  `303` with a short-lived (10-minute) signed `Location`. With no key set, the body streams inline
+  as `200` instead, and `screamingface_engine_mount_unsigned_spill_total` counts it.
+- **Encoded route id.** A model id with a `:` is not addressable in a URL path. Write the encoded
+  form with `~`: `/huggingface/model~provider`.
+
+### Error dialects — the split in one place
+
+One origin speaks two error dialects (OQ-3.1):
+
+| Path | Envelope |
+| --- | --- |
+| Mount paths — `GET /<mount>?q=` | url4: `{"error": {"code": "...", "message": "..."}}` |
+| Everything else — `/`, `/token`, `/v1/*`, `/artifacts/{id}` | RFC 9457 `application/problem+json` |
+
+Both dialects stay. A mount call runs `url4.peer.dispatch_direct` inside the run child, and the App
+re-emits url4's own error envelope byte for byte (`world/wire.py`), so a `url4` client gets the
+same contract whether it points at the engine or at a bare `url4 serve` node — even though the call
+is now a `shape=direct` run on the shared queue, not a call to a separate tier. The `Problem` schema
+in this document defines the RFC 9457 shape. `contracts.md` C1 defines the url4 status mapping.
+
+### Operator notes
+
+- **The declared shelves are global (D8).** Every shelf in `[holdings]` and `[identities]` is
+  readable by EVERY caller of the sync surface. v1 has no per-caller scoping. Put no secret in
+  these shelves. The declared shelves are logged at startup, so you can see what is exposed.
+
+  ```toml
+  [holdings]
+  default = { file = "/etc/url4/holdings.json" }
+
+  [identities.alice]
+  default = { file = "/etc/url4/alice.json" }
+  ```
+
+  Everything in the example above is readable by all sync callers.
+- **The App signs and verifies its own mount artifact URLs.** It signs the `303` a mount call
+  issues over 1 MiB and verifies that same URL back on `GET /artifacts/{id}`, so there is no second
+  tier to keep a key in sync with. Set `URL4_CLOUD_ARTIFACT_SIGNING_KEY` (chart:
+  `artifactSigning.signingKey`) to enable it; leaving it empty disables the signed `303` and mount
+  results stream inline instead (see above). The signature TTL is 10 minutes. A bare
+  `/artifacts/{id}` — no token, no signature — stays capability-token-only.
+- **`config_digest` names the App's world.** `/healthz` reports it once mounts are registered —
+  the SHA-256 of the `url4.toml` file the App built its mount table from. Compare it across App
+  pods during a rolling deploy. The runner pool does not report a digest:
+
+  ```json
+  {"status": "ok", "config_digest": "<sha256>"}
+  ```
+
+  An App with no mounts registered keeps the plain `{"status": "ok"}` contract it always had. A
+  path outside the declared mount set is a plain `404`.
 
 ## Model catalog — `GET /v1/models`
 

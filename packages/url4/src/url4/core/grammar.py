@@ -40,14 +40,16 @@ from url4.core._annotations import (
 )
 from url4.core._scan import (
     balanced_body,
+    balanced_braces,
     find_unquoted,
     iter_iteration_stars,
     iter_top_level,
     one_paren_layer,
     skip_quoted,
+    split_query_segments,
     split_top_level,
 )
-from url4.core.errors import ParseError
+from url4.core.errors import ErrorCode, ParseError
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -116,7 +118,6 @@ def _check_expr_path(path: str, token: str) -> None:
         raise ParseError(
             f"invalid expression path {path!r} in {token!r} — a path segment takes "
             "ALPHA / DIGIT / '-' / '_' / '.' / '~'",
-            code="malformed_source",
         )
 
 
@@ -126,7 +127,6 @@ def _check_data_path(token: str) -> None:
     if not _DATA_PATH_RE.fullmatch(path):
         raise ParseError(
             f"invalid data path {path!r} in {token!r}",
-            code="malformed_source",
         )
 
 
@@ -528,7 +528,7 @@ def _parse_iteration(token: str, star: int) -> Iteration:
         raise ParseError(
             f"iteration {token!r} has no per-row intent — the expression after "
             "'*' must carry !intent (src*(body)!intent)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
             position=star,
         )
     return Iteration(collection=_parse_collection(token[:star]), body=body.strip(), intent=intent)
@@ -564,7 +564,7 @@ def _parse_local_expr(token: str) -> Expression:
         raise ParseError(
             f"expression group {token!r} has no intent — a parenthesized source "
             "group must be followed by !intent (or !*intent)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
         )
     if after.startswith("!*"):
         return Expression(sources=sources, intent=intent_atom(after[2:]), broadcast=True)
@@ -649,7 +649,7 @@ def _find_expression_param(token: str, qmark: int) -> int | None:
     """The offset of ``q=(`` as a query parameter after ``qmark``, or None.
 
     # INVARIANT: ``&`` separates query parameters only at depth 0 outside
-    # quotes — the same rule :func:`url4.core.subrequest.extract_expression_params`
+    # quotes — the same rule :func:`url4.wire.subrequest.extract_expression_params`
     # applies on the wire. A quote-only scan mistook an ``&`` nested inside a
     # parenthesized expression-bearing value (``processor=(/x?a=1&b=2&q=(y)!z)``)
     # for a parameter boundary and locked onto the INNER ``q=(`` (`OME-501`).
@@ -672,7 +672,7 @@ def _decode_query_params(params_text: str) -> Params:
     if not params_text:
         return ()
     pairs: list[tuple[str, str | None]] = []
-    for segment in split_top_level(params_text, "&"):
+    for segment in split_query_segments(params_text):
         if segment:
             key, eq, value = segment.partition("=")
             decoded = value if eq else None
@@ -696,7 +696,7 @@ def _parse_expr_intent(after: str, token: str) -> Node:
         raise ParseError(
             f"call {token!r} has no intent — a relative or remote expression must "
             "be followed by !intent (a path with no context is a data URI)",
-            code="missing_intent",
+            code=ErrorCode.MISSING_INTENT,
         )
     if after.startswith("!"):
         # AIDEV-NOTE: `intent-op` admits `!*` here too, but RelExpr/RemoteExpr
@@ -713,10 +713,9 @@ def _check_authority(authority: str, token: str) -> None:
     if sep and not _PORT_RE.fullmatch(port):
         raise ParseError(
             f"invalid port {port!r} in {token!r} — `port = 1*DIGIT`",
-            code="malformed_source",
         )
     if not host:
-        raise ParseError(f"remote expression has no host: {token!r}", code="malformed_source")
+        raise ParseError(f"remote expression has no host: {token!r}")
 
 
 def _parse_remote(token: str) -> Node:
@@ -791,21 +790,7 @@ def _parse_struct_object(token: str) -> StructObject:
 
 
 def _balanced_braces(token: str) -> int | None:
-    depth = 0
-    i = 0
-    while i < len(token):
-        ch = token[i]
-        if ch == "'":
-            i = skip_quoted(token, i)
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return None
+    return balanced_braces(token, 0)
 
 
 def _parse_reference(token: str) -> SelfRef | IdentityRef:

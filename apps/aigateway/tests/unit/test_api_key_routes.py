@@ -16,7 +16,7 @@ from contextlib import contextmanager
 import httpx
 import pytest
 
-import aigateway.routes.auth as auth_module
+import aigateway.core.provider_access.profile_admin as profile_admin_module
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
@@ -283,7 +283,9 @@ def test_set_api_key_rollback_does_not_compensate_over_same_key_external_commit(
     compensation_calls: list[str] = []
     s1_task = None
     s1_initial_write = False
-    persist_credentials = auth_module.persist_credentials_or_503
+    # OME-1230 (F2, owner 2026-09-18): the API-key body moved behind the provider-credential
+    # admin boundary, so the persistence seam this race patches is the admin module's.
+    persist_credentials = profile_admin_module.persist_credentials_or_refuse
     credential_store = authenticated_client.app.state.credential_store
     write = credential_store.write
     delete = credential_store.delete
@@ -323,7 +325,9 @@ def test_set_api_key_rollback_does_not_compensate_over_same_key_external_commit(
         await _record_s1_compensation("mutate", service_name)
         await mutate(service_name, account, mutator)
 
-    monkeypatch.setattr(auth_module, "persist_credentials_or_503", _fail_first_after_write)
+    monkeypatch.setattr(
+        profile_admin_module, "persist_credentials_or_refuse", _fail_first_after_write
+    )
     monkeypatch.setattr(credential_store, "write", _delay_compensating_write)
     monkeypatch.setattr(credential_store, "delete", _delay_compensating_delete)
     monkeypatch.setattr(credential_store, "mutate", _delay_compensating_mutate)
@@ -407,19 +411,6 @@ async def test_set_api_key_over_oauth_profile_flips_auth_type(
         "auth_type": "api_key",
         "api_key": ANTHROPIC_KEY,
     }
-
-
-def test_set_api_key_accepts_defaults(authenticated_client) -> None:
-    resp = _put_api_key(
-        authenticated_client,
-        "anthropic",
-        "keyed",
-        ANTHROPIC_KEY,
-        defaults={"max_tokens": 2048},
-    )
-
-    assert resp.status_code == 200
-    assert resp.json()["defaults"]["max_tokens"] == 2048
 
 
 def test_set_api_key_unknown_provider_404(authenticated_client) -> None:
@@ -576,19 +567,18 @@ def test_oauth_completion_flips_auth_type_back_to_oauth(
 
 
 def test_patch_profile_preserves_api_key_auth_type(authenticated_client) -> None:
-    """PATCHing defaults must not reset the discriminator (audit F12)."""
+    """PATCHing metadata must not reset the discriminator (audit F12)."""
     assert (
         _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY).status_code == 200
     )
 
     resp = authenticated_client.patch(
         "/v1/auth/anthropic/profiles/keyed",
-        json={"defaults": {"max_tokens": 1024}},
+        json={"account_label": "renamed"},
     )
 
     assert resp.status_code == 200
     assert resp.json()["auth_type"] == "api_key"
-    assert resp.json()["defaults"]["max_tokens"] == 1024
 
 
 def test_legacy_profile_index_defaults_to_oauth_auth_type(

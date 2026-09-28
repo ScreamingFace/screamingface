@@ -1,0 +1,40 @@
+name: Preview fork guard
+
+# SECURITY: `pull_request_target` grants a write token, so this workflow never
+# checks out or executes pull-request code. The checkout reads the trusted base
+# revision only, and every `run:` below is a static command — no event payload
+# is interpolated into a shell context.
+#
+# WHY this exists: the `preview` label authorizes a platform deployment, and
+# the Argo CD pull-request generator cannot see fork origin. The admission
+# reconciler also strips Preview labels from forks, but only every five
+# minutes. This guard reacts to the labeling event itself, inside the
+# generator's polling interval.
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: screamingface-preview-fork-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  strip:
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository &&
+      startsWith(github.event.label.name, 'preview')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Remove the Preview labels from the fork pull request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 .github/scripts/preview_contract.py guard --number "$PR_NUMBER"

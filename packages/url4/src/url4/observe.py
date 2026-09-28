@@ -11,19 +11,25 @@ downstream tracing product is deliberately kept out of this module.
 ``Observer.on_event`` is synchronous and non-blocking by contract — the
 executor calls it inline from its own coroutines, never behind a task or a
 queue, so a slow or blocking observer would slow the run itself. An observer
-that raises is not caught anywhere in the engine (an embedder bug should be
-loud, not swallowed): the exception propagates out of the run exactly like
-any other node failure.
+that raises propagates out of direct observation like any other node failure.
+The opt-in ``current_log_sink`` convenience alone contains ordinary submission
+failures; it never changes lifecycle or direct logging failure semantics.
 """
 
 from __future__ import annotations
 
 import contextlib
 import contextvars
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+import math
+import sys
+import threading
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Literal, Protocol, runtime_checkable
+from types import MappingProxyType
+from typing import Final, Literal, Protocol, Self, get_args, runtime_checkable
+
+from url4._log_attributes import _LogAttributes
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,11 +62,24 @@ class NodeFinished:
     permanent: bool | None = None
 
 
+type LogScalar = str | int | float | bool | None
+
+
 @dataclass(frozen=True, slots=True)
 class Log:
     span_id: str | None
     severity: str
     body: str
+    attributes: Mapping[str, LogScalar] = field(default_factory=dict, hash=False)
+
+    def __post_init__(self) -> None:
+        # INVARIANT: observers and caller mutation cannot rewrite queued evidence.
+        object.__setattr__(self, "attributes", _LogAttributes(self.attributes))
+
+    def __reduce__(self) -> tuple[type[Self], tuple[str | None, str, str, dict[str, LogScalar]]]:
+        # INVARIANT: pickle/deepcopy reconstruct through the constructor so event
+        # attributes remain immutable even though detached asdict output is mutable.
+        return type(self), (self.span_id, self.severity, self.body, dict(self.attributes))
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +118,20 @@ class Usage:
     cost_usd: Decimal | None = None
 
 
+type SavedCostProvenance = Literal["reported", "archive_matched"]
+"""How a saved-cost amount was established. Deliberately duplicated on
+:class:`url4.streaming.protocol.SpanData` — see the AIDEV-NOTE on `cache_status`."""
+
+
+_SAVED_COST_PROVENANCES: Final[frozenset[str]] = frozenset(get_args(SavedCostProvenance.__value__))
+"""The provenance vocabulary, DERIVED from the type alias rather than restated.
+
+A second hand-written tuple is a second thing to forget: the defect this closes was a seam that
+enforced the pairing invariant but not the vocabulary, so the vocabulary must not itself become a
+copy that can drift from the Literal it checks.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class ModelResponse:
     """Emitted once per model round trip, carrying HOW that call ended.
@@ -135,6 +168,47 @@ class ModelResponse:
     # and coupling the two to save three tokens would be the worse trade. Change both together.
     cache_status: Literal["hit", "miss", "bypass"] | None = None
     cache_reason: str | None = None
+    # FEATURE: run-level saved cost (ans:Q2). What this round trip would have cost the provider
+    # had the gateway not served it from its store — read off the SAME `_aigw` reference
+    # `cache_status` describes, on the same round trip. It rides HERE and not on `Usage` because
+    # it is not consumption: mixing avoided money into token accounting would let one call be
+    # billed twice, once as spend and once as saving.
+    #
+    # INVARIANT: `cache_saved_cost_provenance` is set if and only if `cache_saved_cost_usd` is.
+    # There are exactly two provenances and they are NEVER summed into one figure: `reported` is
+    # provider-authored money, `archive_matched` is a paired seed price whose per-row attribution
+    # is unproven. A caller that adds them cannot tell the two claims apart again.
+    # `None` means the round trip saved nothing the engine can price, which is not the same claim
+    # as `Decimal("0")` (the call was genuinely free).
+    cache_saved_cost_usd: Decimal | None = None
+    cache_saved_cost_provenance: SavedCostProvenance | None = None
+
+    def __post_init__(self) -> None:
+        # WHY a guard and not a comment: this seam is constructed directly by adapters, and an
+        # amount with no provenance cannot be routed to either total — it would land in the
+        # unpriced bucket, losing money that was measured and reported. `AvoidedCost` in the
+        # engine's accounting has enforced this same pairing from the start; the wire-adjacent
+        # seam is the one an outside adapter reaches first, so it must not be the weaker of the two.
+        if (self.cache_saved_cost_usd is None) != (self.cache_saved_cost_provenance is None):
+            raise ValueError(
+                "ModelResponse cache_saved_cost_usd and cache_saved_cost_provenance "
+                "must be set together or not at all"
+            )
+        if self.cache_saved_cost_provenance is None:
+            return
+        if self.cache_saved_cost_provenance not in _SAVED_COST_PROVENANCES:
+            raise ValueError(
+                "ModelResponse cache_saved_cost_provenance must be one of "
+                f"{sorted(_SAVED_COST_PROVENANCES)}, got {self.cache_saved_cost_provenance!r}"
+            )
+        amount = self.cache_saved_cost_usd
+        # `is_finite()` rejects NaN and Infinity, which both slip past a bare `< 0`. A NaN total
+        # poisons every sum it reaches and never compares unequal to itself again.
+        if not isinstance(amount, Decimal) or not amount.is_finite() or amount < 0:
+            raise ValueError(
+                f"ModelResponse cache_saved_cost_usd must be a finite non-negative Decimal, "
+                f"got {amount!r}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,8 +273,10 @@ def current_usage_sink() -> UsageSink | None:
 ResponseSink = Callable[..., None]  # matches ExecutionContext.report_response's kwargs:
 # (*, finish_reason: str | None, refusal: str | None,
 #     cache_status: Literal["hit", "miss", "bypass"] | None = None,
-#     cache_reason: str | None = None) -> None
-# INVARIANT: the two cache kwargs are OPTIONAL. This is a live seam with callers already written
+#     cache_reason: str | None = None,
+#     cache_saved_cost_usd: Decimal | None = None,
+#     cache_saved_cost_provenance: SavedCostProvenance | None = None) -> None
+# INVARIANT: every cache kwargs is OPTIONAL. This is a live seam with callers already written
 # against it, and an adapter that learns no cache outcome must be able to say nothing rather
 # than be forced to invent one.
 
@@ -222,14 +298,143 @@ def current_response_sink() -> ResponseSink | None:
     return _response_sink.get()
 
 
+class LogSink(Protocol):
+    """Best-effort structured emission for the active node, on its loop thread.
+
+    No I/O or tasks are created. Invalid, expired and off-thread submissions
+    drop without logging; see log_sink_drop_counts(). Attributes are flat scalars;
+    this is not content redaction.
+    Producer schemas must separately bound record size and emission rate.
+    """
+
+    def __call__(
+        self,
+        body: str,
+        attributes: Mapping[str, LogScalar] | None = None,
+        *,
+        severity: str = "INFO",
+    ) -> None: ...
+
+
+class _LogEmitter(Protocol):
+    def __call__(
+        self,
+        severity: str,
+        body: str,
+        *,
+        attributes: Mapping[str, LogScalar] | None = None,
+    ) -> None: ...
+
+
+def _log_attributes(attributes: Mapping[str, LogScalar] | None) -> dict[str, LogScalar]:
+    if attributes is None:
+        return {}
+    if not isinstance(attributes, Mapping):
+        raise ValueError("invalid attributes")
+    snapshot = dict(attributes)
+    for key, value in snapshot.items():
+        if type(key) is not str or type(value) not in (str, int, float, bool, type(None)):
+            raise ValueError("invalid scalar")
+        if type(value) is float and not math.isfinite(value):
+            raise ValueError("nonfinite scalar")
+    return snapshot
+
+
+# The drop counters are keyed by the phase that rejected a submission. The
+# Literal — not a bare ``str`` — is what makes an unknown key unrepresentable: a
+# misspelled reason fails the type check instead of raising KeyError inside the
+# sink's own error handler, where a raise would defeat the "diagnostics cannot
+# recurse" contract (_NodeLogSink.__call__ counts drops from its except arm).
+LogDropReason = Literal["expired", "thread", "body", "severity", "attributes", "emit"]
+
+_LOG_DROP_REASONS: Final[tuple[LogDropReason, ...]] = get_args(LogDropReason)
+
+_log_drop_counts: dict[str, int] = {reason: 0 for reason in _LOG_DROP_REASONS}
+_log_drop_lock = threading.Lock()
+
+
+def _record_log_drop(reason: LogDropReason) -> None:
+    # INVARIANT: fixed keys, bounded integers, no payload or callbacks under the lock.
+    with _log_drop_lock:
+        _log_drop_counts[reason] = min(_log_drop_counts[reason] + 1, sys.maxsize)
+
+
+def log_sink_drop_counts() -> Mapping[str, int]:
+    """Immutable snapshot of process-wide drops, saturating at sys.maxsize.
+
+    Keys are expired, thread, body, severity, attributes and emit. Each rejected
+    call counts its first failing phase; successful calls and propagated process
+    signals do not count. No reset, payload, exception text or per-run attribution.
+    """
+    with _log_drop_lock:
+        return MappingProxyType(dict(_log_drop_counts))
+
+
+class _NodeLogSink:
+    def __init__(self, emit: _LogEmitter) -> None:
+        self._emit = emit
+        self._thread = threading.get_ident()
+        self.active = True
+
+    def __call__(
+        self,
+        body: str,
+        attributes: Mapping[str, LogScalar] | None = None,
+        *,
+        severity: str = "INFO",
+    ) -> None:
+        if not self.active:
+            _record_log_drop("expired")
+            return
+        if threading.get_ident() != self._thread:
+            _record_log_drop("thread")
+            return
+        phase: LogDropReason = "body"
+        try:
+            if type(body) is not str or not body:
+                raise ValueError("invalid body")
+            phase = "severity"
+            if type(severity) is not str:
+                raise ValueError("invalid severity")
+            normalized = severity.strip().upper()
+            if normalized not in ("DEBUG", "INFO", "WARN", "ERROR"):
+                raise ValueError("invalid severity")
+            phase = "attributes"
+            snapshot = _log_attributes(attributes)
+            phase = "emit"
+            self._emit(normalized, body, attributes=snapshot)
+        except Exception:
+            # WHY: counter-only diagnostics cannot recurse through logging handlers
+            # or retain payload. BaseException (process control) still propagates.
+            _record_log_drop(phase)
+
+
+_log_sink: contextvars.ContextVar[_NodeLogSink | None] = contextvars.ContextVar(
+    "url4_log_sink", default=None
+)
+
+
+def current_log_sink() -> LogSink | None:
+    """Return the active node's sink, or None outside/after its resolve.
+
+    Child tasks inherit the binding. Observed nested runs bind their own;
+    unobserved nested runs inherit an active outer without creating a span.
+    Retained callables silently drop after expiry, including in copied contexts.
+    """
+    sink = _log_sink.get()
+    return sink if sink is not None and sink.active else None
+
+
 @contextlib.contextmanager
-def _bind_node_sinks(usage: UsageSink, response: ResponseSink) -> Iterator[None]:
-    """Bind both ctx-less sinks to the currently-resolving node, for the duration
+def _bind_node_sinks(
+    usage: UsageSink, response: ResponseSink, log: _LogEmitter | None = None
+) -> Iterator[None]:
+    """Bind ctx-less sinks to the currently-resolving node, for the duration
     of its own ``resolve`` only.
 
     Lives here rather than in the executor because the ContextVars are this
     module's private state — the executor should not have to reach into them to
-    scope a binding it does not own. Takes the two bound methods rather than an
+    scope a binding it does not own. Takes explicit bound callables rather than an
     ``ExecutionContext`` so this module stays the dependency-free leaf its
     docstring promises (``url4.dag.node`` imports *this*, never the reverse).
 
@@ -237,20 +442,28 @@ def _bind_node_sinks(usage: UsageSink, response: ResponseSink) -> Iterator[None]
     copied into each :class:`asyncio.Task`'s context at creation, so every
     sibling node sees its own binding, never another's.
 
-    INVARIANT: neither binding outlives the node's resolve — both are reset on
+    INVARIANT: bindings are restored when the node resolve exits on
     the success path and the failure path alike.
     """
+    sink = _NodeLogSink(log) if log is not None else None
+    log_token = _log_sink.set(sink)
     usage_token = _usage_sink.set(usage)
     response_token = _response_sink.set(response)
     try:
         yield
     finally:
+        # INVARIANT: resetting ContextVars alone cannot revoke copied child contexts.
+        if sink is not None:
+            sink.active = False
+        _log_sink.reset(log_token)
         _usage_sink.reset(usage_token)
         _response_sink.reset(response_token)
 
 
 __all__ = [
     "Log",
+    "LogScalar",
+    "LogSink",
     "ModelResponse",
     "NodeFinished",
     "NodeStarted",
@@ -260,8 +473,11 @@ __all__ = [
     "ResponseSink",
     "RunFinished",
     "RunStarted",
+    "SavedCostProvenance",
     "Usage",
     "UsageSink",
+    "current_log_sink",
     "current_response_sink",
     "current_usage_sink",
+    "log_sink_drop_counts",
 ]

@@ -145,3 +145,28 @@ week later, as a corrupted backup pair.
 {{- .Values.snapshot.storage.endpointUrl -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The Secret carrying OTEL_EXPORTER_OTLP_HEADERS (OME-1184) — an operator's own when supplied,
+else the chart's. Same shape as the snapshot helper, so `existingSecret` means the same thing
+everywhere in this chart.
+*/}}
+{{- define "aigateway.tracingSecretName" -}}
+{{- if .Values.tracing.existingSecret -}}
+{{- .Values.tracing.existingSecret -}}
+{{- else -}}
+{{- printf "%s-tracing" (include "aigateway.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Whether the pod should attach a tracing Secret at all. Distinct from `tracing.enabled`: headers
+are OPTIONAL (the in-cluster collector needs no credential), so enabling tracing must not by
+itself reference a Secret that will never be created — an unresolvable `envFrom` stops the pod
+from starting, turning "I needed no credential" into an outage.
+*/}}
+{{- define "aigateway.tracingHasSecret" -}}
+{{- if and .Values.tracing.enabled (or .Values.tracing.existingSecret .Values.tracing.headers) -}}
+true
+{{- end -}}
+{{- end -}}

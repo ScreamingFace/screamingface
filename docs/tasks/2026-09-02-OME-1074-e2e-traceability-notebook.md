@@ -1,12 +1,12 @@
 ---
 id: OME-1074
 linear_url: https://linear.app/openmined/issue/OME-1074/commit-the-live-k8s-traceability-e2e-notebook
-status: in_progress
+status: done
 type: task
 priority: 3
 labels: [repo, agentic, autonomous, task]
 created: 2026-09-02
-closed:
+closed: 2026-09-02
 ---
 
 # Commit the live-k8s traceability e2e notebook

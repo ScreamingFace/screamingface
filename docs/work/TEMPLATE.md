@@ -1,12 +1,12 @@
 ---
-ticket: OME-<N>
+ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: <stacks[].name from .claude/sdlc.local.md | repo>
 status: planned   # planned | in_progress | done | blocked
 started: <YYYY-MM-DD>
 finished:
 ---
 
-# OME-<N> — <one-line unit title>
+# <slug> — <one-line unit title>
 
 ## Intent
 

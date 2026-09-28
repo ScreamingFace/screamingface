@@ -27,6 +27,7 @@
       "LeaderboardEntry",
       "LeaderboardError",
       "LeaderboardInfo",
+      "LeaderboardRankingNotice",
       "LeaderboardScore",
       "MemberResult",
       "Model",
@@ -72,7 +73,7 @@
           "connect": "method (self, provider: 'str', *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | AsyncOAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "scoreboard_url": "property"
@@ -106,10 +107,13 @@
       "Benchmark": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int') -> None",
+          "__init__": "method (self, id: 'str', title: 'str', description: 'str', revision: 'str', case_count: 'int', origin: 'str' = 'screamingface', interaction: 'str | None' = None, difficulty: 'str | None' = None) -> None",
           "case_count": "field",
           "description": "field",
+          "difficulty": "field",
           "id": "field",
+          "interaction": "field",
+          "origin": "field",
           "revision": "field",
           "title": "field"
         }
@@ -126,9 +130,12 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage') -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None) -> 'None'",
+          "answer_seed": "field",
           "benchmark": "field",
+          "cache_saved_cost_usd": "field",
           "cases": "field",
+          "client_version": "field",
           "completed_at": "field",
           "coverage": "field",
           "duration_ms": "property",
@@ -139,10 +146,12 @@
           "models": "field",
           "name": "field",
           "operations": "field",
+          "run_cost_status": "field",
           "run_id": "field",
           "score": "field",
           "started_at": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
+          "trace_id": "field",
           "url4": "field",
           "usage": "field"
         }
@@ -208,7 +217,7 @@
           "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "scoreboard_url": "property"
@@ -370,7 +379,8 @@
       "LeaderboardEntry": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, rank: 'int', spec_id: 'str', score: 'float', total_questions: 'int', ran_with_providers: 'tuple[str, ...]', submitted_at: 'datetime', submitted_by: 'str | None', verified_by_screamingface: 'bool', url4: 'Url4') -> None",
+          "__init__": "method (self, rank: 'int', spec_id: 'str', score: 'float', total_questions: 'int', ran_with_providers: 'tuple[str, ...]', submitted_at: 'datetime', submitted_by: 'str | None', verified_by_screamingface: 'bool', url4: 'Url4', authors: 'tuple[str, ...] | None' = None) -> None",
+          "authors": "field",
           "ran_with_providers": "field",
           "rank": "field",
           "score": "field",
@@ -405,10 +415,20 @@
           "id": "field"
         }
       },
+      "LeaderboardRankingNotice": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, code: \"Literal['benchmark_revision_mismatch']\", submitted_benchmark_revision: 'str | None', registered_benchmark_revision: 'str') -> None",
+          "code": "field",
+          "registered_benchmark_revision": "field",
+          "submitted_benchmark_revision": "field"
+        }
+      },
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None) -> None",
+          "authors": "field",
           "benchmark_id": "field",
           "client_name": "field",
           "client_platform": "field",
@@ -418,6 +438,7 @@
           "metadata": "field",
           "ran_at_local": "field",
           "ran_with_providers": "field",
+          "ranking_notice": "field",
           "score": "field",
           "scoreboard_url": "field",
           "spec_id": "field",
@@ -466,11 +487,12 @@
       "ModelDetails": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', provider: 'str', upstream_id: 'str', contract_id: 'str', scope: 'str', auth_mode: 'str', context_revision: 'str', source_revision: 'str | None', parameters: 'Mapping[str, ModelParameter]', tools: 'Mapping[str, ModelCapability]', transport: 'Mapping[str, ModelCapability]', observed_at: 'datetime | None', expires_at: 'datetime | None', stale: 'bool', degraded: 'bool') -> None",
+          "__init__": "method (self, id: 'str', provider: 'str', upstream_id: 'str', contract_id: 'str', scope: 'str', auth_mode: 'str', context_revision: 'str', source_revision: 'str | None', parameters: 'Mapping[str, ModelParameter]', tools: 'Mapping[str, ModelCapability]', transport: 'Mapping[str, ModelCapability]', observed_at: 'datetime | None', expires_at: 'datetime | None', stale: 'bool', degraded: 'bool', execution_access: \"Literal['configured', 'missing'] | None\" = None) -> None",
           "auth_mode": "field",
           "context_revision": "field",
           "contract_id": "field",
           "degraded": "field",
+          "execution_access": "field",
           "expires_at": "field",
           "id": "field",
           "observed_at": "field",
@@ -623,7 +645,7 @@
           "case_count": "field",
           "completed_at": "property",
           "duration_ms": "property",
-          "export": "method (self, path: 'str | PathLike[str]' = 'report.json') -> 'Path'",
+          "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
           "started_at": "property",
@@ -702,7 +724,7 @@
       },
       "evaluate": {
         "kind": "function",
-        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'Report'"
+        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str', *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None) -> 'Report'"
       },
       "events": {
         "kind": "module",
@@ -842,8 +864,10 @@
       "Span": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None, name: 'str' = '', operation: 'str' = '', start: 'datetime | None' = None, end: 'datetime | None' = None, status: 'SpanStatus' = 'ok', span_kind: 'SpanKind' = 'internal', provider: 'str | None' = None, request_model: 'str | None' = None, response_model: 'str | None' = None, input_tokens: 'int | None' = None, output_tokens: 'int | None' = None, finish_reasons: 'tuple[str, ...]' = (), refusal: 'str | None' = None, cache_status: 'CacheStatus | None' = None, cache_reason: 'str | None' = None) -> None",
+          "__init__": "method (self, id: 'str', run_id: 'str', sequence: 'int', timestamp: 'datetime', source: 'str', traceparent: 'str | None' = None, tracestate: 'str | None' = None, name: 'str' = '', operation: 'str' = '', start: 'datetime | None' = None, end: 'datetime | None' = None, status: 'SpanStatus' = 'ok', span_kind: 'SpanKind' = 'internal', provider: 'str | None' = None, request_model: 'str | None' = None, response_model: 'str | None' = None, input_tokens: 'int | None' = None, output_tokens: 'int | None' = None, finish_reasons: 'tuple[str, ...]' = (), refusal: 'str | None' = None, cache_status: 'CacheStatus | None' = None, cache_reason: 'str | None' = None, cache_saved_cost_usd: 'Decimal | None' = None, cache_saved_cost_archive_usd: 'Decimal | None' = None) -> None",
           "cache_reason": "field",
+          "cache_saved_cost_archive_usd": "field",
+          "cache_saved_cost_usd": "field",
           "cache_status": "field",
           "end": "field",
           "finish_reasons": "field",
@@ -951,7 +975,7 @@
       },
       "submit": {
         "kind": "function",
-        "signature": "(candidate_result: 'CandidateResult') -> 'LeaderboardScore'"
+        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None) -> 'LeaderboardScore'"
       }
     }
   },
@@ -991,9 +1015,12 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage') -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None) -> 'None'",
+          "answer_seed": "field",
           "benchmark": "field",
+          "cache_saved_cost_usd": "field",
           "cases": "field",
+          "client_version": "field",
           "completed_at": "field",
           "coverage": "field",
           "duration_ms": "property",
@@ -1004,10 +1031,12 @@
           "models": "field",
           "name": "field",
           "operations": "field",
+          "run_cost_status": "field",
           "run_id": "field",
           "score": "field",
           "started_at": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
+          "trace_id": "field",
           "url4": "field",
           "usage": "field"
         }
@@ -1156,7 +1185,7 @@
           "case_count": "field",
           "completed_at": "property",
           "duration_ms": "property",
-          "export": "method (self, path: 'str | PathLike[str]' = 'report.json') -> 'Path'",
+          "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
           "started_at": "property",

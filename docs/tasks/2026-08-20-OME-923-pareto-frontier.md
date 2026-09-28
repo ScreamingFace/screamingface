@@ -20,17 +20,19 @@ can hold a defensible "best score for the money" claim on one board.
 | Part | What | State |
 |---|---|---|
 | A | Compute the frontier — a pure function, unit-testable without a DB | **Done**, PR #778 |
-| B | Mark qualifying rows, distinct from the gold highest-score mark | gated |
-| C | Accuracy-vs-cost chart with the frontier drawn | gated |
+| B | Mark qualifying rows, distinct from the gold highest-score mark | **Done**, PR #786; gate waived by owner |
+| C | Accuracy-vs-cost chart with the frontier drawn | **In review**, PR #791; merge-gated |
 
 A → B → C. A gates the other two. B carries most of the value at a fraction of C's cost.
 
 ## The gate on B and C
 
-`run_cost_usd` is null on every row today. B and C must not merge until real cost data flows:
-OME-1029 (PR #770) merged, a client release carrying it, then a submission reporting a cost. An
-empty frontier rendering cleanly is acceptable; a cost claim computed over nulls is not. Part A
-merges alone safely because nothing imports it.
+At implementation time, `run_cost_usd` was null on every row. The original gate required real cost
+data before B or C merged: OME-1029 (PR #770) merged, a client release carrying it, then a
+submission reporting a cost. An empty frontier rendering cleanly is acceptable; a cost claim
+computed over nulls is not. Part A merged alone safely because nothing imported it. The owner
+explicitly waived this precaution for Part B on 2026-09-02, and PR #786 then merged; it remains
+recorded as a gate for Part C until the owner makes the same decision there.
 
 ## Decisions
 
@@ -41,6 +43,11 @@ Irina answered the four open questions on 2026-08-24:
    and visually distinct mark.
 3. **Imported baselines are excluded** — they have no run cost and were never run by us.
 4. **3D charts are out of scope here.** OME-923 covers accuracy vs cost only; OME-324 keeps 3D.
+
+Scope clarification recorded on Linear on 2026-09-01: Part C supersedes only OME-324's
+accuracy-vs-cost slice. OME-324 retains speed-related 2D views, the 3D speed/score/cost view, and
+efficiency sliders. OME-325 remains separate contributor-recognition work; Pareto membership is
+not a contributor badge or ranking input without a further product decision.
 
 Two further decisions were escalated during part A (2026-08-29):
 
@@ -76,3 +83,7 @@ Two further decisions were escalated during part A (2026-08-29):
 ## Ledger
 
 `docs/work/2026-08-29-OME-923-pareto-frontier-compute.md` (part A)
+
+`docs/work/2026-08-29-OME-923-B-mark-frontier-rows.md` (part B)
+
+`docs/work/2026-09-01-OME-923-C-pareto-chart.md` (part C)

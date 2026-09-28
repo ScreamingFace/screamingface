@@ -22,7 +22,7 @@ from __future__ import annotations
 import pytest
 
 from url4.core.errors import ParseError
-from url4.core.subrequest import extract_expression_params
+from url4.wire.subrequest import extract_expression_params
 
 # --- q= last ---------------------------------------------------------------------
 

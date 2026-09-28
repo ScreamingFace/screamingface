@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Literal
 
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
@@ -34,6 +36,7 @@ def _decode_model_details(payload: object, expected_model: str) -> ModelDetails:
             contract_id=_wire_text(root.get("contract_id"), "Model contract_id", _invalid),
             scope=_wire_text(context.get("scope"), "Model context scope", _invalid),
             auth_mode=_wire_text(context.get("auth_mode"), "Model context auth_mode", _invalid),
+            execution_access=_execution_access(context),
             context_revision=_wire_text(
                 context.get("revision"), "Model context revision", _invalid
             ),
@@ -54,6 +57,19 @@ def _decode_model_details(payload: object, expected_model: str) -> ModelDetails:
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc))
+
+
+def _execution_access(context: Mapping[str, object]) -> Literal["configured", "missing"] | None:
+    # INVARIANT: omission means an older Gateway, not missing provider access.
+    # Explicit malformed values retain the discovery-error path.
+    if "execution_access" not in context:
+        return None
+    value = context["execution_access"]
+    if value == "configured":
+        return "configured"
+    if value == "missing":
+        return "missing"
+    _invalid("Model execution_access must be configured or missing")
 
 
 def _decode_model_parameters(value: object) -> dict[str, ModelParameter]:

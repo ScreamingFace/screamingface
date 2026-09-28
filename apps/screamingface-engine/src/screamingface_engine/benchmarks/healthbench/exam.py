@@ -26,7 +26,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BenchmarkDeclaration,
+    CheckSurface,
+    DifficultyTier,
+    candidate,
+)
 from screamingface_engine.benchmarks.healthbench import verdict
 from screamingface_engine.benchmarks.healthbench.pins import (
     CHECK_CRITERION,
@@ -164,7 +170,13 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
         The unresolved DAG — the Engine executes it at submission time.
     """
 
-    candidate_invocation = candidate("$item.input", web_search=False)
+    candidate_invocation = candidate(
+        "$item.input",
+        case_id="$item.id",
+        case_index="$index",
+        case_count=str(case_count),
+        web_search=False,
+    )
     # Stage 3a — the judge call: send one pre-rendered grader prompt to the judge model.
     # One judge pass per rubric item — the reference grades each item exactly once.
     # INVARIANT: the judge call's intent is EMPTY (`!''`). The Runner maps a non-empty
@@ -269,6 +281,7 @@ def healthbench_benchmark(
     scoring: str,
     mean: ExamMean,
     selection_sha: str,
+    difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
 ) -> tuple[Exam, Benchmark]:
@@ -325,6 +338,15 @@ def healthbench_benchmark(
         description=description,
         revision=revision,
         case_count=len(case_ids),
+        # INVARIANT: the declared policy matches the code — every board reduces through
+        # the shared finalize_candidate_result, which scores exactly the gradeable subset
+        # and publishes coverage (coverage_declare). Declare `withhold` only if the
+        # aggregate actually withholds (OME-1039).
+        declaration=BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+            difficulty=difficulty,
+        ),
         build=build,
         install=install,
         # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the

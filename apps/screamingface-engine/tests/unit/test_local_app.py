@@ -123,16 +123,23 @@ def test_importing_the_serving_app_does_not_pull_in_local_mode_or_the_run_mode()
     exactly what needs pinning: an ordinary `screamingface-engine serve` must not
     reach the run mode just because a local mode exists. If `screamingface_engine.app`
     ever imported `local` at module scope, every deployed App would load
-    `runner.connector`/`runner.executor` and httpx behind it.
+    `world.connector`/`runner.executor` and httpx behind it.
 
     NOT asserted here: that the url4 ENGINE stays unloaded. `url4/__init__` imports the DAG, so
     any `url4.streaming` import loads it — which `check_layering.py`'s SCOPE NOTE already records
     as unenforceable by construction. A subprocess because this interpreter has imported the lot.
+
+    WHY the probe is precise (dot-suffixed) rather than a bare
+    `startswith('screamingface_engine.runner')`: the run queue (`runner_queue`, OME-1088) is a
+    SHARED LEAF both halves import, and its name happens to start with `runner` — a bare prefix
+    would flag the serving app for importing its own queue substrate.
     """
     probe = (
         "import sys, screamingface_engine.app;"
         "leaked = sorted(m for m in sys.modules "
-        "if m == 'screamingface_engine.local' or m.startswith('screamingface_engine.runner'));"
+        "if m == 'screamingface_engine.local' "
+        "or m == 'screamingface_engine.runner' "
+        "or m.startswith('screamingface_engine.runner.'));"
         "print(','.join(leaked))"
     )
     result = subprocess.run(

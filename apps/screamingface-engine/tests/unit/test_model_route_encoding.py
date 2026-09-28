@@ -15,18 +15,18 @@ from __future__ import annotations
 import pytest
 
 from screamingface_engine import job_env
-from screamingface_engine.models.registry import (
-    ModelRegistry,
-    ProviderSeed,
-    decode_route_id,
-    encode_route_id,
-)
-from screamingface_engine.world_config import (
+from screamingface_engine.world.config import (
     AigatewaySection,
     WorldConfigError,
     declared_model_ids,
     parse_config,
     routes_for,
+)
+from screamingface_engine.world.models.registry import (
+    ModelRegistry,
+    ProviderSeed,
+    decode_route_id,
+    encode_route_id,
 )
 
 _REGISTRY = ModelRegistry(

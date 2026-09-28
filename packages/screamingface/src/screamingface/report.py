@@ -11,8 +11,9 @@ from decimal import Decimal
 from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, overload
+from typing import Literal, cast, overload
 
+from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._named_values import _NamedValues
@@ -22,6 +23,7 @@ from screamingface._report_primitives import (
     Failure,
     Usage,
     _case_id,
+    _cost,
     _duration,
     _nonblank,
     _usage,
@@ -39,6 +41,15 @@ from screamingface.operation_accounting import OperationAccounting, OperationCac
 from screamingface.url4 import Url4
 
 type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
+# FEATURE: OME-1252 / OME-1251 D4 — whether this run's reported cost can be believed as a
+# number. A RUN-level vocabulary, deliberately not the gateway's per-call `DirectCostStatus`:
+# a run is many calls, and no member of that one can say "forty priced, three not".
+#
+#   complete     every component priced — `usage.cost_usd` is exact
+#   partial      not derivable, but provider-authored cache savings were observed, so a real
+#                lower bound exists even though the total does not
+#   unavailable  not derivable, and no such evidence
+type RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -160,12 +171,24 @@ class _CaseResults(Sequence[CaseResult]):
             raise KeyError(f"unknown Case id {selected!r}") from None
 
 
+def _answer_seed(value: object) -> int | None:
+    """Validate the declared sitting: any integer or None; bool is not a sitting."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("Candidate answer_seed must be an integer or None")
+    return value
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CandidateResult:
     """One independently executed Candidate outcome; a higher score is always better."""
 
     benchmark: BenchmarkInfo
     run_id: str
+    trace_id: str | None
+    answer_seed: int | None
+    client_version: str | None
     started_at: datetime
     completed_at: datetime
     name: str
@@ -179,6 +202,16 @@ class CandidateResult:
     members: tuple[MemberResult, ...]
     failures: tuple[Failure, ...]
     usage: Usage
+    # INVARIANT: a fact ABOUT `usage.cost_usd`, not a second opinion on it. `complete` asserts
+    # the amount is exact; the other two assert it is absent. The Scoreboard refuses the
+    # mismatched pair, so the Client must not produce one.
+    run_cost_status: RunCostStatus
+    # FEATURE (OME-1326, OME-1251 D5): what the provider reported this run's cache hits avoided.
+    # Kept apart from `usage.cost_usd`, never added to it: the board sums the two at the point of
+    # use. Only the REPORTED sum; `archive_matched` money is never carried here (D3).
+    #
+    # None means nothing priceable was observed, which is not zero.
+    cache_saved_cost_usd: Decimal | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
 
     def __init__(
@@ -200,6 +233,11 @@ class CandidateResult:
         members: Sequence[MemberResult],
         failures: Sequence[Failure],
         usage: Usage,
+        run_cost_status: RunCostStatus | None = None,
+        cache_saved_cost_usd: Decimal | str | None = None,
+        trace_id: str | None = None,
+        answer_seed: int | None = None,
+        client_version: str | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -232,9 +270,24 @@ class CandidateResult:
             completed_at,
             label="Candidate",
         )
+        selected_saving = _cost(cache_saved_cost_usd, "Candidate cache_saved_cost_usd")
+        selected_status = _run_cost_status(run_cost_status, usage, selected_saving)
         values = {
             "benchmark": benchmark,
             "run_id": _nonblank(run_id, "Candidate run_id"),
+            # WHY nullable and unvalidated (OME-1121): this is the id the CLIENT minted,
+            # carried across the report boundary verbatim. A Report decoded from a stored
+            # url4 replay has no live run behind it, and inventing a value would produce an
+            # id that joins to nothing. Empty is normalized to None so callers have one
+            # falsy case to test rather than two.
+            "trace_id": trace_id or None,
+            # FEATURE (OME-1193): the sitting this run declared (OME-1038). Serialized —
+            # unlike trace_id — because the report is the artifact a researcher cites:
+            # a variance study's N samples must each name their seed or the raw data is
+            # unlabeled. None = unseeded, and the key still appears (null) per the
+            # report's stable-key convention.
+            "answer_seed": _answer_seed(answer_seed),
+            "client_version": _client_version(client_version),
             "started_at": start,
             "completed_at": end,
             "name": _nonblank(name, "Candidate name"),
@@ -248,6 +301,8 @@ class CandidateResult:
             "members": selected_members,
             "failures": selected_failures,
             "usage": _usage(usage, "Candidate"),
+            "run_cost_status": selected_status,
+            "cache_saved_cost_usd": selected_saving,
             "_metric_items": metric_items,
         }
         for attribute, value in values.items():
@@ -270,6 +325,8 @@ class CandidateResult:
             # recognisably partial on reload, which the submission advisory depends on.
             "benchmark": self.benchmark._result_dict(self.benchmark.case_count),
             "run_id": self.run_id,
+            "answer_seed": self.answer_seed,
+            "client_version": self.client_version,
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
             "name": self.name,
@@ -285,6 +342,19 @@ class CandidateResult:
             "failures": [failure.to_dict() for failure in self.failures],
             "duration_ms": self.duration_ms,
             "usage": self.usage.to_dict(),
+            # INVARIANT (OME-1252): the status travels with the export or the export LOSES it.
+            # `partial` and `unavailable` both carry a null cost, so a reader reconstructing the
+            # status from the amount alone cannot tell them apart and collapses both to
+            # `unavailable` — destroying the one piece of evidence that says a real lower bound
+            # was known. Always emitted, never conditional: an absent key and a null value would
+            # then mean different things to a consumer, and nothing records which.
+            # Found in review of PR #1017 (keelancj, 2026-09-23).
+            "run_cost_status": self.run_cost_status,
+            # INVARIANT (OME-1326): emitted, never conditional, for the same reason as the status.
+            # A cost field left out of the export is lost to any reader rebuilding the result.
+            "cache_saved_cost_usd": (
+                None if self.cache_saved_cost_usd is None else str(self.cache_saved_cost_usd)
+            ),
         }
 
 
@@ -353,15 +423,9 @@ class Report:
 
     @property
     def failures(self) -> tuple[Failure, ...]:
-        flattened: list[Failure] = []
-        for candidate in self.candidates:
-            flattened.extend(candidate.failures)
-            for member in candidate.members:
-                if member.failures is not None:
-                    flattened.extend(member.failures)
-            for case in candidate.cases:
-                flattened.extend(case.failures)
-        return tuple(flattened)
+        return tuple(
+            failure for candidate in self.candidates for failure in _candidate_failures(candidate)
+        )
 
     @property
     def ok(self) -> bool:
@@ -382,13 +446,67 @@ class Report:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
 
-    def export(self, path: str | PathLike[str] = "report.json") -> Path:
-        """Write the complete Report JSON document and return its selected path.
+    def export(
+        self,
+        path: str | PathLike[str] = "report.json",
+        *,
+        format: Literal["json", "inspect"] = "json",
+        candidate: str | None = None,
+    ) -> Path:
+        """Write the Report as a file artifact and return its selected path.
 
-        Parent directories are created as needed. An existing file is replaced so repeated
-        notebook runs deterministically leave one current artifact.
+        Two dialects, one door:
+
+        - ``format="json"`` (the default) writes the complete report.v1 JSON
+          document — byte-identical behavior to the original single-format
+          export, default name ``report.json``.
+        - ``format="inspect"`` writes ONE Candidate's run as an inspect ``.eval``
+          log (FEATURE OME-1117): a one-way, provenance-labeled copy their
+          ``inspect view`` opens. The untouched default name becomes
+          ``report.eval`` (an inspect log is never a ``.json`` file); a
+          multi-Candidate Report must name the Candidate to export, because an
+          inspect log is one task × one model by their own convention. Needs
+          the ``inspect`` extra (``pip install "screamingface[inspect]"``).
+          Note: the log includes your recipe expression (url4), run id, seed,
+          and per-case texts — share the file as deliberately as the report.
+
+        Parent directories are created as needed. An existing file is replaced so
+        repeated notebook runs deterministically leave one current artifact.
+
+        Args:
+            path: destination file; the ``report.json`` default adapts to
+                ``report.eval`` under ``format="inspect"``.
+            format: ``"json"`` for the whole-report document, ``"inspect"``
+                for one Candidate's ``.eval`` log.
+            candidate: which Candidate an inspect log describes; refused for
+                JSON, whose document is always whole-report.
+
+        Returns:
+            The selected path, now holding the exported artifact.
         """
 
+        if format == "inspect":
+            # WHY the lazy import: the .eval mechanics (and the optional
+            # inspect_ai dependency behind them) stay quarantined in
+            # screamingface._inspect_log — an extra-less install only pays
+            # when it asks for this format.
+            from screamingface import _inspect_log
+
+            # WHY the name swap: the signature keeps the historical
+            # 'report.json' default, but an inspect log is never a .json file —
+            # the DEFAULT name follows the format; any other .json path still
+            # fails the writer's .eval suffix rule.
+            return _inspect_log.write_inspect_log(
+                self,
+                Path("report.eval") if str(path) == "report.json" else Path(path),
+                candidate=candidate,
+            )
+        if format != "json":
+            raise ValueError("Report export format must be 'json' or 'inspect'")
+        if candidate is not None:
+            # WHY refused: the JSON document is whole-report; a selector here
+            # would silently drop Candidates rather than select one log.
+            raise ValueError("candidate= applies only to format='inspect'")
         selected = Path(path)
         if selected.suffix.lower() != ".json":
             raise ValueError("Report export path must be a .json file")
@@ -433,6 +551,16 @@ def _models(values: Sequence[str], label: str) -> tuple[str, ...]:
     if len(selected) != len(set(selected)):
         raise ValueError(f"{label} models must be unique")
     return selected
+
+
+def _candidate_failures(candidate: CandidateResult) -> Iterator[Failure]:
+    # INVARIANT: the summary and raw disclosure traverse all failure sources in one order.
+    yield from candidate.failures
+    for member in candidate.members:
+        if member.failures is not None:
+            yield from member.failures
+    for case in candidate.cases:
+        yield from case.failures
 
 
 def _failures(values: Sequence[Failure], label: str) -> tuple[Failure, ...]:
@@ -560,6 +688,47 @@ def _combined_usage(values: tuple[Usage, ...]) -> Usage:
         reasoning_tokens=total("reasoning_tokens"),
         cost_usd=cost,
     )
+
+
+def _run_cost_status(
+    value: object,
+    usage: Usage,
+    saved: Decimal | None = None,
+) -> RunCostStatus:
+    """Narrow the status, and refuse one that contradicts the amount beside it.
+
+    INVARIANT: `complete` if and only if an amount is present. The Scoreboard enforces the same
+    pairing and rejects the mismatch, so producing one here only moves a 422 from submit time to
+    the field. `complete` asserts an exact cost; asserting it without one is incoherent, and an
+    amount beside a status saying the cost is unknowable is the same incoherence reversed.
+
+    WHY absent INFERS rather than defaulting to a member: the status is a fact ABOUT the amount,
+    so a caller who supplied only an amount has already said everything needed. A literal default
+    would have to be wrong for one of the two cases — and `"complete"` was, for every unpriced
+    fixture in the suite. `partial` is inferred only from a saving: that is the cache evidence
+    the amount alone cannot carry. The board derives the same status for the same pair.
+
+    INVARIANT (OME-1326): `unavailable` never carries a saving, zero included. The board refuses
+    that pair. The reverse is allowed: `partial` with no saving is what pre-OME-1326 reports hold.
+    """
+    if value is None:
+        if usage.cost_usd is not None:
+            return "complete"
+        return "partial" if saved is not None else "unavailable"
+    if value not in ("complete", "partial", "unavailable"):
+        raise ValueError(
+            "Candidate run_cost_status must be 'complete', 'partial', or 'unavailable'"
+        )
+    priced = value == "complete"
+    if priced and usage.cost_usd is None:
+        raise ValueError("a Candidate with run_cost_status 'complete' must carry a cost")
+    if not priced and usage.cost_usd is not None:
+        raise ValueError(f"a Candidate with a cost cannot have run_cost_status {value!r}")
+    if value == "unavailable" and saved is not None:
+        raise ValueError(
+            "a Candidate with a cache saving cannot have run_cost_status 'unavailable'"
+        )
+    return cast("RunCostStatus", value)
 
 
 def _optional_number(value: object, label: str) -> float | None:

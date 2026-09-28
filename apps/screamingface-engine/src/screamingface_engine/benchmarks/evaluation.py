@@ -3,22 +3,31 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.contract import (
     CandidateInvocationStatus,
     CorrectiveExecution,
     OperationOutput,
     decode_candidate_invocation_record,
 )
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error,
+    benchmark_definition_error,
+)
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
 AggregateAdapter = Callable[[str, int], JsonObject]
+#: The async face (OME-1240): a judged board's adapter awaits model calls, so its
+#: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
+AsyncAggregateAdapter = Callable[[str, int], Awaitable[JsonObject]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +67,7 @@ def case_evaluation_endpoint(
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
 
+    @observe_stage(ActivityKind.GRADING)
     def endpoint(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -79,10 +89,53 @@ def case_evaluation_endpoint(
             detail = str(exc)
             if error_context_head is not None:
                 detail += f"; context head: {request.context[:error_context_head]!r}"
-            raise benchmark_unavailable(detail) from exc
+            raise benchmark_contract_error(detail) from exc
         return compact_json(result)
 
     return endpoint
+
+
+def attempt_records_endpoint(
+    *,
+    label: str,
+    item_name: str,
+    bind: CaseEvaluationBinder,
+    error_context_head: int | None = None,
+    observe_grading: bool = True,
+) -> Callable[[Request], str]:
+    """Adapt an ``attempt_1..attempt_N`` struct of evaluator records into a Case envelope.
+
+    WHY (OME-1126): the sibling ``case_evaluation_endpoint`` takes a JSON *array*,
+    which is what a rubric fan-out (``iterate``) naturally yields. A Board whose Case
+    holds a FIXED, named set of attempts renders ``struct({"attempt_1": ...})`` instead
+    — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
+    """
+
+    def endpoint(request: Request) -> str:
+        try:
+            case_id = positive_case_id(request.intent)
+            payload = json_object(request.context, label)
+            expected = tuple(f"attempt_{index}" for index in range(1, len(payload) + 1))
+            if not expected or tuple(payload) != expected:
+                raise ValueError(f"{label} fields must be consecutive attempt_1..attempt_N")
+            items = []
+            for index, field in enumerate(expected, start=1):
+                decoded = json_object(payload[field], f"{item_name} {index}")
+                # WHY (OME-993, GH #740): mirrors case_evaluation_endpoint — a one-key
+                # {"error": ...} item is url4's `on_error=collect` capture of an UPSTREAM
+                # failure; re-raise that cause instead of rejecting its shape.
+                _raise_collected_failure(decoded, f"{item_name} {index}")
+                items.append(decoded)
+            result = bind(case_id, items)
+        except (OSError, TypeError, ValueError) as exc:
+            detail = str(exc)
+            if error_context_head is not None:
+                detail += f"; context head: {request.context[:error_context_head]!r}"
+            raise benchmark_contract_error(detail) from exc
+        return compact_json(result)
+
+    # WHY: imported boards only package attempts here; their scorer runs later.
+    return observe_stage(ActivityKind.GRADING)(endpoint) if observe_grading else endpoint
 
 
 def aggregate_endpoint(
@@ -95,10 +148,39 @@ def aggregate_endpoint(
 
     positive_count(available_case_count, "available_case_count")
 
+    @observe_stage(ActivityKind.AGGREGATION)
     def endpoint(request: Request) -> str:
         selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
         try:
             result = aggregate(request.context, selected_case_count)
+        except (OSError, ValueError) as exc:
+            raise benchmark_unavailable(str(exc)) from exc
+        return compact_json(result)
+
+    return endpoint
+
+
+def async_aggregate_endpoint(
+    *,
+    label: str,
+    available_case_count: int,
+    aggregate: AsyncAggregateAdapter,
+) -> Callable[[Request], Awaitable[str]]:
+    """:func:`aggregate_endpoint`'s async face — awaited by the node on the run's loop.
+
+    WHY (OME-1240): a judged board's aggregate awaits model calls through the run's
+    shared HTTP client; that client's pooled connections are bound to the run's own
+    event loop, so the handler must be awaited there — never driven on a worker
+    thread's second loop. url4 awaits async endpoint handlers natively.
+    """
+
+    positive_count(available_case_count, "available_case_count")
+
+    @observe_stage(ActivityKind.AGGREGATION)
+    async def endpoint(request: Request) -> str:
+        selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
+        try:
+            result = await aggregate(request.context, selected_case_count)
         except (OSError, ValueError) as exc:
             raise benchmark_unavailable(str(exc)) from exc
         return compact_json(result)
@@ -125,7 +207,7 @@ def json_object(value: object, label: str) -> JsonObject:
 
     decoded = _decode_json(value, label)
     if not isinstance(decoded, dict):
-        raise benchmark_unavailable(f"{label} must be a JSON object")
+        raise benchmark_contract_error(f"{label} must be a JSON object")
     return decoded
 
 
@@ -134,7 +216,7 @@ def json_array(value: object, label: str) -> list[object]:
 
     decoded = _decode_json(value, label)
     if not isinstance(decoded, list):
-        raise benchmark_unavailable(f"{label} must be a JSON array")
+        raise benchmark_contract_error(f"{label} must be a JSON array")
     return decoded
 
 
@@ -144,7 +226,7 @@ def _decode_json(value: object, label: str) -> object:
     try:
         return json.loads(value)
     except ValueError as exc:
-        raise benchmark_unavailable(f"{label} must be JSON: {exc}") from exc
+        raise benchmark_contract_error(f"{label} must be JSON: {exc}") from exc
 
 
 def compact_json(value: object) -> str:
@@ -196,9 +278,9 @@ def _aggregate_selection(intent: str, available: int, label: str) -> int:
         selected_case_count = int(raw_count)
         positive_count(selected_case_count, "selected_case_count")
     except ValueError as exc:
-        raise benchmark_unavailable(str(exc)) from exc
+        raise benchmark_definition_error(str(exc)) from exc
     if selected_case_count > available:
-        raise benchmark_unavailable(
+        raise benchmark_definition_error(
             f"selected_case_count cannot exceed available_case_count ({available})"
         )
     return selected_case_count
@@ -221,6 +303,8 @@ def positive_count(value: object, label: str) -> int:
 __all__ = [
     "CandidateAnswer",
     "aggregate_endpoint",
+    "async_aggregate_endpoint",
+    "attempt_records_endpoint",
     "benchmark_unavailable",
     "candidate_answer",
     "case_evaluation_endpoint",

@@ -65,7 +65,14 @@ class OAuthConnectionStore:
         label: str,
         connection_id: UUID,
         credential_provider: str | None = None,
+        credential_locator: dict[str, str] | None = None,
     ) -> OAuthConnection:
+        """Create a pending Connection; `credential_locator` defaults to today's UUID address.
+
+        WHY the keyword (OME-1208, S2'b2): a MIGRATED pair's Profile-facade OAuth flow opens its
+        fresh pending row on the requested name's Profile blob address, so an R1 rollback reads
+        the credential exactly where the legacy path expects it.
+        """
         await _ensure_anonymous_account(account_id)
         return await OAuthConnection.create(
             id=connection_id,
@@ -74,11 +81,8 @@ class OAuthConnectionStore:
             label=label,
             status="pending",
             auth_type="oauth",
-            credential_locator=credential_locator_for(
-                credential_provider or provider,
-                account_id,
-                connection_id,
-            ),
+            credential_locator=credential_locator
+            or credential_locator_for(credential_provider or provider, account_id, connection_id),
         )
 
     async def create_api_key(
@@ -89,6 +93,7 @@ class OAuthConnectionStore:
         label: str,
         connection_id: UUID,
         credential_provider: str | None = None,
+        credential_locator: dict[str, str] | None = None,
     ) -> OAuthConnection:
         """Create an api-key connection in the active state directly.
 
@@ -96,8 +101,10 @@ class OAuthConnectionStore:
         api-key connection has no browser round-trip, so it is authenticated
         the moment its key is stored. status has no DB default, so it is set
         explicitly here; auth_type is set to "api_key" (the column defaults to
-        "oauth"). The credential_locator points at the same blob slot the chat
-        path reads via credential_key_for(account_id, connection_id)."""
+        "oauth"). By default the credential_locator points at the same blob slot
+        the chat path reads via credential_key_for(account_id, connection_id); a
+        caller that owns another blob address (OME-1208: the Connection-backed
+        authority re-keying a migrated pair at its Profile address) passes it."""
         await _ensure_anonymous_account(account_id)
         connection = await OAuthConnection.create(
             id=connection_id,
@@ -106,7 +113,8 @@ class OAuthConnectionStore:
             label=label,
             status="active",
             auth_type="api_key",
-            credential_locator=credential_locator_for(
+            credential_locator=credential_locator
+            or credential_locator_for(
                 credential_provider or provider,
                 account_id,
                 connection_id,

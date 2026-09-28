@@ -6,13 +6,16 @@ import asyncio
 import hashlib
 import json
 
+import httpx
 import pytest
 
-from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.app import create_app
+from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
 from screamingface_engine.benchmarks.case_execution import (
     CASE_EXECUTION_SCHEMA,
     install_case_execution,
 )
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
@@ -22,24 +25,51 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.config import Settings
+from screamingface_engine.testing import InMemoryEventStream
 from url4 import RelExpr, Text, expr, render, src, struct
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def test_public_catalogue_contains_exactly_the_six_product_benchmarks() -> None:
-    # OME-903 added the professional board beside the worst-30% challenge; the 3-pass DRACO
-    # board joined the canonical one; all are complete, independently meaningful benchmark
-    # identities over one baked answer key.
-    assert tuple(benchmark.id for benchmark in BUILTIN_BENCHMARKS) == (
-        "draco",
-        "draco-3pass",
-        # OME-971 added the GDPval text subset — the prose-only slice of the open gold set.
-        "gdpval-text",
-        "healthbench-professional",
-        "healthbench-worst30",
-        "ifeval",
+def _protocol_node(name: str) -> Url4Node:
+    node = Url4Node(name)
+    return node
+
+
+@pytest.mark.asyncio
+async def test_the_public_catalogue_publishes_exactly_the_registered_boards() -> None:
+    """Every board this deployment registers is discoverable on the wire, and nothing else is.
+
+    WHY derived rather than a hand-typed tuple of ids (OME-1095): the deployment is the ONE
+    place a board is declared, and a second list here had to be edited by hand for every new
+    board — the exact cost this epic removes. What is load bearing is the relationship: what
+    an operator registered is what a client can discover, under the ids it was registered
+    with.
+
+    WHAT THIS DOES NOT COVER: membership. Both sides derive from the same registrations, so
+    deleting a board from `builtins.py` makes it vanish from both and passes here. That a
+    given board is public is pinned in the board's own definition test — see
+    `test_both_draco_boards_are_registered_under_their_own_ids` and its siblings.
+    """
+
+    registered = sorted(
+        registration.benchmark.id for registration in BUILTIN_DEPLOYMENT.registrations
     )
+    app = create_app(
+        Settings(jwt_secret="s"),
+        stream=InMemoryEventStream(),
+        benchmarks=BUILTIN_BENCHMARKS,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://engine.test",
+    ) as client:
+        entries = (await client.get("/v1/benchmarks")).json()["data"]
+
+    published = [entry["id"] for entry in entries]
+
+    assert sorted(published) == registered
 
 
 def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None:
@@ -50,9 +80,11 @@ def test_canonical_draco_limit_changes_cases_only_not_grading_strength() -> None
     assert DRACO.case_count == 100
     assert full.count("/" + JUDGE_MODEL) == 5
     assert one_case.count("/" + JUDGE_MODEL) == 5
-    assert "iteration.slice=0:1" not in full
-    # Exactly one slice is the outer Case selection; criteria remain unsliced.
+    assert "iteration.slice=0:100" in full
+    # Selection slices the outer cases only; criteria remain unsliced.
     assert one_case.count("iteration.slice=0:1") == 1
+    assert ")!'1'" in one_case
+    assert "/benchmarks/selected-cases" not in one_case
 
 
 def test_canonical_draco_judge_passes_have_stable_independent_cache_slots() -> None:
@@ -65,17 +97,17 @@ def test_canonical_draco_judge_passes_have_stable_independent_cache_slots() -> N
 
 @pytest.mark.asyncio
 async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -> None:
-    node = Url4Node("benchmark-protocol")
-    node.data(
+    node = _protocol_node("benchmark-protocol")
+    install_cases(
+        node,
         "/example/cases",
-        json.dumps(
+        lambda: json.dumps(
             [
                 {"id": 11, "input": "first"},
                 {"id": 22, "input": "second"},
                 {"id": 33, "input": "unselected"},
             ]
         ),
-        media_type="application/json",
     )
 
     @node.endpoint("/example/evaluate-case")
@@ -125,11 +157,11 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
 
 @pytest.mark.asyncio
 async def test_protocol_evaluates_only_one_complete_case_at_a_time() -> None:
-    node = Url4Node("benchmark-sequential-cases")
-    node.data(
+    node = _protocol_node("benchmark-sequential-cases")
+    install_cases(
+        node,
         "/example/cases",
-        json.dumps([{"id": "case-1"}, {"id": "case-2"}, {"id": "case-3"}]),
-        media_type="application/json",
+        lambda: json.dumps([{"id": "case-1"}, {"id": "case-2"}, {"id": "case-3"}]),
     )
     active_cases: set[str] = set()
     active_branches = max_active_cases = max_active_branches = 0
@@ -253,13 +285,14 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
 @pytest.mark.parametrize(
     ("benchmark", "expected_sha256"),
     (
+        # OME-1228: repin the explicit Case envelope; model input equivalence is tested separately.
         # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
         # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
-        (DRACO, "0f619c21ae16061ed7356b8f32a4f94df1d077c59073887a2aad38a26c173f70"),
-        (IFEVAL, "c272779623671772ad8c2629e320e283837f34e3b270c693643285174794e4f8"),
+        (DRACO, "8e2889308b182192ad4164733a0fd993a0726cf0be08a86fee0c14da1f6537ff"),
+        (IFEVAL, "a7ec445b2f12c5dfeb3639bc6e3aef99a599e781e759b2edeef4638b47036f9e"),
         (
             HEALTHBENCH_WORST30,
-            "bc4c584c826b5fa40ff0b563b4470cb89790712f08e92f0c0aeff151f3210102",
+            "61001f00042bd9320a0b83f6d7826467505640d6e5c75a95ae594fc36e175939",
         ),
     ),
 )
@@ -277,12 +310,8 @@ def test_canonical_ifeval_binds_the_exact_selected_count_for_aggregation() -> No
 
 @pytest.mark.asyncio
 async def test_protocol_resolves_shared_bindings_before_case_iteration() -> None:
-    node = Url4Node("benchmark-bindings")
-    node.data(
-        "/example/cases",
-        json.dumps([{"id": 1, "input": "case"}]),
-        media_type="application/json",
-    )
+    node = _protocol_node("benchmark-bindings")
+    install_cases(node, "/example/cases", lambda: json.dumps([{"id": 1, "input": "case"}]))
 
     @node.endpoint("/example/evaluate-case")
     def evaluate_case(request: Request) -> str:

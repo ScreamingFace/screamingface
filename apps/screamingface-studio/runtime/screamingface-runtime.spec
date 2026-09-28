@@ -1,7 +1,6 @@
 """Build one standalone ScreamingFace desktop runtime executable."""
 
 from pathlib import Path
-from importlib.metadata import distribution
 
 from PyInstaller.utils.hooks import (
     collect_data_files,
@@ -9,9 +8,14 @@ from PyInstaller.utils.hooks import (
     collect_submodules,
     copy_metadata,
 )
+from screamingface._runtime.config import bundled_runner_config, scoreboard_assets
 
 root = Path(SPECPATH)
-screamingface_root = Path(distribution("screamingface").locate_file("screamingface"))
+# WHY the runtime's own lookups, not the installed distribution's directory: an editable
+# screamingface install ships no copies of these resources (only a .pth to the live
+# sources), so they exist only where these functions resolve them — the checkout.
+runner_config = bundled_runner_config()
+scoreboard_portal, scoreboard_artifacts = scoreboard_assets()
 
 LAZY_IMPORTS = (
     "aigateway",
@@ -61,15 +65,9 @@ analysis = Analysis(
         for data in collect_data_files(package)
     ]
     + [
-        (str(screamingface_root / "_runtime" / "resources"), "screamingface/_runtime/resources"),
-        (
-            str(screamingface_root / "_runtime" / "scoreboard_portal"),
-            "screamingface/_runtime/scoreboard_portal",
-        ),
-        (
-            str(screamingface_root / "_runtime" / "scoreboard_artifacts"),
-            "screamingface/_runtime/scoreboard_artifacts",
-        ),
+        (str(runner_config), "screamingface/_runtime/resources"),
+        (str(scoreboard_portal), "screamingface/_runtime/scoreboard_portal"),
+        (str(scoreboard_artifacts), "screamingface/_runtime/scoreboard_artifacts"),
     ]
     + [
         metadata

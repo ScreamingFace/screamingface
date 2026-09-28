@@ -74,6 +74,12 @@ jobs:
             --cov-fail-under=95 \
             -v
 
+      - name: Suppression ratchet
+        run: uv run python scripts/check_suppressions.py
+
+      - name: Module size ratchet
+        run: uv run python scripts/check_module_size.py
+
       - name: Test report
         uses: dorny/test-reporter@v3
         if: always()

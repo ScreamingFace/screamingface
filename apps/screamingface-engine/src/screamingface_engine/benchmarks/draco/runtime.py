@@ -12,8 +12,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.draco import aggregate as scoring
+from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.draco import assets as protocol_assets
+from screamingface_engine.benchmarks.draco import grade as grading
 from screamingface_engine.benchmarks.draco import records, tasks
 from screamingface_engine.benchmarks.draco import scoring as rubric_scoring
 from screamingface_engine.benchmarks.draco.case_evaluation import (
@@ -37,7 +39,15 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_definition_error as _definition_error,
+)
+from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -56,7 +66,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     memoized, so a missing asset fails identically — and loudly — on every resolution.
     """
     assets = _lazy_protocol_assets(root)
-    node.data(exam.routes.cases, _cases(assets), media_type="application/json")
+    install_cases(node, exam.routes.cases, _cases(assets))
     node.endpoint(exam.routes.tasks)(_task_rows(root, exam))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
@@ -113,6 +123,7 @@ def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
 
 
 def _cases(assets: Callable[[], ProtocolAssets]):
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         return assets()[0]
 
@@ -127,10 +138,12 @@ def _protocol_assets(
     raw = _read(root / "cases.json", "DRACO cases")
     selected = _parse_cases(raw)
     if len(selected) != CASE_COUNT:
-        raise _unavailable(f"expected {CASE_COUNT} DRACO cases, got {len(selected)}")
+        raise _definition_error(f"expected {CASE_COUNT} DRACO cases, got {len(selected)}")
     try:
         rubrics = protocol_assets.validate_protocol_assets(root, selected)
     except (OSError, ValueError) as exc:
+        # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+        # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
         raise _unavailable(str(exc)) from exc
     return (
         json.dumps(selected, ensure_ascii=False, separators=(",", ":")),
@@ -143,9 +156,11 @@ def _task_rows(
     root: Path,
     exam: DracoExam,
 ):
+    @observe_stage(ActivityKind.GRADING)
     def task_rows(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
+            grading_activity(case_id, "started")
             answer = candidate_answer(request.context)
             evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "DRACO cases")
@@ -205,6 +220,8 @@ def _task_rows(
                     separators=(",", ":"),
                 )
         except (OSError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         return compact_json(result)
 
@@ -212,6 +229,7 @@ def _task_rows(
 
 
 def _criterion_verdict(benchmark_id: str):
+    @observe_stage(ActivityKind.GRADING)
     def criterion_verdict(request: Request) -> str:
         try:
             case_id, sequence, criterion_id = binding_key(request.intent)
@@ -223,7 +241,7 @@ def _criterion_verdict(benchmark_id: str):
                 producer_id=JUDGE_MODEL,
             )
         except ValueError as exc:
-            raise _unavailable(str(exc)) from exc
+            raise _contract_error(str(exc)) from exc
         accounting = accounting_for_grading_evidence(
             GradingEvidenceOwner(
                 benchmark_id=benchmark_id,
@@ -246,6 +264,7 @@ def _criterion_evaluation(judge_passes: int):
     against a three-pass board's route and vice versa (every route is revision-pinned).
     """
 
+    @observe_stage(ActivityKind.GRADING)
     def handle(request: Request) -> str:
         try:
             case_id = tasks.positive_case_id(request.intent)
@@ -275,7 +294,7 @@ def _criterion_evaluation(judge_passes: int):
                 evidence,
             )
         except (TypeError, ValueError) as exc:
-            raise _unavailable(str(exc)) from exc
+            raise _contract_error(str(exc)) from exc
         return compact_json(result)
 
     return handle
@@ -287,7 +306,7 @@ def _aggregate(
 ):
     def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         _cases_json, selected_cases, rubrics = assets()
-        return scoring.aggregate(
+        return grading.aggregate(
             case_evaluations,
             rubrics,
             exam.id,

@@ -6,7 +6,12 @@ import hashlib
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BenchmarkDeclaration,
+    CheckSurface,
+    candidate,
+)
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
@@ -63,7 +68,13 @@ def _build(case_count: int) -> Node:
     (arXiv:2311.07911), so scores compare directly to published IFEval results.
     """
 
-    candidate_invocation = candidate("$item.input", web_search=CANDIDATE_WEB_SEARCH)
+    candidate_invocation = candidate(
+        "$item.input",
+        case_id="$item.id",
+        case_index="$index",
+        case_count=str(case_count),
+        web_search=CANDIDATE_WEB_SEARCH,
+    )
     checked_call = RelExpr(
         path=CHECK_ROUTE,
         context="$candidate_invocation",
@@ -119,6 +130,17 @@ IFEVAL = Benchmark(
     # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
     revision=REVISION,
     case_count=CASE_COUNT,
+    # INVARIANT: the declared policy matches the code — this board reduces through the
+    # shared finalize_candidate_result, which scores exactly the gradeable subset and
+    # publishes coverage (coverage_declare). Declare `withhold` only if the aggregate
+    # actually withholds (OME-1039).
+    declaration=BenchmarkDeclaration(
+        failure_policy="coverage_declare",
+        interaction="single_shot",
+        # Instruction following still trips strong models on strict verification, but the
+        # material itself is everyday prose, not expert work (OME-1257).
+        difficulty="medium",
+    ),
     build=_build,
     install=install_ifeval,
     # Free: the deterministic verifier costs no model call, so a corrective loop

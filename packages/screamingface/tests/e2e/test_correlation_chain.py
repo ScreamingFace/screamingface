@@ -1,0 +1,332 @@
+"""The correlation-chain ladder — one rung per change in the tracing roadmap (OME-1105).
+
+Mental model: this file is the acceptance test for `OME-935`, runnable on a laptop. The
+live-k8s notebook (`e2e/failor/notebooks/`) validates the same chain against the deployed
+stack, but it needs cluster credentials; this needs only Docker. k8s adds deployment realism
+— the Runner Job indirection, the mesh edge — and adds nothing to the question each rung
+asks, which is whether a trace id survives one hop.
+
+**`xfail(strict=True)` is the mechanism, not decoration.** A strict xfail that starts passing
+FAILS the suite, so the change that implements a rung is forced to delete its marker in the
+same PR. Without `strict`, an implemented rung would sit here quietly marked "expected
+failure" forever, and a later regression would look identical to the status quo.
+
+Which backend, and why it is not a free choice:
+
+- **Rungs 1–2 use `FakeGateway`** — an in-process ``BaseHTTPRequestHandler``, so the headers
+  the engine sent are directly observable. This is the only way to see the engine→gateway
+  wire from the test process.
+- **Rungs 3–4 use `CacheSeededGateway`** — the REAL aigateway as a subprocess. Nothing
+  in-process can see its request handling, so its only channel is ``aigateway.log``, which is
+  exactly what those two rungs assert on.
+
+INVARIANT (OME-1105): the header recorder lives on `FakeGateway`, never on
+``ports.ReplayBackend``. That protocol is exactly ``start()``/``stop()`` and its own docstring
+forbids growing it with introspection — a hook there would couple the engine boot to one
+backend's internals.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from harness._gating import SNAPSHOTS_DIR, require_e2e_stack
+from harness.cache_seeded import CacheSeededGateway
+from harness.fake_gateway import FakeGateway
+from harness.stack import EngineProcess, replay_stack
+from harness.tape import load_tape
+
+BOARD = "draco"
+CANDIDATE_MODEL = "openrouter/openai/gpt-5.5"
+"""A model the synthetic tape actually carries.
+
+WHY this matters more than it looks (OME-1121): the first version named a model absent from
+the tape's catalog projection, so `evaluate` raised `PlanningError` at the availability probe
+(`runner.py`'s `_missing_required_models`) — BEFORE the transport ran. No transport means no
+trace context, so every rung read an empty id set and rung 1 could never pass. The failure
+looked like a missing feature and was a wrong fixture.
+"""
+_ASSETS_ENV = "SCREAMINGFACE_E2E_ASSETS"
+
+TRACEPARENT = re.compile(r"^00-(?!0{32}$)([0-9a-f]{32})-(?!0{16}$)([0-9a-f]{16})-[0-9a-f]{2}$")
+"""The shape url4's own ``_TRACEPARENT_RE`` accepts, plus its two all-zero rejections.
+
+WHY restated rather than imported: `packages/screamingface` does not depend on `url4`, and
+`OME-967` mints locally rather than adding a distribution dependency for four lines of string
+formatting. This regex IS the contract between the two packages, so it is written where it is
+asserted.
+"""
+
+
+def _assets_root() -> Path:
+    # WHY this default: it is where `screamingface prepare` writes, so the assets a dev
+    # prepares for the stack are the assets these tests find (OME-1001). `test_boards.py` and
+    # `test_failures.py` have resolved it this way all along; this file was the one outlier,
+    # defaulting to `FIXTURES_DIR / "assets"` — a path `prepare` never writes and the repo does
+    # not ship. The ladder was therefore unrunnable without setting the override by hand, and
+    # `check_setup.py` reported the lane ready from a location this function never read
+    # (OME-1106 review). `default_data_dir()` also honours SCREAMINGFACE_DATA_DIR.
+    from screamingface._runtime.config import default_data_dir
+
+    override = os.environ.get(_ASSETS_ENV)
+    if override:
+        return Path(override)
+    return default_data_dir() / "benchmark-assets"
+
+
+def _require_draco_assets() -> Path:
+    assets = _assets_root()
+    if not (assets / BOARD).is_dir():
+        pytest.skip(
+            f"the correlation ladder drives the {BOARD} board and needs prepared assets at "
+            f"{assets / BOARD} (run `screamingface prepare {BOARD}`, or point {_ASSETS_ENV} "
+            f"at them)"
+        )
+    return assets
+
+
+def _trace_ids(values: Iterator[str] | list[str]) -> set[str]:
+    """The distinct trace ids inside a collection of raw ``traceparent`` values."""
+    found = set()
+    for value in values:
+        match = TRACEPARENT.match(value or "")
+        if match:
+            found.add(match.group(1))
+    return found
+
+
+# --- rungs 1-2: the wire, observed at an in-process gateway --------------------------------
+
+
+def _one_run(engine_url: str) -> tuple[set[str], list[str]]:
+    """Drive one real run and return (trace ids the PUBLIC surface gave us, frame values).
+
+    Both outcomes are evidence. A completed run yields ids through
+    `CandidateResult.trace_id` (OME-1121) — the path that matters, because a board run
+    collects case errors into rows rather than raising, so the user with bad results reaches
+    here. A run that fails outright yields the id on the error (OME-967), which covers the
+    pre-first-frame classes.
+    """
+    import screamingface as sf
+
+    seen: list[str] = []
+    ids: set[str] = set()
+    with sf.Client(engine_url=engine_url) as client:
+        try:
+            report = client.evaluate(
+                sf.Model(CANDIDATE_MODEL),
+                benchmark=BOARD,
+                limit=1,
+                progress=False,
+                on_event=lambda event: seen.append(getattr(event, "traceparent", "") or ""),
+            )
+            ids |= {c.trace_id for c in report.candidates if c.trace_id}
+        except sf.ScreamingFaceError as exc:
+            if exc.trace_id:
+                ids.add(exc.trace_id)
+    return ids | _trace_ids([v for v in seen if v]), [v for v in seen if v]
+
+
+@pytest.fixture(scope="module")
+def wire_run(tmp_path_factory: pytest.TempPathFactory):
+    """One real run against `FakeGateway`, keeping the frames and the inbound headers.
+
+    Booted once: the engine subprocess is the slow part, and both wire rungs read the same
+    single run rather than paying for it twice.
+    """
+    require_e2e_stack()
+    assets = _require_draco_assets()
+
+    work_dir = tmp_path_factory.mktemp("correlation-wire")
+    fake = FakeGateway(load_tape(SNAPSHOTS_DIR / "synthetic.tape.json"))
+    engine = EngineProcess(work_dir=work_dir, assets_dir=assets)
+
+    base_url = fake.start_sync()
+    try:
+        client_ids, frames = _one_run(engine.start(base_url))
+        yield {
+            "client_ids": client_ids,
+            "frames": frames,
+            "gateway": fake,
+            "engine_log": work_dir / "engine.log",
+        }
+    finally:
+        engine.stop()
+        fake.stop_sync()
+
+
+@pytest.mark.e2e
+def test_rung1_one_coherent_trace_id_spans_the_run(wire_run) -> None:
+    """RUNG 1 (`OME-967` + `OME-1121` — must PASS).
+
+    The run surfaces exactly one well-formed trace id through the PUBLIC surface.
+
+    This was a strict xfail until `OME-1121`. The reason is worth keeping: `OME-967` put the
+    id only on the error hierarchy, and a board run does not raise — DRACO *collects* case
+    errors into rows (`on_error="collect"`), so a run whose every model call failed still
+    returned a Report carrying no id anywhere. The user most needing to quote an id could not
+    obtain one. `CandidateResult.trace_id` closed that.
+
+    Scope note: this asserts COHERENCE and REACHABILITY, not origination. Origination is
+    pinned where it is observable — `tests/test_client_protocol.py`, against the wire.
+    """
+    client_ids = wire_run["client_ids"]
+    assert client_ids, "the run surfaced no trace id — neither on an error nor on any frame"
+    assert len(client_ids) == 1, f"the run split across {len(client_ids)} trace ids"
+    (trace_id,) = client_ids
+    assert TRACEPARENT.match(f"00-{trace_id}-0000000000000001-01"), trace_id
+
+
+@pytest.mark.e2e
+def test_rung2_the_engine_propagates_the_trace_id_to_the_gateway(wire_run) -> None:
+    """RUNG 2 (`OME-1119` — must PASS).
+
+    The gateway must receive the run's OWN trace id, not merely some traceparent. The audit
+    captured the engine's outbound header set as `Host, Accept, Accept-Encoding, Connection,
+    User-Agent, X-User-Email, X-Profile, Content-Length, Content-Type` — no traceparent at
+    all, on any of its three client paths.
+
+    This was a strict xfail until `OME-1119`, which binds the run's `TraceContext` in the
+    executor's driving task and renders it in `runner.connector._headers`. The engine-side
+    unit tests are `apps/screamingface-engine/tests/unit/test_traceparent_propagation.py`;
+    they pin two boundaries this rung cannot reach — a run whose caller sent NO inbound
+    traceparent still propagates the id url4 minted, and two runs sharing one cached world do
+    not share one trace id.
+    """
+    gateway: FakeGateway = wire_run["gateway"]
+    assert gateway.inbound_headers, "the engine made no call to the gateway"
+    seen_ids = gateway.trace_ids_seen()
+    # WHY the non-empty assertion comes FIRST: without it this rung passes vacuously the
+    # moment both sides are empty, because `set() == set()`. That is exactly what happened
+    # on the first run of this file — a strict xfail reported XPASS while nothing propagated.
+    assert seen_ids, "the gateway received no traceparent on any inbound request"
+    assert seen_ids == wire_run["client_ids"]
+
+
+@pytest.mark.e2e
+def test_rung4a_the_engine_logs_the_run_trace_id(wire_run) -> None:
+    """RUNG 4, engine half (`OME-940` — must PASS).
+
+    A trace id that never reaches a log line cannot be grepped, which is the whole payoff.
+    Split from the gateway half below because the two land in different changes.
+
+    Two things `OME-940` had to fix before this could pass, neither visible from here:
+
+    - The engine's rich terminal line was emitted only for SUCCESSFUL runs, so the failed run —
+      the one whose evidence is needed after the frame stream's 60 s reclamation — carried no
+      trace id at all.
+    - In local mode no such line existed on any path: `InProcessJobRunner` drives
+      `lifecycle.run` directly and never reaches the Job entrypoint that logged it.
+
+    AIDEV-NOTE: this rung drives a client that ALWAYS originates a traceparent, so it cannot
+    see the case where none arrives and the engine mints one. That case is pinned engine-side in
+    `tests/unit/test_run_evidence_lines.py` — do not assume this rung covers it.
+    """
+    log_text = Path(wire_run["engine_log"]).read_text(errors="replace")
+    client_ids = wire_run["client_ids"]
+    assert client_ids, "no trace id to look for"
+    assert any(t in log_text for t in client_ids)
+
+
+# --- rungs 3-4b: the logs, from the real aigateway -----------------------------------------
+
+
+@pytest.fixture(scope="module")
+def gateway_log(tmp_path_factory: pytest.TempPathFactory):
+    """One real run against the REAL aigateway, yielding its log text AND the run's trace id.
+
+    WHY a second stack rather than reusing the one above: `FakeGateway` writes no log, and
+    these two rungs assert on aigateway's own log lines. Nothing in-process can observe a
+    subprocess's request handling, so the log IS the interface.
+    """
+    require_e2e_stack()
+    assets = _require_draco_assets()
+    snapshot = SNAPSHOTS_DIR / "draco-3pass.snapshot.gz"
+    manifest = SNAPSHOTS_DIR / "draco-3pass.manifest.json"
+    if not snapshot.is_file():
+        pytest.skip(f"missing cache snapshot {snapshot}")
+
+    import screamingface as sf
+
+    work_dir = tmp_path_factory.mktemp("correlation-logs")
+    backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=work_dir)
+    seen: list[str] = []
+    with replay_stack(backend, work_dir=work_dir, assets_dir=assets) as stack:
+        with sf.Client(engine_url=stack.engine_url) as client:
+            try:
+                client.evaluate(
+                    sf.Model(CANDIDATE_MODEL),
+                    benchmark=BOARD,
+                    limit=1,
+                    progress=False,
+                    on_event=lambda event: seen.append(getattr(event, "traceparent", "") or ""),
+                )
+            except sf.ScreamingFaceError:
+                pass  # the log is the evidence either way — see the wire fixture's note
+    yield {
+        "text": (work_dir / "aigateway.log").read_text(errors="replace"),
+        "trace_ids": _trace_ids([v for v in seen if v]),
+    }
+
+
+@pytest.mark.e2e
+def test_rung3_every_gateway_log_line_carries_a_call_id(gateway_log) -> None:
+    """RUNG 3 (`OME-938` — must PASS).
+
+    Every line **inside the request window** carries a `gateway_call_id`. Not a sample: the
+    injector wraps a log-record factory, and a wrapper that misses a code path is the defect
+    this rung exists to catch — a spot check on the chat path would pass while the cache,
+    concurrency and error paths stayed anonymous.
+
+    SCOPE CORRECTION (`OME-938`): this asserted *every line in the file* until the
+    implementation proved that unsatisfiable by any correct design. The gateway's log also
+    holds (a) lines written at STARTUP — `loaded provider plugin: openrouter`, `aigateway
+    ready` — which belong to no request, and (b) text that is not a log record at all, such as
+    a pydantic `UserWarning` on stderr. Stamping a call id on those would mean inventing one,
+    which is the same defect as a well-formed traceparent that joins nothing: it reads as
+    correct everywhere and correlates nothing.
+
+    The window between the first and last identified line is where request handling happens,
+    so an anonymous line THERE is exactly the regression the rung hunts, and the assertion
+    keeps its full strength over that range.
+    """
+    lines = [ln for ln in gateway_log["text"].splitlines() if ln.strip()]
+    assert lines, "the gateway wrote no log lines"
+
+    identified = [i for i, ln in enumerate(lines) if "gateway_call_id=" in ln]
+    assert len(identified) >= 2, (
+        "fewer than two identified lines — the request window is too small for this rung to "
+        f"mean anything (found {len(identified)}); before OME-938 exactly one line carried an id"
+    )
+
+    window = lines[identified[0] : identified[-1] + 1]
+    anonymous = [ln for ln in window if "gateway_call_id=" not in ln]
+    assert not anonymous, (
+        "these lines were emitted while a request was in flight but carry no gateway_call_id, "
+        f"so they cannot be attributed to the call that produced them: {anonymous}"
+    )
+
+
+@pytest.mark.e2e
+def test_rung4b_the_gateway_logs_this_runs_trace_id(gateway_log) -> None:
+    """RUNG 4, gateway half (`OME-1120` — must PASS). THE PAYOFF RUNG.
+
+    With this and its engine twin (`OME-940`) green, one id is greppable across both services
+    and a bug report's `trace_id` finally points at something. All five rungs now pass, which
+    is Phase 1's local acceptance in full.
+
+    It asserts THIS run's id, not merely that some 32-hex token appears — a log full of
+    unrelated hex would satisfy the weaker check while joining nothing.
+
+    AIDEV-NOTE: this rung proves the id ARRIVES and is logged. It cannot prove the gateway
+    rejects a hostile one, because the client always sends a well-formed traceparent. The
+    nine-case rejection table lives in `apps/aigateway/tests/unit/test_trace_context.py` —
+    that is the security half, and it is not covered here.
+    """
+    trace_ids = gateway_log["trace_ids"]
+    assert trace_ids, "the run emitted no trace id to look for"
+    assert any(t in gateway_log["text"] for t in trace_ids)

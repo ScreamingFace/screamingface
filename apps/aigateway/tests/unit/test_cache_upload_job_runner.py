@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -239,6 +240,19 @@ async def test_an_unexpected_loader_failure_lands_as_failed_not_refused(tmp_path
     assert "disk vanished" in (record.error or "")
 
 
+# --- I2 (review round 2): a merge lock timeout must be legible, not a bare timeout -------------
+
+
+# REMOVED in review round 3 (finding 2): `test_a_merge_lock_timeout_maps_to_its_code_and_is_legible`
+# covered the `merge_lock_timeout` refusal, which round 2 introduced along with the merge's
+# `SHARE ROW EXCLUSIVE` table lock. That lock is gone — it stalled every cache hit for the merge's
+# duration, contradicting OME-951 §7 ("The load never blocks serving") — so there is no lock to
+# time out on and no refusal to map. Deleted rather than weakened: a test for a code path that
+# cannot be reached is not evidence of anything. `test_the_merge_no_longer_offers_a_lock_timeout_
+# refusal` in `tests/integration/test_cache_snapshot_merge_serving_postgres.py` now pins the
+# ABSENCE, so the refusal cannot quietly return without a decision.
+
+
 # --- the single slot ----------------------------------------------------------------------------
 
 
@@ -282,3 +296,42 @@ async def test_history_is_bounded(tmp_path) -> None:
     assert len(runner.jobs()) == 2
     assert runner.get(record.id) is record
     assert runner.get(uuid.uuid4()) is None
+
+
+# --- ERD E7 — the job reports how much pricing evidence its merge erased ------------------------
+
+
+def _record(mode: str = "merge") -> CacheJobRecord:
+    return CacheJobRecord(
+        id=uuid.uuid4(),
+        actor="admin@example.com",
+        mode=mode,  # type: ignore[arg-type]
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_a_merge_that_degraded_blocks_reports_the_count_and_warns() -> None:
+    """INVARIANT: the operator who ran the restore learns what it cost, from the job they ran.
+
+    The count is on the record rather than only in the gateway log because the admin who
+    uploaded a legacy archive reads the job, not the pod's stderr — and the erasure is
+    irreversible for those rows.
+    """
+    record = _record()
+
+    record.out_counts(
+        LoadOutcome(staged_rows=10, live_before=8, live_after=12, metadata_degraded=3)
+    )
+
+    assert record.metadata_degraded == 3
+    assert "metadata_degraded:3" in record.warnings
+
+
+def test_a_merge_that_degraded_nothing_adds_no_warning() -> None:
+    """A current archive carries blocks: the counter reads 0 and the operator is not alarmed."""
+    record = _record()
+
+    record.out_counts(LoadOutcome(staged_rows=10, live_before=8, live_after=12))
+
+    assert record.metadata_degraded == 0
+    assert not any(warning.startswith("metadata_degraded") for warning in record.warnings)

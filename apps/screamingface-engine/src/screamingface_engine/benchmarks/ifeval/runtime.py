@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
@@ -14,7 +16,11 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
 )
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.ifeval import aggregate as scoring
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.grading_activity import grading_activity
+from screamingface_engine.benchmarks.ifeval import grade as scoring
 from screamingface_engine.benchmarks.ifeval import grading
 from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
 from screamingface_engine.benchmarks.ifeval.definition import (
@@ -26,6 +32,7 @@ from screamingface_engine.benchmarks.ifeval.definition import (
     CHECK_ROUTE,
     CHECK_SURFACE_ROUTE,
 )
+from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -33,8 +40,7 @@ from url4.peer.server import Request, Url4Node
 def install(node: Url4Node, root: Path) -> None:
     """Register the canonical IFEval runtime and its check-surface port."""
 
-    if CASES_ROUTE not in getattr(node, "_data", {}):
-        node.data(CASES_ROUTE, _cases(root), media_type="application/json")
+    install_cases(node, CASES_ROUTE, _cases(root))
     routes = frozenset(node.processor_routes())
     endpoints = (
         (CHECK_ROUTE, _check(root)),
@@ -55,6 +61,7 @@ def install(node: Url4Node, root: Path) -> None:
 
 
 def _cases(root: Path):
+    @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         return _read(root / "cases.json", "IFEval cases")
 
@@ -64,12 +71,16 @@ def _cases(root: Path):
 def _check(root: Path):
     """Authoritative per-Case Grading record consumed only by Aggregation."""
 
+    @observe_stage(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id, attempt = _case_and_attempt(request.intent)
+            grading_activity(case_id, "started")
             candidate = candidate_answer(request.context)
             spec, result, violations = _verification(root, case_id, candidate.text)
         except (KeyError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         record = {
             "schema": scoring.SCHEMA,
@@ -123,6 +134,7 @@ def _check_surface(root: Path):
     the port fields — never instruction ids, kwargs, or the raw grading record.
     """
 
+    @observe_stage(ActivityKind.GRADING)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
@@ -139,6 +151,8 @@ def _check_surface(root: Path):
                 payload,
             )
         except (KeyError, TypeError, ValueError) as exc:
+            # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
+            # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         strict = result["strict"]
         passed = all(bool(value) for value in strict)
@@ -183,10 +197,12 @@ def _surface_feedback(record_json: object) -> str:
 
     record = json_object(record_json, "IFEval check-surface feedback")
     if record.get("schema") != CHECK_SURFACE_SCHEMA:
-        raise _unavailable(f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+        raise _contract_error(
+            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+        )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
-        raise _unavailable("check-surface record feedback must be text")
+        raise _contract_error("check-surface record feedback must be text")
     return feedback
 
 
@@ -211,6 +227,7 @@ def _case_by_input(root: Path, prompt: str) -> int:
     return _positive_int(matches[0], "case id")
 
 
+@observe_stage(ActivityKind.GRADING)
 def _case_evaluation(request: Request) -> str:
     """Pack exact attempt records into one authoritative per-Case envelope."""
 
@@ -233,7 +250,7 @@ def _case_evaluation(request: Request) -> str:
             attempts.append(decoded)
         result = bind_case_evaluation(case_id, attempts)
     except (TypeError, ValueError) as exc:
-        raise _unavailable(str(exc)) from exc
+        raise _contract_error(str(exc)) from exc
     return compact_json(result)
 
 

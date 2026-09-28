@@ -34,22 +34,24 @@ from typing import Any
 import httpx
 import pytest
 from _fakes import FixedGate, RecordingJobRunner
-from _k8s_fakes import FakeCreatedJob, fake_created_job
 from fastapi import FastAPI
 from httpx import ASGITransport
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
-from screamingface_engine.adapters.k8s import K8sJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
-from screamingface_engine.runner.cache import policy_to_body_field
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.job_env import RunShape
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.main import build_executor
+from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world_config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.cache import policy_to_body_field
+from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.dag import run as url4_run
+from url4.io.layer import IOLayer
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 from url4.streaming.protocol import CachePolicy
 
@@ -140,47 +142,18 @@ def test_an_unreadable_freshness_bound_is_dropped_rather_than_failing_the_run() 
     assert policy == OPT_IN
 
 
-# --- the two adapters: two renderings of ONE contract ------------------------------------------
+# --- the two renderings: the queue codec and the inprocess adapter --------------------------
 
 
-class _RecordingBatchApi:
-    def __init__(self) -> None:
-        self.created: list[dict[str, Any]] = []
-
-    def create_namespaced_job(
-        self, namespace: str, body: Any, *, _request_timeout: float | None = None
-    ) -> FakeCreatedJob:
-        self.created.append(dict(body))
-        return fake_created_job(f"uid-{body['metadata']['name']}")
-
-    def read_namespaced_job(
-        self, name: str, namespace: str, *, _request_timeout: float | None = None
-    ) -> Any:  # pragma: no cover
-        raise NotImplementedError
-
-    def delete_namespaced_job(
-        self,
-        name: str,
-        namespace: str,
-        *,
-        propagation_policy: str = "",
-        _request_timeout: float | None = None,
-    ) -> object:  # pragma: no cover
-        raise NotImplementedError
+def _codec_env_of(cache: CachePolicy | None) -> dict[str, str]:
+    """The deployed rendering of the policy: the queue message's per-run env mapping."""
+    return decode_message(encode_message("t", "gpt(hi)", 60, cache=cache))
 
 
-def _job_env_of(api: _RecordingBatchApi) -> dict[str, str]:
-    container = api.created[0]["spec"]["template"]["spec"]["containers"][0]
-    return {e["name"]: e["value"] for e in container["env"] if "value" in e}
+def test_the_queue_codec_writes_the_policy_as_plain_env_and_the_run_reads_it_back() -> None:
+    env = _codec_env_of(BOUNDED)
 
-
-@pytest.mark.asyncio
-async def test_the_k8s_adapter_writes_the_policy_as_plain_env_and_the_run_reads_it_back() -> None:
-    api = _RecordingBatchApi()
-
-    await K8sJobRunner(api, image="runner:test").schedule("t", "gpt(hi)", 60, cache=BOUNDED)
-
-    assert job_env.cache_policy_from_env(_job_env_of(api)) == BOUNDED
+    assert job_env.cache_policy_from_env(env) == BOUNDED
 
 
 class _NeverExecutor(Executor):
@@ -201,16 +174,19 @@ def _local_runner(base_env: dict[str, str] | None = None) -> InProcessJobRunner:
     )
 
 
-@pytest.mark.asyncio
-async def test_the_inprocess_adapter_renders_the_same_env_as_the_k8s_one() -> None:
-    """Local mode must not diverge: `build_executor` cannot tell a local run from a Job's."""
-    api = _RecordingBatchApi()
-    await K8sJobRunner(api, image="runner:test").schedule("t", "gpt(hi)", 60, cache=OPT_OUT)
+def test_the_inprocess_adapter_renders_the_same_env_as_the_queue_codec() -> None:
+    """Local mode must not diverge: `build_executor` cannot tell a local run from a worker's.
+
+    The one deliberate difference is `IO_CONCURRENCY` (the deployed worker writes the budget
+    by env; local mode pops it in favour of the fair-share gate), so the comparison adds it
+    back.
+    """
+    codec = _codec_env_of(OPT_OUT)
 
     local = _local_runner()._env("t", "gpt(hi)", 60, None, None, None, OPT_OUT)  # noqa: SLF001
 
     assert job_env.cache_policy_to_env(OPT_OUT).items() <= local.items()
-    assert job_env.cache_policy_from_env(local) == job_env.cache_policy_from_env(_job_env_of(api))
+    assert job_env.cache_policy_from_env(local) == job_env.cache_policy_from_env(codec)
 
 
 def test_this_runs_policy_replaces_any_ambient_one() -> None:
@@ -261,6 +237,9 @@ class _CacheRecordingRunner(RecordingJobRunner):
         profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
+        client_version: str | None = None,
+        shape: RunShape = "expression",
     ) -> str:
         self.cache_policies.append(cache)
         return await super().schedule(
@@ -395,8 +374,13 @@ async def _bodies(cache: CachePolicy | None, *, expression: str = f"/{MODEL}('ct
     gw = _MockAigateway()
     cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
     async with gw.client() as client:
-        world = await build_aigateway_world(cfg, client=client, cache=cache)
-        await url4_run(expression, io=world.node)
+        world = await build_aigateway_world(cfg, client=client)
+        # F2: the policy is per-REQUEST now, bound in the scope. `None` means nothing was stated,
+        # which is expressed by an unstated policy — no `cache` field on the wire at all.
+        with request_scope(
+            RequestScope(origin="run", cache=cache if cache is not None else CachePolicy())
+        ):
+            await url4_run(expression, io=world.node)
     return gw
 
 
@@ -457,13 +441,18 @@ async def test_two_concurrent_runs_with_different_policies_do_not_contaminate_ea
     gw = _MockAigateway()
     shared_cfg = AigatewayConfig(models=(ModelSpec(id=MODEL),), default_model=MODEL)
 
+    async def _policed(policy: CachePolicy, node: IOLayer, context: str) -> None:
+        # Each run binds its own scope: F2's concurrency guarantee rests on this.
+        with request_scope(RequestScope(origin="run", cache=policy)):
+            await url4_run(f"/{MODEL}('{context}')!'go'", io=node)
+
     async with gw.client() as client:
-        opted_out = await build_aigateway_world(shared_cfg, client=client, cache=OPT_OUT)
-        participating = await build_aigateway_world(shared_cfg, client=client, cache=OPT_IN)
+        opted_out = await build_aigateway_world(shared_cfg, client=client)
+        participating = await build_aigateway_world(shared_cfg, client=client)
 
         await asyncio.gather(
-            url4_run(f"/{MODEL}('run-a')!'go'", io=opted_out.node),
-            url4_run(f"/{MODEL}('run-b')!'go'", io=participating.node),
+            _policed(OPT_OUT, opted_out.node, "run-a"),
+            _policed(OPT_IN, participating.node, "run-b"),
         )
 
     by_context = {body["messages"][-1]["content"]: body for body in gw.bodies}
@@ -516,11 +505,11 @@ async def test_the_tool_calling_loop_applies_the_policy_on_every_round_trip() ->
         world = await build_aigateway_world(
             cfg,
             client=client,
-            cache=OPT_OUT,
             tavily_api_key=TAVILY_TOKEN,
             tavily_client=tavily,
         )
-        await url4_run(f"/{MODEL}('ctx')!'go'", io=world.node)
+        with request_scope(RequestScope(origin="run", cache=OPT_OUT)):
+            await url4_run(f"/{MODEL}('ctx')!'go'", io=world.node)
 
     assert len(gw.bodies) == 2, "the tool loop must have made a second round trip"
     assert all(body["cache"] == {"use-cache": False} for body in gw.bodies)

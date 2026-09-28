@@ -37,10 +37,7 @@ def test_profile_validation_failure_precedes_every_side_effect(
     authenticated_client.app.state.api_key_validation_service = service
     created = authenticated_client.put(
         "/v1/auth/anthropic/profiles/work/api-key",
-        json={
-            "api_key": _OLD_KEY,
-            "defaults": {"temperature": 0.2},
-        },
+        json={"api_key": _OLD_KEY},
     )
     assert created.status_code == 200
     before_profile = created.json()
@@ -75,10 +72,7 @@ def test_profile_validation_failure_precedes_every_side_effect(
 
     response = authenticated_client.put(
         "/v1/auth/anthropic/profiles/work/api-key",
-        json={
-            "api_key": _NEW_KEY,
-            "defaults": {"temperature": 0.9},
-        },
+        json={"api_key": _NEW_KEY},
     )
 
     assert response.status_code == 422

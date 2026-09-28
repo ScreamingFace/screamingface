@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
@@ -30,17 +31,21 @@ class _CandidateProgress:
     submitted: bool = False
     started: bool = False
     terminal_status: str | None = None
-    root_sources: set[str] = field(default_factory=set)
+    root_identity: tuple[str, str] | None = None
     cache_counts: dict[str, tuple[int, int, int]] = field(default_factory=dict)
     cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
     activity: str | None = None
+    stage: str | None = None
+    active_cases: str | None = None
     result: CandidateResult | None = None
     workflow_status: str | None = None
     started_elapsed_seconds: float | None = None
+    started_at: datetime | None = None
+    terminal_duration_seconds: float | None = None
 
     @property
     def status(self) -> str:
-        if self.result is not None:
+        if self.result is not None or self.terminal_status == "succeeded":
             status = "finished"
         elif self.terminal_status == "failed":
             status = "run_failed"
@@ -81,7 +86,7 @@ class _CandidateProgress:
     @property
     def duration_seconds(self) -> float | None:
         if self.result is None:
-            return None
+            return self.terminal_duration_seconds
         return (self.result.completed_at - self.result.started_at).total_seconds()
 
     @property
@@ -140,14 +145,23 @@ class _CandidateProgress:
     def _observe_started(self, event: Started, elapsed_seconds: float | None) -> None:
         self.submitted = True
         self.started = True
-        self.root_sources.add(event.source)
+        # INVARIANT: match the decoder's first candidate-expression root, not child arrivals.
+        if self.root_identity is not None or event.url4 != self.candidate.url4:
+            return
+        self.root_identity = (event.run_id, event.source)
         self.activity = "Run started"
         self.started_elapsed_seconds = elapsed_seconds
+        self.started_at = event.timestamp
 
     def _observe_terminated(self, event: Terminated) -> None:
-        if event.source not in self.root_sources:
+        if (event.run_id, event.source) != self.root_identity:
             return
         self.terminal_status = event.status
+        # INVARIANT: a sibling run must never advance this candidate's finished timer.
+        if self.started_at is not None:
+            self.terminal_duration_seconds = max(
+                0.0, (event.timestamp - self.started_at).total_seconds()
+            )
         self.activity = (
             "Run finished"
             if event.status == "succeeded"
@@ -391,6 +405,9 @@ class _EvaluationProgress:
                 for reason, count in reasons.items():
                     totals[reason] = totals.get(reason, 0) + count
         return tuple(sorted(totals.items(), key=lambda item: (-item[1], item[0])))
+
+    def candidate_result(self, result: CandidateResult) -> None:
+        self._rows_by_name[result.name].reconcile(result)
 
     def reconcile(self, report: Report) -> None:
         if self.case_count is not None and report.case_count != self.case_count:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from screamingface_engine.models.registry import (
+from screamingface_engine.world.models.registry import (
     EMPTY_MODEL_WORLD,
     ModelRegistry,
     ProviderSeed,

@@ -13,8 +13,7 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine import job_env
-from screamingface_engine.models.registry import EMPTY_MODEL_WORLD
-from screamingface_engine.world_config import (
+from screamingface_engine.world.config import (
     WEB_SEARCH_NATIVE_PROVIDERS,
     ModelSpec,
     WorldConfigError,
@@ -22,6 +21,7 @@ from screamingface_engine.world_config import (
     parse_config,
     provider_of,
 )
+from screamingface_engine.world.models.registry import EMPTY_MODEL_WORLD
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _RUNNER_CONFIG = _REPO_ROOT / "apps/screamingface-engine/url4.toml"

@@ -62,6 +62,8 @@ CANONICAL_EXAM, DRACO = draco_benchmark(
     ),
     judge_passes=5,
     protocol_revision="five-pass-reproduction-v1",
+    # Open-ended deep-research reports frontier models still visibly fail (OME-1257).
+    difficulty="hard",
     focus="Research reports with citations",
     dataset_url=DRACO_DATASET_URL,
 )
@@ -79,6 +81,9 @@ THREE_PASS_EXAM, DRACO_3PASS = draco_benchmark(
         "against five-pass results."
     ),
     judge_passes=3,
+    # Same 100 tasks as the canonical board — the tier travels with the dataset, not the
+    # judge-pass count (OME-1257).
+    difficulty="hard",
     # The dataset and the subject are identical to the canonical board; the pass count is the
     # only thing a reader needs to tell them apart, so that is what the Focus column says.
     focus="Research reports, three judge passes",

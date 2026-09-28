@@ -68,10 +68,48 @@ class RedactProvisioningTokenFilter(logging.Filter):
         return True
 
 
+_REDACTION_INSTALLED = "_aigw_provisioning_token_redaction"
+
+
+def factory_chain_has(factory: object, flag: str) -> bool:
+    """Is `flag` set anywhere in this record-factory wrapper chain — not just on top?
+
+    INVARIANT: idempotence must be about the CHAIN, never about the outermost factory.
+
+    Two installers now share `logging.setLogRecordFactory` — this module's redaction and
+    `aigateway.call_context`'s correlation id (OME-938) — and each wraps whatever it finds.
+    A top-only check means each installer sees the OTHER's wrapper, concludes it has not run,
+    and wraps again. Every interleaved pair then adds two layers, and since `create_app`
+    installs both, a process that builds many apps (the test suite builds thousands) grows the
+    chain until creating ONE log record overflows the stack — surfacing as
+    `RecursionError: maximum recursion depth exceeded` at fixture setup, nowhere near anything
+    that looks like logging.
+
+    WHY this lives in the security module rather than beside the newer installer: `core` must
+    not import from the app root, and this is where the first factory has always been. `seen`
+    guards a cycle a third party could introduce — without it a malformed chain would hang
+    instead of raising.
+    """
+    seen: set[int] = set()
+    while factory is not None and id(factory) not in seen:
+        seen.add(id(factory))
+        if getattr(factory, flag, False):
+            return True
+        factory = getattr(factory, "__wrapped__", None)
+    return False
+
+
 def install_provisioning_token_redaction() -> None:
-    """Install process-wide redaction for records from any logger/handler path."""
+    """Install process-wide redaction for records from any logger/handler path.
+
+    AIDEV-NOTE (OME-938): the idempotence guard walks the wrapper CHAIN, not just the outermost
+    factory. This module no longer owns `setLogRecordFactory` alone — `call_context` installs a
+    correlation-id factory too — and a top-only check means each installer sees the other's
+    wrapper, concludes it has not run, and wraps again. Every interleaved pair added two layers
+    until creating one log record overflowed the stack. See `call_context.factory_chain_has`.
+    """
     current_factory = logging.getLogRecordFactory()
-    if getattr(current_factory, "_aigw_provisioning_token_redaction", False):
+    if factory_chain_has(current_factory, _REDACTION_INSTALLED):
         return
 
     redactor = RedactProvisioningTokenFilter()
@@ -81,5 +119,6 @@ def install_provisioning_token_redaction() -> None:
         redactor.filter(record)
         return record
 
-    setattr(redacting_factory, "_aigw_provisioning_token_redaction", True)
+    setattr(redacting_factory, _REDACTION_INSTALLED, True)
+    setattr(redacting_factory, "__wrapped__", current_factory)
     logging.setLogRecordFactory(redacting_factory)

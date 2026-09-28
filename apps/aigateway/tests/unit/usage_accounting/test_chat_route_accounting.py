@@ -22,6 +22,7 @@ from litellm.exceptions import RateLimitError
 from litellm.types.utils import ModelResponse, Usage
 
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
+from aigateway.core.provider_access import TargetReauthRequired
 from aigateway.core.request_cache import RequestCacheWrite
 from aigateway.core.usage_accounting import active_collector
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -191,7 +192,12 @@ class TestActivation:
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
         assert response.status_code == 200, response.text
         metadata = _aigw(response)
-        assert set(metadata) == {"usage_accounting", "request_economics"}
+        # OME-1120 added `_aigw.trace_id` — the caller's W3C trace id, echoed so a JSON
+        # caller can quote it in a bug report. This assertion pins the EXACT key set on
+        # purpose, so a new key has to be a deliberate act; it is, and the published schema
+        # gained it too (optional, not required, so a payload from an older gateway still
+        # validates).
+        assert set(metadata) == {"usage_accounting", "request_economics", "trace_id"}
         assert metadata["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
         assert metadata["request_economics"]["schema"] == "aigw.request_economics"
 
@@ -652,23 +658,24 @@ class TestAnthropicRouteMapping:
     def test_a_valid_accounted_request_allocates_one_gateway_call_id(
         self, credential_blobs, chat_client
     ) -> None:
+        # OME-938 retargeted the patch, NOT the claim. The id is now minted once per request by
+        # `middleware.call_id` and consumed by the session and the collector, so patching the
+        # two former mint sites observes zero calls while the behaviour is perfectly correct.
+        # There is exactly one minter left; the assertion is unchanged — one allocation per
+        # request, and the response carries that same id.
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
         with (
             patch(_ANTHROPIC_DISPATCH, self._succeed()),
             patch(
-                "aigateway.plugins.taxonomy.session.new_gateway_call_id",
+                "aigateway.middleware.call_id.new_gateway_call_id",
                 return_value="call_" + "a" * 32,
-            ) as allocate_unsupported_call_id,
-            patch(
-                "aigateway.plugins.taxonomy.collector.new_gateway_call_id",
-                return_value="call_" + "a" * 32,
-            ) as allocate_supported_call_id,
+            ) as allocate_call_id,
         ):
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
 
         assert response.status_code == 200, response.text
-        assert allocate_unsupported_call_id.call_count + allocate_supported_call_id.call_count == 1
+        assert allocate_call_id.call_count == 1
         assert _aigw(response)["usage_accounting"]["gateway_call_id"] == "call_" + "a" * 32
 
     def test_anthropic_reports_no_money_on_the_wire(self, credential_blobs, chat_client) -> None:
@@ -1050,10 +1057,14 @@ class TestDispatchFailureClassification:
         _arrange_account(chat_client, credential_blobs)
         _install(chat_client, _Store())
 
+        # OME-1207: raised as the TYPED refusal the port defines, so this test now exercises
+        # the real edge table (`render_refusal` maps it to the 401 below) instead of
+        # hand-building the HTTP shape it is asserting on.
         async def reject_credentials(*_args: Any, **_kwargs: Any) -> Any:
-            raise HTTPException(401, detail={"code": "auth_required"})
+            raise TargetReauthRequired("anthropic", "https://example.invalid/reauth")
 
-        with patch("aigateway.routes.chat._credential_target_for_chat", reject_credentials):
+        seam = "aigateway.core.provider_access.ProfileBackedProviderAccess.resolve"
+        with patch(seam, reject_credentials):
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
         assert response.status_code == 401
         cache = response.json()["_aigw"]["usage_accounting"]["cache"]

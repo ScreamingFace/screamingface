@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from types import MappingProxyType
 from typing import ClassVar, Literal
 
@@ -113,7 +114,20 @@ class Log(Event):
 
 @dataclass(frozen=True, slots=True)
 class Span(Event):
-    """One OpenTelemetry span with portable GenAI attributes."""
+    """One OpenTelemetry span with portable GenAI attributes.
+
+    The two ``cache_saved_cost_*`` amounts are counterfactuals: what this span's cache hits
+    would have cost had they not been served from cache. They are **not** money spent — a hit
+    costs nothing upstream, and ``usage`` reports the real spend.
+
+    Do not add them together. ``cache_saved_cost_usd`` is money the provider itself priced for
+    the call that filled the entry. ``cache_saved_cost_archive_usd`` is a real measured amount
+    from a *different* call of the same model and kind, so it says nothing provable about this
+    span. They are two fields rather than one amount plus a label precisely so the difference
+    cannot be collapsed; summing them produces a figure that describes neither.
+
+    ``None`` means nothing priceable was observed, which is not the same as zero.
+    """
 
     name: str = ""
     operation: str = ""
@@ -130,6 +144,20 @@ class Span(Event):
     refusal: str | None = None
     cache_status: CacheStatus | None = None
     cache_reason: str | None = None
+    # FEATURE: OME-1252 — what this span's cache hits avoided, per provenance.
+    #
+    # INVARIANT: a SPAN TOTAL, already summed engine-side across every hit this span made, so
+    # summing across a run's spans reproduces the run's own figure. That is the contract the
+    # producing field states (`url4/streaming/protocol/signals.py:111`).
+    #
+    # INVARIANT: TWO fields, never one plus a label, and never a third holding their sum.
+    # `reported` is money the provider authored for the call that filled the entry;
+    # `archive_matched` is a real amount measured from a DIFFERENT call of the same model and
+    # kind. url4 keeps them apart "precisely so the two can never be summed — a single amount
+    # plus a label invites a consumer to add the labels away" (PRD S5). Adding them here would
+    # do server-side what both the engine and url4 refuse to do.
+    cache_saved_cost_usd: Decimal | None = None
+    cache_saved_cost_archive_usd: Decimal | None = None
     kind: ClassVar[str] = "span"
 
     def __post_init__(self) -> None:
@@ -154,6 +182,7 @@ class Span(Event):
                 "cache_reason",
                 _nonblank(self.cache_reason, "Span cache_reason"),
             )
+        _validate_saved_costs(self)
         for name in ("input_tokens", "output_tokens"):
             _optional_count(getattr(self, name), f"Span {name}")
         if not isinstance(self.finish_reasons, tuple):
@@ -221,6 +250,25 @@ class Terminated(Event):
             raise TypeError("Terminated error must be an sf.events.TerminationError")
         if self.status == "succeeded" and self.error is not None:
             raise ValueError("a succeeded termination cannot contain an error")
+
+
+def _validate_saved_costs(span: Span) -> None:
+    """Both counterfactual amounts share money's domain.
+
+    A negative or non-finite saved cost is a producer defect, and letting one through would
+    poison a run total the board reads as evidence about what a recipe costs to reproduce.
+
+    Extracted from `__post_init__` because it tripped the branch budget — the limit is right
+    here: the interesting part is the domain rule, not the loop reaching it.
+    """
+    for name in ("cache_saved_cost_usd", "cache_saved_cost_archive_usd"):
+        amount = getattr(span, name)
+        if amount is None:
+            continue
+        if not isinstance(amount, Decimal):
+            raise TypeError(f"Span {name} must be a Decimal or None")
+        if not amount.is_finite() or amount < 0:
+            raise ValueError(f"Span {name} must be a finite non-negative amount")
 
 
 def _nonblank(value: object, label: str) -> str:

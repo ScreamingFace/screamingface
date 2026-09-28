@@ -1,11 +1,19 @@
-"""POST /v1/chat/completions — resolves profile auth + merges defaults, dispatches via LiteLLM.
+"""POST /v1/chat/completions — resolves provider access and dispatches via LiteLLM.
 
-Helper seams live in sibling modules (OME-428 Phase 1 split):
-``chat_credentials`` (profile/connection resolution, defaults, credential
-injection), ``chat_dispatch`` (backpressure, error mapping, streaming),
-``chat_cache_stage`` (the global cache's route-facing stage) and
-``chat_profile_defaults`` (the pre-credential defaults read, and rejection
-attribution). This module keeps only the router and the request orchestration.
+Credentials come from ONE place: the ``core.provider_access`` port (OME-1207, A2 of
+OME-1138). This route resolves a ``CredentialTarget``, derives the auth mode and authorizes
+through that port; it never touches a legacy Profile row, a Connection row or the profile
+index. Its typed refusals become HTTP through the single edge table in
+``provider_access_http``.
+
+INVARIANT (OME-1323, D2): request parameters are the caller's. The route reads no stored
+Profile defaults and merges nothing into the body — system instructions arrive as
+system-role messages — so the cache key and the dispatch both describe exactly what the
+caller sent.
+
+The remaining helper seams are sibling modules (OME-428 Phase 1 split): ``chat_dispatch``
+(backpressure, error mapping, streaming) and ``chat_cache_stage`` (the global cache's
+route-facing stage). This module keeps only the router and the request orchestration.
 """
 
 from __future__ import annotations
@@ -36,6 +44,14 @@ from ..core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
+from ..core.profile_models import AuthMode
+from ..core.provider_access import (
+    CredentialTarget,
+    ProviderAccess,
+    Selector,
+    apply_authorization,
+    provider_access_for,
+)
 from ..core.registry import ProviderRegistry
 from ..core.request_cache.global_controls import parse_global_cache_controls
 from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
@@ -52,17 +68,10 @@ from .chat_accounting import (
     safe_request_view,
 )
 from .chat_cache_stage import (
-    defaults_unreadable_bypass,
     global_cache_headers,
     look_up_global_cache,
     set_global_cache_headers,
     store_global_response,
-)
-from .chat_credentials import (
-    _apply_defaults,
-    _credential_target_for_chat,
-    _inject_credentials,
-    resolved_auth_mode,
 )
 from .chat_dispatch import (
     _dispatch_with_backpressure,
@@ -72,10 +81,47 @@ from .chat_dispatch import (
     _unknown_provider_exception,
     convert_provider_response,
 )
-from .chat_profile_defaults import _parameter_rejection_exception, profile_defaults_for_key
+from .provider_access_http import refusals_as_http
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def _resolve_credential_target(
+    access: ProviderAccess,
+    *,
+    account_id: str,
+    provider: str,
+    selector: Selector,
+    plugin: Any,
+) -> tuple[CredentialTarget, AuthMode]:
+    """Ops 2–3: the one target this selector names, and the mode it is matched against.
+
+    # INVARIANT: both refusals render through the ONE edge table, so the 404/409/401 bodies
+    # and the 400 for an undeclared mode stay byte-identical to the pre-port route.
+    """
+    with refusals_as_http():
+        target = await access.resolve(account_id, provider, selector, plugin=plugin)
+        return target, access.auth_mode(target, plugin)
+
+
+async def _authorize_and_seal(
+    access: ProviderAccess,
+    target: CredentialTarget,
+    *,
+    plugin: Any,
+    provider: str,
+    body: dict[str, Any],
+) -> None:
+    """Op 4 plus the pure sealing step.
+
+    # INVARIANT: every storage side effect of authorization (strategy build and refresh,
+    # error marking, session invalidation, the Connection last-used touch) is the port's;
+    # writing the returned headers into the body is the only part the route owns.
+    """
+    with refusals_as_http():
+        authorization = await access.authorize(target, plugin=plugin, provider=provider)
+    apply_authorization(body, authorization.headers)
 
 
 async def _dispatch_and_finalize_accounting(
@@ -87,10 +133,7 @@ async def _dispatch_and_finalize_accounting(
     accounting: Any,
     account_id: str,
     profile_name: str,
-    profile: Any,
-    connection: Any,
-    credential_name: str | None,
-    auth_type: Any,
+    target: CredentialTarget,
 ) -> Any:
     """Dispatch once through the provider and finalize any observed accounting evidence."""
     accounting_request_view = safe_request_view(body)
@@ -120,10 +163,7 @@ async def _dispatch_and_finalize_accounting(
             provider=provider,
             account_id=account_id,
             profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
+            target=target,
         ) from None
     except (
         RateLimitError,
@@ -150,10 +190,7 @@ async def _dispatch_and_finalize_accounting(
             provider=provider,
             account_id=account_id,
             profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
+            target=target,
         ) from None
     except Exception as exc:
         # WHY (OME-428 third-review blocker B): the two branches above enumerate
@@ -183,10 +220,7 @@ async def _dispatch_and_finalize_accounting(
             provider=provider,
             account_id=account_id,
             profile_name=profile_name,
-            profile=profile,
-            connection=connection,
-            credential_name=credential_name,
-            auth_type=auth_type,
+            target=target,
         ) from None
 
     try:
@@ -239,7 +273,10 @@ async def chat_completions(request: Request, response: Response, current: Curren
             begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise
 
-    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
+    # INVARIANT (OME-1207): the header is interpreted ONCE, here, by the port's own parser.
+    # The route no longer spells the normalisation, so absent/blank/whitespace all mean the
+    # implicit default in exactly one place and the Stage D sunset policy has a single seat.
+    selector = Selector.from_header(request.headers.get("X-Profile"))
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
@@ -297,36 +334,22 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # caller who sends the identical request — including one whose provider is not
     # connected, or whose profile is PENDING or ERRORED.
     #
-    # OME-305 §57: the caller's stored profile DEFAULTS are the one thing now read
-    # first, because the key must cover the EFFECTIVE request — see
-    # ``chat_profile_defaults`` for why that read is separate and why it may not raise.
-    # A hit therefore costs one profile-index read, which is itself a credential_blobs
-    # row: one master-key decryption, and no provider credential.
+    # OME-1323 (D2) retired the OME-305 §57 pre-cache read of stored Profile defaults: the
+    # key covers the caller's hardened body and nothing else, so no profile index is read
+    # here and a hit decrypts nothing at all.
+    # AIDEV-NOTE: availability change — an unreadable profile index no longer forces a
+    # cache bypass, since nothing here reads it. It can still fail credential resolution
+    # on a miss (Stage 2).
+    # INVARIANT: this ONE body feeds both the key and the dispatch, so the two cannot
+    # describe different requests.
     account_id = str(current.id)
-    key_defaults = await profile_defaults_for_key(
-        request, account_id=account_id, provider=provider, profile_name=profile_name
+    access = provider_access_for(request.app)
+    # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed
+    # cache SELECT or hit-metadata UPDATE aborts the outer transaction even though
+    # this stage converts the failure to a bypass, poisoning later route statements.
+    cache_outcome = await look_up_global_cache(
+        request, body=body, plugin=plugin, controls=cache_controls
     )
-    default_paths: frozenset[str] = frozenset()
-    if key_defaults is None:
-        cache_outcome = defaults_unreadable_bypass()
-    else:
-        # OME-638: merge the gateway-trusted profile defaults BEFORE classification, so
-        # a stored default is authorized by the same rule set, the same schema and the
-        # same resolved auth mode as a caller-supplied value — one pass, one projection,
-        # no second validation path to drift. Placed after both control-plane strips so
-        # those keep seeing caller input only; ProfileDefaults is a closed model of six
-        # typed fields and can carry no dispatch control.
-        # INVARIANT: the body still wins per field, so a default occupies only a path
-        # the caller omitted — which is what makes ``default_paths`` a sound attribution.
-        # INVARIANT (§57): this merged body is the ONE body used for both the key and
-        # the dispatch, so the two cannot describe different requests.
-        body, default_paths = _apply_defaults(body, key_defaults, plugin)
-        # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed
-        # cache SELECT or hit-metadata UPDATE aborts the outer transaction even though
-        # this stage converts the failure to a bypass, poisoning later route statements.
-        cache_outcome = await look_up_global_cache(
-            request, body=body, plugin=plugin, controls=cache_controls
-        )
     if accounting is not None:
         accounting.cache_status = cache_outcome.status
     if cache_outcome.is_hit and cache_outcome.response is not None:
@@ -337,9 +360,8 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # per-mode validation, and the response being served was produced by a real
         # dispatch of this exact call. Do not add a credential read here to "check"
         # it: that would defeat the entire purpose of the inversion.
-        # §57: "this exact call" now means the EFFECTIVE request — the hit was keyed on
-        # the caller's body WITH their profile defaults applied, so a stored default
-        # that changes what the provider is asked also changes the key.
+        # "This exact call" is the caller's own body (OME-1323, D2): no stored Profile
+        # default is merged, so the key describes everything the provider is asked.
         set_global_cache_headers(response, cache_outcome)
         # OME-303: a hit dispatched nothing, so `attempts` is empty and
         # `observed_new_attempts` is 0. Limited cached-final-response evidence is
@@ -348,33 +370,25 @@ async def chat_completions(request: Request, response: Response, current: Curren
         cached_response = request.app.state.taxonomy_plugin.sanitize_provider_response(
             cache_outcome.response
         )
-        return attach_hit_metadata(cached_response, accounting, plugin=plugin)
+        # C4/ERD §5.5: the stored block travels with the hit. ``attach_hit_metadata``
+        # prefers it and falls back to the provider's own mapper when it is absent.
+        return attach_hit_metadata(
+            cached_response,
+            accounting,
+            plugin=plugin,
+            entry_metadata=cache_outcome.metadata,
+        )
 
     # ==================================================================
     # STAGE 2 — a miss or a bypass: resolve identity and dispatch.
     # ==================================================================
-    # AIDEV-NOTE (§57): this stays HERE, after the cache stage, and the defaults it
-    # returns are NOT re-merged on the normal path. Two reasons, both load-bearing.
-    # It raises 404/409/401, so hoisting it would let those preempt a cache hit; and a
-    # second merge would re-read the profile, so a concurrent profile update between
-    # the two reads would dispatch a request the key does not describe.
-    profile, connection, defaults = await _credential_target_for_chat(
-        request,
-        account_id=account_id,
-        provider=provider,
-        profile_name=profile_name,
-        plugin=plugin,
+    # AIDEV-NOTE: this stays HERE, after the cache stage. It raises 404/409/401, so
+    # hoisting it would let those preempt a cache hit. The target's historical
+    # ``defaults`` are NOT merged (OME-1323, D2): the dispatch must be the request the
+    # key describes.
+    target, auth_mode = await _resolve_credential_target(
+        access, account_id=account_id, provider=provider, selector=selector, plugin=plugin
     )
-
-    auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
-
-    if key_defaults is None:
-        # The pre-cache read failed, so the merge that feeds the key never ran and the
-        # cache already bypassed. Merge here so the request still DISPATCHES with the
-        # operator's defaults: a transient index fault must cost a cache hit, never
-        # silently drop a stored system prompt. No key exists on this path, so there is
-        # nothing for the dispatch body to diverge from.
-        body, default_paths = _apply_defaults(body, defaults, plugin)
 
     # OME-479 §4.5: classify every optional parameter against the provider's enabled
     # rule set for the REAL (never caller-declared) auth mode, and project accepted
@@ -390,23 +404,19 @@ async def chat_completions(request: Request, response: Response, current: Curren
             auth_mode=auth_mode,
         )
     except UnsupportedParametersError as exc:
-        rejected_defaults = sorted(default_paths & exc.rejected.keys())
-        if rejected_defaults:
-            # The caller cannot fix a stored default and may never see it (a caller
-            # fault outranks it in the response), so it goes to the operator's own
-            # channel. Reason codes only — the classifier never carries raw values.
-            logger.warning(
-                "profile defaults rejected provider=%s account=%s profile=%s paths=%s",
-                provider,
-                account_id,
-                profile_name,
-                ",".join(rejected_defaults),
-            )
-        raise _parameter_rejection_exception(
-            exc,
-            provider=provider,
-            profile_name=profile_name,
-            default_paths=default_paths,
+        # Every classified path is the caller's own (OME-1323, D2), so the rejection is
+        # reported whole. Reason codes only — the classifier never carries raw values.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_parameters",
+                "provider": provider,
+                "rejected": exc.rejected,
+                "message": (
+                    "one or more parameters are not enabled for this model; "
+                    "see the model parameter contract"
+                ),
+            },
         ) from None
 
     # OME-640: a per-path rule cannot say "these two accepted fields cannot travel
@@ -417,18 +427,6 @@ async def chat_completions(request: Request, response: Response, current: Curren
     try:
         plugin.validate_chat_parameter_combination(body, model=model, auth_mode=auth_mode)
     except IncompatibleParametersError as exc:
-        if default_paths & set(exc.paths):
-            # A stored default can be one half of the conflict, and the caller may
-            # not know it exists — so the operator gets their own channel, exactly
-            # as for a rejected default. Paths and the provider's own reason only.
-            logger.warning(
-                "profile defaults in a refused parameter combination "
-                "provider=%s account=%s profile=%s paths=%s",
-                provider,
-                account_id,
-                profile_name,
-                ",".join(sorted(default_paths & set(exc.paths))),
-            )
         raise HTTPException(
             status_code=400,
             detail={
@@ -458,16 +456,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
             },
         )
 
-    credential_name, auth_type = await _inject_credentials(
-        request,
-        plugin=plugin,
-        provider=provider,
-        account_id=account_id,
-        profile_name=profile_name,
-        profile=profile,
-        connection=connection,
-        body=body,
-    )
+    await _authorize_and_seal(access, target, plugin=plugin, provider=provider, body=body)
 
     # NOTE: overload retry covers the non-streaming path only; streaming responses
     # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
@@ -494,11 +483,8 @@ async def chat_completions(request: Request, response: Response, current: Curren
         body=body,
         accounting=accounting,
         account_id=account_id,
-        profile_name=profile_name,
-        profile=profile,
-        connection=connection,
-        credential_name=credential_name,
-        auth_type=auth_type,
+        profile_name=selector.name,
+        target=target,
     )
     result = request.app.state.taxonomy_plugin.sanitize_provider_response(result)
 
@@ -511,7 +497,9 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # returned to this caller is always the one their own dispatch produced.
     write_status = None
     if cache_outcome.should_store:
-        write_status = await store_global_response(request, outcome=cache_outcome, result=result)
+        write_status = await store_global_response(
+            request, outcome=cache_outcome, result=result, accounting=accounting
+        )
     set_global_cache_headers(response, cache_outcome, write_status=write_status)
     # OME-303 INVARIANT (§6): metadata is attached to a COPY, and STRICTLY AFTER the
     # store above. The cache row must stay provider-compatible for every future replay,

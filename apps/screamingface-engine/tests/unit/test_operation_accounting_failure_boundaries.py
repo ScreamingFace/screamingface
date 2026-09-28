@@ -10,10 +10,10 @@ import pytest
 
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
-from screamingface_engine.runner.accounting import retained_operation_accounting
-from screamingface_engine.runner.cache_readback import CacheOutcome
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.accounting import retained_operation_accounting
+from screamingface_engine.world.cache_readback import CacheOutcome
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4 import RelExpr, expr, render, src, text
 
 _MODEL = "provider/model"
@@ -182,7 +182,7 @@ async def test_unexpected_accounting_failure_does_not_fail_a_successful_answer(
         raise ValueError("private accounting payload")
 
     monkeypatch.setattr(
-        "screamingface_engine.runner.connector.retained_operation_accounting",
+        "screamingface_engine.world.connector.retained_operation_accounting",
         fail_accounting,
     )
     with caplog.at_level(logging.WARNING):
@@ -222,7 +222,7 @@ async def test_one_unavailable_tool_round_poisons_the_complete_operation_account
         )
 
     monkeypatch.setattr(
-        "screamingface_engine.runner.connector.retained_operation_accounting",
+        "screamingface_engine.world.connector.retained_operation_accounting",
         fail_first_round,
     )
 

@@ -1,13 +1,15 @@
-/* Pure ranking / SOTA decisions for the leaderboard board (OME-769).
+/* Pure decisions the leaderboard portal makes about what it publishes (OME-769).
  *
  * FEATURE: the per-benchmark submissions board — ranked rows, score bars, and
- * the SOTA medal on the best reproducible result.
+ * the SOTA medal on the best reproducible result — and, since OME-1147, which
+ * boards the index catalogue lists at all.
  *
- * WHY this file exists separately from benchmark.js: these three functions decide
- * what the public board *claims* — which row (if any) is presented as
- * state-of-the-art, and how long each score bar reads. Keeping them free of
- * the DOM makes them assertable in `tests/portal/leaderboard-logic.test.js`
- * without a browser, which the rest of the portal's rendering is not.
+ * WHY this file exists separately from benchmark.js and main.js: these functions
+ * decide what the public portal *claims* — which row (if any) is presented as
+ * state-of-the-art, how long each score bar reads, and which benchmarks a
+ * visitor is shown. Keeping them free of the DOM makes them assertable in
+ * `tests/portal/leaderboard-logic.test.js` without a browser, which the rest of
+ * the portal's rendering is not.
  *
  * Loaded as a plain <script> in the browser (exposing window.SFLeaderboardLogic)
  * and via require() in tests. No build step, matching the rest of the portal.
@@ -191,6 +193,28 @@
     return best;
   }
 
+  // FEATURE (OME-1147): the index catalogue lists established boards only. A private board's
+  // card is empty for every anonymous visitor — the server refuses its rankings — so it reads as
+  // broken rather than as a challenge.
+  //
+  // INVARIANT: this is cosmetic, NOT an access control. `get_leaderboard` already refuses
+  // private rankings server-side and is untouched by this. So the rule fails OPEN: only the
+  // exact string "private" removes a card, and an absent or unrecognised value keeps one.
+  // Guessing "hide it" would buy no privacy and could empty the public catalogue on a
+  // serialisation change.
+  //
+  // AIDEV-NOTE: `visibility` stands in for PROVENANCE here. The owner's rule is "established
+  // benchmarks only" — ours versus academic — and the two coincide today because
+  // healthbench-worst30 is both the only board we assembled and the only private one. They part
+  // company the first time we run a challenge on an academic benchmark, or publish one of our
+  // own. OME-1112 records where each benchmark came from; move this predicate there when it lands.
+  function listedBenchmarks(benchmarks) {
+    if (!Array.isArray(benchmarks)) return [];
+    return benchmarks.filter(function (benchmark) {
+      return !benchmark || benchmark.visibility !== "private";
+    });
+  }
+
   return {
     isReproducible: isReproducible,
     isParetoMarked: isParetoMarked,
@@ -202,5 +226,6 @@
     isSota: isSota,
     orderRows: orderRows,
     barWidth: barWidth,
+    listedBenchmarks: listedBenchmarks,
   };
 });

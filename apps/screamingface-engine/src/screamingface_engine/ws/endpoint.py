@@ -4,11 +4,10 @@ duration of the connection.
 """
 
 import logging
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket
 
-from screamingface_engine.auth import AuthError, JwtCodec
+from screamingface_engine.auth import AuthError, JwtCodec, default_clock
 from screamingface_engine.config import Settings
 from screamingface_engine.ws.bridge import run_bridge
 from screamingface_engine.ws.registry import ConnectionRegistry
@@ -23,10 +22,6 @@ _INTERNAL_ERROR = 1011
 _logger = logging.getLogger(__name__)
 
 
-def _default_clock() -> datetime:
-    return datetime.now(UTC)
-
-
 def _ticket_topic(websocket: WebSocket, ticket: str | None) -> str | None:
     """Verify the connect-time ticket and derive the topic to subscribe to.
 
@@ -38,7 +33,7 @@ def _ticket_topic(websocket: WebSocket, ticket: str | None) -> str | None:
     if ticket is None:
         return None
     settings: Settings = websocket.app.state.settings
-    clock = getattr(websocket.app.state, "clock", _default_clock)
+    clock = getattr(websocket.app.state, "clock", default_clock)
     codec = JwtCodec(
         secret=settings.jwt_secret,
         iat_window_s=settings.iat_window_s,
@@ -86,7 +81,7 @@ async def ws_endpoint(websocket: WebSocket, ticket: str | None = None) -> None:
         return
     registry: ConnectionRegistry = websocket.app.state.registry
     job_runner: JobRunner | None = websocket.app.state.job_runner
-    clock = getattr(websocket.app.state, "clock", _default_clock)
+    clock = getattr(websocket.app.state, "clock", default_clock)
     heartbeat_s: float = websocket.app.state.settings.ws_heartbeat_s
     registry.add(topic)
     try:

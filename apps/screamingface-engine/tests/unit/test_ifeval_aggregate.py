@@ -9,17 +9,17 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.aggregate import (
-    SCHEMA,
-    AggregateError,
-    aggregate,
-    load_specs,
-)
 from screamingface_engine.benchmarks.ifeval.case_evaluation import (
     CASE_EVALUATION_SCHEMA,
     bind_case_evaluation,
 )
 from screamingface_engine.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
+from screamingface_engine.benchmarks.ifeval.grade import (
+    SCHEMA,
+    AggregateError,
+    aggregate,
+    load_specs,
+)
 
 _SPECS = {
     1: {

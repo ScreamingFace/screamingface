@@ -42,6 +42,7 @@ def candidate(
     cases: tuple[sf.CaseResult, ...] | None = None,
     failures: tuple[sf.Failure, ...] = (),
     usage: sf.Usage | None = None,
+    trace_id: str | None = None,
 ) -> sf.CandidateResult:
     selected_cases = case_results() if cases is None else cases
     if score is None and cases is None:
@@ -55,7 +56,7 @@ def candidate(
                 failures=(
                     sf.Failure(
                         stage="grading",
-                        code="fixture_ungraded",
+                        code="grading_failed",
                         message="the fixture Case could not be graded",
                         case_id=case.case_id,
                     ),
@@ -99,6 +100,7 @@ def candidate(
         members=(),
         failures=failures,
         usage=usage or sf.Usage(input_tokens=100, output_tokens=20, cost_usd="0.12"),
+        trace_id=trace_id,
     )
 
 
@@ -178,8 +180,9 @@ def test_candidate_cases_keep_order_and_use_explicit_identity_lookup() -> None:
 
 
 def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Path) -> None:
+    # OME-1037: a graded refusal is an ordinary scored Case carrying refusal text.
     refused = sf.CaseResult(
-        status="refused",
+        status="scored",
         case_id="refusal-case",
         input="A request",
         output=None,
@@ -218,7 +221,7 @@ def test_report_json_and_export_preserve_refusal_and_failure_fields(tmp_path: Pa
     selected = value.export(tmp_path / "report.json")
     payload = json.loads(selected.read_text(encoding="utf-8"))
     exported_cases = payload["candidates"][0]["cases"]
-    assert exported_cases[0]["status"] == "refused"
+    assert exported_cases[0]["status"] == "scored"
     assert exported_cases[0]["refusal"] == "I cannot comply."
     assert exported_cases[0]["grade"]["score"] == 0.0
     assert exported_cases[0]["failures"] == []
@@ -297,7 +300,7 @@ def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() ->
 def test_report_flattens_candidate_failures_without_duplicating_them_on_the_wire() -> None:
     owned = sf.Failure(
         stage="candidate",
-        code="gateway_timeout",
+        code="aigateway_http_504",
         message="The model timed out.",
         retryable=True,
         operation_id="op_opus",
@@ -327,7 +330,7 @@ def test_report_is_not_ok_when_a_candidate_has_no_score_and_ungraded_cases() -> 
 def test_failure_serializes_the_locked_domain_contract() -> None:
     failure = sf.Failure(
         stage="grading",
-        code="judge_invalid_response",
+        code="judge_reply_invalid",
         message="The judge returned an invalid verdict.",
         retryable=True,
         operation_id="op_grade_1",
@@ -336,7 +339,7 @@ def test_failure_serializes_the_locked_domain_contract() -> None:
 
     assert failure.to_dict() == {
         "stage": "grading",
-        "code": "judge_invalid_response",
+        "code": "judge_reply_invalid",
         "message": "The judge returned an invalid verdict.",
         "retryable": True,
         "operation_id": "op_grade_1",
@@ -348,7 +351,7 @@ def test_failure_serializes_the_locked_domain_contract() -> None:
 def test_scored_fusion_preserves_partial_member_failure_evidence() -> None:
     member_failure = sf.Failure(
         stage="candidate",
-        code="gateway_timeout",
+        code="aigateway_http_504",
         message="One panel member timed out.",
         retryable=True,
         operation_id="op_panel_2",
@@ -653,3 +656,106 @@ def test_candidate_export_preserves_full_benchmark_size_beside_report_selection(
         "revision": "fixture-revision",
         "case_count": 100,
     }
+
+
+# --- the run's trace id on the public result (OME-1121) -----------------------------------
+
+
+def _outcome_for_trace(trace_id: str | None):
+    """A minimal `_RunOutcome` carrying whatever the transport stamped."""
+    from screamingface._core.ports import _RunOutcome
+
+    return _RunOutcome(
+        run_id="run-1",
+        started_at=datetime(2026, 9, 4, tzinfo=UTC),
+        completed_at=datetime(2026, 9, 4, tzinfo=UTC),
+        result_body=None,
+        media_type=None,
+        root_usage=None,
+        trace_id=trace_id,
+    )
+
+
+def test_a_candidate_result_carries_the_trace_id_of_the_run_that_produced_it() -> None:
+    # INVARIANT (OME-1121): one run, one trace id, stored beside the `run_id` that already
+    # identifies that run. A Report may hold several candidates, each an independently
+    # executed run with its own client-minted trace — so this cannot live on Report.
+    result = candidate("model", trace_id="4bf92f3577b34da6a3ce929d0e0e4736")
+
+    assert result.trace_id == "4bf92f3577b34da6a3ce929d0e0e4736"
+
+
+def test_two_candidates_in_one_report_keep_their_own_trace_ids() -> None:
+    # WHY this test exists: it is the reason `trace_id` is NOT a Report attribute. Two
+    # candidates are two independent runs; a single Report-level id would have to pick one.
+    first = candidate("a", trace_id="a" * 32)
+    second = candidate("b", trace_id="b" * 32)
+
+    built = report(first, second)
+
+    assert [c.trace_id for c in built.candidates] == ["a" * 32, "b" * 32]
+
+
+def test_a_run_without_a_trace_id_reports_none_rather_than_raising() -> None:
+    # WHY nullable (OME-1121): `_RunOutcome.trace_id` is `str | None`, and a Report decoded
+    # from a stored url4 replay has no live run behind it. Forcing a value would mean
+    # inventing one, and an invented id joins to nothing.
+    assert _outcome_for_trace(None).trace_id is None
+
+
+def test_report_export_inspect_format_delegates_to_the_quarantined_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INVARIANT: export() owns FORMAT DISPATCH only — the .eval mechanics live in
+    # screamingface._inspect_log, so the JSON branch never grows an inspect import.
+    from screamingface import _inspect_log
+
+    observed: list[tuple[sf.Report, Path, str | None]] = []
+
+    def _fake_writer(value: sf.Report, path: Path, *, candidate: str | None = None) -> Path:
+        observed.append((value, path, candidate))
+        return Path(path)
+
+    monkeypatch.setattr(_inspect_log, "write_inspect_log", _fake_writer)
+    value = report(candidate("opus"), candidate("gpt"))
+
+    selected = value.export(tmp_path / "draco.eval", format="inspect", candidate="gpt")
+
+    assert selected == tmp_path / "draco.eval"
+    assert observed == [(value, tmp_path / "draco.eval", "gpt")]
+
+
+def test_report_export_inspect_format_defaults_to_report_dot_eval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screamingface import _inspect_log
+
+    observed: list[Path] = []
+
+    def _fake_writer(value: sf.Report, path: Path, *, candidate: str | None = None) -> Path:
+        observed.append(Path(path))
+        return Path(path)
+
+    monkeypatch.setattr(_inspect_log, "write_inspect_log", _fake_writer)
+    monkeypatch.chdir(tmp_path)
+
+    assert report(candidate("opus")).export(format="inspect") == Path("report.eval")
+    # WHY: the signature keeps the historical 'report.json' default, so the
+    # DEFAULT name (even spelled out) follows the format; any OTHER .json path
+    # still fails the writer's .eval suffix rule.
+    assert report(candidate("opus")).export("report.json", format="inspect") == Path("report.eval")
+    assert observed == [Path("report.eval"), Path("report.eval")]
+
+
+def test_report_export_json_format_refuses_a_candidate_selector(tmp_path: Path) -> None:
+    # WHY: the JSON document is whole-report; a selector there would silently
+    # drop candidates, so it is refused instead.
+    with pytest.raises(ValueError, match="candidate"):
+        report(candidate("opus")).export(tmp_path / "report.json", candidate="opus")
+
+
+def test_report_export_rejects_an_unknown_format(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="format"):
+        report(candidate("opus")).export(tmp_path / "report.json", format="csv")  # type: ignore[arg-type]

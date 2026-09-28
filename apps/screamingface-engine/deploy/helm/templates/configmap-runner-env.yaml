@@ -1,16 +1,17 @@
 {{/*
-The Runner Job's DEPLOY-TIME environment.
+The runner pool's DEPLOY-TIME environment.
 
-Every key here is injected into each Runner Job wholesale via `envFrom` (K8sJobRunner._env_from),
-so the chart names the variable AND supplies its value — the App never learns these names and
-cannot drift from them. Only PER-RUN values (topic, expression, traceparent, the caller's
-credential) are still built in Python, because they do not exist until a request arrives.
+Every key here is injected into the pool's pods wholesale via `envFrom` (the worker inherits
+it, and its children inherit it from the worker), so the chart names the variable AND supplies
+its value — the App never learns these names and cannot drift from them. Only PER-RUN values
+(topic, expression, traceparent, the caller's credential) travel in the queue message, because
+they do not exist until a request arrives.
 
 INVARIANT: keys are the literal env-var names the run mode reads (`screamingface_engine/job_env.py`),
 NOT the App's `URL4_CLOUD_*` Settings names — `envFrom` does no renaming. `URL4_CLOUD_NATS_URL`
 looks like a Settings key but is the Runner's own variable and happens to share the spelling.
 
-Rendered unconditionally: an empty ConfigMap is harmless, and always having it means the Job's
+Rendered unconditionally: an empty ConfigMap is harmless, and always having it means the pool's
 `envFrom` reference is stable across upgrades that turn an optional value on or off.
 */}}
 apiVersion: v1
@@ -20,8 +21,12 @@ metadata:
   labels:
     {{- include "screamingface-engine.labels" . | nindent 4 }}
 data:
-  # Where the Runner publishes its run log. Its own fallback is loopback, which inside a Job Pod
-  # is that Pod — so this must name the NATS Service to reach it.
+  {{- if not (has .Values.config.activityLevel (list "off" "full")) }}
+  {{- fail "config.activityLevel must be off or full" }}
+  {{- end }}
+  URL4_CLOUD_ACTIVITY_LEVEL: {{ .Values.config.activityLevel | quote }}
+  # Where the worker's children publish their run log. Their own fallback is loopback, which
+  # inside a worker pod is that pod — so this must name the NATS Service to reach it.
   URL4_CLOUD_NATS_URL: {{ include "screamingface-engine.natsUrl" . | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
   # The Runner's fallback is loopback too, with the same consequence.
@@ -58,6 +63,40 @@ data:
   # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
   # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
   {{- end }}
+  {{- if .Values.tracing.enabled }}
+  {{- if not .Values.tracing.endpoint }}
+  {{- fail "tracing.enabled requires tracing.endpoint — an enabled exporter with no endpoint starts a pool that silently exports nothing, and that state has no runtime symptom" }}
+  {{- end }}
+  # OTLP span export (OME-1131). These are OpenTelemetry's OWN specified variable names, read
+  # by the SDK rather than by our code, which is why they are not `URL4_CLOUD_*`: an operator's
+  # existing OTel knowledge transfers, and no vocabulary was invented here.
+  #
+  # The ENDPOINT is not a credential and belongs in the ConfigMap; the HEADERS are nothing but
+  # a credential and travel by Secret (`secret-tracing.yaml`) for the reason stated below.
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.tracing.endpoint | quote }}
+  {{- with .Values.tracing.serviceName }}
+  # WHY gated on a non-empty value, like URL4_CLOUD_ARTIFACTS_DIR above: rendering "" would
+  # OVERRIDE the code's default with an empty service name, and a blank `service.name` in a
+  # tracing backend is indistinguishable from an unconfigured service. Omitting the key lets
+  # the documented default apply.
+  OTEL_SERVICE_NAME: {{ . | quote }}
+  {{- end }}
+  # FEATURE (OME-1190): defaults to the release NAMESPACE, so a preview environment's spans are
+  # distinguishable from dev's. They would otherwise be identical — a direct OTLP export carries
+  # the app's OWN Resource, and the k8s collector's namespace enrichment applies to the LOGS it
+  # scrapes, not to spans an app posts itself.
+  #
+  # WHY here and not in `values.yaml`: Helm does not template values files, so
+  # `{{ `{{ .Release.Namespace }}` }}` written there renders as that literal string and every
+  # service reports the template source as its environment.
+  #
+  # Unlike OTEL_SERVICE_NAME above, this is NOT gated on a non-empty value: the chart knows
+  # something the code cannot — which namespace it is being installed into — so it has a
+  # meaningful default to supply rather than an empty one to avoid.
+  OTEL_RESOURCE_ATTRIBUTES: {{ .Values.tracing.resourceAttributes | default (printf "deployment.environment=%s" .Release.Namespace) | quote }}
+  {{- end }}
+  # NOTE: OTEL_EXPORTER_OTLP_HEADERS is deliberately ABSENT here, for the same reason as the S3
+  # secret key below — it carries the collector credential.
   # NOTE: URL4_CLOUD_ARTIFACT_S3_SECRET_KEY is deliberately ABSENT here. It travels by Secret
-  # (`secret-artifact-storage.yaml`), attached to each Job with `envFrom.secretRef` — a ConfigMap
+  # (`secret-artifact-storage.yaml`), attached to the pool with `envFrom.secretRef` — a ConfigMap
   # is readable by anything with `get` on it and is printed in plain text by `helm get manifest`.

@@ -23,9 +23,9 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.runner.executor import _RunState
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ModelResponse, NodeFinished, NodeStarted, ObservationEvent

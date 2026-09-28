@@ -275,7 +275,7 @@ def test_unscored_grade_retains_checks_evidence_and_its_failure() -> None:
     )
     failure = sf.Failure(
         stage="grading",
-        code="no_valid_judge_verdict",
+        code="judge_reply_invalid",
         message="no valid Judge verdict was produced",
         case_id=1,
     )

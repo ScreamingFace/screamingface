@@ -207,6 +207,87 @@ def test_active_comment_uses_the_selected_deployment(
     assert f"--selector app.kubernetes.io/name={pod_label}" in comment
 
 
+def test_fork_detection_requires_the_exact_repository() -> None:
+    contract = load_contract()
+    repository = "ScreamingFace/screamingface"
+
+    same = {"head": {"repo": {"full_name": repository}}}
+    fork = {"head": {"repo": {"full_name": "outside/screamingface"}}}
+    deleted = {"head": {"repo": None}}
+
+    assert not contract.is_fork(same, repository)
+    assert contract.is_fork(fork, repository)
+    assert contract.is_fork(deleted, repository)
+
+
+def test_fork_comment_explains_the_removal() -> None:
+    contract = load_contract()
+
+    comment = contract.fork_comment()
+
+    assert comment.startswith(contract.COMMENT_MARKER)
+    assert "## Preview: unavailable" in comment
+    assert "Fork pull requests cannot receive a Preview." in comment
+    assert "The Preview labels were removed." in comment
+
+
+def test_reconcile_strips_a_queued_fork_instead_of_promoting_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contract = load_contract()
+    instances: list = []
+
+    class FakeGitHub:
+        repo = "ScreamingFace/screamingface"
+
+        def __init__(self) -> None:
+            self.stripped: list[int] = []
+            self.commented: list[int] = []
+            instances.append(self)
+
+        def pulls(self) -> list[dict]:
+            return [
+                {
+                    "number": 7,
+                    "labels": [{"name": "preview-queued"}],
+                    "head": {"repo": {"full_name": "outside/screamingface"}},
+                    "created_at": "2026-08-24T00:00:00Z",
+                    "draft": False,
+                }
+            ]
+
+        def set_managed_labels(self, number: int, wanted: set[str]) -> None:
+            assert wanted == set()
+            self.stripped.append(number)
+
+        def upsert_comment(self, number: int, body: str) -> None:
+            assert "## Preview: unavailable" in body
+            self.commented.append(number)
+
+        def events(self, number: int) -> list[dict]:
+            raise AssertionError("fork pull requests must not reach admission")
+
+    monkeypatch.setattr(contract, "GitHub", FakeGitHub)
+
+    contract.reconcile()
+
+    assert instances[0].stripped == [7]
+    assert instances[0].commented == [7]
+
+
+def test_fork_guard_runs_trusted_code_on_the_label_event() -> None:
+    guard = (ROOT / ".github/workflows/preview-fork-guard.yml").read_text()
+
+    assert "pull_request_target:" in guard
+    assert "types: [labeled]" in guard
+    assert "head.repo.full_name != github.repository" in guard
+    assert "startsWith(github.event.label.name, 'preview')" in guard
+    assert "persist-credentials: false" in guard
+    assert "ref:" not in guard
+    assert "preview_contract.py guard" in guard
+    assert "id-token" not in guard
+
+
 def test_workflows_keep_oidc_away_from_forks_and_serialize_admission() -> None:
     images = (ROOT / ".github/workflows/preview-images.yml").read_text()
     admission = (ROOT / ".github/workflows/preview-admission.yml").read_text()

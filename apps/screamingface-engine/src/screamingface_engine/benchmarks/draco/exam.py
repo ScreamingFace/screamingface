@@ -29,7 +29,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.definition import Benchmark, CheckSurface, candidate
+from screamingface_engine.benchmarks.definition import (
+    Benchmark,
+    BenchmarkDeclaration,
+    CheckSurface,
+    DifficultyTier,
+    candidate,
+)
 from screamingface_engine.benchmarks.draco.prompts import (
     JUDGE_INSTRUCTIONS,
     judge_context,
@@ -186,6 +192,9 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
 
     candidate_invocation = candidate(
         "$item.input",
+        case_id="$item.id",
+        case_index="$index",
+        case_count=str(case_count),
         web_search=True,
         web_search_exclude=EXCLUDED_DOMAINS,
     )
@@ -296,6 +305,7 @@ def draco_benchmark(
     description: str,
     judge_passes: int,
     protocol_revision: str,
+    difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
 ) -> tuple[DracoExam, Benchmark]:
@@ -309,6 +319,8 @@ def draco_benchmark(
         judge_passes: how many times the Judge grades each answer (the pass seeds
             derive from it).
         protocol_revision: this board's own protocol version string (hashed).
+        difficulty: the catalogue's hand-assigned easy→hard tier (OME-1257); threaded
+            per board because sibling boards may sit different slices of one dataset.
         focus: the short editorial line the leaderboard shows in its "Focus" column. It has
             to separate this board from its siblings at a glance, since they share a dataset.
         dataset_url: where a reader can go and look at the source data.
@@ -348,6 +360,15 @@ def draco_benchmark(
         description=description,
         revision=revision,
         case_count=CASE_COUNT,
+        # INVARIANT: the declared policy matches the code — every board reduces through
+        # the shared finalize_candidate_result, which scores exactly the gradeable subset
+        # and publishes coverage (coverage_declare). Declare `withhold` only if the
+        # aggregate actually withholds (OME-1039).
+        declaration=BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+            difficulty=difficulty,
+        ),
         build=build,
         install=install,
         # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the

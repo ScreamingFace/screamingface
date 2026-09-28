@@ -8,11 +8,12 @@ layering note in :mod:`screamingface_engine.runner`.
 """
 
 import asyncio
+import functools
 import logging
 import os
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -20,21 +21,35 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from screamingface_engine import job_env
+from screamingface_engine import child_protocol, job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
-from screamingface_engine.artifacts import ArtifactStore, ArtifactWriter, S3ArtifactStore
-from screamingface_engine.artifacts.wiring import s3_config_from_values
-from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry, assets_root
+from screamingface_engine.artifacts import ArtifactWriter
+from screamingface_engine.artifacts.wiring import result_writer_from_env
+from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
-from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
+from screamingface_engine.client_provenance import (
+    CLIENT_VERSION_ENV,
+    ProvenanceExecutor,
+    valid_version,
+)
 from screamingface_engine.logs import run_scope
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.runner.executor import Url4Executor, World, deny_by_default_world
+from screamingface_engine.observations import ObserverFactory
+from screamingface_engine.request_scope import RequestScope
+from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
-from screamingface_engine.world_config import WorldConfig, WorldConfigError, load_config
+from screamingface_engine.tracing.relay import SpanRelay, SpanSink, otlp_configured
+from screamingface_engine.world.config import AigatewaySection, WorldConfig, load_config
+from screamingface_engine.world.factory import (
+    SharedWorld,
+    World,
+    build_world,
+    shared_world_serves,
+    world_reads_answer_seed,
+)
+from screamingface_engine.world.web_tools import tavily_key
+from url4.streaming.interfaces import EventPublisher
 from url4.streaming.lifecycle import run
 from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import parse_traceparent
@@ -56,6 +71,43 @@ class RunnerConfigError(ValueError):
     """The per-run Job environment is missing or malformed."""
 
 
+def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
+    """Producer 1 (F2, AC6): the child boot's caller state, read off its Job environment.
+
+    One run has exactly one caller, so every value the connector used to pin on the handler is
+    here instead, resolved once before the world is built and bound around the run by
+    `Url4Executor`. The identity and profile are optional (absent means anonymous / the
+    gateway's default); the cache policy is total; the seed is the one value that REFUSES the
+    run when malformed.
+
+    Raises:
+        RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
+            refusal `job_env.answer_seed_from_env` always produced — a run silently executed
+            without its declared seed would publish a score claiming a sitting it never had.
+            Also an unknown ``RUN_SHAPE``, and a malformed ``JOB_DEADLINE_S`` on a direct run.
+    """
+
+    try:
+        answer_seed = job_env.answer_seed_from_env(env)
+        direct = job_env.run_shape_from_env(env) == "direct"
+    except ValueError as exc:
+        raise RunnerConfigError(str(exc)) from exc
+    # FEATURE (uniform executor PRD 04, review of PRD 05): a DIRECT run is a mount call — the
+    # sync surface the node tier served — so it keeps that surface's two rules. `origin="sync"`
+    # lets the caller's declared `X-Answer-Seed` reach aigateway outside a candidate invocation
+    # (the connector's seed rule), and the run's own deadline bounds each aigateway attempt and
+    # retry (04-review-fixes §2.1) — no aigateway attempt starts past the run's own deadline.
+    job_deadline = _deadline_from_env(env) if direct else None
+    return RequestScope(
+        identity_headers=job_env.identity_from_env(env),
+        profile=env.get(job_env.AIGATEWAY_PROFILE),
+        answer_seed=answer_seed,
+        cache=job_env.cache_policy_from_env(env),
+        origin="sync" if direct else "run",
+        deadline=None if job_deadline is None else time.monotonic() + job_deadline,
+    )
+
+
 def stream_grace_s(env: Mapping[str, str]) -> float:
     """The drain grace before a finished run's stream is reclaimed.
 
@@ -63,28 +115,9 @@ def stream_grace_s(env: Mapping[str, str]) -> float:
     the cost of the default being wrong is a slightly late reclamation, the cost of raising is
     a leaked stream on every run.
     """
-    raw = env.get(job_env.STREAM_GRACE_S)
-    if raw is None:
-        return job_env.DEFAULT_STREAM_GRACE_S
-    try:
-        return float(raw)
-    except ValueError:
-        logger.warning("ignoring unparseable %s=%r", job_env.STREAM_GRACE_S, raw)
-        return job_env.DEFAULT_STREAM_GRACE_S
-
-
-def _int_from_env(env: Mapping[str, str], name: str, default: int) -> int:
-    """One deploy-time integer, tolerantly. INVARIANT: never raises — same reasoning as
-    `stream_grace_s`: a typo'd knob must not take down every Job, and running with the
-    shipped default is the cheap wrong answer."""
-    raw = env.get(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("ignoring unparseable %s=%r", name, raw)
-        return default
+    return job_env.number_from_env(
+        env, job_env.STREAM_GRACE_S, job_env.DEFAULT_STREAM_GRACE_S, log=logger
+    )
 
 
 def bridge_budget_from_env(env: Mapping[str, str]) -> int:
@@ -95,8 +128,11 @@ def bridge_budget_from_env(env: Mapping[str, str]) -> int:
     to an unparseable value ("crash every run at boot" vs "run with the shipped default")
     the default is the one that costs nothing.
     """
-    return _int_from_env(
-        env, job_env.BRIDGE_MEMORY_BUDGET_BYTES, job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES
+    return job_env.number_from_env(
+        env,
+        job_env.BRIDGE_MEMORY_BUDGET_BYTES,
+        job_env.DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES,
+        log=logger,
     )
 
 
@@ -117,16 +153,15 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
     STORE does not. That asymmetry is the OME-929 lesson: an unwritten value falls back
     silently, and only some fallbacks are harmless.
     """
-    inline_cap = _int_from_env(
-        env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES
+    inline_cap = job_env.number_from_env(
+        env, job_env.RESULT_INLINE_CAP_BYTES, job_env.DEFAULT_RESULT_INLINE_CAP_BYTES, log=logger
     )
-    hard_cap = _int_from_env(
-        env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES
+    hard_cap = job_env.number_from_env(
+        env, job_env.RESULT_HARD_CAP_BYTES, job_env.DEFAULT_RESULT_HARD_CAP_BYTES, log=logger
     )
-    if (env.get(job_env.ARTIFACT_STORE) or "filesystem").strip() == "s3":
-        return inline_cap, hard_cap, S3ArtifactStore(s3_config_from_values(env))
-    artifacts_dir = env.get(job_env.ARTIFACTS_DIR) or job_env.DEFAULT_ARTIFACTS_DIR
-    return inline_cap, hard_cap, ArtifactStore(Path(artifacts_dir))
+    # The store construction lives in `result_writer_from_env`, the one place the run path's
+    # spill store is chosen.
+    return inline_cap, hard_cap, result_writer_from_env(env)
 
 
 async def run_and_reclaim(
@@ -137,33 +172,36 @@ async def run_and_reclaim(
     grace_s: float = job_env.DEFAULT_STREAM_GRACE_S,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
-    """Drive one run, then reclaim its stream.
+    """Drive one run, then reclaim its subject on the shared events stream.
 
-    WHY the runner owns this: `DELETE /` is the only other path that reclaims a stream, and it
+    WHY the runner owns this: `DELETE /` is the only other path that reclaims a run, and it
     needs a capability token — those expire `iat_window_s` (60s) after minting and cannot be
     re-issued for an existing topic, so any run longer than a minute could never tear its own
-    stream down. Every such run leaked a stream holding a full `max_bytes` reservation until the
-    store was full and every new run failed with 10047.
+    subject down. Every such run left its frames on the shared stream until `max_age` (24h)
+    or the store's own `max_bytes`/`max_msgs_per_subject` limits eventually dropped them.
 
     INVARIANT: the reclamation is in a `finally`. A run that raised is precisely the run whose
-    stream would otherwise be left behind.
+    subject would otherwise be left behind.
     """
     try:
         await run_once()
     finally:
-        # WHY the delay: `delete_stream` destroys the stream AND its consumers. Deleting the
-        # instant the terminal frame is published races a client that has not drained yet, which
-        # would never see the terminal frame and would hang until its own timeout.
+        # WHY the delay: `delete_stream` purges the subject, KEEPING the terminal frame
+        # (erd.md §5; `_JetStreamConnection.delete_stream`'s own docstring). Purging the
+        # instant the terminal frame is published would still drop every EARLIER frame of the
+        # subject — the ones a client that has not drained yet is still resuming through —
+        # forcing its replay to fail with `stream_reclaimed` instead of finishing the read.
         await sleep(grace_s)
         try:
             await publisher.delete_stream(topic)
         except Exception:
             # INVARIANT: nothing here may escape. Teardown is best-effort by design and
-            # `_sweep_orphans` is the stated backstop, so the cost of swallowing is a late
-            # reclamation. The cost of raising is far worse in BOTH directions: on the success
-            # path it reports a run that published `Terminated(succeeded)` as a Failed Job, and
-            # on the failure path a raise inside `finally` SUPERSEDES the exception already
-            # propagating, erasing the real cause of the failure from the Job's logs.
+            # `max_age` expiry is the stated backstop (EV-D13: a crashed runner that never
+            # reaches this line loses nothing but the early purge), so the cost of swallowing
+            # is a late reclamation. The cost of raising is far worse in BOTH directions: on the
+            # success path it reports a run that published `Terminated(succeeded)` as a Failed
+            # Job, and on the failure path a raise inside `finally` SUPERSEDES the exception
+            # already propagating, erasing the real cause of the failure from the Job's logs.
             #
             # WHY not `except APIError`: `delete_stream` connects lazily, so it also raises
             # `NoServersError`, `ConnectionClosedError` and `nats.errors.TimeoutError` — none of
@@ -180,6 +218,7 @@ class RunnerParams:
     url4: str
     nats_url: str
     deadline_s: float | None = None
+    client_version: str | None = None
 
 
 def _deadline_from_env(environ: Mapping[str, str]) -> float | None:
@@ -215,7 +254,120 @@ def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
         url4=url4,
         nats_url=environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL),
         deadline_s=_deadline_from_env(environ),
+        client_version=valid_version(environ.get(CLIENT_VERSION_ENV)),
     )
+
+
+def _seeded_world(
+    env: Mapping[str, str],
+    config: WorldConfig | None,
+    shared: SharedWorld | None,
+    build: Callable[[WorldConfig], Awaitable[World]],
+) -> tuple[Callable[[], Awaitable[World]], Callable[[], RequestScope]]:
+    """The run's world factory and its request-scope producer, sharing ONE seed parse.
+
+    FEATURE (F2, prd/01): the child boot's caller state is resolved by the scope producer when
+    the run starts, and bound around the run by `Url4Executor` — so the world carries nothing
+    per-request and the stateless connector reads the caller's own values (AC2). Both callables
+    are LAZY for the same reason the world is: a malformed seed must fail the run (a Terminated
+    frame on the topic), not take down the scheduling caller before the stream exists.
+
+    INVARIANT (FX-40, contracts.md C9): a malformed ANSWER_SEED behaves exactly as on `main`,
+    for BOTH world shapes. `main` parsed the seed inside the world factory, after the empty-world
+    early return and before the model world was built. So a world with no model route never reads
+    the seed and the run completes; a world with model routes refuses the run in its world
+    factory — before anything is built or run — so `last_summary()` is `None`. The scope is
+    memoized, so the refusal and the bound scope are the same parse, whichever runs first.
+
+    ``shared`` is local mode's shared world (its io layer AND the ``[aigateway]`` section it was
+    built from), or ``None`` for a per-run world. A shared world comes back with NO teardown: its
+    owner closes it, never a run. ``shared.section`` is captured once, at startup — a run on the
+    shared node must not re-read ``url4.toml`` a second time just to log; a per-run world
+    (``shared is None``) still reads ``resolved()`` for its own config.
+
+    FEATURE (OME-1069, FX-68): once the world is resolved, the run writes its world line — for
+    a per-run world AND for the shared node, so every run says what it ran on, as on `main`.
+    """
+
+    @functools.cache
+    def resolved() -> WorldConfig:
+        return config if config is not None else load_config(env, include_extra_models=True)
+
+    @functools.cache
+    def reads_seed() -> bool:
+        """Whether this run's world has a model call that reads the answer seed.
+
+        Cached so the ONE predicate (`world_reads_answer_seed`, or the per-run world's own
+        ``[aigateway]`` presence) is computed once per run and shared by `scope` and by the
+        world line's section expression below, rather than each re-deriving it. A shared world
+        with no model route (the deny-by-default layer, a bare read-side node) is the shape of a
+        run with no ``[aigateway]`` table, which never wrote the line on `main` — so its config
+        is not read.
+        """
+        if shared is not None:
+            return world_reads_answer_seed(shared.io)
+        return resolved().aigateway is not None
+
+    @functools.cache
+    def scope() -> RequestScope:
+        if reads_seed():
+            return request_scope_from_env(env)
+        return request_scope_from_env(
+            {name: value for name, value in env.items() if name != job_env.ANSWER_SEED}
+        )
+
+    async def world() -> World:
+        bound = scope()  # FX-40: refuse a malformed seed before the world is built or run
+        built: World = (shared.io, None) if shared is not None else await build(resolved())
+        # WHY `shared.section` and not `resolved()` on the shared branch: `resolved()` re-reads
+        # `url4.toml` from disk. On the shared node that file was already read once, at startup,
+        # to build `shared.io` — reading it again per run means a file broken or changed after
+        # startup fails or misreports every later run for a line that only logs, never builds,
+        # anything. A per-run world (`shared is None`) has no such prior read, so it still calls
+        # `resolved()`.
+        section = (
+            resolved().aigateway if shared is None else (shared.section if reads_seed() else None)
+        )
+        if section is not None:
+            _log_world(env, section, bound.cache)
+        return built
+
+    return world, scope
+
+
+def _log_world(env: Mapping[str, str], section: AigatewaySection, cache: CachePolicy) -> None:
+    """The run's world line — byte-identical to `main`'s, on this module's logger.
+
+    FEATURE (OME-1069): the world's resolved shape, logged once per run. The topic comes from the
+    run's own env; the trace id is appended by the run-context filter, which is bound by the time
+    the world is resolved. Model ids are public catalog names; `web_tools` is derived from the
+    PRESENCE of the Tavily key (`world.web_tools.tavily_key`, the world's own normalization),
+    never the key itself; `cache` states whether the run declared a policy, not its content.
+
+    WHY here and not in `world.factory` (FX-68): the cache policy is the RUN's caller state, read
+    by this run's scope producer, and the world carries no caller state (F2).
+    """
+    logger.info(
+        "runner world topic=%s models=%d default_model=%s web_tools=%s cache=%s outbound=%s",
+        env.get(job_env.TOPIC),
+        len(section.models),
+        section.default_model,
+        "enabled" if tavily_key(env.get(job_env.TAVILY_API_KEY)) is not None else "disabled",
+        _cache_stated(cache),
+        "allowed" if section.allow_outbound else "denied",
+    )
+
+
+def _cache_stated(policy: CachePolicy) -> str:
+    """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
+
+    Its own token rather than the rendered policy: "did not declare" and "declared an
+    all-unset policy" are different statements, and the world log only needs the first.
+    """
+
+    if policy.participate is not None or policy.max_age is not None:
+        return "stated"
+    return "not-stated"
 
 
 def build_executor(
@@ -227,6 +379,8 @@ def build_executor(
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     benchmark_assets_root: Path | None = None,
     io_gate: FairShareGate | None = None,
+    observers: tuple[ObserverFactory, ...] = (),
+    shared_world_provider: Callable[[], SharedWorld | None] | None = None,
 ) -> OperationCapturingExecutor:
     """Wire an executor over the DECLARED world — without building it yet.
 
@@ -244,88 +398,23 @@ def build_executor(
     the web-search/web-fetch tool loop entirely (deny-by-default — see
     ``web_tools.build_client``), rather than leaving it half-configured.
 
+    ``observers`` are per-execution factories supplied by composition. The empty default
+    leaves execution without observers; optional telemetry policy belongs to its adapter.
+
+    ``shared_world_provider`` is local mode's shared world: its io layer AND the ``[aigateway]``
+    section it was built from, bundled into ONE ``world.factory.SharedWorld`` (B6 review round
+    2, item 2 — two independent optional providers let a caller supply the io half without the
+    section half, which silently dropped the run's world line, item 1, with no signal anywhere).
+    ``None`` (every non-local caller) leaves the per-run world's own ``resolved()`` read in
+    place, unchanged.
+
     The concrete return type (not the ``Executor`` port) is deliberate: the composition root
     reads the run's process-level summary back off the wrapper after the run (OME-1069), and
     the wrapper is the only executor this function ever builds.
     """
 
-    async def _world() -> World:
-        # `include_extra_models`: the Runner boot is the ONE parse that reads the
-        # Job-scoped URL4_CLOUD_EXTRA_MODELS overlay (review F3) — this env IS the
-        # Job's own, written by the App at schedule time.
-        resolved = config if config is not None else load_config(env, include_extra_models=True)
-        section = resolved.aigateway
-        if section is None:
-            if len(benchmarks):
-                raise WorldConfigError(
-                    "installed Benchmarks require a declared aigateway model world"
-                )
-            # WHY: a world with no [aigateway] table is a legitimate empty world; the node itself
-            # denies everything undeclared.
-            return deny_by_default_world(), None
-        # WHY: no credential check here; aigateway runs `cloudflare_headers` when deployed
-        # and `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to
-        # demand. Identity is forwarded when present and simply absent locally, where every caller
-        # is anonymous. The old unconditional token requirement made every deployed run fail
-        # before it issued a single request, because a deployed caller has no way to obtain one.
-        cache = job_env.cache_policy_from_env(env)
-        world = await build_aigateway_world(
-            AigatewayConfig(
-                base_url=section.base_url,
-                default_model=section.default_model,
-                models=section.models,
-                allow_outbound=section.allow_outbound,
-                timeout_s=section.timeout_s,
-                web_tool_max_iterations=section.web_tool_max_iterations,
-            ),
-            profile=env.get(job_env.AIGATEWAY_PROFILE),
-            identity_headers=job_env.identity_from_env(env),
-            # Read back per RUN, from this run's own environment — never folded into the
-            # `AigatewayConfig` above, which describes the WORLD and is shared by every run the
-            # process serves. `cache_policy_from_env` is total, so an env that states nothing
-            # yields a policy that states nothing, which the connector sends as no `cache` field
-            # at all — participation, without this half re-deciding what silence means.
-            cache=cache,
-            client=client,
-            tavily_api_key=env.get(job_env.TAVILY_API_KEY),
-            tavily_client=tavily_client,
-        )
-        if len(benchmarks):
-            # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
-            # guarantees the already-open model world closes without a catch-all exception clause.
-            async with AsyncExitStack() as cleanup:
-                cleanup.push_async_callback(world.aclose)
-                install_candidate_invocation(world.node)
-                # The corrective loop's generic gate/select/answer endpoints are
-                # engine capability, not benchmark surface — installed once beside
-                # the candidate invocation for every world that runs benchmarks.
-                install_corrective_runtime(world.node)
-                benchmarks.install(
-                    world.node,
-                    assets_root=(
-                        benchmark_assets_root
-                        if benchmark_assets_root is not None
-                        else assets_root(env)
-                    ),
-                )
-                cleanup.pop_all()
-        # FEATURE (OME-1069): the world's resolved shape, logged once per run. The topic comes
-        # from the run's own env (`run_key`); the trace id is appended by the run-context
-        # filter, which is bound by the time the world is built. Model ids are public catalog
-        # names; `web_tools` is derived from the PRESENCE of the Tavily key, never the key
-        # itself; `cache` states whether the run declared a policy, not the policy's content.
-        logger.info(
-            "runner world topic=%s models=%d default_model=%s web_tools=%s cache=%s outbound=%s",
-            run_key,
-            len(section.models),
-            section.default_model,
-            "enabled" if world.web_tools_enabled else "disabled",
-            _cache_stated(cache),
-            "allowed" if section.allow_outbound else "denied",
-        )
-        return world.node, world.aclose
-
     inline_cap, hard_cap, artifact_store = result_delivery_from_env(env)
+
     # FEATURE (OME-908): the run's downstream admission policy. `io_gate` is LOCAL mode's
     # shared fair-share gate; when present, the run's world io is wrapped into it under the
     # run's TOPIC key and `url4_run` states `concurrency=None` explicitly (the gate replaces
@@ -338,29 +427,80 @@ def build_executor(
     io_wrap: Callable[[Any], Any] | None = None
     if io_gate is not None and run_key:
         io_wrap = lambda io: FairShareIOLayer(io, io_gate, run_key)  # noqa: E731 - binding read
+    # FEATURE (unit 3, prd/03 C8): LOCAL mode builds ONE world, mounts it as the node's ASGI
+    # surface, and runs every in-process run against that same world. `shared_world_provider` is
+    # how a caller hands that shared world in WITHOUT building it here: it is read at executor
+    # BUILD time (once per run) rather than captured, because local mode builds the world in the
+    # App's startup hook, after this factory exists. A provider rather than the world itself also
+    # keeps `build_executor`'s `partial` shape intact — the local composition's `benchmarks` and
+    # `observers` keywords are read by tests, and a bespoke callable would erase them.
+    #
+    # INVARIANT: `None` (the deployed Job, and every non-local caller) leaves the per-run world
+    # factory in place, byte-identical to before. The shared world's own teardown belongs to
+    # whoever built it, so its factory returns NO teardown — a run must not close a world it does
+    # not own.
+    shared = shared_world_provider() if shared_world_provider is not None else None
+    # FEATURE (FX-30, OME-880): a model admitted after the shared node was built is not a route
+    # on it. Such a run builds its own per-run world, exactly as before the shared node existed,
+    # and that world owns its own teardown.
+    if shared is not None and not shared_world_serves(shared.io, env):
+        shared = None
+
+    async def _build(resolved: WorldConfig) -> World:
+        # FEATURE (F1, prd/01): building the world lives in the shared world package, because
+        # both halves build one. This closure supplies only the run mode's per-Job wiring — the
+        # Job's own env and its optional test clients. The factory stays LAZY so a bad config or
+        # unreachable gateway surfaces as a Terminated frame on the topic rather than crashing
+        # the scheduling caller before the stream exists.
+        return await build_world(
+            env=env,
+            config=resolved,
+            client=client,
+            tavily_client=tavily_client,
+            benchmarks=benchmarks,
+            benchmark_assets_root=benchmark_assets_root,
+        )
+
+    world_factory, scope_factory = _seeded_world(env, config, shared, _build)
     return OperationCapturingExecutor(
         Url4Executor(
-            world_factory=_world,
+            world_factory=world_factory,
+            request_scope_factory=scope_factory,
             result_cap=inline_cap,
             hard_cap=hard_cap,
             memory_budget=bridge_budget_from_env(env),
             artifact_store=artifact_store,
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
-        )
+            run_shape=job_env.run_shape_from_env(env),
+        ),
+        observers=observers,
     )
 
 
-def _cache_stated(policy: CachePolicy) -> str:
-    """Whether a run's cache policy stated anything — 'stated' or 'not-stated'.
+def span_sink(env: Mapping[str, str]) -> SpanSink | None:
+    """The run's span sink, or ``None`` when this deployment configured no OTLP endpoint.
 
-    Its own token rather than the rendered policy: "did not declare" and "declared an
-    all-unset policy" are different statements, and the world log only needs the first.
+    WHY the import is LAZY. `tracing.otlp` pulls the OTel SDK, protobuf and `requests` —
+    measured at ~62 ms of this module's ~227 ms import time, which every Job would otherwise
+    pay whether or not it exports anything. `check_layering.py` protects a Job's cold start
+    from the engine's OWN modules; nothing protects it from a third-party dependency, so this
+    is the same discipline applied by hand. `cli.py` and `worker_composition` import their
+    heavy halves the same way, for the same reason.
+
+    INVARIANT: never raises. A broken exporter config must not stop a run from happening — the
+    whole point of the relay is that telemetry degrades alone. An unreachable collector is
+    already handled downstream (the exporter drops); this covers the boot-time half.
     """
+    if not otlp_configured(env):
+        return None
+    try:
+        from screamingface_engine.tracing.otlp import sink_from_env
 
-    if policy.participate is not None or policy.max_age is not None:
-        return "stated"
-    return "not-stated"
+        return sink_from_env(env)
+    except Exception:
+        logger.warning("span export is configured but could not be started", exc_info=True)
+        return None
 
 
 def _nats_host(url: str) -> str:
@@ -417,6 +557,28 @@ def _log_terminal(executor: _SummarizingExecutor, topic: str, started: float) ->
         duration_s,
     )
     if summary.outcome != "succeeded":
+        # FEATURE (OME-940): a FAILED run leaves the evidence line too. This used to `return`
+        # here, so the only line carrying `trace_id` was emitted for successes — inverted from
+        # the point of durable evidence, since the failed run is the one whose record is needed
+        # after the frame stream's 60 s reclamation. The cost/cache fields stay success-only
+        # (they are not exact for a failure, and a partial figure reads as a complete one), so
+        # this states identity and outcome and stops there.
+        error = " ".join(
+            part
+            for part in (
+                f"code={summary.error_code}" if summary.error_code is not None else "",
+                f"type={summary.error_type}" if summary.error_type is not None else "",
+            )
+            if part
+        )
+        logger.info(
+            "run summary topic=%s trace_id=%s outcome=%s duration_s=%.1f%s",
+            topic,
+            summary.trace_id or "none",
+            summary.outcome,
+            duration_s,
+            f" {error}" if error else "",
+        )
         return
     cost = (
         "unpriced"
@@ -439,7 +601,7 @@ def _log_terminal(executor: _SummarizingExecutor, topic: str, started: float) ->
 
 async def _run_and_log(
     executor: OperationCapturingExecutor,
-    publisher: JetStreamPublisher,
+    publisher: EventPublisher,
     params: RunnerParams,
     traceparent: str | None,
 ) -> None:
@@ -453,7 +615,7 @@ async def _run_and_log(
     try:
         await run(
             publisher,
-            executor,
+            ProvenanceExecutor(executor, params.client_version),
             params.topic,
             params.url4,
             traceparent=traceparent,
@@ -463,27 +625,151 @@ async def _run_and_log(
         _log_terminal(executor, params.topic, started)
 
 
-def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
-    async def _main() -> None:
-        params = params_from_env(os.environ)
-        executor = build_executor(os.environ, benchmarks=BUILTIN_BENCHMARKS)
-        traceparent = os.environ.get(job_env.TRACEPARENT)
+@dataclass(frozen=True)
+class WarmState:
+    """What a warm child prepared before its run was known (PRD 03)."""
+
+    publisher: Any
+    world_ok: bool
+    # The world, built ahead from per-process config (None when the config does not load).
+    shared: SharedWorld | None = None
+    world_aclose: Callable[[], Awaitable[None]] | None = None
+
+
+async def warm_up(
+    environ: Mapping[str, str],
+    *,
+    publisher_factory: Callable[[str], Any] = JetStreamPublisher,
+) -> WarmState:
+    """The warm phase: the per-PROCESS work a child can do before its run is known.
+
+    The imports are already paid by the time this runs (this module's import graph is the
+    run path's). Here: connect to the broker and declare the shared events stream, and BUILD
+    the declared world from its config file — the per-run world build was the largest share of
+    a simple call's latency (kind B4: ~600 ms of ~800 ms). A broken config is reported in READY.
+
+    INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, the profile,
+    the io budget. The world holds no caller state: the request scope (identity, profile, seed)
+    is bound per run and read at call time. A run whose admitted overlay (`EXTRA_MODELS`) this
+    world does not route builds its own world instead (`shared_world_serves`), as before.
+    """
+    publisher = publisher_factory(environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL))
+    await publisher.ensure_stream("")
+    try:
+        config = load_config(environ)
+        io, world_aclose = await build_world(
+            env=environ, config=config, benchmarks=BUILTIN_BENCHMARKS
+        )
+    except Exception:
+        # WHY swallow: the run will fail with its own `Terminated(failed)` when it builds the
+        # world (WC-D3). READY carries the verdict so the worker can count it.
+        logger.warning("warm child: the world could not be built ahead", exc_info=True)
+        return WarmState(publisher=publisher, world_ok=False)
+    return WarmState(
+        publisher=publisher,
+        world_ok=True,
+        shared=SharedWorld(io=io, section=config.aigateway),
+        world_aclose=world_aclose,
+    )
+
+
+async def _run_process(
+    publisher: JetStreamPublisher | None, shared: SharedWorld | None = None
+) -> None:
+    """One run from this process's environment, then its reclaim.
+
+    `publisher` and `shared` are the warm phase's (an already-connected publisher, a world
+    built ahead), or None for a cold `run`.
+    """
+    params = params_from_env(os.environ)
+    # WHY: entry-point composition owns plugin registration; the executor stays optional.
+    from screamingface_engine.observation_plugins import observation_factories
+
+    executor = build_executor(
+        os.environ,
+        benchmarks=BUILTIN_BENCHMARKS,
+        observers=observation_factories(os.environ),
+        shared_world_provider=(lambda: shared) if shared is not None else None,
+    )
+    traceparent = os.environ.get(job_env.TRACEPARENT)
+    if publisher is None:
         publisher = JetStreamPublisher(params.nats_url)
-        _log_boot(params, traceparent)
-        # The trace id the run's own frames will carry: parsed from the App-forwarded
-        # traceparent, or None when the caller sent none (the stream then mints one, which
-        # the executor records and the summary line reports). Bound for the whole run so
-        # every process log line inside it carries topic and trace id.
-        trace_id = parse_traceparent(traceparent)
-        with run_scope(params.topic, trace_id):
+    _log_boot(params, traceparent)
+    # The trace id the run's own frames will carry: parsed from the App-forwarded
+    # traceparent, or None when the caller sent none (the stream then mints one, which
+    # the executor records and the summary line reports). Bound for the whole run so
+    # every process log line inside it carries topic and trace id.
+    trace_id = parse_traceparent(traceparent)
+    # FEATURE (OME-1130): the run's spans, exported to a tracing backend so SigNoz shows a
+    # WATERFALL instead of a log search. The relay wraps the run's own publisher — the one
+    # path every frame of every run travels, attached client or not — and is a pure
+    # passthrough when no OTLP endpoint is configured, which is the default everywhere.
+    #
+    # `with`, not a hand-written `finally`: this process is short-lived, and an unflushed
+    # batch loses the tail of every trace including its root span. See `tracing.relay`.
+    #
+    # `run_and_reclaim` keeps the RAW publisher: it needs `delete_stream`, which is
+    # JetStream's, not the wire port's — the relay only stands where frames are published.
+    with (
+        run_scope(params.topic, trace_id),
+        SpanRelay(publisher, span_sink(os.environ)) as relay,
+    ):
+        run_once = lambda: _run_and_log(executor, relay, params, traceparent)  # noqa: E731
+        if os.environ.get(job_env.RECLAIM_OWNER) == "worker":
+            # The supervising worker reclaims the subject after the grace, off this run's slot;
+            # this process exits the moment its terminal frame is out (see RECLAIM_OWNER).
+            await run_once()
+            await publisher.flush()
+        else:
             await run_and_reclaim(
-                publisher,
-                params.topic,
-                lambda: _run_and_log(executor, publisher, params, traceparent),
-                grace_s=stream_grace_s(os.environ),
+                publisher, params.topic, run_once, grace_s=stream_grace_s(os.environ)
             )
 
-    asyncio.run(_main())
+
+def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
+    asyncio.run(_run_process(None))
+
+
+def warm_main() -> None:  # pragma: no cover - real pipes + NATS (covered by integration)
+    """`screamingface-engine run --warm`: warm up, READY, read ONE RUN_SPEC, ACK, run, exit.
+
+    The control pipe's fd comes from `child_protocol.CONTROL_FD_ENV`. Stdin EOF before a spec
+    means the worker is gone: exit 0, having run nothing. A spec the child refuses gets a
+    REFUSED line and exit 2 — before the ACK, so no run code has run (WC-D9).
+    """
+    raise SystemExit(asyncio.run(_warm_process(os.environ, sys.stdin.buffer)))
+
+
+async def _warm_process(environ: Any, stdin: Any) -> int:
+    control = os.fdopen(int(environ[child_protocol.CONTROL_FD_ENV]), "wb", buffering=0)
+    try:
+        state = await warm_up(environ)
+        control.write(child_protocol.encode_ready(pid=os.getpid(), world_ok=state.world_ok))
+        line = await asyncio.to_thread(stdin.readline, child_protocol.MAX_SPEC_BYTES + 1)
+        if not line:
+            return 0
+        try:
+            spec = child_protocol.decode_spec(line)
+        except child_protocol.SpecError as exc:
+            logger.error("warm child refused its run spec: %s (%s)", exc.code, exc)
+            control.write(child_protocol.encode_refused(exc.code))
+            return 2
+        control.write(child_protocol.ACK)
+    finally:
+        control.close()
+        # The fd number is closed now; the run must not inherit a name for a stale fd.
+        environ.pop(child_protocol.CONTROL_FD_ENV, None)
+    # From here the process IS the run: its environment is the one a cold child would have
+    # been spawned with, and the io budget is the worker's at hand-off (WRM-18).
+    environ.update(spec.env)
+    environ[job_env.IO_CONCURRENCY] = str(spec.io_concurrency)
+    try:
+        await _run_process(state.publisher, state.shared)
+    finally:
+        # The world built ahead is this process's own; the run does not close a shared world.
+        if state.world_aclose is not None:
+            await state.world_aclose()
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

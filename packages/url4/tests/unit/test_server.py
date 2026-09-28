@@ -112,11 +112,57 @@ async def test_data_route_media_type_drives_collection_iteration():
 
 
 async def test_empty_string_data_provider_is_served():
-    # server.py _dispatch(): a legitimately falsy provider ("") is served, not
+    # url4.peer/_dispatch.py dispatch(): a legitimately falsy provider ("") is
     # skipped as if the route were missing.
     n = Url4Node("empty")
     n.data("/api/empty", "")
     assert await n.fetch("/api/empty", relative=True) == ""
+
+
+async def test_data_decorator_route_reports_its_declared_media_type():
+    # F10: the merged _data map carries the media type with the provider, so the
+    # decorator form reports it exactly like the direct form.
+    n = Url4Node("deco")
+
+    @n.data("/api/deco", media_type="application/json")
+    def deco() -> str:
+        return '["x"]'
+
+    result = await n.fetch_ex(FetchRequest("/api/deco", relative=True))
+    assert result.media_type == "application/json"
+    assert await n.fetch("/api/deco", relative=True) == '["x"]'
+
+
+async def test_unapplied_data_decorator_leaves_no_route_or_media_type():
+    # F10: a declared-but-unapplied decorator must not half-register a route
+    # (the old parallel map could keep a stale media type for it).
+    n = Url4Node("stale")
+    register = n.data("/api/none", media_type="application/json")
+    assert callable(register)
+    assert n._data == {}
+    with pytest.raises(Url4Error) as err:
+        await n.fetch("/api/none", relative=True)
+    assert err.value.code == "endpoint_not_found"
+
+
+async def test_node_injected_outbound_is_never_closed(node):
+    # The `node` fixture injects a StaticIOLayer; the node owns nothing to close.
+    await node.aclose()  # no-op; must not raise
+    assert await node.fetch("/api/rows", relative=True) == '["alpha", "beta"]'
+
+
+async def test_node_closes_its_owned_outbound_on_exit(monkeypatch):
+    closed: list[bool] = []
+
+    class Tracked(StaticIOLayer):
+        async def aclose(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr("url4.peer._owned._http_io", Tracked)
+    async with Url4Node("own") as node:
+        node._outbound_io()  # force the owned adapter into existence
+        assert closed == []
+    assert closed == [True]
 
 
 async def test_evaluate_env_seeds_scope(node):
@@ -299,7 +345,7 @@ async def test_constructor_data_param():
 async def test_dual_wire_conventions_are_codec_owned():
     # WHY: spec §3.4 — a node MUST accept url4's raw-structural escaping AND a
     # standard client's full percent-encoding; the codec module owns both.
-    from url4.core.subrequest import decode_expression_http, decode_subrequest_http
+    from url4.wire.subrequest import decode_expression_http, decode_subrequest_http
 
     raw = "(a=https://x)!'go'"
     encoded = "%28a%3Dhttps%3A%2F%2Fx%29%21%27go%27"

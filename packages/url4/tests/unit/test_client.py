@@ -192,6 +192,25 @@ async def test_owned_io_lifecycle_without_use():
         assert client is not None
 
 
+async def test_client_effective_io_returns_the_injected_layer(io):
+    assert Client(io)._effective_io() is io
+
+
+async def test_client_closes_its_owned_io_on_exit(monkeypatch):
+    # A used owned adapter is closed by __aexit__, through the shared _OwnedIO.
+    closed: list[bool] = []
+
+    class Tracked(StaticIOLayer):
+        async def aclose(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr("url4.peer._owned._http_io", Tracked)
+    async with Client() as client:
+        client._effective_io()  # force the owned adapter into existence
+        assert closed == []
+    assert closed == [True]
+
+
 async def test_result_is_json_roundtrippable():
     res = Url4Result(text=json.dumps({"ok": True}), request="()!'x'")
     assert res.json() == {"ok": True}

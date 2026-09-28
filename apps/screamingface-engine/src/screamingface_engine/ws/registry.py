@@ -15,7 +15,8 @@ to the broker — it schedules runs and reads their log — so routing a notice 
 connection is the only path that does not change that posture.
 """
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -48,9 +49,14 @@ class AudienceListener(Protocol):
 
 @dataclass
 class _Session:
-    """One topic's WS session: live connections, the cache intent they declared, and their sinks."""
+    """One topic's session: its audience (live WS connections and waiting sync requests), the
+    cache intent the connections declared, and their sinks."""
 
     subscribers: int = 0
+    """Live WebSocket connections."""
+    sync_holders: int = 0
+    """Sync `GET /?q=` requests waiting for this run's terminal frame (uniform executor PRD 02).
+    A waiting caller IS an audience: it reads the result, so the run must not be reaped."""
     cache: CachePolicy | None = None
     cache_declared: bool = False
     """Whether ANY attach has spoken yet. Distinct from ``cache is None`` on purpose: an attach
@@ -59,6 +65,10 @@ class _Session:
     notifiers: list[Notify] = field(default_factory=list)
     """One sink per live connection on this topic. A list and not a single slot because two
     sockets may legitimately observe one run, and a notice about the run belongs to both."""
+
+
+def _audience_of(session: _Session) -> int:
+    return session.subscribers + session.sync_holders
 
 
 class ConnectionRegistry:
@@ -83,26 +93,60 @@ class ConnectionRegistry:
     def add(self, topic: str) -> None:
         session = self._sessions.setdefault(topic, _Session())
         session.subscribers += 1
-        # INVARIANT: 0->1 ONLY. `add_notifier` can create a session at zero subscribers, and the
-        # second of two watchers attaching must not read as "the audience arrived".
-        if session.subscribers == 1 and self._audience is not None:
-            self._audience.audience_arrived(topic)
+        self._arrived(topic, session)
 
     def remove(self, topic: str) -> None:
         session = self._sessions.get(topic)
         if session is None:
             return
         session.subscribers -= 1
-        if session.subscribers <= 0:
+        self._left(topic, session)
+
+    @asynccontextmanager
+    async def hold_sync(self, topic: str) -> AsyncIterator[None]:
+        """Count a waiting sync request as `topic`'s audience for the duration of the block.
+
+        WHY an audience and not a bypass of the gate: the 428 gate and the orphan reaper ask the
+        same question — "is anybody reading this run?" — and a sync caller is. Held, the gate
+        passes and the reaper stays disarmed; released (terminal frame, bound, disconnect, or an
+        error — the `finally`), the reaper's grace starts exactly as when a WS leaves.
+        """
+        session = self._sessions.setdefault(topic, _Session())
+        session.sync_holders += 1
+        self._arrived(topic, session)
+        try:
+            yield
+        finally:
+            session.sync_holders -= 1
+            self._left(topic, session)
+
+    @property
+    def sync_holders(self) -> int:
+        """How many sync requests hold a topic right now, across all topics (a gauge)."""
+        return sum(session.sync_holders for session in self._sessions.values())
+
+    def _arrived(self, topic: str, session: _Session) -> None:
+        # INVARIANT: 0->1 of the WHOLE audience ONLY. `add_notifier` can create a session at zero,
+        # and a second watcher — a WS joining a sync caller, or the reverse — must not read as
+        # "the audience arrived".
+        if _audience_of(session) == 1 and self._audience is not None:
+            self._audience.audience_arrived(topic)
+
+    def _left(self, topic: str, session: _Session) -> None:
+        if _audience_of(session) > 0:
+            return
+        # The session object may already be gone (a WS `remove` past zero); only drop the
+        # one that is still registered.
+        if self._sessions.get(topic) is session:
             del self._sessions[topic]
-            # INVARIANT: 1->0 ONLY, and announced AFTER the session is discarded, so a listener
-            # that asks `has_subscriber` from inside the callback gets the post-transition answer.
-            if self._audience is not None:
-                self._audience.audience_left(topic)
+        # INVARIANT: 1->0 ONLY, and announced AFTER the session is discarded, so a listener
+        # that asks `has_subscriber` from inside the callback gets the post-transition answer.
+        if self._audience is not None:
+            self._audience.audience_left(topic)
 
     async def has_subscriber(self, topic: str) -> bool:
         session = self._sessions.get(topic)
-        return session is not None and session.subscribers > 0
+        return session is not None and _audience_of(session) > 0
 
     def declare_cache_policy(self, topic: str, policy: CachePolicy | None) -> bool:
         """Record ``policy`` as ``topic``'s cache intent — FIRST ATTACH WINS (spec §5.2).

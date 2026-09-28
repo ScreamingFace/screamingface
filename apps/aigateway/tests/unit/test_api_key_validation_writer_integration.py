@@ -263,7 +263,7 @@ def test_profile_set_invalid_preserves_existing_profile_and_key(
     anthropic_transport.queue = [_auth_ok(), _readiness_ok()]
     created = authenticated_client.put(
         "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _KEY_A, "defaults": {"temperature": 0.2}},
+        json={"api_key": _KEY_A},
     )
     assert created.status_code == 200
     before_profile = created.json()
@@ -271,7 +271,7 @@ def test_profile_set_invalid_preserves_existing_profile_and_key(
     anthropic_transport.queue = [_auth_reject()]
     resp = authenticated_client.put(
         "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _KEY_B, "defaults": {"temperature": 0.9}},
+        json={"api_key": _KEY_B},
     )
 
     assert resp.status_code == 422

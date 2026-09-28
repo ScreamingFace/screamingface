@@ -1,0 +1,166 @@
+---
+ticket: OME-1135
+stack: screamingface
+status: in_progress
+started: 2026-09-17
+finished:
+---
+# OME-1135 — Live activity in the evaluation widget
+
+## Intent
+Expose safe Engine activity while notebook evaluations run. Target PR #980's four-stage contract; the owner explicitly declines older-Engine compatibility.
+
+## Planned changes
+- Independent typed activity projection and Logs rendering in Client `_ui`.
+- Stage-aware candidate status and independently expandable, grouped activity rows.
+- Bounded decoder ID window in `_engine/contract.py`.
+- New decoder, projection, widget and local Engine integration checks.
+
+## Test plan
+Write failing tests for safe parsing, occurrence/revision isolation, rolling eviction, loss snapshots, historical updates, terminal outcomes, and interactive rendering. Exercise current Engine records through the real Client decoder. Run the screamingface gate runner.
+
+## Acceptance
+Four stage labels plus model-call detail; no inference from prose/routes; rolling bounded memory; unknown outcomes remain unknown; results, accounting and callbacks unchanged. Draft PR and Linear In Progress until ready for review.
+
+## Outcome
+- Implemented safe activity decoding, rolling history/occurrence summaries, paged, grouped candidate activity, and bounded decoder event-ID window.
+- Preserved existing widget assertions; the owner approved extending its fake ipywidgets fixture with the required widget controls. No assertions removed or weakened.
+- Removed the pre-existing six-hour ticker cutoff and added a simulated three-day regression. Focused widget/activity/decoder suite: 75 passing; Pyright clean.
+- Actual #980 producers passed through the Client decoder: 10 records, five completed operations, zero invalid records. This in-process check is not a hosted full-evaluation test.
+- Local stack runs #980 checkout on 9105/9106/9108 with activity full. Jupyter runs on 8888; a separate IFEval notebook copy uses this Client checkout. No paid model calls or publishing performed.
+- Full expanded-row gates passed: lint, formatting, types, 95% coverage threshold, notebooks, build and distribution. Commit/PR pending. Activity uses measured durations with unknown current freshness, no extrapolation or inferred provider progress.
+
+## Expanded-row iteration
+Owner rejected tab layout and approved replacing it with per-Candidate expansion and stage status. Prior full gate run passed. Write grouping/status/expansion tests first, then replace tab-specific UI/tests. Keep local stack and Jupyter running; do not interrupt an active user kernel.
+
+Expanded-row validation: 92 focused tests passed, including explicit parent grouping, late parents, cross-run isolation, concurrent stages, independent expansion and pagination. Jupyter simulated-event preview verified both rows can remain expanded; no model calls were made. A fresh IFEval-expanded-activity.ipynb is available without resetting the original notebook. Hosted/local full fake-provider evaluation remains an acceptance follow-up before moving the draft to review.
+
+## Terminal-output iteration
+Owner explicitly requested flat scrollable terminal-style output instead of inner activity tables. Keep grouping, row expansion and bounded rendering; replace only markup/CSS and migrate the table-count pagination assertions to log-line counts. Validate no table markup and escaped model details, then run Client gates.
+
+Terminal-output outcome: 33 focused checks passed and all Client gates passed (including 95% coverage). Diff review confirmed this is presentation-only: safe escaping, parent grouping, measured durations and stable scroll roots remain. Browser security policy blocked the standalone file preview, so this iteration is not claimed as visually verified in-browser. Fresh IFEval-terminal-activity.ipynb is available for user testing without resetting existing kernels.
+
+## Contained log-box correction
+Owner screenshot shows report-like spacing and right-aligned statuses, inconsistent with requested log box. Replace generic heading markup with isolated log-line classes and enforce a 280px scroll container; keep inline details. Add regression for containment/markup and verify in Jupyter.
+
+Verified the correction in a real Jupyter kernel using simulated records: compact inline lines in a bordered 280px box, with grouped indentation. Screenshot checked. 34 focused tests pass. Existing live evaluation kernels remain untouched.
+
+Contained-box correction: all Client gates passed, including the 95% coverage threshold. Follow-up UX discussion identified that case attribution needs authoritative Engine context; current stage observer carries kind and emitter only.
+
+## Flat, case-aware logs — 2026-09-18
+Owner authorized continuing against #980 stacked on #988: remove indentation, routine durations and normal finish reasons; make case/model/stage readable on each model line. Preserve explicit parent grouping, unknown identity, failure/retry information, bounded rendering and disclosure controls. Normalize supplied case IDs with str() without numeric coercion; do not invent case ordinals or infer missing IDs from siblings. Stage records without IDs remain unlabelled. Hosted preview is disabled; proceeded with the existing local-preview workflow after the optional preference question received no reply.
+
+Plan/test: add presentation regressions for interleaved cases, leading-zero IDs, missing identity, failures/retries and flat styling; render actual stacked Engine records through the Client decoder; verify Jupyter light/dark and full Client gates. Owner's removal of routine timing authorizes replacing the old measured-duration display assertion; all privacy/freshness/loss assertions remain. No provider calls initiated by the agent.
+
+Case-aware outcome: 41 focused tests and all Client gates pass (including 95% coverage, notebook/build/distribution checks). Real #980+#988 native producers emitted 16 records through the Client decoder with zero invalid records; cases 42 and 007 rendered correctly in Jupyter light/dark views. A full two-case IFEval run against the local Engine using a literal answer and the Client transport decoded all four stage kinds, with zero invalid records and no provider calls. This transport smoke deliberately bypassed Recipe reconstruction because literal candidates have no Recipe metadata. User notebook IFEval-case-activity.ipynb targets local :9108 and remains unexecuted. No stage-case IDs invented; direct stage attribution remains an Engine follow-up. Existing measured-duration and failure-spelling assertions migrated for the explicitly requested presentation change; privacy, freshness and loss assertions preserved. Self-review: presentation only, safe escaping and explicit identity, no report/accounting/transport changes. Keep draft/In Progress.
+
+## Lifecycle wording preview — 2026-09-18
+Owner requested trying a chronological log with selected-case positions, phase boundaries and model identities. First produce a clearly labelled static notebook preview using the existing theme/scroll-box styling. This is a presentation prototype, not real Engine events or a claim of completed integration. No provider calls. Engine inspection confirms stage observation currently lacks case facts and candidate stage starts outside case_scope; case selection ordinals are not supplied. Keep case metadata in #988, stage association/lifecycle production in #980, Client wording/history rendering in #983. Before production wiring, establish authoritative selected-case order/total and whole-case grading completion; do not synthesize these from model arrival or endpoint completion.
+
+Owner approved “Synthesising” wording and separation of case/stage/role. Updated the illustrative notebook's source and saved HTML output consistently, plus the Client spec/plan. No production role attribution or chronological projection implemented in this wording-only step; no runtime behavior changed. Four stages remain unchanged.
+
+## Live chronological projection — 2026-09-18
+Owner approved wiring. Render the existing bounded accepted-event history in arrival order, preserving start/retry/terminal transitions and explicit parent-stage attribution. Keep the latest-operation index for current status and freshness; historical records must not be marked as currently stale/active. Pagination counts retained events. Test interleaving, event-page boundaries and terminal resolution before implementation. Missing role and ordinal remain unknown until an authoritative producer contract exists; do not fabricate the complete illustrative preview.
+
+Timeline outcome: 45 focused checks passed and all Client gates passed, including 95% coverage, notebooks, build and distribution. First full run was interrupted during an apparently stalled connection test; that file passed independently (36 tests), then the unchanged full gate rerun passed. Native Engine producers rendered 16 chronological records in a fresh Jupyter notebook with zero invalid records and explicit Case 42/007 labels. No provider requests. Self-review: no new unbounded index, escaped safe fields only, latest-state freshness stays separate from historical transitions, explicit parentage only, no existing tests modified. Remaining semantic-role work is already owned by OME-699; selected-case ordinals and whole-case grading boundaries are not implemented here.
+
+
+## Selected-case numbering — 2026-09-18
+
+Owner approved explicit selected-case positions alongside IDs. Update safe decoding and flat log prefix to [Case n/N], with ID fallback. No inference, model role additions or layout changes. Test independent candidates, dropped/replayed records and malformed pairs; run full Client gates.
+
+Numbering consumer outcome: seven new tests passed after RED, including ten independent candidates and out-of-order arrivals, plus malformed/missing position pairs. Existing timeline tests pass unchanged. Full Client gates green (lint, format, types, full test suite/95% coverage, notebooks, build and distribution). Preserves ID fallback and bounded history; no provider requests. Producer integration remains pending the #988 test migration approval.
+
+## Dynamic-line presentation prototype
+
+Owner asked to try one stable row per operation with a spinner/checkmark, suppressing redundant Answering stage lifecycle lines. Created the explicitly simulated, throwaway `.docs/OME-1135/dynamic-activity-prototype.html` and `Dynamic-activity-preview.ipynb`. Existing issue/spec covers live activity; this is visual exploration before changing the production projection. Same DOM row updates through running, retrying, completed, failed and unknown; fixed-width markers, neutral checks, reduced-motion support. No model calls, server writes or production code changes. Numbering test-migration permission remains pending and is unrelated to this UI preview.
+
+
+## Dynamic operation lines — approved implementation
+
+Owner approved finishing the dynamic log view only. Implement the validated prototype as a latest-state projection of existing activity data, without changing Engine or protocol. Preserve all safe metadata, unknown-state semantics, raw bounded history and independent candidates. Presentation test migrations reflect this explicitly approved layout change; Engine snapshot migration remains pending.
+
+Dynamic view outcome: 62 activity tests passed; full Client gates green (ruff, formatting, pyright, full pytest with 95% threshold, notebook checks, build and distribution). Initial lint failure in description complexity was fixed by extracting stage wording; no thresholds weakened. Existing presentation assertions migrated under the approved dynamic-view scope; history/order/loss/privacy assertions preserved. Actual Client widget verified in Jupyter with simulated structured events, live replay, running spinner and completed checks; no provider requests. Preview: `.docs/OME-1135/Dynamic-log-widget.ipynb`.
+
+Wisdom review: reuse the existing bounded latest-operation index rather than adding another state machine or dependency. No Engine/public schema/report change. Explicit parentage is the only basis for stage labels and suppression; failures and unknown outcomes remain visible. All rendered text is escaped. Scroll ownership stays in the persistent widget; inner HTML is refreshed as a unit, so this does not promise stable individual DOM nodes. Role attribution and pending Engine numbering migration remain out of scope. Draft/In Progress retained. Commit: `feat(client): update activity lines in place` (Refs: OME-1135).
+
+## Active case in candidate status
+
+Owner approved adding the explicit active case position to the table status (Answering · Case 3/5), while leaving the Cases column unchanged. Reuse safe stage facts; never derive current position from completion counts. Concurrent stages retain their own labels; missing positions preserve the existing stage-only label. Add regression coverage, run Client gates, keep #983 draft.
+
+
+Owner correction: status stays stage-only (Answering); the Cases cell displays the explicit active position (3 / 5). Completed-case accounting remains unchanged internally and remains the fallback when no fresh numbered stage is available. Concurrent positions remain distinct; no inference from arrival order. This supersedes the status-label proposal above.
+
+Active Cases cell outcome: five new tests cover explicit active positions, concurrent candidate isolation, missing numbering, stale/terminal records and unchanged completed accounting. All Client gates green, including append-only, full coverage, notebooks/build/distribution. Initial test fixture used an incompatible SimpleNamespace; replaced with the real typed candidate-progress model. Prior tests unchanged. Wisdom review: reuses validated stage facts and freshness policy, no new durable state or Engine dependency. Status stays stage-only; only fresh explicit positions override the Cases presentation. Missing numbering preserves the existing fallback. Draft #983 retained.
+
+## Inline row disclosure
+
+Owner approved an inline chevron, whole-row click/keyboard expansion, and logs nested inside the same candidate boundary. Use the existing native toggle as a full-row hit target over the noninteractive summary, preserving widget expansion state and scroll roots without JavaScript or new dependencies. Shared border encloses summary and details. Verify real Jupyter pointer/keyboard behavior and independent expansion, then Client gates.
+
+
+Owner requested timestamps: show a quiet HH:MM:SS UTC first-observed time per operation, fixed across updates. Full date and timezone in tooltip; bounded index evicts with latest operation. Invalid calendar dates must not break rendering. Duplicate Grading lines remain distinct operations pending Engine case-level grouping.
+
+Inline disclosure verified in live Jupyter: far-right summary click, Space keyboard toggle, independent candidate expansion and scroll without collapse. Native toggle remains accessible; logs share the row border. Initial full Client gates passed. Timestamp regression tests passed after RED: fixed across revisions, eviction with operation, and out-of-range calendar fallback. Visual preview verified using production widgets and simulated events; no provider calls. Full gates rerunning for timestamp addition.
+
+Owner requested completed wording: Answered, Graded and Scores aggregated on success; active and failure wording remain distinct. Same dynamic operation line and timestamp.
+
+Past-tense change: seven new outcome-wording cases passed after RED; all 78 activity tests green. Migrated only prior presentation assertions for the owner-requested wording using the explicit append-only exception; behavioral, ordering, history and failure assertions preserved. Full Client gates running on final code.
+
+Final outcome: all Client gates green on disclosure, timestamps and past-tense wording. Visual checks passed in production Jupyter widgets. Wisdom review: no new frontend dependency or execution behavior; timestamps are per-operation first observation, not fabricated start times, and share eviction with the bounded latest index. Draft status retained.
+
+
+Owner approved discrete case Grading lines: consume scope=case grading records, join numbering only by explicit candidate/run/case ID from retained answering facts, preserve ID-only fallback. Hide routine endpoint grading rows once case-phase records exist in that run; keep model calls, failures, unknown outcomes and raw history. Terminal revision wins over delayed starts; no execution or timing inference.
+
+Case-grading summary validation: 32 focused activity tests pass, including exact candidate/run/case matching, leading-zero IDs, terminal-before-start handling and preserved failures/model calls. Real local HTTP/URL4 IFEval with two fixed answers renders exactly one numbered Graded line per case and zero invalid records. Verified the resulting production HTML in Jupyter Case-grading-preview.ipynb. Engine #980 restarted locally on port 9108. No paid model calls. Full Client gates passed; final regression-inclusive gates/pre-push recorded separately. Keep draft/In Progress.
+
+## Copy displayed activity — 2026-09-18
+Owner requested a Copy control at the top right of each log box. Add a native keyboard-accessible button within the log viewport, pinned above its displayed page. Copy only rendered, safe text (timestamps, messages and partial-history notices), never raw event payloads or other candidates. Show Copied only on successful browser clipboard write; show an actionable failure label if unavailable. Reuse existing notebook HTML/clipboard pattern, no dependencies or Engine changes. Test button semantics and candidate isolation, then verify actual clipboard output in Jupyter and run Client gates.
+
+Copy control outcome: native button stays top-right inside the scrollable log box and copies only the displayed candidate/page, including timestamps and partial-history notices. Two new tests passed after RED, prior tests unchanged. Actual mouse/keyboard copy and paste verified in Jupyter; exact text and clipboard-rejection feedback checked against the generated handler. No dependencies, raw payloads, Engine changes or new data retention. Full Client gates passed: append-only, lint, formatting, Pyright, full tests with 95% coverage, notebook checks, build and distribution.
+
+## Neutral call wording — 2026-09-21
+Owner approved Calling MODEL → Completed MODEL call on the same logical line, Retrying MODEL call and MODEL call failed. Retain first-observed timestamps, icons, operation identity, case numbering and stage status. Avoid implying member/synthesiser/judge roles. Client-only presentation change in #983. Migrate only the existing wording assertions authorized by this request; preserve behavioral assertions. Add lifecycle/role-neutral regression coverage, run full gates with the explicit append-only migration exception, and keep draft/In Progress.
+
+Neutral-call wording verification: 27 focused tests pass, including same-line start/retry/completion under answering and grading, original timestamp retention and safe failure details. Existing test edits are wording-only; identity, unknown-case, parentage, history, icons, retries and token-limit assertions remain. Full gate run uses --skip-append-only solely for this owner-authorized text migration; no lint/type/test/coverage gate is skipped. No Engine, wire schema, state model or new dependency changes.
+
+Neutral-call wording outcome: all Client gates passed (lint, format, types, full tests/coverage, notebooks, build/distribution). Manual review confirmed only model-call text and matching assertions changed; no state, privacy or execution changes.
+
+
+## Compact spacing and candidate overflow — 2026-09-22
+Owner requested less empty space around activity and single-line horizontally scrollable candidate names. Use content-sized logs capped at 280px, 8px inner padding, and a constrained name scroll region that preserves row expansion. Validate in Jupyter without model calls and run Client gates. Existing fixed-height assertions migrate to the explicitly requested content-sized behavior.
+
+Compact layout verification: 58 focused activity/progress tests pass. Actual Jupyter output refreshed without provider calls; long name has 76px overflow and horizontal scrolling reached its end, clicking the name still toggles expansion. Tight 8px log inset replaces 12px/16px and fixed minimum height; viewport remains capped at 280px. Existing test migrations only cover the requested height and name focus changes. Review: presentation only, no wire/state/privacy changes, dependencies or raw data exposure. Full gates rerun after discovering two additional old-layout assertions.
+
+Outcome: all Client gates green, including lint, formatting, types, full tests/95% coverage, notebooks, build and distribution. Append-only exception limited to owner-requested layout assertion migrations. Draft status retained.
+
+
+## Content-sized activity follow-up — 2026-09-22
+The live notebook retains an older global console height:280px rule. Explicitly reset console height/min-height/overflow, reduce vertical padding, and overlay Copy in a reserved right gutter so it takes no extra row. Verify rendered short and overflowing content without provider calls.
+
+Verified in the existing Jupyter output with stale fixed-height CSS still present: ten rows now measure 199.953px, console padding is 4px 8px, toolbar height is zero, and the widget retains max-height 280px. Screenshot confirms no empty top/bottom block and Copy aligned with the first row. No provider calls or evaluation state changes.
+
+Outcome: 58 focused tests pass and all Client gates are green (lint, format, types, full tests/95% coverage, notebooks, distribution). Existing branch-wide append-only exception retained for previously authorized assertion migrations; no tests changed in this follow-up. Notebook display saved.
+
+
+## Candidate status and alignment — 2026-09-22
+Owner requested one-word nonwrapping status, independently stopped candidate timers, and aligned contiguous table headers/rows. Root Terminated events establish execution completion and freeze duration from event timestamps; final reports remain score authority. Multiple simultaneous stages show Running, inactive stages show Waiting. Normalize widget wrapper margins and equal header/row borders. Verify concurrent candidate completion, nested terminal isolation, final report reconciliation, and rendered alignment.
+
+Verification: regression demonstrates Finished · 12s remains fixed at later refresh times while another candidate runs; an unmatched child termination cannot finish the candidate. Final Report remains score authority. Existing assertions migrated only for requested completion, one-word labels, frozen terminal durations and column widths. Browser measurement confirms all six header/cell x positions and widths match, status computes nowrap, and only shared border separates header and rows. Notebook modules refreshed without provider calls. Review: no Engine/wire/API/dependency changes; execution completion is based on root terminal evidence, never aggregation-log inference.
+
+Outcome: final Client gates all green, including full tests with 95% coverage, types, lint, format, notebooks and distribution. Draft/In Progress retained.
+
+
+## Per-candidate final result — 2026-09-22
+Reconcile each completed candidate row from its validated CandidateResult before siblings finish. Notify from each transport completion in both sync and async execution; preserve final report ordering, validation and public event callbacks. UI completion remains fault-contained. Final Report still reconciles the whole view; no provisional scores or inferred cache totals. Test fast-second/slow-first completion and independent row values.
+
+Verification: six completion tests pass, covering fast-second/slow-first sync and async ordering, real result validation through the notebook observer, independent row values, single-candidate delivery, and a failing display callback that preserves the outcome. Public event callbacks and final candidate ordering are unchanged. Existing per-candidate cache evidence is retained; final result reconciles score, qualifier, case count, duration and reported usage without waiting for siblings. Notebook modules reloaded without executing paid evaluations.
+
+Outcome: all Client gates green (lint, formatting, types, full suite/95% coverage, notebooks, build/distribution). No prior tests edited in this iteration; existing branch-wide append-only exception retained. Review confirmed existing failure/cancellation and final report behavior preserved, with only independently delivered row updates added. Draft/In Progress retained.
+
+
+## Root-lifecycle review fix — 2026-09-23
+Owner reported that a decoded child termination prematurely finishes the candidate. Reproduce the complete decoder lifecycle, pin the first Started matching the candidate URL4 (the decoder's root contract), and accept termination only for that run/source. Preserve timers and continued activity until root completion. Integrate main's no-math widget classes without duplicate startup. Append regressions, run Client gates; retain draft status.
+
+Diagnosis and focused validation: all four decoder-to-progress scenarios failed before the fix and now pass, including child-before-root and a child with the same expression. Root elapsed time is preserved and only root termination finishes the row. All 46 focused progress checks pass. Independent Standards and Spec reviews found no actionable issues. Unknown/non-root starts may still indicate running work, preserving the existing presentation contract, but cannot authorize completion. No prior test assertions were changed.
+
+Outcome: all Client gates pass: lint, formatting, types, full tests/95% coverage, notebooks, build and distribution. The existing approved branch-wide append-only exception covers historical UI migrations; this bug fix only adds tests. Main integration preserves no-math styling with one widget startup/ticker. Root fix ready to push; PR stays draft and full local/hosted fake-provider acceptance remains outstanding. Engine observation fix is tracked separately in #980.

@@ -202,7 +202,19 @@ def test_log_terminal_omits_cost_and_cache_for_a_failed_run(
         "type=RunnerRequestError" in message
         for message in messages
     )
-    assert not any("run summary" in message for message in messages)
+    # OME-940 retargeted this to the invariant the test is NAMED for. It asserted that a failed
+    # run produced no `run summary` line at all, which was how "omits cost and cache" used to be
+    # achieved — and which meant the only line carrying `trace_id` was success-only, so the run
+    # whose evidence is needed after the frame stream's 60 s reclamation had none at all. The
+    # line is now emitted for failures, carrying identity and outcome; cost and cache stay
+    # omitted, because neither is exact for a failure and a partial figure reads as a complete
+    # one.
+    summary_lines = [message for message in messages if "run summary" in message]
+    assert summary_lines, "a failed run must still leave an evidence line"
+    for message in summary_lines:
+        assert "cost_usd" not in message, message
+        assert "pricing=" not in message, message
+        assert "cache" not in message, message
 
 
 def test_log_terminal_warns_when_no_summary_exists(caplog: pytest.LogCaptureFixture) -> None:

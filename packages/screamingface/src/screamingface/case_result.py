@@ -25,12 +25,15 @@ type EvidenceOutcome = Literal["MET", "UNMET", "PASS", "FAIL"]
 type CheckOutcome = Literal["MET", "UNMET"]
 
 # The Engine's explicit per-Case outcome; kept in lock-step with url4-cloud's
-# `benchmarks/contract.py` CaseStatus.
-type CaseStatus = Literal["scored", "refused", "failed"]
+# `benchmarks/contract.py` CaseStatus. WHY only two values (OME-1037): `refused`
+# meant "provider declined" in most benchmarks and "correct answer" in DRACO — a
+# graded refusal is now an ordinary scored Case carrying `refusal` text, and an
+# ungradeable one a failed Case whose failures include the `provider_refusal` code.
+type CaseStatus = Literal["scored", "failed"]
 type StopReason = Literal["passed", "max_rounds"]
-# Which side refused a refused Case — derived from the two provider-verbatim signals
-# the Engine's runner classifies a refusal from (OME-745, `runner/model_response.py`);
-# never carried on the wire.
+# Which side refused a Case that represents a refusal — derived from the two
+# provider-verbatim signals the Engine's runner classifies a refusal from (OME-745,
+# `runner/model_response.py`); never carried on the wire.
 type RefusalKind = Literal["provider_declined", "model_refusal"]
 
 
@@ -388,12 +391,18 @@ class CaseResult:
         model's own refusal message. This property is the client's ONE reading of
         that split, checked in the Engine classifier's own order — ``content_filter``
         first, so a filtered turn that also carries refusal text still reads as the
-        provider declining. ``None`` for any non-refused Case, and for a refused Case
-        whose payload carries neither signal (older Engines) — unknown, never a
-        guess. Derived, never serialized: ``to_dict`` stays byte-identical.
+        provider declining. Since OME-1037 there is no ``refused`` status: a Case
+        represents a refusal when it is scored-with-refusal (the benchmark graded
+        the decline) or failed with a ``provider_refusal`` failure (it could not).
+        ``None`` for every other Case, and for a refusal payload carrying neither
+        signal — unknown, never a guess. Derived, never serialized: ``to_dict``
+        stays byte-identical.
         """
 
-        if self.status != "refused":
+        represents_refusal = self.refusal is not None or any(
+            failure.code == "provider_refusal" for failure in self.failures
+        )
+        if not represents_refusal:
             return None
         if self.finish_reason == "content_filter":
             return "provider_declined"
@@ -550,13 +559,11 @@ def _validate_case_outcome(
     repeat a status already unambiguously determined by the complete Case shape.
     """
 
-    selected_status = _case_status(status, refusal, grade)
+    selected_status = _case_status(status, grade)
     if any(failure.case_id != case_id for failure in failures):
         raise ValueError("every Case Result Failure must reference its own case_id")
     if selected_status == "scored":
         _validate_scored_case(refusal, grade, output, failures)
-    elif selected_status == "refused":
-        _validate_refused_case(refusal, grade, output, failures)
     else:
         _validate_failed_case(refusal, grade, failures)
     return selected_status
@@ -564,15 +571,12 @@ def _validate_case_outcome(
 
 def _case_status(
     status: CaseStatus | None,
-    refusal: str | None,
     grade: CaseGrade | None,
 ) -> CaseStatus:
     if status is not None:
-        if status not in {"scored", "refused", "failed"}:
-            raise ValueError("Case Result status must be 'scored', 'refused', or 'failed'")
+        if status not in {"scored", "failed"}:
+            raise ValueError("Case Result status must be 'scored' or 'failed'")
         return status
-    if refusal is not None:
-        return "refused"
     return "scored" if grade is not None and grade.score is not None else "failed"
 
 
@@ -582,27 +586,13 @@ def _validate_scored_case(
     output: object,
     failures: Sequence[Failure],
 ) -> None:
-    if grade is None or grade.score is None or output is None or refusal is not None or failures:
+    # INVARIANT (OME-1037): a scored Case is either an answer that was graded or a
+    # refusal that was graded — exactly one of output/refusal, never both/neither.
+    if grade is None or grade.score is None or (output is None) == (refusal is None) or failures:
         raise ValueError(
-            "Case Result status 'scored' requires output and a numeric grade and cannot "
-            "carry refusal or failures"
+            "Case Result status 'scored' requires a numeric grade and exactly one of "
+            "output and refusal, and cannot carry failures"
         )
-
-
-def _validate_refused_case(
-    refusal: str | None,
-    grade: CaseGrade | None,
-    output: object,
-    failures: Sequence[Failure],
-) -> None:
-    if output is not None or grade is None:
-        raise ValueError("Case Result status 'refused' requires no output and a grade")
-    if grade.score is not None and failures:
-        raise ValueError("a graded refused Case Result cannot contain failures")
-    if grade.score is None and (
-        not failures or any(failure.stage != "grading" for failure in failures)
-    ):
-        raise ValueError("an ungraded refused Case Result requires only grading failures")
 
 
 def _validate_failed_case(
@@ -610,15 +600,13 @@ def _validate_failed_case(
     grade: CaseGrade | None,
     failures: Sequence[Failure],
 ) -> None:
-    if (
-        not failures
-        or refusal is not None
-        or any(failure.code == "provider_refusal" for failure in failures)
-        or grade is not None
-        and grade.score is not None
-    ):
+    if not failures or grade is not None and grade.score is not None:
+        raise ValueError("Case Result status 'failed' requires failures and no numeric grade")
+    # INVARIANT (OME-1037): refusal text on a failed Case is evidence for its
+    # provider_refusal failure; every other failed Case stays refusal-free.
+    if refusal is not None and all(failure.code != "provider_refusal" for failure in failures):
         raise ValueError(
-            "Case Result status 'failed' requires failures, no refusal, and no numeric grade"
+            "Case Result status 'failed' carries refusal text only with a provider_refusal failure"
         )
 
 

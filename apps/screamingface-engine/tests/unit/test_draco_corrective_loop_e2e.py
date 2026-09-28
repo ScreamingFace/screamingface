@@ -22,11 +22,11 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
-from screamingface_engine.benchmarks.ensemble import install_corrective_runtime
-from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-from screamingface_engine.world_config import ModelSpec
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.world.corrective import install_corrective_runtime
 
 pytestmark = pytest.mark.asyncio
 

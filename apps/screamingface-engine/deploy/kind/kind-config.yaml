@@ -1,0 +1,9 @@
+# uniform executor test-plan §5 — one control-plane node, one worker node. No
+# `extraPortMappings`: every test reaches the cluster through `kubectl port-forward`
+# (tests/kind/conftest.py), never a published host port.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: sf-uniform
+nodes:
+  - role: control-plane
+  - role: worker

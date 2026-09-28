@@ -277,21 +277,6 @@ def test_deleting_a_profile_removes_the_stored_credential(client, credential_blo
     assert credential_blobs.read(service, "default") is None
 
 
-def test_profile_defaults_can_be_edited(client, credential_blobs) -> None:
-    admin_client = _admin(client)
-    account_id = _create_account(admin_client, "defaults@openmined.org")
-    _put_key(admin_client, account_id, "anthropic", "default", ANTHROPIC_KEY)
-
-    resp = admin_client.patch(
-        f"/v1/admin/accounts/{account_id}/profiles/anthropic/default",
-        json={"defaults": {"model": "claude-haiku-4-5", "temperature": 0.2}},
-        headers=_headers(),
-    )
-
-    assert resp.status_code == 200
-    assert resp.json()["defaults"]["model"] == "claude-haiku-4-5"
-
-
 def test_editing_a_profile_that_does_not_exist_is_not_found(client) -> None:
     admin_client = _admin(client)
     account_id = _create_account(admin_client, "no-profile@openmined.org")

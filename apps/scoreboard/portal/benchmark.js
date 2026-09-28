@@ -31,7 +31,7 @@
     // identities, and providers.length > 1 is not a valid fusion/solo test.
     // Keeping the honest label until a backend field exists.
     { key: "ran_with_providers", label: "Backends", sort: null },
-    { key: "submitted_by", label: "Author", sort: "string", dir: "asc" },
+    { key: "authors", label: "Authors", sort: "string", dir: "asc" },
     { key: "score", label: "Score", sort: "number", dir: "desc", cls: "num" },
     // WHY Questions is gone: OME-769's column list is #, Name, Models, Author,
     // Accuracy, Submitted, Run locally — Questions is not in it. Adding Author
@@ -211,8 +211,7 @@
       tr.appendChild(specTd);
 
       tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
-      // formatSubmitter already renders an em-dash for a null/blank submitter.
-      tr.appendChild(P.el("td", null, P.formatSubmitter(entry.submitted_by)));
+      tr.appendChild(P.el("td", null, P.formatAuthors(entry.authors)));
       tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
       // WHY the title: the cell rounds to cents, but the frontier compares the full stored
       // Decimal — so two rows inside one cent render identically while only one is marked. The
@@ -327,6 +326,21 @@
       });
     section.hidden = false;
   }
+  // FEATURE: OME-923 Part C. The chart module owns modelling and SVG; this page owns only
+  // lifecycle wiring. Keeping it separate holds benchmark.js below the repo's focused-file limit.
+  function renderParetoChart(entries) {
+    var section = document.getElementById("pareto-chart-section");
+    var container = document.getElementById("pareto-chart");
+    if (!section || !container || !window.SFParetoChart) return;
+    window.SFParetoChart.render({
+      section: section,
+      container: container,
+      meta: document.getElementById("pareto-chart-meta"),
+      entries: entries,
+      formatScore: P.formatScore,
+      formatCost: L.formatCost,
+    });
+  }
 
   // Tab strip renders across all pages regardless of whether the current
   // `id` is valid — even a 404/missing-id state should let the reader jump
@@ -389,6 +403,7 @@
           // column headers plus the empty-state line and nothing misleading.
           renderSummary(state.entries);
           renderClimb(state.entries);
+          renderParetoChart(state.entries);
           renderHead(document.getElementById("leaderboard-head"));
           P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
@@ -399,6 +414,7 @@
         }
         renderSummary(state.entries);
         renderClimb(state.entries);
+        renderParetoChart(state.entries);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);

@@ -18,6 +18,22 @@ event). REST is transactional (RFC 7240 sync/async, RFC 9457 problems); the live
 stream is described by the companion **AsyncAPI** doc at `/asyncapi.json`. See
 `docs/protocol.md` for the standards decision record.
 
+## Error envelopes — one origin, two dialects
+
+Every engine REST path documented here (`/`, `/token`, `/v1/*`, `/artifacts/{id}`) returns RFC
+9457 `application/problem+json` on error. The **sync mount surface** — `GET /<mount>?q=` — is the
+one exception. It is a `url4` node surface that the App forwards verbatim, so it returns `url4`'s
+own envelope:
+
+```json
+{"error": {"code": "endpoint_not_found", "message": "..."}}
+```
+
+Both dialects stay, deliberately (OQ-3.1). A `url4` client can point at this engine and at a bare
+`url4 serve` node and get the same contract; translating to RFC 9457 would break that for no
+gain. The split is by path: **mount paths speak `url4`, everything else speaks RFC 9457.** See
+`contracts.md` C1 and the engine README.
+
 ## Execution flows
 
 **Synchronous** — `GET /` holds until the terminal frame (bounded by `SYNC_MAX_WAIT`) and returns
@@ -61,13 +77,45 @@ with its hit, miss and bypass-by-reason totals. Nothing in that telemetry is lab
 key, prompt or credential.
 """
 
+# OQ-3.1: one origin speaks two error dialects. Every documented path here is an engine route and
+# returns RFC 9457 `application/problem+json`; the ONE exception is the sync mount surface
+# (`GET /<mount>?q=`), a url4 node surface that keeps url4's envelope. The note is repeated on
+# every tag because a consumer reads the tag it calls, not the whole document. See the "Error
+# envelopes" section above and `contracts.md` C1.
+_ERROR_DIALECT_NOTE = (
+    "Errors on these paths are RFC 9457 `application/problem+json`. The sync mount surface "
+    "(`GET /<mount>?q=`) is the one exception: it speaks the url4 "
+    '`{"error": {"code": "...", "message": "..."}}` envelope.'
+)
+
 TAGS: list[dict[str, str]] = [
-    {"name": "Token", "description": "Mint a topic-capability JWT (spec §4)."},
-    {"name": "Execution", "description": "Start (sync/async) and stop a url4 run (spec §5)."},
-    {"name": "Catalog", "description": "Discover the models a credential can address (OME-625)."},
+    {
+        "name": "Token",
+        "description": "Mint a topic-capability JWT (spec §4). " + _ERROR_DIALECT_NOTE,
+    },
+    {
+        "name": "Execution",
+        "description": ("Start (sync/async) and stop a url4 run (spec §5). " + _ERROR_DIALECT_NOTE),
+    },
+    {
+        "name": "Runs",
+        "description": (
+            "Redeem a run's spill ticket at `GET /artifacts/{id}`. A bare request needs the "
+            "capability token; a request with a valid short-lived signature (`exp`/`sig`) is "
+            "accepted as an alternative credential for a sync caller. " + _ERROR_DIALECT_NOTE
+        ),
+    },
+    {
+        "name": "Catalog",
+        "description": (
+            "Discover the models a credential can address (OME-625). " + _ERROR_DIALECT_NOTE
+        ),
+    },
     {
         "name": "Connections",
-        "description": "Connect provider credentials through the ScreamingFace Engine.",
+        "description": (
+            "Connect provider credentials through the ScreamingFace Engine. " + _ERROR_DIALECT_NOTE
+        ),
     },
 ]
 

@@ -30,6 +30,8 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
         "total_questions": 4,
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
+        "run_cost_usd": "1.250000",
+        "run_cost_status": "complete",
         "ran_at_local": "2026-05-21T12:00:00+00:00",
         "client": {"name": "scoreboard-test", "version": "0.1.0", "platform": "test"},
         "metadata": {"source": "unit"},
@@ -220,6 +222,50 @@ async def test_post_score_future_version_returns_422(score_client: AsyncClient) 
 
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "version"]
+
+
+@pytest.mark.parametrize("run_cost_usd", [None, pytest.param("omitted", id="omitted")])
+async def test_post_score_still_accepts_a_deployed_client_payload(
+    score_client: AsyncClient,
+    run_cost_usd: str | None,
+) -> None:
+    """EXPAND phase: a client that sends no status must keep submitting (OME-1258).
+
+    Rewritten twice. The first version asserted cost required and non-nullable, which would have
+    forced an unpriceable run to send `0`. The second asserted that silence is rejected — the
+    point of OME-822 — but that is UNDEPLOYABLE: the live SDK sends `run_cost_usd` and no status
+    (`leaderboards.py:445` on main), so it would 422 every real submission the moment this
+    deployed, and the client cannot ship first because an older board is `extra="forbid"`
+    (review of PR #841, 2026-09-22).
+
+    Refusing silence moves to `OME-1258`, after `OME-1252` is released and confirmed live. This
+    test is what stops that refusal arriving early.
+    """
+    payload = _valid_payload(run_cost_usd=run_cost_usd)
+    payload.pop("run_cost_status")
+    if run_cost_usd == "omitted":
+        payload.pop("run_cost_usd")
+
+    response = await score_client.post("/v1/scores", json=payload)
+
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.parametrize("status", ["partial", "unavailable"])
+async def test_post_score_accepts_a_run_whose_cost_is_not_derivable(
+    score_client: AsyncClient,
+    status: str,
+) -> None:
+    # The state the earlier contract had no legal spelling for. A run with a known score and an
+    # unknown cost is a legitimate result with one missing field, not a defective submission.
+    payload = _valid_payload()
+    payload.pop("run_cost_usd")
+    payload["run_cost_status"] = status
+
+    response = await score_client.post("/v1/scores", json=payload)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["run_cost_usd"] is None
 
 
 async def test_post_score_url4_expression_too_long_returns_422(
@@ -417,6 +463,14 @@ async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) 
     assert post_score["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/ScoreSubmission",
     )
+    # OME-822/OME-1251 D1: both cost fields are PUBLISHED but neither is required during the
+    # expand phase — the deployed SDK sends no status, so requiring it would 422 every live
+    # submission on deploy (`OME-1258` flips it). The pairing between them is enforced by a
+    # model validator, which OpenAPI cannot express either way.
+    submission_schema = response.json()["components"]["schemas"]["ScoreSubmission"]
+    assert "run_cost_status" in submission_schema["properties"]
+    assert "run_cost_status" not in submission_schema["required"]
+    assert "run_cost_usd" not in submission_schema["required"]
     assert post_score["responses"]["201"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/ScoreSchema",
     )
@@ -799,3 +853,125 @@ async def test_a_lost_race_after_a_flip_is_a_conflict_not_a_store_outage(
 
     assert seen["raises"], "the IntegrityError branch was never reached"
     assert response.status_code == 409, response.text
+
+
+# --- OME-909: a stored revision mismatch must not look rankable ------------------------------
+
+
+async def test_post_score_revision_mismatch_succeeds_and_names_both_revisions(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+
+    response = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="submitted-revision"),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["benchmark_revision"] == "submitted-revision"
+    assert body["ranking_notice"] == {
+        "code": "benchmark_revision_mismatch",
+        "submitted_benchmark_revision": "submitted-revision",
+        "registered_benchmark_revision": "registered-revision",
+    }
+    assert await Score.filter(id=body["id"]).exists(), "the warning must not reject the evidence"
+
+    fetched = await score_client.get(f"/v1/scores/{body['id']}")
+    assert fetched.status_code == 200
+    assert "ranking_notice" not in fetched.json(), "the notice belongs only to the submit snapshot"
+
+
+async def test_post_score_revision_mismatch_replay_returns_the_same_notice(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+    payload = _valid_payload(benchmark_revision="submitted-revision")
+
+    created = await score_client.post("/v1/scores", json=payload)
+    replayed = await score_client.post("/v1/scores", json=payload)
+
+    assert created.status_code == 201
+    assert replayed.status_code == 200
+    assert replayed.json()["id"] == created.json()["id"]
+    assert replayed.json()["ranking_notice"] == created.json()["ranking_notice"]
+    assert await Score.all().count() == 1
+
+
+async def test_post_score_matching_revision_keeps_the_existing_response_shape(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="same-revision")
+
+    response = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="same-revision"),
+    )
+
+    assert response.status_code == 201
+    assert "ranking_notice" not in response.json()
+
+
+async def test_post_score_revisionless_board_emits_no_revision_notice(
+    score_client: AsyncClient,
+) -> None:
+    response = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="some-revision"),
+    )
+
+    assert response.status_code == 201
+    assert "ranking_notice" not in response.json()
+
+
+async def test_post_score_missing_submitted_revision_mismatches_a_registered_board(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+
+    response = await score_client.post("/v1/scores", json=_valid_payload())
+
+    assert response.status_code == 201
+    assert response.json()["ranking_notice"] == {
+        "code": "benchmark_revision_mismatch",
+        "submitted_benchmark_revision": None,
+        "registered_benchmark_revision": "registered-revision",
+    }
+
+
+async def test_revision_mismatch_notice_does_not_make_the_score_rank(
+    score_client: AsyncClient,
+) -> None:
+    await Benchmark.filter(id="hle").update(revision="registered-revision")
+    submitted = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(benchmark_revision="submitted-revision"),
+    )
+
+    board = await score_client.get("/v1/leaderboard/hle")
+
+    assert submitted.status_code == 201
+    assert submitted.json()["ranking_notice"]["code"] == "benchmark_revision_mismatch"
+    assert board.status_code == 200
+    assert board.json()["entries"] == [], "OME-775's comparability filter must remain intact"
+
+
+async def test_openapi_documents_the_revision_mismatch_notice_on_the_score_contract(
+    score_client: AsyncClient,
+) -> None:
+    response = await score_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    schema = response.json()
+    post_schema = schema["paths"]["/v1/scores"]["post"]["responses"]["201"]["content"][
+        "application/json"
+    ]["schema"]
+    get_schema = schema["paths"]["/v1/scores/{score_id}"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    notice_code = schema["components"]["schemas"]["ScoreRankingNotice"]["properties"]["code"]
+
+    assert post_schema == {"$ref": "#/components/schemas/ScoreSchema"}
+    assert get_schema == {"$ref": "#/components/schemas/ScoreSchema"}
+    assert notice_code["const"] == "benchmark_revision_mismatch"

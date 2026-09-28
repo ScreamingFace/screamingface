@@ -96,10 +96,54 @@ def test_unknown_model_under_known_provider_is_rejected_before_profile(authentic
     assert resp.json()["detail"]["code"] == "model_not_found"
 
 
-def test_missing_profile_reuses_chat_credential_resolution(authenticated_client):
-    # anthropic is not chatless, so with no profile the endpoint raises the SAME
-    # 404 the chat route raises — proving the resolution is reused, not reinvented.
+def test_missing_default_profile_answers_the_keyless_datasheet(authenticated_client):
+    # FEATURE: keyless parameter preflight (OME-1167). Reading the contract is a
+    # datasheet lookup, not a credentialed action — with no profile and no
+    # connection the DEFAULT binding answers 200 instead of chat's 404.
+    # (This flips the pre-OME-1167 pin that expected profile_not_found here;
+    # the flip is the ticket's mandated behavior change.)
+    # INVARIANT: the published auth mode is the provider's FIRST declared mode,
+    # so the binding is visible and deterministic — anthropic declares
+    # ("api_key", "oauth").
     resp = _get(authenticated_client)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["context"]["auth_mode"] == "api_key"
+    assert body["model"]["id"] == _MODEL
+    # The answer stays per-account on the wire even though its content is static.
+    _assert_private_cache_policy(resp)
+
+
+@pytest.mark.asyncio
+async def test_keyless_answer_equals_the_credentialed_static_contract(
+    credential_blobs, authenticated_client
+):
+    # INVARIANT (don't-regress, OME-1167): no credentialed data may leak into the
+    # uncredentialed answer — and none may be MISSING from it either. The keyless
+    # datasheet and an api_key-profile answer are the same static contract; only
+    # the context identity (and hence the opaque ids) may differ.
+    keyless = _get(authenticated_client)
+    assert keyless.status_code == 200, keyless.text
+
+    account_id = _account_id(authenticated_client)
+    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
+    credentialed = _get(authenticated_client)
+    assert credentialed.status_code == 200, credentialed.text
+
+    keyless_body = keyless.json()
+    credentialed_body = credentialed.json()
+    for section in ("parameters", "tools", "transport", "model"):
+        assert keyless_body[section] == credentialed_body[section]
+    assert keyless_body["context"]["auth_mode"] == credentialed_body["context"]["auth_mode"]
+
+
+def test_missing_default_profile_on_chat_still_404s(authenticated_client):
+    # INVARIANT (don't-regress, OME-1167): only the datasheet went keyless —
+    # dispatch still refuses an account with no stored credential target.
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        json={"model": _MODEL, "messages": [{"role": "user", "content": "hi"}]},
+    )
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "profile_not_found"
 

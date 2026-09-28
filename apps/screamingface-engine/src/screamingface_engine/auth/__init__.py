@@ -3,7 +3,12 @@ RFC 9457 problem-details plumbing, and the FastAPI dependency that verifies a
 request's capability token and yields its claims.
 """
 
-from screamingface_engine.auth.dependencies import Clock, VerifiedClaims, verified_claims
+from screamingface_engine.auth.dependencies import (
+    Clock,
+    VerifiedClaims,
+    default_clock,
+    verified_claims,
+)
 from screamingface_engine.auth.errors import (
     AuthError,
     IatWindowExceeded,
@@ -35,6 +40,7 @@ __all__ = [
     "ProblemException",
     "TokenExpired",
     "VerifiedClaims",
+    "default_clock",
     "install_problem_handlers",
     "new_topic",
     "problem_exception_handler",

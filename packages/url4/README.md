@@ -62,6 +62,25 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
   tests/offline, HTTP for real fetches), keeping the core pure and deterministic.
 - **Fully typed**: passes `pyright`; type hints ship to consumers.
 
+## Iteration position
+
+Inside `collection*(...)`, `$item` is the current value and `$index` is its zero-based
+position **after** `iteration.slice` is applied. For example, a handler can receive both:
+
+```text
+/rows*(result:0.0:/process($item)!'Process row $index')!'$result'
+```
+
+The index is assigned before concurrent execution. Retries keep it, and skipped failures
+do not renumber later rows. A nested iteration has its own index; capture the outer value
+in another binding (for example, `outer:0.0:$index`) before entering it.
+
+`$index` is reserved inside an iteration, including its intent, and takes precedence over
+an author binding named `index`. Outside an iteration, `index` remains an ordinary binding.
+This is an SDK language extension: existing expressions that use their own `index` inside
+iterations must rename that binding. The index interpolates as decimal text, like other
+references; it does not introduce arithmetic or a collection-count variable.
+
 ## The `url4` CLI: serve a node
 
 A url4 expression *is* the address. `(/upper(hello)!'go')` names a route, a context, and an
@@ -108,6 +127,11 @@ handler would, each substituted as a **single token** (never re-split):
 
 **stdout** is the result. Substitution happens in one pass over *your* template, so
 token-shaped text in a caller's input stays literal: it never expands.
+
+**Commands must be idempotent.** A timeout kills the command and reports a transient
+error, and a `;retry=N` source retries transient errors. The engine cannot tell a
+command that never ran from one that ran and lost its answer. A retry therefore runs
+the command again. Make every command safe to run more than once.
 
 #### Reads: what the node can see
 
@@ -217,6 +241,77 @@ Errors come back as JSON: `{"error": {"code": "...", "message": "..."}}`.
 uv run url4 eval "(/upper(hi)!'go')"
 ```
 
+## Development
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the three-layer map (language / engine /
+node), the import-direction rule, and a task index of where to start.
+
+CI runs a suppression ratchet: `scripts/check_suppressions.py` counts every `# type: ignore`
+and `# noqa` under `src/url4`, and fails when the total is above the `BASELINE` in that
+script. Remove a suppression instead of raising the baseline; when you remove one for good,
+lower `BASELINE` to the new count.
+
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE).
+
+## Structured observations
+
+An adapter running inside an observed DAG node can emit optional structured Logs:
+
+```python
+from url4.observe import current_log_sink
+
+sink = current_log_sink()
+if sink is not None:
+    sink("Operation completed", {"duration_ms": 42, "cached": False})
+```
+
+Supply an `Observer` to `url4.dag.run` to receive these observations. The sink attaches
+records to the resolving node's span. Child tasks inherit the active binding; observed
+nested execution binds its own sink and restores the outer one. Unobserved nested execution
+inherits an active outer sink without creating a span. After the node exits, accessors
+return `None` and retained sinks silently drop submissions, including from child tasks.
+
+Emission is synchronous and confined to the node's event-loop thread. Invalid records,
+off-thread calls and ordinary observer errors silently drop; cancellation and process-control
+signals propagate. Existing `ExecutionContext.log` and direct observer failures still
+propagate. Direct logging also accepts `attributes=` without changing its severity behavior.
+
+Bodies must be nonempty built-in strings. Attributes have built-in string keys and flat
+`str`, `int`, finite `float`, `bool` or `None` values, copied into an immutable snapshot.
+The optional `severity=` defaults to `INFO`: whitespace is stripped and letters uppercased,
+then only `DEBUG`, `INFO`, `WARN` and `ERROR` are accepted (`WARNING` is not an alias).
+Malformed records are rejected whole, without coercion or partial emission.
+
+This interface defines emission, not delivery guarantees or content filtering. Producer
+schemas must specify privacy rules, maximum serialized record size, emission-rate/burst
+limits and heartbeat cleanup. Observers and producers must remain non-blocking; the sink
+creates no tasks, queue or I/O. Concrete exporters own forwarding and buffering.
+
+### Log serialization and drop diagnostics
+
+`Log` supports `pickle`, `copy.deepcopy` and `dataclasses.asdict`, with or without
+attributes. Reconstructed events retain immutable attribute snapshots; `asdict(log)`
+returns detached ordinary dictionaries suitable for JSON serialization.
+
+Use `url4.observe.log_sink_drop_counts()` to inspect optional emission failures:
+
+```python
+from url4.observe import log_sink_drop_counts
+
+before = log_sink_drop_counts()
+# Exercise the producer here.
+after = log_sink_drop_counts()
+severity_drops = after["severity"] - before["severity"]
+```
+
+Snapshots are immutable and process-wide. The six fixed keys are `expired`, `thread`
+(off-thread), `body`, `severity`, `attributes` and `emit` (observer/submission errors).
+Each dropped call counts its first failing reason. Counts never reset and saturate at
+`sys.maxsize`; deltas are meaningful below saturation and include other concurrent runs.
+Successful calls and propagated cancellation/process-control signals do not count.
+No messages, attribute keys/values, exception text or identities enter this diagnostic
+state. Updates use a short in-memory lock; no logging handlers, observers, tasks or I/O
+are invoked by diagnostics. These counters diagnose integrations, not authoritative
+run outcomes. `WARNING` remains invalid; use the documented severity `WARN`.

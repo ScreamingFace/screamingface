@@ -28,7 +28,10 @@ from screamingface._access.auth import _default_caller_auth
 from screamingface._access.base import _TransportAuth
 from screamingface._access.contract import _challenge_audience
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
+from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.identity import engine_headers
+from screamingface._engine.reconnect import _RecoveryWindow
 from screamingface._engine.run_lifecycle import _Lifecycle
 from screamingface._engine.trace import TraceContext, new_trace_context
 from screamingface._evaluation.model import Candidate
@@ -107,7 +110,16 @@ class Url4CloudTransport:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
-        self._http = httpx.Client(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        # WHY a retrying transport (OME-1107): a transient edge failure between the caller and
+        # a healthy origin used to end the whole evaluation. Only requests the call site marked
+        # `_REPLAY_SAFE` are re-sent, so `GET /?q=` — which starts billable work — never is.
+        self._http = httpx.Client(
+            base_url=engine_url,
+            headers=engine_headers(),
+            timeout=30.0,
+            auth=self._caller_auth,
+            transport=RetryingTransport(httpx.HTTPTransport()),
+        )
         # INVARIANT: built from the same source as the client above, so the two halves of
         # this transport can never verify against different roots.
         self._ssl = _websocket_ssl_context(engine_url)
@@ -165,12 +177,11 @@ class Url4CloudTransport:
         resumes from the last accepted stream sequence with the SAME capability (valid for
         the Run's whole life after OME-1018). A handshake 401/403 that is not an Access
         challenge is FATAL — dead credentials, no probe on a single-engine fleet (D5). A
-        connect/OS/timeout failure backs off with full jitter; when the cumulative budget
+        connect/OS/timeout failure backs off with full jitter; when the outage recovery budget
         is spent, everything this client owns is stopped and the Run surfaces as
         `websocket_disconnected`.
         """
-        budget_deadline = time.monotonic() + self._reconnect_budget_s
-        attempts = 0
+        recovery = _RecoveryWindow(self._reconnect_budget_s)
         run_started = False
         while True:
             try:
@@ -189,10 +200,17 @@ class Url4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         websocket.send(lifecycle.initial_attach())
-                        _start_sync(self._http, minted[-1], candidate.url4, trace=trace)
+                        _start_sync(
+                            self._http,
+                            minted[-1],
+                            candidate.url4,
+                            trace=trace,
+                            answer_seed=candidate.answer_seed,
+                        )
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
+                    recovery.connected(time.monotonic())
                     outcome = self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
                 # By now the run is over and the WS is closed — a fetch failure here
@@ -201,10 +219,13 @@ class Url4CloudTransport:
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
                 self._on_handshake_rejection(exc, minted, run_started, trace)
-                attempts += 1
+                recovery.attempts += 1
                 continue
             except (WebSocketException, OSError, TimeoutError) as exc:
-                attempts = self._on_stream_failure(exc, attempts, budget_deadline, started)
+                deadline = recovery.failed(time.monotonic())
+                recovery.attempts = self._on_stream_failure(
+                    exc, recovery.attempts, deadline, started
+                )
                 continue
 
     def _on_handshake_rejection(
@@ -349,7 +370,14 @@ class AsyncUrl4CloudTransport:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
-        self._http = httpx.AsyncClient(base_url=engine_url, timeout=30.0, auth=self._caller_auth)
+        # See the synchronous twin: retry is gated on `_REPLAY_SAFE`, never on the method.
+        self._http = httpx.AsyncClient(
+            base_url=engine_url,
+            headers=engine_headers(),
+            timeout=30.0,
+            auth=self._caller_auth,
+            transport=RetryingAsyncTransport(httpx.AsyncHTTPTransport()),
+        )
         # INVARIANT: see the synchronous twin — one trust store for HTTP and WebSocket.
         self._ssl = _websocket_ssl_context(engine_url)
         # Test-only seams; production callers leave the defaults (spec §6 S3).
@@ -432,8 +460,7 @@ class AsyncUrl4CloudTransport:
         trace: TraceContext,
     ) -> _RunOutcome:
         """Async twin of the sync reconnecting loop — see its docstring (spec §6 S3)."""
-        budget_deadline = time.monotonic() + self._reconnect_budget_s
-        attempts = 0
+        recovery = _RecoveryWindow(self._reconnect_budget_s)
         run_started = False
         while True:
             try:
@@ -452,19 +479,29 @@ class AsyncUrl4CloudTransport:
                     _require_subprotocol(websocket.subprotocol)
                     if not run_started:
                         await websocket.send(lifecycle.initial_attach())
-                        await _start_async(self._http, minted[-1], candidate.url4, trace=trace)
+                        await _start_async(
+                            self._http,
+                            minted[-1],
+                            candidate.url4,
+                            trace=trace,
+                            answer_seed=candidate.answer_seed,
+                        )
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
+                    recovery.connected(time.monotonic())
                     outcome = await self._run_connected(websocket, lifecycle, on_event)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
                 await self._on_handshake_rejection(exc, minted, run_started, trace)
-                attempts += 1
+                recovery.attempts += 1
                 continue
             except (WebSocketException, OSError, TimeoutError) as exc:
-                attempts = await self._on_stream_failure(exc, attempts, budget_deadline, started)
+                deadline = recovery.failed(time.monotonic())
+                recovery.attempts = await self._on_stream_failure(
+                    exc, recovery.attempts, deadline, started
+                )
                 continue
 
     async def _on_handshake_rejection(
@@ -629,7 +666,12 @@ def _token(response: httpx.Response) -> str:
 
 
 def _start_sync(
-    http: httpx.Client, token: str, url4: str, *, trace: TraceContext | None = None
+    http: httpx.Client,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None = None,
+    answer_seed: int | None = None,
 ) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
@@ -642,6 +684,7 @@ def _start_sync(
                     "URL4-Capability": token,
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
+                    **_answer_seed_header(answer_seed),
                 },
             )
         except httpx.HTTPError as exc:
@@ -701,7 +744,12 @@ def _require_stopped(response: httpx.Response) -> None:
 
 
 async def _start_async(
-    http: httpx.AsyncClient, token: str, url4: str, *, trace: TraceContext | None = None
+    http: httpx.AsyncClient,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None = None,
+    answer_seed: int | None = None,
 ) -> None:
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
@@ -714,6 +762,7 @@ async def _start_async(
                     "URL4-Capability": token,
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
+                    **_answer_seed_header(answer_seed),
                 },
             )
         except httpx.HTTPError as exc:
@@ -725,6 +774,18 @@ async def _start_async(
         if not _attachment_is_still_registering(response):
             break
     _accepted(response, trace_id=trace.trace_id if trace else None)
+
+
+def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
+    """The run's declared sitting as its start header — nothing at all when undeclared.
+
+    INVARIANT (OME-1193): absence is the default. An unseeded run's start request must be
+    byte-identical to today's, mirroring the engine's own rule; the engine reads the header
+    per OME-1038 and stamps the seed onto every answer call the run makes.
+    """
+    if answer_seed is None:
+        return {}
+    return {"X-Answer-Seed": str(answer_seed)}
 
 
 def _attachment_is_still_registering(response: httpx.Response) -> bool:
@@ -896,6 +957,34 @@ def _require_success(
         _raise_response(response, operation, trace_id=trace_id)
 
 
+# How much of an unstructured body may reach an exception message. Long enough to carry a
+# short plain-text reason, far short of a rendered error page.
+_BODY_SNIPPET_LIMIT = 200
+
+
+def _body_summary(response: httpx.Response) -> str:
+    """A bounded, single-line stand-in for a non-`problem+json` body (OME-1107).
+
+    WHY: this used to be `response.text.strip()` verbatim. An edge proxy answers with a full
+    HTML error page, so a transient Cloudflare 520 reached the user as ~7KB of markup with the
+    one useful token — the status code — buried inside it. Anything the Engine itself says
+    arrives as `problem+json` and is read by the caller; everything else is an intermediary
+    speaking a format we do not parse, and its bulk is noise.
+    """
+    status = f"HTTP {response.status_code}"
+    try:
+        body = response.text
+    except (UnicodeDecodeError, httpx.ResponseNotRead):
+        body = ""
+    collapsed = " ".join(body.split())
+    # An HTML page carries no reason a human wants in a traceback — name the status and stop.
+    if not collapsed or collapsed.lower().startswith(("<!doctype", "<html")):
+        return status
+    if len(collapsed) > _BODY_SNIPPET_LIMIT:
+        collapsed = collapsed[:_BODY_SNIPPET_LIMIT].rstrip() + "…"
+    return f"{status}: {collapsed}"
+
+
 def _raise_response(
     response: httpx.Response, operation: str, *, trace_id: str | None = None
 ) -> None:
@@ -905,7 +994,7 @@ def _raise_response(
     # transport branch would miss the common case.
     code: str | None = None
     problem: object = None
-    detail = response.text.strip() or f"HTTP {response.status_code}"
+    detail = _body_summary(response)
     media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
     if media_type == "application/problem+json":
         try:

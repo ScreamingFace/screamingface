@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import logs
+from .call_context import install_call_context_injection
 from .config import Settings
 from .core.api_key_validation_service import ApiKeyValidationService
 from .core.auth.bootstrap_admin import ensure_admin_account
@@ -38,13 +39,16 @@ from .core.parameter_discovery_cache import (
 )
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
+from .core.provider_access import ConnectionBackedCredentialAdmin, ConnectionBackedProviderAccess
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
+from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
 from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
+from .middleware import CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .routes import (
     accounts,
@@ -59,9 +63,12 @@ from .routes import (
     model_parameters,
     models,
     oauth_connections,
+    provider_access_availability,
     providers,
+    tavily_retrieval_cache,
 )
 from .routes.chat_accounting import accounting_error_response
+from .tracing import install as install_tracing
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +83,15 @@ def _unsigned_jwt(payload: dict) -> str:
 
 def _attach_log_filter() -> None:
     install_provisioning_token_redaction()
+    # WHY after redaction, and why it does not matter (OME-938): the call-context injector WRAPS
+    # whatever factory it finds, and redaction does the same, so both survive in either order —
+    # `tests/unit/test_call_context.py` pins both. Ordered this way only because redaction is
+    # the security-critical one and reads better installed first.
+    install_call_context_injection()
+    # FEATURE (OME-1132): aigateway as an OTel service. No-op unless an OTLP endpoint is
+    # configured, which is the default everywhere, and it never raises — an AI gateway that
+    # refuses to boot because a collector address was wrong is a worse outage than no spans.
+    install_tracing(os.environ)
     for name in ("", "uvicorn.access", "uvicorn.error", "aigateway"):
         target = logging.getLogger(name)
         if not any(isinstance(f, RedactProvisioningTokenFilter) for f in target.filters):
@@ -379,6 +395,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "(e.g. your cluster's Pod CIDR)"
         )
 
+    # FEATURE (OME-938): correlation is app-wide plumbing, not a feature of usage accounting.
+    # INVARIANT: added LAST so it is the OUTERMOST layer. `add_middleware` does
+    # `user_middleware.insert(0, ...)` and the stack is built by wrapping that list in reverse,
+    # so the last registration ends up outermost — the opposite of the intuitive reading. Being
+    # outermost is the point: the auth guard above rejects requests and logs while doing it, and
+    # those lines are exactly the ones an operator needs attributed.
+    app.add_middleware(CallIdMiddleware)
+
     registry = ProviderRegistry()
     load_plugins(registry)
     app.state.providers = registry
@@ -389,9 +413,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     credential_store = ORMStore()
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
+    # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
+    # OME-1208 (Stage B, D14): the Connection-backed authority serves a pair whose marker is
+    # `migrated` from its effective Connection and inherits the Profile-backed path for the rest.
+    app.state.provider_access = ConnectionBackedProviderAccess(app)
+    # OME-1230: the provider-credential admin interface (writes + listings); the Profile management
+    # routes are shells over it. Stage B swaps both backings here, without touching a route.
+    app.state.provider_credential_admin = ConnectionBackedCredentialAdmin(app)
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
     )
+    # OME-1044: the Tavily retrieval lane takes no availability gate — it is unconditional
+    # (owner decision), so unlike the response cache above there is nothing to configure.
+    app.state.tavily_retrieval_cache_store = TavilyRetrievalCacheStore()
 
     _configure_fake_anthropic_oauth(app)
     _configure_fake_codex_oauth(app)
@@ -431,7 +465,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router)
     app.include_router(model_admission.router)
     app.include_router(providers.router)
+    # OME-1244 (A4): the caller-scoped availability successor, over the provider-access port.
+    app.include_router(provider_access_availability.router)
     app.include_router(model_parameters.router)
+    app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))

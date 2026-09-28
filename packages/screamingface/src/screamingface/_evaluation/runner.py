@@ -15,17 +15,19 @@ if TYPE_CHECKING:
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
 from screamingface._evaluation.benchmark import _BenchmarkResource
+from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
     Candidate,
     _candidate_values,
     _Evaluation,
     _validate_limit,
+    _with_answer_seed,
 )
 from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
 from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
-from screamingface.report import Report
+from screamingface.report import CandidateResult, Report
 
 
 class _ModelCatalog(Protocol):
@@ -54,6 +56,7 @@ def evaluate_sync(
     limit: int | None,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
+    answer_seed: int | None = None,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -66,26 +69,34 @@ def evaluate_sync(
     resource = load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
+    # FEATURE (OME-1193): stamp the declared sitting onto every compiled Candidate ONCE,
+    # so the transport, the progress observer and the report all see the same objects.
+    selected_candidates = _seeded_candidates(tuple(evaluation.candidates), answer_seed)
     catalog = load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
     # pre-spend), or answers a plain 404 that reads as today's refusal.
+    prefetched: dict[str, ModelDetails] = {}
     for model in _missing_required_models(evaluation, catalog.models):
         try:
-            load_model_details(model)
+            prefetched[model] = load_model_details(model)
         except PlanningError as exc:
             _reraise_probe_miss(model, exc)
-    preflight_sync(tuple(evaluation.candidates), load_model_details)
+    preflight_sync(
+        selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
+    )
     observer = _sync_event_observer(
         on_event,
         progress,
-        tuple(evaluation.candidates),
+        selected_candidates,
         evaluation.case_count,
         benchmark,
         check_disclosure=check_disclosure,
     )
     try:
-        outcomes = _run_candidates_sync(transport, tuple(evaluation.candidates), observer)
+        outcomes = _run_candidates_sync(
+            transport, selected_candidates, observer, completion_callback(evaluation, observer)
+        )
         report = report_from_outcomes(evaluation, outcomes)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
@@ -104,6 +115,7 @@ async def evaluate_async(
     limit: int | None,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
+    answer_seed: int | None = None,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -116,26 +128,34 @@ async def evaluate_async(
     resource = await load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     evaluation = compile_evaluation(values, resource, limit)
+    # FEATURE (OME-1193): see the sync twin — one stamped tuple for transport,
+    # observer and report alike.
+    selected_candidates = _seeded_candidates(tuple(evaluation.candidates), answer_seed)
     catalog = await load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
     # pre-spend), or answers a plain 404 that reads as today's refusal.
+    prefetched: dict[str, ModelDetails] = {}
     for model in _missing_required_models(evaluation, catalog.models):
         try:
-            await load_model_details(model)
+            prefetched[model] = await load_model_details(model)
         except PlanningError as exc:
             _reraise_probe_miss(model, exc)
-    await preflight_async(tuple(evaluation.candidates), load_model_details)
+    await preflight_async(
+        selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
+    )
     observer = _async_event_observer(
         on_event,
         progress,
-        tuple(evaluation.candidates),
+        selected_candidates,
         evaluation.case_count,
         benchmark,
         check_disclosure=check_disclosure,
     )
     try:
-        outcomes = await _run_candidates_async(transport, tuple(evaluation.candidates), observer)
+        outcomes = await _run_candidates_async(
+            transport, selected_candidates, observer, completion_callback(evaluation, observer)
+        )
         report = report_from_outcomes(evaluation, outcomes)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
@@ -220,6 +240,11 @@ class _SyncEventObserver:
 
         return observe
 
+    def candidate_result(self, result: CandidateResult) -> None:
+        selected = getattr(self._builtin, "candidate_result", None)
+        if callable(selected):
+            _observe_progress(selected, result)
+
     def reconcile(self, report: Report) -> None:
         _reconcile_progress(self._builtin, report)
 
@@ -256,6 +281,11 @@ class _AsyncEventObserver:
                         await returned
 
         return observe
+
+    def candidate_result(self, result: CandidateResult) -> None:
+        selected = getattr(self._builtin, "candidate_result", None)
+        if callable(selected):
+            _observe_progress(selected, result)
 
     def reconcile(self, report: Report) -> None:
         _reconcile_progress(self._builtin, report)
@@ -349,29 +379,38 @@ def _observe_progress(observer: Callable[..., object], *values: object) -> None:
         _logger.exception("ScreamingFace progress rendering failed")
 
 
+def _seeded_candidates(
+    candidates: tuple[Candidate, ...],
+    answer_seed: int | None,
+) -> tuple[Candidate, ...]:
+    """Stamp the run's declared sitting onto each compiled Candidate — identity when None."""
+    if answer_seed is None:
+        return candidates
+    return tuple(_with_answer_seed(candidate, answer_seed) for candidate in candidates)
+
+
 def _run_candidates_sync(
     transport: SyncRunTransport,
     candidates: tuple[Candidate, ...],
     observer: _SyncEventObserver | None,
+    on_complete: Callable[[Candidate, _RunOutcome], None] | None = None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
-    if len(candidates) == 1:
-        candidate = candidates[0]
+    def run(candidate: Candidate) -> _RunOutcome:
         selected_observer = None if observer is None else observer.bind(candidate)
         if observer is not None:
             observer.begin(candidate)
-        return ((candidate, transport.run(candidate, selected_observer)),)
+        outcome = transport.run(candidate, selected_observer)
+        if on_complete is not None:
+            _observe_progress(on_complete, candidate, outcome)
+        return outcome
+
+    if len(candidates) == 1:
+        return ((candidates[0], run(candidates[0])),)
 
     with ThreadPoolExecutor(
         max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
         thread_name_prefix="screamingface-candidate",
     ) as executor:
-
-        def run(candidate: Candidate) -> _RunOutcome:
-            selected_observer = None if observer is None else observer.bind(candidate)
-            if observer is not None:
-                observer.begin(candidate)
-            return transport.run(candidate, selected_observer)
-
         futures = ()
         try:
             futures = tuple(executor.submit(run, candidate) for candidate in candidates)
@@ -393,14 +432,8 @@ async def _run_candidates_async(
     transport: AsyncRunTransport,
     candidates: tuple[Candidate, ...],
     observer: _AsyncEventObserver | None,
+    on_complete: Callable[[Candidate, _RunOutcome], None] | None = None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
-    if len(candidates) == 1:
-        candidate = candidates[0]
-        selected_observer = None if observer is None else observer.bind(candidate)
-        if observer is not None:
-            await observer.begin(candidate)
-        return ((candidate, await transport.run(candidate, selected_observer)),)
-
     gate = asyncio.Semaphore(_MAX_CANDIDATES_IN_FLIGHT)
 
     async def run(candidate: Candidate) -> _RunOutcome:
@@ -408,7 +441,13 @@ async def _run_candidates_async(
             selected_observer = None if observer is None else observer.bind(candidate)
             if observer is not None:
                 await observer.begin(candidate)
-            return await transport.run(candidate, selected_observer)
+            outcome = await transport.run(candidate, selected_observer)
+            if on_complete is not None:
+                _observe_progress(on_complete, candidate, outcome)
+            return outcome
+
+    if len(candidates) == 1:
+        return ((candidates[0], await run(candidates[0])),)
 
     tasks = tuple(asyncio.create_task(run(candidate)) for candidate in candidates)
     try:

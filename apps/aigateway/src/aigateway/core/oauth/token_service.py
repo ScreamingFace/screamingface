@@ -7,7 +7,8 @@ from uuid import UUID
 
 from aigateway.core.errors import AuthError, CredentialNotFoundError, ReauthRequiredError
 from aigateway.core.oauth.models import OAuthConnection
-from aigateway.core.oauth.store import credential_key_for
+from aigateway.core.plugin_base import credential_service_provider_for
+from aigateway.core.provider_access.connection_locator import credential_name_from_locator
 
 
 class OAuthConnectionStoreLike(Protocol):
@@ -93,7 +94,14 @@ class OAuthConnectionTokenService:
         # asyncio.Lock single-flights the refresh across the token endpoint, chat
         # dispatch, and manual refresh (SF-323). Building is only a constructor
         # call; the cache is evicted on every credential mutation.
-        credential_name = credential_key_for(account_id, connection.id)
+        # WHY the locator (S2'b4): a migrated pair's effective row addresses the Profile blob;
+        # a plain row's UUID locator (or a duck-typed row without one) derives today's UUID name.
+        credential_name = credential_name_from_locator(
+            getattr(connection, "credential_locator", None),
+            credential_provider=credential_service_provider_for(plugin, connection.provider),
+            account_id=str(account_id),
+            connection_id=connection.id,
+        )
         strategy = strategy_cache.get_or_create(
             provider=connection.provider,
             auth_type="oauth",

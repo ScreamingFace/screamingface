@@ -35,6 +35,7 @@ import pytest
 from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
 from tortoise.transactions import in_transaction
 
+from aigateway.core.request_cache.entry_metadata import CacheEntryMetadata
 from aigateway.core.request_cache.models import RequestCacheEntry
 from aigateway.core.request_cache.store import (
     RequestCacheWrite,
@@ -196,7 +197,9 @@ async def test_concurrent_fills_leave_exactly_one_row_and_one_winner(migrated_po
         assert sorted(results) == ["race_lost", "stored"]
         assert await RequestCacheEntry.filter(key_hash=key).count() == 1
         winner = first if results[0] == "stored" else second
-        assert await store.get(key) == winner
+        entry = await store.get(key)
+        assert entry is not None
+        assert entry.response == winner
 
 
 @pytest.mark.asyncio
@@ -217,7 +220,9 @@ async def test_a_lost_race_does_not_poison_the_callers_transaction(migrated_post
 
             # The caller's transaction is still usable — this is the whole point.
             assert await RequestCacheEntry.filter(key_hash=key).count() == 1
-            assert await store.get(key) == {"id": "winner"}
+            entry = await store.get(key)
+            assert entry is not None
+            assert entry.response == {"id": "winner"}
 
 
 @pytest.mark.asyncio
@@ -446,7 +451,111 @@ async def test_every_concurrent_hit_is_counted(migrated_postgres) -> None:
 
         responses = await asyncio.gather(*(store.get(key) for _ in range(hits)))
 
-        assert all(response == {"id": "shared", "choices": []} for response in responses)
+        assert all(entry is not None for entry in responses)
+        assert all(
+            entry.response == {"id": "shared", "choices": []}
+            for entry in responses
+            if entry is not None
+        )
         row = await RequestCacheEntry.get(key_hash=key)
         assert row.hit_count == hits
         assert row.last_hit_at is not None
+
+
+# --- 7. the metadata block under REAL concurrency ------------------------------------------------
+
+
+def _priced_write(key_hash: str, response: dict, *, amount: str) -> RequestCacheWrite:
+    """A write carrying a distinguishable metadata block.
+
+    A separate helper rather than a new argument on ``_write``: the tests above are the
+    pre-metadata contract and must keep running against exactly the shape they were written for.
+    """
+    return RequestCacheWrite(
+        key_hash=key_hash,
+        prompt_hash="p" * 64,
+        provider="anthropic",
+        model="anthropic/claude-haiku-4-5",
+        response=response,
+        response_size_bytes=128,
+        metadata=CacheEntryMetadata(
+            metadata_status="complete",
+            observed_at="2026-09-13T12:00:00Z",
+            response_model="anthropic/claude-haiku-4-5",
+            usage={
+                "status": "complete",
+                "source": "provider_raw_response",
+                "input": {
+                    "total": 11,
+                    "uncached": 11,
+                    "cache_read": 0,
+                    "cache_write": 0,
+                    "cache_write_by_ttl": [],
+                },
+                "output": {"total": 3, "reasoning": None},
+            },
+            direct_cost={
+                "status": "reported",
+                "amount": amount,
+                "unit": "openrouter_credits",
+                "source": "openrouter.usage.cost",
+            },
+            provider_latency_ms=812,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_priced_fills_keep_the_winners_block(migrated_postgres) -> None:
+    """INVARIANT (I4/S10) under REAL concurrency: the block belongs to the response beside it.
+
+    The sibling race test above carries no metadata, and the SQLite test that does simulates the
+    race by calling ``set_if_absent`` twice in sequence. Neither can observe the hazard this
+    pins: two writers reaching the unique constraint at once, where the loser's block must not
+    land on the winner's row. A block from one provider response attached to another's body
+    would misreport what that cached answer cost — silently, and forever.
+    """
+    key = "e" * 64
+    async with _store(migrated_postgres) as store:
+        first = {"id": "first", "choices": []}
+        second = {"id": "second", "choices": []}
+
+        results = await asyncio.gather(
+            store.set_if_absent(_priced_write(key, first, amount="0.0001")),
+            store.set_if_absent(_priced_write(key, second, amount="0.0002")),
+        )
+
+        assert sorted(results) == ["race_lost", "stored"]
+        assert await RequestCacheEntry.filter(key_hash=key).count() == 1
+
+        winner_response, winner_amount = (
+            (first, "0.0001") if results[0] == "stored" else (second, "0.0002")
+        )
+        entry = await store.get(key)
+        assert entry is not None
+        assert entry.response == winner_response
+        assert entry.metadata is not None
+        # The block travels with its own body — never the loser's.
+        assert entry.metadata.direct_cost["amount"] == winner_amount
+
+
+@pytest.mark.asyncio
+async def test_a_priced_writer_losing_to_an_unpriced_one_leaves_the_row_unknown(
+    migrated_postgres,
+) -> None:
+    """Boundary: the winner had no block, so the row stays NULL — unknown, never the loser's price.
+
+    "Unknown is not free" cuts both ways: an unpriced winner must not inherit a price that
+    describes a different response.
+    """
+    key = "f" * 64
+    async with _store(migrated_postgres) as store:
+        assert await store.set_if_absent(_write(key, {"id": "unpriced-winner"})) == "stored"
+        loser = _priced_write(key, {"id": "priced-loser"}, amount="0.0009")
+
+        assert await store.set_if_absent(loser) == "race_lost"
+
+        entry = await store.get(key)
+        assert entry is not None
+        assert entry.response == {"id": "unpriced-winner"}
+        assert entry.metadata is None

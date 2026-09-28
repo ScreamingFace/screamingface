@@ -59,6 +59,11 @@ pytestmark = pytest.mark.anyio
 # authorise, and a board flipped a second after it runs is caught by the next run. Revalidating
 # would only narrow a window that has nothing on the other side of it.
 #   check_rollback_safety.private_boards / format_verdict / running_version
+#
+# QUERY BUILDER — returns an unevaluated locking query, not visibility data or a decision. Its
+# caller awaits the query and refuses immediately unless the freshly locked row is private; the
+# PostgreSQL SQL assertion below separately proves that this exact query retains `FOR UPDATE`.
+#   purge_private_benchmark._purge_visibility_query
 EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::_private_leaderboard", "Return"): 1,
     ("leaderboard.py::get_leaderboard", "Return"): 1,
@@ -82,6 +87,7 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("check_rollback_safety.py::private_boards", "Return"): 1,
     ("check_rollback_safety.py::format_verdict", "Return"): 2,
     ("check_rollback_safety.py::running_version", "Return"): 2,
+    ("purge_private_benchmark.py::_purge_visibility_query", "Return"): 1,
 }
 
 
@@ -277,15 +283,15 @@ def test_a_baseline_publishes_nothing_participant_derived() -> None:
         )
 
 
-# --- the persist path really takes the PostgreSQL row lock ------------------------------------
+# --- the persist and purge paths really take the PostgreSQL row lock ---------------------------
 
 
-async def test_the_persist_path_really_locks_the_row() -> None:
-    """`_revalidate_visibility(lock=True)` must emit `FOR UPDATE` on PostgreSQL.
+async def test_the_persist_and_purge_paths_really_lock_the_row() -> None:
+    """Both production visibility-lock paths must emit `FOR UPDATE` on PostgreSQL.
 
-    INVARIANT: the lock is the only thing that CLOSES the flip window on the persist path —
-    revalidation alone narrows it to the commit interval. SQLite does not implement the lock, so no
-    behavioural test can hold this; rendering the SQL can, and does.
+    INVARIANT: the lock is the only thing that CLOSES the flip window on the persist and purge paths
+    — revalidation alone narrows it to the commit interval. SQLite does not implement the lock, so
+    no behavioural test can hold this; rendering the SQL can, and does.
 
     WHY this test exists at all: the first version of that code called `select_for_update()` and
     then `values_list()`. The former sets lock state on the QuerySet; the latter builds a fresh
@@ -295,6 +301,7 @@ async def test_the_persist_path_really_locks_the_row() -> None:
     """
     from tortoise import Tortoise
 
+    from scoreboard.purge_private_benchmark import _purge_visibility_query
     from scoreboard.scores.models import Benchmark
     from scoreboard.scores.store import ScoreStore
 
@@ -312,6 +319,9 @@ async def test_the_persist_path_really_locks_the_row() -> None:
         # strip the lock — `.select_for_update().only(...)` and `.first()` both preserve it, while
         # `.values()` and `.values_list()` are the two that drop it.
         locked = store.visibility_query("any-benchmark", lock=True).sql()
+        purge_locked = _purge_visibility_query(
+            Tortoise.get_connection("default"), "any-benchmark"
+        ).sql()
         unlocked = store.visibility_query("any-benchmark").sql()
         projected = (
             Benchmark.filter(id="any-benchmark")
@@ -323,6 +333,9 @@ async def test_the_persist_path_really_locks_the_row() -> None:
         await Tortoise.close_connections()
 
     assert "FOR UPDATE" in locked.upper(), f"the locking revalidation query lost its lock: {locked}"
+    assert "FOR UPDATE" in purge_locked.upper(), (
+        f"the private-board purge query lost its lock: {purge_locked}"
+    )
     assert "FOR UPDATE" not in unlocked.upper(), (
         "the read-only revalidation must NOT lock — it runs on every dedup hit"
     )

@@ -1,37 +1,24 @@
-"""Profile defaults at the chat route: what enters the KEY, and who is BLAMED.
+"""Retained shims from the saved-defaults era: no production caller since OME-1323 (Stage C).
 
-Both members here exist for the same reason — a stored profile default is merged into
-the caller's request and then travels through the gateway as if the caller had sent
-it. ``profile_defaults_for_key`` puts those values inside the global cache key
-(OME-305 §57); ``_parameter_rejection_exception`` attributes a classification failure
-back to the profile that really caused it (OME-638). Split out of ``routes/chat.py``,
-which was at its size limit.
+``profile_defaults_for_key`` read a caller's stored Profile defaults ahead of the cache so the
+global key could cover the EFFECTIVE request (OME-305 §57); ``_parameter_rejection_exception``
+attributed a classification failure to a stored default (OME-638). Stage C (D2) retired both
+behaviours: request parameters are the caller's, the chat route reads no stored default and
+merges nothing, and a parameter rejection is always the caller's own.
 
-FEATURE: one globally shared exact-request cache, keyed on the EFFECTIVE request,
-plus one parameter contract that treats a stored default exactly like a sent value.
-
-STORY: as an operator I keep a per-profile ``system_prompt`` so my callers can send a
-bare body. The cache must treat my two profiles' bare bodies as the two DIFFERENT
-requests they really are, while still sharing a row with anyone whose request happens
-to be identical once defaults are applied.
-
-AIDEV-NOTE: deliberately NOT in ``chat_credentials``. That module resolves a
-dispatchable credential and does so by RAISING — 404 ``profile_not_found``, 409
-``profile_pending_auth``, 401 ``auth_required``. The read below runs BEFORE the cache
-lookup, where any of those raises would refuse a request the cache could have served.
+AIDEV-NOTE: both names stay importable and behave exactly as before until Stage E removes them
+together with ``defaults_for`` / ``apply_defaults`` (OME-1209). Do not wire either back into the
+chat route: a stored value merged ahead of the key re-opens the wrong-hit and the
+refuse-a-value-the-caller-never-sent classes Stage C closed.
 """
 
 from __future__ import annotations
 
-import logging
-
 from fastapi import HTTPException, Request
 
 from ..core.parameter_projection import UnsupportedParametersError
-from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import ProfileDefaults
-
-logger = logging.getLogger(__name__)
+from ..core.provider_access import Selector, provider_access_for
 
 
 async def profile_defaults_for_key(
@@ -50,39 +37,20 @@ async def profile_defaults_for_key(
     — a wrong ANSWER, not a missed saving. Merging before the key closes that, and
     this is the narrowest read that makes the merge possible.
 
-    INVARIANT: never raises, and never inspects ``ProfileState``. Its sibling
-    ``_credential_target_for_chat`` raises at ``chat_credentials.py`` :185 (404), :196
-    (409) and :205 (401). Put any of those ahead of the cache lookup and an absent,
-    PENDING or ERRORED profile would be REFUSED where today it is SERVED from cache —
-    destroying the inversion this whole ticket exists for. So this function also
-    resolves no OAuth connection and consults no chatless-profile allowance; Stage 2
-    still does every one of those things, unchanged.
+    INVARIANT: never raises, and never inspects ``ProfileState`` — the port's
+    ``defaults_for`` carries both guarantees. ``None`` means the index could not be READ
+    — never "this profile has no defaults", which is an empty ``ProfileDefaults``. That
+    distinction IS the fail-safe: the caller must bypass the cache instead, and then merge
+    the defaults Stage 2 resolves so the request still DISPATCHES with them.
 
-    INVARIANT: ``None`` means the index could not be READ — never "this profile has no
-    defaults", which is an empty ``ProfileDefaults``. That distinction IS the
-    fail-safe: carrying on with empty defaults after a failed read would key the bare
-    body and manufacture precisely the wrong-hit class ruling 57 closes. The caller
-    must bypass the cache instead, and then merge the defaults Stage 2 resolves so the
-    request still DISPATCHES with them.
-
-    AIDEV-NOTE: a hit now costs one profile-index read, and that index is itself a
+    AIDEV-NOTE: a hit costs one profile-index read, and that index is itself a
     ``credential_blobs`` row — so a hit performs one master-key decryption where it
     previously performed none. No provider credential is read, decrypted or injected,
     and no auth mode is resolved; that is the property the inversion needs.
     """
-    idx: ProfileIndexStore = request.app.state.profile_index
-    try:
-        profile = await idx.get(account_id, provider, profile_name)
-    except Exception:
-        # WHY the broad catch: this is a fail-safe boundary, not error handling. The
-        # index read decrypts and validates a stored blob, so its failure modes are
-        # open-ended, and every one of them must degrade to "do not use the cache"
-        # rather than fail a request the provider can serve. Same posture as the
-        # availability and read guards in ``chat_cache_stage``. Nothing is swallowed:
-        # the failure is logged and the return value forces the caller to bypass.
-        logger.warning("profile index unreadable before the cache stage; bypassing the cache")
-        return None
-    return ProfileDefaults() if profile is None else profile.defaults
+    return await provider_access_for(request.app).defaults_for(
+        account_id, provider, Selector.from_header(profile_name)
+    )
 
 
 def _parameter_rejection_exception(

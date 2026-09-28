@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -469,6 +469,23 @@ def test_submit_surfaces_the_live_closed_write_contract() -> None:
     assert exc_info.value.details == "score submission is not open yet"
 
 
+def test_submit_surfaces_a_scoreboard_conflict_as_retryable() -> None:
+    client = _sync_client(
+        lambda _: httpx.Response(
+            409,
+            json={"detail": "another request changed this submission; retry"},
+        )
+    )
+
+    with client, pytest.raises(sf.LeaderboardError) as exc_info:
+        client.leaderboards.submit(_candidate_result())
+
+    assert exc_info.value.code == "score_submission_conflict"
+    assert exc_info.value.status == 409
+    assert exc_info.value.retryable is True
+    assert exc_info.value.hint == "Retry the submission."
+
+
 def test_leaderboard_rich_display_uses_the_brand_board_with_only_real_fields() -> None:
     with _sync_client(lambda _: httpx.Response(200, json=_get_response())) as client:
         board = client.leaderboards.get("draco")
@@ -562,6 +579,8 @@ async def test_async_client_submits_and_gets_scores() -> None:
 
 
 def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: Any) -> None:
+    omitted = object()
+
     class Leaderboards:
         def list(self) -> tuple[str, ...]:
             return ("draco",)
@@ -569,8 +588,13 @@ def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: An
         def get(self, benchmark_id: str, *, top: int = 50) -> str:
             return f"{benchmark_id}:{top}"
 
-        def submit(self, candidate_result: object) -> tuple[str, object]:
-            return ("submitted", candidate_result)
+        def submit(
+            self,
+            candidate_result: object,
+            *,
+            authors: object = omitted,
+        ) -> tuple[str, object, object]:
+            return ("submitted", candidate_result, authors)
 
         def get_score(self, score_id: object) -> tuple[str, object]:
             return ("score", score_id)
@@ -583,7 +607,12 @@ def test_module_leaderboards_delegate_to_the_lazy_default_client(monkeypatch: An
     assert sf.leaderboards.list() == ("draco",)
     assert sf.leaderboards.get("draco", top=20) == "draco:20"
     candidate = _candidate_result()
-    assert sf.leaderboards.submit(candidate) == ("submitted", candidate)
+    assert sf.leaderboards.submit(candidate) == ("submitted", candidate, None)
+    assert sf.leaderboards.submit(candidate, authors=("alice@example.com",)) == (
+        "submitted",
+        candidate,
+        ("alice@example.com",),
+    )
     assert sf.leaderboards.get_score(SCORE_ID) == ("score", SCORE_ID)
 
     monkeypatch.setattr(_default_client, "_client", None)
@@ -756,7 +785,7 @@ def test_scoreboard_submission_validates_the_score_contract() -> None:
             failures=(
                 sf.Failure(
                     stage="grading",
-                    code="fixture_ungraded",
+                    code="grading_failed",
                     message="the fixture Case could not be graded",
                     case_id=case_id,
                 ),
@@ -1310,9 +1339,19 @@ def test_the_submission_payload_gains_only_the_cost_key() -> None:
         "url4_expression",
         "score",
         "total_questions",
+        # OME-1181/OME-1180: the declared model routes. Added here as an approved
+        # Confidence-Gate exception (2026-09-11) — this guard exists so a DELIBERATE payload
+        # change is recorded rather than absorbed, which is exactly what this line does. The set
+        # stays exhaustive; nothing is removed and no assertion is loosened.
+        "models",
         "ran_with_providers",
         "ran_at_local",
         "run_cost_usd",
+        # OME-1252: what the cost beside it is worth. Added as an approved Confidence-Gate
+        # exception (2026-09-22) — this guard exists so a DELIBERATE payload change is recorded
+        # rather than absorbed, which is exactly what this line does. The set stays exhaustive;
+        # nothing is removed and no assertion is loosened.
+        "run_cost_status",
         "client",
         "metadata",
     }
@@ -1379,3 +1418,511 @@ def test_the_wire_string_parses_back_to_the_same_decimal(cost: str) -> None:
 def test_no_cost_is_absent_rather_than_an_empty_string() -> None:
     # An empty string would parse as neither a Decimal nor null and would 422 the submission.
     assert _submission(_result_costing(None))["run_cost_usd"] is None
+
+
+# --- OME-1053: explicit authorship is distinct from the authenticated submitter ----------------
+
+
+def test_submission_omits_unspecified_authors_and_preserves_an_explicit_list() -> None:
+    candidate = _candidate_result()
+
+    assert "authors" not in _submission(candidate)
+    assert _submission(
+        candidate,
+        authors=("alice@example.com", "bob@example.org", "alice@example.com"),
+    )["authors"] == ["alice@example.com", "bob@example.org", "alice@example.com"]
+
+
+def test_submission_accepts_the_author_count_and_length_boundaries() -> None:
+    boundary_address = "a" * 243 + "@example.com"
+    authors = (boundary_address,) * 10
+
+    assert len(boundary_address) == 255
+    assert _submission(_candidate_result(), authors=authors)["authors"] == list(authors)
+
+
+@pytest.mark.parametrize(
+    ("authors", "error"),
+    [
+        ("alice@example.com", TypeError),
+        (("alice@example.com", 7), TypeError),
+        ((), ValueError),
+        (("alice@example.com",) * 11, ValueError),
+        (("not-an-email",), ValueError),
+        (("alice@localhost",), ValueError),
+        ((" alice@example.com",), ValueError),
+        (("a" * 244 + "@example.com",), ValueError),
+    ],
+)
+def test_submission_rejects_invalid_author_arguments_before_http(
+    authors: object,
+    error: type[Exception],
+) -> None:
+    with pytest.raises(error):
+        _submission(_candidate_result(), authors=cast(Any, authors))
+
+
+def test_sync_submit_sends_exact_authors_and_decodes_public_authors() -> None:
+    seen: list[httpx.Request] = []
+    response = _score_response()
+    response["authors"] = ["alice", "bob"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=response)
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(),
+            authors=["alice@example.com", "bob@example.org"],
+        )
+
+    assert json.loads(seen[-1].content)["authors"] == [
+        "alice@example.com",
+        "bob@example.org",
+    ]
+    assert submitted.authors == ("alice", "bob")
+    assert isinstance(submitted.authors, tuple)
+
+
+def test_submit_decodes_corrected_authors_from_a_deduplicated_response() -> None:
+    response = _score_response()
+    response["authors"] = ["alice", "bob"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # INVARIANT: Scoreboard answers a deduplicated correction with 200, not the 201 used for a
+        # newly created row. Both successful POST outcomes carry the same score response contract.
+        assert request.method == "POST"
+        return httpx.Response(200, json=response)
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(
+            _candidate_result(),
+            authors=["alice@example.com", "bob@example.org"],
+        )
+
+    assert submitted.authors == ("alice", "bob")
+    assert isinstance(submitted.authors, tuple)
+
+
+@pytest.mark.asyncio
+async def test_async_submit_uses_the_same_authors_contract() -> None:
+    seen: list[httpx.Request] = []
+    response = _score_response()
+    response["authors"] = ["alice"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=response)
+
+    async with _async_client(handler) as client:
+        submitted = await client.leaderboards.submit(
+            _candidate_result(), authors=["alice@example.com"]
+        )
+
+    assert json.loads(seen[-1].content)["authors"] == ["alice@example.com"]
+    assert submitted.authors == ("alice",)
+
+
+def test_lazy_submit_forwards_authors_to_the_default_client(monkeypatch: Any) -> None:
+    seen: list[object] = []
+
+    class Leaderboards:
+        def submit(
+            self,
+            candidate_result: object,
+            *,
+            authors: Sequence[str] | None = None,
+        ) -> tuple[object, Sequence[str] | None]:
+            seen.extend((candidate_result, authors))
+            return candidate_result, authors
+
+    class FakeClient:
+        leaderboards = Leaderboards()
+
+    fake = FakeClient()
+    monkeypatch.setattr(_default_client, "_client", fake)
+    candidate = _candidate_result()
+
+    assert sf.leaderboards.submit(candidate, authors=["alice@example.com"]) == (
+        candidate,
+        ["alice@example.com"],
+    )
+    assert seen == [candidate, ["alice@example.com"]]
+
+
+def test_leaderboard_entries_decode_public_authors_as_an_immutable_tuple() -> None:
+    response = _get_response()
+    entries = cast(list[dict[str, object]], response["entries"])
+    entries[0]["authors"] = ["alice", "bob"]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        board = client.leaderboards.get("draco")
+
+    assert board.entries[0].authors == ("alice", "bob")
+    assert isinstance(board.entries[0].authors, tuple)
+
+
+def test_score_response_does_not_apply_the_write_cap_to_public_authors() -> None:
+    response = _score_response()
+    response["authors"] = [f"author-{index}" for index in range(11)]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    assert score.authors == tuple(f"author-{index}" for index in range(11))
+
+
+def test_score_response_preserves_nonblank_public_author_text_exactly() -> None:
+    response = _score_response()
+    response["authors"] = [" alice "]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    assert score.authors == (" alice ",)
+
+
+def test_score_receipt_distinguishes_submitter_from_authors_and_escapes_them() -> None:
+    response = _score_response()
+    response["authors"] = ["alice<admin>", "bob"]
+
+    with _sync_client(lambda _request: httpx.Response(200, json=response)) as client:
+        score = client.leaderboards.get_score(SCORE_ID)
+
+    html = cast(Any, score)._repr_html_()
+
+    assert ">submitter<" in html
+    assert ">authors<" in html
+    assert ">author<" not in html
+    assert "researcher@example.com" in html
+    assert "alice&lt;admin&gt;, bob" in html
+    assert "alice<admin>" not in html
+
+
+@pytest.mark.parametrize("authors", [[], "alice", [""]])
+def test_score_response_rejects_malformed_public_authors(authors: object) -> None:
+    response = _score_response()
+    response["authors"] = authors
+
+    with (
+        _sync_client(lambda _request: httpx.Response(200, json=response)) as client,
+        pytest.raises(sf.LeaderboardError, match="Invalid Scoreboard Leaderboard response"),
+    ):
+        client.leaderboards.get_score(SCORE_ID)
+
+
+# --- OME-909: the successful submit receipt says when the score will not rank ----------------
+
+
+def _revision_mismatch_response(
+    *, submitted: str | None = "submitted-revision", registered: str = "registered-revision"
+) -> dict[str, object]:
+    payload = _score_response()
+    payload["benchmark_revision"] = submitted
+    payload["ranking_notice"] = {
+        "code": "benchmark_revision_mismatch",
+        "submitted_benchmark_revision": submitted,
+        "registered_benchmark_revision": registered,
+    }
+    return payload
+
+
+def test_submit_decodes_a_revision_mismatch_as_a_public_typed_value() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_revision_mismatch_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    assert submitted.ranking_notice == sf.LeaderboardRankingNotice(
+        code="benchmark_revision_mismatch",
+        submitted_benchmark_revision="submitted-revision",
+        registered_benchmark_revision="registered-revision",
+    )
+
+
+def test_submit_from_an_older_scoreboard_has_no_ranking_notice() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    assert submitted.ranking_notice is None
+
+
+@pytest.mark.parametrize(
+    "notice",
+    [
+        None,
+        {},
+        {
+            "code": "some_future_reason",
+            "submitted_benchmark_revision": "old",
+            "registered_benchmark_revision": "new",
+        },
+        {
+            "code": "benchmark_revision_mismatch",
+            "submitted_benchmark_revision": "old",
+            "registered_benchmark_revision": None,
+        },
+    ],
+)
+def test_submit_rejects_a_malformed_ranking_notice(notice: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _score_response()
+        payload["ranking_notice"] = notice
+        return httpx.Response(201, json=payload)
+
+    with _sync_client(handler) as client:
+        with pytest.raises(sf.LeaderboardError, match="ranking notice"):
+            client.leaderboards.submit(_candidate_result())
+
+
+def test_revision_mismatch_card_keeps_the_receipt_and_adds_an_alert() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_revision_mismatch_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "Score published" in html
+    assert "Not ranked · benchmark revision mismatch." in html
+    assert "This run used revision submitted-revision" in html
+    assert "the board ranks revision registered-revision" in html
+    assert "class='sf-report__warn'" in html
+    assert "role='alert'" in html
+
+
+def test_revision_mismatch_card_escapes_server_revision_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            201,
+            json=_revision_mismatch_response(
+                submitted="old<script>alert(1)</script>",
+                registered="new' onclick='alert(2)",
+            ),
+        )
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "<script>" not in html
+    assert "old&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "new&#x27; onclick=&#x27;alert(2)" in html
+
+
+def test_matching_revision_card_has_no_not_ranked_warning() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_score_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "Score published" in html
+    assert "Not ranked" not in html
+    assert "role='alert'" not in html
+
+
+def test_revision_mismatch_card_identity_uses_the_persisted_revision() -> None:
+    # The typed response field is the store-resolved authority. Metadata is untyped client input
+    # and can retain a stale, conflicting legacy revision; the warning and identity strip must not
+    # tell two different stories on the same receipt.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json=_revision_mismatch_response())
+
+    with _sync_client(handler) as client:
+        submitted = client.leaderboards.submit(_candidate_result())
+
+    html = cast(Any, submitted)._repr_html_()
+
+    assert "draco · rev submitted-revision" in html
+    assert "draco · rev fixture-revision" not in html
+
+
+# --- OME-1180: the declared model routes reach the submission payload -------------------------
+# `_providers` truncates each route to its first path segment, so a fusion of deepseek, kimi and
+# qwen is submitted as ["openrouter"] and the Scoreboard publishes it as closed. OME-1181 is the
+# Scoreboard half that accepts these; it must be DEPLOYED before this Client is released.
+
+
+def test_the_declared_routes_are_sent_whole() -> None:
+    # INVARIANT: verbatim. A regression to `_providers`-style truncation is the entire bug this
+    # unit exists to fix, and it is invisible to any assertion that only checks the key is there.
+    payload = _submission(_candidate_result())
+
+    assert payload["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+
+
+def test_models_and_providers_describe_the_same_set() -> None:
+    # INVARIANT: the two fields are one fact at two resolutions. If they ever disagree the board
+    # has to choose, and OME-1181 resolves that by deriving providers from these routes
+    # server-side — which only holds while the Client sends a consistent pair.
+    payload = _submission(_candidate_result())
+    models = cast(list[str], payload["models"])
+    providers = cast(list[str], payload["ran_with_providers"])
+
+    assert {route.split("/", 1)[0] for route in models} == set(providers)
+
+
+def test_the_providers_field_is_unchanged_by_this_unit() -> None:
+    # GUARD: `ran_with_providers` is required on ScoreSubmission, the portal's Backends column
+    # reads it, and the Scoreboard's `_content_hash` hashes the WIRE value — so changing it here
+    # would rewrite recipe identity for every existing row and break dedup across the board.
+    payload = _submission(_candidate_result())
+
+    assert payload["ran_with_providers"] == ["openrouter", "gemini-cli"]
+
+
+def test_a_fusion_declares_its_synthesizer_as_well_as_its_members() -> None:
+    """INVARIANT: the synthesizer is part of what the system is made of.
+
+    A fusion's answer passes through its synthesizer, so omitting it would let a closed
+    synthesizer hide behind open members — under OME-1179 D1 that flips the entry's published
+    verdict from closed to open. This asserts the property at its source,
+    `CandidateResult.models`, because that is where an upstream change would silently drop it.
+    """
+    from screamingface._evaluation.candidate import compile_candidate
+
+    member_a = "openrouter/meta-llama/Llama-3.1-70B-Instruct"
+    member_b = "openrouter/qwen/qwen3.6-plus"
+    synthesizer = "anthropic/claude-opus-4.8"
+
+    compiled = compile_candidate(sf.Fusion([member_a, member_b], synthesizer=synthesizer))
+
+    assert set(compiled.models) == {member_a, member_b, synthesizer}
+
+
+def test_the_routes_survive_json_serialisation() -> None:
+    # The payload is handed to `json=`; a tuple would encode fine but would not round-trip to the
+    # list the Scoreboard's `list[ModelRoute]` expects.
+    import json
+
+    encoded = json.loads(json.dumps(_submission(_candidate_result())))
+
+    assert encoded["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+    assert isinstance(encoded["models"], list)
+
+
+# --- OME-1247: the Client enforces the board's bounds on `models` -----------------------------
+# The Scoreboard caps this field at 32 routes / 255 characters each / 4096 serialized bytes
+# (`validate_bounded_models`). Without a matching guard the mismatch surfaces only in the field,
+# after a release, as a 422 on the WHOLE submission — `models` fails validation and takes
+# `ScoreSubmission` with it. The route grammar was deliberately mirrored across the two ends for
+# exactly this reason; the bounds were not.
+
+
+def _routes(count: int, *, length: int = 12) -> tuple[str, ...]:
+    """`count` distinct, grammar-valid routes of exactly `length` characters each."""
+    routes = []
+    for index in range(count):
+        suffix = str(index)
+        # "owner/" is 6 characters; pad so every route is exactly `length` long and distinct.
+        routes.append("owner/" + "a" * (length - 6 - len(suffix)) + suffix)
+    return tuple(routes)
+
+
+def _result_declaring(models: tuple[str, ...]) -> sf.CandidateResult:
+    # Rebuilt rather than `replace`d, for the reason `_result_costing` records above.
+    base = _candidate_result()
+    return sf.CandidateResult(
+        benchmark=base.benchmark,
+        run_id=base.run_id,
+        started_at=base.started_at,
+        completed_at=base.completed_at,
+        name=base.name,
+        kind=base.kind,
+        url4=base.url4,
+        models=models,
+        operations=base.operations,
+        score=base.score,
+        coverage=base.coverage,
+        metrics=dict(base.metrics),
+        cases=base.cases,
+        members=base.members,
+        failures=base.failures,
+        usage=base.usage,
+    )
+
+
+def test_the_route_count_cap_admits_the_boundary_and_refuses_one_past_it() -> None:
+    # INVARIANT: 32 is the board's limit, not 31 and not 33. An off-by-one here is a 422 in the
+    # field after a release, which is the failure this whole unit exists to make impossible.
+    assert len(cast(list[str], _submission(_result_declaring(_routes(32)))["models"])) == 32
+
+    with pytest.raises(ValueError, match="32"):
+        _submission(_result_declaring(_routes(33)))
+
+
+def test_the_route_length_cap_admits_the_boundary_and_refuses_one_past_it() -> None:
+    at_limit = _routes(1, length=255)
+    assert cast(list[str], _submission(_result_declaring(at_limit))["models"]) == list(at_limit)
+
+    with pytest.raises(ValueError, match="255"):
+        _submission(_result_declaring(_routes(1, length=256)))
+
+
+def test_a_payload_within_both_other_caps_can_still_exceed_the_byte_cap() -> None:
+    # WHY this case is not redundant: 20 routes is well inside the count cap and 250 characters is
+    # inside the length cap, yet together they serialize past 4096 bytes. A guard that checked only
+    # count and length would pass this and the board would still refuse it.
+    models = _routes(20, length=250)
+
+    with pytest.raises(ValueError, match="4096"):
+        _submission(_result_declaring(models))
+
+
+def test_the_byte_cap_is_measured_the_way_the_board_measures_it() -> None:
+    """INVARIANT: compact separators, `ensure_ascii=False`, then `.encode()`.
+
+    The board computes `json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()`.
+    Measuring the Python strings instead, or letting `json.dumps` use its default `", "` /
+    `": "` separators, makes the two ends disagree about what 4096 bytes means — and the
+    disagreement only shows up as a field failure on a payload near the limit.
+
+    Pinned at the EXACT boundary rather than by comparing the two spellings, because the gap
+    between them is `len(models) - 2` bytes while one character of route moves the total by
+    `len(models)` — so for a uniform payload no length straddles them. A payload measuring
+    exactly 4096 by the board's spelling measures 4115 by the default one, so an implementation
+    using the wrong separators refuses this and fails here.
+    """
+    import json
+
+    def board_bytes(routes: list[str]) -> int:
+        return len(json.dumps(routes, ensure_ascii=False, separators=(",", ":")).encode())
+
+    models = list(_routes(20, length=200))
+    while board_bytes(models) < 4096:
+        models[-1] += "a"
+    assert board_bytes(models) == 4096, "fixture no longer lands on the cap exactly"
+    assert len(models[-1]) <= 255, "the tuning route must stay inside the length cap"
+
+    assert cast(list[str], _submission(_result_declaring(tuple(models)))["models"]) == models
+
+    one_past = [*models[:-1], models[-1] + "a"]
+    with pytest.raises(ValueError, match="4096"):
+        _submission(_result_declaring(tuple(one_past)))
+
+
+def test_the_refusal_names_the_offending_value_not_just_the_limit() -> None:
+    # A user told "at most 32 routes", with no idea they built 41, cannot act on it without
+    # reading the Scoreboard's source. Name both numbers.
+    with pytest.raises(ValueError) as excinfo:
+        _submission(_result_declaring(_routes(41)))
+
+    assert "41" in str(excinfo.value)
+
+
+def test_a_candidate_inside_every_cap_submits_exactly_as_before() -> None:
+    # GUARD: this unit adds a refusal, not a transformation. The ordinary payload is untouched.
+    payload = _submission(_candidate_result())
+
+    assert payload["models"] == ["openrouter/model-a", "gemini-cli/model-b"]
+    assert payload["ran_with_providers"] == ["openrouter", "gemini-cli"]

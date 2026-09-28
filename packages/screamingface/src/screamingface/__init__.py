@@ -32,6 +32,7 @@ from screamingface.leaderboard import (
     LeaderboardBaseline,
     LeaderboardEntry,
     LeaderboardInfo,
+    LeaderboardRankingNotice,
     LeaderboardScore,
 )
 from screamingface.model import Model
@@ -92,6 +93,7 @@ __all__ = [
     "LeaderboardEntry",
     "LeaderboardError",
     "LeaderboardInfo",
+    "LeaderboardRankingNotice",
     "LeaderboardScore",
     "MemberResult",
     "Model",

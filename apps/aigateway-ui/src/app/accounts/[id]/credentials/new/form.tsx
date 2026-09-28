@@ -13,6 +13,10 @@
  * is write-only: the operator types a key, the action forwards it, and the browser never sees it
  * again — not on a re-render, not after a failed submit, not from the gateway (which returns only
  * a masked label). `form.test.tsx` pins this.
+ *
+ * INVARIANT (OME-1138 Stage C, OME-1322): no saved request defaults. Parameters such as model,
+ * temperature or max tokens are the caller's, per request — this form offers no control for them
+ * and posts only account, provider, name and key.
  */
 
 import { useActionState, type ReactNode } from "react";
@@ -74,8 +78,6 @@ export function CredentialFields({
 
   const providerFailure = on("provider");
   const keyFailure = on("api_key");
-  const temperatureFailure = on("temperature");
-  const maxTokensFailure = on("max_tokens");
 
   // A failure with no field, or one naming the hidden account id, has no control to sit under —
   // it is said at the top of the form or it is not said at all.
@@ -159,39 +161,6 @@ export function CredentialFields({
           placeholder="Paste the provider API key"
         />
       </Field>
-
-      <fieldset className={styles.section}>
-        <legend className={styles.legend}>Defaults (optional)</legend>
-        <p className={styles.sectionNote}>
-          Applied when a request from this tenant leaves the field out. Blank sends none, and the
-          tenant supplies it per request.
-        </p>
-        <div className={styles.grid}>
-          <Field label="Model" hint="For example gpt-4o.">
-            <Input name="model" autoComplete="off" spellCheck={false} />
-          </Field>
-          {/*
-            Deliberately not `type="number"`: a browser number input submits an empty string for a
-            value it considers malformed, which would look to the action exactly like "left blank"
-            and drop the operator's input in silence. Text plus inputMode keeps the numeric keypad
-            on a touch device and lets the action say what is wrong.
-          */}
-          <Field
-            label="Temperature"
-            hint="Provider-specific, usually 0–2."
-            error={temperatureFailure?.error}
-          >
-            <Input name="temperature" inputMode="decimal" autoComplete="off" />
-          </Field>
-          <Field
-            label="Max tokens"
-            hint="Upper bound on a response."
-            error={maxTokensFailure?.error}
-          >
-            <Input name="max_tokens" inputMode="numeric" autoComplete="off" />
-          </Field>
-        </div>
-      </fieldset>
 
       <div className={styles.actions}>
         {/* No `type` — see the note in ui.tsx: this button must submit. */}

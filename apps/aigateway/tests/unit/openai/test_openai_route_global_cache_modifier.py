@@ -83,25 +83,24 @@ def test_an_enabled_modifier_stops_reading_and_filling_but_preserves_the_row(
     assert restored.json()["choices"][0]["message"]["content"] == "ANSWER-1"
 
 
-def test_a_profile_defaulted_ceiling_is_refused_under_an_enabled_modifier(
+def test_an_explicit_ceiling_is_refused_under_an_enabled_modifier(
     cache_client, monkeypatch
 ) -> None:
-    """A stored default is an EFFECTIVE ceiling, so it gets the dispatch refusal too.
+    """A caller's ``max_tokens`` is a ceiling LiteLLM would rewrite, so it is refused.
 
-    Profile defaults are merged into the body before the cache stage (OME-305 ruling 57),
-    so by the time dispatch inspects ``max_tokens`` a defaulted value is indistinguishable
-    from a typed one — which is exactly right. A caller who never mentions ``max_tokens``
-    can still be sent a ceiling LiteLLM rewrote, and this proves that path is refused
-    rather than silently modified.
+    Request parameters are the caller's (OME-1323, D2): the only ceiling that can reach
+    dispatch is one the caller sent. Under an enabled modifier that value would be rewritten
+    after the key was built, and this proves that path is refused rather than silently
+    modified — before any cache read or write.
     """
     import litellm
 
-    _seed_profile(cache_client, name="tight", defaults={"max_tokens": 64})
+    _seed_profile(cache_client)
     store = _install(cache_client, _Store())
 
     monkeypatch.setattr(litellm, "modify_params", True)
     # No dispatch patch: the REAL guard must refuse before any upstream work happens.
-    refused = _post(cache_client, _body(), profile="tight")
+    refused = _post(cache_client, _body(max_tokens=64))
 
     assert refused.status_code == 503, refused.text
     assert refused.json()["detail"]["code"] == "unsafe_openai_environment"

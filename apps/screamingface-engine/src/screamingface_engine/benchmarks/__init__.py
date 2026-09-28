@@ -1,8 +1,13 @@
-"""Public definition and installation surface for Engine-owned Benchmarks."""
+"""Public definition and installation surface for Engine-owned Benchmarks.
+
+Adding a benchmark: see ``apps/screamingface-engine/docs/adding-a-benchmark-manually.md``
+(hand-authored) or ``docs/adding-an-imported-benchmark.md`` (imported from inspect_evals).
+"""
 
 from screamingface_engine.benchmarks.definition import (
     CANDIDATE_REF,
     Benchmark,
+    BenchmarkDeclaration,
     BenchmarkInstaller,
     candidate,
     link_candidate,
@@ -20,6 +25,7 @@ __all__ = [
     "CANDIDATE_REF",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
     "Benchmark",
+    "BenchmarkDeclaration",
     "BenchmarkInstaller",
     "BenchmarkRegistry",
     "EMPTY_BENCHMARKS",

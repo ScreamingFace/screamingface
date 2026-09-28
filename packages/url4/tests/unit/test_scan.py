@@ -6,13 +6,16 @@ import pytest
 
 from url4.core._scan import (
     balanced_body,
+    balanced_braces,
     find_top_level,
+    iter_non_string_chars,
     iter_top_level,
     skip_quoted,
+    split_query_segments,
     split_top_level,
 )
 from url4.core.errors import ParseError
-from url4.core.subrequest import (
+from url4.wire.subrequest import (
     decode_subrequest,
     encode_subrequest,
     extract_expression_params,
@@ -134,6 +137,53 @@ def test_split_top_level_respects_all_nesting() -> None:
 def test_split_top_level_empty_input() -> None:
     assert split_top_level("", ",") == []
     assert split_top_level("   ", ",") == []
+
+
+# -- iter_non_string_chars -------------------------------------------------------
+
+
+def _visible_non_string(text: str) -> str:
+    return "".join(ch for _, ch in iter_non_string_chars(text))
+
+
+def test_non_string_chars_skip_terminated_string() -> None:
+    assert _visible_non_string('a"x{y}z"b') == "ab"
+
+
+def test_non_string_chars_honor_escaped_quote() -> None:
+    assert _visible_non_string(r'a"x\"{y"b') == "ab"
+
+
+def test_non_string_chars_unterminated_quote_is_literal() -> None:
+    # No real string exists, so the quote is yielded and scanning continues.
+    assert _visible_non_string('a"x{y') == 'a"x{y'
+
+
+# -- balanced_braces -------------------------------------------------------------
+
+
+def test_balanced_braces_nested() -> None:
+    assert balanced_braces("{a: {b: 1}}tail", 0) == 11
+
+
+def test_balanced_braces_quoted_brace_does_not_desync() -> None:
+    assert balanced_braces("{a: '}'}x", 0) == 8
+
+
+def test_balanced_braces_unbalanced_returns_none() -> None:
+    assert balanced_braces("{a: 1", 0) is None
+
+
+# -- split_query_segments --------------------------------------------------------
+
+
+def test_split_query_segments_respects_depth_and_quotes() -> None:
+    assert split_query_segments("a=1&q=(x&y)&b=2") == ["a=1", "q=(x&y)", "b=2"]
+    assert split_query_segments("q=(x)!'a & b'") == ["q=(x)!'a & b'"]
+
+
+def test_split_query_segments_empty_input() -> None:
+    assert split_query_segments("") == []
 
 
 # -- encode_subrequest / decode_subrequest -----------------------------------------

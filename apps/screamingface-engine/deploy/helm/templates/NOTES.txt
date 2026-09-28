@@ -4,9 +4,12 @@ The App (stateless REST + WebSocket control plane) is running as:
   Deployment/{{ include "screamingface-engine.fullname" . }}
   Service/{{ include "screamingface-engine.fullname" . }} (port {{ .Values.service.port }})
 
-RBAC (namespace-scoped): the App runs Runner Jobs via ServiceAccount
-"{{ include "screamingface-engine.serviceAccountName" . }}", bound to Role/{{ include "screamingface-engine.fullname" . }}
-(batch/jobs: create,get,list,watch,delete · pods: get,list · pods/log: get).
+The runner pool (fixed worker pool, OME-1092) is running as:
+  Deployment/{{ include "screamingface-engine.fullname" . }}-runner ({{ .Values.runnerPool.replicas }} × {{ .Values.runnerPool.workerSlots }} slots)
+  PodDisruptionBudget/{{ include "screamingface-engine.fullname" . }}-runner (maxUnavailable: 1 — voluntary disruptions are serialized, not blocked; the preStop drain protects runs)
+
+The control plane holds no RBAC: it cannot create Pods, and the ServiceAccount
+"{{ include "screamingface-engine.serviceAccountName" . }}" exists for pod identity only.
 
 {{- if .Values.ingress.enabled }}
 

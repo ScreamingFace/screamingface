@@ -13,9 +13,9 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from inspect import isawaitable
 
-from url4.core.errors import ResolutionError
-from url4.core.subrequest import decode_subrequest, extract_expression_params
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import FetchRequest, FetchResult
+from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
 
@@ -85,7 +85,11 @@ class StaticIOLayer:
             # spec's sense, and @/@identity on one is a permanent error (§5.6.6).
             raise ResolutionError(
                 "this adapter serves no holdings — @/@identity requires a URL4-aware node",
-                code="self_ref_on_non_url4" if identity is None else "identity_ref_on_non_url4",
+                code=(
+                    ErrorCode.SELF_REF_ON_NON_URL4
+                    if identity is None
+                    else ErrorCode.IDENTITY_REF_ON_NON_URL4
+                ),
                 permanent=True,
             )
         key = _holdings_key(identity, collection)
@@ -93,12 +97,16 @@ class StaticIOLayer:
             return holdings[key]
         if identity is not None:
             raise ResolutionError(
-                f"unknown identity {identity!r}", code="unknown_identity", permanent=True
+                f"unknown identity {identity!r}", code=ErrorCode.UNKNOWN_IDENTITY, permanent=True
             )
         raise ResolutionError(f"no self holdings for collection {collection!r}")
 
 
 def _holdings_key(identity: str | None, collection: str | None) -> str:
+    # StaticIOLayer keys its composite identity+collection string directly, so a
+    # missing shelf is a precise error, not a fallback. `resolve_shelf`
+    # (url4.io.layer) is the canonical exact-then-None rule that the node
+    # adapters apply; this deterministic test double deliberately does not.
     base = identity or ""
     if collection is None:
         return base

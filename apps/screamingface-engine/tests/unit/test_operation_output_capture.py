@@ -391,8 +391,8 @@ def _per_model_response() -> Callable[[httpx.Request], httpx.Response]:
 @pytest.mark.asyncio
 async def test_a_fusion_invocation_carries_every_member_and_synthesis_output() -> None:
     from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
-    from screamingface_engine.runner.connector import AigatewayConfig, build_aigateway_world
-    from screamingface_engine.world_config import ModelSpec
+    from screamingface_engine.world.config import ModelSpec
+    from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(_per_model_response()),

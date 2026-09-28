@@ -261,16 +261,16 @@ def test_live_ws_enables_start_and_closing_it_restores_428() -> None:
     stream = InMemoryEventStream()
     runner = RecordingJobRunner()
     app = _make_app(stream=stream, job_runner=runner)
-    headers = {"URL4-Capability": _token(topic)}
+    # `respond-async` throughout: only an async start is gated on an attached subscriber
+    # (a sync request holds the topic itself, PRD 02).
+    headers = {"URL4-Capability": _token(topic), "Prefer": "respond-async"}
     with TestClient(app) as client:
         before = client.get("/", params={"q": "gpt()"}, headers=headers)
         assert before.status_code == 428
         url = f"/ws?ticket={_token(topic)}"
         with client.websocket_connect(url, subprotocols=[SUBPROTOCOL]) as ws:
             ws.send_json(_attach(None))
-            during = client.get(
-                "/", params={"q": "gpt()"}, headers={**headers, "Prefer": "respond-async"}
-            )
+            during = client.get("/", params={"q": "gpt()"}, headers=headers)
         assert during.status_code == 202
         after = client.get("/", params={"q": "gpt()"}, headers=headers)
     assert after.status_code == 428

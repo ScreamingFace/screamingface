@@ -138,15 +138,19 @@ def verify_live_modules(source: RuntimeSource, modules: Mapping[str, object]) ->
 
     if source.mode != MODE_CHECKOUT or source.root is None:
         return
-    prefix = str(source.root) + os.sep
+    # WHY the source directories, not the checkout root: the dev venv lives INSIDE the
+    # root (packages/screamingface/.venv), so a root prefix let its frozen url4 copy pass
+    # while the stack crashed on a module that copy predates (2026-09-25).
+    prefixes = tuple(directory + os.sep for directory in source_directories(source))
     stale = {
         name: file
         for name, module in modules.items()
-        if (file := getattr(module, "__file__", None)) and not str(Path(file)).startswith(prefix)
+        if (file := getattr(module, "__file__", None)) and not str(Path(file)).startswith(prefixes)
     }
     if stale:
         raise RuntimeError(
-            f"checkout mode is active but stale installed copies were imported: {stale}"
+            f"checkout mode is active but stale installed copies were imported: {stale}; "
+            "rebuild the dev install with `uv sync --reinstall-package screamingface`"
         )
 
 

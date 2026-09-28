@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.responses import Response
@@ -38,15 +38,16 @@ from ..core.admin_schemas import (
     PatchAdminProfileRequest,
     SetAdminApiKeyRequest,
 )
-from ..core.auth.admin import CurrentAdmin
+from ..core.auth.admin import AdminPrincipal, CurrentAdmin
 from ..core.auth.cloudflare_identity import (
     HEADER_USER_EMAIL,
     CloudflareIdentity,
     account_for_identity,
 )
 from ..core.auth.models import Account
-from ..core.profile_index import ProfileIndexStore
+from ..core.provider_access import facade_target, patch_facade, provider_credential_admin_for
 from .auth import delete_profile_for_account, upsert_api_key_profile
+from .saved_defaults_refusal import refuse_saved_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -131,13 +132,23 @@ def describe_admin_security(schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-def _index_store(request: Request) -> ProfileIndexStore:
-    return request.app.state.profile_index
-
-
 def _note_actor(request: Request, admin: CurrentAdmin) -> None:
     """Name the actor for the audit line. Called first in every handler."""
     request.state.admin_actor = admin.username
+
+
+async def _admin_refusing_saved_defaults(request: Request, admin: CurrentAdmin) -> AdminPrincipal:
+    """The authenticated admin, with a `defaults`-carrying body refused (OME-1323, D2).
+
+    WHY it names the actor itself: the refusal runs before the body is validated and so before
+    the handler, and the audit line must still say who was refused.
+    """
+    _note_actor(request, admin)
+    await refuse_saved_defaults(request)
+    return admin
+
+
+AdminRefusingSavedDefaults = Annotated[AdminPrincipal, Depends(_admin_refusing_saved_defaults)]
 
 
 async def _require_account(account_id: UUID) -> Account:
@@ -250,18 +261,25 @@ async def list_account_profiles(
     argument — the tenant-facing route simply always passes the caller's own id. Cross-account
     access is a different argument, not a different store.
     """
+    # WHY: the docstring above is published verbatim as the OpenAPI operation description, so it
+    # stays byte-identical to the pre-OME-1230 text; the A3 shape is documented here instead.
+    # FEATURE: OME-1230 Stage A3 — this is a shell over `ProviderCredentialAdmin.list`; the DTO is
+    # built from the summary's window-only projection so the JSON stays byte-identical. PATCH below
+    # stays a direct index owner (A3 does not move metadata edits).
     _note_actor(request, admin)
     await _require_account(account_id)
-    profiles = await _index_store(request).list(str(account_id))
+    summaries = await provider_credential_admin_for(request.app).list(str(account_id))
     return AdminProfileList(
-        profiles=[AdminProfileOut.model_validate(p, from_attributes=True) for p in profiles]
+        profiles=[AdminProfileOut.model_validate(s.legacy_projection) for s in summaries]
     )
 
 
 @router.patch("/accounts/{account_id}/profiles/{provider}/{name}", response_model=AdminProfileOut)
 async def patch_account_profile(
     request: Request,
-    admin: CurrentAdmin,
+    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency, after
+    # authentication and before the body is validated or anything is read or written.
+    admin: AdminRefusingSavedDefaults,
     account_id: UUID,
     provider: str,
     name: str,
@@ -269,16 +287,17 @@ async def patch_account_profile(
 ) -> AdminProfileOut:
     _note_actor(request, admin)
     await _require_account(account_id)
-    idx = _index_store(request)
-    profile = await idx.get(str(account_id), provider, name)
-    if profile is None:
+    # FEATURE (OME-1208 S2'b3): the same facade as the tenant PATCH — metadata on the document,
+    # a migrated pair's state rendered from its effective Connection.
+    target = await facade_target(
+        request.app, account_id=str(account_id), provider=provider, name=name
+    )
+    if target is None:
         raise HTTPException(
             status_code=404,
             detail={"code": "profile_not_found", "provider": provider, "name": name},
         )
-    updated = await idx.update_metadata(
-        profile.id, defaults=body.defaults, account_label=body.account_label
-    )
+    updated = await patch_facade(request.app, target, account_label=body.account_label)
     return AdminProfileOut.model_validate(updated, from_attributes=True)
 
 
@@ -288,7 +307,9 @@ async def patch_account_profile(
 )
 async def set_account_api_key(
     request: Request,
-    admin: CurrentAdmin,
+    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency, after
+    # authentication and before the body or the key is validated.
+    admin: AdminRefusingSavedDefaults,
     account_id: UUID,
     provider: str,
     name: str,
@@ -311,7 +332,6 @@ async def set_account_api_key(
         name=name,
         account_id=str(account_id),
         raw_api_key=body.api_key,
-        defaults=body.defaults,
     )
     return AdminProfileOut.model_validate(profile)
 

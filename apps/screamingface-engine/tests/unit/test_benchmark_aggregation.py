@@ -12,7 +12,7 @@ from screamingface_engine.benchmarks.aggregation import (
     failed_case_result,
     finalize_candidate_result,
     public_error,
-    refused_case_result,
+    refusal_case_result,
     scored_case_result,
 )
 from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult, Failure
@@ -230,16 +230,18 @@ def test_finalizer_does_not_coerce_a_string_score() -> None:
         )
 
 
-def test_refused_case_constructor_preserves_exact_text_and_normal_grade() -> None:
+def test_refusal_case_constructor_preserves_exact_text_and_normal_grade() -> None:
+    # INVARIANT (OME-1037): a refusal the Benchmark graded is an ordinary SCORED
+    # Case carrying the exact refusal text — no more `refused` case status.
     exact = "I can’t provide that dosage."
-    case = refused_case_result(
+    case = refusal_case_result(
         selected_case=SelectedCase(case_id="health-7", input="Recommend a dosage.", metadata={}),
         refusal=exact,
         finish_reason="content_filter",
         grade=CaseGrade(method="test", score=0.0, metrics={}, checks=[]),
     )
 
-    assert case.status == "refused"
+    assert case.status == "scored"
     assert case.refusal == exact
     assert case.output is None
     assert case.grade is not None and case.grade.score == 0.0

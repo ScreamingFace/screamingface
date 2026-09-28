@@ -7,7 +7,7 @@ from typing import Protocol
 
 import httpx
 
-from screamingface_engine.connections.aigateway import AigatewayConnections, ListingSource
+from screamingface_engine.connections.aigateway import AigatewayConnections
 from screamingface_engine.connections.port import (
     Caller,
     Connection,
@@ -38,17 +38,19 @@ def _default_client(base_url: str) -> httpx.AsyncClient:
 def build_connections(
     settings: _ConnectionSettings,
     *,
-    listing_source: ListingSource,
+    mutable: bool,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
 ) -> Connections | None:
-    """Build the AI Gateway adapter, or disable the endpoints when no upstream is configured."""
+    """Build the AI Gateway adapter, or disable the endpoints when no upstream is configured.
+
+    INVARIANT (D15): ``mutable`` is deliberately required — each composition root states in
+    plain sight whether its Engine may write provider connections (Local) or only reports the
+    caller's provider access (Hosted).
+    """
 
     if not settings.aigateway_base_url:
         return None
-    return AigatewayConnections(
-        client_factory(settings.aigateway_base_url),
-        listing_source=listing_source,
-    )
+    return AigatewayConnections(client_factory(settings.aigateway_base_url), mutable=mutable)
 
 
 __all__ = [

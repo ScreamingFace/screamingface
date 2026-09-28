@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="two-axes">
+    <mxGraphModel dx="1200" dy="800" background="#0a0f1c" grid="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ttl" value="Every benchmark picks one cell: interaction × grading method" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="720" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ch1" value="method=&quot;rubric&quot;&#xa;judge model marks&#xa;rubric points" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="260" y="70" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ch2" value="method=&quot;deterministic&quot;&#xa;vendored checker code" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="70" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ch3" value="method=&quot;exact_match&quot;&#xa;committed letter&#xa;vs private key" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="70" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ch4" value="later kinds&#xa;(label / verifier command&#xa;as material)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="980" y="70" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="rh1" value="interaction=&#xa;&quot;single_shot&quot;&#xa;one prompt, one reply" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="rh2" value="interaction=&#xa;&quot;multi_turn&quot;&#xa;board invokes Candidate&#xa;N times per Case" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="290" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="rh3" value="agentic / tool-env&#xa;(Later — new declared&#xa;values + environment&#xa;field on the declaration)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="draco · draco-3pass&#xa;healthbench ×2 · gdpval&#xa;(shared rubric factory,&#xa;~122-line board)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="260" y="160" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="ifeval&#xa;(bool-vector checks,&#xa;401-line board)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="160" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="c23" value="medxpert&#xa;(28-line marking rule,&#xa;245-line board)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="740" y="290" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="warn" value="⚠ method is a FREE STRING — nothing validates it; a typo ships to the leaderboard.&#xa;interaction + failure_policy are refused by name at construction." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="260" y="450" width="700" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

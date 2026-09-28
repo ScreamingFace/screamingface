@@ -1,8 +1,9 @@
 """OME-305 — the pre-credential global cache decision for one chat request.
 
 FEATURE: one global exact-request cache. The route answers "is there a shared answer
-for exactly this effective call?" after merging profile defaults and before resolving
-an auth mode or provider credential. This module is that decision as a pure function.
+for exactly this effective call?" from the caller's hardened body (since OME-1323, D2, no
+stored Profile default is merged into it) and before resolving an auth mode or provider
+credential. This module is that decision as a pure function.
 
 STORY: as a benchmark operator I re-run a suite from a second account and the
 identical calls are served from the first run's responses — the second account's

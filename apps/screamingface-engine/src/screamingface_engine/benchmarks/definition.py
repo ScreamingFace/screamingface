@@ -3,20 +3,68 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from screamingface_engine.benchmarks.case_request import CONTEXT_FORMAT
 from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
-from url4 import Node, RelExpr, build, expr, render, src, text
+from url4 import Node, RelExpr, build, expr, render, src, struct, text
 from url4.peer.server import Url4Node
 
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
+# What a Case that never got a valid grade (model call errored, judge died, rubric asset
+# missing) does to the published score. Picture an exam of 157 questions where 33 answer
+# sheets got lost in the mail:
+#   "withhold"         — the lost sheets count against the candidate: score = earned / all
+#                        157. Coverage always reads 100%; failures are silently priced in,
+#                        so an infra outage makes the model look WORSE.
+#   "coverage_declare" — the lost sheets are excluded and the report says so: score =
+#                        earned / the 124 actually graded, published next to a visible
+#                        "scored 124 of 157" coverage figure. An outage makes the score
+#                        less COMPLETE, not lower; each excluded Case keeps a named
+#                        failure code.
+# Neither is wrong — but the two produce different numbers from identical model behavior,
+# which is why the choice must be declared per benchmark, never defaulted (OME-1039).
+type FailurePolicy = Literal["withhold", "coverage_declare"]
+# How the Candidate is exercised.
+#   "single_shot" — one prompt in, one reply out, graded. No follow-up turns, no tool
+#                   environment.
+#   "multi_turn"  — the BOARD invokes the Candidate more than once per Case, feeding an earlier
+#                   reply into a later prompt. Declared because it changes both the cost shape
+#                   (N invocations per Case) and what a Fusion entrant is actually being asked
+#                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
+# Agentic/tool-environment interactions arrive later as further declared values.
+type InteractionType = Literal["single_shot", "multi_turn"]
+# How hard the exam is — the catalogue's easy→hard axis (OME-1257). Hand-assigned by the
+# board's author/importer and reviewed in the PR that lands it; NOT measured from score
+# distributions (a measured tier would be a separate, later mechanism).
+#   "easy" — largely saturated material (grade-school sets, binary choices):
+#                    frontier models pass ~90%+, so the board gives quick, cheap signal.
+#   "medium" — real headroom without expert stakes: broad knowledge exams,
+#                    instruction following, specialized extraction.
+#   "hard"     — expert-written material today's best models visibly fail (clinical
+#                    safety, deep research, real professional work) — where a
+#                    fusion-beats-solo result carries the most weight.
+type DifficultyTier = Literal["easy", "medium", "hard"]
+# Where a benchmark's definition was authored (OME-1112).
+#   "screamingface"  — written in this repo, the Engine's own catalogue.
+#   "inspect_evals"  — imported from the inspect_evals catalogue (parent epic OME-1111).
+# Declared once at registration so downstream surfaces (SDK grouping, scoreboard) read
+# provenance as a fact instead of guessing it from naming conventions.
+type BenchmarkOrigin = Literal["screamingface", "inspect_evals"]
+
+_FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
+_INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
+# INVARIANT: ordered easy→hard — the SDK renders catalogue sections in exactly this
+# order, and its copy of the tuple is pinned to this one (test_difficulty_conformance).
+_DIFFICULTY_TIERS: tuple[DifficultyTier, ...] = ("easy", "medium", "hard")
+_BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
@@ -68,6 +116,63 @@ class CheckSurface:
 
 
 @dataclass(frozen=True, slots=True)
+class BenchmarkDeclaration:
+    """The declared grading contract a Benchmark registers — public, typed, no defaults.
+
+    Think of it as the rules printed on the exam's cover sheet: before anyone sits the
+    exam, a reader can see how a failed paper counts. Three axes today:
+
+    ``failure_policy`` — what a Case that never got a valid grade does to the published
+    score. ``withhold``: the case counts against the candidate (all-or-nothing).
+    ``coverage_declare``: the case is excluded from the score and the report's coverage
+    figure drops, so a reader sees "scored 124 of 157".
+
+    ``interaction`` — how the Candidate is exercised. ``single_shot`` and ``multi_turn``
+    today; any other value is refused by name before any paid request.
+
+    ``difficulty`` — how hard the exam is, the catalogue's easy→hard axis (OME-1257).
+    A hand-assigned tier from the closed set above, so the listing can group boards
+    into a map a newcomer reads without knowing each board by name.
+
+    INVARIANT: every field is REQUIRED with no defaults. A defaulted policy is a policy
+    nobody can see from the manifest, and a policy nobody can see is a policy nobody can
+    approve (OME-1039); a defaulted difficulty is a tier nobody assigned (OME-1257).
+    AIDEV-NOTE: this record is THE extension point for later declared axes — a
+    ``multi_turn`` interaction, or an ``environment`` declaration (image digest + setup +
+    verifier) lands as a new field/value HERE, never as a spine change. Do not add those
+    fields before a benchmark needs them (YAGNI).
+    """
+
+    failure_policy: FailurePolicy
+    interaction: InteractionType
+    difficulty: DifficultyTier
+
+    def __post_init__(self) -> None:
+        if self.failure_policy not in _FAILURE_POLICIES:
+            raise ValueError(
+                f"BenchmarkDeclaration failure_policy must be one of {_FAILURE_POLICIES!r}, "
+                f"got {self.failure_policy!r}"
+            )
+        if self.interaction not in _INTERACTION_TYPES:
+            raise ValueError(
+                f"BenchmarkDeclaration interaction must be one of {_INTERACTION_TYPES!r}, "
+                f"got {self.interaction!r}"
+            )
+        if self.difficulty not in _DIFFICULTY_TIERS:
+            raise ValueError(
+                f"BenchmarkDeclaration difficulty must be one of {_DIFFICULTY_TIERS!r}, "
+                f"got {self.difficulty!r}"
+            )
+
+    def as_block(self) -> dict[str, str]:
+        return {
+            "failure_policy": self.failure_policy,
+            "interaction": self.interaction,
+            "difficulty": self.difficulty,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class Benchmark:
     """Immutable metadata plus one complete URL4 protocol builder.
 
@@ -82,6 +187,9 @@ class Benchmark:
     revision: str
     case_count: int
     build: Callable[[int], Node]
+    # INVARIANT: `declaration` is required with NO default — a benchmark that never
+    # declared its failure policy fails registration before any paid request (OME-1039).
+    declaration: BenchmarkDeclaration
     install: BenchmarkInstaller = _no_routes
     check_surface: CheckSurface | None = None
     # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
@@ -93,6 +201,12 @@ class Benchmark:
     # incomparable.
     focus: str | None = None
     dataset_url: str | None = None
+    # FEATURE: benchmark provenance in the public catalogue (OME-1112).
+    # WHY a default, unlike `declaration`: OME-1039's no-defaults rule guards
+    # score-changing declarations; provenance defaulting to "screamingface" states a
+    # true fact for every board authored in this repo, and the import lane must pass
+    # origin="inspect_evals" explicitly at registration.
+    origin: BenchmarkOrigin = "screamingface"
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -108,6 +222,12 @@ class Benchmark:
             or self.case_count < 1
         ):
             raise ValueError("Benchmark case_count must be a positive integer")
+        if not isinstance(self.declaration, BenchmarkDeclaration):
+            raise TypeError("Benchmark declaration must be a BenchmarkDeclaration")
+        if self.origin not in _BENCHMARK_ORIGINS:
+            raise ValueError(
+                f"Benchmark origin must be one of {_BENCHMARK_ORIGINS!r}, got {self.origin!r}"
+            )
 
     def _validate_display_metadata(self) -> None:
         """Refuse text the leaderboard could not show (OME-904)."""
@@ -140,6 +260,12 @@ class Benchmark:
             "description": self.description,
             "revision": self.revision,
             "case_count": self.case_count,
+            # WHY unconditionally: provenance is part of the public contract — every
+            # entry carries it, so no downstream reader needs an absent-key branch.
+            "origin": self.origin,
+            # WHY unconditionally: the declared policy is part of the benchmark's public
+            # contract — reviewers approve it by reading the manifest, never engine source.
+            **self.declaration.as_block(),
         }
         if self.focus is not None:
             metadata["focus"] = self.focus
@@ -181,16 +307,30 @@ class Benchmark:
         }
 
 
-def candidate(
-    input: str,
+def candidate_call(
+    input: str | Mapping[str, object],
     *,
     binding: str = CANDIDATE_REF,
+    case_id: str | None = None,
+    case_index: str | None = None,
+    case_count: str | None = None,
     web_search: bool,
     web_search_exclude: Sequence[str] = (),
-) -> Node:
-    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
+) -> RelExpr:
+    """The bare Candidate Invocation call, for use as a DIRECT slot of an enclosing group.
 
-    if not isinstance(input, str) or not input:
+    WHY this exists beside `candidate()`: url4 sibling references resolve only within one
+    group — a reference inside `candidate()`'s wrapper cannot see the wrapper's siblings
+    and ships VERBATIM (OME-1126: the MedXpertQA commit's `$reasoning` reached the model
+    as the literal string, leaving the prompt without the turn-1 essay). An input that
+    must read a sibling binding uses this form inside the group that binds it.
+
+    With case_id, input is a text template or a structured mapping; supply mappings
+    directly rather than pre-rendering them. The handler removes the metadata envelope
+    before evaluation, preserving the resolved input and keeping Case IDs out of prompts.
+    """
+
+    if not isinstance(input, str | Mapping) or not input:
         raise ValueError("Candidate Invocation input must be non-empty URL4 context")
     if not isinstance(binding, str) or not binding.startswith("$"):
         raise ValueError("Candidate binding must be a URL4 structural reference")
@@ -203,11 +343,56 @@ def candidate(
     params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
     if excluded:
         params.append(("web_search_exclude", ":".join(excluded)))
-    call = RelExpr(
+    if case_id is None and (case_index is not None or case_count is not None):
+        raise ValueError("Case numbering requires Case identity")
+    context = render(struct(input)) if isinstance(input, Mapping) else input
+    if case_id is not None:
+        context = _candidate_context(input, case_id, case_index, case_count)
+        params.append(("context_format", CONTEXT_FORMAT))
+    return RelExpr(
         path=CANDIDATE_ROUTE,
-        context=input,
+        context=context,
         intent=text(binding),
         params=tuple(params),
+    )
+
+
+def _candidate_context(
+    input: str | Mapping[str, object],
+    case_id: str,
+    case_index: str | None,
+    case_count: str | None,
+) -> str:
+    if not isinstance(case_id, str) or not case_id:
+        raise ValueError("Case identity must be non-empty URL4 text")
+    envelope: dict[str, object] = {"input": input, "case_id": case_id}
+    if case_index is not None or case_count is not None:
+        if not case_index or not case_count:
+            raise ValueError("Case position and count must be supplied together")
+        envelope.update(case_index=case_index, case_count=case_count)
+    return render(struct(envelope))
+
+
+def candidate(
+    input: str | Mapping[str, object],
+    *,
+    binding: str = CANDIDATE_REF,
+    case_id: str | None = None,
+    case_index: str | None = None,
+    case_count: str | None = None,
+    web_search: bool,
+    web_search_exclude: Sequence[str] = (),
+) -> Node:
+    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
+
+    call = candidate_call(
+        input,
+        binding=binding,
+        case_id=case_id,
+        case_index=case_index,
+        case_count=case_count,
+        web_search=web_search,
+        web_search_exclude=web_search_exclude,
     )
     # A parameterized relative call needs an expression boundary to round-trip canonically.
     return expr(
@@ -245,8 +430,13 @@ def _as_text(value: Node | str) -> str:
 __all__ = [
     "CANDIDATE_REF",
     "Benchmark",
+    "BenchmarkDeclaration",
     "BenchmarkInstaller",
     "CheckSurface",
+    "DifficultyTier",
+    "FailurePolicy",
+    "InteractionType",
     "candidate",
+    "candidate_call",
     "link_candidate",
 ]

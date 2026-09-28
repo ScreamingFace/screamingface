@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -50,6 +51,8 @@ class LeaderboardEntry:
     submitted_by: str | None
     verified_by_screamingface: bool
     url4: Url4
+    # Public Scoreboard JSON strips domains; these are immutable display identifiers.
+    authors: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         _positive_int(self.rank, "Leaderboard rank")
@@ -73,6 +76,41 @@ class LeaderboardEntry:
             self,
             "url4",
             Url4(_text(self.url4, "Leaderboard url4")),
+        )
+        if self.authors is not None:
+            object.__setattr__(
+                self,
+                "authors",
+                _authors(self.authors, "Leaderboard authors"),
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardRankingNotice:
+    """Why a successfully published score will not enter the current ranking."""
+
+    code: Literal["benchmark_revision_mismatch"]
+    submitted_benchmark_revision: str | None
+    registered_benchmark_revision: str
+
+    def __post_init__(self) -> None:
+        if self.code != "benchmark_revision_mismatch":
+            raise ValueError("Leaderboard ranking notice has an unsupported code")
+        object.__setattr__(
+            self,
+            "submitted_benchmark_revision",
+            _optional_text(
+                self.submitted_benchmark_revision,
+                "Leaderboard ranking notice submitted_benchmark_revision",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "registered_benchmark_revision",
+            _text(
+                self.registered_benchmark_revision,
+                "Leaderboard ranking notice registered_benchmark_revision",
+            ),
         )
 
 
@@ -100,6 +138,9 @@ class LeaderboardScore:
     verified_by_screamingface: bool
     metadata: Mapping[str, object] | None
     scoreboard_url: str | None = None
+    # Public Scoreboard JSON strips domains; full author emails never enter this read model.
+    authors: tuple[str, ...] | None = None
+    ranking_notice: LeaderboardRankingNotice | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -148,6 +189,17 @@ class LeaderboardScore:
                 "metadata",
                 freeze_mapping(self.metadata, "Leaderboard score metadata"),
             )
+        if self.authors is not None:
+            object.__setattr__(
+                self,
+                "authors",
+                _authors(self.authors, "Leaderboard score authors"),
+            )
+        object.__setattr__(
+            self,
+            "ranking_notice",
+            _optional_ranking_notice(self.ranking_notice),
+        )
 
     def __repr__(self) -> str:
         # WHY custom: the dataclass auto-repr printed the ENTIRE compiled url4
@@ -288,6 +340,32 @@ def _names(values: object, label: str) -> tuple[str, ...]:
     return selected
 
 
+def _authors(values: object, label: str) -> tuple[str, ...]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise TypeError(f"{label} must be a sequence")
+    selected = tuple(values)
+    if not selected:
+        raise ValueError(f"{label} must not be empty")
+    if any(not isinstance(value, str) for value in selected):
+        raise TypeError(f"{label} values must be strings")
+    if any(not value.strip() for value in selected):
+        raise ValueError(f"{label} values must be non-blank")
+    # INVARIANT (OME-1053): authorship is an ordered credit line. Unlike provider names,
+    # duplicates and surrounding whitespace are preserved because the client must not rewrite the
+    # Scoreboard's public value. The ten-address bound belongs only to the submission write seam.
+    return selected
+
+
+def _optional_ranking_notice(value: object) -> LeaderboardRankingNotice | None:
+    if value is None:
+        return None
+    if not isinstance(value, LeaderboardRankingNotice):
+        raise TypeError(
+            "Leaderboard score ranking_notice must be a LeaderboardRankingNotice or None"
+        )
+    return value
+
+
 def _instances[T](values: object, kind: type[T], label: str) -> tuple[T, ...]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise TypeError(f"{label} must be a sequence")
@@ -302,5 +380,6 @@ __all__ = [
     "LeaderboardBaseline",
     "LeaderboardEntry",
     "LeaderboardInfo",
+    "LeaderboardRankingNotice",
     "LeaderboardScore",
 ]

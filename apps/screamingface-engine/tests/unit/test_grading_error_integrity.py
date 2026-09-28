@@ -22,14 +22,13 @@ from unittest import mock
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks.candidate_adapter import install_candidate_invocation
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import (
     CandidateResult,
     encode_candidate_invocation,
 )
 from screamingface_engine.benchmarks.definition import link_candidate
-from screamingface_engine.benchmarks.draco import aggregate as draco_agg
+from screamingface_engine.benchmarks.draco import grade as draco_agg
 from screamingface_engine.benchmarks.draco import prepare
 from screamingface_engine.benchmarks.draco.definition import DRACO
 from screamingface_engine.benchmarks.draco.exam import (
@@ -39,7 +38,7 @@ from screamingface_engine.benchmarks.draco.exam import (
 from screamingface_engine.benchmarks.draco.exam import (
     Routes as DracoRoutes,
 )
-from screamingface_engine.benchmarks.healthbench import aggregate as healthbench_agg
+from screamingface_engine.benchmarks.healthbench import grade as healthbench_agg
 from screamingface_engine.benchmarks.healthbench.exam import (
     Routes as HealthRoutes,
 )
@@ -47,12 +46,13 @@ from screamingface_engine.benchmarks.healthbench.exam import (
     build_exam_protocol,
 )
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
-from screamingface_engine.runner.connector import (
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import (
     AigatewayConfig,
     AigatewayWorld,
     build_aigateway_world,
 )
-from screamingface_engine.world_config import ModelSpec
 from url4 import RelExpr, render, text
 
 pytestmark = pytest.mark.asyncio
@@ -426,9 +426,9 @@ async def test_a_judge_transport_error_is_retried_and_the_case_is_graded(
     linked = link_candidate(candidate_expression, DRACO.build(1))
     try:
         with (
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
         ):
             result = await world.node.evaluate(linked)
     finally:
@@ -464,9 +464,9 @@ async def test_a_judge_transport_error_exhaustion_lands_as_aigateway_transport_e
     linked = link_candidate(candidate_expression, DRACO.build(1))
     try:
         with (
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
-            mock.patch("screamingface_engine.runner.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
+            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
         ):
             result = await world.node.evaluate(linked)
     finally:

@@ -179,3 +179,77 @@ async def test_the_callers_email_is_never_logged_on_a_failure_path(
         await adapter.fetch(Credential.derive(None, IDENTITY))
     assert IDENTITY["X-User-Email"] not in caplog.text
     assert IDENTITY["X-User-Email"] not in str(excinfo.value)
+
+
+# OME-1170 — a cold gateway composes a datasheet slowly; the failed slow attempt warms its
+# cache, so one retry after a timeout turns a deterministic 504 into a success.
+MODEL_PARAMETERS = {
+    "schema_version": 1,
+    "model": {"id": "claude-haiku-4-5"},
+    "parameters": {},
+    "tools": {},
+    "transport": {},
+}
+
+
+def timeout_then(handler: object) -> object:
+    calls = {"n": 0}
+
+    def route(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("cold composition too slow", request=request)
+        return handler(request)  # type: ignore[operator]
+
+    return route
+
+
+async def test_a_single_timeout_is_retried_and_the_catalog_is_returned() -> None:
+    adapter, seen = source_for(timeout_then(ok(CATALOG)))
+    catalog = await adapter.fetch(Credential.derive(None, IDENTITY))
+    assert catalog.body == CATALOG
+    assert len(seen) == 2
+
+
+async def test_a_single_timeout_is_retried_for_model_parameters() -> None:
+    # INVARIANT: the parameter datasheet route — the one the cold-start bug actually hits —
+    # answers after one timeout instead of surfacing 504 to the SDK's pre-spend check.
+    adapter, seen = source_for(timeout_then(ok(MODEL_PARAMETERS)))
+    answer = await adapter.fetch_model_parameters(
+        Credential.derive(None, IDENTITY), "claude-haiku-4-5"
+    )
+    assert answer.status == 200
+    assert len(seen) == 2
+
+
+async def test_a_persistent_timeout_stops_after_exactly_one_retry() -> None:
+    # INVARIANT: a genuinely down/hung gateway fails bounded — two attempts, never a loop —
+    # and keeps the CatalogUnavailable classification.
+    def always_timeout(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("still too slow", request=request)
+
+    adapter, seen = source_for(always_timeout)
+    with pytest.raises(CatalogUnavailable):
+        await adapter.fetch(Credential.derive(None, IDENTITY))
+    assert len(seen) == 2
+
+
+async def test_a_non_timeout_transport_failure_is_not_retried() -> None:
+    # WHY timeout-only: only a timeout implies "the slow attempt just warmed the gateway's
+    # cache"; a refused connection gains nothing from an immediate second attempt.
+    def refused(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    adapter, seen = source_for(refused)
+    with pytest.raises(CatalogBadResponse):
+        await adapter.fetch(Credential.derive(None, IDENTITY))
+    assert len(seen) == 1
+
+
+async def test_the_upstream_timeout_covers_the_measured_cold_composition_ceiling() -> None:
+    # INVARIANT: cold datasheet composition measured 3–11.8s per model (2026-09-10, OME-1170);
+    # the budget must stay well above that ceiling so nobody "optimizes" it back down.
+    from screamingface_engine.catalog import _UPSTREAM_TIMEOUT_S, _default_client
+
+    assert _UPSTREAM_TIMEOUT_S == 30.0
+    assert _default_client("http://aigateway.test").timeout == httpx.Timeout(30.0)

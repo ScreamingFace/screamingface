@@ -1,21 +1,40 @@
 """NATS JetStream adapter for the `EventConsumer`/`EventPublisher` ports
 (`url4.streaming.interfaces`): the real, durable telemetry stream a run's frames travel over
-between the Runner and the App. Subject and stream names are per-topic, derived by
-`screamingface_engine.subjects.subject_for`/`stream_for` rather than reimplemented here."""
+between the Runner and the App.
+
+Every run shares ONE stream, `url4-events`; a run is its subject `url4-cloud.<topic>`
+(`screamingface_engine.subjects.subject_for`). The sequence a subscriber sees is the PRODUCER
+sequence carried in the frame, gap-free per topic (uniform executor, erd.md §5 I-EV1..I-EV4).
+It is not the stream sequence: in a shared stream that one has gaps inside every run."""
 
 import asyncio
 import logging
+from collections import Counter
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from enum import Enum
+from typing import NoReturn
 
 import nats
 from nats.aio.client import Client
+from nats.errors import Error as NatsError
 from nats.js import JetStreamContext, api
-from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, DiscardPolicy, StreamInfo
-from nats.js.errors import APIError, BadRequestError, NotFoundError
+from nats.js.api import (
+    AckPolicy,
+    ConsumerConfig,
+    DeliverPolicy,
+    DiscardPolicy,
+    Header,
+    RetentionPolicy,
+    StorageType,
+    StreamConfig,
+    StreamInfo,
+)
+from nats.js.errors import APIError, NotFoundError
 from pydantic import ValidationError
 
-from screamingface_engine.subjects import owns_stream, stream_for, subject_for, topic_of
+from screamingface_engine import subjects
+from screamingface_engine.subjects import owns_stream, subject_for
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import (
     EventConsumer,
@@ -36,6 +55,64 @@ unreachable broker fills this window, `publish` then blocks, the Runner's drain 
 event bridge fails at its own hard cap — bounded, and loudly.
 """
 
+# JetStream's `JSStreamWrongLastSequenceErrF`: `Nats-Expected-Last-Subject-Sequence` did not
+# match, i.e. another writer appended to the subject after this writer read its tail.
+WRONG_LAST_SEQUENCE_ERR_CODE = 10071
+# JetStream's `JSInsufficientResourcesErr`: the store cannot hold a stream this large.
+INSUFFICIENT_RESOURCES_ERR_CODE = 10047
+# JetStream's `JSStreamNameExistErr`: a stream of this name exists with a different config.
+STREAM_NAME_IN_USE_ERR_CODE = 10058
+# JetStream's `JSStreamSubjectOverlapErr`: another stream already captures some of these subjects.
+SUBJECTS_OVERLAP_ERR_CODE = 10065
+# JetStream's `JSStreamNotFoundErr`, as distinct from "no message on this subject" (10037).
+STREAM_NOT_FOUND_ERR_CODE = 10059
+MAX_CONDITIONAL_ATTEMPTS = 3
+"""How often a non-child writer re-reads the tail after a conflict before it gives up (C7)."""
+URL4_SEQ_HEADER = "Url4-Seq"
+"""The frame's producer sequence as a NATS header — for operators and tools (erd.md §6)."""
+# Safety bound on the `streams_info` paging loop, far above any real broker's stream count.
+_MAX_STREAM_PAGES = 100
+
+
+@dataclass(frozen=True)
+class EventsStreamConfig:
+    """The shared events stream (erd.md §5). Defaults are the chart defaults.
+
+    `max_bytes` is NOT a per-run reservation any more: one stream holds every run, so the
+    concurrency ceiling that per-run reservations set (store ÷ 50 MB) is gone. When the store is
+    full, JetStream drops the OLDEST frames of any subject (ans:Q11), and a gauge reports it.
+    """
+
+    name: str = subjects.EVENTS_STREAM
+    subjects: tuple[str, ...] = (f"{subjects.PREFIX}.*",)
+    max_age_s: float = 86_400.0
+    max_bytes: int = 1024**3
+    max_msgs_per_subject: int = 20_000
+    # A 1 MiB result body plus its JSON escaping and the envelope.
+    max_msg_size: int = 2 * 1024**2
+    duplicate_window_s: float = 120.0
+    replicas: int = 1
+    storage: StorageType = StorageType.FILE
+
+    def stream_config(self) -> StreamConfig:
+        return StreamConfig(
+            name=self.name,
+            subjects=list(self.subjects),
+            retention=RetentionPolicy.LIMITS,
+            storage=self.storage,
+            discard=DiscardPolicy.OLD,
+            max_age=self.max_age_s,
+            max_bytes=self.max_bytes,
+            max_msgs_per_subject=self.max_msgs_per_subject,
+            max_msg_size=self.max_msg_size,
+            duplicate_window=self.duplicate_window_s,
+            num_replicas=self.replicas,
+        )
+
+
+class EventsStreamConfigError(RuntimeError):
+    """The events stream cannot be declared as configured. Startup fails with this."""
+
 
 class DeferredPublishError(RuntimeError):
     """A publish this class already returned from was later rejected by the broker.
@@ -47,52 +124,226 @@ class DeferredPublishError(RuntimeError):
     """
 
 
-# INVARIANT: `max_age` bounds the BYTES a run's frames occupy. It does NOT reclaim the stream
-# object — JetStream expires messages and leaves the stream, its consumer state and its
-# filestore directory in place, still holding the whole `max_bytes` reservation. Reclaiming a
-# stream requires `delete_stream`, which is why reclamation is an explicit mechanism (the
-# runner's own teardown, plus `_sweep_orphans` below) and not a retention setting.
-DEFAULT_STREAM_MAX_AGE_S = 86_400.0
-# INVARIANT: this is a RESERVATION, charged against the store the moment the stream is created
-# and held even while the stream is empty. It therefore sets the concurrency ceiling directly:
-# store_size / max_bytes. At the former 256 MiB against a 10Gi store that ceiling was 40 runs,
-# and the 41st `add_stream` failed with 10047 — the outage this value was cut to fix.
-DEFAULT_STREAM_MAX_BYTES = 50 * 1000 * 1000
-# JetStream's `JSInsufficientResourcesErr`: the store cannot place another stream.
-INSUFFICIENT_RESOURCES_ERR_CODE = 10047
-# How long a terminated run's stream is kept before the sweep may reclaim it, so a client still
-# draining the final frames is not cut off mid-read.
-DEFAULT_ORPHAN_GRACE_S = 60.0
-# How long an empty, unattached stream that NEVER received a message is kept before the sweep
-# treats it as a run that never started. Far above pod scheduling + image pull, because the cost
-# of being wrong is deleting a starting run's stream.
-DEFAULT_NEVER_STARTED_S = 1_800.0
-# Safety bound on the `streams_info` paging loop, far above any real broker's stream count.
-_MAX_STREAM_PAGES = 100
-# WHY bound the memo: it exists only to skip a round trip, so forgetting an entry costs one
-# `add_stream` call. Left unbounded it is a per-topic set that grows for the process's lifetime.
-_MAX_ENSURED_MEMO = 4096
+class QueueReadError(RuntimeError):
+    """The stream tail could not be read — a TRANSIENT broker failure, not an answer.
+
+    Distinct from "no frame" (which `last_frame` returns as `None`): this says the read
+    itself failed — a `nats.errors.Error` that is not a JetStream `APIError` (a request
+    timeout, a closed connection, a reconnect in flight). Callers that must not mistake
+    "unreadable" for "empty" — the worker's claim-time dedupe gate — catch this and skip
+    the claim, leaving the message for redelivery, instead of either acting on a phantom
+    `None` or letting the error escape into a shared task group.
+    """
 
 
-def _consumer_config(from_sequence: int | None) -> ConsumerConfig:
-    """Replays from the start of the stream when `from_sequence` is None, else resumes at that
-    1-based stream sequence (attach/resume, spec §8).
+# The fields an operator may change on a live stream. `storage` and `retention` are fixed at
+# creation; a mismatch there fails startup and names the field (erd.md §10).
+_MUTABLE_FIELDS = (
+    "max_bytes",
+    "max_age",
+    "max_msgs_per_subject",
+    "max_msg_size",
+    "duplicate_window",
+    "num_replicas",
+)
+_IMMUTABLE_FIELDS = ("storage", "retention")
+
+
+async def ensure_events_stream(
+    js: JetStreamContext, config: EventsStreamConfig, *, update: bool
+) -> None:
+    """Create the events stream, or check (and with `update`, apply) its config.
+
+    `update=True` is for the App and the worker at startup: they own the chart values, so a
+    changed mutable limit is applied. `update=False` is the lazy path every other connection
+    takes (a child, a test harness): it creates a missing stream but never rewrites a live one,
+    so a process with default limits cannot shrink the operator's stream.
+    """
+    # WHY look before creating (kind K6/K12 finding): `add_stream` on an EXISTING stream makes the
+    # server reserve its `max_bytes` a second time before it notices the config is identical, so
+    # every restart of a process failed with 10047 once `max_bytes` exceeded half the store.
+    # Only a missing stream is created; an existing one is reconciled.
+    try:
+        await js.stream_info(config.name)
+    except NotFoundError:
+        try:
+            await js.add_stream(config.stream_config())
+            return
+        except APIError as exc:
+            if update and exc.err_code == SUBJECTS_OVERLAP_ERR_CODE:
+                if await _migrate_from_per_run_streams(js, config):
+                    return
+            # A racing process created it first (name in use): reconcile below.
+            elif exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
+                await _raise_declare_error(js, config, exc)
+    await _reconcile(js, config, update=update)
+
+
+async def _migrate_from_per_run_streams(js: JetStreamContext, config: EventsStreamConfig) -> bool:
+    """Delete the former layout's per-run streams, then declare the shared stream ONCE more.
+
+    True when this call created the stream; False when a racing process did (reconcile it).
+
+    FEATURE (rollout, owner decision 2026-09-27): the App and the worker migrate the broker at
+    startup, so a GitOps auto-sync upgrades with no hook and no manual purge. Frames of runs
+    still in flight on a legacy stream are lost at the cut-over — accepted by the owner.
+    INVARIANT: once the shared stream exists, JetStream refuses any stream overlapping it, so an
+    old App still serving during the rollout cannot re-create a legacy stream after this.
+    WHY exactly one retry: an overlap the purge cannot remove is a stranger's stream
+    (`owns_stream` never deletes one), and a loop would only hide it.
+    """
+    deleted = await purge_legacy_streams(js, dry_run=False)
+    logger.warning(
+        "events stream %s: deleted %d legacy per-run stream(s) at startup",
+        config.name,
+        len(deleted),
+    )
+    try:
+        await js.add_stream(config.stream_config())
+    except APIError as exc:
+        if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
+            await _raise_declare_error(js, config, exc)
+        return False
+    return True
+
+
+async def _reconcile(js: JetStreamContext, config: EventsStreamConfig, *, update: bool) -> None:
+    """Fail on a changed immutable field; with `update`, apply changed mutable limits."""
+    wanted = config.stream_config()
+    current = (await js.stream_info(config.name)).config
+    for field in _IMMUTABLE_FIELDS:
+        if getattr(current, field) != getattr(wanted, field):
+            raise EventsStreamConfigError(
+                f"events stream {config.name!r}: `{field}` is {getattr(current, field)} on the "
+                f"broker but configured as {getattr(wanted, field)}; it cannot change on a live "
+                f"stream — delete the stream during a drained rollout, or revert the setting"
+            )
+    if not update or all(getattr(current, f) == getattr(wanted, f) for f in _MUTABLE_FIELDS):
+        return
+    try:
+        await js.update_stream(wanted)
+    except APIError as exc:
+        await _raise_declare_error(js, config, exc)
+    logger.info("events stream %s: applied changed limits", config.name)
+
+
+async def _raise_declare_error(
+    js: JetStreamContext, config: EventsStreamConfig, exc: APIError
+) -> NoReturn:
+    """Raise the startup error for a declaration the broker refused: a named one when an
+    operator can act on it, else the broker's own error."""
+    if exc.err_code == INSUFFICIENT_RESOURCES_ERR_CODE:
+        raise await _store_too_small(js, config) from exc
+    if exc.err_code == SUBJECTS_OVERLAP_ERR_CODE:
+        # WHY a startup failure with instructions: every per-run stream of the former layout
+        # (`url4-cloud_<topic>`) captures one `url4-cloud.<topic>` subject, and JetStream refuses
+        # a stream whose subjects overlap another's. So the legacy streams must be gone BEFORE
+        # the first process of this version starts.
+        raise EventsStreamConfigError(
+            f"events stream {config.name!r}: its subjects {list(config.subjects)} overlap an "
+            f"existing stream — a legacy per-run stream (the App and the worker delete those "
+            f"at startup; `screamingface-engine admin purge-legacy-streams` does it by hand) "
+            f"or another workload's stream on a shared broker, which must be moved"
+        ) from exc
+    raise exc
+
+
+async def _store_too_small(js: JetStreamContext, config: EventsStreamConfig) -> Exception:
+    try:
+        limits = (await js.account_info()).limits
+        store = f"account max_storage={limits.max_storage}"
+    except (APIError, NatsError):
+        store = "store limit unreadable"
+    return EventsStreamConfigError(
+        f"events.maxBytes={config.max_bytes} does not fit the JetStream file store ({store}); "
+        f"lower events.maxBytes or grow the NATS store"
+    )
+
+
+async def events_store_usage(js: JetStreamContext, config: EventsStreamConfig) -> tuple[int, float]:
+    """(bytes held, bytes ÷ max_bytes) of the events stream, as the BROKER reports it.
+
+    The ratio uses the broker's `max_bytes`, not `config`'s: the gauge must describe the stream
+    that exists, even while a changed limit waits for the next startup.
+    """
+    info = await js.stream_info(config.name)
+    used = info.state.bytes
+    limit = info.config.max_bytes or 0
+    return used, (used / limit if limit > 0 else 0.0)
+
+
+async def purge_legacy_streams(
+    js: JetStreamContext,
+    *,
+    dry_run: bool,
+    run_queue_stream: str = subjects.RUN_QUEUE_STREAM,
+) -> list[str]:
+    """Delete every per-run stream (`url4-cloud_<topic>`) of the former layout.
+
+    Run once after the drained rollout to the shared stream (erd.md §10). `owns_stream` is the
+    same ownership rule the former sweep used: it never matches the run queue, the events stream
+    (`url4-events` does not start with `url4-cloud_`), or a stranger's stream on a shared broker.
+    """
+    legacy = [
+        name
+        for info in await _all_streams(js)
+        if (name := info.config.name) is not None
+        and owns_stream(name, run_queue_stream=run_queue_stream)
+    ]
+    for name in legacy:
+        # Name each one: this is destructive on a possibly shared broker, and this line is
+        # the only forensic record an operator gets.
+        logger.warning("%s legacy stream %s", "would delete" if dry_run else "deleting", name)
+        if dry_run:
+            continue
+        try:
+            await js.delete_stream(name)
+        except NotFoundError:
+            pass
+        except APIError:
+            # One undeletable stream must not stop the purge; the operator re-runs it.
+            logger.warning("could not delete legacy stream %s", name, exc_info=True)
+    return legacy
+
+
+async def _all_streams(js: JetStreamContext) -> list[StreamInfo]:
+    """Every stream on the broker, across pages.
+
+    INVARIANT (REGRESSION I6): `streams_info()` is ONE request and the server caps a page at
+    256 entries. A single call silently examines a subset.
+    """
+    infos: list[StreamInfo] = []
+    for _ in range(_MAX_STREAM_PAGES):
+        page = await js.streams_info(offset=len(infos))
+        if not page:
+            break
+        infos.extend(page)
+    return infos
+
+
+def _producer_sequence(frame: OutboundFrame | None) -> int:
+    return int(frame.sequence) if frame is not None and frame.sequence else 0
+
+
+def _broadcast_consumer_config() -> ConsumerConfig:
+    """The broadcast replay reader's config: every retained frame of ONE subject, from its start.
+
+    A resume cursor is a PRODUCER sequence, which maps to no stream position, so resume reads
+    the subject from its start and drops the frames below the cursor (C8). The scan is bounded
+    by `max_msgs_per_subject`.
 
     INVARIANT: `ack_policy` is NONE, and this is load-bearing rather than a default worth
     inheriting. These consumers are broadcast replay readers — nothing here can act on a
-    redelivery, and the subscription is torn down and rebuilt from a sequence on re-attach, so
-    acks buy nothing. Under the EXPLICIT default, `subscribe()` without a callback never acks
-    anything (nats-py only auto-acks the callback path), which means every frame is redelivered
-    after AckWait and delivery stops outright once `max_ack_pending` (server default 1000)
-    unacked messages pile up — i.e. any run over ~1000 frames silently truncates mid-stream.
+    redelivery, and the subscription is torn down and rebuilt on re-attach, so acks buy
+    nothing. Under the EXPLICIT default, `subscribe()` without a callback never acks anything
+    (nats-py only auto-acks the callback path), which means every frame is redelivered after
+    AckWait and delivery stops outright once `max_ack_pending` (server default 1000) unacked
+    messages pile up — i.e. any run over ~1000 frames silently truncates mid-stream.
+
+    The run queue's consumer is the OPPOSITE of this in every way that matters; it has its own
+    builder in `runner_queue` (OME-1088).
     """
-    if from_sequence is None:
-        return ConsumerConfig(deliver_policy=DeliverPolicy.ALL, ack_policy=AckPolicy.NONE)
-    return ConsumerConfig(
-        deliver_policy=DeliverPolicy.BY_START_SEQUENCE,
-        opt_start_seq=from_sequence,
-        ack_policy=AckPolicy.NONE,
-    )
+    return ConsumerConfig(deliver_policy=DeliverPolicy.ALL, ack_policy=AckPolicy.NONE)
 
 
 class _JetStreamConnection:
@@ -102,24 +353,16 @@ class _JetStreamConnection:
     declaring the stream and closing are the same job, so they are written once here.
     """
 
-    def __init__(
-        self,
-        nats_url: str,
-        *,
-        stream_max_age_s: float = DEFAULT_STREAM_MAX_AGE_S,
-        stream_max_bytes: int = DEFAULT_STREAM_MAX_BYTES,
-        orphan_grace_s: float = DEFAULT_ORPHAN_GRACE_S,
-        never_started_s: float = DEFAULT_NEVER_STARTED_S,
-    ) -> None:
+    def __init__(self, nats_url: str, *, events: EventsStreamConfig | None = None) -> None:
         self._url = nats_url
-        self._stream_max_age_s = stream_max_age_s
-        self._stream_max_bytes = stream_max_bytes
-        self._orphan_grace_s = orphan_grace_s
-        self._never_started_s = never_started_s
+        self._events = events if events is not None else EventsStreamConfig()
         self._nc: Client | None = None
         self._js: JetStreamContext | None = None
-        self._ensured: set[str] = set()
+        self._declared = False
         self._connect_lock = asyncio.Lock()
+        # Read by the metrics collectors (sync, at scrape time); written by the async paths.
+        self.store_snapshot: tuple[int, float] | None = None
+        self.subject_purges = 0
 
     async def _jetstream(self) -> JetStreamContext:
         # WHY the lock and the second check inside it: `subscribe`/`publish` are called
@@ -141,8 +384,8 @@ class _JetStreamConnection:
             # here keeps the two bindings on one connection story.
             js = nc.jetstream(publish_async_max_pending=MAX_IN_FLIGHT_PUBLISHES)
             self._js = js
-            # The declarations belonged to the connection that just died; the new one has none.
-            self._ensured.clear()
+            # The declaration belonged to the connection that just died; re-check on this one.
+            self._declared = False
             return js
 
     def _is_closed(self) -> bool:
@@ -160,274 +403,316 @@ class _JetStreamConnection:
         return nc is not None and nc.is_closed
 
     async def ensure_stream(self, topic: str) -> None:
-        # WHY: `add_stream` on an existing stream is a round trip that ends in BadRequestError,
-        # and every subscribe/attach/publish calls this. One instance owns one connection for
-        # its whole life, so what it already declared over that connection stays declared.
-        if topic in self._ensured:
+        """Make sure the SHARED stream exists. `topic` is part of the port and unused here:
+        a topic is a subject, and a subject needs no declaration."""
+        del topic
+        if self._declared:
             return
-        js = await self._jetstream()
+        await ensure_events_stream(await self._jetstream(), self._events, update=False)
+        self._declared = True
+
+    async def declare_events_stream(self) -> None:
+        """Startup declaration by a process that owns the configured limits (App, worker):
+        create the stream, apply changed mutable limits, fail on an immutable mismatch."""
+        await ensure_events_stream(await self._jetstream(), self._events, update=True)
+        self._declared = True
+
+    async def refresh_store_usage(self) -> tuple[int, float]:
+        """Read the events stream's (bytes, utilization) and cache it for the next scrape."""
+        self.store_snapshot = await events_store_usage(await self._jetstream(), self._events)
+        return self.store_snapshot
+
+    async def _tail(self, topic: str) -> tuple[int, OutboundFrame | None]:
+        """(stream sequence, frame) of the subject's last message; `(0, None)` when it has none.
+
+        The stream sequence is what `Nats-Expected-Last-Subject-Sequence` compares; the frame
+        carries the producer sequence the next writer continues from.
+        """
+        raw = await self._last_message(topic)
+        if raw is None:
+            return 0, None
         try:
-            await self._declare(js, topic)
+            return raw.seq or 0, decode(raw.data or b"")
+        except ValidationError:
+            return raw.seq or 0, None
+
+    async def _last_message(self, topic: str) -> api.RawStreamMsg | None:
+        try:
+            js = await self._jetstream()
+            return await js.get_last_msg(self._events.name, subject_for(topic))
         except APIError as exc:
-            # WHY only this code: 10047 says the STORE is full, which a sweep can fix. Every other
-            # API failure is about this request and retrying it would just fail the same way.
-            if exc.err_code != INSUFFICIENT_RESOURCES_ERR_CODE:
-                raise
-            # INVARIANT: retry at most once, and only after the sweep actually freed something.
-            # Retrying a sweep that reclaimed nothing is an infinite loop against a full store —
-            # the caller has to see the real error instead of hanging.
-            if await self._sweep_orphans(js) == 0:
-                raise
-            await self._declare(js, topic)
-        if len(self._ensured) >= _MAX_ENSURED_MEMO:
-            self._ensured.clear()
-        self._ensured.add(topic)
+            # A JetStream verdict: no message on this subject, or no stream yet — both a REAL
+            # answer, "no frame". (`NotFoundError` is an `APIError`.)
+            if exc.err_code == STREAM_NOT_FOUND_ERR_CODE:
+                await self.ensure_stream(topic)
+            return None
+        except NatsError as exc:
+            # Transport-level, during the connect or the read: a request timeout, a closed
+            # connection, a reconnect in flight (review V-7). That is NOT "no frame" —
+            # translating it to None would let the claim gate mistake an unreadable tail for
+            # "no terminal frame" and execute a finished run a second time.
+            raise QueueReadError(f"stream tail unreadable for {topic}: {exc!r}") from exc
 
-    async def _declare(self, js: JetStreamContext, topic: str) -> None:
-        """`add_stream`, tolerating a stream that is already declared."""
-        try:
-            await js.add_stream(
-                name=stream_for(topic),
-                subjects=[subject_for(topic)],
-                max_age=self._stream_max_age_s,
-                max_bytes=self._stream_max_bytes,
-                discard=DiscardPolicy.OLD,
-            )
-        except BadRequestError:
-            pass
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The run's last published frame, or None when its subject holds none.
 
-    async def _sweep_orphans(self, js: JetStreamContext) -> int:
-        """Reclaim streams whose run is over, returning how many were freed.
-
-        WHY lazy rather than a background reaper: this runs only when the store is actually
-        exhausted, so it costs nothing in the normal case and needs no scheduler, no leader
-        election, and no extra RBAC. It is the backstop for runs whose pod died before its own
-        teardown could run — an OOMKill or an eviction skips the runner's `finally` entirely.
+        WHY this exists: the worker's dedupe check (a terminal frame already on the subject
+        means the run is over — redelivery, cancel-before-claim, or stale) and its post-exit
+        check (did the child publish its own terminal frame?) both need to read the tail
+        without subscribing. An empty subject or an unreadable frame reads as None — the
+        conservative direction for both checks. A TRANSPORT failure raises `QueueReadError`.
         """
-        freed: list[str] = []
-        for info in await self._all_streams(js):
-            name = info.config.name
-            if name is None or not owns_stream(name):
-                continue
-            if not await self._is_orphan(js, info):
-                continue
-            try:
-                await js.delete_stream(name)
-            except NotFoundError:
-                # REGRESSION (I2): NOT `continue`. Sweeps race — every runner pod and every
-                # control-plane replica runs one — and this error means a CONCURRENT sweep
-                # already reclaimed this stream. Its space is free either way, so not counting
-                # it made the losing caller re-raise 10047 and fail a client for no reason.
-                pass
-            except APIError:
-                # One undeletable stream must not abort the sweep and mask the 10047 that
-                # triggered it; the remaining candidates are still worth trying.
-                logger.warning("could not reclaim stream %s", name, exc_info=True)
-                continue
-            # The memo must not outlive the stream it remembers, or a re-run of this topic would
-            # skip `add_stream` and publish into a stream that is no longer there.
-            self._ensured.discard(topic_of(name))
-            freed.append(name)
-        if freed:
-            # Name them: this is a destructive operation on a possibly shared broker, and this
-            # list is the only forensic record an operator gets.
-            logger.warning("reclaimed %d orphaned stream(s): %s", len(freed), ", ".join(freed))
-        return len(freed)
-
-    async def _all_streams(self, js: JetStreamContext) -> list[StreamInfo]:
-        """Every stream on the broker, across pages.
-
-        INVARIANT (REGRESSION I6): `streams_info()` is ONE request and the server caps a page at
-        256 entries. A single call silently examines a subset, so an orphan past the boundary is
-        invisible and the sweep reports nothing reclaimable while the store is full of it.
-        """
-        infos: list[StreamInfo] = []
-        for _ in range(_MAX_STREAM_PAGES):
-            page = await js.streams_info(offset=len(infos))
-            if not page:
-                break
-            infos.extend(page)
-        return infos
-
-    async def _is_orphan(self, js: JetStreamContext, info: StreamInfo) -> bool:
-        """Whether a stream is provably finished with, and so safe to delete.
-
-        INVARIANT: deleting a stream destroys its consumers with it, cutting off every attached
-        client. Both tests below therefore have to prove the run is OVER, never merely guess it.
-        """
-        state, name = info.state, info.config.name
-        if state.messages == 0:
-            # `max_age` emptied it, so there is nothing left to replay. `last_seq > 0` is
-            # load-bearing: a stream created microseconds ago also reports zero messages, and
-            # without this check the sweep would delete streams out from under starting runs.
-            return state.last_seq > 0 or self._never_started(info)
-        if name is None:
-            return False
-        return await self._terminated_before_grace(js, name)
-
-    def _never_started(self, info: StreamInfo) -> bool:
-        """Whether this stream's run never published anything and never will.
-
-        INVARIANT (REGRESSION C1): `messages == 0, last_seq == 0` is not only the state of a
-        stream created moments ago — it is the PERMANENT state of a topic whose runner never
-        published a frame. The control plane declares the stream when a client attaches, BEFORE
-        the Job is scheduled, so an ImagePullBackOff, a quota rejection, or a crash during world
-        resolution strands a stream holding its whole `max_bytes` reservation, which `max_age`
-        can never reclaim because there are no messages to expire. Treating that state as
-        permanently-not-orphan left the sweep unable to clear the very outage it exists for.
-
-        Two guards keep this off live runs: `created` is a SERVER-side timestamp (so no runner
-        clock is trusted), and a non-zero `consumer_count` means somebody is attached and waiting.
-        """
-        created = info.created
-        if created is None or info.state.consumer_count > 0:
-            return False
-        started = created if created.tzinfo is not None else created.replace(tzinfo=UTC)
-        return (datetime.now(UTC) - started).total_seconds() > self._never_started_s
-
-    async def _terminated_before_grace(self, js: JetStreamContext, name: str) -> bool:
-        """Whether this stream's last frame is a terminal one, old enough to be safe to drop.
-
-        This is what reclaims a run whose pod died between publishing its terminal frame and
-        running its own teardown — an OOMKill or an eviction during the drain grace.
-        """
-        try:
-            raw = await js.get_last_msg(name, subject_for(topic_of(name)))
-            frame = decode(raw.data or b"")
-        except (APIError, ValidationError):
-            # Unreadable means unprovable, and unprovable means keep it.
-            return False
-        if not isinstance(frame, TerminatedEvent) or frame.time is None:
-            return False
-        ended = frame.time if frame.time.tzinfo is not None else frame.time.replace(tzinfo=UTC)
-        return (datetime.now(UTC) - ended).total_seconds() > self._orphan_grace_s
+        _, frame = await self._tail(topic)
+        return frame
 
     async def delete_stream(self, topic: str) -> None:
-        """Drop a run's stream entirely, tolerating one that is already gone.
+        """Reclaim a finished run: purge its subject, KEEPING the last (terminal) frame.
 
-        INVARIANT: this is the only thing that reclaims a stream OBJECT. `purge_stream` empties a
-        stream but leaves it, its consumer state and its filestore directory behind, so a
-        purge-only teardown still adds one permanent stream to the NATS metaleader per run.
+        WHY keep one frame: a run's terminal frame is the evidence that it is over — the
+        worker's dedupe gate reads it on redelivery, and App admission reads it to free the
+        caller's slot. Under the former layout the evidence was also "the stream is gone";
+        a shared stream has no per-run object whose absence could say that, and an empty
+        subject looks exactly like a run still in the queue. `max_age` removes the kept frame.
         """
         js = await self._jetstream()
         try:
-            await js.delete_stream(stream_for(topic))
+            await js.purge_stream(self._events.name, subject=subject_for(topic), keep=1)
         except NotFoundError:
-            pass
-        self._ensured.discard(topic)
+            return
+        self.subject_purges += 1
 
     async def close(self) -> None:
         if self._nc is not None:
             await self._nc.close()
 
 
-async def _stream_exists(js: JetStreamContext, topic: str) -> bool:
-    """Whether the Run's stream is still declared on the broker.
-
-    `stream_info` on a missing stream raises NotFoundError; any other failure propagates.
-    """
-    try:
-        await js.stream_info(stream_for(topic))
-    except NotFoundError:
-        return False
-    return True
-
-
 class JetStreamConsumer(_JetStreamConnection, EventConsumer):
-    """The App-side consumer: subscribes to a run's JetStream subject and decodes frames back
-    into `OutboundFrame`s, optionally resuming from a given sequence."""
+    """The App-side consumer: reads one run's subject of the shared stream and decodes frames
+    back into `OutboundFrame`s, optionally resuming from a producer sequence."""
 
     async def subscribe(
         self, topic: str, from_sequence: int | None = None
     ) -> AsyncIterator[OutboundFrame]:
         validate_from_sequence(from_sequence)
         js = await self._jetstream()
-        if from_sequence is not None and not await _stream_exists(js, topic):
-            # A resume cursor with no stream to resume from: the Run finished and the
-            # Runner reclaimed the stream (spec §6 S2, OME-1019). The bridge turns this
-            # into a typed `stream_reclaimed` error frame. A FRESH attach (cursor None)
-            # still creates the stream — it legitimately precedes the Run's first publish.
-            raise StreamNotFoundError(topic)
         await self.ensure_stream(topic)
         sub = await js.subscribe(
-            subject_for(topic),
-            stream=stream_for(topic),
-            config=_consumer_config(from_sequence),
+            subject_for(topic), stream=self._events.name, config=_broadcast_consumer_config()
         )
+        cursor = 1 if from_sequence is None else from_sequence
+        first = True
         # WHY: the caller may abandon this generator mid-run (a re-attach cancels the WS pump, a
         # sync GET gives up at `sync_max_wait_s`). Without the unsubscribe the push consumer keeps
         # delivering into a queue nobody drains, for the life of the connection.
         try:
             async for msg in sub.messages:
-                yield decode(msg.data, sequence=msg.metadata.sequence.stream)
+                # INVARIANT (I-EV2): no sequence override. The frame carries the producer
+                # sequence; the stream sequence has gaps inside a run in a shared stream.
+                frame = decode(msg.data)
+                sequence = _producer_sequence(frame)
+                if (
+                    first
+                    and from_sequence is not None
+                    and sequence > from_sequence
+                    and isinstance(frame, TerminatedEvent)
+                ):
+                    # The subject holds only the terminal frame the reclaim kept (`keep=1`):
+                    # the run is over and the frames the cursor points at are gone. The bridge
+                    # turns this into `stream_reclaimed`, and the client stops reconnecting.
+                    #
+                    # WHY only then: a LIVE run can also lose its oldest frames — the per-run
+                    # cap or a full store drops them (EV-D6, ans:Q11). That run is not over, so
+                    # the resume continues at the earliest retained frame, like a stream that
+                    # rolled over.
+                    raise StreamNotFoundError(topic)
+                first = False
+                if sequence < cursor:
+                    continue
+                yield frame
         finally:
             await sub.unsubscribe()
 
     async def purge(self, topic: str) -> None:
-        # Idempotent by contract: `InMemoryEventStream.purge` creates-then-empties an unknown
-        # topic and returns, so purging one that was never published to must not raise here
-        # either. Without the guard `purge_stream` raises NotFoundError and the DELETE route
-        # turns a 204 into a 500 — a divergence only a real broker would ever show.
+        """Drop every retained frame of the run's subject. Idempotent."""
         js = await self._jetstream()
         try:
-            await js.purge_stream(stream_for(topic))
+            await js.purge_stream(self._events.name, subject=subject_for(topic))
         except NotFoundError:
-            pass
+            return
+        self.subject_purges += 1
 
 
 class JetStreamPublisher(_JetStreamConnection, EventPublisher):
-    """The App-side publisher. Only the mock runner writes to a topic in a real deployment —
-    the real Runner has its own copy, because the two deployables may not import each other.
+    """The publisher. Two kinds of writer use it, told apart by the frame:
 
-    Publishes are PIPELINED: `publish` returns once the frame is written to the connection,
-    and `flush` waits for the acknowledgements.
+    - A SEQUENCED frame comes from the url4 producer in the run child — the only writer while
+      the run is live (I-EV3). It is PIPELINED: `publish` returns once the frame is written to
+      the connection, and `flush` waits for the acknowledgements.
+    - An UNSEQUENCED frame comes from a writer that is not the child — the supervisor's
+      classification, the App's queued-cancel tombstone, the max-deliveries advisor. It goes
+      through :meth:`publish_next`: a conditional append at the subject's last sequence + 1.
 
-    WHY (OME-906): awaiting one acknowledgement per frame capped the drain at one broker round
-    trip per frame, while the engine produced observation events at CPU speed. A cached DRACO
-    burst therefore overflowed the Runner's event bridge — which cannot push back, because the
-    engine's observer callback is synchronous — and a correct Evaluation failed.
+    WHY pipelined (OME-906): awaiting one acknowledgement per frame capped the drain at one
+    broker round trip per frame, while the engine produced observation events at CPU speed. A
+    cached DRACO burst therefore overflowed the Runner's event bridge — which cannot push back,
+    because the engine's observer callback is synchronous — and a correct Evaluation failed.
 
-    INVARIANT: exactly ONE task calls `publish`. `publish_async` writes to the connection
-    inside the call, so a single caller hands the broker the frames in call order, and the
-    broker assigns its stream sequence from that order. Two tasks void it, and the SDK finds
-    gaps by exactly that sequence. This is also why the pipeline lives HERE and not in the
-    lifecycle: a task per frame would bound the window just as well and lose the ordering.
+    INVARIANT: exactly ONE task publishes sequenced frames per topic. `publish_async` writes to
+    the connection inside the call, so a single caller hands the broker the frames in call order.
     """
 
     def __init__(
         self,
         nats_url: str,
         *,
-        stream_max_age_s: float = DEFAULT_STREAM_MAX_AGE_S,
-        stream_max_bytes: int = DEFAULT_STREAM_MAX_BYTES,
-        orphan_grace_s: float = DEFAULT_ORPHAN_GRACE_S,
-        never_started_s: float = DEFAULT_NEVER_STARTED_S,
+        events: EventsStreamConfig | None = None,
+        writer: str = "app",
     ) -> None:
-        # Forwarded explicitly rather than through `**kwargs`: the base takes one `int` among
-        # its floats, so a single widened annotation cannot type-check, and the alternative
-        # was a `type: ignore` over the whole call.
-        super().__init__(
-            nats_url,
-            stream_max_age_s=stream_max_age_s,
-            stream_max_bytes=stream_max_bytes,
-            orphan_grace_s=orphan_grace_s,
-            never_started_s=never_started_s,
-        )
+        super().__init__(nats_url, events=events)
+        # The metric label for this publisher's unsequenced (non-child) frames (C7).
+        self._writer = writer
         # A dict used as an ORDERED set. Insertion order is publish order, and `_reap` keeps
         # the first failure — meaning the one on the earliest-published frame. A plain `set`
         # iterates by hash, which made "first" whichever future it happened to yield and only
         # showed up as a test that passed alone and failed in suite order.
         self._acks: dict[asyncio.Future[api.PubAck], None] = {}
         self._deferred_failure: BaseException | None = None
+        # Per topic: the producer sequence already on the subject when this run started. See
+        # `_rebase`. An entry lives from a run's first frame to its terminal frame.
+        self._offsets: dict[str, int] = {}
+        # Topics whose subject already ended when this publisher's run started (a queued-cancel
+        # tombstone that won the race against the claim): their frames are dropped (I-EV4).
+        self._ended: set[str] = set()
+        self.publish_conflicts: Counter[str] = Counter()
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
+        if event.sequence is None:
+            # WHY route rather than refuse: the port numbers frames for a caller that does not
+            # (`EventPublisher.publish`, and the url4 conformance contract publishes unsequenced
+            # frames), and every non-child writer here builds its frame unsequenced. The url4
+            # producer in the child ALWAYS sequences, so the pipelined path stays the child's.
+            await self.publish_next(topic, event)
+            return
         js = await self._jetstream()
         # Fail fast: a broker that started rejecting stops the run now, rather than after the
         # whole in-flight window drains.
         self._reap()
         self._raise_deferred()
-        ack = await js.publish_async(subject_for(topic), encode(event))
+        sequence = await self._rebase(topic, int(event.sequence))
+        if sequence is None:
+            return
+        if sequence != int(event.sequence):
+            event = event.model_copy(update={"sequence": str(sequence)})
+        ack = await js.publish_async(
+            subject_for(topic), encode(event), headers=_headers(topic, sequence)
+        )
         self._acks[ack] = None
+        if isinstance(event, TerminatedEvent):
+            self._offsets.pop(topic, None)
+
+    async def _rebase(self, topic: str, producer_sequence: int) -> int | None:
+        """The subject sequence for a frame the url4 producer numbered `producer_sequence`, or
+        None when the frame must be dropped because the subject already ended.
+
+        WHY: the producer numbers every run from 1, but a topic can run twice — the queue
+        redelivers a run whose worker died (`max_deliver=2`). The second child must continue
+        the subject (k+1, k+2, …) instead of writing 1..n again: the client drops a sequence
+        at or below its cursor as a duplicate, and `Nats-Msg-Id = <topic>:<seq>` would make the
+        broker drop it too. So the FIRST frame this publisher stores for a run reads what the
+        subject holds and offsets the run by it — at producer sequence 1, or later when that
+        frame never got out (its tail read failed and the run's failed arm publishes next).
+
+        A terminal tail at that point means the run was cancelled before it started (the App's
+        tombstone won the race against the claim): nothing may follow it (I-EV4).
+
+        The pending acks are drained first: a frame of an EARLIER run on this publisher may
+        still be in flight, and the tail read must see it.
+        """
+        if producer_sequence == 1 or topic not in self._offsets:
+            await self.flush()
+            self._ended.discard(topic)
+            _, last = await self._tail(topic)
+            if isinstance(last, TerminatedEvent):
+                self._ended.add(topic)
+                logger.warning("%s already ended; dropping this run's frames", topic)
+            self._offsets[topic] = _producer_sequence(last) - (producer_sequence - 1)
+        if topic in self._ended:
+            return None
+        return producer_sequence + self._offsets[topic]
+
+    async def publish_next(
+        self, topic: str, event: OutboundFrame, *, writer: str | None = None
+    ) -> bool:
+        """Append `event` at the subject's last sequence + 1, unless the run already ended.
+
+        Returns True when the frame was written. For a writer that is not the child (I-EV3):
+        it reads the tail, writes `last + 1` under `Nats-Expected-Last-Subject-Sequence`, and on
+        a conflict (another writer appended in between) reads again — max
+        `MAX_CONDITIONAL_ATTEMPTS` times. It writes nothing after a terminal frame (I-EV4).
+
+        After the last conflict it logs and returns False; the caller acks its queue message
+        anyway, because the run already has, or will get, a terminal frame from another writer,
+        or `max_age` expiry (C7).
+        """
+        label = writer or self._writer
+        await self.ensure_stream(topic)
+        unique_id = False
+        for _ in range(MAX_CONDITIONAL_ATTEMPTS):
+            stream_sequence, last = await self._tail(topic)
+            if isinstance(last, TerminatedEvent):
+                return False
+            outcome = await self._append_once(
+                topic, event, after=(stream_sequence, last), unique_id=unique_id
+            )
+            if outcome is _Append.WRITTEN:
+                return True
+            if outcome is _Append.CONFLICT:
+                self.publish_conflicts[label] += 1
+            else:
+                unique_id = True
+        logger.error(
+            "gave up appending %s to %s after %d attempts",
+            event.type,
+            topic,
+            MAX_CONDITIONAL_ATTEMPTS,
+        )
+        return False
+
+    async def _append_once(
+        self,
+        topic: str,
+        event: OutboundFrame,
+        *,
+        after: tuple[int, OutboundFrame | None],
+        unique_id: bool,
+    ) -> "_Append":
+        """One conditional append of :meth:`publish_next`, right after the tail `after`
+        (its stream sequence and its frame)."""
+        stream_sequence, last = after
+        sequence = _producer_sequence(last) + 1
+        frame = event.model_copy(update={"sequence": str(sequence), "sequencetype": "Integer"})
+        headers = _headers(topic, sequence)
+        if unique_id:
+            headers[Header.MSG_ID] = f"{topic}:{sequence}:{event.id}"
+        headers[Header.EXPECTED_LAST_SUBJECT_SEQUENCE] = str(stream_sequence)
+        js = await self._jetstream()
+        try:
+            ack = await js.publish(subject_for(topic), encode(frame), headers=headers)
+        except APIError as exc:
+            if exc.err_code != WRONG_LAST_SEQUENCE_ERR_CODE:
+                raise
+            return _Append.CONFLICT
+        if not ack.duplicate:
+            return _Append.WRITTEN
+        # WHY a duplicate ack needs a second look: the broker checks `Nats-Msg-Id` BEFORE the
+        # expected sequence, and answers a duplicate with a success on the wire while storing
+        # nothing. Two causes, told apart by the tail:
+        # - it moved: a late child frame took `last + 1` first, under the same id — a conflict
+        #   like any other;
+        # - it did not: nobody wrote, and the id matched a frame a purge removed inside the
+        #   duplicate window (a purge rewinds the count). Retry under an id unique to this frame.
+        moved, _ = await self._tail(topic)
+        return _Append.CONFLICT if moved != stream_sequence else _Append.ID_REUSED
 
     async def flush(self) -> None:
         if self._acks:
@@ -477,4 +762,28 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
             ) from exc
 
 
-__all__ = ["DeferredPublishError", "JetStreamConsumer", "JetStreamPublisher"]
+class _Append(Enum):
+    """The outcome of one conditional append attempt."""
+
+    WRITTEN = "written"
+    CONFLICT = "conflict"
+    ID_REUSED = "id_reused"
+
+
+def _headers(topic: str, sequence: int) -> dict[str, str]:
+    # `Nats-Msg-Id` makes a retried publish of the same frame a no-op inside the stream's
+    # duplicate window (EV-D5).
+    return {Header.MSG_ID: f"{topic}:{sequence}", URL4_SEQ_HEADER: str(sequence)}
+
+
+__all__ = [
+    "DeferredPublishError",
+    "EventsStreamConfig",
+    "EventsStreamConfigError",
+    "JetStreamConsumer",
+    "JetStreamPublisher",
+    "QueueReadError",
+    "ensure_events_stream",
+    "events_store_usage",
+    "purge_legacy_streams",
+]

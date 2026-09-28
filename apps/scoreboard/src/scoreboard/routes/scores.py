@@ -37,11 +37,13 @@ from scoreboard.scores.schemas import (
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
+    ScoreRankingNotice,
     ScoreSchema,
     ScoreSubmission,
 )
 from scoreboard.scores.store import (
     BenchmarkVisibilityChanged,
+    ConcurrentScoreUpdate,
     PrivateBoardRequiresIdentity,
     ScoreStore,
 )
@@ -58,6 +60,11 @@ UNTRUSTED_PEER_DETAIL = (
 MISSING_IDENTITY_DETAIL = (
     f"Missing {HEADER_USER_EMAIL} — this service resolves the submitter from the identity "
     "header the mesh gateway injects after verifying Cloudflare Access."
+)
+
+
+CONCURRENT_UPDATE_DETAIL = (
+    "another request changed this submission while its authors were being corrected; retry"
 )
 
 
@@ -152,9 +159,25 @@ def _field_error_detail(field: str, message: str) -> dict[str, str]:
     return FieldErrorDetail(field=field, message=message).model_dump()
 
 
+def _submission_response(score: ScoreSchema, registered_revision: str | None) -> ScoreSchema:
+    submitted_revision = score.benchmark_revision
+    if registered_revision is None or submitted_revision == registered_revision:
+        return score
+    return score.model_copy(
+        update={
+            "ranking_notice": ScoreRankingNotice(
+                code="benchmark_revision_mismatch",
+                submitted_benchmark_revision=submitted_revision,
+                registered_benchmark_revision=registered_revision,
+            )
+        }
+    )
+
+
 @router.post(
     "/scores",
     response_model=ScoreSchema,
+    response_model_exclude_unset=True,
     status_code=status.HTTP_201_CREATED,
     responses=SUBMIT_SCORE_RESPONSES,
 )
@@ -192,6 +215,13 @@ async def submit_score(
                 ),
             )
 
+        # FEATURE (OME-909): snapshot before the write, inside the same unavailable-store
+        # boundary. A read after a successful insert could fail and hide the persisted id from
+        # the caller. Keep `exists()` above as the established 404/503 seam; this narrow second
+        # read supplies only the submit-time comparability fact.
+        benchmark = await Benchmark.filter(id=submission.benchmark_id).only("revision").first()
+        registered_revision = None if benchmark is None else benchmark.revision
+
         # INVARIANT (OME-894): a private board cannot take a write without a VERIFIED submitter.
         # In `disabled` mode `_resolve_submitter` trusts the body's `submitted_by`, and combined
         # with per-submitter dedup that is a read primitive, not just a spoofing risk: forge a
@@ -223,6 +253,15 @@ async def submit_score(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=VISIBILITY_CHANGED_DETAIL,
             ) from exc
+        except ConcurrentScoreUpdate as exc:
+            # Same reasoning as the visibility 409 above: nothing is wrong with the request, and a
+            # retry resolves the row again and re-applies the correction. Caught BEFORE the outer
+            # `except OperationalError`, which would otherwise answer 503 store-unavailable for a
+            # race the store handled perfectly well (OME-1054).
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=CONCURRENT_UPDATE_DETAIL,
+            ) from exc
         except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -237,7 +276,7 @@ async def submit_score(
             # happened, including under a concurrent-duplicate race (found in PR
             # review, OME-391 / C28).
             response.status_code = status.HTTP_200_OK
-        return outcome.score
+        return _submission_response(outcome.score, registered_revision)
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

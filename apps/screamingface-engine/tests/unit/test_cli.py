@@ -19,7 +19,10 @@ def modes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Record which mode `main` selects, without entering either for real."""
     called: list[str] = []
     monkeypatch.setattr(cli, "_serve", lambda: called.append("serve"))
-    monkeypatch.setattr(cli, "_run", lambda: called.append("run"))
+    monkeypatch.setattr(
+        cli, "_run", lambda *, warm=False: called.append("run --warm" if warm else "run")
+    )
+    monkeypatch.setattr(cli, "_worker", lambda: called.append("worker"))
     return called
 
 
@@ -36,9 +39,15 @@ def test_serve_subcommand_serves(modes: list[str]) -> None:
 
 
 def test_run_subcommand_runs(modes: list[str]) -> None:
-    # INVARIANT: this is what `K8sJobRunner` puts in every Job's `command`.
+    # INVARIANT: this is what the worker pool's children enter (`screamingface-engine run`).
     cli.main(["run"])
     assert modes == ["run"]
+
+
+def test_worker_subcommand_workers(modes: list[str]) -> None:
+    # INVARIANT: the worker pool (OME-1086) starts every Pod with this subcommand.
+    cli.main(["worker"])
+    assert modes == ["worker"]
 
 
 def test_an_unknown_mode_exits_loudly_rather_than_serving(modes: list[str]) -> None:
@@ -71,6 +80,39 @@ def test_run_resolves_the_real_runner_entrypoint(monkeypatch: pytest.MonkeyPatch
     assert called == [True]
 
 
+def test_worker_resolves_the_real_worker_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_worker` itself, unshimmed — so the lazy import is proven to resolve."""
+    import screamingface_engine.worker.loop as worker_loop
+
+    called: list[bool] = []
+    monkeypatch.setattr(worker_loop, "run_worker", lambda: called.append(True))
+
+    cli._worker()
+
+    assert called == [True]
+
+
+def test_worker_mode_does_not_import_the_run_half() -> None:
+    """The worker spawns the run as a child process; it never imports it.
+
+    `check_layering.py` proves it over the import GRAPH; this proves it over what a real
+    interpreter actually loads — the worker's import graph is the serving half's plus the
+    queue, and the engine-bearing run half stays out of the worker's process.
+    """
+    probe = (
+        "import sys, screamingface_engine.worker.loop;"
+        "print(','.join(sorted(m for m in sys.modules if "
+        "m.startswith('screamingface_engine.runner.') or m == 'screamingface_engine.runner' "
+        "or m == 'url4.streaming.lifecycle')))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "", (
+        f"`screamingface-engine worker` loaded the run half: {result.stdout.strip()}"
+    )
+
+
 def test_run_mode_does_not_import_the_serving_stack() -> None:
     """The run path must not load FastAPI/uvicorn/the kubernetes client.
 
@@ -90,3 +132,35 @@ def test_run_mode_does_not_import_the_serving_stack() -> None:
     assert result.stdout.strip() == "", (
         f"`url4-cloud run` loaded serving-side packages: {result.stdout.strip()}"
     )
+
+
+def test_admin_purge_legacy_streams_dispatches_with_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EVT-17: the rollout step is a CLI subcommand, and `--dry-run` reaches it."""
+    calls: list[bool] = []
+    monkeypatch.setattr(cli, "_purge_legacy_streams", lambda *, dry_run: calls.append(dry_run))
+    cli.main(["admin", "purge-legacy-streams", "--dry-run"])
+    cli.main(["admin", "purge-legacy-streams"])
+    assert calls == [True, False]
+
+
+def test_admin_without_a_command_exits_loudly() -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["admin"])
+    assert exc.value.code == 2
+
+
+def test_run_warm_subcommand_runs_warm(modes: list[str]) -> None:
+    """PRD 03: the worker pool's child enters the warm path through `run --warm`."""
+    cli.main(["run", "--warm"])
+    assert modes == ["run --warm"]
+
+
+def test_cli_rejects_node_mode(modes: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+    """DEC-5 / DC-D4: the node tier was removed (uniform executor PRD 05), so its mode is gone."""
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["node"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'node'" in capsys.readouterr().err
+    assert modes == []

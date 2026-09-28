@@ -276,10 +276,10 @@ def modifier_refuses_dispatch(litellm: Any, max_tokens: object) -> bool:
 
     # INVARIANT: the PRECISE half of the asymmetry. Installed LiteLLM rewrites only a
     # request whose ``max_tokens`` is not ``None``, so a request without a ceiling is
-    # untouched and refusing it would be an outage this gateway invented. A
-    # profile-defaulted ceiling counts as present, because defaults are merged into the
-    # body before the cache stage; an explicit ``None`` counts as absent, matching
-    # LiteLLM's own test.
+    # untouched and refusing it would be an outage this gateway invented. Only the
+    # caller's own ceiling can be present — since OME-1323 (D2) no stored Profile default
+    # is merged into the body; an explicit ``None`` counts as absent, matching LiteLLM's
+    # own test.
     # WHY ``max_tokens`` is tested FIRST: a request LiteLLM cannot touch then never reads
     # the flag at all, so it produces neither a refusal nor log noise.
     """

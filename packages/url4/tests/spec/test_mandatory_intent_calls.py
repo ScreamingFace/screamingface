@@ -124,7 +124,7 @@ def test_context_only_wire_subrequest_still_round_trips() -> None:
     # INVARIANT: `encode_subrequest(path, ctx, intent=None)` builds `/p?q=(ctx)`
     # — a WIRE artifact decoded by `decode_subrequest`, never re-parsed by the
     # grammar. The intent rule must not reach it.
-    from url4.core.subrequest import decode_subrequest, encode_subrequest
+    from url4.wire.subrequest import decode_subrequest, encode_subrequest
 
     target = encode_subrequest("/p", "hello", None)
     assert target == "/p?q=(hello)"

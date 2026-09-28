@@ -39,6 +39,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      # WHY pin helm: the chart tests run `helm install --dry-run=client` to read NOTES.txt.
+      # The runner's preinstalled Helm v3 still dials a cluster for that ("Kubernetes cluster
+      # unreachable"); Helm v4 renders it offline. Same action as the `chart` job below.
+      - uses: azure/setup-helm@v5.0.1
       # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
       # longer matches pyproject.toml is invisible to every later step. That exact defect shipped
       # once already (a package rename left the lock stale) and CI could not see it.
@@ -64,6 +68,23 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -v
+      # The inspect suites open with `pytest.importorskip("inspect_ai")`, so without the
+      # extra they SKIP — silently. An explicit file list here rotted once already: the
+      # importer's and snapshots' suites were never listed, so the importer's regression
+      # pins ran in no CI lane at all (review finding on PR 1009). The selector is now a
+      # DIRECTORY — tests/unit/inspect — enforced from the extra-less lane above by
+      # tests/unit/test_inspect_suite_location.py: an importorskip'ing file outside the
+      # directory fails lane 1 loudly, so this lane's target cannot rot silently again,
+      # and the ~250 extra-independent files are not re-run here. Two guards below:
+      # `could not import` refuses the one skip that means "the dependency this lane
+      # exists to install is missing"; `no tests ran` refuses an emptied/renamed target.
+      - name: Run the inspect suites with the inspect extra
+        run: |
+          uv run --extra inspect pytest -q -rs tests/unit/inspect | tee inspect.txt
+          if grep -qE "could not import|no tests ran" inspect.txt; then
+            echo "::error::the inspect lane proved nothing — missing extra import or empty target dir"
+            exit 1
+          fi
       - name: Test report
         uses: dorny/test-reporter@v3
         if: always()
@@ -117,7 +138,8 @@ jobs:
           uv run pytest -v \
             tests/unit/test_stream_contract.py \
             tests/unit/test_attach_from_sequence_bounds.py \
-            tests/unit/test_jetstream_subscribe_ensures_stream.py
+            tests/unit/test_jetstream_subscribe_ensures_stream.py \
+            tests/integration/test_run_queue_roundtrip.py
       # A skip here means the probe did not find the broker and the job proved nothing.
       - name: Fail if the real-broker parameters were skipped
         run: |
@@ -174,7 +196,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v5
+      - uses: azure/setup-helm@v5.0.1
       # `helm lint` alone reported "0 chart(s) failed" on a chart that cannot render at all —
       # every template aborts on the `natsUrl` `fail` when it is unset. Templating is the check
       # that actually exercises the templates; linting only reads them.

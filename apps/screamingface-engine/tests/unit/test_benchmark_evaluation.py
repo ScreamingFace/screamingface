@@ -84,7 +84,10 @@ async def test_aggregate_endpoint_validates_selection_and_passes_case_evaluation
     for intent in ("aggregate:0", "aggregate:4", "aggregate:invalid", "aggregate:²"):
         with pytest.raises(ResolutionError) as caught:
             await node.evaluate(_call("/benchmark/aggregate", "[]", intent))
-        assert caught.value.code == "benchmark_unavailable"
+        # WHY benchmark_definition_error (OME-1234): a selection the benchmark author
+        # baked into the aggregate intent that cannot be satisfied is an authoring
+        # mistake, not an unavailable asset.
+        assert caught.value.code == "benchmark_definition_error"
 
     with pytest.raises(ResolutionError) as caught:
         await node.evaluate(_call("/benchmark/aggregate", "[]", "summarize:1"))

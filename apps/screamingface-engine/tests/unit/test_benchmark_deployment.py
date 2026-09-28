@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+from dataclasses import replace
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
 
 from screamingface_engine.benchmarks import prepare as prepare_module
-from screamingface_engine.benchmarks.builtins import (
-    BUILTIN_BENCHMARKS,
-    BUILTIN_DEPLOYMENT,
-)
-from screamingface_engine.benchmarks.definition import Benchmark
+from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT, BUILTIN_REGISTRATIONS
+from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
     BenchmarkAssetPreparationError,
@@ -29,6 +29,7 @@ from screamingface_engine.benchmarks.healthbench.prepare import (
 from screamingface_engine.benchmarks.ifeval.prepare import PrepareError as IFEvalPrepareError
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
 from url4 import Text
+from url4.peer.server import Url4Node
 
 # WHY resolved + checked: the workflow guard reads a file OUTSIDE this app. In a standalone
 # engine checkout the monorepo siblings are simply absent, and a guard that cannot see its
@@ -67,6 +68,11 @@ def _benchmark(benchmark_id: str) -> Benchmark:
         revision="revision-1",
         case_count=1,
         build=lambda _selected: Text("protocol"),
+        declaration=BenchmarkDeclaration(
+            failure_policy="coverage_declare",
+            interaction="single_shot",
+            difficulty="easy",
+        ),
     )
 
 
@@ -115,7 +121,7 @@ def test_builtin_prepare_cli_prints_one_auditable_record_per_bundle(
         "ifeval": {"cases": 541, "patched_keys": [146, 179]},
     }
 
-    def prepare(_root: Path, on_prepared: object = None) -> dict[str, object]:
+    def prepare(_root: Path, on_prepared: object = None, **_only: object) -> dict[str, object]:
         for bundle, summary in summaries.items():
             if on_prepared is not None:
                 on_prepared(bundle, summary)  # type: ignore[operator]
@@ -137,7 +143,7 @@ def test_builtin_prepare_cli_reports_declared_refusal_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def refuse(_root: Path, _on_prepared: object = None) -> dict[str, object]:
+    def refuse(_root: Path, _on_prepared: object = None, **_only: object) -> dict[str, object]:
         raise BenchmarkAssetPreparationError("frozen answer key drifted")
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
@@ -154,13 +160,49 @@ def test_builtin_prepare_cli_does_not_hide_unexpected_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def explode(_root: Path, _on_prepared: object = None) -> dict[str, object]:
+    def explode(_root: Path, _on_prepared: object = None, **_only: object) -> dict[str, object]:
         raise AssertionError("programming defect")
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", explode)
 
     with pytest.raises(AssertionError, match="programming defect"):
         prepare_module.main(["--root", str(tmp_path)])
+
+
+def test_a_decode_failure_is_not_relabelled_as_a_bundle_selection_mistake(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed dataset row must surface as itself, traceback intact.
+
+    INVARIANT: five preparers call `json.loads` on dataset rows, and `json.JSONDecodeError`
+    subclasses `ValueError` — so an `except ValueError` around the bake would print an
+    operator-facing "selection failed" line for a dataset fault and swallow the stack,
+    sending someone hunting for a typo that does not exist. Unknown bundle ids are caught
+    before any preparer runs instead.
+    """
+
+    def explode(_root: Path, _on_prepared: object = None, **_only: object) -> dict[str, object]:
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", explode)
+
+    with pytest.raises(json.JSONDecodeError):
+        prepare_module.main(["--root", str(tmp_path)])
+
+
+def test_an_unknown_bundle_id_is_refused_before_any_preparer_runs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("a typo must not reach the preparers")
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
+
+    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "ghost"]) == 1
+    assert "ghost" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -192,21 +234,92 @@ def test_asset_bundle_ids_are_safe_directory_names(bundle_id: str) -> None:
         BenchmarkAssetBundle(id=bundle_id, prepare=lambda _out: {})
 
 
-def test_builtins_are_registered_with_their_physical_asset_bundles() -> None:
-    registrations = {
-        registration.benchmark.id: registration.asset_bundle.id
-        for registration in BUILTIN_DEPLOYMENT.registrations
-    }
+def _installer_bundle_id(registration: BenchmarkRegistration) -> str | None:
+    """The bundle directory the board's OWN installer reads, or None when it declares none.
 
-    assert BUILTIN_DEPLOYMENT.benchmarks is BUILTIN_BENCHMARKS
-    assert registrations == {
-        "draco": "draco",
-        "draco-3pass": "draco",
-        "gdpval-text": "gdpval",
-        "ifeval": "ifeval",
-        "healthbench-worst30": "healthbench",
-        "healthbench-professional": "healthbench",
-    }
+    Two declaration protocols, closest-to-the-installer first (owner-approved
+    amendment, 2026-09-16): a table-registered board (boards-as-rows plugins) stamps
+    ``ASSET_BUNDLE_ID`` on the installer FUNCTION itself; a home-grown family module
+    exports it as a module constant beside the installer — see
+    ``benchmarks/gdpval/exam.py``. Either way the value is read from the board itself
+    rather than from a second list, and it is the directory the installer actually
+    opens at runtime.
+    """
+
+    stamped = getattr(registration.benchmark.install, "ASSET_BUNDLE_ID", None)
+    if stamped is not None:
+        return stamped
+    module = sys.modules.get(registration.benchmark.install.__module__)
+    return getattr(module, "ASSET_BUNDLE_ID", None)
+
+
+def _family_package(registration: BenchmarkRegistration) -> str:
+    """The family package a board's installer lives in — ``...benchmarks.<family>.<module>``."""
+
+    return registration.benchmark.install.__module__.split(".")[-2]
+
+
+@pytest.mark.parametrize(
+    "registration",
+    BUILTIN_DEPLOYMENT.registrations,
+    ids=lambda registration: registration.benchmark.id,
+)
+def test_every_board_is_registered_against_the_bundle_its_installer_reads(
+    registration: BenchmarkRegistration,
+) -> None:
+    """INVARIANT: the deployment bakes the directory the board goes on to open.
+
+    WHY derived rather than a hand-written board->bundle map (OME-1095): the map had to be
+    edited for every new board, and it could only ever restate what the registration already
+    says. Registering a board against another family's bundle bakes one directory and reads
+    another — the board's assets are simply absent at runtime — and that is what this catches
+    for a board nobody has written yet.
+    """
+
+    declared = _installer_bundle_id(registration)
+
+    assert declared is not None, (
+        f"{registration.benchmark.id} installs from "
+        f"{registration.benchmark.install.__module__}, which exports no ASSET_BUNDLE_ID; "
+        "a board must name the asset directory it reads next to the installer that reads it"
+    )
+    assert declared == registration.asset_bundle.id, (
+        f"{registration.benchmark.id} is registered against bundle "
+        f"{registration.asset_bundle.id!r} but its installer reads {declared!r}"
+    )
+
+
+def test_the_bundle_provenance_check_covers_a_board_the_registry_has_never_seen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check is a pure function of a registration — it holds no board ids of its own.
+
+    A throwaway board declared here, never added to ``BUILTIN_DEPLOYMENT``, goes through the
+    same helper the built-ins do, and the helper both accepts the matched bundle and rejects
+    a borrowed one. That is the property this test claims and nothing more: it exercises the
+    helper, not a real board's runtime — an actual seventh board is only proven by adding one.
+    """
+
+    family = ModuleType("screamingface_engine.benchmarks.throwaway.exam")
+    family.ASSET_BUNDLE_ID = "throwaway"  # type: ignore[attr-defined]
+
+    def install(_node: Url4Node, _assets: Path) -> None:
+        """The board's installer, defined in its family module beside the constant above."""
+
+    install.__module__ = family.__name__
+    monkeypatch.setitem(sys.modules, family.__name__, family)
+    bundle = BenchmarkAssetBundle(id="throwaway", prepare=lambda _out: {})
+    board = replace(_benchmark("throwaway-text"), install=install)
+
+    matched = BenchmarkRegistration(board, asset_bundle=bundle)
+    assert _installer_bundle_id(matched) == matched.asset_bundle.id
+    assert _family_package(matched) == "throwaway"
+
+    borrowed = BenchmarkRegistration(
+        board,
+        asset_bundle=BenchmarkAssetBundle(id="someone-elses", prepare=lambda _out: {}),
+    )
+    assert _installer_bundle_id(borrowed) != borrowed.asset_bundle.id
 
 
 def test_benchmark_image_invokes_only_the_registered_asset_orchestrator() -> None:
@@ -289,9 +402,20 @@ def test_the_family_guard_does_not_flag_the_orchestrator_itself() -> None:
 
 
 def test_the_family_guard_covers_every_family_preparer_package() -> None:
-    """WHY: a guard derived from a mistyped path would match nothing and pass in silence."""
+    """WHY: a guard derived from a mistyped path would match nothing and pass in silence.
 
-    assert set(FAMILY_PACKAGES) == {"draco", "gdpval", "healthbench", "ifeval"}
+    Both sides are derived (OME-1095): the families found on disk must be exactly the
+    families the registered boards install from, so a preparer package nobody deploys — or a
+    deployed family whose preparer vanished — fails here instead of going unguarded.
+    """
+
+    assert FAMILY_PACKAGES
+    # WHY STATIC only (OME-1115): plugin-contributed registrations install from their
+    # own top-level package, outside the core benchmarks/<family> geography this guard
+    # derives from; the per-board bundle-id conformance above still covers them.
+    assert set(FAMILY_PACKAGES) == {
+        _family_package(registration) for registration in BUILTIN_REGISTRATIONS
+    }
     for family in FAMILY_PACKAGES:
         assert _FAMILY_PREPARER.search(f"-m screamingface_engine.benchmarks.{family}.prepare")
 
@@ -399,7 +523,7 @@ def test_an_unserializable_summary_key_does_not_abort_the_remaining_bundles(
         "ifeval": {"cases": 541},
     }
 
-    def prepare(_root: Path, on_prepared: object = None) -> dict[str, object]:
+    def prepare(_root: Path, on_prepared: object = None, **_only: object) -> dict[str, object]:
         for bundle, summary in summaries.items():
             if on_prepared is not None:
                 on_prepared(bundle, summary)  # type: ignore[operator]
@@ -423,3 +547,94 @@ def test_the_family_guard_matches_a_computed_family_segment() -> None:
     assert _FAMILY_PREPARER.search('f"screamingface_engine.benchmarks.{name}.prepare"')
     # The orchestrator itself still must not match.
     assert _FAMILY_PREPARER.search("-m screamingface_engine.benchmarks.prepare --root /x") is None
+
+
+def _two_bundle_deployment(calls: list[Path]) -> BenchmarkDeployment:
+    """A deployment whose two bundles each record the directory they were baked into."""
+
+    def prepare(out: Path) -> dict[str, object]:
+        calls.append(out)
+        return {"cases": 1, "out": str(out)}
+
+    return BenchmarkDeployment(
+        (
+            BenchmarkRegistration(_benchmark("one"), asset_bundle=_bundle("alpha", prepare)),
+            BenchmarkRegistration(_benchmark("two"), asset_bundle=_bundle("beta", prepare)),
+        )
+    )
+
+
+def _bundle(bundle_id: str, prepare: Any) -> BenchmarkAssetBundle:
+    return BenchmarkAssetBundle(id=bundle_id, prepare=prepare)
+
+
+def test_preparing_a_named_subset_leaves_every_other_bundle_untouched(tmp_path: Path) -> None:
+    """INVARIANT: a resumed bake must not re-enter a bundle that already completed.
+
+    The imported preparer refuses a non-empty directory by design, so without a way to name
+    the bundles still missing, one interrupted bake forces every sibling to be deleted and
+    re-downloaded. Selection is what makes the bake resumable.
+    """
+
+    calls: list[Path] = []
+
+    prepared = _two_bundle_deployment(calls).prepare_assets(tmp_path, only=("beta",))
+
+    assert calls == [tmp_path / "beta"]
+    assert set(prepared) == {"beta"}
+    assert not (tmp_path / "alpha").exists()
+
+
+def test_selecting_a_bundle_the_deployment_never_declared_refuses_by_name(
+    tmp_path: Path,
+) -> None:
+    """A silent no-op would look exactly like a successful bake in a build log."""
+
+    calls: list[Path] = []
+
+    with pytest.raises(ValueError, match="ghost"):
+        _two_bundle_deployment(calls).prepare_assets(tmp_path, only=("beta", "ghost"))
+
+    assert calls == []
+
+
+def test_prepare_cli_bakes_only_the_bundles_named_on_the_command_line(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def prepare(root: Path, on_prepared: Any = None, *, only: Any = None) -> dict[str, Any]:
+        seen["only"] = only
+        if on_prepared is not None:
+            on_prepared("draco", {"cases": 1})
+        return {"draco": {"cases": 1}}
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
+
+    # A REAL bundle id: main() refuses an undeclared one before any preparer runs, so a
+    # made-up name would exercise the refusal rather than the forwarding this test pins.
+    assert prepare_module.main(["--root", str(tmp_path), "--bundle", "draco"]) == 0
+
+    assert seen["only"] == ("draco",)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [record["bundle"] for record in records] == ["draco"]
+
+
+def test_prepare_cli_lists_bundle_ids_without_baking_anything(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recipe asks WHICH bundles exist before deciding which are still missing."""
+
+    def refuse(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("--list-bundles must not prepare anything")
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", refuse)
+
+    assert prepare_module.main(["--list-bundles"]) == 0
+
+    listed = capsys.readouterr().out.split()
+    assert listed == sorted(listed)
+    assert "draco" in listed

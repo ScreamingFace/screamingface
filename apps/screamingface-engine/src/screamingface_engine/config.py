@@ -1,26 +1,27 @@
 """Typed settings for the screamingface-engine App, loaded from `URL4_CLOUD_*`
 environment variables."""
 
-from typing import Literal, Self
+from collections.abc import Mapping
+from typing import Any, Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from screamingface_engine import job_env
+from screamingface_engine import job_env, runner_queue, subjects
 
-# WHY a margin at all: the App decides a token is expired from its own clock, while the k8s TTL
-# controller deletes the Job from the control plane's. Without slack a skewed pair could reclaim
-# the guard a few seconds before the token is actually refused. 60s is far beyond realistic
-# in-cluster skew and still ~500x cheaper than the old job_deadline_s-based floor.
-_TTL_SKEW_MARGIN_S = 60
-
-RunnerBackend = Literal["none", "k8s"]
+RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
 """Which ``JobRunner`` substrate the deployed App schedules runs on (spec §9).
 
-``k8s`` is prod (namespace-scoped batch/v1 Jobs) and ``none`` a stream-only App that mints tokens
-and bridges NATS but schedules nothing.
+``queue`` is the OME-1086 substrate (one durable run queue + a fixed worker pool; the
+adapter exists and is selectable since OME-1090, the cutover is OME-1092), and ``none`` a
+stream-only App that mints tokens and bridges NATS but schedules nothing. The k8s Job
+backend was retired at the cutover.
 """
+
+# The worker's per-run address-space cap (OME-1089). 2 GiB — see the field's comment for why it
+# sits above the old 1 GiB k8s cgroup limit.
+DEFAULT_WORKER_MEMORY_BUDGET_BYTES = 2 * 1024**3
 
 # WHY a named module constant (not a bare literal) for the insecure default: the prod guard in
 # app.py (_require_prod_secret) compares against this same sentinel so the two never drift. If the
@@ -39,6 +40,25 @@ class Settings(BaseSettings):
     and model-catalog cache tuning."""
 
     model_config = SettingsConfigDict(env_prefix="URL4_CLOUD_")
+
+    # INVARIANT: deployment policy, never a per-run request parameter.
+    activity_level: Literal["off", "full"] = "full"
+    _activity_level_explicit: bool = PrivateAttr(default=False)
+
+    def __init__(self, **values: Any) -> None:
+        super().__init__(**values)
+        # WHY: model_fields_set includes environment values, losing caller provenance.
+        self._activity_level_explicit = "activity_level" in values
+
+    @property
+    def activity_level_is_explicit(self) -> bool:
+        return self._activity_level_explicit
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        copied = super().model_copy(update=update, deep=deep)
+        if update is not None and "activity_level" in update:
+            copied._activity_level_explicit = True
+        return copied
 
     # WHY: HS256 signing secret for the JWT topic-capability token (spec §4). Never logged.
     #
@@ -74,6 +94,15 @@ class Settings(BaseSettings):
     # AIDEV-NOTE: credential material. Never logged, never rendered into a ConfigMap — it
     # reaches the pod from a Secret, the same way `TAVILY_API_KEY` does.
     artifact_s3_secret_key: str = ""
+    # FEATURE (OQ-3.2, uniform executor PRD 04): the HMAC key this App signs a mount result's
+    # short-lived artifact URL with (the 303 over 1 MiB) and verifies it against.
+    #
+    # WHY empty by default: an unconfigured key must DISABLE signed fetches, not become a
+    # universal credential. `artifacts.signing.verify_artifact_signature` refuses an empty key,
+    # and a mount result over 1 MiB streams inline instead of a 303 — so the bare
+    # capability-token path is unaffected until the secret is wired.
+    # INVARIANT: Secret only. A holder can mint a fetch credential for any artifact id.
+    artifact_signing_key: str = ""
     # WHY 48h: long enough for any client that survived its run to come back for the parcel
     # (a run itself is bounded by job_deadline_s = 16h), short enough that crashed runs
     # cannot pool disk for more than two days. Swept at App startup AND periodically.
@@ -104,33 +133,19 @@ class Settings(BaseSettings):
     sync_max_wait_s: float = 30.0
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
     ws_heartbeat_s: float = 15.0
-    # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3).
+    # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3). The run deadline is
+    # still a setting: the worker's hard wall derives from it, and the queue drops a run whose
+    # capability expired while it sat queued.
     job_deadline_s: int = 57600
-    # WHY: the run substrate is deployment-shaped, not code-shaped — the helm chart sets `k8s`.
-    # Default `none` keeps a bare `Settings()` from reaching for a cluster.
+    # WHY: the run substrate is deployment-shaped, not code-shaped — the helm chart sets `queue`.
+    # Default `none` keeps a bare `Settings()` from reaching for a broker.
     runner: RunnerBackend = "none"
-    # INVARIANT: the App's RBAC Role is namespace-scoped, so Jobs are only ever created here (§9).
-    namespace: str = "default"
-    # WHY this is still a setting when the Job now runs the App's OWN image: a process cannot
-    # reliably learn the image reference it was started from (the pod spec holds it, reading it
-    # back needs RBAC on pods and the Downward API does not expose it), so the deployment states
-    # it. The chart renders the same `image:` it gives the Deployment, which is what keeps the
-    # two in lockstep. It is a distinct field rather than a hardcoded constant precisely so a
-    # deployment CAN pin the Job to a different tag during a staged rollout.
-    runner_image: str = "screamingface-engine:latest"
     # WHY: the model catalog forwards the CALLER's credential to aigateway directly, and this is
-    # its ONLY consumer (`catalog/__init__.py:build_catalog_service`) — despite sitting among the
-    # runner-config fields around it, it is no longer forwarded into a Runner Job's env (that now
-    # travels via `runner_env_configmap`/`K8sJobRunner._env_from`, below). It used to be: the
-    # Runner's own fallback is loopback (127.0.0.1:9105), which inside a Job Pod resolves to
-    # itself, not the aigateway Service — the trap `runner_env_configmap` now sidesteps by having
-    # Helm value the variable directly instead of copying it through this field. `None` disables
-    # the model-catalog endpoint (503 "not configured").
+    # its ONLY consumer (`catalog/__init__.py:build_catalog_service`). The run's own aigateway
+    # address is deploy-time: the chart values `AIGATEWAY_BASE_URL` in the runner-env ConfigMap
+    # the worker inherits wholesale, so the App never names it. `None` disables the model-catalog
+    # endpoint (503 "not configured").
     aigateway_base_url: str | None = None
-    # WHY: deploy-time Runner env travels as k8s objects the Job references with `envFrom`, so the
-    # App neither names nor reads those variables — Helm owns name AND value. These two settings
-    # are the only thing it needs: what to reference.
-    runner_env_configmap: str | None = None
     # FEATURE (OME-908): the per-run downstream in-flight budget written onto every Runner Job
     # as `URL4_CLOUD_IO_CONCURRENCY` and enforced by URL4's `BoundedIOLayer`.
     #
@@ -145,33 +160,10 @@ class Settings(BaseSettings):
     # the provider ceiling exactly — a run can saturate its provider but never pile a backlog
     # behind it, so a second run's calls interleave as soon as the first run's in-flight calls
     # complete. 32 restores the previous behavior exactly — that is the revert switch.
-    # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY Job, so a stale
-    # copy left in the Helm ConfigMap can never reach a Job through `envFrom`.
+    # INVARIANT (pinned by `test_job_env_contract`): the App writes it on EVERY run, so a stale
+    # copy left in the Helm ConfigMap can never reach a run through `envFrom`.
     runner_io_concurrency: int = Field(default=4, ge=1)
-    # --- Tavily web tools (spec 2026-07-23). The connector declares web_search/web_fetch ONLY
-    # when the Runner sees TAVILY_API_KEY; unset here => deny-by-default (dec:W5).
-    #
-    # WHY a reference (not a value): a ``batch/v1`` Job object is NOT a secret — readable with
-    # ``get jobs`` RBAC (far looser than ``get secrets``) and surfaced in ``kubectl describe``/
-    # ``-o yaml`` and the create-call audit log — so the key travels as a Secret *reference*, via
-    # `envFrom.secretRef`, never a literal copied into the manifest (see
-    # ``K8sJobRunner._env_from``). The name of the Secret the Runner Job's env references:
-    tavily_secret_name: str | None = None
-    # The Secret carrying URL4_CLOUD_ARTIFACT_S3_SECRET_KEY into each Runner Job (OME-929).
-    # A reference for the same reason `tavily_secret_name` is one: a `batch/v1` Job object is not
-    # a secret, so the credential travels via `envFrom.secretRef` and never as a literal in the
-    # manifest. The App reads the same Secret through its own Deployment `envFrom`.
-    artifact_s3_secret_name: str | None = None
-    # WHY: the Runner drives the url4 DAG engine and buffers model responses — it is the
-    # workload that actually consumes CPU/memory here. Without requests it schedules into the
-    # BestEffort QoS class (placed blind, evicted first, free to OOM its node), so the chart
-    # supplies the numbers. Shape is the k8s `resources` block verbatim, e.g.
-    # {"requests": {"cpu": "200m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}}.
-    runner_resources: dict[str, dict[str, str]] | None = None
-    # INVARIANT: Runner Jobs use the same operator-owned placement as the Engine Deployment.
-    # The chart supplies Kubernetes-native structures, so this code stays environment-neutral.
-    runner_node_selector: dict[str, str] = Field(default_factory=dict)
-    runner_tolerations: list[dict[str, object]] = Field(default_factory=list)
+
     # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's
     # credential, so there is deliberately NO credential setting here:
     # screamingface-engine holds no aigateway secret. `aigateway_base_url` above is
@@ -247,32 +239,133 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
-    # INVARIANT: a finished Job's NAME is the stateless single-use replay guard, so reclaiming
-    # it re-opens replay for that topic — but only for as long as the token is still usable.
-    # See `effective_job_ttl_s` and `_reject_replayable_job_ttl`. None => derive the floor.
-    job_ttl_s: int | None = None
+    # --- shared events stream (uniform executor, PRD 01) --------------------------------------
+    # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
+    # and the worker declare it at startup from these values and apply a changed limit; no
+    # other process rewrites it. `max_bytes` must fit the JetStream file store, or startup
+    # fails naming `events.maxBytes`. When the store is full, the OLDEST frames are dropped
+    # (ans:Q11) and `screamingface_engine_events_store_utilization_ratio` shows it.
+    events_max_bytes: int = Field(default=1024**3, ge=1)
+    events_max_msgs_per_subject: int = Field(default=20_000, ge=1)
+    events_max_age_s: float = Field(default=86_400.0, gt=0)
+    events_replicas: int = Field(default=1, ge=1)
 
-    @property
-    def effective_job_ttl_s(self) -> int:
-        """Seconds a finished Runner Job is retained before k8s reclaims it.
+    # --- durable run queue (OME-1088) -------------------------------------------------------
+    # WHY a queue at all: OME-1086 replaces one-Job-per-run scheduling with a fixed worker pool
+    # pulling from a durable work queue. THIS unit adds the queue substrate only — no worker,
+    # no cutover — so these settings are the substrate's knobs, not the worker's.
+    #
+    # INVARIANT: the stream name must NOT begin with `url4-cloud_` — `admin purge-legacy-streams`
+    # deletes any stream `owns_stream()` accepts, and the queue is the one stream an accepted run
+    # may not be lost from. `subjects.owns_stream` excludes it explicitly; the default here is the
+    # same constant, so the two cannot drift. The invariant is ENFORCED below by
+    # `_reject_sweepable_run_queue_stream` (review follow-up V-8): a comment could not stop an
+    # operator or a composition root from naming the queue into the sweepable prefix, and the
+    # exclusion in `owns_stream` only holds where the CONFIGURED name actually reaches it.
+    run_queue_stream: str = subjects.RUN_QUEUE_STREAM
+    run_queue_subject_prefix: str = subjects.RUN_QUEUE_SUBJECT_PREFIX
+    # WHY a window at all: a retried submission (a client retrying a timed-out request) must
+    # not become a second run. The broker deduplicates `Nats-Msg-Id` within this window; 120s
+    # is far beyond any retry interval and far below the queue's own lifetime.
+    run_queue_duplicate_window_s: float = runner_queue.DEFAULT_DUPLICATE_WINDOW_S
+    # WHY a backstop and not a correctness mechanism: `max_age` is the storage backstop for a
+    # run nobody ever pulled (a worker outage). It must be GENEROUS — an accepted run may not
+    # be lost, and the queue is the only record of it.
+    run_queue_max_age_s: float = runner_queue.DEFAULT_QUEUE_MAX_AGE_S
+    # WHY a setting and not the constant alone: the replica count is a property of the BROKER's
+    # topology, which this code cannot see. A single-node broker refuses `replicas > 1` outright
+    # with `ServerError 10074` — and that is not a `BadRequestError`, so `ensure_stream` does not
+    # tolerate it: it escapes into the worker's claim loop, which logs and retries forever while
+    # every run is refused. The seam existed from the start; without this field nothing could
+    # reach it, so the constraint was expressible only in tests.
+    #
+    # INVARIANT: the default IS `QUEUE_REPLICAS`, so a deployment that states nothing gets
+    # exactly what `RunQueue` would have used on its own — the two cannot drift.
+    run_queue_replicas: int = Field(default=runner_queue.QUEUE_REPLICAS, ge=1)
+    run_queue_ack_wait_s: float = runner_queue.DEFAULT_ACK_WAIT_S
+    run_queue_max_deliver: int = runner_queue.DEFAULT_MAX_DELIVER
+    # WHY replicas × worker_slots: `max_ack_pending` bounds how many unacked messages one
+    # worker may hold; with `QUEUE_REPLICAS` replicas of the stream and `worker_slots` runs per
+    # worker, that is the most a single worker can legitimately have in flight.
+    run_queue_worker_slots: int = runner_queue.DEFAULT_WORKER_SLOTS
+    run_queue_max_ack_pending: int = runner_queue.DEFAULT_MAX_ACK_PENDING
+    # WHY a ceiling at all: the serving half must stop accepting when the queue is deeper than
+    # the fleet can drain in a reasonable time, rather than piling up unbounded work. THIS unit
+    # only declares the setting; the admission decision lands with the cutover (OME-1086).
+    run_queue_depth_ceiling: int = Field(default=runner_queue.DEFAULT_DEPTH_CEILING, ge=1)
+    # FEATURE (OME-1091): how many bucket subjects the queue is split into for per-caller
+    # fairness. The worker pulls round-robin across buckets, so one caller's runs cannot be
+    # claimed ahead of another's; more buckets mean fewer caller collisions (two callers
+    # sharing a bucket share its cap and its round-robin slot), at the cost of more subjects
+    # the worker must poll each pull.
+    run_queue_bucket_count: int = Field(default=runner_queue.DEFAULT_BUCKET_COUNT, ge=1)
+    # FEATURE (OME-1091): the per-caller in-flight cap — how many of one caller's runs may be
+    # admitted at once, so one caller's 9-candidate evaluation cannot occupy every slot. 8
+    # matches the Client's fan-out, so one ordinary Evaluation fits while a second concurrent
+    # one is refused until the first's runs finish.
+    run_queue_caller_inflight_cap: int = Field(
+        default=runner_queue.DEFAULT_CALLER_INFLIGHT_CAP, ge=1
+    )
 
-        ``ttlSecondsAfterFinished`` counts from the moment the Job FINISHES, and the Job object
-        exists for the whole run already — so the only gap the guard must cover is the interval
-        after completion in which the starting token could still be presented again. A token
-        carries ``exp = iat + iat_window_s`` (:meth:`JwtCodec.mint`), so it is rejected at auth,
-        before ``exists()`` is ever consulted, once that window passes. ``iat_window_s`` is
-        therefore the true floor; the extra :data:`_TTL_SKEW_MARGIN_S` only absorbs clock skew
-        between the App validating ``exp`` and the k8s TTL controller doing the deletion.
+    # --- worker (OME-1089) -----------------------------------------------------------------
+    # WHY a worker at all: OME-1086 replaces one-Job-per-run scheduling with a fixed pool of
+    # worker Pods pulling from the durable run queue. THIS unit adds the worker mode itself: a
+    # slot pool that claims runs from the queue and forks the run entrypoint as a supervised
+    # child process, so the crash domain stays one run.
+    #
+    # INVARIANT: the worker's slot count is `run_queue_worker_slots` (above) — the same value
+    # the queue settings derive `max_ack_pending` from — so the worker's concurrency and the
+    # queue's ack-pending bound cannot disagree. There is deliberately no second `worker_slots`
+    # field for the same number.
+    #
+    # WHY a grace at all: on SIGTERM the worker stops pulling but keeps its in-flight children
+    # alive, still heartbeating, so a run that is about to finish is not killed for nothing.
+    # After the grace the remaining children are SIGTERM'd and each publishes
+    # `Terminated(stopped)` with a `worker_draining` reason.
+    worker_drain_grace_s: float = 30.0
+    # WHY a per-run budget and not a shared gate: the fair-share gate is in-process only, and
+    # subprocess isolation means it cannot span runs — each child is its own process. The
+    # budget therefore travels by env: the worker writes it onto every child as
+    # `URL4_CLOUD_IO_CONCURRENCY`, overriding whatever the message carried, so the worker is
+    # the authority on how wide a run may fan out at the gateway.
+    worker_io_capacity: int = Field(default=4, ge=1)
+    # WHY a per-run address-space cap at all: an over-allocating run must fail ALONE. Each
+    # child is spawned under its own `RLIMIT_AS` (via the exec wrapper, never `preexec_fn`),
+    # so a run that blows its budget dies with a MemoryError instead of triggering a Pod OOM
+    # that kills its co-tenants. 2 GiB is deliberately above the old 1 GiB k8s cgroup limit:
+    # `RLIMIT_AS` bounds VIRTUAL address space (heap + mapped libraries), which is larger than
+    # the RSS a cgroup limit measures.
+    worker_memory_budget_bytes: int = Field(default=DEFAULT_WORKER_MEMORY_BUDGET_BYTES, ge=1)
+    # Warm children per worker (uniform executor PRD 03): child processes that already did
+    # their per-process work and wait for a run. None (the default) means one per slot; 0
+    # spawns on the claim — through the same READY/spec/ACK protocol. Capped at the slots.
+    # Each idle warm child holds its imports in memory (see the chart's memory request).
+    worker_warm_children: int | None = Field(default=None, ge=0)
+    # The worker's Prometheus /metrics port (OME-1092): `prometheus_client.start_http_server`
+    # serves the pool's own metrics (slots, claim latency, run duration, redeliveries, child
+    # exit codes) on this port. The chart exposes it on the runner pool Deployment. 0 disables
+    # the endpoint.
+    worker_metrics_port: int = Field(default=9109, ge=0)
 
-        AIDEV-NOTE: this used to derive ``iat_window_s + job_deadline_s``, which conflated two
-        different clocks — ``job_deadline_s`` measures a RUN, not the post-completion replay
-        gap. At the 16 h default that retained ~960x more Job/Pod objects than the guard needs
-        (~14 KB of etcd per request, held for 16 h), which is the scaling ceiling of this design
-        rather than a property of it. Do not reintroduce the ``job_deadline_s`` term.
+    @field_validator("run_queue_stream")
+    @classmethod
+    def _reject_sweepable_run_queue_stream(cls, value: str) -> str:
+        """Refuse a queue stream named under the per-run `url4-cloud_` prefix.
+
+        `admin purge-legacy-streams` deletes every stream `owns_stream()` accepts; a queue so
+        named is one rejected publish away from being deleted with an accepted run on it.
+        The exact-name exclusion in `owns_stream` guards the sites that RECEIVE the
+        configured name; this validator makes the hazard impossible at its source, so a
+        wiring gap (a site built from the default constant) can only ever produce a
+        split — loud — never a purged queue.
         """
-        if self.job_ttl_s is not None:
-            return self.job_ttl_s
-        return self.iat_window_s + _TTL_SKEW_MARGIN_S
+        if value.startswith(f"{subjects.PREFIX}_"):
+            raise ValueError(
+                "run_queue_stream must not live under the per-run prefix 'url4-cloud_': "
+                "the orphan sweep deletes any stream it owns, and the queue is the one "
+                "stream an accepted run may not be lost from"
+            )
+        return value
 
     @field_validator("artifacts_dir", mode="before")
     @classmethod
@@ -290,19 +383,18 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _reject_replayable_job_ttl(self) -> Self:
-        """INVARIANT: an explicit ``job_ttl_s`` may never drop below the token's own lifetime.
-
-        Reclaiming the Job deletes the name that makes a replayed token fail with 409. Below
-        ``iat_window_s`` that deletion can happen while the token is still within its ``exp``,
-        opening a window for an already-spent token to start a second run. Raising it is
-        legitimate (keeping failures around for post-mortem); dropping below the floor is a
-        security regression, and is refused at startup rather than on the first replay.
+    def _enforce_ack_wait_floor(self) -> Self:
+        """INVARIANT: the worker's heartbeat cadence is derived as ``ack_wait / 3`` (capped
+        at 20s), and it must never collapse below ~1s or the in-progress cadence hammers the
+        broker — and must always stay well under ``ack_wait``, or JetStream redelivers a
+        STILL-RUNNING run to a second worker and it executes twice. The derivation guarantees
+        the ratio for every legal value; this floor bounds the legal range so the derived
+        cadence stays sane. Refused at startup rather than as a mid-flight double execution.
         """
-        if self.job_ttl_s is not None and self.job_ttl_s < self.iat_window_s:
+        if self.run_queue_ack_wait_s < 3.0:
             raise ValueError(
-                f"job_ttl_s={self.job_ttl_s} is below the replay floor {self.iat_window_s} "
-                f"(iat_window_s, the token's own lifetime) — a Job reclaimed while its token is "
-                f"still valid re-opens replay"
+                f"run_queue_ack_wait_s={self.run_queue_ack_wait_s} is below the floor of 3s — "
+                f"the worker derives its heartbeat as ack_wait/3 and refuses to run one that "
+                f"would hammer the broker or fall behind the redelivery clock"
             )
         return self

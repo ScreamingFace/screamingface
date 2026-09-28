@@ -21,6 +21,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      # These Pods read no Kubernetes service-link variables, and the injected
+      # SCOREBOARD_* names collide with this app's own SCOREBOARD_ config prefix.
+      enableServiceLinks: false
       serviceAccountName: {{ include "scoreboard.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

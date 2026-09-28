@@ -12,8 +12,9 @@ import contextlib
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
@@ -31,13 +32,21 @@ from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import ModelParameterSource
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
+
+if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotation needs the name
+    from screamingface_engine.adapters.jetstream import JetStreamConsumer
+
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
 from screamingface_engine.metrics import (
     MetricsMiddleware,
     build_metrics,
     register_catalog_metrics,
+    register_events_metrics,
+    register_max_deliveries_metrics,
+    register_queue_metrics,
     register_reaper_metrics,
+    register_sync_metrics,
 )
 from screamingface_engine.ops import router as ops_router
 from screamingface_engine.reaper import RunReaper
@@ -49,7 +58,9 @@ from screamingface_engine.rest import (
     connection_router,
 )
 from screamingface_engine.rest import router as rest_router
+from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
+from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
 from url4.streaming.interfaces import EventConsumer, JobRunner
@@ -73,7 +84,14 @@ _ROUTERS = (
 
 
 @router.get("/healthz", include_in_schema=False)
-def healthz() -> dict[str, str]:
+def healthz(request: Request) -> dict[str, str]:
+    # FEATURE (uniform executor PRD 04): when mounts are registered, report the digest of the
+    # config the mount table came from (the App's own view only — the runner pool reports no
+    # digest, so compare App pods with each other). An App with no mounts keeps the exact
+    # `{"status": "ok"}` contract it had before.
+    digest = getattr(request.app.state, "config_digest", None)
+    if digest:
+        return {"status": "ok", "config_digest": digest}
     return {"status": "ok"}
 
 
@@ -107,8 +125,7 @@ def create_app(
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
     # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
     # (OME-929).
-    artifact_store = _build_artifact_reader(settings)
-    app.state.artifact_store = artifact_store
+    app.state.artifact_store = _build_artifact_reader(settings)
     # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
     # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
     # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
@@ -118,24 +135,58 @@ def create_app(
     #
     # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
     # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
-    _install_artifact_sweeper(app, artifact_store, settings)
+    _install_artifact_sweeper(app, app.state.artifact_store, settings)
     # WHY: pass a getter, not `catalog` directly — the collector re-reads app.state.catalog on
     # every /metrics scrape rather than capturing the value built here.
     register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
+    _register_runner_metrics(app)
+    # FEATURE: the shared events stream's own signals — store use and publish conflicts
+    # (uniform executor, PRD 01 §4 Observability). A stream that can refresh its own usage
+    # (the JetStream adapter; not the in-memory local one) also gets a periodic poller.
+    _install_events_store_monitor(app, stream)
     app.add_middleware(MetricsMiddleware)
-    registry = ConnectionRegistry()
-    app.state.registry = registry
-    app.state.interest = interest if interest is not None else registry
+    app.state.registry = ConnectionRegistry()
+    register_sync_metrics(app.state.metrics, lambda: app.state.registry)
+    app.state.interest = interest if interest is not None else app.state.registry
     # FEATURE: tie a run's lifetime to its audience (OME-890).
-    _install_orphan_reaper(app, registry, job_runner, settings)
+    _install_orphan_reaper(app, app.state.registry, job_runner, settings)
+    # FEATURE: a run the queue gave up on must end in a named failure, not silence
+    # (OME-1090).
+    _install_max_deliveries_advisor(app, settings)
     if clock is not None:
         app.state.clock = clock
+    _install_surfaces(app)
+    return app
+
+
+def _install_surfaces(app: FastAPI) -> None:
+    """Register every engine HTTP surface; declared mounts are registered separately, by
+    `install_mounts` at startup."""
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)
     app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     customize_openapi(app)
-    return app
+
+
+def _register_runner_metrics(app: FastAPI) -> None:
+    """The queue's own signals (depth, oldest-unclaimed age) and the max-deliveries advisories
+    (OME-1092). Registered unconditionally via getters, like the reaper's: a stream-only App
+    exposes no queue series rather than a stale zero, and /metrics never depends on wiring
+    order."""
+    register_queue_metrics(app.state.metrics, lambda: app.state.job_runner)
+    register_max_deliveries_metrics(app.state.metrics, lambda: app.state.max_deliveries_advisor)
+    # WHY the publisher getter reaches through `job_runner.publisher` rather than a field of
+    # its own: the queue runner is the one thing on `app.state` that already holds the
+    # `JetStreamPublisher` the App's own writers (the queued-cancel tombstone) use — the same
+    # publisher `publish_conflicts` counts against (writer="app"). `getattr` twice over (the
+    # runner may be None, or not a `QueueJobRunner`) so a stream-only or `runner="none"` App
+    # renders the series absent rather than raising.
+    register_events_metrics(
+        app.state.metrics,
+        lambda: app.state.stream,
+        lambda: getattr(app.state.job_runner, "publisher", None),
+    )
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
@@ -170,12 +221,16 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
                 }
             )
         )
-    if settings.runner == "k8s":
+    if settings.runner == "queue":
+        # WHY: `queue` (OME-1090) runs each run in a worker pod — either way the run executes in
+        # a different pod than this App, whose disk is destroyed with it, so results spilled
+        # to a local directory can never be served back.
         raise ValueError(
-            f"runner='k8s' schedules each run as a separate Job pod, whose disk is destroyed "
-            f"with it, so results spilled to a local directory can never be served back. Set "
-            f"{job_env.ARTIFACT_STORE}=s3 and the {job_env.ARTIFACT_S3_BUCKET} settings, or "
-            f"use runner='none' for a single-process deployment."
+            f"runner='{settings.runner}' runs each run in its own pod, whose disk is "
+            f"destroyed with it, so results spilled to a local directory can never be "
+            f"served back. Set {job_env.ARTIFACT_STORE}=s3 and the "
+            f"{job_env.ARTIFACT_S3_BUCKET} settings, or use runner='none' for a "
+            f"single-process deployment."
         )
     return ArtifactStore(Path(settings.artifacts_dir))
 
@@ -289,6 +344,123 @@ def _install_orphan_reaper(
     app.router.on_shutdown.append(_stop)
 
 
+def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
+    """Wire the max-deliveries advisory subscriber: a background task that publishes a
+    named terminal failure for each run the queue gave up on (OME-1090).
+
+    Modelled on `_install_orphan_reaper`: the advisor owns no task, the loop is an asyncio
+    task on the App's own event loop, and shutdown cancels it and closes the advisor's
+    connections so nothing outlives the App. Only the queue backend has a queue to give up
+    on, so a stream-only App installs nothing.
+    """
+    app.state.max_deliveries_advisor = None
+    app.state.max_deliveries_task = None
+    if settings.runner != "queue":
+        return
+    from screamingface_engine.adapters.max_deliveries import MaxDeliveriesAdvisor
+
+    advisor = MaxDeliveriesAdvisor(settings.nats_url, run_queue_stream=settings.run_queue_stream)
+    app.state.max_deliveries_advisor = advisor
+
+    async def _start() -> None:
+        app.state.max_deliveries_task = asyncio.get_running_loop().create_task(advisor.run())
+
+    async def _stop() -> None:
+        task = app.state.max_deliveries_task
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        await advisor.aclose()
+
+    app.router.on_startup.append(_start)
+    app.router.on_shutdown.append(_stop)
+
+
+_EVENTS_STORE_POLL_S = 15.0
+"""How often the App re-reads the shared events stream's own usage (PRD 01 §4 Observability)."""
+
+
+class _EventsStoreMonitor:
+    """One tick of the events-store usage poll: refresh the gauge, and log a failed refresh.
+
+    Split from `_install_events_store_monitor`'s task wiring so a test can call `tick()`
+    directly, with no sleep involved — the `failing` state that makes "log once per failure
+    streak, not every failed tick" true lives here.
+
+    WHY no utilization-threshold logging here: the chart's own alert rule
+    (`screamingface_engine_events_store_utilization_ratio >= 0.8` for 5m, deploy/helm/README.md)
+    is the single owner of that threshold. Logging a second copy of it here duplicated the
+    alert's own logic in a second place that could drift from it (a changed alert rule left
+    this log's threshold stale); the gauge this tick refreshes is all the alert needs.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self._failing = False
+
+    async def tick(self) -> None:
+        try:
+            await self._stream.refresh_store_usage()
+        except Exception:
+            # WHY once per streak, not once per tick: a broker outage lasting several
+            # intervals must not fill the App's log with the same warning every
+            # `_EVENTS_STORE_POLL_S` — and a failed read leaves `store_snapshot` at its
+            # last value, so the gauge keeps reporting the last known reading.
+            if not self._failing:
+                _logger.warning(
+                    "events store usage refresh failed; keeping the last reading", exc_info=True
+                )
+                self._failing = True
+            return
+        self._failing = False
+
+
+def _install_events_store_monitor(
+    app: FastAPI, stream: EventConsumer | None, *, interval_s: float = _EVENTS_STORE_POLL_S
+) -> None:
+    """Poll the shared events stream's own usage on a cadence, for `_EventsStoreCollector` to
+    read at scrape time.
+
+    Modelled on `_install_artifact_sweeper`: an asyncio task on the App's own event loop,
+    cancelled at shutdown so nothing outlives the App. Installed ONLY when `stream` can refresh
+    its own usage (`refresh_store_usage`) — the in-memory local stream has no store to read, and
+    a stream-only or `runner='none'` App may be given no stream at all.
+
+    WHY the first tick waits one interval rather than firing immediately (unlike
+    `_install_artifact_sweeper`, which sweeps once at startup): this task is started from an
+    `on_startup` handler registered BEFORE `create_app_from_env` appends
+    `stream.declare_events_stream`, and `on_startup` handlers run in registration order but this
+    one only SCHEDULES a task rather than awaiting it — so an immediate first tick can run
+    during a later handler's own await and read a stream that has not been declared yet, logging
+    a spurious cold-start warning. Sleeping first gives `declare_events_stream` the whole
+    interval to finish before the first read.
+    """
+    if not hasattr(stream, "refresh_store_usage"):
+        return
+    monitor = _EventsStoreMonitor(stream)
+
+    async def _poll_forever() -> None:
+        while True:
+            await asyncio.sleep(interval_s)
+            await monitor.tick()
+
+    async def _start() -> None:
+        app.state.events_store_monitor_task = asyncio.get_running_loop().create_task(
+            _poll_forever()
+        )
+
+    async def _stop() -> None:
+        task = getattr(app.state, "events_store_monitor_task", None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app.router.on_startup.append(_start)
+    app.router.on_shutdown.append(_stop)
+
+
 _MIN_JWT_SECRET_BYTES = 32
 
 
@@ -309,6 +481,18 @@ def _require_prod_secret(settings: Settings) -> None:
         )
 
 
+def build_stream_consumer(settings: Settings) -> JetStreamConsumer:
+    """The App's event-stream consumer, carrying the CONFIGURED events stream limits.
+
+    Extracted from `create_app_from_env` so the stream-wiring test can hold this root to
+    the same Settings as the worker's and the App's runner.
+    """
+    from screamingface_engine.adapters.factory import events_stream_config
+    from screamingface_engine.adapters.jetstream import JetStreamConsumer
+
+    return JetStreamConsumer(settings.nats_url, events=events_stream_config(settings))
+
+
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
     """Production entrypoint (used by `cli.py` via uvicorn's factory mode).
 
@@ -316,11 +500,9 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     backend, and the catalog service — then wires them into `create_app` and registers their
     shutdown hooks on the App's router.
     """
-    from screamingface_engine.adapters.jetstream import JetStreamConsumer
-
     settings = Settings()
     _require_prod_secret(settings)
-    stream = JetStreamConsumer(settings.nats_url)
+    stream = build_stream_consumer(settings)
     # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
     # dynamically admitted model is routable by the very next scheduled run.
     catalog = build_executable_catalog_service(settings, os.environ)
@@ -332,9 +514,10 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         logging.warning(
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
-    # INVARIANT: deployed availability comes from the signed-in caller's profiles. The provider
-    # catalogue describes capability, not which operator-managed credentials this caller owns.
-    connections = build_connections(settings, listing_source="profiles")
+    # INVARIANT: deployed availability comes from the signed-in caller's provider access as the
+    # gateway publishes it (`GET /v1/provider-access`); this Engine owns none of it and refuses
+    # every mutation (D15). The provider catalogue describes capability, not what this caller holds.
+    connections = build_connections(settings, mutable=False)
     app = create_app(
         settings,
         stream=stream,
@@ -344,9 +527,25 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         connections=connections,
         benchmarks=BUILTIN_BENCHMARKS,
     )
+    # The App owns the configured limits: declare the shared events stream (and apply a
+    # changed limit) before the first request, and fail startup on a config it cannot apply.
+    app.router.on_startup.append(stream.declare_events_stream)
     app.router.on_shutdown.append(stream.close)
+    if job_runner is not None:
+        # The queue runner owns a control connection of its own (OME-1090). `getattr` rather
+        # than an isinstance: the factory returns the port, and the app must not import a
+        # concrete adapter.
+        aclose = getattr(job_runner, "aclose", None)
+        if aclose is not None:
+            app.router.on_shutdown.append(aclose)
     if catalog is not None:
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
+    # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
+    # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
+    install_mounts(
+        app,
+        lambda: derive_mount_table(env=os.environ, engine_routes=engine_route_paths(app)),
+    )
     return app

@@ -21,6 +21,9 @@ class _BenchmarkEntry:
     description: str
     revision: str
     case_count: int
+    origin: str
+    interaction: str | None
+    difficulty: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +129,42 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
         description=_wire_text(item.get("description"), "Benchmark description", _catalog_invalid),
         revision=_wire_text(item.get("revision"), "Benchmark revision", _catalog_invalid),
         case_count=case_count,
+        origin=_benchmark_origin(item),
+        interaction=_optional_axis(item, "interaction"),
+        difficulty=_optional_axis(item, "difficulty"),
     )
+
+
+def _benchmark_origin(item: Mapping[str, object]) -> str:
+    """Carry the Engine's provenance stamp verbatim; older Engines mean our own shelf.
+
+    FEATURE: benchmark provenance tabs (OME-1114).
+    INVARIANT: the SDK accepts ANY non-blank origin string — it never validates
+    against the Engine's closed set, so an older SDK keeps decoding a newer
+    Engine's catalogue when a new origin ships.
+    """
+
+    # WHY: an Engine predating OME-1112 emits no origin key; everything it hosts
+    # was authored in this repo, so the default states a true fact, not a guess.
+    if "origin" not in item:
+        return "screamingface"
+    return _wire_text(item.get("origin"), "Benchmark origin", _catalog_invalid)
+
+
+def _optional_axis(item: Mapping[str, object], key: str) -> str | None:
+    """Carry one grouping axis verbatim; older Engines mean 'never declared'.
+
+    FEATURE: two-axis catalogue grouping (OME-1257).
+    INVARIANT: an ABSENT key decodes as None (an Engine predating the axis — unlike
+    ``origin`` there is no true-fact default to state), while a PRESENT key must be
+    non-blank text: a blank or non-string value is Engine data corruption, surfaced
+    as a catalogue defect rather than coerced to None. The SDK never validates the
+    value against the Engine's closed set (origin tolerance doctrine, OME-1114).
+    """
+
+    if key not in item:
+        return None
+    return _wire_text(item.get(key), f"Benchmark {key}", _catalog_invalid)
 
 
 def _catalog_invalid(message: str) -> NoReturn:

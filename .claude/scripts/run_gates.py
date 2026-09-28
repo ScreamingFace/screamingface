@@ -20,6 +20,7 @@ import argparse
 import ast
 import difflib
 import fnmatch
+import importlib.util
 import io
 import os
 import pathlib
@@ -37,6 +38,16 @@ except ImportError:  # bare python3 without PyYAML
     sys.exit(2)
 
 GREEN, RED = "✓", "✗"
+
+# Keep TS/TSX contract-change approvals isolated from the Python AST range parser.
+_approval_spec = importlib.util.spec_from_file_location(
+    "approved_test_changes",
+    pathlib.Path(__file__).with_name("approved_test_changes.py"),
+)
+assert _approval_spec is not None and _approval_spec.loader is not None
+_approval_module = importlib.util.module_from_spec(_approval_spec)
+_approval_spec.loader.exec_module(_approval_module)
+approved_unsupported_change = _approval_module.approved_unsupported_change
 
 
 def fail_config(msg: str) -> NoReturn:
@@ -123,7 +134,9 @@ def _old_protected_ranges(
         return None
 
     proc = subprocess.run(
-        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True,
+        ["git", "show", f"{base}:./{path}"],
+        cwd=root,
+        capture_output=True,
     )
     if proc.returncode != 0:
         return None
@@ -131,7 +144,13 @@ def _old_protected_ranges(
         # Passing bytes lets Python honor UTF-8 BOM and PEP-263 source encodings.
         tree = ast.parse(proc.stdout)
         tokens = list(tokenize.tokenize(io.BytesIO(proc.stdout).readline))
-    except (IndentationError, SyntaxError, UnicodeDecodeError, ValueError, tokenize.TokenError):
+    except (
+        IndentationError,
+        SyntaxError,
+        UnicodeDecodeError,
+        ValueError,
+        tokenize.TokenError,
+    ):
         return None
     ranges = []
     # INVARIANT: covers EVERY function, not just `test_*`-named ones — a
@@ -143,12 +162,18 @@ def _old_protected_ranges(
             # @pytest.fixture) is part of the protected body — node.lineno points
             # at `def`, not the decorator line(s) above it. Stacking a brand-NEW
             # outermost decorator onto an old function is NOT caught — see gap (5).
-            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-            ranges.append((start, getattr(node, "end_lineno", node.lineno), node.col_offset))
+            start = (
+                node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            )
+            ranges.append(
+                (start, getattr(node, "end_lineno", node.lineno), node.col_offset)
+            )
         elif isinstance(node, ast.ClassDef):
             # Protect only existing decorators and the class header/bases, not the
             # whole body: adding a new sibling method must remain a pure addition.
-            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            start = (
+                node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            )
             # `None` disables the function-only end-of-body indentation rule:
             # content after a class header is its body, where a first new method is
             # a legitimate addition rather than an extension of old test logic.
@@ -157,7 +182,9 @@ def _old_protected_ranges(
     # `-` line there is invisible to the function-only pass above.
     for node in tree.body:  # direct top-level children only — see AIDEV-NOTE below
         if isinstance(node, _MODULE_LEVEL_DATA):
-            ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno), node.col_offset))
+            ranges.append(
+                (node.lineno, getattr(node, "end_lineno", node.lineno), node.col_offset)
+            )
     # AIDEV-NOTE: known, deliberate gaps — deferred follow-ups (ticket filing
     # queued behind the PR re-review, per owner instruction), not chased here:
     # (1) class-level attributes (e.g. a shared constant on a unittest.TestCase
@@ -218,9 +245,7 @@ def _added_span_indent(
         # Invalid current source will fail later gates, but must not fail open here.
         return max(
             (
-                len(
-                    line[: len(line) - len(line.lstrip(b" \t\f"))].rsplit(b"\f", 1)[-1]
-                )
+                len(line[: len(line) - len(line.lstrip(b" \t\f"))].rsplit(b"\f", 1)[-1])
                 for line in new_lines[start:end]
                 if line.strip()
             ),
@@ -279,7 +304,9 @@ def _diff_positions(
     # Byte lines diff identically for ordinary text, and binary junk replacing a
     # protected test simply differs line-wise → flagged (fail-closed), no crash.
     old_proc = subprocess.run(
-        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True,
+        ["git", "show", f"{base}:./{path}"],
+        cwd=root,
+        capture_output=True,
     )
     if old_proc.returncode != 0:
         return set(), {}, True  # file didn't exist at base — nothing to protect
@@ -309,7 +336,9 @@ def _diff_positions(
         if tag == "equal":
             continue
         if tag in ("delete", "replace"):
-            removed.update(range(i1 + 1, i2 + 1))  # old_lines is 0-indexed, ranges are 1-indexed
+            removed.update(
+                range(i1 + 1, i2 + 1)
+            )  # old_lines is 0-indexed, ranges are 1-indexed
         if tag in ("insert", "replace") and j1 < j2:
             # A replace can remove an unprotected separator while adding code that
             # extends the preceding protected body. Comments are not indentation
@@ -333,13 +362,16 @@ def _matches_glob(path: str, pattern: str) -> bool:
             result = path_index == len(path_parts)
         elif pattern_parts[pattern_index] == "**":
             result = matches(path_index, pattern_index + 1) or (
-                path_index < len(path_parts)
-                and matches(path_index + 1, pattern_index)
+                path_index < len(path_parts) and matches(path_index + 1, pattern_index)
             )
         else:
-            result = path_index < len(path_parts) and fnmatch.fnmatchcase(
-                path_parts[path_index], pattern_parts[pattern_index]
-            ) and matches(path_index + 1, pattern_index + 1)
+            result = (
+                path_index < len(path_parts)
+                and fnmatch.fnmatchcase(
+                    path_parts[path_index], pattern_parts[pattern_index]
+                )
+                and matches(path_index + 1, pattern_index + 1)
+            )
         memo[key] = result
         return result
 
@@ -363,10 +395,17 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
     # core.quotepath=off additionally keeps non-ASCII names unescaped.
     proc = subprocess.run(
         [
-            "git", "-c", "core.quotepath=off", "diff", "--relative",
-            "--name-status", "-z", base,
+            "git",
+            "-c",
+            "core.quotepath=off",
+            "diff",
+            "--relative",
+            "--name-status",
+            "-z",
+            base,
         ],
-        cwd=root, capture_output=True,
+        cwd=root,
+        capture_output=True,
     )
     if proc.returncode != 0:
         fail_config(f"git diff failed in {root}: {os.fsdecode(proc.stderr).strip()}")
@@ -381,7 +420,7 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
         path_count = 2 if status[:1] in "RC" else 1
         if field_index + path_count > len(fields):
             fail_config(f"malformed git diff --name-status output in {root}")
-        paths = [os.fsdecode(p) for p in fields[field_index:field_index + path_count]]
+        paths = [os.fsdecode(p) for p in fields[field_index : field_index + path_count]]
         field_index += path_count
         # WHY: T(ypechange) is in the offender set — replacing a committed test
         # file with a symlink wholesale swaps its effective content, exactly like
@@ -391,19 +430,29 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
         matched = [p for p in paths if any(_matches_glob(p, g) for g in globs)]
         if not matched:
             continue
-        p = matched[-1]  # for R(ename), name-status gives "old\tnew" — the new path is what's on disk
+        p = matched[
+            -1
+        ]  # for R(ename), name-status gives "old\tnew" — the new path is what's on disk
         if status[:1] != "M":
             offenders.append(f"  {status}\t{p}")
             continue
         ranges = _old_protected_ranges(root, base, p)
         if ranges is None:
-            offenders.append(f"  M\t{p}  (existing test artifact is unsupported or unparseable)")
+            approval = approved_unsupported_change(root, base, p)
+            if approval is not None:
+                print(f"{GREEN} approved {approval} test transition: {p}")
+                continue
+            offenders.append(
+                f"  M\t{p}  (existing test artifact is unsupported or unparseable)"
+            )
             continue
         removed, inserted_after, current_parseable = _diff_positions(root, base, p)
         if not current_parseable:
             offenders.append(f"  M\t{p}  (current Python test file is unparseable)")
             continue
-        bad_removed = sorted(ln for ln in removed if any(lo <= ln <= hi for lo, hi, _ in ranges))
+        bad_removed = sorted(
+            ln for ln in removed if any(lo <= ln <= hi for lo, hi, _ in ranges)
+        )
         # INVARIANT: two distinct insertion violations — (a) anchored strictly
         # inside a range (`lo <= n < hi`), and (b) anchored exactly at a range's
         # end (`n == hi`) with the first non-blank inserted line indented DEEPER
@@ -412,7 +461,8 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
         # zero old lines touched), whereas a new sibling def/decorator at the
         # same anchor starts at the same-or-shallower column and stays legitimate.
         bad_inserted = sorted(
-            n for n, indent in inserted_after.items()
+            n
+            for n, indent in inserted_after.items()
             if any(
                 lo <= n < hi or (n == hi and col is not None and indent > col)
                 for lo, hi, col in ranges
@@ -424,7 +474,9 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
                 detail.append(f"removed/changed old line(s) {bad_removed}")
             if bad_inserted:
                 detail.append(f"new content inserted after old line(s) {bad_inserted}")
-            offenders.append(f"  M\t{p}  ({'; '.join(detail)} — inside an existing test/fixture)")
+            offenders.append(
+                f"  M\t{p}  ({'; '.join(detail)} — inside an existing test/fixture)"
+            )
     if offenders:
         print(
             f"{RED} append-only test check — prior tests were modified/deleted (vs {base}):"

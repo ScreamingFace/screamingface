@@ -387,6 +387,11 @@ parent directories, replaces an existing selected file for deterministic reruns,
 `Path`. A Report remains one JSON document even when it contains multiple Candidates; JSONL is
 reserved for a future collection of independent Reports.
 
+`CandidateResult.client_version` records the caller-reported Client version retained by the
+Engine for that run. It is also present in each candidate in `report.json`; missing or ambiguous
+evidence is `null`. It is not the version of the Client later exporting the report, nor the
+version that originally generated cached model answers.
+
 Each entry in `CandidateResult.operations` is a public immutable `sf.OperationInfo` value.
 
 Authentication, validation, transport, execution, protocol, and invalid-result failures raise
@@ -452,7 +457,10 @@ boards = sf.leaderboards.list()
 draco_board = sf.leaderboards.get("draco", top=50)
 
 # After evaluating a Benchmark whose Scoreboard accepts submissions:
-submission = sf.leaderboards.submit(report.candidates.only)
+submission = sf.leaderboards.submit(
+    report.candidates.only,
+    authors=["alice@example.com", "bob@example.org"],
+)
 same_submission = sf.leaderboards.get_score(submission.id)
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
@@ -470,7 +478,10 @@ best-per-spec entries and imported single-Model baselines. `submit(candidate_res
 already-evaluated result — the Benchmark-native score exactly as the Engine graded it, fractional
 or negative included — without asking the caller to repeat its Benchmark, URL4,
 models, or run identity; `get_score(id)` retrieves the resulting immutable
-`LeaderboardScore`. Its `.url4` property is a string-compatible `Url4` value:
+`LeaderboardScore`. Omit `authors` to credit the authenticated submitter by default. When supplied,
+the list is the exact credit line—the submitter is not added automatically—and the public
+`LeaderboardScore.authors` and `LeaderboardEntry.authors` values contain the Scoreboard's
+privacy-trimmed author identifiers. A score's `.url4` property is a string-compatible `Url4` value:
 `.to_python()` produces an editable fork, while passing the value to `sf.evaluate(...)` replays it
 through the configured Engine. Submitting a limited or incompletely graded Candidate surfaces a
 `Partial submission` advisory because its score is not directly comparable with a full run. In a
@@ -483,12 +494,17 @@ expose the same interface at `client.leaderboards`; asynchronous Clients use `aw
 Scoreboard is the deployed data system, while a Leaderboard is the ranked domain resource returned
 to callers.
 
-Explicit Candidate parameters are preflighted against those details before execution. The SDK
-fetches one detail document per distinct Model with explicit overrides on an operation the selected
-Benchmark actually invokes; parameter-free Candidates and unused structural components perform no
-detail lookup. Missing, disabled, wrong-type, or out-of-range values fail before any paid Run
-begins. Model capability data always comes from the Engine/AI Gateway contract—there is no GPT- or
-provider-specific parameter table in the SDK.
+Provider access and explicit Candidate parameters are preflighted before execution. The SDK
+fetches one detail document per distinct required Candidate Model, including parameter-free
+Models, and reuses any document fetched during model admission. Authoritative missing provider
+access raises `ProviderConnectionError` before any Candidate dispatch or progress events, with a
+hint to configure BYOK via `sf.connect()` or enable the selected hosted provider profile.
+`ModelDetails.execution_access` is `"configured"`, `"missing"`, or `None` when an older Gateway
+omits the field. Unknown access preserves existing behavior; the early missing-access guarantee
+requires a Gateway that publishes the field. Configured access is not credential validation.
+Missing, disabled, wrong-type, or out-of-range parameters also fail before any paid Run begins.
+Access and capability data come from Engine/AI Gateway discovery, with no provider-specific
+credential or parameter rules in the SDK. Sync and async Clients use the same checks.
 
 The returned catalogues are immutable ordered sequences: iteration, indexing, slicing, and
 `len()` work normally in scripts and sidecars. Evaluating one in Jupyter automatically renders a
@@ -497,6 +513,10 @@ terminal representations as fallbacks. Notebook rendering does not change the un
 or introduce a separate discovery operation.
 
 ## Examples
+
+From a checkout, `just local-stack-notebooks` runs every notebook below: it bakes the frozen
+benchmark assets, brings the local stack up, serves an Engine carrying the imported
+inspect_evals boards alongside ours, and opens JupyterLab against it.
 
 - [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb): one Candidate through the
   first canonical `draco` Case, from discovery through Report evidence.
@@ -510,6 +530,10 @@ or introduce a separate discovery operation.
 - [`examples/08_healthbench.ipynb`](examples/08_healthbench.ipynb): both HealthBench
   boards — the worst-30% open-Fusion challenge and the full 525-case exam with the
   official score — rehearsed cheaply with `limit=1` first.
+- [`examples/12_inspect_evals_benchmarks.ipynb`](examples/12_inspect_evals_benchmarks.ipynb): the
+  catalogue as two origin groups — ours and the imported inspect_evals boards — then a
+  Fusion against one of the imported boards.
+
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
 ## Development
