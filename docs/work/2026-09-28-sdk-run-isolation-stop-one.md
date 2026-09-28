@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # OME-1071 (epic OME-1016) — backfill at PR-open
+ticket: OME-1071
 stack: screamingface
 status: done   # planned | in_progress | done | blocked
 started: 2026-09-28
