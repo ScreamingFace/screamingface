@@ -116,3 +116,25 @@ reported ALL GATES GREEN (ruff, formatting, pyright, full pytest with >=95% cove
 notebook provenance, package build and distribution checks). The skip covers the owner-approved
 snapshot and presentation assertion transitions described above. Notebook source remains
 output-free and deterministic. Deliver this revision to the existing draft PR #1097.
+
+## Approved visual polish
+
+Owner approved a second polish pass: underline-only tabs, cost beside the operation title,
+compact grouped metrics keeping input/output tokens together, explanations in a native
+About these numbers disclosure, and reduced spacing. Continue OME-1031 in the existing
+worktree and draft PR. Preserve exact amounts, unknowns, scope and all accounting semantics.
+Plan: add presentation regressions, adjust only the accounting renderer, inspect both themes
+and the notebook, run Client gates, then push. Acceptance: compact readable blocks with native
+controls and all previously available fields retained.
+
+Polish review: the new disclosure/header/grouping test failed before implementation and passes
+afterward; all eight focused rendering tests pass unchanged except the additive regression.
+Verified compact layout in light JupyterLab and standalone dark HTML; About these numbers opens
+and closes natively. A fresh JupyterLab tab was needed to replace a stale preview. Exact costs
+remain at four decimal places to preserve small billed amounts; no accounting data is hidden
+or inferred by the layout. This is a presentation-only change with no public contract change.
+
+Polish outcome: ALL GATES GREEN from the full Client runner (lint, format, types, pytest with
+>=95% coverage, deterministic notebook checks, build and distribution checks). The existing
+approved snapshot/presentation transition still requires --skip-append-only; this polish adds
+one test and changes no prior assertions. Preview execution outputs are excluded from Git.

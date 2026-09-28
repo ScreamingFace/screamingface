@@ -44,3 +44,22 @@ def test_native_tab_groups_are_unique_and_answer_is_default():
     assert "type='radio'" in first
     assert "checked" in first
     assert "<script" not in first
+
+
+def test_cost_is_in_activity_header_and_explanations_are_collapsed():
+    from xml.etree import ElementTree
+
+    panel = ElementTree.fromstring(f"<div>{case_accounting(result())[1]}</div>")
+    help_section = panel.find("details")
+    assert help_section is not None
+    assert "open" not in help_section.attrib
+    assert help_section.findtext("summary") == "About these numbers"
+    block = panel.find("section")
+    assert block is not None
+    header = block.find("header")
+    assert header is not None
+    assert "$0.1000" in "".join(header.itertext())
+    fields = block.find("dl")
+    assert fields is not None
+    groups = [[term.text for term in group.findall("dt")] for group in fields]
+    assert groups == [["Calls", "Cache"], ["Input tokens", "Output tokens"], ["Provider time"]]

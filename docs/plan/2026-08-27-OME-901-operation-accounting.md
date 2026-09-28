@@ -104,3 +104,7 @@ Owner approved the final layout: remove the separate accounting section, use nat
 inside each Case (Answer & grading / Cost & usage), and show labelled activity blocks without
 tables. Whole-run totals and any Unattributed run cost remain above the Cases. This supersedes
 the prior cost-summary/disclosure design.
+
+Approved visual polish: underline-only case tabs; operation title and cost share a header.
+Group calls/cache, input/output tokens, and provider time into three stable columns. Move
+explanations into a native About these numbers disclosure. Keep exact pricing and unknowns.

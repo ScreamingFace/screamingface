@@ -16,22 +16,31 @@ if TYPE_CHECKING:
 STYLE = """<style>
 .sf-case-views{margin-top:16px}
 .sf-view-radio{position:absolute;opacity:0;width:1px;height:1px}
-.sf-view-label{display:inline-block;padding:8px 12px;border:1px solid var(--sf-line);
-  color:var(--sf-ink-2);cursor:pointer;font-size:13px;margin-bottom:16px}
-.sf-view-radio:checked+.sf-view-label{color:var(--sf-ink);border-bottom:2px solid var(--sf-accent);
-  background:var(--sf-surface)}
+.sf-view-label{display:inline-block;padding:8px 0;border-bottom:2px solid transparent;
+  color:var(--sf-ink-2);cursor:pointer;font-size:13px;margin:0 20px 12px 0}
+.sf-view-radio:checked+.sf-view-label{color:var(--sf-ink);border-bottom-color:var(--sf-accent);font-weight:500}
 .sf-view-radio:focus-visible+.sf-view-label{outline:2px solid var(--sf-accent);outline-offset:2px}
 .sf-answer-view,.sf-cost-view{display:none}
 .sf-view-answer:checked~.sf-answer-view,.sf-view-cost:checked~.sf-cost-view{display:block}
 .sf-cost-view p,.sf-run-accounting-note{font-size:12px;color:var(--sf-ink-2)}
-.sf-cost-block{border-top:1px solid var(--sf-line);padding:16px 0}
+.sf-cost-help{margin:0 0 12px;color:var(--sf-ink-2);font-size:12px}
+.sf-cost-help summary{cursor:pointer;width:fit-content}
+.sf-cost-help summary:focus-visible{outline:2px solid var(--sf-accent);outline-offset:2px}
+.sf-cost-help p{margin:8px 0}
+.sf-cost-block{border-top:1px solid var(--sf-line);padding:12px 0}
+.sf-cost-block header{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.sf-cost-price{font:500 14px "IBM Plex Mono",ui-monospace,monospace;
+  color:var(--sf-ink);white-space:nowrap}
+.sf-cost-price small{font:400 11px "IBM Plex Sans",sans-serif;
+  color:var(--sf-ink-2);margin-right:8px}
 .sf-cost-block h4{font-size:14px;font-weight:600;margin:0 0 4px;color:var(--sf-ink)}
 .sf-cost-model{font-size:12px;color:var(--sf-ink-2);overflow-wrap:anywhere}
-.sf-report dl.sf-cost-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
-  gap:16px;margin:16px 0 0}
+.sf-report dl.sf-cost-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;margin:12px 0 0}
 .sf-report .sf-cost-fields>div{display:flex;flex-direction:column;min-width:0}
 .sf-report .sf-cost-fields dt{float:none;width:auto;
   font-size:11px;color:var(--sf-ink-2);font-weight:400}
+.sf-report .sf-cost-fields dd+dt{margin-top:8px}
 .sf-report .sf-cost-fields dd{font-size:13px;color:var(--sf-ink);margin:4px 0 0;
   font-family:"IBM Plex Mono",ui-monospace,monospace;overflow-wrap:anywhere}
 </style>"""
@@ -72,8 +81,9 @@ def case_accounting(candidate: CandidateResult) -> dict[CaseId, str]:
     for row in view.rows:
         groups[row.case_id].append(row)
     note = (
+        '<details class="sf-cost-help"><summary>About these numbers</summary>'
         "<p>Recorded usage for this case only. Unknown means not reported. "
-        "Provider time is summed across attempts, not wall time.</p>"
+        "Provider time is summed across attempts, not wall time.</p></details>"
     )
     return {
         case_id: note
@@ -93,19 +103,24 @@ def _activity(row: AccountingRow) -> str:
         "synthesis": "Combine answers",
         "grading": "Judging",
     }
-    fields = (
-        ("Cost", _money(summary.usage.cost_usd)),
-        ("Calls", _number(summary.calls)),
-        ("Cache", _cache(summary)),
-        ("Input tokens", _number(summary.usage.input_tokens)),
-        ("Output tokens", _number(summary.usage.output_tokens)),
-        ("Provider time", _time(summary.provider_latency_ms)),
+    groups = (
+        (("Calls", _number(summary.calls)), ("Cache", _cache(summary))),
+        (
+            ("Input tokens", _number(summary.usage.input_tokens)),
+            ("Output tokens", _number(summary.usage.output_tokens)),
+        ),
+        (("Provider time", _time(summary.provider_latency_ms)),),
     )
     values = "".join(
-        f"<div><dt>{label}</dt><dd>{escape(value)}</dd></div>" for label, value in fields
+        "<div>"
+        + "".join(f"<dt>{label}</dt><dd>{escape(value)}</dd>" for label, value in group)
+        + "</div>"
+        for group in groups
     )
     return (
-        f'<section class="sf-cost-block"><h4>{escape(row.label)}</h4>'
+        f'<section class="sf-cost-block"><header><h4>{escape(row.label)}</h4>'
+        f'<span class="sf-cost-price"><small>Cost</small>{_money(summary.usage.cost_usd)}</span>'
+        "</header>"
         f'<div class="sf-cost-model">{stage[row.stage]} · '
         f"{escape(row.model or 'Unknown model')}</div>"
         f'<dl class="sf-cost-fields">{values}</dl></section>'
