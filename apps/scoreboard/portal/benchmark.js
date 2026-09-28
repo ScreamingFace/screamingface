@@ -205,10 +205,10 @@
       tr.appendChild(specTd);
 
       // The entry's open/closed verdict rides in this cell as a second line. With the
-      // Pareto mark it answers "which entries win the open frontier". WHY not its own column:
-      // the table fits its 958px container exactly, and a 98px column pushed "Run locally", the
-      // board's primary action, behind a horizontal scroll (measured 2026-09-26; owner chose
-      // this cell). It is also where a reader looks for what an entry runs on.
+      // Pareto mark it answers "which entries win the open frontier". Not its own column: the
+      // table fits its container exactly, and another column would push "Run locally", the
+      // board's primary action, behind a horizontal scroll. This cell is also where a reader
+      // looks for what an entry runs on.
       var backendsTd = P.el("td", null, P.formatProviders(entry.ran_with_providers));
       backendsTd.appendChild(renderOpenness(entry));
       tr.appendChild(backendsTd);
