@@ -56,6 +56,47 @@ pair's one effective Connection.
   clean.
 - **Deviations:** the exact 16-file prior-test re-pin was approved after the unchanged old suite
   reported `70 failed, 4901 passed, 52 skipped, 37 deselected`; append-only was skipped only for
-  that approved list. The pinned Spark worker was unavailable for this account, so a bounded
-  general implementation agent made the same production-only GREEN change. No deployment or
-  production access occurred; merge/deployment remains gated on the alpha drain proof.
+  that approved list. No deployment or production access occurred; merge/deployment remains gated
+  on the alpha drain proof.
+
+## Review follow-up
+
+### Planned changes
+
+- Reject a nonblank value in any repeated `X-Profile` header field through one authenticated edge
+  helper whose policy is configured at the composition root.
+- Keep every selector value out of the refusal exception as well as its HTTP rendering.
+- Make selector-less resolution return `409 connection_ambiguous` whenever two or more active
+  Connections exist, including when one is labelled `default`.
+- Add mutation-resistant coverage for pre-cache refusal and target-local dispatch invalidation.
+- Refresh current README, task-mirror metadata, and opt-in live suites for selector-less calls.
+
+### Test plan
+
+- RED: duplicate `X-Profile` values with blank first; default-labelled multi-Connection pair;
+  cache lookup moved before refusal; and dispatch failure applied to every Connection.
+- Cover absent/blank values across all four route families and preserve auth-before-selector order.
+- Run focused selector/provider-access/live collection checks and the complete AIGateway gate.
+
+### Acceptance
+
+- Every present nonblank header value is refused before cache, catalog, resolve, or dispatch work.
+- Authentication still returns `401` before selector refusal.
+- Multi-Connection pairs never auto-select a literal `default` label.
+- A dispatch failure mutates only its resolved target.
+- No exception, response, log, or telemetry retains the rejected selector value.
+
+### Outcome
+
+- **Actual files:** selector parser/refusal types, Profile-backed resolution and its fake, the
+  composition root, five HTTP route modules, six focused unit/contract test modules, five opt-in
+  live suites, the AIGateway README, task mirror, and this ledger.
+- **Commits:** this follow-up commit — `fix(aigateway)!: harden selector sunset boundary`.
+- **Gates:** RED `11 failed, 127 passed`; focused GREEN `138 passed`; expanded affected suites
+  `276 passed`; credential-free live check `37 skipped`; three final runs of
+  `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` — ALL GATES GREEN (Ruff,
+  format, Pyright, no-enterprise, full pytest coverage >=80); `git diff --check` clean.
+- **Deviations:** owner-approved review corrections update prior selector/live tests, so the
+  append-only precheck is skipped for that reviewed set. Real live provider calls were not run
+  because credentials are absent. No deployment or production access occurred; merge remains
+  blocked on the alpha drain proof.

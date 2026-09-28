@@ -29,12 +29,11 @@ from ..core.model_capabilities import canonical_model_id
 from ..core.provider_access import (
     ProviderAccessRefusal,
     Selector,
-    SelectorPolicy,
     TargetPending,
     TargetReauthRequired,
     provider_access_for,
 )
-from .provider_access_http import refusals_as_http
+from .provider_access_http import refusals_as_http, selector_from_request
 
 router = APIRouter()
 
@@ -138,9 +137,7 @@ async def _credential_verdict(
 @router.post("/v1/models/admit")
 async def admit_model(request: Request, current: CurrentAccount, body: _AdmitRequest) -> dict:
     with refusals_as_http():
-        selector = Selector.from_header(
-            request.headers.get("X-Profile"), policy=SelectorPolicy.REJECT_EXPLICIT
-        )
+        selector = selector_from_request(request)
 
     model_id = body.model_id
     provider = model_id.split("/", 1)[0] if "/" in model_id else ""

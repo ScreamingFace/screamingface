@@ -133,7 +133,7 @@ def test_absent_or_blank_selector_remains_selectorless(
 def test_selector_unsupported_renderer_does_not_retain_the_value() -> None:
     selector = "private-selector-value"
 
-    response = render_refusal(SelectorUnsupported(selector))
+    response = render_refusal(SelectorUnsupported())
 
     assert response.status_code == 400
     assert response.detail == {
@@ -176,3 +176,76 @@ def test_model_parameters_vary_only_by_authorization_after_sunset(
     assert {part.strip().lower() for part in response.headers["vary"].split(",")} == {
         "authorization"
     }
+
+
+@pytest.mark.parametrize("case", _REQUEST_CASES, ids=lambda case: case.name)
+def test_blank_first_header_cannot_hide_a_named_second_value(
+    authenticated_client: TestClient,
+    case: _RequestCase,
+) -> None:
+    selector = "private-selector-value"
+
+    response = authenticated_client.request(
+        case.method,
+        case.path,
+        headers=[("X-Profile", ""), ("X-Profile", selector)],
+        **case.kwargs,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "x_profile_unsupported",
+        "message": _UNSUPPORTED_MESSAGE,
+    }
+    assert selector not in response.text
+
+
+def test_chat_refuses_explicit_selector_before_cache_lookup(
+    authenticated_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from aigateway.routes import chat as chat_route
+
+    cache_lookup = AsyncMock(side_effect=AssertionError("cache lookup must not run"))
+    monkeypatch.setattr(chat_route, "look_up_global_cache", cache_lookup)
+
+    response = authenticated_client.post(
+        "/v1/chat/completions",
+        headers={"X-Profile": "default"},
+        json={"model": _MODEL, "messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    assert response.status_code == 400
+    cache_lookup.assert_not_awaited()
+
+
+@pytest.mark.parametrize("blank", ["", " ", "\t  \n"])
+@pytest.mark.parametrize("case", _REQUEST_CASES, ids=lambda case: case.name)
+def test_blank_selector_is_not_rejected_on_any_route(
+    authenticated_client: TestClient,
+    case: _RequestCase,
+    blank: str,
+) -> None:
+    response = authenticated_client.request(
+        case.method,
+        case.path,
+        headers={"X-Profile": blank},
+        **case.kwargs,
+    )
+
+    detail = response.json().get("detail")
+    assert detail != {
+        "code": "x_profile_unsupported",
+        "message": _UNSUPPORTED_MESSAGE,
+    }
+
+
+def test_authentication_precedes_repeated_selector_refusal(client: TestClient) -> None:
+    response = client.get(
+        "/v1/provider-access",
+        headers=[("X-Profile", ""), ("X-Profile", "private-selector-value")],
+    )
+
+    assert response.status_code == 401

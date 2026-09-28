@@ -108,7 +108,7 @@ _CASES: list[tuple[ProviderAccessRefusal, int, dict]] = [
         },
     ),
     (
-        SelectorUnsupported("work"),
+        SelectorUnsupported(),
         400,
         {
             "code": "x_profile_unsupported",

@@ -12,12 +12,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from ..core.provider_access import (
     CredentialStoreUnavailable,
     ProviderAccessRefusal,
     ProviderUnknown,
+    Selector,
     SelectorAmbiguous,
     SelectorUnknown,
     SelectorUnsupported,
@@ -27,6 +28,18 @@ from ..core.provider_access import (
     UnsupportedAuthMode,
     WriteConflict,
 )
+
+
+def selector_from_request(request: Request) -> Selector:
+    """Parse every inbound selector value under the composition-root policy."""
+    # INVARIANT: a blank first field cannot hide a named later field. ``Headers.get`` exposes only
+    # one value, while Stage D requires every repeated field to be judged before route work.
+    raw = next(
+        (value for value in request.headers.getlist("X-Profile") if value.strip()),
+        None,
+    )
+    return Selector.from_header(raw, policy=request.app.state.selector_policy)
+
 
 _AMBIGUOUS_MESSAGE = "Multiple active Connections exist. Remove extra Connections, then retry."
 _UNSUPPORTED_SELECTOR_MESSAGE = "X-Profile is no longer supported; omit the header."

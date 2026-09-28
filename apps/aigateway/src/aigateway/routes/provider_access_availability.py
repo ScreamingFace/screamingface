@@ -16,8 +16,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict
 
 from ..core.auth.middleware import CurrentAccount
-from ..core.provider_access import AvailabilityStatus, Selector, SelectorPolicy, provider_access_for
-from .provider_access_http import refusals_as_http
+from ..core.provider_access import AvailabilityStatus, provider_access_for
+from .provider_access_http import refusals_as_http, selector_from_request
 
 router = APIRouter()
 
@@ -59,9 +59,7 @@ async def list_provider_access(
     """
     try:
         with refusals_as_http():
-            Selector.from_header(
-                request.headers.get("X-Profile"), policy=SelectorPolicy.REJECT_EXPLICIT
-            )
+            selector_from_request(request)
     except HTTPException as exc:
         exc.headers = {**(exc.headers or {}), **_PRIVATE_CACHE_HEADERS}
         raise

@@ -126,8 +126,16 @@ def _ensure_connection(client: TestClient, api_key: str) -> None:
     listing = client.get("/v1/oauth/connections", params={"provider": "openrouter"})
     _assert_live_key_not_returned(listing.text, api_key)
     assert listing.status_code == 200, f"unexpected listing status: {listing.status_code}"
+    connections = listing.json()["connections"]
+    active_others = [
+        connection
+        for connection in connections
+        if connection["status"] == "active" and connection["label"] != _CONNECTION_LABEL
+    ]
+    if active_others:
+        pytest.skip("OpenRouter live smoke requires one effective Connection; remove active extras")
     existing = next(
-        (c for c in listing.json()["connections"] if c["label"] == _CONNECTION_LABEL),
+        (connection for connection in connections if connection["label"] == _CONNECTION_LABEL),
         None,
     )
     if existing is None:
@@ -160,7 +168,6 @@ def test_openrouter_byok_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
 
         resp = client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": _CONNECTION_LABEL},
             json={
                 "model": _live_model(),
                 "messages": [{"role": "user", "content": "Reply with exactly: PONG"}],
@@ -206,7 +213,6 @@ def test_openrouter_byok_round_trip_ignores_ambient_and_request_routing_controls
 
         resp = client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": _CONNECTION_LABEL},
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": "Reply with exactly: PONG"}],
@@ -272,7 +278,6 @@ def test_disposable_key_named_credential_cannot_leave_openrouter(
         _ensure_connection(client, api_key)
         response = client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": _CONNECTION_LABEL},
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": "Reply with exactly: PONG"}],
@@ -315,7 +320,6 @@ def test_disposable_key_unsafe_globals_fail_closed(
             try:
                 response = client.post(
                     "/v1/chat/completions",
-                    headers={"X-Profile": _CONNECTION_LABEL},
                     json={
                         "model": model,
                         "messages": [{"role": "user", "content": "Reply with exactly: PONG"}],
@@ -365,7 +369,6 @@ def test_disposable_key_retries_synthetic_503_then_reaches_openrouter(
         _ensure_connection(client, api_key)
         response = client.post(
             "/v1/chat/completions",
-            headers={"X-Profile": _CONNECTION_LABEL},
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": "Reply with exactly: PONG"}],
@@ -408,7 +411,6 @@ def test_disposable_key_bypasses_global_litellm_cache(
                 responses = [
                     client.post(
                         "/v1/chat/completions",
-                        headers={"X-Profile": _CONNECTION_LABEL},
                         json={
                             "model": model,
                             "messages": [{"role": "user", "content": "Reply with exactly: PONG"}],

@@ -1,3 +1,15 @@
+---
+id: OME-1394
+linear_url: https://linear.app/openmined/issue/OME-1394/aigateway-reject-explicit-x-profile-after-engine-producer-off
+status: in_progress
+type: task
+priority: high
+labels: [aigateway, agentic, autonomous]
+parent: OME-1138
+created: 2026-09-28
+closed:
+---
+
 # OME-1394 — AIGateway rejects explicit X-Profile
 
 ## Outcome
@@ -20,9 +32,10 @@ blocked on the approved quick alpha drain proof after Engine build `df6e9b92`.
 
 ## Implementation Status
 
-Ready for implementation review. The Stage D route suite passes, all approved legacy-contract
-tests were re-pinned without skips or deletions, and the complete AIGateway gate runner is green.
-No deployment or production access was performed.
+Ready for re-review. Duplicate-header handling, pre-cache refusal, selector-less ambiguity,
+target-local invalidation, value-free exceptions, current documentation, and opt-in live callers
+are pinned. The complete AIGateway gate runner is green. No deployment or production access was
+performed.
 
 ## Out Of Scope
 

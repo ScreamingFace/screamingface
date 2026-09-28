@@ -23,9 +23,9 @@ from ..core.discovery_runtime import (
 )
 from ..core.model_capabilities import canonical_model_id
 from ..core.model_parameter_contract import build_model_parameter_document
-from ..core.provider_access import ResolvePolicy, Selector, SelectorPolicy, provider_access_for
+from ..core.provider_access import ResolvePolicy, provider_access_for
 from ..core.registry import ProviderRegistry
-from .provider_access_http import refusals_as_http
+from .provider_access_http import refusals_as_http, selector_from_request
 
 if TYPE_CHECKING:
     from ..core.plugin_base import ProviderPluginBase
@@ -81,9 +81,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     inside the shared chat credential resolution — passes through that one boundary.
     """
     with refusals_as_http():
-        selector = Selector.from_header(
-            request.headers.get("X-Profile"), policy=SelectorPolicy.REJECT_EXPLICIT
-        )
+        selector = selector_from_request(request)
 
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
