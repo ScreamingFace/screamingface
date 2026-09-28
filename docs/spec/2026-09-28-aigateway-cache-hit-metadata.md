@@ -41,12 +41,18 @@
 
 - `CacheReference.response_model`: `None`, or a `str` of 1 to 512 UTF-8 bytes. The collector
   already bounds the value to 512 bytes when it writes the block.
-- `CacheReference.observed_at`: `None`, or a `str` that matches `YYYY-MM-DDTHH:MM:SSZ`. This is
-  the format that `cache_entry_metadata_from_session` writes. It is the time of the cache fill
-  (the time that the gateway observed the original response). It is not the time of the hit.
-- A value that is not valid makes the constructor raise `ValueError`. The existing handler turns
-  it into `CacheEntryMetadataReferenceError`, and the provider fallback mapper runs (PRD S11).
-  This is the same rule that applies to a bad `provider_latency_ms` today.
+- `CacheReference.observed_at`: `None`, or an RFC 3339 timestamp (`YYYY-MM-DDTHH:MM:SS`, an
+  optional fraction, then `Z` or `±HH:MM`). The gateway writes `...:SSZ`. The out-of-band archive
+  loader writes `archive_paired` blocks with `+00:00`; both are real rows. The value is the time
+  of the cache fill (the time that the gateway observed the original response). It is not the
+  time of the hit.
+- The constructor raises `ValueError` for a value that is not valid.
+- **A bad stored value does not cost the price.** `cache_reference_from_entry_metadata` checks
+  each of the two fields with the same predicate that the constructor uses
+  (`is_valid_cache_response_model`, `is_valid_cache_observed_at`). It drops a bad value (the hit
+  then looks like an older row) and does NOT go to the S11 fallback. The two fields are
+  informational; the S11 fallback would replace a certified stored price with the value from
+  the cached body. S11 does not change for `usage` and `direct_cost`.
 - `as_json` adds `response_model` and `observed_at` to the reference only when the value is not
   `None`. This is the rule that `latency` already uses.
   - **Compatibility.** An old entry (a NULL block, or a block with NULL fields) and every provider
@@ -125,3 +131,6 @@ the file) and one **consumer** test (it reads the file and asserts what must sur
   `jsonschema` (today only a transitive dependency through `litellm`) becomes a direct dependency.
   This unit validates the contract fixture against the schema in tests only. Proposed follow-up:
   an `improvement-ideas` issue.
+- **Q4 — Engine span `gen_ai.response.model` on a hit (follow-up).** The Engine sets it to its
+  own route id (`openrouter/anthropic/claude-fable-5`), not to the model that produced the cached
+  answer. It can now read `cache.reference.response_model`. This unit does not change the Engine.

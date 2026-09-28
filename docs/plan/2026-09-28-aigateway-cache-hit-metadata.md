@@ -13,8 +13,8 @@
    - a block with both `None` gives the same `as_json` keys as before (no new keys);
    - a `partial` block returns both fields and an `unavailable` cost;
    - the constructor refuses a non-`str`, an empty or a > 512-byte `response_model`, and an
-     `observed_at` that is not `YYYY-MM-DDTHH:MM:SSZ`; the mapper turns a bad value into
-     `CacheEntryMetadataReferenceError`;
+     `observed_at` that is not RFC 3339; the mapper DROPS a bad stored value and keeps the
+     certified price (spec §3.1); a bad price still raises `CacheEntryMetadataReferenceError`;
    - the schema accepts the two fields and refuses a wrong type or an unknown extra key;
    - the chat route: miss then hit returns `response_model` and `observed_at` of the stored block.
 2. GREEN — `plugins/taxonomy/types.py` (`CacheReference`), `plugins/taxonomy/entry_metadata.py`

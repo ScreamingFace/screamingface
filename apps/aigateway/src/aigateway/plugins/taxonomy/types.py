@@ -66,6 +66,15 @@ MAX_TTL_ROWS = 8
 MAX_EXTENSION_FACTS = 8
 MAX_EXTENSION_TEXT_BYTES = 128
 
+# WHY RFC 3339 and not only the one shape this gateway writes (`...:SSZ`): the out-of-band
+# archive loader writes `archive_paired` blocks itself, with a `+00:00` offset. A reference
+# only echoes a stored value, so the check refuses what is not a timestamp at all, and no more.
+_OBSERVED_AT = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})"
+)
+# The collector bounds a recorded response model at this many UTF-8 bytes.
+MAX_RESPONSE_MODEL_BYTES = 512
+
 _CANONICAL_DECIMAL = re.compile(
     rf"^(?:0|[1-9][0-9]{{0,{MAX_AMOUNT_INTEGER_DIGITS - 1}}})"
     rf"(?:\.[0-9]{{1,{MAX_AMOUNT_FRACTIONAL_DIGITS}}})?$"
@@ -92,6 +101,16 @@ def _validate_ascii(value: str | None, *, field_name: str, max_bytes: int) -> No
         raise ValueError(f"{field_name} must contain 1..{max_bytes} ASCII bytes")
     if any(byte < 0x20 or byte > 0x7E for byte in encoded):
         raise ValueError(f"{field_name} must contain printable ASCII only")
+
+
+def is_valid_cache_response_model(value: object) -> bool:
+    """Whether ``value`` may ride on a :class:`CacheReference` as its ``response_model``."""
+    return type(value) is str and 0 < len(value.encode("utf-8")) <= MAX_RESPONSE_MODEL_BYTES
+
+
+def is_valid_cache_observed_at(value: object) -> bool:
+    """Whether ``value`` may ride on a :class:`CacheReference` as its ``observed_at``."""
+    return type(value) is str and _OBSERVED_AT.fullmatch(value) is not None
 
 
 def _is_canonical_decimal(value: str) -> bool:
@@ -530,6 +549,11 @@ class CacheReference:
     # so it can only arrive from ``metadata_json``. ``None`` means unknown, and the
     # ``latency`` block is OMITTED from ``as_json`` rather than rendered as a null.
     provider_latency_ms: int | None = None
+    # Spec 2026-09-28 §3.1: the model that produced the cached answer, and when the gateway
+    # observed it (the cache FILL, not this hit). Both come only from ``metadata_json`` and are
+    # never inferred from the cached body (PRD R2). ``None`` OMITS the key from ``as_json``.
+    response_model: str | None = None
+    observed_at: str | None = None
     kind: Literal["cached_final_response"] = "cached_final_response"
     coverage: Literal["final_successful_response_only"] = "final_successful_response_only"
     incurred_in_current_request: Literal[False] = False
@@ -543,6 +567,14 @@ class CacheReference:
             type(self.provider_latency_ms) is not int or self.provider_latency_ms < 0
         ):
             raise ValueError("cache provider_latency_ms must be a non-negative int or None")
+        if self.response_model is not None and not is_valid_cache_response_model(
+            self.response_model
+        ):
+            raise ValueError(
+                f"cache response_model must be 1..{MAX_RESPONSE_MODEL_BYTES} UTF-8 bytes or None"
+            )
+        if self.observed_at is not None and not is_valid_cache_observed_at(self.observed_at):
+            raise ValueError("cache observed_at must be an RFC 3339 timestamp or None")
         if type(self.kind) is not str or self.kind != "cached_final_response":
             raise ValueError("cache reference kind must use the canonical value")
         if type(self.coverage) is not str or self.coverage != "final_successful_response_only":
@@ -560,4 +592,10 @@ class CacheReference:
         }
         if self.provider_latency_ms is not None:
             payload["latency"] = {"provider_latency_ms": self.provider_latency_ms}
+        # INVARIANT: additive only. An unknown value is OMITTED, never rendered as a null, so a
+        # row written before these fields existed renders the bytes it always rendered.
+        if self.response_model is not None:
+            payload["response_model"] = self.response_model
+        if self.observed_at is not None:
+            payload["observed_at"] = self.observed_at
         return payload
