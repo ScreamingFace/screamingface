@@ -21,6 +21,7 @@ from email.utils import format_datetime
 import httpx
 import pytest
 from _isolation_engine import (
+    QUEUE_DETAIL,
     RunPlan,
     StubEngine,
     candidate,
@@ -31,6 +32,7 @@ from _isolation_engine import (
 
 from screamingface._core.ports import _ConnectionNotice
 from screamingface._engine import admission as admission_module
+from screamingface._engine import transport as transport_module
 from screamingface._engine.admission import _AdmissionWait
 from screamingface._engine.transport import (
     AsyncUrl4CloudTransport,
@@ -129,7 +131,7 @@ def _async(engine: StubEngine, *, budget_s: float = 30.0) -> AsyncUrl4CloudTrans
 
 
 def test_a_refused_start_waits_then_the_run_completes() -> None:
-    plans = {url4_of("queued"): RunPlan(admission=[_BUSY, (503, None)])}
+    plans = {url4_of("queued"): RunPlan(admission=[_BUSY, (503, "soon")])}
     listener = _Listener()
     with isolation_engine(plans) as engine:
         transport = _sync(engine)
@@ -150,7 +152,7 @@ def test_a_refused_start_waits_then_the_run_completes() -> None:
 
 @pytest.mark.asyncio
 async def test_async_a_refused_start_waits_then_the_run_completes() -> None:
-    plans = {url4_of("queued"): RunPlan(admission=[_BUSY, (503, None)])}
+    plans = {url4_of("queued"): RunPlan(admission=[_BUSY, (503, "soon")])}
     listener = _Listener()
     with isolation_engine(plans) as engine:
         transport = _async(engine)
@@ -376,7 +378,11 @@ def test_panel_row_shows_the_wait_then_returns_to_its_status() -> None:
 
 def _busy_then_accepted() -> httpx.MockTransport:
     answers = [
-        httpx.Response(503, headers={"Retry-After": "0"}),
+        httpx.Response(
+            503,
+            headers={"Retry-After": "0", "Content-Type": "application/problem+json"},
+            json={"detail": "the runner is at capacity — retry shortly"},
+        ),
         httpx.Response(
             202, headers={"Preference-Applied": "respond-async", "Location": "/?topic=t"}
         ),
@@ -403,3 +409,163 @@ async def test_async_a_direct_start_call_uses_the_default_wait() -> None:
         await _start_async(http, "capability", "(@)!'hello'")
 
     assert time.monotonic() - began >= 0.4
+
+
+# --- Review round 1: only the Engine's own refusal is waited out -------------------------
+
+
+def test_a_409_after_a_resent_start_means_this_run_was_admitted() -> None:
+    # INVARIANT (review fix 1): one capability names one topic, so a 409 "a run already
+    # exists" on a RE-SENT start is THIS Run — an earlier attempt was scheduled although its
+    # answer was a refusal. Failing here would drop the capability without a stop and leave
+    # a paid Run running; the WebSocket is already attached to its topic, so read it.
+    plans = {url4_of("hidden"): RunPlan(admission=[_BUSY], hidden_accept=True)}
+    listener = _Listener()
+    with isolation_engine(plans) as engine:
+        transport = _sync(engine)
+        try:
+            outcome = transport.run(candidate("hidden"), listener)
+        finally:
+            transport.close()
+
+    assert outcome.result_body == result_body(url4_of("hidden"))
+    assert engine.state.start_attempts[url4_of("hidden")] == 2
+    assert engine.state.deleted == []
+    assert listener.notices[-1] == ("admitted", None)
+
+
+@pytest.mark.asyncio
+async def test_async_a_409_after_a_resent_start_means_this_run_was_admitted() -> None:
+    plans = {url4_of("hidden"): RunPlan(admission=[_BUSY], hidden_accept=True)}
+    with isolation_engine(plans) as engine:
+        transport = _async(engine)
+        try:
+            outcome = await transport.run(candidate("hidden"), None)
+        finally:
+            await transport.close()
+
+    assert outcome.result_body == result_body(url4_of("hidden"))
+    assert engine.state.start_attempts[url4_of("hidden")] == 2
+    assert engine.state.deleted == []
+
+
+def _conflict() -> httpx.MockTransport:
+    return httpx.MockTransport(
+        lambda request: httpx.Response(
+            409,
+            headers={"Content-Type": "application/problem+json"},
+            json={"detail": "a run already exists"},
+        )
+    )
+
+
+def test_a_409_on_a_first_start_is_still_an_error() -> None:
+    # WHY: with no refusal before it, a 409 is not a hidden admission of this attempt.
+    with httpx.Client(base_url="http://engine.test", transport=_conflict()) as http:
+        with pytest.raises(ExecutionError) as caught:
+            _start_sync(http, "capability", "(@)!'hello'")
+
+    assert caught.value.status == 409
+
+
+@pytest.mark.asyncio
+async def test_async_a_409_on_a_first_start_is_still_an_error() -> None:
+    async with httpx.AsyncClient(base_url="http://engine.test", transport=_conflict()) as http:
+        with pytest.raises(ExecutionError) as caught:
+            await _start_async(http, "capability", "(@)!'hello'")
+
+    assert caught.value.status == 409
+
+
+def test_a_503_that_the_engine_did_not_write_is_fatal() -> None:
+    # INVARIANT (review fix 1): only the Engine's own refusal (problem+json + Retry-After)
+    # says "nothing was scheduled". An edge proxy's 503 may hide a start the Engine took.
+    plans = {url4_of("edge"): RunPlan(admission=[(503, None)])}
+    with isolation_engine(plans) as engine:
+        transport = _sync(engine)
+        try:
+            with pytest.raises(ExecutionError) as caught:
+                transport.run(candidate("edge"), None)
+        finally:
+            transport.close()
+
+    assert caught.value.status == 503
+    assert caught.value.code != "engine_at_capacity"
+    assert engine.state.start_attempts[url4_of("edge")] == 1
+
+
+@pytest.mark.asyncio
+async def test_async_a_503_that_the_engine_did_not_write_is_fatal() -> None:
+    plans = {url4_of("edge"): RunPlan(admission=[(503, None)])}
+    with isolation_engine(plans) as engine:
+        transport = _async(engine)
+        try:
+            with pytest.raises(ExecutionError) as caught:
+                await transport.run(candidate("edge"), None)
+        finally:
+            await transport.close()
+
+    assert caught.value.status == 503
+    assert caught.value.code != "engine_at_capacity"
+    assert engine.state.start_attempts[url4_of("edge")] == 1
+
+
+def test_a_queue_outage_past_the_budget_does_not_claim_capacity() -> None:
+    # WHY (review, LOW): the Engine also refuses with 503 when its run queue is down
+    # (#1098). Telling the researcher "capacity stayed full" would send them the wrong way.
+    plans = {url4_of("queued"): RunPlan(admission=[_BUSY] * 1000, refusal_detail=QUEUE_DETAIL)}
+    with isolation_engine(plans) as engine:
+        transport = _sync(engine, budget_s=0.3)
+        try:
+            with pytest.raises(ExecutionError) as caught:
+                transport.run(candidate("queued"), None)
+        finally:
+            transport.close()
+
+    assert caught.value.code == "engine_not_admitted"
+    assert caught.value.retryable is True
+    assert "capacity" not in caught.value.message
+    assert QUEUE_DETAIL in caught.value.message
+
+
+# --- Review round 1: the waiting socket stays alive --------------------------------------
+
+
+def test_the_socket_sends_keepalive_pings_while_the_start_waits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # INVARIANT (review fix 6): an edge closes an idle WebSocket (Cloudflare: ~100 s), and a
+    # capacity wait may last 900 s. The client's keepalive pings are traffic that keeps it
+    # open; this proves they flow while the worker thread is blocked in the start loop.
+    monkeypatch.setattr(transport_module, "_KEEPALIVE_PING_S", 0.05)
+    plans = {url4_of("queued"): RunPlan(admission=[(503, "1")])}
+    with isolation_engine(plans) as engine:
+        transport = _sync(engine)
+        try:
+            outcome = transport.run(candidate("queued"), None)
+        finally:
+            transport.close()
+
+    token = engine.state.capability_of(url4_of("queued"))
+    assert outcome.result_body == result_body(url4_of("queued"))
+    assert token is not None
+    assert engine.state.pings.get(token, 0) >= 3
+
+
+@pytest.mark.asyncio
+async def test_async_the_socket_sends_keepalive_pings_while_the_start_waits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(transport_module, "_KEEPALIVE_PING_S", 0.05)
+    plans = {url4_of("queued"): RunPlan(admission=[(503, "1")])}
+    with isolation_engine(plans) as engine:
+        transport = _async(engine)
+        try:
+            outcome = await transport.run(candidate("queued"), None)
+        finally:
+            await transport.close()
+
+    token = engine.state.capability_of(url4_of("queued"))
+    assert outcome.result_body == result_body(url4_of("queued"))
+    assert token is not None
+    assert engine.state.pings.get(token, 0) >= 3

@@ -72,6 +72,28 @@ never re-sends the start.
   copy). The retry floor reuses the reconnect base delay seam.
 - **Follow-ups / owner questions:** spec Q4 (default 900 s; public knob — recommended not
   yet). At expiry the runner still sweeps siblings until unit 4 (spec Q1-Q3). Risk noted in
-  spec §8: a `409 a run already exists` after a retried start. The reconnect backoff sleep
+  spec §8 (updated in review round 1). The reconnect backoff sleep
   (`time.sleep` in `_on_stream_failure`) is still not woken by an abort; prior tests pin
   that sleep through a patched clock, so it stays.
+- **Review round 1 (design review: accept with fixes):**
+  - Fix 1: re-send only on the Engine's own refusal (`_is_engine_refusal`: 503 +
+    problem+json + `Retry-After`); an edge 503 stays fatal. After a re-send, a 409 is this
+    Run (`_finish_start`), so no paid Run is left without a reader. New tests (sync + async):
+    409 after a re-send completes the Run; a 409 on a first start still raises; a non-Engine
+    503 is fatal with one attempt.
+  - LOW: a refusal that is not about capacity (queue outage, #1098) ends as
+    `engine_not_admitted` with the Engine's detail and no capacity claim (new test).
+  - Fix 5: one factory `_new_admission(budget_s, base_delay_s)` in `transport.py` (it
+    needs `_reconnect_delay`, and moving that out would drop the `random` import that
+    `test_reconnect_recovery_window.py` patches through this module); the legacy
+    `_start_sync(http, token, url4)` shape still works. `_first_refusal` is
+    `field(default=None, init=False)`.
+  - Fix 6: the `websockets` keepalive pings (20 s, sync thread and asyncio task) are traffic
+    that keeps an edge from closing the idle socket. Now explicit (`_KEEPALIVE_PING_S`,
+    passed as `ping_interval`) with a WHY comment; new tests (sync + async) prove pings flow
+    while a start waits. No re-attach needed. The stub answers pings with pongs.
+  - Fix 7: done on unit 2 (the async `_retire` helper), where the asymmetry began.
+  - Tests changed in this unit's own new file only: two `(503, None)` answers became
+    `(503, "soon")`, and the direct-call stub 503 got problem+json, because None now means
+    an edge page.
+  - Gates after the fixes: ALL GREEN — 1956 passed / 26 skipped, coverage 96 % (`admission.py` 100 %).

@@ -83,6 +83,14 @@ _RECONNECT_BUDGET_S = 90.0
 _RECONNECT_BASE_DELAY_S = 0.5
 _RECONNECT_MAX_DELAY_S = 15.0
 
+# WHY explicit (review fix 6): a start may wait up to the admission budget (900 s) with no
+# Run frames on its WebSocket, and an edge closes an idle WebSocket (Cloudflare: ~100 s).
+# The `websockets` keepalive (sync: a background thread, `sync/connection.py` `keepalive`;
+# asyncio: a task) sends a ping every interval even while the start loop blocks, and a ping
+# is traffic to the edge. Its default is 20 s; naming it here makes the dependency visible
+# and lets `test_admission_retry.py` prove the pings flow during a wait.
+_KEEPALIVE_PING_S = 20.0
+
 _logger = logging.getLogger(__name__)
 
 
@@ -164,14 +172,6 @@ class Url4CloudTransport:
         else:
             self._abort.clear()
 
-    def _admission(self) -> _AdmissionWait:
-        """A fresh capacity wait for one Run start (spec 2026-09-28 §6, OME-1066)."""
-        return _AdmissionWait(
-            budget_s=self._admission_budget_s,
-            floor_s=self._reconnect_base_delay_s,
-            backoff=lambda attempt: _reconnect_delay(attempt, self._reconnect_base_delay_s),
-        )
-
     def run(
         self,
         candidate: Candidate,
@@ -252,6 +252,7 @@ class Url4CloudTransport:
                     },
                     open_timeout=30,
                     close_timeout=10,
+                    ping_interval=_KEEPALIVE_PING_S,
                     max_size=_MAX_FRAME_BYTES,
                     ssl=self._ssl,
                 ) as websocket:
@@ -264,7 +265,9 @@ class Url4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
-                            admission=self._admission(),
+                            admission=_new_admission(
+                                self._admission_budget_s, self._reconnect_base_delay_s
+                            ),
                             on_event=on_event,
                             wait=self._abort.wait,
                         )
@@ -541,14 +544,6 @@ class AsyncUrl4CloudTransport:
         else:
             self._abort.clear()
 
-    def _admission(self) -> _AdmissionWait:
-        """Async twin of the sync `_admission` — the same policy object."""
-        return _AdmissionWait(
-            budget_s=self._admission_budget_s,
-            floor_s=self._reconnect_base_delay_s,
-            backoff=lambda attempt: _reconnect_delay(attempt, self._reconnect_base_delay_s),
-        )
-
     async def _wait_unless_aborted(self, delay: float) -> bool:
         """Wait `delay` seconds; True at once if the owner aborts meanwhile (spec B3)."""
         try:
@@ -653,6 +648,7 @@ class AsyncUrl4CloudTransport:
                     },
                     open_timeout=30,
                     close_timeout=10,
+                    ping_interval=_KEEPALIVE_PING_S,
                     max_size=_MAX_FRAME_BYTES,
                     ssl=self._ssl,
                 ) as websocket:
@@ -665,7 +661,9 @@ class AsyncUrl4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
-                            admission=self._admission(),
+                            admission=_new_admission(
+                                self._admission_budget_s, self._reconnect_base_delay_s
+                            ),
                             on_event=on_event,
                             wait=self._wait_unless_aborted,
                         )
@@ -924,22 +922,18 @@ def _start_sync(
     AIDEV-NOTE: the defaults keep the old call shape (`_start_sync(http, token, url4)`)
     valid for direct callers; the transport always passes all three.
     """
-    admission = admission or _default_admission()
+    admission = admission or _new_admission(_ADMISSION_BUDGET_S, _RECONNECT_BASE_DELAY_S)
     wait = wait or _sleep_unaborted
     trace_id = trace.trace_id if trace else None
     while True:
         response = _send_start_sync(http, token, url4, trace=trace, answer_seed=answer_seed)
-        if response.status_code != _NOT_ADMITTED:
-            break
-        delay = admission.next_delay(response, now=time.monotonic())
+        delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
-            raise _not_admitted(response, admission.waited_s(now=time.monotonic()), trace_id)
+            break
         _notify_connection(on_event, "waiting_for_capacity", admission.attempts)
         if wait(delay):
             raise _start_abandoned(trace_id)
-    if admission.attempts:
-        _notify_connection(on_event, "admitted")
-    _accepted(response, trace_id=trace_id)
+    _finish_start(response, admission, on_event, trace_id)
 
 
 def _send_start_sync(
@@ -976,16 +970,71 @@ def _send_start_sync(
     return response
 
 
-# The Engine's answer when it has no free run capacity (OME-1091) — and ONLY this status
+# The Engine's answer when it did not admit a start (OME-1091, #1098) — and ONLY this status
 # means "not admitted": another 5xx keeps failing at once (OME-1066 acceptance).
 _NOT_ADMITTED = 503
 
 
-def _default_admission() -> _AdmissionWait:
+def _is_engine_refusal(response: httpx.Response) -> bool:
+    """A 503 the ENGINE wrote: RFC 9457 problem+json carrying `Retry-After`.
+
+    INVARIANT (review fix 1): only the Engine's own refusal proves nothing was scheduled
+    (spec E3). An edge proxy's 503 (Envoy "reset before headers", an HTML page) may hide a
+    start the Engine took, so it is not re-sent — it stays today's fatal error.
+    """
+    media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
+    return (
+        response.status_code == _NOT_ADMITTED
+        and media_type == "application/problem+json"
+        and "retry-after" in response.headers
+    )
+
+
+def _readmission_delay(
+    response: httpx.Response, admission: _AdmissionWait, trace_id: str | None
+) -> float | None:
+    """Seconds to wait before re-sending the start, or None when `response` ends the loop.
+
+    Raises the not-admitted error once the budget is spent. Shared by both twins.
+    """
+    if not _is_engine_refusal(response):
+        return None
+    delay = admission.next_delay(response, now=time.monotonic())
+    if delay is None:
+        raise _not_admitted(response, admission.waited_s(now=time.monotonic()), trace_id)
+    return delay
+
+
+def _finish_start(
+    response: httpx.Response,
+    admission: _AdmissionWait,
+    on_event: object,
+    trace_id: str | None,
+) -> None:
+    """Accept the start's final answer, and tell the progress output it was admitted.
+
+    INVARIANT (review fix 1): after a re-send, `409 a run already exists` is THIS Run. One
+    capability names one topic, so the only run there is one that an earlier attempt
+    scheduled although its answer was a refusal (a queue-unavailable 503 after a publish
+    whose ack was lost). Raising here would drop the capability unstopped and leave a paid
+    Run with no reader; the WebSocket is already attached to its topic, so read it instead.
+    """
+    if not (admission.attempts and response.status_code == 409):
+        _accepted(response, trace_id=trace_id)
+    if admission.attempts:
+        _notify_connection(on_event, "admitted")
+
+
+def _new_admission(budget_s: float, base_delay_s: float) -> _AdmissionWait:
+    """The ONE place a start's capacity wait is set up (both twins, and direct callers).
+
+    The floor and the fallback backoff reuse the reconnect pacing: the same full-jitter
+    helper, so a start and a reconnect back off alike.
+    """
     return _AdmissionWait(
-        budget_s=_ADMISSION_BUDGET_S,
-        floor_s=_RECONNECT_BASE_DELAY_S,
-        backoff=lambda attempt: _reconnect_delay(attempt, _RECONNECT_BASE_DELAY_S),
+        budget_s=budget_s,
+        floor_s=base_delay_s,
+        backoff=lambda attempt: _reconnect_delay(attempt, base_delay_s),
     )
 
 
@@ -1002,21 +1051,32 @@ async def _sleep_unaborted_async(delay: float) -> bool:
 def _not_admitted(
     response: httpx.Response, waited_s: float, trace_id: str | None
 ) -> ExecutionError:
-    """The Engine kept refusing the start for capacity until the budget ran out (OME-1066).
+    """The Engine kept refusing the start until the budget ran out (OME-1066).
 
-    INVARIANT: the message names Engine capacity — not a generic transport failure — so a
-    researcher knows that waiting (or fewer Candidates at once) is the remedy.
+    INVARIANT: a capacity refusal names Engine capacity — not a generic transport failure —
+    so a researcher knows that waiting (or fewer Candidates at once) is the remedy. Any
+    other refusal (a run-queue outage, #1098) says what the Engine said and nothing more.
     """
     detail, _code, problem = _problem_parts(response)
+    if "capacity" in detail.casefold():
+        return ExecutionError(
+            f"SF Engine run capacity stayed full for {waited_s:.0f} s, so the Run did not "
+            f"start: {detail}",
+            code="engine_at_capacity",
+            status=response.status_code,
+            permanent=False,
+            details=problem,
+            hint="The Engine is busy with other Runs. Retry later, or evaluate fewer "
+            "Candidates at once.",
+            trace_id=trace_id,
+        )
     return ExecutionError(
-        f"SF Engine run capacity stayed full for {waited_s:.0f} s, so the Run did not "
-        f"start: {detail}",
-        code="engine_at_capacity",
+        f"SF Engine did not admit the Run for {waited_s:.0f} s: {detail}",
+        code="engine_not_admitted",
         status=response.status_code,
         permanent=False,
         details=problem,
-        hint="The Engine is busy with other Runs. Retry later, or evaluate fewer "
-        "Candidates at once.",
+        hint="The Engine could not queue the Run. Retry later.",
         trace_id=trace_id,
     )
 
@@ -1086,22 +1146,18 @@ async def _start_async(
     wait: Callable[[float], Awaitable[bool]] | None = None,
 ) -> None:
     """Async twin of `_start_sync` — the same capacity wait (OME-1066)."""
-    admission = admission or _default_admission()
+    admission = admission or _new_admission(_ADMISSION_BUDGET_S, _RECONNECT_BASE_DELAY_S)
     wait = wait or _sleep_unaborted_async
     trace_id = trace.trace_id if trace else None
     while True:
         response = await _send_start_async(http, token, url4, trace=trace, answer_seed=answer_seed)
-        if response.status_code != _NOT_ADMITTED:
-            break
-        delay = admission.next_delay(response, now=time.monotonic())
+        delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
-            raise _not_admitted(response, admission.waited_s(now=time.monotonic()), trace_id)
+            break
         _notify_connection(on_event, "waiting_for_capacity", admission.attempts)
         if await wait(delay):
             raise _start_abandoned(trace_id)
-    if admission.attempts:
-        _notify_connection(on_event, "admitted")
-    _accepted(response, trace_id=trace_id)
+    _finish_start(response, admission, on_event, trace_id)
 
 
 async def _send_start_async(

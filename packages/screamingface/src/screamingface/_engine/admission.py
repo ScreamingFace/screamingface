@@ -13,7 +13,7 @@ Only the start call site knows that THIS answer (503 on start) means "not admitt
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -39,7 +39,7 @@ class _AdmissionWait:
     # The fallback when the Engine names no usable `Retry-After` (attempt number → seconds).
     backoff: Callable[[int], float]
     attempts: int = 0
-    _first_refusal: float | None = None
+    _first_refusal: float | None = field(default=None, init=False)
 
     def next_delay(self, response: httpx.Response, *, now: float) -> float | None:
         """Seconds to wait before the next start attempt, or None when the budget is spent."""
