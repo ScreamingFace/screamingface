@@ -113,6 +113,16 @@ jobs:
           SCREAMINGFACE_PAID_LOG_DIR: /tmp/screamingface-paid-logs
         run: uv run pytest tests/paid -rs -v --junitxml /tmp/screamingface-paid-logs/junit.xml
 
+      # The press overview on the run page itself (failed boards first, then totals:
+      # graded Cases, cost, tokens, time), so a verdict needs no artifact download.
+      # The smoke writes summary.md before its verdict; a boot failure leaves none.
+      - name: Publish the paid smoke overview
+        if: always()
+        run: |
+          if [ -f /tmp/screamingface-paid-logs/summary.md ]; then
+            cat /tmp/screamingface-paid-logs/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # Everything needed to debug a press, in one download: the stack's own logs
       # (gateway request lines, engine model-call lifecycle), one full Report per
       # board under reports/ (member + synthesizer answers, grade, judge reasoning,

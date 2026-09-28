@@ -23,6 +23,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from _board_summary import (
+    BoardSummary,
+    detail_lines,
+    run_summary_lines,
+    run_summary_markdown,
+    summarize_board,
+)
 from _panel import BOARD_CONCURRENCY, CASE_LIMIT, fusion_panel
 from conftest import PaidStack
 
@@ -96,26 +103,86 @@ def test_every_imported_board_runs_end_to_end(
     open_client: Callable[[], AbstractContextManager[_sf.Client]] = partial(
         sf.Client, engine_url=paid_stack.engine_url
     )
-    reports_dir: Path = paid_stack.log_dir / "reports"
-    problems: list[str] = []
+    press_started: float = time.monotonic()
+    summaries: list[BoardSummary] = _run_shelf(
+        open_client, boards, paid_stack.log_dir / "reports", capsys
+    )
+    # The press overview, written BEFORE the verdict so a failing press still leaves it.
+    _publish_overview(summaries, time.monotonic() - press_started, paid_stack.log_dir, capsys)
+
+    problems: list[str] = [problem for summary in summaries for problem in summary.problems]
+    assert not problems, (
+        "imported boards failed the paid smoke (board: stage/code — message):\n"
+        + "\n".join(problems)
+    )
+
+
+def _run_shelf(
+    open_client: Callable[[], AbstractContextManager[_sf.Client]],
+    boards: list[str],
+    reports_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> list[BoardSummary]:
+    """Smoke every board, BOARD_CONCURRENCY at a time, printing each as it finishes.
+
+    Stages: (1) submit one worker per board, each on its own client; (2) as each
+    finishes (completion order), read its kept Report back into an overview and
+    print the progress line plus its stats under it. Prints happen on this thread only.
+
+    WHY read the kept Report back: the overview (graded, correct, cost, tokens, run
+    id) is a view of the evidence `_smoke_one_board` already wrote, so the log line
+    and the report on disk can never disagree.
+
+    Args:
+        open_client: builds a fresh client context manager per worker.
+        boards: the imported benchmark ids, from the live engine.
+        reports_dir: where each board's Report is kept as ``<board>.json``.
+        capsys: pytest's capture fixture, used to print past the capture.
+
+    Returns:
+        One overview per board, in completion order; their problems are the verdict.
+    """
+    summaries: list[BoardSummary] = []
+    # Stage 1 — one worker per board.
     with ThreadPoolExecutor(max_workers=BOARD_CONCURRENCY) as pool:
         running: dict[Future[tuple[list[str], float]], str] = {
             pool.submit(_smoke_board_timed, open_client, board, reports_dir): board
             for board in boards
         }
+        # Stage 2 — overview + print, in completion order.
         for finished, future in enumerate(as_completed(running), start=1):
             board_problems, seconds = future.result()
-            problems.extend(board_problems)
-            line: str = _progress_line(
-                finished, len(boards), running[future], board_problems, seconds
+            board: str = running[future]
+            summary: BoardSummary = summarize_board(
+                board, board_problems, seconds, reports_dir / f"{board}.json"
             )
+            summaries.append(summary)
+            line: str = _progress_line(finished, len(boards), board, board_problems, seconds)
             with capsys.disabled():
-                print(line, flush=True)
+                print("\n".join([line, *detail_lines(summary)]), flush=True)
+    return summaries
 
-    assert not problems, (
-        "imported boards failed the paid smoke (board: stage/code — message):\n"
-        + "\n".join(problems)
-    )
+
+def _publish_overview(
+    summaries: list[BoardSummary],
+    wall_seconds: float,
+    log_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Print the press totals block and keep `summary.md` for the bundle and CI page.
+
+    The workflow appends `summary.md` to the run page. A failed write only warns:
+    the overview is a convenience and must never replace the real verdict.
+    """
+    with capsys.disabled():
+        print("\n" + "\n".join(run_summary_lines(summaries, wall_seconds)), flush=True)
+    try:
+        (log_dir / "summary.md").write_text(
+            run_summary_markdown(summaries, wall_seconds), encoding="utf-8"
+        )
+    except OSError as exc:
+        with capsys.disabled():
+            print(f"[paid smoke] could not write summary.md — {exc}", flush=True)
 
 
 def _progress_line(
