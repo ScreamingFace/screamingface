@@ -1,13 +1,13 @@
 ---
 id: OME-1272
 linear_url: https://linear.app/openmined/issue/OME-1272/a-system-message-with-placeholders-would-bake-wrong-text-without-any
-status: in_progress
+status: done
 type: task
 priority: low
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1299
 created: 2026-09-23
-closed:
+closed: 2026-09-28
 ---
 
 # A system message with placeholders would bake wrong text without any flag
@@ -26,3 +26,5 @@ Ledger: `docs/work/2026-09-25-OME-1272-system-message-placeholder-guard.md`.
   walk; owner asked to fix them on this PR: a `prompt_template` read from a file now refuses by
   name, two or more system messages flag, and `Task(setup=...)` is walked. All 22 imported
   boards introspect to facts identical to `upstream/main`.
+- 2026-09-28: PR #1064 merged (`b06959ff`); Linear set Done. Exposure sweep: 0 of 62 importable
+  inspect_evals tasks hit any of the five shapes.

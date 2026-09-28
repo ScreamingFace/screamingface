@@ -1,9 +1,9 @@
 ---
 ticket: OME-1272
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-25
-finished:
+finished: 2026-09-28
 ---
 
 # OME-1272 — flag a system message whose text the eval rewrites at run time
@@ -63,7 +63,15 @@ review by name and bind no fact.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** `apps/screamingface-engine/src/screamingface_engine_inspect/importer.py`,
+  `apps/screamingface-engine/tests/unit/inspect/test_inspect_importer.py`, this ledger, the
+  `docs/tasks/` mirror.
+- **Commits:** `2b7fb6bf` flag a system message inspect rewrites · `62c1403b` refuse file prompt
+  templates, flag repeated and setup system messages · `b531cb5a` refuse a task that applies two
+  prompt templates. Merged as PR #1064 (`b06959ff`, 2026-09-28).
+- **Gates:** CI green on `b531cb5a`, including the inspect lane; the importer suite (82 tests, 10
+  new cases) passes locally. All 22 imported boards introspect to facts identical to `upstream/main`.
+- **Deviations:** scope grew from the placeholder case to five shapes (owner-approved 2026-09-25 and
+  2026-09-26, Planned changes 1–4). Post-merge exposure sweep (inspect_evals 0.20.0): 0 of 62
+  importable tasks hit any shape, so reproducing the rewrites in the bake is deferred until a wanted
+  eval trips one.
