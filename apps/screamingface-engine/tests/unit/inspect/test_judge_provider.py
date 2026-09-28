@@ -298,3 +298,29 @@ async def test_a_tool_bearing_judge_call_is_refused() -> None:
                 [ChatMessageUser(content="grade this")],
                 tools=[ToolInfo(name="search", description="web", parameters=ToolParams())],
             )
+
+
+@pytest.mark.asyncio
+async def test_delivery_settings_inherited_from_the_eval_are_allowed() -> None:
+    """INVARIANT: the settings inspect itself hands a judge must never trip the
+    allowlist. inspect copies five operational fields from the eval's active config
+    into every model that is not the eval's own — connections, adaptive connections,
+    retries, timeout, cache — so a judge running under an eval with caching set would
+    otherwise refuse a setting nobody asked it for (OME-1369)."""
+
+    from inspect_ai.model import GenerateConfig
+    from inspect_ai.model._generate_config import active_generate_config_context_var
+
+    inherited = GenerateConfig(
+        max_connections=4, adaptive_connections=True, max_retries=2, timeout=30, cache=False
+    )
+    token = active_generate_config_context_var.set(inherited)
+    try:
+        fetch = _RecordingFetch()
+        model = get_model("screamingface/judge-4", memoize=False)
+        with bound_judge_transport(JudgeTransport(fetch=fetch)):
+            output = await model.generate([ChatMessageUser(content="grade this")])
+    finally:
+        active_generate_config_context_var.reset(token)
+    assert output.completion == "GRADE: C"
+    assert len(fetch.targets) == 1
