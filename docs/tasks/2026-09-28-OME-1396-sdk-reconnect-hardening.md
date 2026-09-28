@@ -1,12 +1,12 @@
 ---
 id: OME-1396
 linear_url: https://linear.app/openmined/issue/OME-1396
-status: In Progress
+status: Done
 type: task
 priority: High
 labels: [client-sf, agentic, autonomous]
 created: 2026-09-28
-closed:
+closed: 2026-09-28
 ---
 
 # Harden SDK reconnect: resume on the same capability after a challenge, back off on 5xx, show reconnect progress

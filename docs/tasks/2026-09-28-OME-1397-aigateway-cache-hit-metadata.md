@@ -1,12 +1,12 @@
 ---
 id: OME-1397
 linear_url: https://linear.app/openmined/issue/OME-1397
-status: Triage
+status: Done
 type: bug
 priority: Medium
 labels: [aigateway, agentic, autonomous, bug]
 created: 2026-09-28
-closed:
+closed: 2026-09-28
 ---
 
 # Return full cache metadata on a cache hit and pin the gateway-to-SDK hit contract
