@@ -210,7 +210,7 @@ class Url4CloudTransport:
         challenge is FATAL — dead credentials, no probe on a single-engine fleet (D5). A
         connect/OS/timeout failure — or, once the Run started, a 5xx handshake refusal —
         backs off with full jitter; when the outage recovery budget
-        is spent, everything this client owns is stopped and the Run surfaces as
+        is spent, THIS Run is stopped (never its siblings, OME-1067) and surfaces as
         `websocket_disconnected`.
         """
         recovery = _RecoveryWindow(self._reconnect_budget_s)
@@ -245,6 +245,11 @@ class Url4CloudTransport:
                         _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
                     outcome = self._run_connected(websocket, lifecycle, on_event)
+                    # INVARIANT (spec 2026-09-28 run isolation, 4.2): the terminal frame is
+                    # in, so the Run is complete. Retire its capabilities NOW — before the
+                    # socket closes and the artifact fetch starts — so no stop, own or owner
+                    # sweep, can reach a Run that has already finished.
+                    self._retire(minted)
                 # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
                 # By now the run is over and the WS is closed — a fetch failure here
                 # must surface as its own error, never trip the socket-scoped
@@ -252,12 +257,17 @@ class Url4CloudTransport:
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
                 if run_started and _is_transient_rejection(exc):
-                    self._back_off(recovery, exc, started, on_event)
+                    self._back_off(recovery, exc, started, on_event, minted[-1])
                 else:
                     self._on_handshake_rejection(exc, minted, run_started, trace, recovery)
                     recovery.attempts += 1
             except (WebSocketException, OSError, TimeoutError) as exc:
-                self._back_off(recovery, exc, started, on_event)
+                self._back_off(recovery, exc, started, on_event, minted[-1])
+
+    def _retire(self, minted: list[str]) -> None:
+        """Take this Run's capabilities out of the owner sweep's reach."""
+        with self._active_lock:
+            self._active_tokens.difference_update(minted)
 
     def _back_off(
         self,
@@ -265,10 +275,13 @@ class Url4CloudTransport:
         exc: WebSocketException | OSError | TimeoutError,
         started: float,
         on_event: SyncEventCallback | None,
+        token: str,
     ) -> None:
         """Spend one attempt of the outage budget, then announce the next connect (R4)."""
         deadline = recovery.failed(time.monotonic())
-        recovery.attempts = self._on_stream_failure(exc, recovery.attempts, deadline, started)
+        recovery.attempts = self._on_stream_failure(
+            exc, recovery.attempts, deadline, started, token
+        )
         _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     def _on_handshake_rejection(
@@ -309,6 +322,7 @@ class Url4CloudTransport:
         attempts: int,
         budget_deadline: float,
         started: float,
+        token: str,
     ) -> int:
         """Sleep the backoff delay, or raise the terminal disconnect error.
 
@@ -319,8 +333,8 @@ class Url4CloudTransport:
         """
         if self._aborted or time.monotonic() >= budget_deadline:
             if not self._aborted:
-                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
-                self._sweep_after_disconnect()
+                _logger.warning("SF Engine reconnect budget exhausted; stopping the Run")
+                self._sweep_after_disconnect(token)
             raise _disconnected(exc, time.monotonic() - started) from exc
         delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
         _logger.warning(
@@ -331,16 +345,16 @@ class Url4CloudTransport:
         time.sleep(delay)
         return attempts + 1
 
-    def _sweep_after_disconnect(self) -> None:
-        """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).
+    def _sweep_after_disconnect(self, token: str) -> None:
+        """Stop THIS Run after its reconnect gives up (G3 OME-1020; OME-1067).
 
-        Best-effort: a failed sweep must not mask the disconnect itself — the sweep's own
-        failure is logged, not raised.
+        INVARIANT (spec 2026-09-28 run isolation, C3): one lost stream stops one Run. The
+        siblings are independently attached — in the 2026-09-01 incident, the sweep that
+        used to live here stopped a sibling with all of its cases complete.
+        AIDEV-NOTE: the name predates run isolation. `test_reconnect_recovery_window.py`
+        patches it by name, so it stays; the stop is best-effort (`_stop_own_run`).
         """
-        try:
-            self.cancel_active()
-        except Exception as stop_error:  # noqa: BLE001 - see the WHY above
-            _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
+        self._stop_own_run(token)
 
     def _stop_own_run(self, token: str) -> None:
         """Stop ONLY the Run this capability started (spec 2026-09-28 run isolation, §4).
@@ -584,16 +598,19 @@ class AsyncUrl4CloudTransport:
                         _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
                     outcome = await self._run_connected(websocket, lifecycle, on_event)
+                    # INVARIANT (spec 4.2): see the sync twin. This also keeps a completed
+                    # Run off the list a CANCELLED Run leaves behind for the sweep.
+                    self._active_tokens.difference_update(minted)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
                 if run_started and _is_transient_rejection(exc):
-                    await self._back_off(recovery, exc, started, on_event)
+                    await self._back_off(recovery, exc, started, on_event, minted[-1])
                 else:
                     await self._on_handshake_rejection(exc, minted, run_started, trace, recovery)
                     recovery.attempts += 1
             except (WebSocketException, OSError, TimeoutError) as exc:
-                await self._back_off(recovery, exc, started, on_event)
+                await self._back_off(recovery, exc, started, on_event, minted[-1])
 
     async def _back_off(
         self,
@@ -601,10 +618,13 @@ class AsyncUrl4CloudTransport:
         exc: WebSocketException | OSError | TimeoutError,
         started: float,
         on_event: AsyncEventCallback | None,
+        token: str,
     ) -> None:
         """Async twin of the sync `_back_off`."""
         deadline = recovery.failed(time.monotonic())
-        recovery.attempts = await self._on_stream_failure(exc, recovery.attempts, deadline, started)
+        recovery.attempts = await self._on_stream_failure(
+            exc, recovery.attempts, deadline, started, token
+        )
         _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     async def _on_handshake_rejection(
@@ -641,12 +661,13 @@ class AsyncUrl4CloudTransport:
         attempts: int,
         budget_deadline: float,
         started: float,
+        token: str,
     ) -> int:
         """Async twin of the sync backoff/terminal decision — see its docstring."""
         if self._aborted or time.monotonic() >= budget_deadline:
             if not self._aborted:
-                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
-                await self._sweep_after_disconnect()
+                _logger.warning("SF Engine reconnect budget exhausted; stopping the Run")
+                await self._sweep_after_disconnect(token)
             raise _disconnected(exc, time.monotonic() - started) from exc
         delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
         _logger.warning(
@@ -657,16 +678,9 @@ class AsyncUrl4CloudTransport:
         await asyncio.sleep(delay)
         return attempts + 1
 
-    async def _sweep_after_disconnect(self) -> None:
-        """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).
-
-        Best-effort: a failed sweep must not mask the disconnect itself — the sweep's own
-        failure is logged, not raised.
-        """
-        try:
-            await self.cancel_active()
-        except Exception as stop_error:  # noqa: BLE001 - see the WHY above
-            _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
+    async def _sweep_after_disconnect(self, token: str) -> None:
+        """Async twin of the sync `_sweep_after_disconnect`: THIS Run only (C3)."""
+        await self._stop_own_run(token)
 
     async def _stop_own_run(self, token: str) -> None:
         """Async twin of the sync `_stop_own_run` — this Run only, best-effort."""
