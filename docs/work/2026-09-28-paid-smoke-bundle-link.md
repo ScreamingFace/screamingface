@@ -1,9 +1,9 @@
 ---
 ticket: OME-1392
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-28
-finished:
+finished: 2026-09-28
 ---
 
 # paid-smoke-bundle-link — link the debug bundle from the paid smoke's run summary
@@ -36,6 +36,6 @@ download link to that run's bundle.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned (workflow + this ledger + the OME-1392 mirror).
-- **Commits:** `93147b15` — ci(screamingface): link the paid smoke debug bundle from the run summary
+- **Commits:** `93147b15` — ci(screamingface): link the paid smoke debug bundle from the run summary; merged via PR #1094 (merge `20cc992e`)
 - **Gates:** pre-commit (check yaml, whitespace, EOF) passed; yamllint relaxed passed. No Python touched.
 - **Deviations:** none. Acceptance waits on the owner's paid press (agents never press it).
