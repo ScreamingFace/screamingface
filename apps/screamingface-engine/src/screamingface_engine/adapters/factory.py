@@ -8,7 +8,7 @@
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
-from screamingface_engine.adapters.jetstream import JetStreamPublisher
+from screamingface_engine.adapters.jetstream import EventsStreamConfig, JetStreamPublisher
 from screamingface_engine.adapters.queue_runner import ControlClient, QueueJobRunner
 from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueue
@@ -58,11 +58,7 @@ def build_job_runner(
                 # failure for the worker, not a cosmetic mismatch.
                 replicas=settings.run_queue_replicas,
             ),
-            # The publisher's sweep must exclude the CONFIGURED queue stream (review
-            # follow-up P2-3) — the same rule `run_worker` already applied.
-            publisher=JetStreamPublisher(
-                settings.nats_url, run_queue_stream=settings.run_queue_stream
-            ),
+            publisher=JetStreamPublisher(settings.nats_url, events=events_stream_config(settings)),
             control=ControlClient(settings.nats_url),
             clock=lambda: datetime.now(UTC),
             capability_lifetime_s=settings.capability_lifetime_s,
@@ -72,3 +68,13 @@ def build_job_runner(
             caller_inflight_cap=settings.run_queue_caller_inflight_cap,
         )
     return None
+
+
+def events_stream_config(settings: Settings) -> EventsStreamConfig:
+    """The events stream as the chart configures it (`events.*` → `URL4_CLOUD_EVENTS_*`)."""
+    return EventsStreamConfig(
+        max_bytes=settings.events_max_bytes,
+        max_msgs_per_subject=settings.events_max_msgs_per_subject,
+        max_age_s=settings.events_max_age_s,
+        replicas=settings.events_replicas,
+    )

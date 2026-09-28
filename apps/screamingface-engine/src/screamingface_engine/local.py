@@ -8,9 +8,10 @@ the same REST sync-hold and WS pump a deployed App reads from JetStream. Everyth
 swapped adapters — auth, the 428 subscriber gate, sequencing, replay-from, the model catalog — is
 the production code path, unmodified.
 
-The one exception is the in-process sync surface (unit 3, contracts.md C8). A local sync call gets
-none of the deployed node tier's guards: no 30 s timeout ladder, no admission cap, no missing-``q``
-400 and no fair-share gate — only the in-process runs are gated. See `_LocalNodeMount`.
+The one exception is the in-process eval path (contracts.md C8): `/{eval_path}?q=` on the shared
+node, served in-process with no timeout ladder, no admission cap and no fair-share gate — only
+the in-process runs are gated. See `_LocalNodeMount`. Mount calls are NOT the exception: they
+run as direct runs through the deployed App's own mount routes (uniform executor PRD 04).
 
 # INVARIANT: this module is the ONLY place the control plane and the run mode meet, which is why
 # `.claude/scripts/check_layering.py` lists it in BOTH `CONTROL_PLANE` and `_EXEMPT` — exactly as
@@ -57,17 +58,20 @@ from screamingface_engine.request_scope import (
     X_PROFILE_UNSUPPORTED_MESSAGE,
     AnswerSeedError,
     bind_sync_request,
+    forwarded_headers,
     requests_selector,
 )
-from screamingface_engine.rest.forwarder import forwarded_headers
+from screamingface_engine.rest.mounts import register_mounts
 from screamingface_engine.runner.fair_share import FairShareGate
-from screamingface_engine.world.config import load_config
+from screamingface_engine.world.config import config_file_digest, load_config
 from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
 from screamingface_engine.world.serving import (
+    MountTable,
     NodeMountRoute,
     compose_serving_world,
     engine_route_paths,
     install_node_route,
+    mount_descriptors,
     node_eval_path,
 )
 from screamingface_engine.world.wire import (
@@ -204,29 +208,26 @@ _NODE_MOUNT_NAME = "node"
 class _LocalNodeMount:
     """Serve the shared node's ASGI surface in-process, behind the App's identity boundary (C8).
 
-    FEATURE (unit 3, prd/03 §2.3): ``serve --local`` has no forwarder and no network hop, so the
-    node's ASGI app is served directly by the App. It sits behind the SAME `NodeMountRoute` the
-    deployed forwarder uses, installed last by the same `install_node_route`: only the node's
-    mounts and its eval path reach it, and every other path keeps the engine's own answer.
+    FEATURE (C8): ``serve --local`` serves the node's eval path in-process, with no network
+    hop. It sits behind a `NodeMountRoute` installed last by `install_node_route`: only the
+    node's eval path reaches it, and every other path keeps the engine's own answer (the mounts
+    are the App's own routes, uniform executor PRD 04).
 
-    # INVARIANT: identity is BUILT, never copied. This wrapper runs the SAME strip-and-reset
-    # helper the deployed forwarder uses (``forwarded_headers``): only the allowlisted request
+    # INVARIANT: identity is BUILT, never copied. This wrapper runs the strip-and-reset
+    # helper (``request_scope.forwarded_headers``): only the allowlisted request
     # headers plus the identity survive, so a client's Cookie, Authorization or URL4-Capability
     # never reaches the node. Local mode has no edge to verify against, so the header it reads IS
     # the caller's claim — the bind is loopback-only precisely because there is no trust boundary
     # here, which is also why this shape must never be deployed (C8).
 
-    # INVARIANT: the caller's state is bound by the SAME sync producer the node tier uses
-    # (``request_scope.bind_sync_request``), so a mount call reads its identity, profile, seed
-    # and cache policy from the ContextVar exactly as a deployed node does — and, since FX-6,
-    # its log lines now carry the same ``origin="sync"`` (+ trace id) identity the tier's do.
-    # F2's per-request binding is what lets this one node serve both the mount and every
-    # in-process run without mixing them.
+    # INVARIANT: the caller's state is bound by the sync producer
+    # (``request_scope.bind_sync_request``), so an eval-path call reads its identity, profile,
+    # seed and cache policy from the ContextVar, and its log lines carry ``origin="sync"``
+    # (+ trace id). F2's per-request binding is what lets this one node serve both the eval path
+    # and every in-process run without mixing them.
 
-    NOT a deployment option (C8). A local sync call gets none of the node tier's guards: no 30 s
-    timeout ladder, no admission cap, no missing-``q`` 400 and no fair-share gate — only the
-    in-process RUNS are gated. There is no forwarder and no NetworkPolicy either. It is the
-    development shape of the sync surface.
+    NOT a deployment option (C8). An eval-path call has no timeout ladder, no admission cap and
+    no fair-share gate — only the in-process RUNS are gated. It is a development shape only.
     """
 
     __slots__ = ("_holder",)
@@ -243,26 +244,24 @@ class _LocalNodeMount:
         # until startup has built a node — so a node always exists by the time this runs.
         node_asgi = self._holder["asgi"]
         raw_headers = Headers(scope=scope)
-        # INVARIANT (OME-1381): the same refusal, in the same place relative to the node, as the
-        # deployed forwarder's — local mode must not accept a selector production refuses.
+        # INVARIANT (OME-1381): the eval path refuses a stated `X-Profile` before binding the
+        # request, as the mount routes and `GET /` do — local mode must not accept a selector
+        # production refuses. A blank one still rides the allowlist; the node reads it as absence.
         if requests_selector(raw_headers.getlist(PROFILE_HEADER)):
             await send_url4_error(send, 400, X_PROFILE_UNSUPPORTED, X_PROFILE_UNSUPPORTED_MESSAGE)
             return
         with ExitStack() as stack:
             try:
-                # `bind_sync_request` is the ONE binding both this mount and the node tier's
-                # own `_request` use — the request scope, the trace (FX-64), and now the
-                # run-context log identity too (FX-6), so a local sync log line carries
-                # ``origin="sync"`` (+ trace id) exactly as the deployed tier's does.
+                # `bind_sync_request` binds the request scope, the trace (FX-64) and the
+                # run-context log identity (FX-6) together.
                 bound = stack.enter_context(bind_sync_request(raw_headers))
             except AnswerSeedError as exc:
-                # A declared sitting must not silently run without its seed (OME-1038). The node
-                # tier maps this to 400 before dispatch; local mode calls the same producer
-                # itself, so it owns the same mapping — the same shared code,
-                # ``MALFORMED_HEADER`` (item 3, B6 review) — rather than letting a malformed seed
-                # escape as a 500. Narrowed to the binding itself (R4): only entering the scope
-                # may raise this, so a later `AnswerSeedError` reaching the node's own dispatch is
-                # never mistaken for it.
+                # A declared sitting must not silently run without its seed (OME-1038). This
+                # maps it to 400 before dispatch with the shared code ``MALFORMED_HEADER``
+                # (item 3, B6 review) rather than letting a malformed seed escape as a 500.
+                # Narrowed to the binding itself (R4): only entering the scope may raise this, so
+                # a later `AnswerSeedError` reaching the node's own dispatch is never mistaken
+                # for it.
                 await send_url4_error(send, 400, MALFORMED_HEADER, str(exc))
                 return
             cleaned = forwarded_headers(
@@ -298,12 +297,10 @@ def _install_local_node(
     # world is the io the runs were using, so it is closed once they have drained and released
     # their gate permits.
 
-    # WHY no node-tier aigateway overrides and no url4 admission/timeout wrapper. Local is a
-    # DEVELOPMENT shape (C8), and ONE node serves both the sync mount and the in-process runs.
-    # The run path is the regression oracle, so the shared node keeps the DECLARED aigateway
-    # config (its timeout and ``allow_outbound``) rather than the deployed tier's 30 s/28 s ladder
-    # and forced-off outbound layer — those are properties of a stateless public tier, not of a
-    # loopback dev process that also evaluates arbitrary expressions.
+    # WHY no aigateway overrides and no url4 admission/timeout wrapper. Local is a DEVELOPMENT
+    # shape (C8), and ONE node serves both the eval path and the in-process runs. The run path is
+    # the regression oracle, so the shared node keeps the DECLARED aigateway config (its timeout
+    # and ``allow_outbound``).
     """
     node_mount = _LocalNodeMount(holder)
     app.state.node_mount = node_mount
@@ -364,7 +361,20 @@ def _install_local_node(
             # `origin == "sync"` regardless of a candidate-invocation flag, so a judge model call
             # issued THROUGH the eval path is still seeded. Closing that would mean the eval path
             # stops evaluating arbitrary expressions, which is the whole point of `serve --local`.
-            holder["paths"] = direct_mount_paths(world) | {node_eval_path(world)}
+            direct = direct_mount_paths(world)
+            # FEATURE (uniform executor PRD 04, MC-D13): the MOUNTS go through the SAME route
+            # code as the deployed App — a direct run on this process's in-process runner,
+            # against this shared node — and appear in `/openapi.json`. The node's ASGI surface
+            # keeps only the eval path (a full expression, served as before: PRD 04 §6).
+            register_mounts(
+                app,
+                MountTable(
+                    mounts=tuple(m for m in mount_descriptors(world) if m.path in direct),
+                    config_digest=config_file_digest(run_env),
+                ),
+                require_identity=False,
+            )
+            holder["paths"] = frozenset({node_eval_path(world)})
         else:
             holder["paths"] = frozenset()
         app.state.node_world = world
@@ -471,10 +481,9 @@ def create_local_app(
     # cancelled fetch releases its permit in a `finally` — closing the gate before those
     # releases land would drop them on a dead object instead of the books.
     app.router.on_shutdown.append(io_gate.aclose)
-    # FEATURE (unit 3, prd/03 §2.3 / C8): the local node route, installed after ALL routes and
-    # after the runner/gate shutdown hooks whose ordering it depends on. `install_node_route`
-    # asserts the route order rather than trusting it; there is NO forwarder and NO NetworkPolicy
-    # here — this is the development shape of the sync surface, never a deployment option.
+    # FEATURE (C8): the local node route (the eval path), installed after ALL routes and after
+    # the runner/gate shutdown hooks whose ordering it depends on. `install_node_route` asserts
+    # the route order rather than trusting it — a development shape, never a deployment option.
     _install_local_node(app, holder=holder, run_env=run_env, benchmarks=benchmarks)
     for adapter in (catalog, connections):
         if adapter is not None:

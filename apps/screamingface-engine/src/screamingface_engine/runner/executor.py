@@ -29,14 +29,16 @@ from screamingface_engine.artifacts import (
     allowed_result_bytes,
     decide_result_delivery,
 )
+from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
-from screamingface_engine.world.factory import WorldFactory
-from url4.core.errors import ResolutionError
+from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.observe import (
@@ -48,6 +50,8 @@ from url4.observe import (
     RunStarted,
     Usage,
 )
+from url4.peer import dispatch_direct
+from url4.peer.server import Url4Node
 from url4.streaming.interfaces import Completed, ExecStep, Executor, SpanRef, TraceContext, Traced
 from url4.streaming.protocol import (
     SEVERITY_NUMBER,
@@ -585,6 +589,7 @@ class _RunState:
         inline_cap: int,
         hard_cap: int,
         store: ArtifactWriter | None,
+        media_type: str | None = None,
     ) -> ResultData:
         """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
 
@@ -610,9 +615,8 @@ class _RunState:
         path of GitHub #642 is unrepresentable here.
         """
         encoded = result_str.encode("utf-8")
-        # The hard-cap-first decision is SHARED with the node tier's sync spill path
-        # (`world.node_tier`), so the two delivery paths cannot disagree on the boundary or
-        # on which check wins (T6).
+        # The hard-cap-first decision lives in `decide_result_delivery`, so the boundary and
+        # which check wins are defined once (T6).
         decision = decide_result_delivery(
             len(encoded),
             inline_cap=inline_cap,
@@ -627,9 +631,9 @@ class _RunState:
                 permanent=True,
             )
         if decision is ResultDelivery.INLINE:
-            return ResultData(body=result_str, media_type=None)
+            return ResultData(body=result_str, media_type=media_type)
         assert store is not None  # over inline yet allowed ⇒ a store existed above
-        return ResultData(media_type=None, artifact=store.write_bytes(encoded))
+        return ResultData(media_type=media_type, artifact=store.write_bytes(encoded))
 
     def build_subtree(self) -> CostUsageData:
         provider, model = self._subtree_provider_model()
@@ -733,6 +737,20 @@ def _log_frame(event: Log) -> LogData:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _EvalResult:
+    """One run's evaluated text plus the media type its route declares (S4).
+
+    An expression run (`url4_run`) declares none; a direct run's `DirectResult` carries
+    whatever its route did. Returned by `_evaluate`/`_drive` rather than stashed on the
+    executor, so the media type flows to `state.build_result` as DATA, not as per-run state
+    an executor instance could carry stale between calls.
+    """
+
+    body: str
+    media_type: str | None = None
+
+
 class Url4Executor(Executor):
     """The `Executor` port implementation that drives one url4 run against the real engine.
 
@@ -755,8 +773,18 @@ class Url4Executor(Executor):
         request_scope_factory: Callable[[], RequestScope] | None = None,
         io_wrap: Callable[[IOLayer], IOLayer] | None = None,
         io_concurrency: int | None = None,
+        run_shape: RunShape = "expression",
     ) -> None:
         self._io = io
+        # FEATURE (uniform executor PRD 04): a `direct` run is a MOUNT CALL — its "expression"
+        # is `<mount path>?<raw query>` and it runs ONE registered handler of the world node via
+        # `url4.peer.dispatch_direct`, never a DAG (D1). Same lifecycle, same frames.
+        self._run_shape = run_shape
+        # The world NODE a direct call dispatches on (`self._node`) is set ONLY by
+        # `_resolve_world` — from `self._io` before any wrap is applied, since a wrapper is
+        # not a node (a direct run is one call; there is nothing to fan out or bound).
+        # `execute` always calls `_resolve_world` before a direct run can dispatch, so there
+        # is no window where `_node` is read unset.
         self._queue_cap = queue_cap
         # WHY: `result_cap` is now the INLINE threshold (biggest body that rides the
         # result frame), not a truncation point; `hard_cap` bounds the spill path. The
@@ -871,7 +899,7 @@ class Url4Executor(Executor):
         reported as "never retrieved".
         """
 
-        async def _drive() -> str:
+        async def _drive() -> _EvalResult:
             # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
             # world's outbound aigateway calls carry it (`world.connector._headers`).
             #
@@ -893,16 +921,7 @@ class Url4Executor(Executor):
             # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
             try:
                 with run_trace_scope(trace), self._scope_context():
-                    if trace is not None:
-                        return await url4_run(
-                            url4,
-                            self._io,
-                            observer=bridge,
-                            trace_id=trace.trace_id,
-                            root_span_id=trace.root_span_id,
-                            **self._run_kwargs,
-                        )
-                    return await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                    return await self._evaluate(url4, trace, bridge)
             finally:
                 bridge.close()
 
@@ -911,7 +930,7 @@ class Url4Executor(Executor):
             async for ev in bridge.drain():
                 for frame in state.map(ev):
                     yield frame
-            result_str = await task
+            eval_result = await task
             for frame in _closing_logs(bridge, state.cache_counters):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
@@ -919,10 +938,11 @@ class Url4Executor(Executor):
             # pumps heartbeats, letting a client declare a FINISHING run dead.
             result = await asyncio.to_thread(
                 state.build_result,
-                result_str,
+                eval_result.body,
                 inline_cap=self._result_cap,
                 hard_cap=self._hard_cap,
                 store=self._artifact_store,
+                media_type=eval_result.media_type,
             )
             subtree = state.build_subtree()
             # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
@@ -939,6 +959,70 @@ class Url4Executor(Executor):
                     await task
             elif not task.cancelled():
                 task.exception()
+
+    async def _evaluate(
+        self, url4: str, trace: TraceContext | None, bridge: _Bridge
+    ) -> _EvalResult:
+        """Run the run's work on this task: a DAG for an expression, one handler for a direct
+        run (PRD 04). Either way the observation events reach `bridge`."""
+        if self._run_shape == "direct":
+            return await self._dispatch_direct(url4, trace, bridge)
+        if trace is not None:
+            body = await url4_run(
+                url4,
+                self._io,
+                observer=bridge,
+                trace_id=trace.trace_id,
+                root_span_id=trace.root_span_id,
+                **self._run_kwargs,
+            )
+        else:
+            body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+        return _EvalResult(body)
+
+    async def _dispatch_direct(
+        self, target: str, trace: TraceContext | None, bridge: _Bridge
+    ) -> _EvalResult:
+        """Run a direct run's ONE handler, reported to `bridge` as a one-node run.
+
+        `dispatch_direct` emits the events a single-call DAG run would (RunStarted, one
+        NodeStarted/NodeFinished pair with the handler's Usage and ModelResponse on it), so
+        `_RunState` maps them to the SAME span and cost frames — no second mapping to drift.
+
+        INVARIANT (D1): no DAG runs here. `dispatch_direct` has no path to the eval branch and
+        refuses an eval-path target with `direct_eval_refused` — the child's own check, after
+        the App's (MC-D1: a tampered queue message).
+
+        INVARIANT (D1): a direct run reaches only a MOUNT — a route `build_world` recorded
+        before Benchmarks installed. WHY the child checks too: its world also serves the
+        benchmark, candidate and judge endpoints, and a direct run carries `origin="sync"`, so a
+        tampered message naming one would run it with a caller-chosen `X-Answer-Seed`. It is
+        refused as `endpoint_not_found`, as the App refuses an unmounted path.
+        """
+        node = self._node
+        if not isinstance(node, Url4Node):
+            raise ResolutionError(
+                "a direct run needs a url4 node world", code="internal_error", permanent=True
+            )
+        path = target.partition("?")[0]
+        mounts = direct_mount_paths(node)
+        served = served_routes(node)
+        # Only a route the node SERVES but did not record as a mount is refused here; any other
+        # target keeps `dispatch_direct`'s own code (`direct_eval_refused`, `endpoint_not_found`).
+        if target not in mounts and path not in mounts and (target in served or path in served):
+            raise ResolutionError(
+                f"a direct run may reach only a mount, not {path!r}",
+                code=ErrorCode.ENDPOINT_NOT_FOUND,
+                permanent=True,
+            )
+        result = await dispatch_direct(
+            node,
+            target,
+            observer=bridge,
+            trace_id=trace.trace_id if trace is not None else None,
+            root_span_id=trace.root_span_id if trace is not None else None,
+        )
+        return _EvalResult(result.body, result.media_type)
 
     def _record_summary(
         self,
@@ -992,6 +1076,14 @@ class Url4Executor(Executor):
         """
         if self._io is None and self._world_factory is not None:
             self._io, self._world_aclose = await self._world_factory()
+        # The world NODE a direct call dispatches on — captured from `self._io` BEFORE any
+        # wrap below, whether `self._io` just came from the factory or was injected directly
+        # (a wrapper is not a node: a direct run is one call, with nothing to fan out or
+        # bound). Captured only once, gated on the same `_io_wrapped` flag the wrap below
+        # sets: on a later `execute` of the same executor, `self._io` is already the WRAPPED
+        # layer, and re-reading it here would replace the real node with its own wrapper.
+        if not self._io_wrapped:
+            self._node = self._io
         # FEATURE (OME-908): the admission wrapper binds ONCE, to whatever io this run
         # uses — the resolved world or a directly injected test io — and a second
         # `execute` on the same executor must not wrap the wrapper.

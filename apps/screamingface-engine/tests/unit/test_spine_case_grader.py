@@ -22,6 +22,8 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import pytest
+
 from screamingface_engine.benchmarks.aggregation import SelectedCase
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
@@ -161,6 +163,31 @@ def test_missing_case_row_without_orphans_keeps_the_board_message() -> None:
     assert failure["code"] == "missing_case_row"
     assert failure["message"] == MESSAGES["missing_case_row"]
     assert failure["retryable"] is None
+
+
+@pytest.mark.parametrize("code", ["model_token_cap", "provider_error"])
+def test_a_missing_row_publishes_its_orphan_cause_as_the_failure_code(code: str) -> None:
+    # WHY (OME-1390, owner decision): a reader of the top-level code — a researcher
+    # scanning the report, the paid smoke tolerating model_token_cap — must see the
+    # real cause, not "missing" covering for it. IFEval already reports it this way.
+    # provider_error rides along to prove a lifted infrastructure cause still fails.
+    orphan = {"error": {"code": code, "message": "the model stopped", "retryable": False}}
+    case = _case_result(orphan, [5, -3])
+    failure = _sole_failure(case)
+    assert (failure["stage"], failure["code"]) == ("candidate", code)
+    assert failure["message"] == "the model stopped"
+    # The audit record stays, so kind/retryable/upstream spelling remain on the Case.
+    assert failure["metadata"]["source_error"]["code"] == code
+
+
+def test_a_missing_row_with_an_undeclared_orphan_code_lifts_the_upstream_fallback() -> None:
+    # INVARIANT: the published code stays inside the closed failure vocabulary — an
+    # upstream spelling the engine never declared folds into upstream_error, and the
+    # original spelling survives only as on-call metadata.
+    orphan = {"error": {"code": "brand_new_gateway_code", "message": "gateway said no"}}
+    failure = _sole_failure(_case_result(orphan, [5, -3]))
+    assert failure["code"] == "upstream_error"
+    assert failure["metadata"]["source_error"]["source_code"] == "brand_new_gateway_code"
 
 
 def test_an_identified_error_row_becomes_case_error_with_its_source_attached() -> None:

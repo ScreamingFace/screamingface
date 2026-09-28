@@ -202,9 +202,59 @@ Follow-up decision (2026-09-26):
 - the census waiver is recorded here; there is no separate `OME-1377` landing;
 - both issues stay In Progress.
 
+## Merge with `origin/main` `3ae86d2c` (2026-09-28)
+
+After the PR opened, the uniform executor (`#1085`) landed on `main`. It removed the node tier:
+
+- a mount call is now the App's own route (`rest/mounts.py`), run as a `shape=direct` run;
+- `rest/forwarder.py` and its tests are gone;
+- workers run each claim in a warm child (`worker/warm_pool.py`).
+
+The owner chose a merge of `origin/main` into this branch, in its own merge commit, over a rebase
+and force-push. The branch's earlier green CI ran on the old base, so every check was run again.
+The resolution ports each change to the new architecture instead of picking a side:
+
+- **Mount routes.** `rest/mounts.py:_validated` now holds the refusal the forwarder had, with url4's envelope
+  400:
+  - it comes after the identity 403 and before `missing_intent`, a bad `X-Answer-Seed`, the
+    8 KiB target limit and admission, so nothing queues;
+  - the `X-Profile` parameter is now the deprecated, documentation-only declaration;
+  - `profile` no longer reaches `_schedule`;
+  - local mode registers the same routes with `require_identity=False`, so there the refusal is
+    the first answer.
+- **REST routes.** `rest/routes.py` keeps upstream's `_refuse_existing` and the sync hold.
+  `_schedule` (which now takes `shape` and `deadline_s`) has no `profile` parameter, for either
+  run shape.
+- **Local eval path.** `local.py:_LocalNodeMount` now serves only the eval path, and it keeps
+  the refusal before binding. `forwarded_headers` moved to `request_scope` upstream.
+- **Worker environment.** Upstream made `_run_env` message-only; it is also a warm child's
+  RUN_SPEC env. The ambient pop therefore moved to `worker/supervisor.py:cold_child_env`, the cold
+  child's boundary. A warm child starts on `warm_pool.deploy_env`, which already strips every
+  per-run key, `AIGATEWAY_PROFILE` included. A legacy field in the message still wins on both
+  paths. A mutation check showed each boundary is load-bearing: two tests fail without it.
+- **Tests.** The eight forwarder test cases tested a deleted module. As the owner instructed,
+  they are replaced by `tests/unit/test_selector_mounts.py` (28 tests):
+  - the refusal on an endpoint and a data route;
+  - identity is checked first;
+  - precedence over the four other mount refusals;
+  - a selector-less direct run carries no profile, and a blank header changes nothing else;
+  - local mode;
+  - OpenAPI.
+
+  `tests/unit/test_selector_carrier.py` gains four warm-boundary tests. The characterisation
+  docstring now names `cold_child_env`.
+- **Docs.** Upstream marks `docs/plans/contracts.md` C2 (the forwarder) as superseded, so its
+  forwarded-headers row returns to the upstream text, and the C3 wording no longer names the
+  node. The current contracts, `docs/plans/uniform-executor/contracts.md` C1, C2 and C10, now
+  state the refusal and that the gateway sees `X-Profile` only on legacy runs.
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** 26 paths, as planned plus the following.
+- **Actual files:** 26 paths, as planned plus the following. After the merge (2026-09-28), 28
+  paths against `origin/main`:
+  - `rest/forwarder.py` was deleted upstream;
+  - `rest/mounts.py`, `docs/plans/uniform-executor/contracts.md` and
+    `tests/unit/test_selector_mounts.py` were added (see "Merge with `origin/main`").
   - `docs/plans/contracts.md`: the C1 request headers, the C1 400 codes, the C2 forwarded headers
     and the C3 gateway headers.
   - The census-waiver record: the tracked OME-1138 spec and plan, and the `OME-1377` mirror.
@@ -231,6 +281,19 @@ Follow-up decision (2026-09-26):
   - The four `test_selector_*` modules (127 tests) emit no warnings under `-W default`. The
     full suite's remaining PyJWT key-length warnings come from earlier modules.
   - The append-only check is still red on exactly the five owner-accepted tests.
+  - After the merge with `origin/main` `3ae86d2c` (2026-09-28), the same command reported
+    `ALL GATES GREEN`:
+    - ruff check, ruff format, pyright and layering green;
+    - pytest `3992 passed, 58 skipped`, coverage 93.59% (gate 80%);
+    - the five `test_selector_*` modules have 151 tests and emit no warnings under
+      `-W default`: the 127 from before, minus the eight forwarder cases, plus 28 mount tests
+      and four warm-boundary tests;
+    - against `origin/main`, the append-only check flags exactly the five owner-accepted
+      tests.
+
+    The first run failed one test, `test_layering_node_tier_removed`, because the removed
+    `world/node_tier/` package still had stale, ignored `__pycache__` files in this worktree.
+    Those files were deleted, and no code changed.
 - **Review:** an independent read-only review found no blocking defects. It confirmed:
   - every ingress refuses;
   - nothing happens before the refusal;
@@ -260,4 +323,8 @@ Follow-up decision (2026-09-26):
     the queue message as `AIGATEWAY_PROFILE: ""` or `"   "`. It no longer does.
   - `local.py` grows from 473 to 485 lines and `routes.py` from 607 to 611. Both files were
     already over 450 lines; the added lines are the refusal inside each file's existing
-    request-validation step, not a new responsibility.
+    request-validation step, not a new responsibility. Against `3ae86d2c` the growth is:
+    - `local.py`: 484 → 494;
+    - `routes.py`: 698 → 703;
+    - `mounts.py`: 354 → 369;
+    - `worker/supervisor.py`: 1149 → 1155.

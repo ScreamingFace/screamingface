@@ -16,8 +16,7 @@ from screamingface_engine.runner_queue import _work_queue_consumer_config
 def test_the_broadcast_replay_config_still_returns_none() -> None:
     """INVARIANT: the split must not change the event streams' behavior — a broadcast replay
     reader acks nothing, and under EXPLICIT a run over ~1000 frames truncates silently."""
-    assert _broadcast_consumer_config(None).ack_policy is AckPolicy.NONE
-    assert _broadcast_consumer_config(7).ack_policy is AckPolicy.NONE
+    assert _broadcast_consumer_config().ack_policy is AckPolicy.NONE
 
 
 def test_the_work_queue_config_is_explicit_with_bounded_redelivery() -> None:

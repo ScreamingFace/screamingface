@@ -16,7 +16,7 @@ outlive its run. This is also the idiom the same call site already uses:
 `world/connector.py`.
 
 INVARIANT (FX-64): this is the ONE trace carrier. The run path binds it in `Url4Executor`; the
-sync producers (the node tier, local mode's mount) bind it from the validated inbound header
+sync producer (local mode's eval path) binds it from the validated inbound header
 (`request_scope.trace_from_headers`). The request scope carries no trace of its own.
 
 INVARIANT: on the run path, the id here is the one `url4.streaming.lifecycle.run` resolved and
@@ -42,8 +42,8 @@ _trace: contextvars.ContextVar[TraceContext | None] = contextvars.ContextVar(
 def run_trace_scope(trace: TraceContext | None) -> Iterator[None]:
     """Bind one trace for the duration of a scope; restore on exit.
 
-    "One scope" is not only a run. The run path binds it in `Url4Executor`; the sync producers
-    (the node tier, local mode's mount) bind it too, once per request, from the validated
+    "One scope" is not only a run. The run path binds it in `Url4Executor`; the sync producer
+    (local mode's eval path) binds it too, once per request, from the validated
     inbound header (`request_scope.trace_from_headers`) — see the module INVARIANT.
 
     ``None`` is a real argument, not a degenerate one: `Executor.execute` declares

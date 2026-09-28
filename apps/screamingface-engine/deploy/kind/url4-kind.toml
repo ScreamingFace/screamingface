@@ -1,0 +1,21 @@
+# The kind environment's declared world (uniform executor test-plan §5). Layered onto the
+# engine image at `/etc/url4/url4.toml` by `engine-kind.Dockerfile` — the shared
+# `apps/screamingface-engine/url4.toml` is untouched.
+#
+# `[aigateway]` is byte-for-byte the shipped default (see the real url4.toml): the model world
+# comes from `BUILTIN_MODEL_WORLD` in code, so `default_route` only has to name one of the ids
+# it already declares (`anthropic/claude-haiku-4-5`). `base_url` is overridden per-deployment by
+# `AIGATEWAY_BASE_URL`/`URL4_CLOUD_AIGATEWAY_BASE_URL` (values-kind.yaml's
+# `config.aigatewayBaseUrl: http://aigw-stub:8080`), so the literal here is never read in the
+# kind cluster — it only has to be well-formed for `parse_config` to accept the file.
+[aigateway]
+base_url = "http://127.0.0.1:9105"
+default_route = "/anthropic/claude-haiku-4-5"
+timeout_s = 600.0
+web_tool_max_iterations = 12
+allow_outbound = true
+
+# ONE data route (uniform executor test-plan §5, K3): a `value` provider needs no filesystem
+# mount and is served read-only at this literal path by every world that parses this file.
+[data]
+"/corpus/papers" = { value = "rows of papers", media_type = "text/plain" }

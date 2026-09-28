@@ -5,12 +5,12 @@ from url4.streaming.protocol import OutboundFrame
 
 
 class StreamNotFoundError(LookupError):
-    """The topic's stream does not exist — the Run finished and its stream was reclaimed.
+    """Raised on a resume whose frames were reclaimed after the Run ended.
 
     Raised by a consumer's :meth:`EventConsumer.subscribe` ONLY on a resume attach
     (``from_sequence`` set): a fresh attach legitimately precedes the Run's first publish,
-    so it may create the stream. A resume cursor with no stream to resume from means the
-    Run ended and the reclaim grace elapsed — the client can stop reconnecting (OME-1019).
+    so it may create the stream. A resume cursor with nothing to resume from means the Run
+    ended and its frames were reclaimed — the client can stop reconnecting (OME-1019).
     """
 
 
@@ -69,18 +69,20 @@ class EventConsumer(ABC):
         pass
 
     async def delete_stream(self, topic: str) -> None:
-        """Reclaim a topic for good — called once, on the terminal DELETE, never mid-run.
+        """Reclaim a finished Run's frames for good — called once, on the terminal DELETE,
+        never mid-run.
 
-        Distinct from :meth:`purge` because for a broker-backed adapter they are different
-        operations with different costs: purging empties a stream but leaves the stream object,
-        its consumer state and its on-disk directory behind, so a purge-only teardown still
-        accumulates one permanent stream per run. `purge` cannot simply be made to delete —
-        `assert_stream_conformance` requires it to leave the sequence counter intact, and a
-        recreated stream restarts at 1.
+        The reclaim frees the frames of a Run that has ended; it MUST NOT rewind the topic's
+        sequence counter (`assert_stream_conformance`'s `_reclaim_keeps_counting` is the
+        contract check) — a topic that is reused, or resumed against, must keep counting from
+        where it left off. A broker-backed adapter MAY keep the terminal frame as the evidence
+        that the Run is over (see the JetStream adapter's own `delete_stream`, which purges with
+        `keep=1`); an adapter with nothing to keep as evidence is free to discard everything.
 
-        Defaults to :meth:`purge` so an adapter with nothing broker-side to reclaim (the
-        in-process log) needs no override, and so adding this never broke an existing
-        implementer. Must be idempotent: a topic that is already gone is success, not an error.
+        Defaults to :meth:`purge` — no evidence kept — which is what an in-process log needs:
+        it never reclaims WHILE a resume could still race it (local mode only), so there is
+        nothing for a kept frame to guard against. Must be idempotent: a topic that is already
+        gone is success, not an error.
         """
         await self.purge(topic)
 

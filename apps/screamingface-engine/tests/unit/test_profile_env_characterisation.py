@@ -87,6 +87,9 @@ class _FakeQueue:
     def __init__(self, batch: list[_FakeMsg]) -> None:
         self._batch: list[_FakeMsg] | None = batch
 
+    async def release_held(self) -> int:
+        return 0
+
     async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
         if self._batch is not None:
             served, self._batch = self._batch, None
@@ -131,8 +134,10 @@ async def _child_env_for(message: bytes) -> dict[str, str]:
 async def test_the_worker_child_drops_an_ambient_profile_the_message_did_not_carry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """# INVARIANT (OME-1381): `RunSupervisor._child_env` removes an ambient `AIGATEWAY_PROFILE`
-    before it overlays the message, so a profile-less message runs with no profile at all.
+    """# INVARIANT (OME-1381): a cold child's environment (`worker.supervisor.cold_child_env`,
+    which `RunSupervisor._child_env` returns) removes an ambient `AIGATEWAY_PROFILE` before it
+    overlays the message, so a profile-less message runs with no profile at all. A warm child
+    never had it: `worker.warm_pool.deploy_env` strips every per-run key (`test_selector_carrier`).
 
     Was `test_the_worker_child_inherits_an_ambient_profile_the_message_did_not_carry`, which
     pinned the legacy inheritance (`env[AIGATEWAY_PROFILE] == _AMBIENT`) that Stage D producer-off

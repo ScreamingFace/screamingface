@@ -213,6 +213,9 @@ class _FakeQueue:
     def __init__(self, batches: list[list[_FakeMsg]] | None = None) -> None:
         self._batches = list(batches or [])
 
+    async def release_held(self) -> int:
+        return 0
+
     async def pull(self, batch: int, timeout_s: float) -> list[_FakeMsg]:
         if self._batches:
             return self._batches.pop(0)

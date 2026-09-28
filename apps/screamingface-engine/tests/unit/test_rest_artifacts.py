@@ -25,6 +25,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.rest.routes import _result_response
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.protocol import ResultData, ResultEvent
+from url4.streaming.protocol.signals import ResultArtifact
 
 SECRET = "rest-artifacts-secret"
 WINDOW_S = 60
@@ -158,7 +159,8 @@ def test_startup_sweeps_stale_artifacts_but_keeps_fresh_ones(tmp_path: Path) -> 
         assert store.path_for(fresh.id) is not None
 
 
-def test_sync_result_response_serves_artifact_content(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_sync_result_response_serves_artifact_content(tmp_path: Path) -> None:
     # WHY: the transactional HTTP-GET path is the SECOND consumer of the result frame; an
     # artifact result must resolve to the same complete bytes there, not to an empty body.
     store = ArtifactStore(tmp_path / "artifacts")
@@ -169,11 +171,12 @@ def test_sync_result_response_serves_artifact_content(tmp_path: Path) -> None:
         subject="x",
         data=ResultData(artifact=ref),
     )
-    response = _result_response(event, store)
+    response = await _result_response(event, store)
     assert response.status_code == 200
 
 
-def test_sync_result_response_of_redeemed_artifact_is_a_problem(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_sync_result_response_of_redeemed_artifact_is_a_problem(tmp_path: Path) -> None:
     from screamingface_engine.auth.problem import ProblemException
 
     store = ArtifactStore(tmp_path / "artifacts")
@@ -186,7 +189,31 @@ def test_sync_result_response_of_redeemed_artifact_is_a_problem(tmp_path: Path) 
         data=ResultData(artifact=ref),
     )
     with pytest.raises(ProblemException):
-        _result_response(event, store)
+        await _result_response(event, store)
+
+
+@pytest.mark.asyncio
+async def test_sync_result_response_serves_an_object_store_artifact() -> None:
+    """REGRESSION (uniform executor phase 4 review, C1): the object store has no `path_for`;
+    a spilled result on it is served through `content()` as a stream, not a 500."""
+    from screamingface_engine.artifacts.ports import RemoteStream
+
+    body = b'{"score":2}'
+
+    async def _chunks():  # type: ignore[no-untyped-def]
+        yield body
+
+    class _ObjectStore:
+        def content(self, artifact_id: str) -> RemoteStream:
+            return RemoteStream(stream=_chunks(), size_bytes=len(body))
+
+    ref = ResultArtifact(id="b" * 64, size_bytes=len(body), sha256="b" * 64)
+    event = ResultEvent(
+        id="res-z", source="/trace/z/node/root", subject="z", data=ResultData(artifact=ref)
+    )
+    response = await _result_response(event, _ObjectStore())  # type: ignore[arg-type]
+    assert response.status_code == 200
+    assert response.headers["content-length"] == str(len(body))
 
 
 def test_sweep_runs_periodically_while_the_app_stays_up(tmp_path: Path) -> None:

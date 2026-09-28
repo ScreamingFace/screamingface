@@ -1,12 +1,14 @@
-"""u3-local — the node mounted inside the local App, behind every literal route (C8, AC17/T3).
+"""u3-local — the eval path mounted inside the local App, behind every literal route (C8, AC17/T3).
 
-# WHY this file exists, and why route precedence is first. ``serve --local`` fuses the control
-# plane and the node tier into ONE FastAPI app, so the node's catch-all ASGI mount and the
+# WHY this file exists, and why route precedence is first. ``serve --local`` fuses the App and
+# the shared world's eval-path ASGI mount into ONE FastAPI app, so that catch-all mount and the
 # engine's literal routes share one route table. FastAPI resolves the FIRST match: a mount
-# registered before ``/v1/models`` silently swallows it and the node answers the catalog's path
-# with url4's ``endpoint_not_found``. T3 pins both halves of the resulting contract — the engine
-# keeps ``/v1/models`` and the node keeps bare ``/v1?q=`` — and T3's refactor note is the
-# composition root's own ordering assertion, which a future route insertion must trip.
+# registered before ``/v1/models`` silently swallows it and the eval path answers the catalog's
+# path with url4's ``endpoint_not_found``. T3 pins both halves of the resulting contract — the
+# engine keeps ``/v1/models`` and the eval path keeps bare ``/v1?q=`` — and T3's refactor note is
+# the composition root's own ordering assertion, which a future route insertion must trip.
+# Declared mounts (a ``[data]`` route, say) are NOT part of this: they run as direct runs
+# through the App's own routes instead (uniform executor PRD 04; ``rest/mounts.py``).
 
 These tests drive the REAL ``create_local_app`` through its lifespan; the world is a read-side
 declaration only (a ``[data]`` value route), so the eval-path assertion makes no model call and
@@ -108,7 +110,9 @@ async def test_engine_catalog_answers_v1_models_while_bare_v1_reaches_the_node(
 async def test_a_declared_mount_answers_through_the_mounted_node(
     tmp_path: Path,
 ) -> None:
-    """A ``[data]`` mount is served by the node's ASGI surface, in-process (no forwarder)."""
+    """A ``[data]`` mount runs as a direct run through the App's own route (uniform executor
+    PRD 04, ``rest/mounts.py``), in-process against the same shared world — no forwarder, and
+    no separate node dispatch."""
     app = _app(_config_file(tmp_path, _READ_SIDE_ONLY))
 
     async with app.router.lifespan_context(app):
@@ -123,10 +127,13 @@ async def test_a_declared_mount_answers_through_the_mounted_node(
 async def test_a_malformed_answer_seed_is_a_400_in_the_mount_envelope(
     tmp_path: Path,
 ) -> None:
-    """The node tier maps ``AnswerSeedError`` to 400 before dispatch; the local mount does too.
+    """A mount's own route maps a malformed seed to 400 before it ever queues the run — pinned
+    here because a mount is now a direct run (uniform executor PRD 04, ``rest/mounts.py``), not
+    the deleted node tier's own dispatch.
 
-    Local mode calls the sync scope producer itself, so the same malformed-seed refusal must not
-    escape as a 500 (OME-1038: a declared sitting must not run without its seed).
+    Local mode reads the same ``X-Answer-Seed`` parsing every route uses, so the same
+    malformed-seed refusal must not escape as a 500 (OME-1038: a declared sitting must not run
+    without its seed).
     """
     app = _app(_config_file(tmp_path))
 
@@ -135,8 +142,9 @@ async def test_a_malformed_answer_seed_is_a_400_in_the_mount_envelope(
             response = await client.get("/corpus", headers={"X-Answer-Seed": "not-an-int"})
 
     assert response.status_code == 400
-    # item 3 (B6 review): the same shared code the node tier answers with (`MALFORMED_HEADER`),
-    # not `malformed_source` — the two tiers must not drift onto different codes for one refusal.
+    # item 3 (B6 review): the same shared code every route answers a malformed seed with
+    # (`MALFORMED_HEADER`), not `malformed_source` — a mount (now a direct run, PRD 04) must
+    # not drift onto a different code than the App's own `/v1?q=` route.
     assert response.json()["error"]["code"] == "malformed_header"
 
 
@@ -224,8 +232,9 @@ async def test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404(
     WHY: the connector applies the run's X-Answer-Seed to every model call it makes. A judge
     call a benchmark issues OUTSIDE a candidate invocation must stay unseeded (OME-1038) — a
     direct loopback hit on a judge/candidate endpoint has no candidate invocation around it, so
-    the direct-mount set must exclude benchmark endpoints, exactly as the deployed shape does
-    (which never mounts them for the forwarder at all).
+    the direct-mount set must exclude benchmark endpoints, exactly as the cloud App's own
+    registered mounts do (`rest/mounts.py`, uniform executor PRD 04) — neither ever registers
+    them as a mount route at all.
 
     Also pins B6 review round 2 (items 3/4): the direct-mount set is computed from the ONE
     shared world, not a second world build — so a `[holdings]` declaration logs its "readable by

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -37,6 +38,8 @@ from screamingface_engine.runner.main import build_executor
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.worker.loop import Worker
+from screamingface_engine.worker.supervisor import RunSupervisor
+from screamingface_engine.worker.warm_pool import deploy_env
 
 pytestmark = pytest.mark.asyncio
 
@@ -87,6 +90,9 @@ async def test_a_run_the_queue_runner_publishes_carries_no_profile(
 
 
 # --- the worker: what the child is spawned with ---------------------------------------------
+# Two boundaries since the warm pool (PRD 03): a COLD child is spawned with `cold_child_env` (the
+# `spawn=` seam below drives it), a WARM child starts on `deploy_env` and takes the run's own
+# environment from its RUN_SPEC. Both must drop the ambient value and keep the message's.
 
 
 def _delivered(message: bytes, *, times: int = 1) -> _FakeMsg:
@@ -210,3 +216,67 @@ async def test_a_new_message_reaches_the_gateway_without_a_profile_despite_an_am
     env = await _spawned_env(_delivered(encode_message("carrier-wire", "'hi'", 60)))
 
     assert await _gateway_profile_header(env) is None
+
+
+# --- the warm child: the pool's boundary -------------------------------------------------------
+
+
+class _UnusedLauncher:
+    async def launch(self, env: Any, *, io_budget: Any) -> Any:
+        raise AssertionError("the RUN_SPEC is read without launching a child")
+
+
+def _warm_child_env(msg: _FakeMsg) -> dict[str, str]:
+    """The environment a warm child runs with, assembled as the child assembles it: the pool
+    starts it on `deploy_env(os.environ)`, and the child applies its RUN_SPEC's env on top
+    (`runner.main._warm_process`). The spec's env is the supervisor's `_run_env` — what
+    `RunSupervisor` hands the pool's `launch`."""
+    supervisor = RunSupervisor(
+        publisher=_FakePublisher(),
+        memory_budget_bytes=1024**3,
+        launcher=_UnusedLauncher(),
+        io_capacity=4,
+        draining=asyncio.Event(),
+        terminating=asyncio.Event(),
+        children=set(),
+        children_by_topic={},
+        cancelled=set(),
+    )
+    return {**deploy_env(os.environ), **supervisor._run_env(msg)}  # noqa: SLF001 - the spec's env
+
+
+async def test_a_warm_child_starts_without_the_ambient_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A warm child exists before its run does; an ambient selector must not be waiting in it."""
+    monkeypatch.setenv(job_env.AIGATEWAY_PROFILE, _AMBIENT)
+    monkeypatch.setenv("AIGATEWAY_BASE_URL", "http://aigateway.test")
+
+    env = deploy_env(os.environ)
+
+    assert job_env.AIGATEWAY_PROFILE not in env
+    assert env["AIGATEWAY_BASE_URL"] == "http://aigateway.test"
+
+
+async def test_a_new_message_runs_in_a_warm_child_without_the_ambient_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(job_env.AIGATEWAY_PROFILE, _AMBIENT)
+
+    env = _warm_child_env(_delivered(encode_message("carrier-warm", "'hi'", 60)))
+
+    assert job_env.AIGATEWAY_PROFILE not in env
+    assert env[job_env.TOPIC] == "carrier-warm"
+
+
+@pytest.mark.parametrize("times", [1, 3])
+async def test_a_legacy_message_is_honoured_in_a_warm_child_on_every_delivery(
+    monkeypatch: pytest.MonkeyPatch, times: int
+) -> None:
+    monkeypatch.setenv(job_env.AIGATEWAY_PROFILE, _AMBIENT)
+    legacy = encode_message("carrier-warm-legacy", "'hi'", 60, profile=_LEGACY)
+
+    env = _warm_child_env(_delivered(legacy, times=times))
+
+    assert env[job_env.AIGATEWAY_PROFILE] == _LEGACY
+    assert await _gateway_profile_header(env) == _LEGACY

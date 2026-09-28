@@ -75,9 +75,16 @@ class InMemoryEventStream(EventStream):
         yielding as new events are published — never terminates on its own."""
         validate_from_sequence(from_sequence)
         if from_sequence is not None and topic not in self._log:
-            # Resume on a topic with no history: the Run finished and the stream was
-            # reclaimed (OME-1019). A FRESH attach may create the stream — the same rule
-            # as the broker adapter, mirrored for behavioral parity.
+            # Resume on a topic with no history: the Run finished and its frames were
+            # reclaimed (OME-1019). A FRESH attach may create the stream, same as the broker
+            # adapter — but the two adapters raise on a DIFFERENT condition, not the same
+            # rule: the broker adapter (a shared stream) raises only when the first retained
+            # frame is the kept terminal frame (`keep=1`), because an empty subject there is
+            # also the state of a queued run. This in-process log never keeps a reclaimed
+            # topic's history at all, so it raises whenever the topic has no history —
+            # acceptable here because it never reclaims WHILE a resume could race it: it is
+            # local-mode only, with no second process to resume from a stream this one just
+            # reclaimed.
             raise StreamNotFoundError(topic)
         await self.ensure_stream(topic)
         cond = self._conds[topic]

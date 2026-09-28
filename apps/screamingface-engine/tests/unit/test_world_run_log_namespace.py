@@ -7,7 +7,7 @@ ensemble path (log routing keyed on the name), and prd/01 AC1's bar is byte-for-
 FX-68 (U1-L5): the line states the RUN's cache policy, and the world carries no caller state, so
 the run producer (`runner.main`) writes it — never `build_world`. That also makes it once per
 RUN on the shared node: local mode used to write it once at startup, with `topic=None`, and never
-for the runs that followed. Building a world, the node tier or local mode's shared node writes
+for the runs that followed. Building a world or local mode's shared node writes
 no line at all.
 """
 
@@ -94,26 +94,6 @@ async def test_building_a_world_writes_no_run_line(caplog: pytest.LogCaptureFixt
             _io, aclose = await build_world(env={}, config=_config(), client=client)
         if aclose is not None:
             await aclose()
-
-    assert _world_lines(caplog) == []
-
-
-async def test_building_the_node_tier_writes_no_run_line(caplog: pytest.LogCaptureFixture) -> None:
-    from test_node_tier import _KEY, _NEVER_SPILLS
-
-    from screamingface_engine.world.node_tier import NodeTierSettings, build_node_tier
-
-    with caplog.at_level(logging.INFO):
-        async with httpx.AsyncClient() as client:
-            tier = await build_node_tier(
-                env={},
-                config=_config(),
-                client=client,
-                settings=NodeTierSettings(request_timeout_s=5.0, aigateway_timeout_s=4.0),
-                artifact_store=_NEVER_SPILLS,
-                artifact_signing_key=_KEY,
-            )
-            await tier.aclose()
 
     assert _world_lines(caplog) == []
 

@@ -136,7 +136,7 @@ class MaxDeliveriesAdvisor:
         """Connect, subscribe, and forward every advisory to `_handle`."""
         nc = await nats.connect(self._url)
         self._nc = nc
-        publisher = JetStreamPublisher(self._url, run_queue_stream=self._run_queue_stream)
+        publisher = JetStreamPublisher(self._url)
         self._publisher = publisher
         sub = await nc.subscribe(self._subject)
         async for msg in sub.messages:

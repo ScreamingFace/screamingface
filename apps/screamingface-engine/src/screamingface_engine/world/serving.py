@@ -15,8 +15,8 @@ at exactly ``/v1`` would eat the eval path entirely and must fail (AC6). This is
 between "precedence works" and "precedence silently ate the eval path".
 
 # INVARIANT: :func:`compose_serving_world` is the ONE place a world is composed for serving.
-# `serve --local` mounts the node inside the App; the node tier serves it directly. Both call the
-# helper, so their mount sets and this guard cannot diverge. The run mode keeps calling
+# The App derives its mount table through it and `serve --local` builds its shared node through
+# it, so their mount sets and this guard cannot diverge. The run mode keeps calling
 # `world.factory.build_world` directly: it does not serve, so it has no engine route set to
 # check against.
 """
@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from starlette._utils import get_route_path
@@ -37,9 +38,17 @@ from starlette.types import Receive, Scope, Send
 
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.registry import served_routes
-from screamingface_engine.world.config import DEFAULT_EVAL_PATH, WorldConfig, WorldConfigError
+from screamingface_engine.world.config import (
+    DEFAULT_EVAL_PATH,
+    WorldConfig,
+    WorldConfigError,
+    config_file_digest,
+)
 from screamingface_engine.world.factory import World, build_world
 from screamingface_engine.world.wire import AsgiApp
+from url4.core.errors import ErrorCode
+from url4.peer import describe_routes
+from url4.peer import http_status as url4_http_status
 from url4.peer.server import Url4Node
 
 logger = logging.getLogger(__name__)
@@ -105,6 +114,85 @@ def node_mount_paths(node: Any) -> frozenset[str]:
     if not isinstance(node, Url4Node):
         return frozenset()
     return served_routes(node)
+
+
+@dataclass(frozen=True, slots=True)
+class MountDescriptor:
+    """One mount the App serves and projects into `/openapi.json` (erd.md §9, PRD 04)."""
+
+    path: str
+    kind: Literal["endpoint", "data"]
+    media_type: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MountTable:
+    """The App's mounts, and the sha256 of the config file they were derived from."""
+
+    mounts: tuple[MountDescriptor, ...]
+    config_digest: str | None
+
+
+def mount_descriptors(node: Any) -> tuple[MountDescriptor, ...]:
+    """Every mount of ``node`` as plain data — through url4's PUBLIC route listing (ans:Q12)."""
+    if not isinstance(node, Url4Node):
+        return ()
+    return tuple(
+        MountDescriptor(route.path, route.kind, route.media_type) for route in describe_routes(node)
+    )
+
+
+async def derive_mount_table(
+    *,
+    env: Mapping[str, str],
+    engine_routes: Iterable[str],
+    config: WorldConfig | None = None,
+) -> MountTable:
+    """The App's mount table, from the same `world` module the run children build.
+
+    No network call is made: building the world constructs clients but never dials them, and
+    the world is closed again at once — the App serves no mount from it; every mount call is a
+    direct RUN on the queue (PRD 04). `compose_serving_world` runs the F4 collision guard
+    against the App's own routes, so a mount an engine route would shadow fails startup.
+
+    The mount SET is the one the removed node tier served (PRD 05): parity first; exposing more
+    is an owner decision (PRD 04 §6).
+    """
+    io, aclose = await compose_serving_world(env=env, engine_routes=engine_routes, config=config)
+    try:
+        mounts = mount_descriptors(io)
+    finally:
+        if aclose is not None:
+            await aclose()
+    return MountTable(mounts=mounts, config_digest=config_file_digest(env))
+
+
+_ENGINE_STATUS: dict[str, int] = {
+    "result_too_large": 413,
+    "artifact_spill_failed": 502,
+    "timeout": 504,
+    "identity_access_denied": 403,
+}
+"""The engine's own codes a mount call can end with (contracts.md C1/C2), over url4's table."""
+
+
+_URL4_CODES = frozenset(code.value for code in ErrorCode)
+
+
+def mount_http_status(code: str | None, *, permanent: bool) -> int:
+    """The HTTP status a mount call answers for a run that failed with ``code``.
+
+    The engine's codes first, then url4's own direct-call mapping (`url4.peer.http_status`) —
+    so a mount call queued as a direct run answers as the removed node tier did (MNT-9).
+    """
+    if code is not None and code in _ENGINE_STATUS:
+        return _ENGINE_STATUS[code]
+    if permanent and code is not None and code not in _URL4_CODES:
+        # Node-tier parity (review C2): a permanent failure with an ENGINE or provider code
+        # (`aigateway_http_401`, `provider_refused`) is an upstream failure — 502 — not url4's
+        # 500 for an unknown permanent error.
+        return 502
+    return url4_http_status(code, permanent=permanent)
 
 
 def node_eval_path(node: Any) -> str:
@@ -259,7 +347,8 @@ async def compose_serving_world(
 ) -> World:
     """Compose a world FOR SERVING and refuse a mount an engine route would shadow (F4).
 
-    The single composition helper both deployment shapes call (see the module INVARIANT). It is
+    The single composition helper for serving (see the module INVARIANT): the App's mount
+    table and local mode's shared node both call it. It is
     a thin wrapper over :func:`~screamingface_engine.world.factory.build_world` plus the guard;
     ``build_world``'s own semantics and teardown are unchanged.
 
@@ -288,8 +377,9 @@ async def compose_serving_world(
 class NodeMountRoute(BaseRoute):
     """The node's surface on the App: a route that matches ONLY the paths the node serves.
 
-    FEATURE (unit 3, 04-review-fixes §2.3): the deployed App forwards its declared mounts to the
-    node tier, and ``serve --local`` serves them in-process. Both install THIS route, last.
+    FEATURE (04-review-fixes §2.3): ``serve --local`` serves the node's eval path in-process
+    behind THIS route, installed last. (The deployed App has no node route: its mounts are
+    routes of their own, uniform executor PRD 04.)
 
     WHY not ``Mount("/")``: a catch-all mount is a FULL match for every path, so it changed the
     answer on existing engine routes — a wrong method on ``/token`` became url4's 404 instead of
@@ -298,7 +388,7 @@ class NodeMountRoute(BaseRoute):
     place for everything else, and an unknown path never reaches the node.
 
     INVARIANT: the match is on the PATH, never the method. Any method on a known path is a FULL
-    match, so the node's own 405 answers a wrong method on a mount (AC14).
+    match, so the node's own 405 answers a wrong method on a node path (AC14).
 
     WHY ``paths`` is a callable, not a set: the App derives its mount set in a startup hook, after
     this route is installed, so the route reads the set at match time.
@@ -328,8 +418,8 @@ class NodeMountRoute(BaseRoute):
 def install_node_route(app: Starlette, route: NodeMountRoute) -> None:
     """Append the node route to ``app`` and assert that it is the last and only one (D3).
 
-    The ONE install function for both shapes (FX-32): the deployed App's forwarder and local
-    mode's in-process node both come through here, so the ordering check cannot be skipped by one.
+    The ONE install function (FX-32): local mode's in-process node comes through here, so the
+    ordering check cannot be skipped.
     """
     app.router.routes.append(route)
     assert_node_route_last(app, route)
@@ -360,6 +450,11 @@ def assert_node_route_last(app: Starlette, route: NodeMountRoute) -> None:
 
 __all__ = [
     "MountCollisionError",
+    "MountDescriptor",
+    "MountTable",
+    "derive_mount_table",
+    "mount_descriptors",
+    "mount_http_status",
     "NodeMountRoute",
     "assert_node_route_last",
     "check_mount_collisions",

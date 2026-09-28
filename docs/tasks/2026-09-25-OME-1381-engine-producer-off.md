@@ -54,3 +54,13 @@ AIGateway stays on `HONOUR`. This build is the rollback floor for the later gate
   - Rebased onto `origin/main` `69971220`.
   - One breaking commit and one PR, with `Refs: OME-1381, OME-1377`.
   - The issue stays In Progress.
+- 2026-09-28: merged `origin/main` `3ae86d2c` into the branch after the uniform executor
+  (`#1085`) removed the node tier, in a separate merge commit with no force-push.
+  - The forwarder's refusal moved to the mount routes (`rest/mounts.py`), which now serve
+    mount calls as direct runs. Local mode is covered too.
+  - Neither run shape schedules with a profile.
+  - The ambient `AIGATEWAY_PROFILE` pop moved to the cold-child boundary. A warm child's
+    `deploy_env` already strips it.
+  - The forwarder tests became mount tests.
+  - Selector tests and the full Engine gate ran again on the new base; CI reruns on the merge
+    commit.

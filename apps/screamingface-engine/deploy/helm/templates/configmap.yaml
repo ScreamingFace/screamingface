@@ -1,3 +1,4 @@
+{{- include "screamingface-engine.nodeTierRemoved" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,18 +8,6 @@ metadata:
 data:
   # Keys are the URL4_CLOUD_*-prefixed env consumed by screamingface_engine.config.Settings.
   URL4_CLOUD_NATS_URL: {{ include "screamingface-engine.natsUrl" . | quote }}
-  {{- if .Values.node.enabled }}
-  # FEATURE (unit 3, D6/C2): WHERE the App forwards a known mount. This is the one switch that
-  # arms the sync forwarder — with it unset the App mounts no forwarder and no world is derived
-  # for forwarding (`app._install_forwarder`), so mount requests never reach the node tier.
-  # It names the node Service this chart renders, via the same helper that names the object.
-  URL4_CLOUD_NODE_BASE_URL: {{ include "screamingface-engine.nodeBaseUrl" . | quote }}
-  # FX-83 / §2.2: the App→node forward budget, DERIVED rather than a second literal —
-  # `node.requestTimeoutS` (the wrapper's own budget) + `node.spillTimeoutS` (the spill write,
-  # which runs AFTER the wrapper returns) + 1s of slack for the hop itself. A forward timeout
-  # shorter than the node's own worst case would cut the App off before the node ever answers.
-  URL4_CLOUD_NODE_FORWARD_TIMEOUT_S: {{ addf (float64 .Values.node.requestTimeoutS) (float64 .Values.node.spillTimeoutS) 1.0 | quote }}
-  {{- end }}
   URL4_CLOUD_IAT_WINDOW_S: {{ .Values.config.iatWindowS | quote }}
   URL4_CLOUD_SYNC_MAX_WAIT_S: {{ .Values.config.syncMaxWaitS | quote }}
   URL4_CLOUD_WS_HEARTBEAT_S: {{ .Values.config.wsHeartbeatS | quote }}
@@ -51,6 +40,24 @@ data:
   # replica count above — it is silent: runs are accepted with a 202, land in buckets nobody
   # polls, and expire at `run_queue_max_age_s` with nothing to say why.
   URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT: {{ .Values.config.runQueueBucketCount | quote }}
+  # The shared events stream's own limits (uniform executor, PRD 01 §4).
+  #
+  # INVARIANT: rendered here AND in the runner pool's env from the SAME values (`values.events.*`)
+  # — both halves apply their OWN configured limits at startup (`ensure_events_stream(...,
+  # update=True)`). Every one of these four fields is MUTABLE, so a divergence is not a startup
+  # failure like `URL4_CLOUD_RUN_QUEUE_REPLICAS` above: whichever half declares second silently
+  # APPLIES its own values to the live stream, flipping the shared stream's limits on every
+  # rollout. Only an IMMUTABLE field (storage, retention — neither configurable here) failing to
+  # match fails startup. Both halves must render from the same `events.*` values for that reason.
+  # `int64`, not a bare `quote`: Helm decodes values through JSON, which has no integer type,
+  # so a large whole number like the 1 GiB default arrives as a float64 — and Go's default
+  # float formatting renders it in SCIENTIFIC NOTATION (`1.073741824e+09`), which no Settings
+  # int/byte-size field can parse (see `deployment-runner.yaml`'s identical fix for its own copy
+  # of this same value).
+  URL4_CLOUD_EVENTS_MAX_BYTES: {{ .Values.events.maxBytes | int64 | quote }}
+  URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT: {{ .Values.events.maxMsgsPerSubject | quote }}
+  URL4_CLOUD_EVENTS_MAX_AGE_S: {{ .Values.events.maxAgeS | quote }}
+  URL4_CLOUD_EVENTS_REPLICAS: {{ .Values.events.replicas | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
   # Enables the App's own `GET /v1/models` catalog endpoint (OME-625), which reads aigateway
   # using the CALLER's forwarded credential — it needs no credential of its own. Unset =>

@@ -1,9 +1,9 @@
-"""``screamingface-engine`` console entrypoint — one image, four modes.
+"""``screamingface-engine`` console entrypoint — one image, three modes plus admin.
 
     screamingface-engine serve    # the control plane: mint tokens, bridge WS, schedule Runner Jobs
     screamingface-engine run      # one url4 evaluation, streamed to NATS, then exit
     screamingface-engine worker   # claim runs from the durable queue, supervise each as a child
-    screamingface-engine node     # serve the sync surface: one world, direct mount hits (unit 3)
+    screamingface-engine admin purge-legacy-streams [--dry-run]   # one-shot rollout step
 
 WHY one artifact with a mode argument rather than two images: the two halves already shared
 their whole wire vocabulary (`job_env`, `subjects`, the JetStream binding), and keeping them in
@@ -75,13 +75,18 @@ def _serve_local() -> None:
     )
 
 
-def _run() -> None:
-    """Execute one url4 run from the Job's environment, then exit."""
+def _run(*, warm: bool = False) -> None:
+    """Execute one url4 run from the Job's environment, then exit — or, `warm`, prepare first
+    and read the run from the worker (uniform executor PRD 03)."""
     # WHY: lazy, and the reason the layering rule earns its keep — importing the run path must
     # not drag in FastAPI/uvicorn/kubernetes, and importing `serve` must not drag in the engine.
     from screamingface_engine.runner.main import main as run_main
+    from screamingface_engine.runner.main import warm_main
 
-    run_main()
+    if warm:
+        warm_main()
+    else:
+        run_main()
 
 
 def _worker() -> None:
@@ -93,22 +98,38 @@ def _worker() -> None:
     run_worker()
 
 
-def _node() -> None:
-    """Serve the node tier: the declared world built once, over url4's ASGI surface (unit 3).
+def _purge_legacy_streams(*, dry_run: bool) -> None:
+    """Delete the per-run streams of the former layout, printing each name (erd.md §10).
 
-    The sync surface's deployed shape (prd/03 §2.1). It is a sibling of `_serve` rather than a
-    flag on it: the control plane schedules runs and owns identity, the node tier executes one
-    direct mount hit and holds no caller state. They resolve different factories on different
-    ports and share only the word "serve".
+    The new App and worker do the same deletion at startup (owner decision 2026-09-27), so a
+    rollout needs no manual step; this command is for a `--dry-run` preview, or a broker a
+    lazy-path process (a child, a test harness) refused to declare the shared stream on.
     """
-    # WHY: lazy — the node tier imports the shared world and url4's serving wrapper, and the
-    # control plane's boot must not pay for either when the mode is not running.
-    from screamingface_engine.world.node_tier import serve as serve_node
+    import asyncio
 
-    serve_node()
+    import nats
+
+    from screamingface_engine.adapters.jetstream import purge_legacy_streams
+    from screamingface_engine.config import Settings
+
+    async def _purge() -> list[str]:
+        settings = Settings()
+        nc = await nats.connect(settings.nats_url)
+        try:
+            return await purge_legacy_streams(
+                nc.jetstream(), dry_run=dry_run, run_queue_stream=settings.run_queue_stream
+            )
+        finally:
+            await nc.close()
+
+    names = asyncio.run(_purge())
+    verb = "would delete" if dry_run else "deleted"
+    for name in names:
+        print(f"{verb} {name}")
+    print(f"{verb} {len(names)} legacy stream(s)")
 
 
-def main(argv: list[str] | None = None) -> None:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
         description="screamingface-engine — the control plane, or one url4 run.",
@@ -131,7 +152,17 @@ def main(argv: list[str] | None = None) -> None:
             "loopback only."
         ),
     )
-    sub.add_parser("run", help="execute one url4 expression from the environment, then exit")
+    run_parser = sub.add_parser(
+        "run", help="execute one url4 expression from the environment, then exit"
+    )
+    run_parser.add_argument(
+        "--warm",
+        action="store_true",
+        help=(
+            "warm child of the worker pool: prepare, signal READY on the control pipe, then "
+            "read ONE run spec from stdin (not for direct use)"
+        ),
+    )
     sub.add_parser(
         "worker",
         help=(
@@ -139,25 +170,33 @@ def main(argv: list[str] | None = None) -> None:
             "(the fixed worker pool of OME-1086)"
         ),
     )
-    sub.add_parser(
-        "node",
+    admin = sub.add_parser("admin", help="one-shot operator commands")
+    admin_sub = admin.add_subparsers(dest="admin_command", required=True)
+    purge = admin_sub.add_parser(
+        "purge-legacy-streams",
         help=(
-            "serve the sync surface: one declared world, one direct mount call per request "
-            "(the url4 node tier of unit 3)"
+            "delete every per-run stream (url4-cloud_<topic>) of the former layout; run it "
+            "after draining and BEFORE starting this version"
         ),
     )
+    purge.add_argument("--dry-run", action="store_true", help="list the streams, delete none")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = _parser()
     args = parser.parse_args(argv)
 
     # BEFORE dispatch, and for every mode: a Job's logs are as load-bearing as the control
     # plane's, and neither `uvicorn.run` nor `run_main` configures anything for this package.
     configure_logging()
 
-    if args.mode == "worker":
+    if args.mode == "admin":
+        _purge_legacy_streams(dry_run=args.dry_run)
+    elif args.mode == "worker":
         _worker()
-    elif args.mode == "node":
-        _node()
     elif args.mode == "run":
-        _run()
+        _run(warm=args.warm)
     elif args.local:
         _serve_local()
     else:

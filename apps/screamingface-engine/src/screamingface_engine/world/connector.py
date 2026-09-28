@@ -347,8 +347,8 @@ class _ModelEndpoint:
             # FEATURE (prd/03 F2, unit 3): the SYNC surface is its own answering context and has
             # no benchmark-authored judge to protect (D1 — a direct mount hit never runs the DAG),
             # so its declared seed applies on `origin == "sync"` even outside a Candidate
-            # invocation. Without this the caller's `X-Answer-Seed` would reach the node tier and
-            # be silently dropped at the one hop that must forward it.
+            # invocation. Without this the caller's `X-Answer-Seed` would reach the sync surface
+            # and be silently dropped at the one hop that must forward it.
             ambient_seed = (
                 (None if scope.answer_seed is None else str(scope.answer_seed))
                 if in_candidate_invocation() or scope.origin == "sync"

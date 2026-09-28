@@ -60,10 +60,12 @@ def _unique_topic(prefix: str) -> str:
 _FAKE_RUNNER = """\
 import asyncio
 import os
+import sys
 import uuid
 from datetime import UTC, datetime
 
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
+from screamingface_engine import child_protocol as cp
 from url4.streaming.protocol import (
     StartedData,
     StartedEvent,
@@ -71,6 +73,20 @@ from url4.streaming.protocol import (
     TerminatedEvent,
     source_for,
 )
+
+
+def _warm() -> None:
+    # The worker pool's child (PRD 03): READY, one run spec on stdin, ACK — through the REAL
+    # protocol module, so the worker side is exercised against a real process.
+    control = os.fdopen(int(os.environ[cp.CONTROL_FD_ENV]), "wb", buffering=0)
+    control.write(cp.encode_ready(pid=os.getpid(), world_ok=True))
+    line = sys.stdin.buffer.readline()
+    if not line:
+        sys.exit(0)
+    spec = cp.decode_spec(line)
+    control.write(cp.ACK)
+    control.close()
+    os.environ.update(spec.env)
 
 
 async def _main() -> None:
@@ -103,6 +119,8 @@ async def _main() -> None:
     await publisher.close()
 
 
+if "--warm" in sys.argv:
+    _warm()
 asyncio.run(_main())
 """
 
@@ -180,3 +198,57 @@ async def test_submit_claim_spawn_frames_terminal(
     assert isinstance(frames[-1], TerminatedEvent)
     assert frames[-1].data.status == "succeeded"
     assert len(frames) == 2
+
+
+async def test_a_warm_child_takes_the_run_and_is_replaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WRM-1 / WC-H2 / WC-H3 on a real process: the worker warms a child BEFORE the claim,
+    hands it the run over the pipe, and warms a replacement after."""
+    _install_fake_runner(tmp_path, monkeypatch)
+
+    queue, publisher, worker = await _warm_worker()
+    assert worker._pool is not None  # noqa: SLF001
+    pool = worker._pool  # noqa: SLF001
+    consumer = JetStreamConsumer(NATS_URL)
+    topic = _unique_topic("it-warm")
+    try:
+        pool.start()
+        await asyncio.wait_for(_until(lambda: pool.idle_count == 1), timeout=15.0)
+        await queue.publish(encode_message(topic, "'hi'", 60))
+        async with asyncio.TaskGroup() as tg:
+            claim = tg.create_task(worker._claim_loop(tg))
+            frames = await asyncio.wait_for(_read_until_terminal(consumer, topic), timeout=15.0)
+            await asyncio.wait_for(_until(lambda: pool.idle_count == 1), timeout=15.0)
+            claim.cancel()
+        await _wait_for_depth(queue, 0)
+    finally:
+        await pool.drain()
+        await consumer.close()
+        await publisher.close()
+        await queue.close()
+    assert isinstance(frames[0], StartedEvent)
+    assert isinstance(frames[-1], TerminatedEvent)
+    assert frames[-1].data.status == "succeeded"
+
+
+async def _warm_worker() -> tuple[RunQueue, JetStreamPublisher, Worker]:
+    queue = RunQueue(NATS_URL, state_cache_ttl_s=0.0, replicas=1)
+    await queue.ensure_stream()
+    publisher = JetStreamPublisher(NATS_URL)
+    worker = Worker(
+        queue=queue,
+        publisher=publisher,
+        slots=1,
+        drain_grace_s=1.0,
+        io_capacity=4,
+        memory_budget_bytes=1024**3,
+        pull_timeout_s=0.5,
+        warm_children=1,
+    )
+    return queue, publisher, worker
+
+
+async def _until(predicate: object) -> None:
+    while not predicate():  # type: ignore[operator]
+        await asyncio.sleep(0.05)

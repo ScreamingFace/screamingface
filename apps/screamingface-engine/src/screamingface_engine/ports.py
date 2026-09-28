@@ -23,6 +23,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Mapping
 
+from screamingface_engine.job_env import RunShape
 from url4.streaming.interfaces import JobRunner
 from url4.streaming.protocol import CachePolicy
 
@@ -70,4 +71,5 @@ class IdentityAwareJobRunner(JobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        shape: RunShape = "expression",
     ) -> str: ...

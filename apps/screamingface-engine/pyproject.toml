@@ -135,11 +135,17 @@ ignore = ["src/screamingface_engine/benchmarks/ifeval/vendor"]
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 testpaths = ["tests"]
+# `-m "not kind"`: the default run excludes tests/kind (uniform executor test-plan §5) — they
+# need a live cluster (kind context `kind-sf-uniform`, deploy/kind/up.sh) that CI's regular job
+# never brings up. `uv run pytest tests/kind -m kind` on the command line overrides this, since
+# a later `-m` wins over the one addopts supplies.
+addopts = "-m \"not kind\""
 filterwarnings = [
     "error::DeprecationWarning:screamingface_engine",
 ]
 markers = [
     "no_default_scope: turn off the autouse request scope (tests/conftest.py), so the test proves a production producer bound one (FX-61)",
+    "kind: needs the uniform executor kind environment (deploy/kind/up.sh); excluded from the default run by addopts above, and skips cleanly when kind context `kind-sf-uniform` is unreachable",
 ]
 
 [tool.coverage.run]

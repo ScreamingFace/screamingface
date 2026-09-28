@@ -39,6 +39,22 @@ would let a fractional grace slip under the real requirement (30.9/55 rendered, 
 55.9 is required). The minimum is computed in floats and CEILED — the termination grace
 is an integer, so it must cover the whole fractional requirement. */ -}}
 {{- $minimum := ceil (addf (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS) -}}
+{{- /* `warmChildren` above `workerSlots` (uniform executor PRD 03): the worker caps it at the
+slot count itself (`worker/loop.py`), so this can never deploy a pool that over-warms — but a
+value an operator set expecting it to take effect would be silently truncated instead. Refuse
+the render and name both values, the same shape as the drain-timing guard below. Skipped when
+`warmChildren` is unset (null): `kindIs "invalid"` is the only test that distinguishes "unset"
+from the legal value 0, which `if`/`with` alone would treat as falsy. */ -}}
+{{- /* `$warm` feeds the memory REQUEST (implementation-notes F7 follow-up): the warm children the
+pod actually holds — `workerSlots` when `warmChildren` is unset (the worker's own default, one per
+slot), `warmChildren` itself when set, the legal value 0 included. */ -}}
+{{- $warm := .Values.runnerPool.workerSlots -}}
+{{- if not (kindIs "invalid" .Values.runnerPool.warmChildren) -}}
+{{- $warm = .Values.runnerPool.warmChildren -}}
+{{- if gt (float64 .Values.runnerPool.warmChildren) (float64 .Values.runnerPool.workerSlots) -}}
+{{- fail (printf "runnerPool.warmChildren (%v) must not exceed runnerPool.workerSlots (%v): the worker caps it at the slot count, so a chart operator setting more than that gets a silently truncated pool instead of what they asked for" .Values.runnerPool.warmChildren .Values.runnerPool.workerSlots) -}}
+{{- end -}}
+{{- end -}}
 {{- if lt (float64 .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
 {{- fail (printf "runnerPool.terminationGracePeriodSeconds (%v) must be >= runnerPool.drainGraceS (%v) + kill grace (%v) + terminal-publish budget (%v) = %v: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (float64 .Values.runnerPool.terminationGracePeriodSeconds) (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
 {{- /* INVARIANT: `{{- end }}`, NOT `{{- end -}}`. The trailing `-}}` trims the newline after
@@ -142,10 +158,39 @@ spec:
             # is silent, which is why both are rendered from a single value.
             - name: URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT
               value: {{ .Values.config.runQueueBucketCount | quote }}
+            # The shared events stream's own limits (uniform executor, PRD 01 §4).
+            #
+            # INVARIANT: the SAME `values.events.*` the App's ConfigMap renders. Unlike the queue
+            # replicas above, a divergence here is NOT a startup failure: both halves apply their
+            # OWN configured values to the live stream at startup (`ensure_events_stream(...,
+            # update=True)`) because every one of these four fields is MUTABLE — so a one-sided
+            # value silently flips the shared stream's limits back and forth on every rollout.
+            # Only an IMMUTABLE field (storage, retention — neither configurable here) failing to
+            # match fails startup. Both halves must render from the same values for that reason.
+            # `int64`, not a bare `quote` — see `configmap.yaml`'s identical fix for its own copy
+            # of this same value: a large whole number like the 1 GiB default arrives as a
+            # float64 through Helm's JSON decoding, and Go's default float formatting renders it
+            # in SCIENTIFIC NOTATION.
+            - name: URL4_CLOUD_EVENTS_MAX_BYTES
+              value: {{ .Values.events.maxBytes | int64 | quote }}
+            - name: URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT
+              value: {{ .Values.events.maxMsgsPerSubject | quote }}
+            - name: URL4_CLOUD_EVENTS_MAX_AGE_S
+              value: {{ .Values.events.maxAgeS | quote }}
+            - name: URL4_CLOUD_EVENTS_REPLICAS
+              value: {{ .Values.events.replicas | quote }}
             - name: URL4_CLOUD_WORKER_DRAIN_GRACE_S
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT
               value: {{ .Values.runnerPool.metricsPort | quote }}
+            {{- /* Unset (null) leaves the key OUT so `Settings` reads its own default (one warm
+            child per slot) — NOT rendered as empty, which would override that default with 0
+            warm children. `kindIs "invalid"` is what distinguishes "unset" from the legal value
+            0 here; `with`/`if .Values...` alone treats 0 as falsy and would drop it too. */ -}}
+            {{- if not (kindIs "invalid" .Values.runnerPool.warmChildren) }}
+            - name: URL4_CLOUD_WORKER_WARM_CHILDREN
+              value: {{ .Values.runnerPool.warmChildren | quote }}
+            {{- end }}
             # `max_ack_pending` is applied to EVERY bucket consumer (`runner_queue.py`:
             # `_bound_subscription`), and a caller hashes to exactly one bucket, so it is a
             # PER-CALLER allowance — NOT the fleet bound this comment used to claim. Deriving
@@ -202,12 +247,14 @@ spec:
               exec:
                 command: ["sh", "-c", "kill -TERM 1"]
           resources:
-            # workerSlots × per-run charge + the worker's own overhead — sized so the declared
-            # concurrency can actually run. Memory limit only; no CPU limit, so a run can burst
-            # into idle CPU instead of being CFS-throttled mid-inference.
+            # workerSlots × per-run charge + the worker's own overhead, plus — per warm child —
+            # what it holds BEYOND the per-run charge of the free slot it sits in
+            # (`warmChildCharge − perRunCharge`, never negative): that slot's charge is already
+            # counted once. Memory limit only; no CPU limit, and the limit is unchanged: idle
+            # children only occupy FREE slots, which `perRunCharge`'s limit already covers.
             requests:
               cpu: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.cpuMillicores) .Values.runnerPool.overhead.cpuMillicores }}m
-              memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryMi) .Values.runnerPool.overhead.memoryMi }}Mi
+              memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryMi) .Values.runnerPool.overhead.memoryMi (mul $warm (max 0 (sub .Values.runnerPool.warmChildCharge.memoryMi .Values.runnerPool.perRunCharge.memoryMi))) }}Mi
             limits:
               memory: {{ add (mul .Values.runnerPool.workerSlots .Values.runnerPool.perRunCharge.memoryLimitMi) .Values.runnerPool.overhead.memoryLimitMi }}Mi
           # INVARIANT: pairs with `securityContext.readOnlyRootFilesystem` — the same rule as

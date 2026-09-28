@@ -19,12 +19,12 @@ Name helpers + k8s recommended labels (app.kubernetes.io/*) — spec §9 / docs/
 {{- end -}}
 
 {{/*
-Recommended labels MINUS `component` — shared by `labels` (fixes `control-plane`) and
-`nodeLabels` (fixes `node`), so a label added or changed here reaches both call sites from one
-place instead of two near-identical blocks that can silently drift apart. Uses the RELEASE's own
-`instance` (not the node's own `<release>-node`) — object metadata is not a selector, so
-`kubectl get -l app.kubernetes.io/instance=<release>` finds every object the release owns,
-node-tier objects included.
+Recommended labels MINUS `component` — shared by every helper that fixes a `component` value
+(`labels` fixes `control-plane`), so a label added or
+changed here reaches every call site from one place instead of several near-identical blocks
+that can silently drift apart. Uses the RELEASE's own `instance` — object metadata is not a
+selector, so `kubectl get -l app.kubernetes.io/instance=<release>` finds every object the
+release owns.
 */}}
 {{- define "screamingface-engine.labelsBase" -}}
 helm.sh/chart: {{ include "screamingface-engine.chart" . }}
@@ -90,6 +90,20 @@ states the Service name once (`nats.fullnameOverride`) and this fails at render 
 {{- printf "nats://%s:4222" $n -}}
 {{- else -}}
 {{- fail "config.natsUrl is required when nats.enabled=false — the App has no bus to reach otherwise" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+DEC-2 / DC-D1 (uniform executor PRD 05): the node tier is gone, and `values.schema.json` stubs
+`node` to a bare, permissive description so a leftover `node:` block passes schema validation
+instead of failing with `additionalProperties` noise. This is the clear failure in its place —
+included at the top of `configmap.yaml`, the one template that always renders, so ANY values
+file that still sets `node` (any key under it, not only `node.enabled`) fails the render with a
+message naming the change and pointing at the plan, rather than being silently ignored.
+*/}}
+{{- define "screamingface-engine.nodeTierRemoved" -}}
+{{- if hasKey .Values "node" -}}
+{{- fail "node: the node tier was removed — mount calls run as direct runs on the runner pool (apps/screamingface-engine/docs/plans/uniform-executor/prd/05-node-tier-decommission.md). Delete the node: block from your values." -}}
 {{- end -}}
 {{- end -}}
 
@@ -161,74 +175,20 @@ true
 {{- end -}}
 
 {{/*
-The node tier's object name (`<fullname>-node`), shared by its Deployment, Service,
-NetworkPolicy and PodDisruptionBudget. A helper rather than four copies of the same printf, so
-the App's `node_base_url` cannot name a Service the chart does not render.
-*/}}
-{{- define "screamingface-engine.nodeName" -}}
-{{- printf "%s-node" (include "screamingface-engine.fullname" .) -}}
-{{- end -}}
-
-{{/*
-Where the App forwards a known mount (contracts.md C2, D6). Only the composition root knows a
-node tier exists in a deployment, so this is derived from the same name helper the node objects
-use — a wrong guess would silently forward to nothing. The App mounts its forwarder ONLY when
-this value is set (`config.Settings.node_base_url`), so a disabled tier arms nothing.
-*/}}
-{{- define "screamingface-engine.nodeBaseUrl" -}}
-{{- printf "http://%s:%v" (include "screamingface-engine.nodeName" .) .Values.node.service.port -}}
-{{- end -}}
-
-{{/*
-Node-tier SELECTOR labels (FX-80, §2.5): the SAME `name` as the App and runner pool (aigateway's
-NetworkPolicy admits by that name), but a DIFFERENT `instance` — `<release>-node` rather than
-`<release>`.
-
-WHY this must differ: the App's own Service and Deployment select on the plain {name, instance}
-pair, WITH NO component qualifier (`screamingface-engine.selectorLabels`). Kubernetes selector
-matching is a SUBSET test — a pod carrying extra labels still matches — so before this helper
-existed the node pods (same name, same instance, PLUS component: node) were silently inside the
-App Service's endpoints and the App Deployment's replace/evict blast radius too. Giving the node
-its own instance breaks that subset match with no change on the App side at all: `<release>-node`
-can never equal `<release>`.
-
-Also carries `component: node` itself: every one of its five call sites (the node Deployment's
-own selector AND its pod template, its Service, its NetworkPolicy, its PDB) appended the same
-literal by hand right after including this, so the label belongs in the one place those call
-sites share rather than five near-identical copies.
-*/}}
-{{- define "screamingface-engine.nodeSelectorLabels" -}}
-app.kubernetes.io/name: {{ include "screamingface-engine.name" . }}
-app.kubernetes.io/instance: {{ printf "%s-node" .Release.Name }}
-app.kubernetes.io/component: node
-{{- end -}}
-
-{{/*
-Full recommended labels for node-tier OBJECTS' own `metadata.labels` (FX-87, review round #3/#4):
-`screamingface-engine.labels` always resolves `app.kubernetes.io/component: control-plane`, and
-every node template used to append `component: node` right after it — a genuine YAML duplicate
-mapping key. Most parsers silently keep the LAST occurrence (which happened to be correct here),
-but that is luck, not a contract. Built from the SAME `labelsBase` as `labels`, so the key is
-written exactly once and a label change has one home.
-
-WHY `instance` is the RELEASE's own here, NOT `nodeSelectorLabels`' `<release>-node`: this is
-OBJECT metadata, not a selector — `kubectl get -l app.kubernetes.io/instance=<release>` must
-still find the node's Service/PDB/NetworkPolicy/Deployment. Only the SELECTOR-bearing fields
-(the node's own Deployment `spec.selector`, its pod template labels, the node Service's
-selector, the NetworkPolicy's `podSelector`, the PDB's selector) use `nodeSelectorLabels`
-(§2.5) — that is the narrow set the App/node collision fix actually needs.
-*/}}
-{{- define "screamingface-engine.nodeLabels" -}}
-{{ include "screamingface-engine.labelsBase" . }}
-app.kubernetes.io/component: node
-{{- end -}}
-
-{{/*
 Name of the Secret holding the shared artifact-signing key (OQ-3.2). An `existingSecret` wins
 (the prod shape — created out-of-band or by an External Secrets / Sealed Secrets flow);
-otherwise the chart creates `<fullname>-artifact-signing`. The SAME name reaches both tiers:
-the node signs the 303, the App verifies it.
+otherwise the chart creates `<fullname>-artifact-signing`. The App both signs a mount result's
+303 with it and verifies it on fetch (uniform executor PRD 05, DC-D3).
 */}}
+{{/*
+Whether the App holds an artifact-signing key (uniform executor PRD 05, DC-D3): a key or an
+existing Secret is configured. The App signs the 303 of a mount result over 1 MiB with it; with
+neither, such a result is streamed inline and counted (MC-D9).
+*/}}
+{{- define "screamingface-engine.artifactSigningConfigured" -}}
+{{- if or .Values.artifactSigning.signingKey .Values.artifactSigning.existingSecret -}}true{{- end -}}
+{{- end -}}
+
 {{- define "screamingface-engine.artifactSigningSecretName" -}}
 {{- if .Values.artifactSigning.existingSecret -}}
 {{- .Values.artifactSigning.existingSecret -}}
@@ -238,36 +198,18 @@ the node signs the 303, the App verifies it.
 {{- end -}}
 
 {{/*
-The checksum BOTH tiers' `checksum/artifact-signing` pod annotations key on (review round #2).
+The checksum the App's `checksum/artifact-signing` pod annotation keys on (review round #2).
 
-WHY not hash the rendered `secret-artifact-signing.yaml` template (the ORIGINAL, and wrong,
-approach): with no `existingSecret`/`signingKey`, that template's `lookup` reads the live
-cluster and is EMPTY under `helm template` (no cluster to query — GitOps' own render path), so
-it falls back to `randAlphaNum`, a NEW random value on every single offline render. Hashing that
-rolls the App and the node on every GitOps sync even though nothing about the key actually
-changed — and this App holds live WebSocket relays, so that is not a free restart.
-
-This hashes the KEY'S SOURCE instead, which is stable unless an operator actually changes it:
-`artifactSigning.signingKey` when pinned, else `artifactSigning.existingSecret`'s NAME (rotating
-that Secret's contents out-of-band is the operator's own concern, same as any other
-`existingSecret`), else one FIXED constant for the chart-generated-and-`lookup`-reused case — a
-real `helm upgrade` reuses the SAME key via `lookup` there, so nothing needs to roll for it; only
-`signingKey`/`existingSecret` are meant to change under an intentional rotation.
-
-AIDEV-NOTE (FX-91): the fixed constant is safe ONLY for a live `helm upgrade`. Under an offline
-render the chart-generated Secret gets a NEW key on each sync while this checksum stays the same,
-so no pod restarts: pods that start later read the new key, and the tiers can disagree (401 on
-signed fetches). The owner chose a NOTES.txt warning over a render refusal (B7); GitOps must set
-`existingSecret` or `signingKey`. Do not "fix" this by hashing the rendered key — that restarts
-the App (and its live WebSocket relays) on every sync.
+It hashes the KEY'S SOURCE: `artifactSigning.signingKey` when pinned, else
+`artifactSigning.existingSecret`'s NAME (rotating that Secret's contents out-of-band is the
+operator's own concern, same as any other `existingSecret`). The annotation renders only when
+one of the two is set (`artifactSigningConfigured`); the chart never generates a key (DC-D3).
 */}}
 {{- define "screamingface-engine.artifactSigningChecksum" -}}
 {{- if .Values.artifactSigning.signingKey -}}
 {{- .Values.artifactSigning.signingKey | sha256sum -}}
-{{- else if .Values.artifactSigning.existingSecret -}}
-{{- .Values.artifactSigning.existingSecret | sha256sum -}}
 {{- else -}}
-{{- "screamingface-engine.artifactSigning.chart-generated" | sha256sum -}}
+{{- .Values.artifactSigning.existingSecret | sha256sum -}}
 {{- end -}}
 {{- end -}}
 

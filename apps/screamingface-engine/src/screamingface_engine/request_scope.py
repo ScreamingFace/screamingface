@@ -21,10 +21,9 @@ they live apart on purpose:
   `RunnerConfigError`, so it lives with it). `runner.main._seeded_world` hands it to
   `Url4Executor`, which binds it around the run;
 - the SYNC producer is :func:`request_scope_from_headers` and :func:`trace_from_headers`, in
-  this module. The node tier (`world.node_tier.tier`) and local mode's mount (`local`) bind both
-  of these, plus the run-context log identity, through the ONE helper, :func:`bind_sync_request`
-  (FX-6): the two callers must not drift onto binding these three carriers apart from one
-  another.
+  this module. Local mode's mount (`local`) binds both of these, plus the run-context log
+  identity, through the ONE helper, :func:`bind_sync_request` (FX-6), so the three carriers are
+  never bound apart from one another.
 
 Nothing may call a handler outside a bound scope: `current_scope()` raises rather than inventing
 a default, because an anonymous, unprofiled, unseeded call still reaches aigateway and still
@@ -49,7 +48,7 @@ from url4.streaming.protocol import CachePolicy
 from url4.streaming.trace import valid_traceparent
 
 # The sync surface's forwarded header names (contracts.md C1). They live HERE, beside the only
-# function that reads them, so the node tier cannot half-rename one. INVARIANT: these are HTTP
+# function that reads them, so no caller can half-rename one. INVARIANT: these are HTTP
 # header names, NOT the Job env names `job_env.IDENTITY_HEADER_ENV` maps to — the two carriers
 # differ on purpose and are reconciled only by `identity_from_headers`/`identity_from_env`.
 PROFILE_HEADER = "X-Profile"
@@ -86,17 +85,19 @@ class RequestScope:
     stash state in.
 
     ``identity_headers`` is the caller's VERIFIED identity (canonical header name → value, see
-    `job_env.IDENTITY_HEADER_ENV`). ``origin`` distinguishes the two producers — "run" for a
-    child process booted from its environment, "sync" for a per-request handler (unit 3) — so
-    metrics, logs and the cache key can name the surface without inferring it.
+    `job_env.IDENTITY_HEADER_ENV`). ``origin`` names the SURFACE — "run" for an ensemble run,
+    "sync" for a sync call: local mode's per-request eval path, and a DIRECT run (a mount call,
+    booted from its environment but serving one sync call). The connector's seed rule reads it
+    (`world/connector.py`); nothing else does.
 
     WHY no ``traceparent`` field (FX-64): the trace has ONE carrier, `trace_scope`. A copy here let
     the connector read one carrier on the sync path and the other on the run path; a sync
     producer now binds `trace_scope` itself, from :func:`trace_from_headers`.
 
     ``deadline`` (04-review-fixes §2.1) is a :func:`time.monotonic` instant by which the
-    request must have answered, or ``None`` when no request budget applies. The sync producer
-    sets ``start + request_timeout_s``; the run producer sets ``None``.
+    request must have answered, or ``None`` when no request budget applies. The run producer
+    sets ``start + JOB_DEADLINE_S`` for a DIRECT run (a mount call) and ``None`` for an
+    expression run; local mode's eval path sets ``None``.
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
@@ -140,13 +141,13 @@ class AnswerSeedError(ValueError):
 
     A NAMED refusal mirroring `runner.main.RunnerConfigError`'s seed error: a request that
     declared a sitting must not silently run without it (OME-1038), because the response would
-    then claim a sitting it never had. The node tier maps this to 400 rather than inventing a
-    default.
+    then claim a sitting it never had. Local mode's eval path maps this to 400 rather than
+    inventing a default.
     """
 
 
 def request_scope_from_headers(
-    headers: Mapping[str, str], *, deadline: float | None = None
+    headers: Mapping[str, str],
 ) -> RequestScope:
     """Producer 2 (F2, AC6): the sync surface's caller state, read off the verified headers.
 
@@ -154,13 +155,10 @@ def request_scope_from_headers(
     ASGI layer supplies a case-insensitive view). It is the header-carrier sibling of
     `runner.main.request_scope_from_env`: the two share every VALUE's representation (identity via
     `job_env.identity_from_*`, the cache policy via :func:`cache_intent.parse_cache_control`) and
-    differ only in carrier and in ``origin`` — which is exactly the one field that names them.
+    differ in carrier and in ``origin`` (the run producer says "sync" too for a DIRECT run).
 
-    The identity is the EDGE-VERIFIED header (D4). A client-supplied ``X-User-Email`` never
-    reaches this function: the App strips and re-sets it before forwarding, and the node tier is
-    reachable only from the App (C2 trust boundary).
-
-    ``deadline`` is the request's :func:`time.monotonic` budget end (§2.1), carried unchanged.
+    The identity is the header the caller's edge verified (D4). Local mode reads it as the
+    caller's claim: it binds loopback only, so there is no trust boundary to cross (C8).
 
     Raises:
         AnswerSeedError: ``X-Answer-Seed`` is present but not an integer. The same refusal the
@@ -173,7 +171,6 @@ def request_scope_from_headers(
         answer_seed=_optional_int(headers.get(ANSWER_SEED_HEADER)),
         cache=parse_cache_control(headers.get(CACHE_CONTROL_HEADER)) or CachePolicy(),
         origin="sync",
-        deadline=deadline,
     )
 
 
@@ -260,28 +257,19 @@ def request_scope(scope: RequestScope) -> Iterator[RequestScope]:
 
 
 @contextmanager
-def bind_sync_request(
-    headers: Mapping[str, str], *, deadline: float | None = None
-) -> Iterator[RequestScope]:
+def bind_sync_request(headers: Mapping[str, str]) -> Iterator[RequestScope]:
     """Producer 2's ONE binding: the request scope, the trace, and the log identity, together.
 
-    FEATURE (FX-6): the node tier (`world.node_tier.tier`) and local mode's in-process mount
-    (`local._LocalNodeMount`) are its two callers. Both need the SAME three carriers bound for one
-    sync request — this module's `request_scope` (F2), `trace_scope.run_trace_scope` (FX-64, the
-    ONE trace carrier) and `logs.run_scope` (the run-context log identity) — and binding them
-    apart risked one caller carrying the log identity the other did not: before this, local mode's
-    mount bound the first two only, so its sync log lines carried no ``origin`` or trace id while
-    the deployed tier's did. Both now bind all three, so a sync request's log lines read the same
-    on either surface.
-
-    ``deadline`` is forwarded to :func:`request_scope_from_headers` unchanged — the tier's request
-    budget; local mode passes none, exactly as it did before this helper existed.
+    FEATURE (FX-6): local mode's in-process mount (`local._LocalNodeMount`) is its caller. One
+    sync request needs the SAME three carriers bound — this module's `request_scope` (F2),
+    `trace_scope.run_trace_scope` (FX-64, the ONE trace carrier) and `logs.run_scope` (the
+    run-context log identity) — so its sync log lines carry ``origin="sync"`` and the trace id.
 
     Raises:
         AnswerSeedError: before anything binds (see `request_scope_from_headers`), so a caller
             maps it to its own 400 response outside this context manager.
     """
-    bound = request_scope_from_headers(headers, deadline=deadline)
+    bound = request_scope_from_headers(headers)
     trace = trace_from_headers(headers)
     with (
         request_scope(bound),
@@ -289,6 +277,36 @@ def bind_sync_request(
         run_scope(None, None if trace is None else trace.trace_id, origin="sync"),
     ):
         yield bound
+
+
+# The request headers local mode's eval path passes to the node, and ONLY these (C2). Identity
+# is not in the list: it is set from the verified value, never copied from the wire.
+_PASSED_REQUEST_HEADERS = {
+    name.lower(): name
+    for name in (PROFILE_HEADER, CACHE_CONTROL_HEADER, ANSWER_SEED_HEADER, TRACEPARENT_HEADER)
+}
+
+
+def forwarded_headers(
+    inbound: Iterable[tuple[str, str]],
+    *,
+    verified_identity: Mapping[str, str],
+) -> list[tuple[str, str]]:
+    """The outbound header set: allowlisted request headers plus the VERIFIED identity.
+
+    THE strip-and-reset helper of local mode's mount. It never copies an inbound identity
+    header — identity is not on the allowlist — and it appends the verified value last, so
+    exactly one ``X-User-Email`` leaves regardless of how many the client sent or how it cased
+    them. Everything else is dropped: Cookies, ``Authorization`` and ``URL4-Capability``
+    especially.
+    """
+    out: list[tuple[str, str]] = []
+    for name, value in inbound:
+        header = _PASSED_REQUEST_HEADERS.get(name.lower())
+        if header is not None:
+            out.append((header, value))
+    out.extend(verified_identity.items())
+    return out
 
 
 __all__ = [
@@ -303,6 +321,7 @@ __all__ = [
     "RequestScopeError",
     "bind_sync_request",
     "current_scope",
+    "forwarded_headers",
     "request_scope",
     "request_scope_from_headers",
     "requests_selector",

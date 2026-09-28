@@ -1,8 +1,8 @@
 """04-review-fixes §2.4: url4's error envelope has ONE writer, `world/wire.py`.
 
-# WHY this file exists. The node tier, the forwarder and local mode all answer in url4's error
-# dialect. The B2 review found the node tier's 504 reword still building the body by hand, which
-# is how three spellings of one wire shape drift apart. These tests pin the one body builder and
+# WHY this file exists. The App's mount routes and local mode both answer in url4's error
+# dialect. The B2 review found a 504 reword still building the body by hand, which is how two
+# spellings of one wire shape drift apart. These tests pin the one body builder and
 # that the ASGI writer uses it byte for byte.
 """
 
@@ -37,13 +37,21 @@ async def test_send_url4_error_writes_exactly_that_body() -> None:
     assert sent[1]["body"] == wire.url4_error_body("upstream_unavailable", "down")
 
 
-def test_the_node_tier_builds_no_envelope_by_hand() -> None:
-    """The node tier's modules reach the envelope only through `world.wire`."""
+def test_the_mount_surfaces_build_no_envelope_by_hand() -> None:
+    """The mount routes and local mode reach the envelope only through `world.wire`: no dict
+    literal with an ``"error"`` key appears in their code."""
+    import ast
     from pathlib import Path
 
-    from screamingface_engine.world import node_tier
+    import screamingface_engine
 
-    package = Path(node_tier.__file__).parent
-    offenders = [path.name for path in package.glob("*.py") if '"error": {' in path.read_text()]
+    root = Path(screamingface_engine.__file__).parent
+    offenders = [
+        f"{relative}:{node.lineno}"
+        for relative in ("rest/mounts.py", "local.py")
+        for node in ast.walk(ast.parse((root / relative).read_text()))
+        if isinstance(node, ast.Dict)
+        and any(isinstance(k, ast.Constant) and k.value == "error" for k in node.keys)
+    ]
 
     assert offenders == []

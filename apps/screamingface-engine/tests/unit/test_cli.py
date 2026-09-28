@@ -19,7 +19,9 @@ def modes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Record which mode `main` selects, without entering either for real."""
     called: list[str] = []
     monkeypatch.setattr(cli, "_serve", lambda: called.append("serve"))
-    monkeypatch.setattr(cli, "_run", lambda: called.append("run"))
+    monkeypatch.setattr(
+        cli, "_run", lambda *, warm=False: called.append("run --warm" if warm else "run")
+    )
     monkeypatch.setattr(cli, "_worker", lambda: called.append("worker"))
     return called
 
@@ -130,3 +132,35 @@ def test_run_mode_does_not_import_the_serving_stack() -> None:
     assert result.stdout.strip() == "", (
         f"`url4-cloud run` loaded serving-side packages: {result.stdout.strip()}"
     )
+
+
+def test_admin_purge_legacy_streams_dispatches_with_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EVT-17: the rollout step is a CLI subcommand, and `--dry-run` reaches it."""
+    calls: list[bool] = []
+    monkeypatch.setattr(cli, "_purge_legacy_streams", lambda *, dry_run: calls.append(dry_run))
+    cli.main(["admin", "purge-legacy-streams", "--dry-run"])
+    cli.main(["admin", "purge-legacy-streams"])
+    assert calls == [True, False]
+
+
+def test_admin_without_a_command_exits_loudly() -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["admin"])
+    assert exc.value.code == 2
+
+
+def test_run_warm_subcommand_runs_warm(modes: list[str]) -> None:
+    """PRD 03: the worker pool's child enters the warm path through `run --warm`."""
+    cli.main(["run", "--warm"])
+    assert modes == ["run --warm"]
+
+
+def test_cli_rejects_node_mode(modes: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+    """DEC-5 / DC-D4: the node tier was removed (uniform executor PRD 05), so its mode is gone."""
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["node"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'node'" in capsys.readouterr().err
+    assert modes == []

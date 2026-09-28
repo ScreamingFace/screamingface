@@ -43,31 +43,31 @@
     "10": [
       {
         "stage": "candidate",
-        "code": "missing_case_row"
+        "code": "upstream_error"
       }
     ],
     "24": [
       {
         "stage": "candidate",
-        "code": "missing_case_row"
+        "code": "upstream_error"
       }
     ],
     "6": [
       {
         "stage": "candidate",
-        "code": "missing_case_row"
+        "code": "upstream_error"
       }
     ],
     "7": [
       {
         "stage": "candidate",
-        "code": "missing_case_row"
+        "code": "upstream_error"
       }
     ],
     "8": [
       {
         "stage": "candidate",
-        "code": "missing_case_row"
+        "code": "upstream_error"
       }
     ]
   },

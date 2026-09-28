@@ -174,6 +174,11 @@ class _GatewayJudgeModelAPI(ModelAPI):
 #: the judge would grade a different exam (persistbench's reasoning_effort="high"
 #: is the live example). A forbidden-list here would go stale on every inspect
 #: field addition; the allowlist refuses new fields by default.
+#: WHY cache: inspect passes an eval's max_connections, adaptive_connections,
+#: max_retries, timeout and cache down to every other model it calls, so a judge
+#: under an eval with caching set would otherwise refuse a setting nobody gave it.
+#: A cache hit is answered by inspect before this provider runs, so the field never
+#: changes what a fresh judge call sends (OME-1369).
 _TRANSPORT_CONFIG_FIELDS = frozenset(
     {
         "max_retries",
@@ -183,6 +188,7 @@ _TRANSPORT_CONFIG_FIELDS = frozenset(
         "max_connections",
         "adaptive_connections",
         "batch",
+        "cache",
     }
 )
 

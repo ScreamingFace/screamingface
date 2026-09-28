@@ -23,7 +23,6 @@ import pytest
 from _fakes import FixedGate, RecordingJobRunner
 from fastapi import FastAPI
 from httpx import ASGITransport
-from test_forwarder import _ok, _StubNode
 from test_model_parameters_proxy import _CONTRACT, _MODEL, _json_content, _ParameterSource
 from test_rest_models import EMAIL_A, FakeCatalog, auth, build_app, client_for
 from test_scope_producers import _local_client, _Recorder
@@ -32,7 +31,6 @@ from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.catalog.port import Credential, ModelParameterResponse
 from screamingface_engine.config import Settings
-from screamingface_engine.rest.forwarder import NodeForwarder
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.protocol import CachePolicy
 
@@ -103,7 +101,7 @@ def _assert_problem_refusal(
 def _assert_envelope_refusal(
     response: httpx.Response, sent: Headers, logs: pytest.LogCaptureFixture
 ) -> None:
-    """The sync mounts' url4 envelope rendering of the same refusal."""
+    """The mounts' and the local eval path's url4 envelope rendering of the same refusal."""
     assert response.status_code == 400, response.text
     assert "retry-after" not in response.headers
     error = response.json()["error"]
@@ -304,53 +302,8 @@ async def test_model_parameters_treat_a_blank_selector_as_absent(sent: Headers) 
     assert credential.identity == _IDENTITY
 
 
-# --- the sync mounts: the deployed forwarder and local mode ------------------------------------
-
-
-def _forwarder_client(stub: _StubNode) -> httpx.AsyncClient:
-    forwarder = NodeForwarder(
-        node_base_url="http://node.test",
-        timeout_s=5.0,
-        client=httpx.AsyncClient(transport=stub.transport()),
-    )
-    return httpx.AsyncClient(transport=ASGITransport(app=forwarder), base_url="http://app.test")
-
-
-@pytest.mark.parametrize("sent", _SELECTORS)
-async def test_the_sync_forwarder_refuses_a_selector_without_forwarding(
-    sent: Headers, logs: pytest.LogCaptureFixture
-) -> None:
-    stub = _StubNode(_ok())
-
-    async with _forwarder_client(stub) as client:
-        response = await client.get(
-            f"/{_MODEL}", params={"q": "('')!'x'"}, headers=[*_IDENTITY.items(), *sent]
-        )
-
-    _assert_envelope_refusal(response, sent, logs)
-    assert stub.calls == []
-
-
-async def test_the_sync_forwarder_checks_identity_before_the_selector() -> None:
-    stub = _StubNode(_ok())
-
-    async with _forwarder_client(stub) as client:
-        response = await client.get(f"/{_MODEL}", headers={"X-Profile": "team-a"})
-
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "identity_access_denied"
-    assert stub.calls == []
-
-
-@pytest.mark.parametrize("sent", _SELECTOR_LESS)
-async def test_the_sync_forwarder_forwards_a_selector_less_request(sent: Headers) -> None:
-    stub = _StubNode(_ok(body=b"PARIS"))
-
-    async with _forwarder_client(stub) as client:
-        response = await client.get(f"/{_MODEL}", headers=[*_IDENTITY.items(), *sent])
-
-    assert response.status_code == 200
-    assert len(stub.calls) == 1
+# --- local mode's eval path (`_LocalNodeMount`) ------------------------------------------------
+# The mount routes, deployed and local, are `test_selector_mounts`.
 
 
 @pytest.mark.parametrize("sent", _SELECTORS)

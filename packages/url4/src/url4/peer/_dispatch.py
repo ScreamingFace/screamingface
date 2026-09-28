@@ -45,7 +45,7 @@ from url4.wire.subrequest import (
 )
 
 if TYPE_CHECKING:  # the node type only — this module never constructs one
-    from url4.peer.server import Url4Node
+    from url4.peer.server import Url4Node, _DataRoute
 
 
 @dataclass(frozen=True)
@@ -120,6 +120,20 @@ async def fetch_holdings(node: Url4Node, identity: str | None, collection: str |
 # --- the dispatch core ----------------------------------------------------------------
 
 
+def data_route(node: Url4Node, target: str, path: str) -> _DataRoute | None:
+    """The data route serving ``target`` (exact) or ``path`` (bare), or ``None``.
+
+    INVARIANT: exact-target first, then the bare path — membership, not
+    `.get(..., .get(...))`, so a hit avoids the second lookup and a
+    legitimately falsy provider (e.g. "") is still served rather than skipped.
+    """
+    if target in node._data:
+        return node._data[target]
+    if path in node._data:
+        return node._data[path]
+    return None
+
+
 async def dispatch(node: Url4Node, target: str) -> str:
     path, sep, query = target.partition("?")
     params, q = extract_expression_params(query) if sep else ({}, None)
@@ -127,15 +141,7 @@ async def dispatch(node: Url4Node, target: str) -> str:
         expression_result = await dispatch_expression(node, path, q, params)
         if expression_result is not None:
             return expression_result
-    # INVARIANT: exact-target first, then the bare path — membership, not
-    # `.get(..., .get(...))`, so a hit avoids the second lookup and a
-    # legitimately falsy provider (e.g. "") is still served rather than skipped.
-    if target in node._data:
-        route = node._data[target]
-    elif path in node._data:
-        route = node._data[path]
-    else:
-        route = None
+    route = data_route(node, target, path)
     if route is not None:
         provider = route.provider
         return await _text(provider() if callable(provider) else provider)

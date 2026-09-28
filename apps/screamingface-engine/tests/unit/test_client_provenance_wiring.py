@@ -73,8 +73,15 @@ async def test_rejected_admission_does_not_publish_version(present: bool, expect
     runner = RecordingJobRunner(exists=True)
     app = _make_app(stream=stream, job_runner=runner, gate_present=present)
     async with _client(app) as client:
+        # `respond-async`: only an async start is gated on an attached subscriber (PRD 02).
         response = await client.get(
-            "/", params={"q": "'hi'"}, headers={**_cap("rejected"), "User-Agent": "screamingface/1"}
+            "/",
+            params={"q": "'hi'"},
+            headers={
+                **_cap("rejected"),
+                "User-Agent": "screamingface/1",
+                "Prefer": "respond-async",
+            },
         )
     assert response.status_code == expected
     assert runner.scheduled == []
