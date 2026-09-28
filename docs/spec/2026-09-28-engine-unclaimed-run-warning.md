@@ -48,11 +48,19 @@ HTTP 500 with a plain-text body.
 
 ### 2.2 Broker failure at schedule time
 
-- R10. `QueueJobRunner.schedule()` translates `nats.errors.Error` from the admission read and
-  from the publish into `RunQueueUnavailable` (new, in `runner_queue.py`). The reservation that
-  the attempt made is released (existing `BaseException` path).
+- R10. `QueueJobRunner.schedule()` translates the broker AVAILABILITY errors
+  (`runner_queue.BROKER_UNAVAILABLE_ERRORS`: timeout, connection closed or reconnecting, no
+  servers, no responders, stale connection, JetStream `ServiceUnavailableError`) from the
+  admission read and the publish into `RunQueueUnavailable` (new, in `runner_queue.py`). Other
+  broker errors (max payload, bad subject, the stream-config conflict) are NOT retryable and stay
+  a 500. The reservation that the attempt made is released in both cases.
 - R11. The REST edge maps `RunQueueUnavailable` to RFC 9457 503, title "Service Unavailable",
-  detail "the run queue is unavailable — retry shortly", header `Retry-After: 5`.
+  detail "the run queue is unavailable — retry shortly", header `Retry-After: 5`
+  (`QUEUE_UNAVAILABLE_RETRY_AFTER_S`). The two existing unreadable-queue 503s (409 pre-check,
+  `DELETE /`) get the same header from the same constant. The capacity 503 does not change.
+- R11a. The mount ingress keeps url4's `overloaded` code for every 503, but its message follows
+  the cause: "the run queue is unavailable, retry shortly" for a broker outage, "server at
+  capacity, retry shortly" for a full queue.
 
 ### 2.3 Alert rules
 
@@ -67,9 +75,9 @@ HTTP 500 with a plain-text body.
 
 | Part | Where | Role |
 |---|---|---|
-| `UnclaimedRunWarner` | `screamingface_engine/unclaimed.py` (new) | Policy only. No FastAPI, no task, no `ws` import. |
+| `UnclaimedRunWarner` | `screamingface_engine/unclaimed.py` (new) | Policy only. No FastAPI, no task, no `ws` import. Cadence from `reaper.tick_for_grace`; frame time from the App clock. |
 | `QueueJobRunner.accepted_ages()` | `adapters/queue_runner.py` | Sync snapshot: topic → seconds since this replica accepted the run. Reads the existing `_scheduled_at` record. |
-| `_install_unclaimed_run_warner` | `app.py` | One process-wide sweep task, modelled on `_install_orphan_reaper`. |
+| `_install_unclaimed_run_warner` | `app.py` | One process-wide sweep task, through the shared `_install_periodic` loop that the reaper also uses. |
 | `RunQueueUnavailable` | `runner_queue.py` | Typed broker failure at schedule time. |
 
 ### 3.2 Sweep algorithm
@@ -140,4 +148,12 @@ a run STOP, which this is not.
   This spec only warns.
 - Q2. Where must the queue alert rules live (SigNoz, or a `PrometheusRule` in the chart)? See
   the ledger follow-up for the proposed rules.
-- Q3. Is 300 s the wanted default for the notice, or does product want a different bound?
+- Q3. Is 300 s the wanted default for the notice? Under normal long-evaluation load (all slots
+  busy with multi-minute runs), EVERY run that waits more than 300 s gets the notice. The text is
+  true then ("at capacity; queued"), but the owner must confirm that this is wanted and not noise.
+- Q4. Alternative design, not built (design review): a per-connection check in `Bridge._next`
+  (`ws/bridge.py`) for an attach with `from_sequence=None` — "no frame for N s after attach" —
+  costs zero broker reads and works on any App replica. It judges the socket's silence, not the
+  run's queue state, so it would also fire for a slow first frame of a started run.
+- Q5. Should the mount ingress get a distinct url4 error code for a broker outage (today it keeps
+  `overloaded`, the only 503 code url4 clients know)? That is a wire-vocabulary change.

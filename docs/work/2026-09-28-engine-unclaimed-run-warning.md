@@ -64,9 +64,14 @@ An admitted run that no worker claims stays `scheduled` with a silent socket for
   Tests (5 new files, 45 tests): `test_unclaimed_run_warner.py` (17),
   `test_unclaimed_run_warner_wiring.py` (11), `test_queue_runner_accepted_ages.py` (4),
   `test_queue_schedule_broker_failure.py` (9), `test_chart_render_unclaimed_run_warn.py` (4).
+  After the design-review round: `test_unclaimed_run_warner.py` (19),
+  `test_unclaimed_run_warner_wiring.py` (12), `test_queue_schedule_broker_failure.py` (17),
+  new `test_mount_queue_unavailable.py` (2), one appended test in `test_rest.py`.
 - **Commits:** `64b587d1` docs(engine): spec and plan · `c17a61ba` fix(engine): answer a
   retryable 503 when the run queue broker fails at schedule time · `178ed9a1` feat(engine):
-  warn the attached client once when a queued run is not claimed · (this ledger commit).
+  warn the attached client once when a queued run is not claimed · `386d71b5` ledger ·
+  review round: `d182d834` refactor(engine): share the periodic sweep loop · `8ce47188`
+  fix(engine): retry only broker availability failures · (this docs commit).
 - **Gates:** `run_gates.py screamingface-engine --base origin/main`: append-only ✓, ruff check
   ✓, ruff format ✓, pyright ✓, layering ✓, pytest 4103 passed / 19 skipped / **2 failed**,
   coverage 94.22% (≥ 80); `unclaimed.py` 100%. The 2 failures are
@@ -75,13 +80,27 @@ An admitted run that no worker claims stays `scheduled` with a silent socket for
   `origin/main` on this macOS host (checked in a temporary detached worktree): the warm child's
   `setrlimit` raises "current limit exceeds maximum limit". Not caused by this unit; CI (Linux)
   is the proof.
+- **Gates after the review round:** append-only ✓, ruff ✓, format ✓, pyright ✓, layering ✓,
+  pytest 4117 passed / 19 skipped / 2 failed (the same two macOS-host `test_worker_spine.py`
+  failures), coverage 94.25%.
 - **Item 2 finding:** confirmed BEFORE the fix — a `nats.errors.TimeoutError` from the publish
   gave `500 text/plain "Internal Server Error"`. Now 503 `application/problem+json`,
   `Retry-After: 5`, detail "the run queue is unavailable — retry shortly". Covers the admission
   depth read and the publish, for both ingresses (`GET /` and mount direct runs share
-  `_schedule`).
+  `_schedule`). Review round: only availability errors are retryable
+  (`BROKER_UNAVAILABLE_ERRORS`); others stay 500. The mount ingress keeps the `overloaded` code
+  but now says "the run queue is unavailable" for a broker outage. The two unreadable-queue
+  503s now carry the same `Retry-After: 5`.
 - **Item 3 finding:** no chart in this repo ships alert rules (no `PrometheusRule`,
   `ServiceMonitor` or `PodMonitor` under `apps/*/deploy` or `apps/*/charts`). No rules added.
+- **Design-review fixes (one round):** (1) shared `_install_periodic` loop and
+  `reaper.tick_for_grace`; reaper tests unchanged and green. (2) narrowed catch. (3) mount message
+  by cause. (4) one Retry-After constant on every broker-down 503. (5) App clock passed to the
+  warner. (6) single-replica limit in the log line, chart value, schema and ConfigMap comment.
+  (7) loop-survives-a-failed-sweep test and real `QueueJobRunner.status()` tests. (8) removed
+  `decided_count`, `warned_total` and the `sweep()` return value. (9) NOT reverted: the
+  re-wrap in `check_layering.py` is made by the pre-commit `ruff-format` hook on every commit
+  that stages the file, so a revert cannot land without skipping the hook. Owner decides.
 - **Deviations:**
   - The warner has its own process-wide task, not a call inside the reaper's loop (spec 3.3).
     Still no task per run.
@@ -89,7 +108,9 @@ An admitted run that no worker claims stays `scheduled` with a silent socket for
     function follows the `_install_orphan_reaper` pattern in the same file; moving the
     composition root is an unrelated refactor.
   - The pre-commit `ruff format` hook re-wrapped one unrelated line in `check_layering.py`
-    (format only).
+    (format only; see fix 9).
+  - Not pushed: the pre-push hook runs the gates, and the 2 macOS-host failures block it. The
+    user decides on `--no-verify`.
   - The chart render test was written after the chart edit; RED was proven by stashing the
     chart change (the test failed), then restoring it.
 
@@ -116,4 +137,8 @@ An admitted run that no worker claims stays `scheduled` with a silent socket for
 - Q1. Fail an unclaimed run after a bound shorter than 16 h (typed terminal error + tombstone)?
   This unit only warns.
 - Q2. Where do queue alert rules live (SigNoz or the chart)?
-- Q3. Is 300 s the wanted default for the client notice?
+- Q3. Is 300 s the wanted default for the client notice? Under normal long-evaluation load every
+  run that waits more than 300 s gets it.
+- Q4. Alternative design (per-connection check in `Bridge._next`, zero broker reads, any
+  replica) — see spec Q4.
+- Q5. A distinct url4 error code for a broker outage on the mount ingress?
