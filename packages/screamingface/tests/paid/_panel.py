@@ -16,9 +16,17 @@ if TYPE_CHECKING:
 # settings). A model missing from the seeds resolves at discovery time but 404s at
 # run time — the exact bug class this lane exists to catch, so the lane must never
 # carry it itself. `test_panel_models.py` pins this for free.
+# WHY one reasoning member and one that answers without thinking: a Fusion Case needs
+# EVERY member's answer, so one member burning its whole budget on thinking kills the
+# Case. deepseek-v4-flash did that on 4 of 48 Cases in one press, zeroing both lab_bench
+# DNA boards (cloning_scenarios, seqqa) and so leaving their grading unproven. Haiku
+# answers without thinking, so it always finishes; qwen stays as the reasoning member,
+# because the engine's reasoning-only code (reasoning-field parsing, the token-cap and
+# reasoning-only-reply codes, reasoning-token accounting) is proven only by a live
+# reasoning model.
 MEMBER_MODELS: Final[tuple[str, str]] = (
     "openrouter/qwen/qwen3.7-flash",
-    "openrouter/deepseek/deepseek-v4-flash-0731",
+    "openrouter/anthropic/claude-haiku-4.5",
 )
 SYNTHESIZER_MODEL: Final[str] = "openrouter/google/gemini-3-flash-preview"
 
