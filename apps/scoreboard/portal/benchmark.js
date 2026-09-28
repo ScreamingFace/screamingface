@@ -25,8 +25,8 @@
     // SOTA mark slot leads this cell, which is the "mark leads the name" part.
     { key: "spec_id", label: "Spec", sort: "string", dir: "asc" },
     // Likewise "Models": `ran_with_providers` is provider names, not model
-    // identities, and providers.length > 1 is not a valid fusion/solo test.
-    // Keeping the honest label until a backend field exists.
+    // identities, and providers.length > 1 is not a valid fusion/solo test,
+    // so the header says what the cell holds.
     { key: "ran_with_providers", label: "Backends", sort: null },
     { key: "authors", label: "Authors", sort: "string", dir: "asc" },
     { key: "score", label: "Score", sort: "number", dir: "desc", cls: "num" },

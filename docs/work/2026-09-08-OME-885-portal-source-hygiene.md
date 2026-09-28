@@ -177,3 +177,25 @@ are preserved intact and this unit only appends.
 
 One formatting fix was needed after the manual conflict resolution — a missing blank line before
 the guard, caught by `ruff format --check` and corrected, not suppressed.
+
+
+## Review round 1 (2026-09-28, Dmitry, changes requested at `c889e613`)
+
+**[P1], verified: deferred-work and history commentary was still served.** The regex guard passes
+on these because they carry no marker token, so the semantic audit Decision 4 requires was
+incomplete. Dmitry named three; a follow-up audit of every served file (dates, "until", "once one
+exists", "used to", "retired", "originally") found three more. Each keeps its current-behaviour
+rationale in the served file; the history and future work moves here.
+
+| File | Removed from the served comment | Kept |
+| -- | -- | -- |
+| `leaderboard-logic.js` (`listedBenchmarks`) | `visibility` "stands in for provenance"; the two "part company the first time a challenge runs on an academic benchmark"; "move this predicate onto a real provenance field once one exists" (the provenance rule belongs to `OME-1112`) | the index lists what `visibility` makes public |
+| `benchmark.js` (Backends column) | "keeping the honest label until a backend field exists" | the header says what the cell holds |
+| `style.css` (`h1`) | "semibold was a drift from the 2026-07-16 decision" | the documented serif-display weight (500) |
+| `style.css` (`.faint`) | "raised from 60 on 2026-07-17" | APCA Lc 75 contracted |
+| `style.css` (`.o-mark--cap`) | "(kerning audit 2026-07-17)" | why raw emoji is never set in display type |
+| `style.css` (`.btn--sec`) | "a `.gain` gold-on-product variant used to exist and was retired" | gold must not enter the product register |
+| `portal.css` (legend separators) | "(verified in Chrome, 2026-09-01)" | why `:not([hidden])` is on both sides |
+
+User-facing copy that says "yet" or "later" ("No submissions yet", "try again later") is product
+text, not engineering commentary, and stays.

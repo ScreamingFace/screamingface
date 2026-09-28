@@ -169,9 +169,8 @@
   // "hide it" would buy no privacy and could empty the public catalogue on a serialisation
   // change.
   //
-  // `visibility` stands in for provenance here: the rule wanted is "established benchmarks
-  // only", and the two coincide today. They part company the first time a challenge runs on an
-  // academic benchmark. Move this predicate onto a real provenance field once one exists.
+  // The index lists what `visibility` makes public: a private board is a challenge, and the
+  // catalogue lists established benchmarks.
   function listedBenchmarks(benchmarks) {
     if (!Array.isArray(benchmarks)) return [];
     return benchmarks.filter(function (benchmark) {
