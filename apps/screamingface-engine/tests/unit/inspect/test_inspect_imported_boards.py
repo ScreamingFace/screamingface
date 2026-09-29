@@ -64,6 +64,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # OME-1269: the first question-filter board — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no check surface.
     "onet_m6": "mcq",
+    # OME-1269: the question filter keeps the eval's 500-question test list of 1,000 rows.
+    "pubmedqa": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -351,3 +353,21 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
     pins = _revision_pins(row)
     assert "question_filter_task=inspect_evals.onet.onet:onet_m6" in pins
     assert any(pin.startswith("excluded_sample_ids=") for pin in pins)
+
+
+def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
+    """pubmedqa loads all 1,000 labelled questions and keeps the 500 on its bundled
+    test list; the board runs the eval's task so its own filter keeps
+    them, the count pins the KEPT 500, and the eval's template renders them."""
+
+    from inspect_evals.pubmedqa.pubmedqa import PUBMEDQA_DATASET_REVISION as UPSTREAM
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    row = SNAPSHOTS["pubmedqa"]
+    assert row.dataset_revision == UPSTREAM
+    assert row.question_filter_task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
+    assert row.choice_template == "inspect_evals.pubmedqa.pubmedqa:TEMPLATE"
+    assert row.case_count == 500
+    assert row.excluded_sample_ids is None
+    assert "question_filter_task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)

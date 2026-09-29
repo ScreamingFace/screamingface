@@ -689,6 +689,30 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: apache-2.0.
         scorer="inspect_ai.scorer:choice",
     ),
+    BoardSpec(
+        key="pubmedqa",
+        title="PubMedQA",
+        description=(
+            "500 biomedical research questions, each answered yes, no or maybe "
+            "from a PubMed abstract shown as context (the official PubMedQA test "
+            "set), imported from inspect_evals. The eval loads all 1,000 labelled "
+            "questions and keeps the 500 on its test list; the board keeps exactly "
+            "the same 500, in dataset order like inspect. Graded by the eval's own "
+            "choice scorer against the published answer, so no judge tokens are "
+            "spent. Benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over three options)."
+        ),
+        focus="Biomedical research QA from abstracts (yes/no/maybe)",
+        dataset_url="https://huggingface.co/datasets/qiaojin/PubMedQA",
+        # Reading-comprehension over a given abstract; the PubMedQA paper reports
+        # single-human performance of 78% accuracy, with frontier models near it
+        # (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.pubmedqa.pubmedqa:pubmedqa.
+        # License: mit.
+        scorer="inspect_ai.scorer:choice",
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 

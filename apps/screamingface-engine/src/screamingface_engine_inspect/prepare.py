@@ -166,6 +166,11 @@ from screamingface_engine_inspect.pins import (
     PAWS_DATASET_REVISION,
     PAWS_SHUFFLE_SEED,
     PAWS_SPLIT,
+    PUBMEDQA_CASE_COUNT,
+    PUBMEDQA_CONFIG,
+    PUBMEDQA_DATASET,
+    PUBMEDQA_DATASET_REVISION,
+    PUBMEDQA_SPLIT,
     RACE_H_CASE_COUNT,
     RACE_H_CONFIG,
     RACE_H_DATASET,
@@ -634,6 +639,21 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         question_filter_task="inspect_evals.onet.onet:onet_m6",
         # Named deviation: six malformed questions inspect keeps (see the pin).
         excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
+    ),
+    "pubmedqa": SnapshotSpec(
+        dataset=PUBMEDQA_DATASET,
+        config=PUBMEDQA_CONFIG,
+        split=PUBMEDQA_SPLIT,
+        dataset_revision=PUBMEDQA_DATASET_REVISION,
+        case_count=PUBMEDQA_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.pubmedqa.pubmedqa:pubmedqa;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.pubmedqa.pubmedqa:record_to_sample",
+        choice_template="inspect_evals.pubmedqa.pubmedqa:TEMPLATE",
+        # The eval drops questions after loading; the bake runs its task over
+        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        question_filter_task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
