@@ -25,7 +25,7 @@ from pathlib import Path
 from uuid import UUID
 
 from .archive import ENTRIES_OBJECT, MANIFEST_OBJECT, archive_prefix, manifest_bytes, write_entries
-from .ports import ArchiveStoreError, ExportStore, StoredVersion, VersionArchiveStore
+from .ports import ExportStore, StoredVersion, VersionArchiveStore
 from .stats import CaptureStats
 
 logger = logging.getLogger(__name__)
@@ -65,9 +65,11 @@ class CacheVersionExporter:
         """One pass over the oldest frozen versions. Returns how many it archived."""
         self._stats.export_pending = await self._store.count_frozen()
         archived = 0
-        for version in await self._store.list_frozen(self._batch_size):
-            if self._next_attempt.get(version.id, 0.0) > self._monotonic():
-                continue
+        now = self._monotonic()
+        # WHY: versions still in backoff are excluded in the query. If they were only skipped after
+        # the read, `batch_size` stuck versions would fill every batch and block all newer ones.
+        backed_off = [vid for vid, at in self._next_attempt.items() if at > now]
+        for version in await self._store.list_frozen(self._batch_size, backed_off):
             if await self._export(version):
                 archived += 1
         return archived
@@ -110,8 +112,9 @@ class CacheVersionExporter:
             self._wake.clear()
 
     async def _export(self, version: StoredVersion) -> bool:
-        spool = Path(tempfile.mkdtemp(prefix="aigw-cv-", dir=self._spool_root))
+        spool: Path | None = None
         try:
+            spool = Path(tempfile.mkdtemp(prefix="aigw-cv-", dir=self._spool_root))
             entries = await self._store.load_archive_entries(version.id)
             entries_path = spool / ENTRIES_OBJECT
 
@@ -142,11 +145,14 @@ class CacheVersionExporter:
                 sha256_hex=hashlib.sha256(manifest).hexdigest(),
             )
             await self._store.mark_archived(version.id)
-        except (ArchiveStoreError, OSError) as exc:
+        except Exception as exc:
+            # WHY: any error from one version (bucket, disk, database, a bad stored row) is counted
+            # and backed off for that version alone, so it can never abort the pass for the others.
             self._record_failure(version, exc)
             return False
         finally:
-            shutil.rmtree(spool, ignore_errors=True)
+            if spool is not None:
+                shutil.rmtree(spool, ignore_errors=True)
         self._attempts.pop(version.id, None)
         self._next_attempt.pop(version.id, None)
         return True

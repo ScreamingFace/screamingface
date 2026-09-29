@@ -13,9 +13,12 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Collection
+from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -24,6 +27,7 @@ from aigateway.core.cache_versions.archive import (
     MANIFEST_OBJECT,
     archive_prefix,
     manifest_bytes,
+    write_entries,
 )
 from aigateway.core.cache_versions.exporter import CacheVersionExporter
 from aigateway.core.cache_versions.freeze import FreezeService
@@ -336,7 +340,7 @@ class _FlakyStore:
         self.list_calls = 0
         self.done = asyncio.Event()
 
-    async def list_frozen(self, limit: int) -> list[StoredVersion]:
+    async def list_frozen(self, limit: int, exclude: Collection[UUID] = ()) -> list[StoredVersion]:
         self.list_calls += 1
         if self.list_calls == 1:
             raise RuntimeError("the database blinked")
@@ -374,3 +378,137 @@ async def test_the_loop_survives_a_failed_pass_and_stops_cleanly(
 
     assert store.list_calls >= 2
     assert "the database blinked" in caplog.text or "export pass failed" in caplog.text
+
+
+class _MemoryExportStore:
+    """An ExportStore over a list, oldest first. A version id in ``bad_load`` raises on load."""
+
+    def __init__(self, versions: list[StoredVersion], *, bad_load: set[UUID] | None = None) -> None:
+        self._versions = versions
+        self._bad_load = bad_load or set()
+        self.archived: list[UUID] = []
+
+    async def list_frozen(self, limit: int, exclude: Collection[UUID] = ()) -> list[StoredVersion]:
+        frozen = [v for v in self._versions if v.id not in self.archived and v.id not in exclude]
+        return frozen[:limit]
+
+    async def count_frozen(self) -> int:
+        return len([v for v in self._versions if v.id not in self.archived])
+
+    async def load_archive_entries(self, version_id: UUID) -> list[ArchiveEntry]:
+        if version_id in self._bad_load:
+            raise ValueError("secret-row-text that must not reach a log")
+        return []
+
+    async def mark_archived(self, version_id: UUID) -> None:
+        self.archived.append(version_id)
+
+
+def _memory_version(index: int, *, matching: bool) -> StoredVersion:
+    # The store returns no entries, so the rebuilt archive is the empty one: that hash matches.
+    empty_sha = write_entries([], BytesIO(), max_bytes=10**6).sha256
+    return StoredVersion(
+        id=uuid4(),
+        owner_account_id=_ACCOUNT,
+        trace_id=f"{index:032x}",
+        status="frozen",
+        entry_count=0,
+        call_count=0,
+        missing_count=0,
+        coverage_status="complete",
+        archive_sha256=empty_sha if matching else "0" * 64,
+        archive_key="",
+        created_at=datetime(2026, 9, 29, tzinfo=UTC) + timedelta(seconds=index),
+    )
+
+
+@pytest.mark.asyncio
+async def test_versions_stuck_in_backoff_do_not_block_a_newer_version() -> None:
+    # INVARIANT (CV-H6): every frozen version is archived eventually. More stuck versions than one
+    # batch must not fill the batch pass after pass, so a newer good version still gets its turn.
+    stuck = [_memory_version(i, matching=False) for i in range(11)]
+    good = _memory_version(11, matching=True)
+    store = _MemoryExportStore([*stuck, good])
+    stats, clock = CaptureStats(), _Clock()
+    exporter = CacheVersionExporter(
+        store=store,
+        archive=_Archive(),
+        stats=stats,
+        poll_interval_s=3600.0,
+        batch_size=10,
+        monotonic=clock,
+        jitter=lambda: 0.0,
+    )
+
+    for _ in range(4):
+        await exporter.run_once()
+        clock.now += 1.0  # far inside the 300 s backoff of the stuck versions
+
+    assert store.archived == [good.id]
+    assert stats.export_digest_mismatches == 11
+
+
+@pytest.mark.asyncio
+async def test_a_version_that_raises_on_load_does_not_stop_the_pass(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A row that fails with any error (bad JSON, a database error) is counted and backed off for
+    # that version alone, and the pass goes on to the next version.
+    bad, good = _memory_version(0, matching=True), _memory_version(1, matching=True)
+    store = _MemoryExportStore([bad, good], bad_load={bad.id})
+    stats, clock = CaptureStats(), _Clock()
+    exporter = CacheVersionExporter(
+        store=store,
+        archive=_Archive(),
+        stats=stats,
+        poll_interval_s=3600.0,
+        monotonic=clock,
+        jitter=lambda: 0.0,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        archived = await exporter.run_once()
+        second = await exporter.run_once()  # the bad version is in backoff: not tried again
+
+    assert archived == 1
+    assert store.archived == [good.id]
+    assert stats.export_failures == 1
+    assert second == 0
+    assert "ValueError" in caplog.text
+    assert "secret-row-text" not in caplog.text, "the error text is never logged"
+
+
+@pytest.mark.asyncio
+async def test_a_failing_spool_directory_is_counted_not_raised(tmp_path: Path) -> None:
+    # `mkdtemp` sits inside the guarded block: a missing spool root is an export failure.
+    version = _memory_version(0, matching=True)
+    store, stats = _MemoryExportStore([version]), CaptureStats()
+    exporter = CacheVersionExporter(
+        store=store,
+        archive=_Archive(),
+        stats=stats,
+        poll_interval_s=3600.0,
+        jitter=lambda: 0.0,
+        spool_root=tmp_path / "does-not-exist",
+    )
+
+    assert await exporter.run_once() == 0
+    assert stats.export_failures == 1
+    assert store.archived == []
+
+
+def test_the_database_listing_leaves_out_excluded_ids(client: Any) -> None:
+    async def _scenario() -> tuple[list[UUID], list[UUID], list[UUID]]:
+        version = await _freeze_one()
+        store = TortoiseFreezeStore()
+        return (
+            [v.id for v in await store.list_frozen(10)],
+            [v.id for v in await store.list_frozen(10, [version.id])],
+            [v.id for v in await store.list_frozen(10, [uuid4()])],
+        )
+
+    plain, excluded, unrelated = client.portal.call(_scenario)
+
+    assert len(plain) == 1
+    assert excluded == []
+    assert unrelated == plain

@@ -163,8 +163,11 @@ class TortoiseFreezeStore:
         except IntegrityError as exc:
             raise VersionAlreadyExists from exc
 
-    async def list_frozen(self, limit: int) -> list[StoredVersion]:
-        rows = await CacheVersion.filter(status="frozen").order_by("created_at").limit(limit)
+    async def list_frozen(self, limit: int, exclude: Collection[UUID] = ()) -> list[StoredVersion]:
+        query = CacheVersion.filter(status="frozen")
+        if exclude:
+            query = query.exclude(id__in=list(exclude))
+        rows = await query.order_by("created_at").limit(limit)
         return [_stored(row) for row in rows]
 
     async def count_frozen(self) -> int:

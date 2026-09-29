@@ -175,8 +175,8 @@ class FreezeStore(Protocol):
 
 
 class ExportStore(Protocol):
-    async def list_frozen(self, limit: int) -> list[StoredVersion]:
-        """Versions with status ``frozen``, ORDER BY created_at."""
+    async def list_frozen(self, limit: int, exclude: Collection[UUID] = ()) -> list[StoredVersion]:
+        """Versions with status ``frozen`` and an id not in ``exclude``, ORDER BY created_at."""
         ...
 
     async def count_frozen(self) -> int: ...
