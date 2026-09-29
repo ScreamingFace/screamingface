@@ -217,6 +217,6 @@ validation, then the SDK and the portal. Outside-in: route tests drive the store
 | MD-16 | `submit_accepts_paper_url` | integration | [stated prompt] MD-H1 | M×H | schema field |
 | MD-17 | `metadata_history_lists_newest_first_paged` | integration | [stated ans:Q16] MD-H4 | M×M | |
 | MD-18 | `reporter_of_cluster_cannot_edit_head` | integration | [stated prompt] MD-D7 | M×M | owner = `Score.submitted_by` |
-| MD-19 | `sdk_update_submission_sends_if_match_and_parses` | unit (respx) | [stated prompt] MD-H6 | M×M | new SDK method, sync and async |
+| MD-19 | `sdk_update_submission_sends_if_match_and_parses` | unit (`httpx.MockTransport`) | [stated prompt] MD-H6 | M×M | new SDK method, sync and async |
 | MD-20 | `portal_renders_paper_link_safely` (JS unit: scheme check, rel, textContent) | unit (portal) | [proposed] MD-D6 | H×L | |
 | MD-21 | E2E `submit_then_edit_then_read_on_leaderboard` | E2E | [implied] MD-D5 | M×H | the spine |

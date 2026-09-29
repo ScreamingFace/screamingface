@@ -123,7 +123,7 @@ The SDK raises `ReplayUnavailable` before the run starts. It never falls back to
 silently, because the user asked for a replay.
 
 **RP-E6** `[proposed]` — the gateway rejects the grant mid-run (for example, a key rotation
-mistake).
+mistake, or a grant that expires during a long run, RP-D3).
 Each affected call fails with `403 replay_grant_invalid` (CV-E4). The run fails with a typed
 error that names the grant reason. It does not silently become a live run.
 
@@ -150,11 +150,15 @@ header `X-AIGW-Cache-Replay` **last**. This follows the existing ordering invari
 `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1051]`. A
 caller cannot inject that header through identity headers.
 
-**RP-D3 — the grant outlives the run** `[proposed]` · H×M
-The grant `exp` is 12 h, which is longer than the engine job deadline. A long run never fails
-halfway on expiry. Cost: a takedown blocks new grants at once, but an issued grant can work
-for up to 12 h. Change when: a takedown must take effect within minutes. Then add a
-revocation list that the gateway pulls.
+**RP-D3 — the grant lives 12 h, with no refresh** `[stated ans:Q21]` · H×M
+The grant `exp` is `iat + 43,200 s` (12 h). This is **not** always longer than a run: the
+engine job deadline is 57,600 s, and the queue wait can add up to 57,600 s more (A3, checked
+false and accepted, D4). A replay grant that expires during a run fails that run with the
+typed error of RP-E6 (`403 replay_grant_invalid`, `reason: expired`; RP-14). The run does not
+become a live run. There is no grant refresh. Cost: a takedown blocks new grants at once, but
+an issued grant can work for up to 12 h. Change when: long replays fail on expiry often (then
+raise the TTL or add a refresh), or a takedown must take effect within minutes (then add a
+revocation list that the gateway pulls).
 
 **RP-D4 — the pin resolves once** `[proposed — gap §ordering]` · M×M
 The pin resolves to one version when the grant is issued. A new result that arrives during the
@@ -179,8 +183,10 @@ rerunner has no connection for that provider, the usual credential error applies
 
 **RP-D8 — local mode** `[proposed]` · M×M
 In `screamingface up`, the local scoreboard signs grants with a key that the local runtime
-creates on first start, and passes its public key to the local gateway config. With auth
-`disabled`, the gateway skips the subject check (CV-19).
+creates on first start, and passes its public key to the local gateway config. The WIRING unit
+owns this (`ans:Q23`). With auth `disabled` (the dev and local fallback only, `ans:Q22`), the
+gateway skips the subject check (CV-19). In production, auth is `cloudflare_headers`, and the
+subject check always runs.
 
 **RP-D9 — the replay run is submitted** `[stated prompt]` · H×M
 When the replay run is submitted, the provenance is stored, and the run is labelled as a
@@ -193,7 +199,8 @@ replay (SC-D7).
   are all hits costs $0 in provider spend `[stated prompt]` (the cache is the point).
 - Observability `[proposed]`:
   - scoreboard `scoreboard_replay_grants_total{result=issued|not_found|withdrawn|mismatch}`
-  - engine `screamingface_engine_replay_calls_total{result=hit|miss}`
+  - the engine replay hit and miss counts, as the counter frame of `contracts.md` C12. They stay
+    in process: the run mode has no metrics exporter (D7, X-15).
   - the report fields in RP-H1
 - Security `[proposed]`:
   - The grant is a JWS (EdDSA) with `iss:"scoreboard"`, `aud:"aigateway"`,
@@ -235,7 +242,7 @@ resolution, then the engine plumbing, then the SDK surface, then the E2E spine.
 | RP-13 | `engine_counts_version_hits_and_misses_into_report` | integration | [stated ans:Q13] RP-H5 | H×M | `RunCacheCounters.record` gets a version dimension |
 | RP-14 | `grant_rejected_mid_run_fails_run_with_typed_error` | integration | [proposed] RP-E6 | M×L | map 403 `replay_grant_invalid` |
 | RP-15 | `repeated_key_collapse_counted_in_report` | unit | [proposed] RP-D5 | M×M | |
-| RP-16 | `sdk_evaluate_replay_requests_grant_then_runs` | unit (respx) | [stated prompt] RP-H1 | H×H | new kwarg, sync and async |
+| RP-16 | `sdk_evaluate_replay_requests_grant_then_runs` | unit (`httpx.MockTransport`) | [stated prompt] RP-H1 | H×H | new kwarg, sync and async |
 | RP-17 | `sdk_multi_candidate_with_pin_raises` | unit | [proposed] RP-E7 | M×L | |
 | RP-18 | `sdk_malformed_pin_raises_before_calls` | unit | [proposed] RP-E8 | M×L | pin parser shared with SR-20 |
 | RP-19 | `sdk_scoreboard_down_raises_replay_unavailable` | unit | [proposed] RP-E5 | M×M | no silent fallback |

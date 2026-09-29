@@ -176,6 +176,10 @@ scoreboard generates (escaped Markdown), never raw model text.
   - an admin audit log line for each withdraw attempt (actor, result id, reason, outcome)
 - Security: the admin allowlist is `SCOREBOARD_ADMIN_EMAILS`, and it works only in the
   verified auth mode (the same rule as the gateway `[existing apps/aigateway/src/aigateway/routes/admin.py:75-94]`).
+  In production, that mode is `cloudflare_headers` (`ans:Q22`), so the owner of a publish and
+  the admin of a withdraw are the verified `X-User-Email` identity. In the `disabled` dev and
+  local fallback, publish and withdraw answer `503`. The WIRING unit reuses this allowlist for
+  the admin route that sets `Benchmark.redistributable` (`ans:Q23`, `contracts.md` C10).
 
 ## 5. Out of scope
 

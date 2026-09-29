@@ -2,6 +2,15 @@
 
 This document has one section per connection. The shapes are `[proposed]` unless a tag says
 otherwise. Test ids point to the PRD TDD tables (`SR-`, `CV-`, `MD-`, `SC-`, `RP-`, `PB-`).
+The user decisions D1 to D7 (2026-09-29, `00-overview.md` §4.2 Q19 to Q24) override older text.
+
+**Identity** `[stated ans:Q22]`. In production, the scoreboard and the gateway run the existing
+auth mode `cloudflare_headers`: the service checks the peer against its allowed networks
+(`SCOREBOARD_ALLOWED_NETWORKS` on the scoreboard) **before** it reads `X-User-Email`
+`[existing apps/scoreboard/src/scoreboard/core/auth/cloudflare_identity.py]`. Every owner,
+submitter, reporter, grant `sub` and admin check below uses that verified identity. The auth
+mode `disabled` is a dev and local fallback only. Where a section says "in `disabled` mode", it
+describes that fallback, not production.
 
 ## 0. Topology of the new hops
 
@@ -14,6 +23,7 @@ flowchart LR
   BK[(private bucket)]
   GH[(GitHub repo)]
   SDK -- C1 run + replay grant --> ENG
+  ENG -- C12 counter frame --> SDK
   SDK -- C2a freeze --> ENG
   ENG -- C2b freeze --> GW
   ENG -- C9 chat call + grant header --> GW
@@ -32,14 +42,23 @@ gateway). See DR-2.
 
 ## C1 — Run with a replay grant — SDK → engine, sync, HTTPS + WebSocket
 
-- **Shape.** The existing `POST /token` and the WebSocket attach
+- **Shape.** The existing start request and the WebSocket attach
   `[existing packages/screamingface/src/screamingface/_engine/transport.py:858-887]`, plus one
-  optional request header on `POST /token`: `X-SF-Cache-Replay: <grant JWS>` (≤ 2,048 bytes).
-- **Engine handling.** The control plane copies the value into the run's job environment. The
+  optional request header on the **start request `GET /?q=<url4>`**:
+  `X-SF-Cache-Replay: <grant JWS>` (≤ 2,048 UTF-8 bytes). The header does **not** ride
+  `POST /token` (D7, X-5; the start route is
+  `[existing apps/screamingface-engine/src/screamingface_engine/rest/routes.py:597-676]`).
+- **Engine handling.** The REST edge reads the header next to the answer seed. The control
+  plane copies the value into the run's job environment (`URL4_CLOUD_CACHE_REPLAY_GRANT`). The
   child binds it into `RequestScope.replay_grant`. The engine never decodes it (RP-D2).
 - **Policies.** Same timeouts and retries as today. The header adds no retry.
-- **Failure.** A header over 2,048 bytes gets `431` from the engine, and the SDK raises before
-  the run. A missing header means a normal run.
+- **Failure.** The engine refuses before it schedules the run, with its problem shape (§ Error
+  bodies):
+  - `431 replay_grant_too_large`: the header is over 2,048 bytes.
+  - `400 replay_grant_ambiguous`: more than one non-blank `X-SF-Cache-Replay` header.
+  - `503 replay_unsupported`: this engine's runner cannot carry a replay.
+
+  The SDK raises before the run. A missing or blank header means a normal run.
 - **Contract tests.** RP-11, RP-12, RP-16.
 
 ## C2a — Freeze — SDK → engine, sync, HTTPS
@@ -59,6 +78,10 @@ Content-Type: application/json
   engine routes. The engine forwards it as identity headers.
 - **Policies.** SDK timeout 60 s. One retry on a connection error or a 502/503/504, with
   1–3 s jitter. Safe to retry, because the freeze is idempotent (CV-D3).
+- **Engine errors.** `422 invalid_freeze_request` (the body has no valid `trace_id`) and
+  `503 cache_versions_unconfigured` (the engine has no gateway freeze route configured), in the
+  engine problem shape (§ Error bodies). The engine passes a gateway `401`, `403` or `429`
+  through with no code. It passes the C2b coded errors through with their code.
 - **Failure (caller).** Any non-2xx result, or a timeout after the retry, means the SDK
   submits without a version and warns (SC-E1).
 - **Contract tests.** SC-18, SC-19, SC-21.
@@ -77,7 +100,9 @@ Content-Type: application/json
 
 ## C3 — Cache version receipt — aigateway → (SDK) → scoreboard, signed token
 
-A compact JWS with `alg: EdDSA` (Ed25519), header `kid`, and these claims:
+A compact JWS with `alg: EdDSA` (Ed25519), header `kid`, and these claims. The gateway signs
+with PyJWT EdDSA behind its `ReceiptSigner` port; the scoreboard verifies behind its
+`ReceiptVerifier` port. There is no shared package (D7, X-3).
 
 ```json
 {"iss": "aigateway", "aud": "scoreboard", "sub": "<caller identity>",
@@ -85,11 +110,20 @@ A compact JWS with `alg: EdDSA` (Ed25519), header `kid`, and these claims:
  "n": 412, "c": 420, "cov": "complete|partial", "iat": 1790000000}
 ```
 
-- **Verifier (scoreboard).** Check the signature against `SCOREBOARD_RECEIPT_PUBLIC_KEYS`
-  (`kid → key`, current plus previous). Check `aud`. Check `sub` equals the verified
-  submitter (in `disabled` mode, skip this). Check `tid` equals the report `trace_id`. The
-  receipt has no `exp`: it attests a fact about an immutable version, and replay protection
-  comes from the unique `cache_version_id` (SC-E4).
+- **Keys** (D7, X-4).
+  - Signing key `AIGATEWAY_RECEIPT_SIGNING_KEY`: standard base64 of the raw 32-byte Ed25519
+    private key (no PEM), from a Secret.
+  - `kid` is **derived**: `sha256(<raw 32-byte public key>).hexdigest()[:16]`. There is no kid
+    variable.
+  - `SCOREBOARD_RECEIPT_PUBLIC_KEYS`: a JSON object `{"<kid>": "<base64 of the raw 32-byte
+    public key>"}`, with the current key plus the previous key.
+  - `sha` is the `archive_sha256` of `erd.md` §3.5 (sha256 of the gzip bytes, X-16).
+- **Verifier (scoreboard).** Pick the key by the header `kid` in
+  `SCOREBOARD_RECEIPT_PUBLIC_KEYS`; an unknown `kid` is `422`. Check the signature and `aud`.
+  Check `sub` equals the verified `cloudflare_headers` submitter (only in the `disabled` dev
+  fallback, skip this). Check `tid` equals the report `trace_id`. The receipt has no `exp`: it
+  attests a fact about an immutable version, and replay protection comes from the unique
+  `cache_version_id` (SC-E4).
 - **Failure.** `422 invalid_cache_version_receipt`, `403 cache_version_not_yours`,
   `409 cache_version_already_bound`.
 - **Contract tests.** CV-13, CV-25, SC-4, SC-5, SC-6.
@@ -126,6 +160,10 @@ A compact JWS with `alg: EdDSA` (Ed25519), header `kid`, and these claims:
   `[existing packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:106]`. It is
   now enforced by the unique `ReportedResult.run_id`.
 - **Errors.** Today's errors, plus the C3 errors, plus the registry errors (SR-E1 to SR-E5).
+- **url4 size cap.** The existing cap stays: `url4_expression` has at most 32,000 characters,
+  and a longer value gets `422` before any parse
+  `[existing apps/scoreboard/src/scoreboard/scores/schemas.py:378]`. There is no 256 KiB /
+  `413` cap (D7, X-22; SR-19).
 - **Policies.** SDK timeout 30 s. Retry on a connection error or a 5xx, twice with backoff.
   Safe, because of the idempotency key.
 - **Trust.** The replay block is a client claim. The scoreboard checks that the result id
@@ -169,10 +207,26 @@ POST /v1/replay-grants
 
 The grant JWS has `alg: EdDSA`, header `kid`, and these claims:
 `{"iss":"scoreboard","aud":"aigateway","sub":"<caller identity>","vid":"uuid","rid":"uuid","iat":…,"exp":iat+43200}`.
+The scoreboard signs with PyJWT EdDSA behind its `GrantSigner` port; the gateway verifies
+behind its `ReplayGrantVerifier` port (D7, X-3).
 
-- **Verifier (gateway).** Check against `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS`. Check `aud`,
-  `exp` (±60 s skew allowance), that `vid` exists, and that `sub` equals the caller (skipped
+- **`sub`.** The verified `cloudflare_headers` identity of the caller (`ans:Q22`). Only in the
+  `disabled` dev fallback is it `"anonymous"`.
+- **Keys** (D7, X-4).
+  - Signing key `SCOREBOARD_REPLAY_GRANT_SIGNING_KEY`: standard base64 of the raw 32-byte
+    Ed25519 private key (no PEM), from a Secret.
+  - `kid` comes from `SCOREBOARD_REPLAY_GRANT_SIGNING_KID` (it is not derived).
+  - `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS`: a JSON object `{"<kid>": "<base64 of the raw
+    32-byte public key>"}`, with the current key plus the previous key.
+- **Verifier (gateway).** Pick the key by the header `kid`. Check the signature, `aud`, `exp`
+  (±60 s skew allowance), that `vid` exists, and that `sub` equals the caller (skipped only
   when auth is `disabled`). Cache the result for 60 s (CV-D9).
+- **Grant life: the 12 h limit** `[stated ans:Q21]` (D4). `exp = iat + 43,200 s`, with no
+  refresh. This is **shorter** than the worst case of a run: the engine job deadline is
+  57,600 s, and the queue wait can add up to 57,600 s more (A3, checked false and accepted).
+  When the grant expires during a run, each later chat call gets `403 replay_grant_invalid`
+  with `reason: expired` (CV-E4). The engine fails that run with the typed error (RP-E6,
+  RP-14). The run never becomes a live run. The SDK does not mint a new grant.
 - **Policies.** SDK timeout 10 s. No fallback (RP-E5).
 - **Contract tests.** RP-1 to RP-10, RP-4, CV-18, CV-19, CV-21.
 
@@ -228,19 +282,77 @@ GET  /v1/scores/{score_id}/results?cursor=…&limit=50          → 200 {"result
 POST /v1/results/{result_id}/publish                          → 202 {"state": "requested"} | 200 (no-op)
                                                                  409 not_publishable|withdrawn · 403 · 503 publish_unavailable
 POST /v1/admin/results/{result_id}/withdraw {"reason": "…"}   → 200 {"state": "withdrawn"} · 403 admin_required
+PUT  /v1/admin/benchmarks/{benchmark_id}/redistributable {"redistributable": true, "reason": "…"}
+                                                              → 200 {"benchmark_id": …, "redistributable": true} · 403 admin_required · 404
 ```
 
-- **Contract tests.** SC-17, PB-1, PB-2, PB-6, PB-10, PB-12, PB-13, PB-16, PB-19, PB-21.
+- **Admin checks.** The withdraw route and the `redistributable` route use one admin
+  allowlist over the verified `cloudflare_headers` identity (`ans:Q22`). Both write an audit
+  record (actor, time, before, after, reason). The WIRING unit owns the `redistributable`
+  route (`ans:Q23`, `erd.md` §2.7). The exact path is `[proposed]`; the WIRING plan fixes it.
+- **`disabled` fallback.** Publish and withdraw answer `503` (there is no verified owner or
+  admin). This is dev and local behaviour only.
+- **Contract tests.** SC-17, PB-1, PB-2, PB-6, PB-10, PB-12, PB-13, PB-16, PB-19, PB-21, and
+  the WIRING admin-route tests.
 
 ## C11 — Dependencies (layering rules)
 
 | Rule | Enforcement |
 |---|---|
-| `url4.fingerprint` is pure: no I/O and no imports from the SDK, the engine or the scoreboard. | A unit test imports the module in isolation. It is added to the existing layering check `.claude/scripts/check_layering.py`. |
-| The scoreboard may import `url4` (new). The scoreboard never imports `screamingface` (the SDK). | Layering-check rule and a test. |
-| The engine never decodes the replay grant. Only `world/connector.py` writes the header. | Layering check: no `jwt` import under `screamingface_engine/`. Plus RP-11. |
-| The gateway chat route reaches versions only through the ports `ReplayGrantVerifier`, `CacheVersionLookup` and `CaptureSink`. No provider plugin imports `core.cache_versions`. | Layering-check rule (hexagonal: core never imports plugins, and plugins do not reach into core stores). |
-| The scoreboard reaches GitHub only through the `ReleasePublisher` port, and the bucket through the `VersionArchiveReader` port. | Layering-check rule. |
+| `url4.fingerprint` is pure: no I/O and no imports from the SDK, the engine or the scoreboard. | A unit test in `packages/url4` imports the module in isolation and checks its import set (D7, X-18). `.claude/scripts/check_layering.py` is engine-scoped, so this rule is not in it. |
+| The scoreboard may import `url4` (new). The scoreboard never imports `screamingface` (the SDK). | A scoreboard unit test (D7, X-18). |
+| The engine never decodes the replay grant. Only `world/connector.py` writes the header. | No `jwt` import in `screamingface_engine/` **outside `screamingface_engine/auth/`** (D7, X-6; the engine already imports `jwt` in `auth/jwt.py` for its own tokens). An engine unit test enforces it. Plus RP-11. ENG-freeze also adds `cache_versions` to `CONTROL_PLANE` in `.claude/scripts/check_layering.py`. |
+| The gateway chat route reaches versions only through the ports `ReplayGrantVerifier`, `CacheVersionLookup` and `CaptureSink`. No provider plugin imports `core.cache_versions`. | A gateway unit test (hexagonal: core never imports plugins, and plugins do not reach into core stores; D7, X-18). |
+| The scoreboard reaches GitHub only through the `ReleasePublisher` port, and the bucket through the `VersionArchiveReader` port. | A scoreboard unit test (D7, X-18). |
+| PyJWT (`jwt`) is imported only inside the service-local token adapters: the gateway `ReceiptSigner` and `ReplayGrantVerifier`, and the scoreboard `ReceiptVerifier` and `GrantSigner`. The SDK never decodes a JWS. | A unit test per service (D7, X-3). No shared package. |
+
+## C12 — Replay counters — engine → SDK, the run's closing cache-summary log frame
+
+`[proposed]`, D7 (X-7). ENG-replay produces it; SDK-replay consumes it.
+
+- **Carrier.** The existing closing cache-summary `LogData` frame of a run, on the run
+  WebSocket. The frame keeps its existing attributes. It gets three new integer attributes:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `cache.version.hits` | int ≥ 0 | Chat calls that the gateway answered from the version (`X-AIGW-Cache-Version: hit`). |
+| `cache.version.misses` | int ≥ 0 | Chat calls that fell through to the live provider (`X-AIGW-Cache-Version: miss`). |
+| `cache.version.repeated_key_collapses` | int ≥ 0 | Version hits on a `key` that already had a hit in this run (from the `Cache-Status` `key` parameter). It is an **upper bound**: the engine sees a key prefix, not the full call. |
+
+- **When present.** Only on a run that carried a replay grant (C1). A run with no grant has none
+  of the three attributes. A run with a grant has all three, also when they are `0`.
+- **Revalidation.** A version hit is exempt from the engine max-age revalidation. The engine
+  does not re-ask the gateway for a hit that came from a version.
+- **Consumer rule.** The SDK builds the replay report (RP-H1) and the C4 `replay` block from
+  these three values. When a replay run ends with no such frame, the SDK does not submit it as a
+  replay.
+- **Metrics.** The counts stay in process (D7, X-15): the engine run mode has no metrics
+  exporter, and the scoreboard and the gateway have no `/metrics` route.
+- **Contract tests.** RP-13, RP-15 (producer), RP-16 (consumer).
+
+## Error bodies
+
+`[proposed]`, D7 (X-8). This applies to every **new** E14 error.
+
+- **Scoreboard and gateway.** The body is a coded detail object:
+
+  ```json
+  {"detail": {"code": "system_name_taken", "message": "The name is owned by another system.",
+              "suggested_name": "kevins-best-2"}}
+  ```
+
+  `code` is the snake_case code that this spec set names (for example
+  `replay_grant_invalid`). `message` is plain text for a person. Other keys are optional and
+  code-specific (for example `reason` for `replay_grant_invalid`, `suggested_name` for
+  `system_name_taken`). A body never holds a token, a key, a prompt or a secret. The existing
+  errors keep their shape.
+- **Engine.** The engine keeps its problem shape, with a top-level `code`
+  (`{"type", "title", "status", "detail", "code"}`). The engine codes are
+  `invalid_freeze_request` (422), `cache_versions_unconfigured` (503),
+  `replay_grant_too_large` (431), `replay_grant_ambiguous` (400) and `replay_unsupported`
+  (503). A gateway `401`, `403` or `429` passes through with no code.
+- **Clients.** The SDK maps the error by `code` first, and by the HTTP status only when no
+  code is present.
 
 ## Decision records
 
@@ -268,8 +380,10 @@ POST /v1/admin/results/{result_id}/withdraw {"reason": "…"}   → 200 {"state"
   - It avoids dual writes (a visibility flag in two databases would need an outbox).
   - It avoids a new network edge, and temporal coupling on the submit path.
   - The gateway stays unaware of the scoreboard (hexagonal ownership).
-- **Cost accepted.** Two Ed25519 keypairs to manage and rotate. A takedown takes effect for
-  issued grants only when they expire (≤ 12 h, RP-D3).
+- **Cost accepted.** Two Ed25519 keypairs to manage and rotate (the WIRING unit adds a
+  keypair helper; secrets stay out of git). A takedown takes effect for issued grants only when
+  they expire (≤ 12 h, RP-D3). A grant can also expire during a long run, which fails that run
+  (C6, D4).
 - **Reversibility.** Two-way door: the token formats are internal.
 - **Change when.** A takedown must take effect within minutes, or the gateway needs other
   scoreboard state. Then add a pull-based revocation list.

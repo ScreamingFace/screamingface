@@ -106,9 +106,12 @@ When `revision_of` names a system that does not exist, then the submit fails wit
 
 **SR-E5** `[proposed]` — the linked url4 has no `candidate` binding.
 When `url4_expression` has no `candidate` binding (for example, a direct run), then the
-fingerprint is computed over the whole canonical url4 with the benchmark stripped by the
-same rule, and the resolution proceeds. When the expression does not parse, the submit fails
-with `422 invalid_url4`.
+fingerprint is computed over the whole canonical url4 (`render(build(url4))`), and the
+resolution proceeds `[stated ans:Q20]`. A direct run has no benchmark binding, so nothing is
+stripped. When the expression does not parse, the submit fails with `422 invalid_url4`. When
+the expression is longer than 32,000 characters, the submit fails with `422` before any parse
+(the existing `ScoreSubmission` cap
+`[existing apps/scoreboard/src/scoreboard/scores/schemas.py:378]`; D7, X-22).
 
 ### 3.3 Derived scenarios (risk order)
 
@@ -136,9 +139,18 @@ When the owner declares two new fingerprints at the same time,
 then they get revisions N+1 and N+2. No gap, no duplicate: unique `(system_id, revision)`,
 with a retry.
 
-**SR-D5 — answer seed does not split a system** `[proposed]` · M×M
+**SR-D5 — answer seed and recipe name do not split a system** `[stated ans:Q20]` · M×M
 Given candidate C submitted with `answer_seed=1` and again with `answer_seed=2`,
 then both produce the same fingerprint.
+Given two SDK candidates that differ only in the recipe display name (the JSON `name` and
+`named` keys of the zero-weight `_sf_recipe` binding
+`[existing packages/screamingface/src/screamingface/_evaluation/topology.py:14]`),
+when the scoreboard calls
+`system_fingerprint(linked, binding="candidate", exclude_bindings=frozenset({"_sf_recipe"}))`,
+then both produce the same fingerprint. A rename is not a new system.
+Given two candidates that differ only in a `seed` parameter that the Candidate itself declares
+(`sf.Model(..., params={"seed": 7})`, which is in the url4 text),
+then they produce **different** fingerprints. A declared seed is part of the system.
 
 **SR-D6 — canonical form is stable** `[proposed]` · H×L
 Given two url4 texts that differ only in whitespace or in equivalent spelling that
@@ -165,8 +177,9 @@ multi-step state). Empty state: the first submit on an empty registry is SR-H1.
 
 - `resolve_for_submit` adds ≤ 20 ms p99 to a submit: two indexed lookups and at most two
   inserts `[proposed]`.
-- `fingerprint` of a 64 KB url4 finishes in ≤ 50 ms `[proposed]`. Reject a url4 over 256 KB
-  with `413` before parsing, as a parse bomb cap `[proposed]`.
+- `fingerprint` of a url4 at the 32,000-character cap finishes in ≤ 50 ms `[proposed]`. The
+  parse bomb cap is the existing 32,000-character limit on `url4_expression`, with `422`,
+  checked before any parse (D7, X-22). There is no separate 256 KiB / `413` cap.
 - Observability `[proposed]`: counters `scoreboard_system_resolutions_total{outcome=new|existing|renamed_notice|revision}`,
   `scoreboard_system_name_conflicts_total`.
 - Security: names and url4 are untrusted input. Validate before any write. A name is never
@@ -194,7 +207,7 @@ create the empty module first.
 |---|---|---|---|---|---|
 | SR-1 | `fingerprint_ignores_client_supplied_value` — the registry resolves by the recomputed hash | unit | [proposed] SR-D1 | H×M | the service signature takes only `linked_url4`; there is no fingerprint parameter |
 | SR-2 | `fingerprint_equal_for_normalizable_spellings` (property, Hypothesis) | unit | [proposed] SR-D6 | H×L | `sha256(render(build(candidate)))` |
-| SR-3 | `fingerprint_strips_answer_seed` | unit | [proposed] SR-D5 | M×M | remove the seed binding before render |
+| SR-3 | `fingerprint_strips_answer_seed` | unit | [stated ans:Q20] SR-D5 | M×M | remove the seed binding before render; the same file also pins `exclude_bindings={"_sf_recipe"}` (a recipe rename gives one fingerprint) and a declared `seed` that stays in the hash |
 | SR-4 | `fingerprint_same_candidate_on_two_benchmarks` | unit | [stated prompt] SR-H2 | H×M | extract the `candidate` binding |
 | SR-5 | `fingerprint_parity_sdk_and_scoreboard` — the SDK and the scoreboard give the same value for 50 fixture url4s | integration | [proposed] | H×L | both import `url4.fingerprint` |
 | SR-6 | `new_fingerprint_new_name_creates_system_rev1` | unit | [stated prompt] SR-H1 | H×H | insert both rows |
@@ -210,7 +223,7 @@ create the empty module first.
 | SR-16 | `name_rules_boundaries` (0, 1, 64, 65 chars; `/`; leading `-`; uppercase) | unit | [proposed] SR-E2 SR-D7 | M×M | regex plus lowercase |
 | SR-17 | `non_ascii_name_rejected` | unit | [proposed] SR-D9 | L×M | same regex |
 | SR-18 | `revision_of_unknown_404` | unit | [proposed] SR-E4 | M×L | lookup |
-| SR-19 | `unparseable_url4_422_and_oversize_413` | unit | [proposed] SR-E5 | M×L | size check before parse |
+| SR-19 | `unparseable_url4_422_and_oversize_422` | unit | [proposed] SR-E5 (X-22) | M×L | size check (32,000 chars) before parse |
 | SR-20 | `resolve_pin_forms` (`name`, `name@r1`, `name@<date>`) | unit | [stated ans:Q7] SR-H5 | M×M | pin parser |
 
 **Refactor notes.** Keep the registry behind a `SystemRegistry` port in the scoreboard core,

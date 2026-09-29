@@ -223,7 +223,8 @@ Reason: the run index is kept forever `[stated ans:Q18]`, so its prompts must st
 freeze. The answer of a pruned key is still lost (CV-E2).
 
 **CV-D12 — signing key rotation** `[proposed — gap §external/credentials]` · M×L
-Receipts carry `kid`. The scoreboard accepts the current key and the previous key, so a
+Receipts carry `kid`, derived as `sha256(<raw 32-byte public key>).hexdigest()[:16]` (D7, X-4;
+`contracts.md` C3). The scoreboard accepts the current key and the previous key, so a
 rotation does not break submits that are in flight.
 
 **Not applicable:** cancel (freeze is one transaction). Empty state: freeze of an empty
@@ -238,10 +239,12 @@ ledger is CV-E1.
 - Freeze: ≤ 10 s for 5,000 entries `[proposed]`. The HTTP timeout is 60 s (`contracts.md` C2).
 - Storage: see `erd.md` §5, with the tripwire at 200 GB of blobs.
 - Security `[proposed]`:
-  - The receipt signing key `AIGATEWAY_RECEIPT_SIGNING_KEY` (Ed25519, base64) comes from a
-    Kubernetes Secret. It is never logged.
-  - The grant verification key `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` (JSON map `kid →
-    public key`) is config.
+  - The receipt signing key `AIGATEWAY_RECEIPT_SIGNING_KEY` (Ed25519, standard base64 of the
+    raw 32-byte key, no PEM) comes from a Kubernetes Secret. It is never logged.
+  - The grant verification key `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` (JSON map `{kid: base64
+    of the raw 32-byte public key}`) is config.
+  - The WIRING unit adds these values and the Secret templates to the aigateway chart
+    (`ans:Q23`).
   - The bucket write credentials are for the gateway only.
   - Bucket objects use server-side encryption.
 - Observability `[proposed]`:

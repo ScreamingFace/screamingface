@@ -47,6 +47,7 @@ ticket.
 - **Commits:** `docs(spec): add E14 reproducible-submission PRD/ERD set` (spec only; plan and code not started).
 - **Gates:** docs only. Self-review: tags valid, all test-id cross-references resolve, every
   PRD has ≥ 8 non-happy scenarios.
+- **Review round 2 (2026-09-29):** the user approved the spec. Decisions Q19-Q24 recorded (one branch for spec + plans + code; fingerprint excludes `_sf_recipe`; 12 h grant limit accepted; prod identity = `cloudflare_headers`; new WIRING unit; engineering defaults X-3..X-25). Per-unit plans added under `docs/plan/2026-09-29-e14-reproducible-submission/` (17 units + index), written and reviewed by Opus agents.
 - **Deviations:** the output folder is `docs/spec/<date>-<slug>/` (the repo convention)
   instead of the skill default `docs/plans/`. The interview grew the scope from the triage
   map's E14 (metadata plus cache version) to four parts (`ans:Q1`).

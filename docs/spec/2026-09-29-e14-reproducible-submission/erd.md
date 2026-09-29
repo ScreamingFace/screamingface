@@ -92,7 +92,7 @@ one recipe, one cache version" `[stated prompt]` maps to one `ReportedResult` an
 | `id` | `UUID PK` | |
 | `score_id` | `UUID NOT NULL` FK → `Score.id` | The head. |
 | `is_original` | `BOOL NOT NULL` | Exactly one `true` per `score_id` (partial unique index). |
-| `reporter` | `VARCHAR(255) NULL` | Verified submitter of this run. Same source as `Score.submitted_by` `[existing apps/scoreboard/src/scoreboard/routes/scores.py:87]`. |
+| `reporter` | `VARCHAR(255) NULL` | Verified submitter of this run. Same source as `Score.submitted_by` `[existing apps/scoreboard/src/scoreboard/routes/scores.py:87]`: in production, the `X-User-Email` identity of `cloudflare_headers` mode (`ans:Q22`). NULL only in the `disabled` dev and local fallback. |
 | `run_id` | `VARCHAR(128) NULL UNIQUE` | From `Idempotency-Key` `[existing packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:106]`. Unique, so a resend never makes a second row. |
 | `trace_id` | `CHAR(32) NULL` | From the report `[existing packages/screamingface/src/screamingface/report.py:189]`. |
 | `score`, `total_questions`, `correct_questions` | as `Score` | This run's numbers. |
@@ -161,16 +161,38 @@ Lowercase, then match `^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$`. Reject all oth
 `422 invalid_system_name`. The route form `screamingface/<name>` (E8) needs a URL-safe name
 with no slash.
 
-#### 2.3.2 Fingerprint `[proposed]`
+#### 2.3.2 Fingerprint `[proposed]`, `[stated ans:Q20]`
 
-`fingerprint = sha256(render(build(candidate_url4_without_answer_seed)))`, where the candidate
-is the zero-weight `candidate` binding inside the linked url4
+`fingerprint = sha256(render(strip(build(candidate_url4_without_answer_seed), exclude_bindings)))`,
+where the candidate is the zero-weight `candidate` binding inside the linked url4
 `[existing packages/screamingface/src/screamingface/_evaluation/linking.py:34-40]`. A new
-pure function `url4.fingerprint.system_fingerprint(linked, binding="candidate")` in
-`packages/url4` computes it. Both the SDK and the scoreboard call it. The scoreboard **always**
-recomputes the fingerprint from `url4_expression`. It never trusts a client value.
-`answer_seed` is removed before hashing, because a seed is a sitting of the same system, not a
-different system `[proposed]`.
+pure function in `packages/url4` computes it:
+
+```python
+def system_fingerprint(
+    linked: str,
+    binding: str = "candidate",
+    *,
+    exclude_bindings: frozenset[str] = frozenset(),
+) -> str: ...
+```
+
+- **Caller.** The scoreboard calls
+  `system_fingerprint(linked, binding="candidate", exclude_bindings=frozenset({"_sf_recipe"}))`
+  `[stated ans:Q20]`. The SDK, when it computes a fingerprint, uses the same arguments.
+- **`exclude_bindings`.** The function removes each top-level source of the candidate
+  expression whose binding name is in the set, then renders. The `_sf_recipe` binding holds the
+  recipe display name (`name`, `named`)
+  `[existing packages/screamingface/src/screamingface/_evaluation/topology.py:14]`, so a rename
+  does not make a new system. The `url4` package never names `_sf_recipe`: the caller passes
+  it. The default (an empty set) removes nothing.
+- **Seeds.** `answer_seed` is removed before hashing, because a seed is a sitting of the same
+  system, not a different system `[proposed]`. A `seed` parameter that the Candidate itself
+  declares is in the url4 text and **stays** in the hash (URL4 OD-2 default, `ans:Q20`).
+- **No `candidate` binding.** The whole canonical url4 (`render(build(linked))`) is hashed
+  (URL4 OD-5, `ans:Q20`).
+- **Trust.** The scoreboard **always** recomputes the fingerprint from `url4_expression`. It
+  never trusts a client value.
 
 ### 2.4 Clustering key `[proposed]`
 
@@ -226,6 +248,10 @@ New column `redistributable BOOL NOT NULL DEFAULT false` `[proposed]`. The defau
 fail-closed. A public board publishes to GitHub, and serves replay to non-owners, only when
 `redistributable = true` `[stated ans:Q6]`. `visibility` stays as it is
 `[existing apps/scoreboard/src/scoreboard/scores/models/benchmark.py:51]`.
+
+**Writer** `[stated ans:Q23]`. Only a scoreboard admin sets `redistributable`, through an admin
+route that the WIRING unit adds. It uses the same admin allowlist as the withdraw route
+(`contracts.md` C10), and it writes an audit record. No other path writes the column.
 
 ## 3. Gateway entities
 
@@ -301,7 +327,7 @@ inline bodies of uncached calls. See the tripwire in §5.
 | `call_count` | `INT` | Ledger rows seen for the trace. |
 | `missing_count` | `INT` | Calls with no recoverable response (live row pruned, or `error`). |
 | `coverage_status` | `VARCHAR(16)` | `complete` if `missing_count = 0`, else `partial`. |
-| `archive_sha256` | `CHAR(64)` | Digest of the canonical archive bytes. |
+| `archive_sha256` | `CHAR(64)` | sha256 of the `entries.jsonl.gz` bytes (the gzip output, not the plain JSONL). See §3.5. |
 | `archive_key` | `VARCHAR(256)` | Bucket object key. |
 | `created_at` | `TIMESTAMPTZ` | |
 
@@ -348,6 +374,18 @@ schema id, `screamingface.cache-version.v1`:
 Each line of `entries.jsonl.gz` is `{"key_hash", "first_ordinal", "request", "response",
 "metadata"}`, sorted by `first_ordinal`. The bytes are canonical (sorted keys, UTF-8, no
 insignificant whitespace, gzip `mtime=0`), so `archive_sha256` is reproducible.
+
+**`archive_sha256` preimage** `[proposed]`, D7 (X-16). The digest is the sha256 of the
+**compressed** bytes of `entries.jsonl.gz`:
+
+1. Each line is the canonical JSON of one entry, then `"\n"`, encoded as UTF-8.
+2. The lines go, in `first_ordinal` order, into one gzip stream with `filename=""`,
+   `mtime=0` and `compresslevel=9`.
+3. `archive_sha256 = sha256(<the gzip output bytes>)`. The manifest field `entries_sha256` has
+   the same value. The manifest itself is not in the preimage.
+
+The gateway (freeze, export), the receipt claim `sha` (`contracts.md` C3), and the scoreboard
+(the digest check before a publish, PB-E5) all use this one rule.
 
 **Source of truth.** The gateway Postgres rows (§3.3–3.4) are the source of truth for replay.
 The bucket archive is a derived, immutable export. The gateway writes it after the freeze
