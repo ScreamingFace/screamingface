@@ -4,6 +4,12 @@
 
 ### Features
 
+* **screamingface:** add opt-in local analytics via `sf.analytics.status()`, `enable()`,
+  `disable()` and `reset_identifier()`, plus `screamingface analytics` CLI controls.
+  Evaluation/submission events use random installation/process identifiers and bounded
+  background delivery to the dev analytics service. Analytics defaults off, respects
+  `DO_NOT_TRACK`, and excludes Colab and identity linking in this slice.
+
 * **screamingface:** preserve Engine-observed caller version as `CandidateResult.client_version` and in report JSON; unavailable provenance remains null.
 
 * **screamingface:** carry the catalogue's two grouping axes on `Benchmark` — `interaction` and the new hand-assigned `difficulty` tier (`easy`/`medium`/`hard`; served values verbatim, any non-blank string; `None` when an older Engine omits the key)

@@ -547,3 +547,58 @@ uv run --extra notebook python scripts/check_notebooks.py
 uv build
 uv run python scripts/check_distribution.py
 ```
+
+
+## Optional local analytics
+
+Analytics is off until you explicitly opt in. In local Python or Jupyter:
+
+```python
+import screamingface as sf
+
+sf.analytics.enable()  # Remember consent for this OS user
+sf.analytics.status()  # Inspect consent and effective state
+sf.analytics.disable()  # Stop sending and remove the local identifier
+sf.analytics.reset_identifier()  # Start a new identifier without linking it
+```
+
+The equivalent commands are `screamingface analytics status`, `enable`, `disable`
+and `reset-id`. They do not start local runtime services. `sf.analytics.enable(persist=False)`
+accepts for this process only when you do not want persistent preferences.
+`sf.analytics.disable(process_only=True)` stops this process without changing the saved choice.
+A truthy `DO_NOT_TRACK` overrides acceptance. Noninteractive use never prompts.
+
+Explicit interactive `sf.connect()` setup shows a nonblocking notice if no choice
+is saved. Continue without choosing to leave analytics off; the notice does not
+wait for input or run during evaluation. Saved choices have no scheduled re-prompt.
+
+Preferences live in `~/.screamingface/analytics.json`, or the explicit
+`SCREAMINGFACE_ANALYTICS_CONFIG` path. This is independent of runtime `--data-dir`,
+virtual environments and project directories. Writes are atomic and owner-only;
+unreadable or malformed preferences disable collection. Failed preference writes
+raise an error rather than claiming consent was saved.
+
+The four events are `evaluation_started`, `evaluation_finished`,
+`submission_started` and `submission_finished`. They contain random installation,
+session and operation IDs, SDK version, Python/Jupyter origin, sync/async interface,
+recipe/raw-URL4/submission workflow, outcome and coarse duration. For the current
+release, local engines map to BYOK and remote engines to hosted. No prompts,
+responses, scores, provider/model names, execution IDs, credentials or email are sent.
+
+An installation ID is shared by processes using the same preference file; a session
+ID is created lazily per process/kernel. Opt-out or identifier reset also invalidates
+the active session so replacement identifiers cannot be joined through it. These
+identifiers measure consenting installations/sessions, not verified people.
+
+This initial SDK slice sends to **the dev analytics service** at
+`https://analytics.dev.screamingface.ai/v1/events`, without product credentials or
+cookies. Delivery has a memory-only queue capped at 100 pending events, at most two
+attempts per event and a two-second total delivery budget. It never waits for HTTP
+in evaluation, never waits for delivery at shutdown, and may lose events. Consent
+is rechecked before dispatch and retry; already dispatched requests can complete
+after opt-out. There is no durable event spool.
+
+Colab analytics remains disabled until the separate consent/cookie bridge is ready.
+There is no identity linking. Raw-event retention is 90 days; disabling or resetting
+an identifier does not delete previously accepted events. Production rollout still
+requires verification of deployment retention and the historical deletion process.

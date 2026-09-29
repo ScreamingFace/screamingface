@@ -50,6 +50,7 @@
       "Url4",
       "Usage",
       "__version__",
+      "analytics",
       "benchmarks",
       "close",
       "configure",
@@ -697,6 +698,10 @@
       "__version__": {
         "kind": "value",
         "type": "str"
+      },
+      "analytics": {
+        "kind": "module",
+        "module": "screamingface.analytics"
       },
       "benchmarks": {
         "kind": "module",

@@ -45,6 +45,16 @@ Experiment evidence: HTTPBin server-set partitioned cookies passed full restart 
 
 ## 4. Consent and persistence
 
+Implementation clarification (owner confirmed 25 September 2026): the current
+product supports BYOK only on local engines; all remote engines use hosted mode.
+For this release, derive `usage_mode=byok` for the SDK's existing local-engine
+classification (localhost, loopback or unspecified IP addresses), and `hosted`
+for valid remote origins. This explicitly approved mapping supersedes the
+no-endpoint-inference restriction above for this release only. It requires no
+manual analytics mode setting or Engine metadata change. Never export the URL;
+invalid metadata still drops the event. Revisit the mapping before supporting
+remote BYOK deployments.
+
 State machine: unknown -> accepted or declined; accepted -> declined on opt-out; stale policy -> unknown. Unavailable storage is a capability failure, not an acceptance. No events buffered before consent and no retroactive replay of pre-consent activity. If consent arrives mid-evaluation, start tracking subsequent operations only.
 
 Local proposal: ~/.screamingface/analytics.json, independently overridable by an explicit SCREAMINGFACE_ANALYTICS_CONFIG path. Do not inherit arbitrary shared runtime --data-dir locations. Versioned document contains choice, consent version and optional installation UUID. Atomic writes, process lock, owner-only permissions; read before each operation/dispatch. No machine-wide file or notebook/project file. Local Jupyter and CLI share this only under the same OS user/config path. Unwritable state yields explicit session-only acceptance or analytics off; do not claim persistence. Never automatically generate an ID just by importing the package.
