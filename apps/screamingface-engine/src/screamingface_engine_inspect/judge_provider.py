@@ -115,7 +115,7 @@ def bound_judge_transport(transport: JudgeTransport) -> Iterator[None]:
 
 
 @contextmanager
-def bound_judge_role(role: str, model: str) -> Iterator[None]:
+def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
     """Fill one inspect model role with our gateway judge for one grading pass.
 
     Most inspect judges never name a model — they call ``get_model(role="grader")``
@@ -304,6 +304,6 @@ __all__ = [
     "PROVIDER_NAME",
     "JudgeFetch",
     "JudgeTransport",
-    "bound_judge_role",
+    "judge_filling_model_role",
     "bound_judge_transport",
 ]

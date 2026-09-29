@@ -5,13 +5,13 @@
 
 Most inspect judges never name a model: they call ``get_model(role="grader")`` and let
 the eval runner decide who grades. Outside inspect's own eval loop nobody fills that
-role, so a board row declares ``JudgeSpec(model=..., role="grader")`` and the judged
+role, so a board row declares ``JudgeSpec(model=..., model_role="grader")`` and the judged
 aggregate binds the role to our metered ``screamingface/<model>`` provider for the
 grading pass — the same wall socket FrontierScience's named judge plugs into.
 
 INVARIANT the suite defends: an unbound role never dials anyone. The binding is scoped
 to one grading pass, a role-based scorer without a declared judge refuses at assembly,
-and the role-bound judge is exam identity exactly like a named one.
+and a judge that fills a model role is exam identity exactly like a named one.
 
 Runs only with the `inspect` extra installed.
 """
@@ -54,8 +54,8 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
 )
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     JudgeTransport,
-    bound_judge_role,
     bound_judge_transport,
+    judge_filling_model_role,
 )
 from screamingface_engine_inspect.shim import inspect_grade_case  # noqa: E402
 from screamingface_engine_inspect.single_shot import JudgeSpec  # noqa: E402
@@ -86,7 +86,7 @@ def _request() -> GradeRequest:
 
 
 def _role_spec(**overrides: Any) -> BoardSpec:
-    """One minimal role-bound row — model_graded_qa naming NO model, so inspect asks
+    """One minimal model-role row — model_graded_qa naming NO model, so inspect asks
     for its grader role, which the declaration binds to gateway judge-4."""
 
     values: dict[str, Any] = {
@@ -98,7 +98,7 @@ def _role_spec(**overrides: Any) -> BoardSpec:
         "difficulty": "easy",
         "scorer": "inspect_ai.scorer:model_graded_qa",
         "scorer_kwargs": {},
-        "judge": JudgeSpec(model="judge-4", params=(("temperature", "0"),), role="grader"),
+        "judge": JudgeSpec(model="judge-4", params=(("temperature", "0"),), model_role="grader"),
         "with_check_surface": False,
     }
     values.update(overrides)
@@ -124,7 +124,10 @@ async def test_a_role_based_scorer_grades_through_the_provider_when_the_role_is_
 
     fetch = _RecordingFetch()
     scorer = model_graded_qa()
-    with bound_judge_transport(JudgeTransport(fetch=fetch)), bound_judge_role("grader", "judge-4"):
+    with (
+        bound_judge_transport(JudgeTransport(fetch=fetch)),
+        judge_filling_model_role("grader", "judge-4"),
+    ):
         outcome = await inspect_grade_case(scorer)(_request())
     assert (outcome.score, outcome.failure_code) == (1.0, None)
     assert [target.partition("?")[0] for target in fetch.targets] == ["/judge-4"]
@@ -138,7 +141,10 @@ async def test_the_real_simpleqa_scorer_dials_the_bound_role() -> None:
     from inspect_evals.simpleqa.scorer import simpleqa_scorer
 
     fetch = _RecordingFetch(reply="A")
-    with bound_judge_transport(JudgeTransport(fetch=fetch)), bound_judge_role("grader", "judge-4"):
+    with (
+        bound_judge_transport(JudgeTransport(fetch=fetch)),
+        judge_filling_model_role("grader", "judge-4"),
+    ):
         await inspect_grade_case(simpleqa_scorer())(_request())
     assert [target.partition("?")[0] for target in fetch.targets] == ["/judge-4"]
 
@@ -146,10 +152,10 @@ async def test_the_real_simpleqa_scorer_dials_the_bound_role() -> None:
 @pytest.mark.asyncio
 async def test_the_role_binding_is_scoped_to_its_block() -> None:
     """INVARIANT: the next board's grade starts with no grader — a board that
-    declares no role-bound judge can never ride another board's binding."""
+    declares no model-role judge can never ride another board's binding."""
 
     before: dict[str, Any] = dict(model_roles())
-    with bound_judge_role("grader", "judge-4"):
+    with judge_filling_model_role("grader", "judge-4"):
         assert str(model_roles()["grader"]) == "screamingface/judge-4"
     assert dict(model_roles()) == before
     assert "grader" not in model_roles()
@@ -158,7 +164,7 @@ async def test_the_role_binding_is_scoped_to_its_block() -> None:
 @pytest.mark.asyncio
 async def test_concurrent_role_bindings_stay_per_task() -> None:
     """INVARIANT: two boards grading at once each see their OWN judge. The
-    save-and-restore in bound_judge_role is only safe because inspect keeps roles
+    save-and-restore in judge_filling_model_role is only safe because inspect keeps roles
     per task (a ContextVar); were they process-wide, board A would silently grade
     with board B's judge, and A's restore would wipe B's binding mid-grade
     (review finding, 2026-09-29)."""
@@ -172,14 +178,14 @@ async def test_concurrent_role_bindings_stay_per_task() -> None:
     seen: dict[str, str] = {}
 
     async def board_a() -> None:
-        with bound_judge_role("grader", "judge-4"):
+        with judge_filling_model_role("grader", "judge-4"):
             a_bound.set()
             await b_bound.wait()
             seen["a"] = str(get_model(role="grader"))
 
     async def board_b() -> None:
         await a_bound.wait()
-        with bound_judge_role("grader", "judge-5"):
+        with judge_filling_model_role("grader", "judge-5"):
             b_bound.set()
             await asyncio.sleep(0)
             seen["b"] = str(get_model(role="grader"))
@@ -205,25 +211,27 @@ async def test_an_unbound_grader_role_never_dials_anyone(
     assert fetch.targets == []
 
 
-# ── assembly: the role-bound judge is declared, pinned, and cross-checked ─────
+# ── assembly: the model-role judge is declared, pinned, and cross-checked ────
 
 
-def test_a_role_bound_judge_assembles_and_rides_the_board(
+def test_a_model_role_judge_assembles_and_rides_the_board(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     board = _assembled(_role_spec(), monkeypatch)
-    assert board.judge == JudgeSpec(model="judge-4", params=(("temperature", "0"),), role="grader")
+    assert board.judge == JudgeSpec(
+        model="judge-4", params=(("temperature", "0"),), model_role="grader"
+    )
 
 
-def test_a_role_bound_boards_revision_moves_with_the_judge_model(
+def test_a_model_role_boards_revision_moves_with_the_judge_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """INVARIANT: the role-bound judge is exam identity — swap it, the exam moves."""
+    """INVARIANT: a judge that fills a model role is exam identity — swap it, the exam moves."""
 
     base = str(_assembled(_role_spec(), monkeypatch).benchmark.revision)
     other = str(
         _assembled(
-            _role_spec(judge=JudgeSpec(model="judge-5", role="grader")), monkeypatch
+            _role_spec(judge=JudgeSpec(model="judge-5", model_role="grader")), monkeypatch
         ).benchmark.revision
     )
     assert base != other
@@ -234,10 +242,10 @@ def test_an_unsupported_role_is_refused_by_name(monkeypatch: pytest.MonkeyPatch)
     grade time and fail every Case — refuse it at assembly instead."""
 
     with pytest.raises(ValueError, match="critic"):
-        _assembled(_role_spec(judge=JudgeSpec(model="judge-4", role="critic")), monkeypatch)
+        _assembled(_role_spec(judge=JudgeSpec(model="judge-4", model_role="critic")), monkeypatch)
 
 
-def test_a_role_bound_judge_plus_a_dialed_kwarg_is_refused(
+def test_a_model_role_judge_plus_a_dialed_kwarg_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One judge, one path: a scorer that also dials a gateway judge by kwarg would
@@ -274,7 +282,7 @@ def test_a_model_graded_scorer_without_a_judge_points_at_the_role_declaration(
 ) -> None:
     """The refusal stays for undeclared role-based boards, and now names the fix."""
 
-    with pytest.raises(ValueError, match='role="grader"'):
+    with pytest.raises(ValueError, match='model_role="grader"'):
         _assembled(_role_spec(judge=None), monkeypatch)
 
 
@@ -316,7 +324,7 @@ class _ConnectorFaithfulJudge:
         return "The answer matches.\n\nGRADE: C"
 
 
-def _bake_by_hand(root: Path, benchmark_id: str) -> None:
+def _prepare_by_hand(root: Path, benchmark_id: str) -> None:
     board_root = root / benchmark_id
     (board_root / "targets").mkdir(parents=True)
     (board_root / "cases.json").write_text(
@@ -360,7 +368,7 @@ async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
 
 
 @pytest.mark.asyncio
-async def test_a_role_bound_boards_judge_is_routed_and_accounted_end_to_end(
+async def test_a_model_role_boards_judge_is_routed_and_accounted_end_to_end(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The ticket's acceptance under one roof: a role-based scorer's judge call
@@ -371,7 +379,7 @@ async def test_a_role_bound_boards_judge_is_routed_and_accounted_end_to_end(
     judge = _ConnectorFaithfulJudge()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _bake_by_hand(tmp_path, board.benchmark.id)
+    _prepare_by_hand(tmp_path, board.benchmark.id)
     board.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])

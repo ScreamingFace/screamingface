@@ -18,7 +18,7 @@ metered gateway judge for the grading pass, then imports SimpleQA as the first b
 
 - 2026-09-25: filed as an `OME-1240` follow-up.
 - 2026-09-29: scoped the first PR to the mechanism only (ticket comment). A board row may
-  declare `JudgeSpec(model=..., role="grader")`. The judged aggregate binds the role for the
+  declare `JudgeSpec(model=..., model_role="grader")`. The judged aggregate binds the role for the
   grading pass, and assembly cross-checks the role declaration. This covers acceptance 1 and 3.
   Branch `OME-1370-grader-role-judge`, ledger
   `docs/work/2026-09-29-ome-1370-grader-role-judge.md`.

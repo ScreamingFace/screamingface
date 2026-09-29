@@ -720,7 +720,7 @@ _JUDGE_MODEL_KWARGS = frozenset({"model", "grader_model", "judge_model", "scorer
 #: The inspect model roles a declared judge may fill (OME-1370). Only the grader
 #: role: evals that ask for several roles are out of scope until one needs it, and
 #: an unlisted role would resolve to nothing at grade time and fail every Case.
-_BINDABLE_JUDGE_ROLES = frozenset({"grader"})
+_SUPPORTED_MODEL_ROLES = frozenset({"grader"})
 
 #: The scorer kwarg inspect's model_graded_* scorers read their role name from.
 _MODEL_ROLE_KWARG = "model_role"
@@ -734,9 +734,9 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
     :class:`JudgeSpec` (or it would grade with a judge outside exam identity),
     and a declared judge must be the exact gateway model the scorer dials (or
     the pinned judge and the called judge drift apart — and any OTHER provider's
-    model would dial that provider directly, unmetered). A role-bound judge
-    (``JudgeSpec.role``) is the exception to "the scorer dials it": the scorer
-    names no judge, so :func:`_check_role_bound_judge` checks that instead.
+    model would dial that provider directly, unmetered). A judge that fills a model role
+    (``JudgeSpec.model_role``) is the exception to "the scorer dials it": the scorer
+    names no judge, so :func:`_check_model_role_judge` checks that instead.
     """
 
     dialed: list[str] = [
@@ -777,7 +777,7 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
             raise ValueError(
                 f"{spec.key}: {scorer_name} grades with an LLM judge; declare "
                 "judge=JudgeSpec(...) and either pin the judge model in scorer_kwargs "
-                'or, with no model kwarg, declare JudgeSpec(..., role="grader") so the '
+                'or, with no model kwarg, declare JudgeSpec(..., model_role="grader") so the '
                 "grader role binds to the pinned judge (OME-1370)"
             )
         return
@@ -794,8 +794,8 @@ def _check_declared_judge(
             f"{spec.key}: the judge model is an unresolved TODO — resolve the "
             "TODO(review) with the declared gateway model id before this row can ship"
         )
-    if judge.role is not None:
-        _check_role_bound_judge(spec, judge.role, judge_kwargs)
+    if judge.model_role is not None:
+        _check_model_role_judge(spec, judge.model_role, judge_kwargs)
         return
     expected: str = _GATEWAY_MODEL_PREFIX + judge.model
     if expected not in dialed:
@@ -805,8 +805,8 @@ def _check_declared_judge(
         )
 
 
-def _check_role_bound_judge(spec: BoardSpec, role: str, judge_kwargs: dict[str, Any]) -> None:
-    """Refuse a role-bound judge the scorer would not actually call (OME-1370).
+def _check_model_role_judge(spec: BoardSpec, role: str, judge_kwargs: dict[str, Any]) -> None:
+    """Refuse a judge that fills a model role the scorer never asks for (OME-1370).
 
     The aggregate binds ``role`` to the pinned judge, so the row is honest only if
     the scorer's judge lookup lands on that role: the role must be one we bind,
@@ -815,10 +815,10 @@ def _check_role_bound_judge(spec: BoardSpec, role: str, judge_kwargs: dict[str, 
     kwarg must name the same role.
     """
 
-    if role not in _BINDABLE_JUDGE_ROLES:
+    if role not in _SUPPORTED_MODEL_ROLES:
         raise ValueError(
             f"{spec.key}: the judge declares role {role!r}, but only "
-            f"{sorted(_BINDABLE_JUDGE_ROLES)} can be bound to the pinned judge (OME-1370)"
+            f"{sorted(_SUPPORTED_MODEL_ROLES)} can be bound to the pinned judge (OME-1370)"
         )
     named: dict[str, Any] = {
         name: value for name, value in judge_kwargs.items() if value is not None
