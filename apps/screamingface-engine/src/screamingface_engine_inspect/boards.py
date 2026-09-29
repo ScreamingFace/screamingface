@@ -829,8 +829,10 @@ def _check_role_bound_judge(spec: BoardSpec, role: str, judge_kwargs: dict[str, 
             f"{sorted(named)} name a judge of their own — the scorer would call that one "
             "and never the role; drop the kwarg or drop the role (OME-1370)"
         )
+    # WHY presence, not value: model_role=None tells inspect to skip roles and grade
+    # with its default model — unmetered, while the revision pins our judge.
     asked: object = spec.scorer_kwargs.get(_MODEL_ROLE_KWARG)
-    if asked is not None and asked != role:
+    if _MODEL_ROLE_KWARG in spec.scorer_kwargs and asked != role:
         raise ValueError(
             f"{spec.key}: the scorer asks for the {asked!r} role but the judge fills "
             f"{role!r} — the pinned judge would never be called (OME-1370)"

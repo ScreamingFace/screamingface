@@ -156,6 +156,39 @@ async def test_the_role_binding_is_scoped_to_its_block() -> None:
 
 
 @pytest.mark.asyncio
+async def test_concurrent_role_bindings_stay_per_task() -> None:
+    """INVARIANT: two boards grading at once each see their OWN judge. The
+    save-and-restore in bound_judge_role is only safe because inspect keeps roles
+    per task (a ContextVar); were they process-wide, board A would silently grade
+    with board B's judge, and A's restore would wipe B's binding mid-grade
+    (review finding, 2026-09-29)."""
+
+    import asyncio
+
+    from inspect_ai.model import get_model
+
+    a_bound = asyncio.Event()
+    b_bound = asyncio.Event()
+    seen: dict[str, str] = {}
+
+    async def board_a() -> None:
+        with bound_judge_role("grader", "judge-4"):
+            a_bound.set()
+            await b_bound.wait()
+            seen["a"] = str(get_model(role="grader"))
+
+    async def board_b() -> None:
+        await a_bound.wait()
+        with bound_judge_role("grader", "judge-5"):
+            b_bound.set()
+            await asyncio.sleep(0)
+            seen["b"] = str(get_model(role="grader"))
+
+    await asyncio.gather(board_a(), board_b())
+    assert seen == {"a": "screamingface/judge-4", "b": "screamingface/judge-5"}
+
+
+@pytest.mark.asyncio
 async def test_an_unbound_grader_role_never_dials_anyone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -223,6 +256,16 @@ def test_a_scorer_asking_for_a_different_role_is_refused(
 
     spec = _role_spec(scorer_kwargs={"model_role": "judge"})
     with pytest.raises(ValueError, match="judge"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_scorer_told_to_skip_the_role_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """model_role=None tells inspect to ignore roles and grade with its default
+    model — a vendor call we never meter, while the revision still pins judge-4.
+    The key being PRESENT is the signal, not its value (review finding, 2026-09-29)."""
+
+    spec = _role_spec(scorer_kwargs={"model_role": None})
+    with pytest.raises(ValueError, match="role"):
         _assembled(spec, monkeypatch)
 
 
@@ -341,5 +384,3 @@ async def test_a_role_bound_boards_judge_is_routed_and_accounted_end_to_end(
     accounting = result["cases"][0]["grade"]["checks"][0]["evidence"][0]["accounting"]
     assert accounting["usage"]["input_tokens"] == 120
     assert accounting["usage"]["cost_usd"] == "0.0042"
-    # The binding ended with the grading pass — nothing leaks to the next board.
-    assert "grader" not in model_roles()

@@ -64,11 +64,11 @@ calls the judge with tools, which the provider refuses.
   gains `JudgeSpec.role`, the conditional `judge_role=` pin and the aggregate's role binding;
   `boards.py` gains `_check_role_bound_judge`, plus `_check_declared_judge` (split out so
   `_check_judge_declaration` stays under ruff's complexity cap). All new tests are in one new
-  file, `tests/unit/inspect/test_judge_grader_role.py` (11 tests); no prior test was touched.
+  file, `tests/unit/inspect/test_judge_grader_role.py` (13 tests); no prior test was touched.
   Also the `docs/tasks` mirror (none existed).
 - **Commits:** `feat(screamingface-engine): let a judged board's judge fill inspect's grader role`
   (PR branch `OME-1370-grader-role-judge`).
-- **Gates:** `uv run --extra inspect pytest -q tests/unit/inspect` 430 passed (was 419);
+- **Gates:** `uv run --extra inspect pytest -q tests/unit/inspect` 432 passed (was 419);
   `ruff check`, `ruff format --check`, `pyright` (with and without the inspect extra),
   `check_layering.py` green. Mutation check: dropping the aggregate's role binding turns the
   end-to-end test red. The full-suite coverage gate was not run locally (CI runs it); paid
@@ -78,3 +78,9 @@ calls the judge with tools, which the provider refuses.
   declared role, or the pinned judge would never be called. Known gap left for a follow-up:
   the importer can't tell that a custom scorer like `simpleqa_scorer` asks for the grader role
   (it has no judge kwarg), so it would emit such a row as unjudged.
+- **Review (sf-code-review on `84708cef`, 2026-09-29):** two nonblocking findings, both fixed.
+  (1) Nothing pinned that roles are per task: a two-task test now does, verified to fail when
+  roles are made process-wide. (2) `model_role=None` got past the cross-check and would grade
+  with inspect's default model, unmetered; the check now keys on the kwarg being present. One
+  minor finding also fixed: the end-to-end test's "nothing leaks" assertion could never fail,
+  because grading runs in a copied context, so it was dropped (the scope test pins the restore).
