@@ -21,7 +21,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
-from screamingface_engine.benchmarks.contracteval.pins import (
+from screamingface_engine.benchmarks.contracteval.prompts import SYSTEM_PROMPT, USER_TEMPLATE
+from screamingface_engine.benchmarks.contracteval.revision_inputs import (
     DATASET,
     DATASET_REVISION,
     DATASET_SPLIT,
@@ -29,7 +30,6 @@ from screamingface_engine.benchmarks.contracteval.pins import (
     PREPARER_REVISION,
     PROTOCOL_REVISION,
 )
-from screamingface_engine.benchmarks.contracteval.prompts import SYSTEM_PROMPT, USER_TEMPLATE
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
@@ -40,7 +40,7 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from screamingface_engine.benchmarks.spine.serving import (
+from screamingface_engine.benchmarks.shared_grading.serving import (
     benchmark_routes,
     compute_benchmark_revision,
 )

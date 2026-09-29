@@ -1,9 +1,9 @@
 """GDPval's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
-contribution: its failure wording, its judge's identity, its private rubric reader, and
-its official per-Case formula bound into the shared rubric ``grade_case``. The engine
-ships mechanisms; a benchmark ships semantics.
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its failure wording, its judge's identity, its private
+rubric reader, and its official per-Case formula bound into the shared rubric ``grade_case``. The
+engine ships mechanisms; a benchmark ships semantics.
 
 INVARIANT: points come from the PRIVATE baked rubric on disk, never from anything that
 has passed through a model. The judge decides whether a criterion was met; it never
@@ -22,10 +22,15 @@ from typing import Any
 
 from screamingface_engine.benchmarks.gdpval.case_evaluation import decode_case_evaluation
 from screamingface_engine.benchmarks.gdpval.scoring import case_score
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.mean_scorer import mean_scorer
-from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
-from screamingface_engine.benchmarks.spine.scored import ScoredPath
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
+)
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
+from screamingface_engine.benchmarks.shared_grading.rubric import rubric_grade_case
 
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the baked rubric asset for this Case is missing or invalid",
@@ -103,10 +108,10 @@ def aggregate(
     )
 
 
-# WHY bound at module bottom: the scored path lives in the spine (OME-1097); the hooks
+# WHY bound at module bottom: the scored path lives in the shared grading code (OME-1097); the hooks
 # and the failure-message wording stay benchmark-owned so per-case failure output is
 # byte-identical to the pre-extraction copies (the goldens pin every failure code).
-_PATH = ScoredPath(
+_PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="GDPval",
         error_type=AggregateError,

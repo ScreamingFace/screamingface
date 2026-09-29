@@ -1,8 +1,8 @@
 """The imported `inspect-gsm8k` proof benchmark — spec §3 end to end, minus the paid run.
 
-FEATURE: the first stranger-authored benchmark on the shared spine with zero spine
+FEATURE: the first stranger-authored benchmark on the shared grading with zero shared-grading
 edits (OME-1115). This suite drives the benchmark's definition, asset snapshot, runtime
-routes, the shared spine aggregate through the scorer adapter, and the §4 check surface
+routes, the shared grading aggregate through the scorer adapter, and the §4 check surface
 (the SAME wrapped scorer serving mid-run feedback).
 
 Runs only with the `inspect` extra installed (`uv run --extra inspect pytest …`);
@@ -84,7 +84,7 @@ def test_resource_renders_a_protocol_for_a_selection() -> None:
     assert GSM8K_BENCHMARK.benchmark.revision in str(resource["url4"])
 
 
-# ── runtime + spine aggregate ────────────────────────────────────────────────
+# ── runtime + shared-grading aggregate ────────────────────────────────────────────────
 
 
 def _node(tmp_path: Path) -> Url4Node:
@@ -148,7 +148,7 @@ def _row(case_id: int, answer: str) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
-async def test_aggregate_scores_through_the_shared_spine(tmp_path: Path) -> None:
+async def test_aggregate_scores_through_the_shared_grading_code(tmp_path: Path) -> None:
     """Two Cases, one right one wrong → accuracy 0.5, real evidence per Case."""
 
     node = _node(tmp_path)

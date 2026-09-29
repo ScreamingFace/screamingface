@@ -39,7 +39,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CaseGradeOutcome,
     GradeCase,
     GradeRequest,

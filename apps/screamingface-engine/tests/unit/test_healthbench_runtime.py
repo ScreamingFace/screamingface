@@ -25,9 +25,9 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
     WORST30_VARIANT,
 )
-from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.healthbench.prepare import envelope
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
+from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.healthbench.runtime import install, preflight
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
 from screamingface_engine.benchmarks.healthbench.verdict import call as verdict_call
@@ -126,14 +126,14 @@ async def _captured_grading_verdict(
 ) -> tuple[dict[str, object], dict[str, object]]:
     with capture_request_accounting():
         with capture_grading_requests():
-            tasks = await _call(
+            judge_requests = await _call(
                 node,
-                WORST30_VARIANT.routes.tasks,
+                WORST30_VARIANT.routes.judge_requests,
                 encode_candidate_invocation(_ANSWER, None, None),
                 str(_CASE_ID),
             )
-            assert isinstance(tasks, list)
-            task = tasks[0]
+            assert isinstance(judge_requests, list)
+            task = judge_requests[0]
             assert isinstance(task, dict)
             with operation_call_identity(
                 "/" + JUDGE_MODEL.removeprefix("/"),
@@ -195,7 +195,7 @@ async def test_rubric_tasks_render_the_reference_prompt_bytes(tmp_path: Path) ->
     install(node, tmp_path, WORST30_VARIANT)
     rows = await _call(
         node,
-        WORST30_VARIANT.routes.tasks,
+        WORST30_VARIANT.routes.judge_requests,
         encode_candidate_invocation(_ANSWER, "stop", None),
         str(_CASE_ID),
     )
@@ -228,7 +228,7 @@ async def test_rubric_tasks_grade_exact_refusal_text_through_the_normal_judge(
 
     rows = await _call(
         node,
-        WORST30_VARIANT.routes.tasks,
+        WORST30_VARIANT.routes.judge_requests,
         encode_candidate_invocation("", "content_filter", exact),
         str(_CASE_ID),
     )

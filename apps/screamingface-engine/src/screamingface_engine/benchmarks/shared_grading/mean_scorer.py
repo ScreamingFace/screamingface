@@ -8,7 +8,7 @@ The benchmark chooses exactly one thing here — its ``mean``, the official way 
 per-Case scores average into the headline number (GDPval: plain average; HealthBench:
 clip each score into [0, 1] first; the worst-30% challenge metric: average only the
 lowest 30% of scores). Everything else — which metrics exist and what they are
-named — is fixed spine vocabulary, so a leaderboard reader parses one shape no matter
+named — is fixed shared-grading vocabulary, so a leaderboard reader parses one shape no matter
 the benchmark.
 
 Worked example — 3 Cases, scores [0.8, 0.5, 0.2], each rubric 5 items, all judged,
@@ -25,7 +25,7 @@ The scorer REFUSES partial input: an ungraded Case in the stack is an assertion
 error, never skipped — skipping would silently inflate the mean (the upstream scored
 path is responsible for turning every failure into a graded-or-failed Case first).
 
-FEATURE: one grading spine per benchmark (OME-1024, extracted in OME-1097) — this
+FEATURE: one shared grading code per benchmark (OME-1024, extracted in OME-1097) — this
 scorer existed as a near byte-identical closure in gdpval and healthbench.
 """
 
@@ -42,7 +42,7 @@ def mean_scorer(
 ) -> Callable[[Sequence[CaseResult]], CandidateScore]:
     """Bind one benchmark's benchmark-level mean into the shared penalty-bearing reduction.
 
-    The metric vocabulary is fixed spine vocabulary — every rubric benchmark publishes
+    The metric vocabulary is fixed shared-grading vocabulary — every rubric benchmark publishes
     exactly ``pass_rate``, ``scored_cases``, ``score_sd``, ``verdict_coverage``,
     ``judge_invalid_replies``; the ``mean`` is the only benchmark choice.
     """

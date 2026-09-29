@@ -14,8 +14,8 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     PROFESSIONAL_VARIANT,
     WORST30_VARIANT,
 )
-from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prepare import envelope
+from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.runtime import install
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS
 from url4 import Text, expr, render, src

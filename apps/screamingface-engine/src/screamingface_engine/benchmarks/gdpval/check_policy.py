@@ -23,7 +23,7 @@ honest fix is richer prepared rubric metadata, not leaking criteria.
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.variant import CHECK_CRITERION
 from screamingface_engine.benchmarks.rubric_check import RubricCheck, RubricShape
 

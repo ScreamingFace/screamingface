@@ -1,7 +1,7 @@
-"""HealthBench's verdict dialect — a shape declaration over the shared spine parser.
+"""HealthBench's verdict dialect — a shape declaration over the shared grading parser.
 
 The parsing work (JSON recovery, strict-boolean gate, identity stamping, mandatory audit
-trail) lives once in ``spine.verdict`` (OME-1099); this module keeps only what is
+trail) lives once in ``shared-grading.verdict`` (OME-1099); this module keeps only what is
 HealthBench's to own: its schema string, its reason vocabulary, and the strict-bool
 ``criteria_met`` dialect that mirrors the reference ``grade_sample`` loop
 (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
@@ -9,15 +9,15 @@ HealthBench's to own: its schema string, its reason vocabulary, and the strict-b
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     VerdictShape,
     parse_verdict,
     require_positive_int,
 )
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     rubric_binding_key as binding_key,
 )
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     rubric_verdict_call as call,
 )
 

@@ -33,7 +33,7 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
     WORST30_VARIANT,
 )
-from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
+from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL
 from screamingface_engine.benchmarks.rubric_check import RubricCheck, check_surface
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError

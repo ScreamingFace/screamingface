@@ -33,8 +33,10 @@ from screamingface_engine.benchmarks.case_execution import case_execution_payloa
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.spine.payloads import TextPayload  # noqa: E402
-from screamingface_engine.benchmarks.spine.scored import GradeRequest  # noqa: E402
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    GradeRequest,  # noqa: E402
+)
+from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine.grading_accounting import capture_grading_requests  # noqa: E402
 from screamingface_engine.operation_accounting import (  # noqa: E402
     OperationAccounting,

@@ -23,14 +23,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.contracteval.pins import (
+from screamingface_engine.benchmarks.contracteval.prompts import render_case_input
+from screamingface_engine.benchmarks.contracteval.revision_inputs import (
     DATASET,
     DATASET_REVISION,
     DATASET_SPLIT,
     EXPECTED_CASES,
     MAX_CONTEXT_TOKENS,
 )
-from screamingface_engine.benchmarks.contracteval.prompts import render_case_input
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 
 # WHY 4 and not a tokenizer: `tiktoken` is not an engine dependency and this guard exists to

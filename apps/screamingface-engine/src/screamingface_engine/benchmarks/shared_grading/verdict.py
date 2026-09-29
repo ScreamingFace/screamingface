@@ -1,6 +1,6 @@
 """The one judge-verdict parser every rubric benchmark configures. No model calls here.
 
-FEATURE: one grading spine per benchmark (OME-1024; this module lands OME-1099 and
+FEATURE: one shared grading code per benchmark (OME-1024; this module lands OME-1099 and
 delivers the typed record OME-1025 asked for).
 STORY: as the next rubric benchmark, I declare my verdict dialect and get parsing for free —
 I cannot drift a copy, and I cannot drop an audit field.
@@ -141,7 +141,7 @@ def parse_verdict(
     """
 
     require_text(producer_id, "producer_id")
-    decoded = recovered_object(raw)
+    decoded = extract_json_object(raw)
     code = _failure_code(shape, raw, decoded)
     if code is not None:
         return Verdict(
@@ -210,7 +210,7 @@ def _payload(shape: VerdictShape, decoded: Mapping[str, Any]) -> tuple[tuple[str
 # --- JSON recovery — shared by every dialect and the check surface -----------------------
 
 
-def recovered_object(raw: object) -> Any:
+def extract_json_object(raw: object) -> Any:
     """The judge's JSON value from however it chose to present it, or None.
 
     AIDEV-NOTE: the pinned rubric judge (gemini-3.1-pro-preview) wraps its JSON in a
@@ -228,7 +228,7 @@ def recovered_object(raw: object) -> Any:
         return _first_json_value(text, "{")
 
 
-def recovered_array(reply: str) -> list[object] | None:
+def extract_json_array(reply: str) -> list[object] | None:
     """The first JSON array embedded in a judge reply, or None — the check surface's shape."""
 
     if not isinstance(reply, str):
@@ -332,8 +332,8 @@ __all__ = [
     "Verdict",
     "VerdictShape",
     "parse_verdict",
-    "recovered_array",
-    "recovered_object",
+    "extract_json_array",
+    "extract_json_object",
     "require_positive_int",
     "require_text",
     "rubric_binding_key",

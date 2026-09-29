@@ -8,11 +8,11 @@ never a silently missing one. The checks, most-broken first:
 
 Message texts come from the BENCHMARK's injected mapping so extraction keeps each benchmark's
 failure output byte-identical (gdpval says "criterion" where healthbench says "rubric
-item"). The spine itself owns no message text.
+item"). The shared grading code itself owns no message text.
 
 OME-1097 dissolved `CaseGrader` into the `grade_case` seam: the first three checks run
-spine-side in `ScoredPath` before the hook is called; the last two come back from the
-hook as failure codes. These tests drive the same ladder through the scored path with a
+shared-grading-side in `BenchmarkAggregation` before the hook is called; the last two come back from
+the hook as failure codes. These tests drive the same ladder through the scored path with a
 stub hook, so every pinned behavior survives the seam change.
 """
 
@@ -27,13 +27,13 @@ import pytest
 from screamingface_engine.benchmarks.aggregation import SelectedCase
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader
-from screamingface_engine.benchmarks.spine.mean_scorer import mean_scorer
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
 )
+from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
+from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
 
 MESSAGES = {
     "missing_rubric_asset": "test: rubric asset gone",
@@ -85,7 +85,7 @@ async def _hook(request: GradeRequest) -> CaseGradeOutcome:
     return CaseGradeOutcome(score=score, metrics=metrics, checks=checks)
 
 
-PATH = ScoredPath(
+PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="TestBoard",
         error_type=BenchmarkError,

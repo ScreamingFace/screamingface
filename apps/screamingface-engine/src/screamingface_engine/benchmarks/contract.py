@@ -90,7 +90,8 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "polarity_mismatch",
         "missing_answer_asset",
         "missing_target_asset",
-        # spine failure_messages table codes (spine/scored.py `_failure`)
+        # shared-grading failure_messages table codes (shared_grading/benchmark_aggregation.py
+        # `_failure`)
         "missing_case_row",
         "missing_rubric_asset",
         "case_error",

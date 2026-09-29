@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.benchmarks.contracteval.pins import MAX_CONTEXT_TOKENS
 from screamingface_engine.benchmarks.contracteval.prepare import (
     PrepareError,
     case_records,
     emit,
 )
+from screamingface_engine.benchmarks.contracteval.revision_inputs import MAX_CONTEXT_TOKENS
 
 
 def _row(
@@ -294,6 +294,6 @@ class TestRowCountGuard:
     def test_the_declared_count_and_the_pin_are_one_value(self) -> None:
         """Two literals would be two things to forget."""
 
-        from screamingface_engine.benchmarks.contracteval import definition, pins
+        from screamingface_engine.benchmarks.contracteval import definition, revision_inputs
 
-        assert definition.CASE_COUNT is pins.EXPECTED_CASES
+        assert definition.CASE_COUNT is revision_inputs.EXPECTED_CASES

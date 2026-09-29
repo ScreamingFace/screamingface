@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.evaluation import (
@@ -48,13 +49,12 @@ from screamingface_engine.benchmarks.gdpval.case_evaluation import (
     bind_rubric_evaluation,
 )
 from screamingface_engine.benchmarks.gdpval.check_policy import GDPVAL_CHECK
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.variant import GdpvalVariant, VariantMean
 from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
-from screamingface_engine.benchmarks.grading_activity import grading_activity
+from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -74,7 +74,7 @@ def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
     install_cases(node, variant.routes.cases, _cases(root, variant.case_ids))
     installed = frozenset(node.processor_routes())
     endpoints = (
-        (variant.routes.tasks, _rubric_tasks(root, variant.case_ids, variant.id)),
+        (variant.routes.judge_requests, _rubric_judge_requests(root, variant.case_ids, variant.id)),
         # Closes over `node` so the judge route resolves per request — installation must still
         # work in a world holding no model routes.
         (variant.routes.check_surface, check_surface(node, root, GDPVAL_CHECK)),
@@ -144,7 +144,7 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     # payload is cached, so a broken asset re-checks (and re-fails loudly) on every call.
     memo: dict[str, str] = {}
 
-    @observe_stage(ActivityKind.CASE_LOADING)
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         if "payload" not in memo:
             raw = preflight(root, case_ids)
@@ -156,8 +156,8 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     return cases
 
 
-def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
-    """The fan-out point: one Candidate submission in, N ready-to-send judge tasks out."""
+def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
+    """The fan-out point: one Candidate submission in, N ready-to-send judge requests out."""
 
     # WHY memos: without them a 102-case run re-reads and re-parses the multi-MB cases.json
     # ~204 times and re-opens every rubric file per submission. The baked assets never change
@@ -166,11 +166,11 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
     text_memo: dict[int, str] = {}
     items_memo: dict[int, list[dict[str, Any]]] = {}
 
-    @observe_stage(ActivityKind.GRADING)
-    def rubric_tasks(request: Request) -> str:
+    @observe_phase(ActivityKind.GRADING)
+    def rubric_judge_requests(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
-            grading_activity(case_id, "started")
+            report_case_grading(case_id, "started")
             answer = candidate_answer(request.context)
             if "cases" not in raw_memo:
                 raw_memo["cases"] = _read(root / "cases.json", "GDPval cases")
@@ -181,7 +181,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
             if case_id not in items_memo:
                 items_memo[case_id] = _rubric_items(root, case_id)
             case_record = records.bind_case(raw_cases, case_id=case_id, candidate=answer)
-            tasks: list[dict[str, str]] = []
+            judge_requests: list[dict[str, str]] = []
             for item in items_memo[case_id]:
                 rendered = render_rubric_item(item["points"], item["criterion"])
                 grader_prompt = build_grader_prompt(work_request, answer.text, rendered)
@@ -200,7 +200,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                 rubric_record = records.bind_rubric_item(
                     rendered, case_id=case_id, rubric_id=item["rubric_id"]
                 )
-                tasks.append(
+                judge_requests.append(
                     {
                         "case_id": str(case_id),
                         "rubric_id": str(item["rubric_id"]),
@@ -212,7 +212,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                         # "{}" and `case_evaluation` hoists it back to one record per Case.
                         "case_record": (
                             json.dumps(case_record, ensure_ascii=False, separators=(",", ":"))
-                            if not tasks
+                            if not judge_requests
                             else "{}"
                         ),
                         "rubric_record": json.dumps(
@@ -224,15 +224,15 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
             # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
             # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
-        return compact_json(tasks)
+        return compact_json(judge_requests)
 
-    return rubric_tasks
+    return rubric_judge_requests
 
 
 def _rubric_verdict(benchmark_id: str):
     """The parse gate between "the judge said something" and "we have a verdict"."""
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
             case_id, rubric_id = binding_key(request.intent)
@@ -270,7 +270,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
-@observe_stage(ActivityKind.GRADING)
+@observe_phase(ActivityKind.GRADING)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)

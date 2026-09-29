@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
-from screamingface_engine.benchmarks.medxpert.pins import (
+from screamingface_engine.benchmarks.medxpert.revision_inputs import (
     DATASET,
     DATASET_CONFIG,
     DATASET_REVISION,

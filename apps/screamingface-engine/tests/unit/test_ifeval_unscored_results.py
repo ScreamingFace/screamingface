@@ -151,13 +151,13 @@ def test_bare_check_record_is_not_a_case_evaluation_envelope() -> None:
         aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
 
 
-def test_an_identified_error_row_takes_the_spine_case_error_shape() -> None:
+def test_an_identified_error_takes_the_shared_case_error_shape() -> None:
     """Pins the "collected rows are anonymous" assumption (OME-1101).
 
     Today a url4 ``on_error=collect`` row carries no case_id, so every collected
     IFEval error takes the anonymous path above (stage "grading", the diagnostic's
     own code — the wording the golden pins). An error case that DOES carry a
-    matching case_id lands on the spine's identified rung instead: stage
+    matching case_id lands on the shared grading code's identified rung instead: stage
     "candidate", published code "case_error", the diagnostic demoted to
     ``source_error`` metadata, and a grade envelope with score ``None`` rather
     than ``grade: None``. INVARIANT: if url4 ever stamps identity onto collect

@@ -34,8 +34,10 @@ from inspect_ai.scorer import Target, model_graded_qa  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA  # noqa: E402
-from screamingface_engine.benchmarks.spine.payloads import TextPayload  # noqa: E402
-from screamingface_engine.benchmarks.spine.scored import GradeRequest  # noqa: E402
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
+    GradeRequest,
+)
+from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     JudgeTransport,
     bound_judge_transport,

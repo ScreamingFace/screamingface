@@ -23,8 +23,8 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     PROFESSIONAL_VARIANT,
     WORST30_VARIANT,
 )
-from screamingface_engine.benchmarks.healthbench.pins import CHECK_CRITERION, JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
+from screamingface_engine.benchmarks.healthbench.revision_inputs import CHECK_CRITERION, JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, WORST30_HF_IDS
 from url4.core.grammar import parse
 

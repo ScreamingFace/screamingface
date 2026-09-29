@@ -1,9 +1,9 @@
-"""DRACO's verdict dialect — a shape declaration over the shared spine parser.
+"""DRACO's verdict dialect — a shape declaration over the shared grading parser.
 
 INVARIANT: Case, criterion, sequence, and producer identity come from Engine-owned URL4
 bindings; the Judge supplies only the verdict payload and cannot relabel its Evidence.
 
-The parsing work lives once in ``spine.verdict`` (OME-1099); this module keeps what is
+The parsing work lives once in ``shared-grading.verdict`` (OME-1099); this module keeps what is
 DRACO's to own: its ``MET``/``UNMET`` enum dialect with a required explanation, its
 reason vocabulary, and its own ``call``/``binding_key`` — DRACO's binding carries a
 ``sequence`` and an opaque criterion id, unlike the rubric benchmarks' integer pair.
@@ -12,7 +12,7 @@ reason vocabulary, and its own ``call``/``binding_key`` — DRACO's binding carr
 from __future__ import annotations
 
 from screamingface_engine.benchmarks.draco.validation import require_text
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     VerdictShape,
     parse_verdict,
     require_positive_int,

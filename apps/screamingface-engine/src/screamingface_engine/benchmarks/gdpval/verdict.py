@@ -1,22 +1,22 @@
-"""GDPval's verdict dialect — a shape declaration over the shared spine parser.
+"""GDPval's verdict dialect — a shape declaration over the shared grading parser.
 
 The parsing work (JSON recovery, strict-boolean gate, identity stamping, mandatory audit
-trail — OME-1023's raw-reply rule included) lives once in ``spine.verdict`` (OME-1099);
+trail — OME-1023's raw-reply rule included) lives once in ``shared-grading.verdict`` (OME-1099);
 this module keeps only what is GDPval's to own: its schema string and its prose reason
 vocabulary, which reaches the wire on rejected verdicts and must stay byte-identical.
 """
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     VerdictShape,
     parse_verdict,
     require_positive_int,
 )
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     rubric_binding_key as binding_key,
 )
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     rubric_verdict_call as call,
 )
 

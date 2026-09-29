@@ -126,7 +126,7 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "polarity_mismatch",
             "missing_answer_asset",
             "missing_target_asset",
-            # spine failure_messages table codes
+            # shared-grading failure_messages table codes
             "missing_case_row",
             "missing_rubric_asset",
             "case_error",

@@ -44,7 +44,7 @@ from screamingface_engine.benchmarks.evaluation import (
     attempt_records_endpoint,
     benchmark_unavailable,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.phases import observe_phase
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -103,7 +103,8 @@ def compute_benchmark_revision(*parts: str) -> str:
 class ServedBenchmark:
     """One deterministic benchmark's declaration — everything its benchmark needs said once.
 
-    The benchmark writes what makes its benchmark different; the spine serves it. Fields:
+    The benchmark writes what makes its benchmark different; the shared grading code serves it.
+    Fields:
 
     - `benchmark_id` / `revision`: benchmark identity; the route layout derives from them.
     - `label`: the human name endpoint failures speak ("ContractEval").
@@ -116,7 +117,7 @@ class ServedBenchmark:
     - `build_public_cases`: turns the baked `cases.json` rows into the served public booklet.
       INVARIANT (sealed envelope): rows carry questions, never which answers grade them.
     - `check`: the benchmark's own grading gate, given the bundle root. Benchmark-specific by
-      design — the spine does not average over benchmarks.
+      design — the shared grading code does not average over benchmarks.
     - `bind_case_evaluation`: bundles checked attempts into the per-Case artifact.
     - `reduce`: the benchmark's reducer (`aggregate.aggregate`), fed benchmark identity and the
       exact selected case_ids.
@@ -218,7 +219,7 @@ def serve_cases(root: Path, benchmark: ServedBenchmark) -> Callable[[], str]:
 
     preflighted = False
 
-    @observe_stage(ActivityKind.CASE_LOADING)
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         nonlocal preflighted
         rows = json.loads(read_asset(root / "cases.json", f"{benchmark.label} cases"))
@@ -242,7 +243,7 @@ def candidate_record(
     """Assemble the shared check-record envelope in its byte-stable field order.
 
     The benchmark owns the middle (`verdict`: its graded facts) and the tail (`tail`: its
-    output/reasoning text fields); the spine owns everything the shared candidate
+    output/reasoning text fields); the shared grading code owns everything the shared candidate
     envelope carries. INVARIANT: field ORDER is part of the served bytes — migrated
     benchmarks must produce byte-identical records through this helper:
 

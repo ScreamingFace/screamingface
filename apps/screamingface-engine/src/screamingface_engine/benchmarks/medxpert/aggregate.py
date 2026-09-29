@@ -1,8 +1,8 @@
 """MedXpertQA's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
-contribution: its exact-match ``grade_case`` (committed letter vs the private key),
-its plain-accuracy scorer, its slice tags, and its own failure wording. The engine
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its exact-match ``grade_case`` (committed letter vs the
+private key), its plain-accuracy scorer, its slice tags, and its own failure wording. The engine
 ships mechanisms; a benchmark ships semantics (folded in OME-1149 — this benchmark was
 the "second non-rubric data point" its pre-fold docstring asked for).
 
@@ -12,8 +12,8 @@ experimental run scored a model answering 77% of rows over that smaller, easier 
 so its accuracy was not the same measurement as a model that answered all of them.
 
 AIDEV-NOTE: that is deliberately NOT the benchmark's `failure_policy`. That axis governs a Case
-which never got a valid grade — an infrastructure failure — and those go through the spine's
-failure ladder into the shared `finalize_candidate_result`, which scores the gradeable subset
+which never got a valid grade — an infrastructure failure — and those go through the shared grading
+code's failure ladder into the shared `finalize_candidate_result`, which scores the gradeable subset
 and publishes coverage. Hence the benchmark declares `coverage_declare`. An empty answer DOES get
 a grade here, of 0.0.
 
@@ -34,11 +34,14 @@ from screamingface_engine.benchmarks.aggregation import CandidateScore, Selected
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.medxpert.case_evaluation import decode_case_evaluation
 from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
+)
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
 )
 
 # INVARIANT: failure wording is this benchmark's published voice — no rubric-flavored
@@ -102,10 +105,10 @@ def aggregate(
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Validate the envelope, then hoist attempt 1 into the spine's candidate shape.
+    """Validate the envelope, then hoist attempt 1 into the shared grading code's candidate shape.
 
     The committed letter, reasoning, and refusal all live on the first (only)
-    attempt; the spine reads the candidate's half of the row under ``case``.
+    attempt; the shared grading code reads the candidate's half of the row under ``case``.
     """
 
     envelope = decode_case_evaluation(grading, expected_case_id)
@@ -225,10 +228,10 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
     )
 
 
-# WHY bound at module bottom: the scored path lives in the spine; the hooks and the
+# WHY bound at module bottom: the scored path lives in the shared grading code; the hooks and the
 # failure-message wording stay benchmark-owned so per-case output is byte-identical to the
 # pre-fold copy (the medxpert unit suite pins every rung — no golden exists yet).
-_PATH = ScoredPath(
+_PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="MedXpertQA",
         error_type=AggregateError,

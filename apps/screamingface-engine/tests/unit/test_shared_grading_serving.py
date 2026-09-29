@@ -23,7 +23,7 @@ from screamingface_engine.benchmarks.evaluation import (
     candidate_answer,
     compact_json,
 )
-from screamingface_engine.benchmarks.spine.serving import (
+from screamingface_engine.benchmarks.shared_grading.serving import (
     ServedBenchmark,
     benchmark_aggregate,
     benchmark_case_count,

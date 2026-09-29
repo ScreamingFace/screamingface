@@ -102,7 +102,7 @@ class Routes:
 
     prefix: str
     cases: str
-    tasks: str
+    judge_requests: str
     verdict: str
     criterion_evaluation: str
     case_evaluation: str
@@ -115,7 +115,7 @@ class Routes:
         return cls(
             prefix=prefix,
             cases=f"{prefix}/cases",
-            tasks=f"{prefix}/tasks",
+            judge_requests=f"{prefix}/tasks",
             verdict=f"{prefix}/criterion-verdict",
             criterion_evaluation=f"{prefix}/criterion-evaluation",
             case_evaluation=f"{prefix}/case-evaluation",
@@ -255,7 +255,7 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
     )
     criteria = iterate(
         RelExpr(
-            path=routes.tasks,
+            path=routes.judge_requests,
             # This collection boundary invokes the Candidate exactly once, then returns the
             # criterion tasks plus Engine-bound Case/Check records for lossless aggregation.
             context="$candidate_invocation",

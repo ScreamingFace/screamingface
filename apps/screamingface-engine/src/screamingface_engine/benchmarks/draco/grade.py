@@ -1,11 +1,11 @@
 """DRACO's grading hooks — everything the multi-pass benchmarks still write to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
-contribution: its multi-pass ``grade_case`` (N seeded judge verdicts per criterion
-reduced to one grade), its published cross-Case scorer, its selection validation,
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its multi-pass ``grade_case`` (N seeded judge verdicts per
+criterion reduced to one grade), its published cross-Case scorer, its selection validation,
 and its failure shapes. The engine ships mechanisms; a benchmark ships semantics.
 
-FEATURE: one grading spine per benchmark (OME-1024); this fold (OME-1100) is the
+FEATURE: one shared grading code per benchmark (OME-1024); this fold (OME-1100) is the
 first benchmark with a genuinely different GRADING shape (N judge passes per criterion)
 on the shared hook — the proof the hook is not single-pass-shaped.
 STORY: as a researcher, the number I publish is the DRACO paper's
@@ -14,10 +14,10 @@ STORY: as a researcher, the number I publish is the DRACO paper's
 The stages, in execution order (one aggregate call = marking one benchmark's benchmark):
 
     Stage 1  selection validation      → non-empty, unique positive ids, input text
-    Stage 2  row filing (spine)        → CaseGradeReader + the exact envelope decoder;
+    Stage 2  row filing (shared-grading)        → CaseGradeReader + the exact envelope decoder;
              draco CLAIMS anonymous error cases — position is identity here
-    Stage 3  the ladder (spine)        → draco's benchmark-owned failure shapes ride the
-             four result hooks below; the spine's default rungs never fire
+    Stage 3  the ladder (shared-grading)        → draco's benchmark-owned failure shapes ride the
+             four result hooks below; the shared grading code's default rungs never fire
     Stage 4  grade_case (this module)  → valid verdicts per rubric → score_case over
              the passes, or the incomplete grade when nothing was scoreable
     Stage 5  the scorer (this module)  → the official cross-Case reduction
@@ -58,16 +58,16 @@ from screamingface_engine.benchmarks.draco.case_evaluation import decode_case_ev
 from screamingface_engine.benchmarks.draco.definition import JUDGE_PASSES, REVISION
 from screamingface_engine.benchmarks.draco.errors import AggregateError
 from screamingface_engine.benchmarks.draco.validation import optional_integer
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeCase,
     GradeRequest,
-    ScoredPath,
 )
+from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
 
-# WHY the table exists at all: every default rung of the spine's ladder is replaced
-# by a benchmark-owned result hook below, so the spine never looks a draco code up —
+# WHY the table exists at all: every default rung of the shared grading code's ladder is replaced
+# by a benchmark-owned result hook below, so the shared grading code never looks a draco code up —
 # but the field is required, and the table documents which rungs draco owns.
 _FAILURE_MESSAGES: dict[str, str] = {
     "missing_rubric_asset": "the selected Case has no installed DRACO rubric",
@@ -111,7 +111,7 @@ def aggregate(
         )
         for case in expected
     ]
-    path = ScoredPath(
+    path = BenchmarkAggregation(
         reader=CaseGradeReader(
             benchmark_label="DRACO",
             error_type=AggregateError,
@@ -171,7 +171,7 @@ def _grade_case(judge_passes: int) -> GradeCase:
     return grade
 
 
-# ── the benchmark-owned failure shapes (each replaces one spine rung) ───────────
+# ── the benchmark-owned failure shapes (each replaces one shared-grading rung) ───────────
 
 
 def _error_case_result(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:

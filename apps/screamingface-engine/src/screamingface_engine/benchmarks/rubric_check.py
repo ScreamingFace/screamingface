@@ -60,8 +60,8 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
 from screamingface_engine.benchmarks.failure_classes import judge_failure as _judge_failure
-from screamingface_engine.benchmarks.spine.verdict import recovered_array
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.shared_grading.verdict import extract_json_array
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -149,7 +149,7 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
     installation must keep working in worlds that hold no model routes at all.
     """
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     async def check(request: Request) -> str:
         if request.intent == FEEDBACK_INTENT:
             return _surface_feedback(config, request.context)
@@ -453,9 +453,9 @@ def _verdict_row(row: object, count: int) -> tuple[int, bool] | None:
 
 
 def _decoded_array(reply: str) -> list[object] | None:
-    # The shared JSON-recovery primitive (spine.verdict, OME-1099) — same fence
+    # The shared JSON-recovery primitive (shared-grading.verdict, OME-1099) — same fence
     # stripping and first-value scan as the per-item verdict parsers.
-    return recovered_array(reply or "")
+    return extract_json_array(reply or "")
 
 
 # --- scoring + sanitization -------------------------------------------------------

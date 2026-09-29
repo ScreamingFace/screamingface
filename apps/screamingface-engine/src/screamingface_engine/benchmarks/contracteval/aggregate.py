@@ -1,8 +1,8 @@
 """ContractEval's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
-contribution: its containment ``grade_case`` (every gold sentence quoted verbatim, or a
-correct abstention), its confusion-matrix scorer, and its own failure wording.
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its containment ``grade_case`` (every gold sentence quoted
+verbatim, or a correct abstention), its confusion-matrix scorer, and its own failure wording.
 
 INVARIANT — the headline score is F1 from a DATASET-level confusion matrix, not a mean of
 case scores. Every other benchmark binds ``mean_scorer(mean)``; this one cannot, because a mean
@@ -12,8 +12,8 @@ destroys the fact that distinguishes the two ways of being wrong:
     negative row (no clause exists) → TN if the reply abstains,                  else FP
 
 A case score of 0.0 is a false negative on a positive row and a false positive on a negative
-one. ``ScoredPath.aggregate`` takes the benchmark's whole ``CandidateScore`` builder, which is
-exactly the generality this needs.
+one. ``BenchmarkAggregation.aggregate`` takes the benchmark's whole ``CandidateScore`` builder,
+which is exactly the generality this needs.
 
 AIDEV-NOTE: read that table before changing anything here. Positive rows can never be TN/FP
 and negative rows can never be TP/FN, so ``precision`` mixes positive-row successes against
@@ -38,11 +38,14 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.contracteval.case_evaluation import decode_case_evaluation
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
+)
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
 )
 
 # INVARIANT: failure wording is this benchmark's published voice — no rubric-flavored code
@@ -106,15 +109,16 @@ def aggregate(
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Validate the envelope, then hoist attempt 1 into the spine's candidate shape."""
+    """Validate the envelope, then hoist attempt 1 into the shared candidate shape."""
 
     envelope = decode_case_evaluation(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
     # AIDEV-NOTE (review, PR #984): this used to read `attempt.get("metadata")`, which `_check`
     # never emits — dead on arrival, ported verbatim from medxpert where it is equally dead. The
     # empty dict is now explicit. If a future check record carries per-Case report metadata,
-    # THIS is the seam it joins; `ScoredPath.aggregate`'s `case_metadata=` is the other option,
-    # and the right one for anything read from the private answer asset rather than the reply.
+    # THIS is the seam it joins; `BenchmarkAggregation.aggregate`'s `case_metadata=` is the other
+    # option, and the right one for anything read from the private answer asset rather than the
+    # reply.
     fields: dict[str, Any] = {}
     return {
         "case": {
@@ -259,9 +263,9 @@ def _confusion_matrix_score(cases: Sequence[CaseResult]) -> CandidateScore:
     )
 
 
-# WHY bound at module bottom: the scored path lives in the spine; the hooks and the failure
-# wording stay benchmark-owned, so per-Case output keeps this benchmark's voice.
-_PATH = ScoredPath(
+# WHY bound at module bottom: the scored path lives in the shared grading code; the hooks and the
+# failure wording stay benchmark-owned, so per-Case output keeps this benchmark's voice.
+_PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="ContractEval",
         error_type=AggregateError,

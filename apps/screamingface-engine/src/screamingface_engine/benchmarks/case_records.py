@@ -9,7 +9,7 @@ from screamingface_engine.benchmarks.contract import validate_candidate_outcome
 from screamingface_engine.benchmarks.evaluation import CandidateAnswer, positive_case_id
 
 
-def bind_case_record(
+def build_case_record(
     raw_cases: str,
     *,
     case_id: int,
@@ -81,4 +81,4 @@ def _optional_case_id(value: object) -> int | None:
         return None
 
 
-__all__ = ["bind_case_record"]
+__all__ = ["build_case_record"]

@@ -101,7 +101,7 @@ def test_mcq_benchmark_is_refused_a_check_surface() -> None:
     assert "check_surface" not in MMLU_BENCHMARK.benchmark.catalog_entry()
 
 
-# ── runtime + spine aggregate through their real choice() scorer ─────────────
+# ── runtime + shared-grading aggregate through their real choice() scorer ─────────────
 
 
 def _bake(root: Path) -> tuple[Path, dict[int, str]]:

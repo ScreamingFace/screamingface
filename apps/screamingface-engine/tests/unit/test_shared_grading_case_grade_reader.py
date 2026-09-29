@@ -26,7 +26,7 @@ import pytest
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader
+from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
 
 
 class BenchmarkError(ValueError):

@@ -20,7 +20,7 @@
         <mxCell id="rf4" value="row — YOUR opaque envelope&#xa;(row[&quot;case&quot;] carries refusal etc.)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
           <mxGeometry x="20" y="180" width="280" height="44" as="geometry" />
         </mxCell>
-        <mxCell id="rf5" value="material — YOUR answer key&#xa;(opaque to the spine)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
+        <mxCell id="rf5" value="material — YOUR answer key&#xa;(opaque to the shared grading code)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="req">
           <mxGeometry x="20" y="234" width="280" height="44" as="geometry" />
         </mxCell>
         <mxCell id="hook" value="async grade_case&#xa;(may be a network hop —&#xa;an enclave judge)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=13;fontStyle=1;" vertex="1" parent="1">

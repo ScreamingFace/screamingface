@@ -17,7 +17,7 @@ class CaseGradingObserver(Protocol):
     ) -> None: ...
 
 
-def grading_activity(case_id: CaseId, state: GradingState) -> None:
+def report_case_grading(case_id: CaseId, state: GradingState) -> None:
     """Report an explicit handoff/outcome without allowing an observer to change it."""
     if in_candidate_invocation():
         return

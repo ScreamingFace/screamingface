@@ -11,7 +11,7 @@ from screamingface_engine.benchmarks.case_request import candidate_input, candid
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.candidate_scope import candidate_invocation_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
@@ -62,7 +62,7 @@ class _CandidateInvocation:
                 permanent=True,
             ) from exc
 
-    @observe_stage(ActivityKind.ANSWERING)
+    @observe_phase(ActivityKind.ANSWERING)
     async def _evaluate(self, expression: str, input_text: str) -> str:
         # WHY: stage entry must occur inside the decoded Case scope, so its start,
         # terminal record and nested calls all share the explicit identity.

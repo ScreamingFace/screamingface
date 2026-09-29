@@ -4,7 +4,7 @@ If `definition.py` writes the recipe, this module now only declares what makes t
 benchmark different: booklet rows enriched with each Case's ready-made CoT prompt and
 trigger, the two-field check that extracts the committed letter, and the accuracy
 reducer. The routes, memoized preflight, case serving and aggregate wiring live in
-`spine/serving.py` — one kitchen for every hand-built deterministic benchmark.
+`shared_grading/serving.py` — one kitchen for every hand-built deterministic benchmark.
 
 INVARIANT: everything here is deterministic and spends no tokens. The model calls
 live in the expression, not in these handlers — which is the whole reason this
@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.evaluation import (
     candidate_answer,
@@ -29,7 +30,6 @@ from screamingface_engine.benchmarks.evaluation import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
-from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.medxpert import aggregate as reducing
 from screamingface_engine.benchmarks.medxpert.answering import (
     extract_choice_letter,
@@ -44,14 +44,14 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     CASE_COUNT,
     REVISION,
 )
-from screamingface_engine.benchmarks.spine.serving import (
+from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.shared_grading.serving import (
     ServedBenchmark,
     benchmark_preflight,
     candidate_record,
     install_benchmark,
     serve_cases,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -76,7 +76,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 
 
 def _cases(root: Path):
-    """The public booklet, served by the spine with this benchmark's declaration."""
+    """The public booklet, served by the shared grading code with this benchmark's declaration."""
 
     return serve_cases(root, BENCHMARK)
 
@@ -116,11 +116,11 @@ def _cot_prompt(question: str) -> str:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a committed letter"."""
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
-            grading_activity(case_id, "started")
+            report_case_grading(case_id, "started")
             payload = json_object(request.context, "MedXpertQA check")
             if tuple(payload) != ("reasoning", "commit"):
                 raise ValueError("MedXpertQA check fields must be reasoning, commit")

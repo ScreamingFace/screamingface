@@ -97,7 +97,7 @@ def test_the_three_pass_routes_are_revision_pinned_and_separate() -> None:
     assert prefix == f"/benchmarks/draco-3pass/{THREE_PASS_VARIANT.revision}"
     canonical_routes = {
         CANONICAL_VARIANT.routes.cases,
-        CANONICAL_VARIANT.routes.tasks,
+        CANONICAL_VARIANT.routes.judge_requests,
         CANONICAL_VARIANT.routes.verdict,
         CANONICAL_VARIANT.routes.criterion_evaluation,
         CANONICAL_VARIANT.routes.case_evaluation,
@@ -106,7 +106,7 @@ def test_the_three_pass_routes_are_revision_pinned_and_separate() -> None:
     }
     three_pass_routes = {
         THREE_PASS_VARIANT.routes.cases,
-        THREE_PASS_VARIANT.routes.tasks,
+        THREE_PASS_VARIANT.routes.judge_requests,
         THREE_PASS_VARIANT.routes.verdict,
         THREE_PASS_VARIANT.routes.criterion_evaluation,
         THREE_PASS_VARIANT.routes.case_evaluation,
@@ -182,13 +182,13 @@ def test_both_benchmarks_install_and_validate_on_one_world(tmp_path: Path) -> No
 
     registered = set(node.processor_routes())
     for route in (
-        CANONICAL_VARIANT.routes.tasks,
+        CANONICAL_VARIANT.routes.judge_requests,
         CANONICAL_VARIANT.routes.verdict,
         CANONICAL_VARIANT.routes.criterion_evaluation,
         CANONICAL_VARIANT.routes.case_evaluation,
         CANONICAL_VARIANT.routes.aggregate,
         CANONICAL_VARIANT.routes.check_surface,
-        THREE_PASS_VARIANT.routes.tasks,
+        THREE_PASS_VARIANT.routes.judge_requests,
         THREE_PASS_VARIANT.routes.verdict,
         THREE_PASS_VARIANT.routes.criterion_evaluation,
         THREE_PASS_VARIANT.routes.case_evaluation,

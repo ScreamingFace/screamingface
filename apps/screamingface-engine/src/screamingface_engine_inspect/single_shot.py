@@ -2,7 +2,7 @@
 
 Think of it as the plugin's own assembly line: hand it a benchmark's identity, its pinned
 dataset facts, and its scorer, and it stamps out everything the engine expects — the
-url4 protocol, the runtime routes, the ScoredPath binding, and the registration. The
+url4 protocol, the runtime routes, the BenchmarkAggregation binding, and the registration. The
 per-benchmark modules (`gsm8k.py`, `mmlu.py`) shrink to declarations — the spec §5 "≤150
 lines per benchmark" budget made structural.
 
@@ -59,19 +59,22 @@ from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as 
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
+from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.payloads import TextPayload
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -159,8 +162,8 @@ class ImportedBenchmark:
     #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
 
-    def scored_path(self) -> ScoredPath:
-        """This benchmark's spine binding — built on demand so the scorer stays lazy."""
+    def aggregation(self) -> BenchmarkAggregation:
+        """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
 
         # WHY lazy: the scorer adapter imports inspect_ai (which drags in a web stack and the
         # OTel SDK). Benchmark REGISTRATION happens at engine import in every mode; the
@@ -169,7 +172,7 @@ class ImportedBenchmark:
         # test_span_export_wiring pin this).
         from screamingface_engine_inspect.scorer_adapter import inspect_grade_case
 
-        return ScoredPath(
+        return BenchmarkAggregation(
             reader=CaseGradeReader(
                 benchmark_label=self.benchmark.title,
                 error_type=AggregateError,
@@ -468,7 +471,7 @@ def _build(routes: Mapping[str, str], available: int) -> Callable[[int], Node]:
 
 
 def _cases(root: Path) -> Callable[[], str]:
-    @observe_stage(ActivityKind.CASE_LOADING)
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         try:
             return (root / "cases.json").read_text(encoding="utf-8")
@@ -494,7 +497,7 @@ def _check(root: Path) -> Callable[[Request], str]:
     preserved for re-grading.
     """
 
-    @observe_stage(ActivityKind.ANSWERING)
+    @observe_phase(ActivityKind.ANSWERING)
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
@@ -543,7 +546,7 @@ def _check(root: Path) -> Callable[[Request], str]:
 
 
 def _check_surface(benchmark: ImportedBenchmark, root: Path) -> Callable[[Request], str]:
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def check_surface(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
@@ -591,7 +594,7 @@ def check_surface_verdict(
     target or the scorer's explanation (which may quote it).
 
     AIDEV-NOTE: each call re-reads cases.json (linear scan) and rebuilds the
-    ScoredPath + scorer + a fresh executor — fine at proof-benchmark scale, but cache a
+    BenchmarkAggregation + scorer + a fresh executor — fine at proof-benchmark scale, but cache a
     per-root case→id index and the scored path before a bulk import lands.
     """
 
@@ -603,7 +606,7 @@ def check_surface_verdict(
         raise ValueError(_FAILURE_MESSAGES["missing_target_asset"])
     answer: str = candidate_answer(invocation).text
     outcome: CaseGradeOutcome = _run_sync(
-        benchmark.scored_path().grade_case(
+        benchmark.aggregation().grade_case(
             GradeRequest(
                 case_id=case_id,
                 input=TextPayload(text=input_text),
@@ -636,7 +639,7 @@ def benchmark_aggregate(
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
-    """Score every selected Case on the shared spine, then mean accuracy."""
+    """Score every selected Case on the shared grading, then mean accuracy."""
 
     return _run_sync(benchmark_aggregate_async(benchmark, raw_case_grades, root, case_ids=case_ids))
 
@@ -649,7 +652,7 @@ async def benchmark_aggregate_async(
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
     # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
-    return await benchmark.scored_path().aggregate_async(
+    return await benchmark.aggregation().aggregate_async(
         raw_case_grades,
         benchmark_id=benchmark.benchmark.id,
         benchmark_revision=benchmark.benchmark.revision,
@@ -721,7 +724,7 @@ def _judged_aggregate(
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Validate the envelope, then hoist attempt 1 into the spine's candidate shape."""
+    """Validate the envelope, then hoist attempt 1 into the shared candidate shape."""
 
     envelope: dict[str, Any] = decode_case_evaluation(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
@@ -790,10 +793,10 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
 
 
 def _run_sync[T](coroutine: Awaitable[T]) -> T:
-    """Drive the async scorer adapter from a sync route handler (the spine's own pattern).
+    """Drive the async scorer adapter from a sync route handler (the shared grading pattern).
 
-    WHY a verbatim copy of spine ``scored._run_sync`` instead of an import: it is
-    private there, and acceptance §8.2 demands ZERO spine edits in this ticket —
+    WHY a verbatim copy of shared-grading ``scored._run_sync`` instead of an import: it is
+    private there, and acceptance §8.2 demands ZERO shared-grading edits in this ticket —
     exporting it is a one-line core follow-up when a third caller appears.
     """
 
@@ -802,7 +805,7 @@ def _run_sync[T](coroutine: Awaitable[T]) -> T:
     except RuntimeError:
         return asyncio.run(_awaited(coroutine))
     # INVARIANT (OME-1240): a COPY of the caller's context rides into the worker
-    # thread, mirroring spine `scored._run_sync` verbatim — the twins must not
+    # thread, mirroring shared-grading `scored._run_sync` verbatim — the twins must not
     # diverge on whether a judge-calling hook can see the run's usage sink.
     context = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=1) as pool:

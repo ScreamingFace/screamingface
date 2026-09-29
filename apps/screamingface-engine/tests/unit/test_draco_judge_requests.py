@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from screamingface_engine.benchmarks.draco import tasks
+from screamingface_engine.benchmarks.draco import judge_requests
 
 
-def test_build_tasks_combines_answer_with_weight_free_criteria() -> None:
+def test_build_judge_requests_combines_answer_with_weight_free_criteria() -> None:
     criteria = [
         {
             "id": "correct",
@@ -21,7 +21,7 @@ def test_build_tasks_combines_answer_with_weight_free_criteria() -> None:
         },
     ]
 
-    result = tasks.build_tasks(7, "What is two plus two?", "Four.", criteria)
+    result = judge_requests.build_judge_requests(7, "What is two plus two?", "Four.", criteria)
 
     assert result == [
         {
@@ -44,9 +44,9 @@ def test_build_tasks_combines_answer_with_weight_free_criteria() -> None:
     assert all("weight" not in task for task in result)
 
 
-def test_build_tasks_rejects_invalid_criterion_type() -> None:
-    with pytest.raises(tasks.TasksError, match="criterion_type"):
-        tasks.build_tasks(
+def test_build_judge_requests_rejects_invalid_criterion_type() -> None:
+    with pytest.raises(judge_requests.JudgeRequestError, match="criterion_type"):
+        judge_requests.build_judge_requests(
             1,
             "Q",
             "A",
@@ -54,8 +54,8 @@ def test_build_tasks_rejects_invalid_criterion_type() -> None:
         )
 
 
-def test_build_tasks_sends_an_empty_model_output_to_the_normal_judge() -> None:
-    result = tasks.build_tasks(
+def test_build_judge_requests_sends_an_empty_model_output_to_the_normal_judge() -> None:
+    result = judge_requests.build_judge_requests(
         1,
         "Question",
         "",

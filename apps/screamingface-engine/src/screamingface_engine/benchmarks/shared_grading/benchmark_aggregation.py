@@ -5,9 +5,9 @@ questions → 100 parallel candidate calls. It returns one row per Case (the gra
 and this module is the marking room that turns the pile into the benchmark result.
 The only per-benchmark step is ``grade_case`` — the one function every benchmark writes to
 mark one script; everything around it (the roll call, the failure ladder, result
-assembly, the benchmark-level reduction) is spine machinery a benchmark author never sees.
+assembly, the benchmark-level reduction) is shared-grading machinery a benchmark author never sees.
 
-The goal of this module is to have a shared grading pipeline (the "spine"), and each
+The goal of this module is to have a shared grading pipeline (the "shared-grading"), and each
 benchmark only plugs in its own marking logic. Before this shared module, ``gdpval/grade.py``
 and ``healthbench/grade.py`` each had their own copy of the same ~code: the loop that files
 rows by case, runs the failure ladder, grades each case, and computes the final score.
@@ -33,20 +33,20 @@ One aggregate call = marking one class's benchmark.
     the one function the benchmark author writes. Answer + rubric in, grade out.
     The hook can still fail a Case (e.g. the judge returned verdicts for only 3 of 5 rubric
     points → incomplete_verdicts), and the failure message text belongs to the benchmark,
-    not the spine.
+    not the shared grading code.
 - Stage 5 — total the marks. Wrap each Case's outcome into a `CaseResult`, then compute the
     benchmark-level score with the shared scorer. The benchmark contributes exactly one thing
     here: its mean (how per-Case scores average into the headline number). Everything else —
-    the metric names in the output — is fixed spine vocabulary, so every benchmark's
+    the metric names in the output — is fixed shared-grading vocabulary, so every benchmark's
     report looks the same.
 
-The key design point: Stages 1, 2, 3, 5 are identical for every benchmark (spine).
+The key design point: Stages 1, 2, 3, 5 are identical for every benchmark (shared-grading).
 Only Stage 4's grade_case (plus failure wording and the mean) is per-benchmark.
 
 INVARIANT (the hourglass waist): a ``GradeRequest`` carries only plain, serializable
 data — kind-tagged payloads, the decoded row mapping, the benchmark's grading material.
 No ``Path``, no engine objects, no callbacks. Three consumers force this: an enclave
-judge across a privacy boundary, the inspect_evals scorer shim, and agentic benchmarks.
+judge across a privacy boundary, the inspect_evals scorer adapter, and agentic benchmarks.
 
 INVARIANT: failure codes and message texts stay byte-identical per benchmark — wording is
 benchmark-supplied (gdpval says "criterion" where healthbench says "rubric item"); the
@@ -75,8 +75,11 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.case_execution import CaseExecutionOutcome
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeIndex, CaseGradeReader
-from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeIndex,
+    CaseGradeReader,
+)
+from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload, TextPayload
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +93,7 @@ class GradeRequest:
             (a refusal's text rides on the assembled result, not here).
         row: the benchmark-decoded evaluation envelope — the judge's work is inside it.
         material: the benchmark's grading material for this Case (rubric points today;
-            a label or verifier command for later grading modes). Opaque to the spine.
+            a label or verifier command for later grading modes). Opaque to the shared grading code.
     """
 
     case_id: CaseId
@@ -111,7 +114,7 @@ class CaseGradeOutcome:
 
     # WHY Any, not int (OME-1100): draco's per-Case metric block carries floats,
     # None (an unobserved axis), and nested per-axis dicts — counting claims are a
-    # benchmark vocabulary, not a spine one.
+    # benchmark vocabulary, not a shared-grading one.
     score: float | None
     metrics: Mapping[str, Any]
     checks: Sequence[Mapping[str, Any]]
@@ -136,7 +139,7 @@ type MissingCaseResult = Callable[
 #: ``(selected, selected_index, row)`` where ``row`` carries the ``"error"`` payload.
 #: WHY (OME-1100): draco publishes the UPSTREAM error's own code ("rate_limited",
 #: "provider_error") on a candidate-stage failure with no grade envelope, where the
-#: spine default publishes the fixed ``case_error`` code with an empty grade — the
+#: shared-grading default publishes the fixed ``case_error`` code with an empty grade — the
 #: e2e failure tapes pin draco's shape byte-for-byte.
 type ErrorCaseResult = Callable[[SelectedCase, int, Mapping[str, Any]], CaseResult]
 
@@ -168,7 +171,7 @@ _OMITTED = _Omitted()
 
 
 @dataclass(frozen=True, slots=True)
-class ScoredPath:
+class BenchmarkAggregation:
     """One benchmark's scored path — the shared stages bound to the benchmark's own seam.
 
     Each benchmark constructs one module-level instance. What a benchmark still owns:
@@ -183,12 +186,12 @@ class ScoredPath:
         grading_failure_code: the benchmark's code for "the grading step itself failed".
         grading_failure_message: its default public message.
         missing_case_result: optional benchmark-owned builder for the WHOLE missing-case
-            CaseResult (wording, codes, grade shape). ``None`` keeps the spine
+            CaseResult (wording, codes, grade shape). ``None`` keeps the shared grading code
             default (the orphan's own code when it names one, e.g. ``model_token_cap``,
             else ``missing_case_row``; the orphan cause attached either way). WHY
             (OME-1101): ifeval's recorded golden pins its own collected-row wording
             (stage "grading", the diagnostic's code), and OME-981 owns the
-            candidate-vs-grading boundary decision — the spine must not default it.
+            candidate-vs-grading boundary decision — the shared grading code must not default it.
         error_case_result: optional benchmark-owned builder for the WHOLE error-case
             CaseResult. A benchmark that sets it also owns the rung's RANK: its error
             rows are reported before the material rung (draco reports a broken row
@@ -246,7 +249,7 @@ class ScoredPath:
                 supplies its published metric vocabulary here (OME-1101).
             case_metadata: optional per-Case loader for PUBLIC report metadata that
                 does not ride the row (OME-1149: MedXpertQA's slice tags live in the
-                private answer asset). Merged into the spine-assembled scored and
+                private answer asset). Merged into the shared grading code-assembled scored and
                 failed results, so failure-mode analysis can group by the same axes;
                 row-level grading failures and benchmark-owned result hooks keep their
                 own (pre-fold) shape.
@@ -690,5 +693,5 @@ __all__ = [
     "GradeRequest",
     "HookFailureResult",
     "MissingCaseResult",
-    "ScoredPath",
+    "BenchmarkAggregation",
 ]

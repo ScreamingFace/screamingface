@@ -15,7 +15,7 @@ writes everything; a human's whole job is verifying the resulting diff. The jour
 <img src="diagrams/importer-pipeline.png" width="1500">
 
 All three touched files live in the inspect plugin,
-`src/screamingface_engine_inspect/` — the engine core is never edited (zero spine
+`src/screamingface_engine_inspect/` — the engine core is never edited (zero shared-grading
 edits is an acceptance criterion, not an aspiration).
 
 ## Step 0 — check the eval is importable
@@ -177,7 +177,7 @@ checklist (minutes, not hours):
   - `judge=JudgeSpec(model=..., params=...)` is declared, and the SAME model appears as
     a `screamingface/<model>` value in `scorer_kwargs` — assembly cross-checks both
     directions, but the reviewer confirms the chosen judge is the intended house judge
-    (precedent: HealthBench's judge model and params, `benchmarks/healthbench/pins.py`).
+    (precedent: HealthBench's judge model and params, `benchmarks/healthbench/revision_inputs.py`).
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
     are benchmark identity — expect the revision to move if any of them changes.
   - If the scorer dispatches on sample metadata (frontierscience's `format`), the
@@ -233,7 +233,7 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 ## Related docs
 
 - [`adding-a-benchmark-manually.md`](adding-a-benchmark-manually.md) — authoring a
-  benchmark from scratch (novel dataset or grading); also the deep dive on the spine
+  benchmark from scratch (novel dataset or grading); also the deep dive on the shared grading code
   seam that imported benchmarks ride for free.
 - `src/screamingface_engine_inspect/pins.py` — the lockfile docstring: the three row
   kinds and WHY frozen data is the security property.

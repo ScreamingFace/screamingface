@@ -1,7 +1,7 @@
 """OME-1039: the declared grading contract every Benchmark must register.
 
 INVARIANT: `failure_policy` and `interaction` are explicit, required, per-benchmark
-parameters — never a spine-level default. A policy nobody can see from the manifest is a
+parameters — never a shared-grading-level default. A policy nobody can see from the manifest is a
 policy nobody can approve, and a default that flips silently changes published-score
 semantics for every benchmark at once.
 """
@@ -242,17 +242,17 @@ def test_each_benchmark_aggregate_reduces_through_the_shared_finalizer() -> None
     # importing the shared finalize_candidate_result (hand-rolling its own reduction,
     # or shadowing the name) trips here and must revisit its declaration.
     # AIDEV-NOTE: import identity, not call-path proof — the e2e goldens' coverage rung
-    # proves the call path; full closure lands when the spine itself consumes
+    # proves the call path; full closure lands when the shared grading code itself consumes
     # failure_policy (`OME-1097`+) and the policy stops being prose entirely.
     from screamingface_engine.benchmarks import aggregation
-    from screamingface_engine.benchmarks.spine import scored
+    from screamingface_engine.benchmarks.shared_grading import benchmark_aggregation
 
-    # These benchmarks funnel through the spine's shared scored path (OME-1097; ifeval
+    # These benchmarks funnel through the shared BenchmarkAggregation path (OME-1097; ifeval
     # folded in OME-1101, draco in OME-1100), which itself reduces through the
     # shared finalizer — same mechanism, one hop up.
-    assert scored.finalize_candidate_result is aggregation.finalize_candidate_result
+    assert benchmark_aggregation.finalize_candidate_result is aggregation.finalize_candidate_result
     for family in ("draco", "gdpval", "healthbench", "ifeval"):
         module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
-        assert module.ScoredPath is scored.ScoredPath, (
+        assert module.BenchmarkAggregation is benchmark_aggregation.BenchmarkAggregation, (
             f"{family} no longer reduces through the shared scored path"
         )

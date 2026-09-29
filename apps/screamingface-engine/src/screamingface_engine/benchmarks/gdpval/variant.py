@@ -36,7 +36,8 @@ from screamingface_engine.benchmarks.definition import (
     candidate,
 )
 from screamingface_engine.benchmarks.gdpval import verdict
-from screamingface_engine.benchmarks.gdpval.pins import (
+from screamingface_engine.benchmarks.gdpval.prompts import GRADER_TEMPLATE
+from screamingface_engine.benchmarks.gdpval.revision_inputs import (
     DATASET,
     DATASET_REVISION,
     JUDGE_MODEL,
@@ -44,7 +45,6 @@ from screamingface_engine.benchmarks.gdpval.pins import (
     JUDGE_RETRIES,
     PREPARER_REVISION,
 )
-from screamingface_engine.benchmarks.gdpval.prompts import GRADER_TEMPLATE
 from screamingface_engine.benchmarks.gdpval.rubric_filter import FILTER_REVISION
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
@@ -69,7 +69,7 @@ class Routes:
 
     prefix: str
     cases: str
-    tasks: str
+    judge_requests: str
     verdict: str
     rubric_evaluation: str
     case_evaluation: str
@@ -82,7 +82,7 @@ class Routes:
         return cls(
             prefix=prefix,
             cases=f"{prefix}/cases",
-            tasks=f"{prefix}/rubric-tasks",
+            judge_requests=f"{prefix}/rubric-tasks",
             verdict=f"{prefix}/rubric-verdict",
             rubric_evaluation=f"{prefix}/rubric-evaluation",
             case_evaluation=f"{prefix}/case-evaluation",
@@ -144,7 +144,7 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
     1. Fetch the Cases — a work request plus its flattened reference text — from
        ``routes.cases``, and for each:
     2. Ask the Candidate to do the work, then fetch that Case's surviving rubric criteria from
-       ``routes.tasks`` — one judge task per criterion, each carrying the Candidate's answer
+       ``routes.tasks`` — one judge request per criterion, each carrying the Candidate's answer
        already rendered into a grader prompt.
     3. Send each grader prompt to the judge as a single user message and parse its yes/no verdict
        via ``routes.verdict``. A malformed reply raises, so ``;retry=`` re-resolves the NESTED
@@ -205,10 +205,10 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
         ),
         intent=Text("$rubric_evaluation"),
     )
-    # Stage 2 — per Case: call the Candidate once, fan out one judge task per criterion.
+    # Stage 2 — per Case: call the Candidate once, fan out one judge request per criterion.
     rubric_items = iterate(
         RelExpr(
-            path=routes.tasks,
+            path=routes.judge_requests,
             context="$candidate_invocation",
             intent=Text("$item.case_id"),
         ),

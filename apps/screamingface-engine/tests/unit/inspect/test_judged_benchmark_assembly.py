@@ -395,15 +395,17 @@ async def test_the_judged_aggregate_runs_its_judge_fetch_on_the_runs_loop(
 
 
 def test_the_run_sync_twins_stay_verbatim_identical() -> None:
-    """The spine's `_run_sync` and single_shot's copy must not diverge — the copy
-    exists only because the spine's is private, and a one-sided fix (the context
+    """The shared grading code's `_run_sync` and single_shot's copy must not diverge — the copy
+    exists only because the shared grading code's is private, and a one-sided fix (the context
     copy, the loop discipline) would silently split behavior between the aggregate
     and the check surface."""
 
     import ast
     import inspect as pyinspect
 
-    from screamingface_engine.benchmarks.spine import scored as spine_scored
+    from screamingface_engine.benchmarks.shared_grading import (
+        benchmark_aggregation as shared_aggregation,
+    )
 
     def body_dump(fn: Any) -> str:
         tree = ast.parse(pyinspect.getsource(fn).strip())
@@ -414,7 +416,7 @@ def test_the_run_sync_twins_stay_verbatim_identical() -> None:
             function.body = function.body[1:]
         return ast.dump(function, include_attributes=False)
 
-    assert body_dump(single_shot._run_sync) == body_dump(spine_scored._run_sync)
+    assert body_dump(single_shot._run_sync) == body_dump(shared_aggregation._run_sync)
 
 
 # ── no answer key: judged benchmarks only, and only when the judge never reads one ──

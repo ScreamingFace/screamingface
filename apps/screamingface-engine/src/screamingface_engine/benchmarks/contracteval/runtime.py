@@ -4,7 +4,7 @@ If `definition.py` writes the recipe, this module now only declares what makes t
 benchmark different: how its booklet rows look, how a reply is graded against the private
 gold spans, and which reducer rolls the verdicts into the paper's confusion-matrix F1.
 The routes, memoized preflight, case serving and aggregate wiring live in
-`spine/serving.py` — one kitchen for every hand-built deterministic benchmark.
+`shared_grading/serving.py` — one kitchen for every hand-built deterministic benchmark.
 
 INVARIANT: everything here is deterministic and spends no tokens. The model calls live
 in the expression, not in these handlers — which is the whole reason this benchmark's
@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.contracteval import aggregate as reducing
 from screamingface_engine.benchmarks.contracteval.case_evaluation import (
     CHECK_SCHEMA,
@@ -34,15 +35,14 @@ from screamingface_engine.benchmarks.evaluation import (
     compact_json,
     positive_case_id,
 )
-from screamingface_engine.benchmarks.grading_activity import grading_activity
-from screamingface_engine.benchmarks.spine.serving import (
+from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.shared_grading.serving import (
     ServedBenchmark,
     benchmark_preflight,
     candidate_record,
     install_benchmark,
     serve_cases,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
 from url4.peer.server import Request, Url4Node
 
 
@@ -59,7 +59,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 
 
 def _cases(root: Path):
-    """The public booklet, served by the spine with this benchmark's declaration."""
+    """The public booklet, served by the shared grading code with this benchmark's declaration."""
 
     return serve_cases(root, BENCHMARK)
 
@@ -81,11 +81,11 @@ def _build_public_cases(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
 def _check(root: Path):
     """The gate between "the Candidate said something" and "we have a verdict"."""
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
-            grading_activity(case_id, "started")
+            report_case_grading(case_id, "started")
             answer = reducing.load_answer(root, case_id)
             if answer is None:
                 raise ValueError(f"answer record for case {case_id} missing or invalid")

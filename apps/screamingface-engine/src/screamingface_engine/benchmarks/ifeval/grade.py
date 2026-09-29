@@ -1,18 +1,18 @@
 """IFEval's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
-contribution: its deterministic ``grade_case`` (the vendored checkers' verdict vectors
-turned into one grade), its published accuracy scorer, its selection order, and its
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its deterministic ``grade_case`` (the vendored checkers'
+verdict vectors turned into one grade), its published accuracy scorer, its selection order, and its
 failure wording. The engine ships mechanisms; a benchmark ships semantics.
 
-FEATURE: one grading spine per benchmark (OME-1024); this fold (OME-1101) is the
-``deterministic`` kind's first consumer — the proof the spine is not rubric-shaped.
+FEATURE: one shared grading code per benchmark (OME-1024); this fold (OME-1101) is the
+``deterministic`` kind's first consumer — the proof the shared grading code is not rubric-shaped.
 STORY: as a researcher, the number I publish is the IFEval paper's prompt-level strict
 accuracy (arXiv:2311.07911).
 
 INVARIANT: only connector-owned diagnostics establish Candidate provenance for an
 anonymous collected row (OME-981). Ambiguous rows retain the grading fallback;
-protected checker failures retain the shared spine's explicit grading boundary.
+protected checker failures retain the shared grading's explicit grading boundary.
 
 INVARIANT: malformed or mismatched verifier envelopes abort the run (the CaseGradeReader
 wraps this module's decode ``ValueError`` with the row position) — their identity
@@ -36,19 +36,19 @@ from screamingface_engine.benchmarks.contract import CaseResult, Failure
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.ifeval.case_evaluation import CHECK_SCHEMA, graded_record
 from screamingface_engine.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
 )
+from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
 
 SCHEMA = CHECK_SCHEMA
 
-# WHY the rubric-vocabulary keys: the ladder rungs are spine-fixed names. Neither can
+# WHY the rubric-vocabulary keys: the ladder rungs are shared-grading-fixed names. Neither can
 # fire for IFEval — selection aborts on a missing spec before any grading, and this
 # benchmark's collected rows are anonymous (the missing-case hook owns them) — but the
-# table must answer for every rung the spine could look up.
+# table must answer for every rung the shared grading code could look up.
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the installed instruction spec for this Case is missing",
     "missing_case_row": "no evaluation row for this Case reached the aggregate",
@@ -129,7 +129,7 @@ def aggregate(
     """
 
     selected = _selected_cases(specs, case_order, selected_case_count)
-    path = ScoredPath(
+    path = BenchmarkAggregation(
         reader=CaseGradeReader(
             benchmark_label="IFEval",
             error_type=AggregateError,
@@ -148,7 +148,7 @@ def aggregate(
         benchmark_revision=IFEVAL_REVISION,
         selected_cases=selected,
         # The spec is verified present for every selected Case before any grading,
-        # so the spine's missing-material rung is unreachable on this benchmark.
+        # so the shared grading code's missing-material rung is unreachable on this benchmark.
         grading_material=lambda case_id: specs.get(case_id),
         scorer=_ifeval_score,
     )
@@ -186,10 +186,10 @@ def _selected_cases(
 
 
 def _decode(specs: Mapping[int, Mapping[str, Any]]) -> Callable[[object, int], dict[str, Any]]:
-    """Bind the private specs into the benchmark's row decoder for the spine's CaseGradeReader.
+    """Bind the private specs into the benchmark's decoder for the shared CaseGradeReader.
 
-    Returns the row the spine files: the authentic verifier record under ``record``
-    plus a hoisted ``case`` mapping (the spine reads the candidate's half of the row
+    Returns the row the shared grading code files: the authentic verifier record under ``record``
+    plus a hoisted ``case`` mapping (the shared grading code reads the candidate's half of the row
     there). Raises ``ValueError`` on any untrustworthy envelope — the CaseGradeReader turns
     that into this benchmark's abort with the row position attached.
     """
@@ -197,7 +197,7 @@ def _decode(specs: Mapping[int, Mapping[str, Any]]) -> Callable[[object, int], d
     def decode(grading: object, expected_case_id: int) -> dict[str, Any]:
         record = graded_record(grading, expected_case_id, _instruction_ids(specs[expected_case_id]))
         # The verifier record IS the candidate outcome for this benchmark (one row spans
-        # invocation and checking); hoist it into the spine's candidate-field shape.
+        # invocation and checking); hoist it into the shared grading code's candidate-field shape.
         return {
             "case": {
                 "status": record["status"],
@@ -304,7 +304,7 @@ def _collected_failure_result(
     """Retain one selected Case whose Candidate Invocation or Grading failed."""
 
     error = row.get("error")
-    assert isinstance(error, Mapping)  # the spine only orphans rows carrying an error
+    assert isinstance(error, Mapping)  # the shared grading code only orphans rows carrying an error
     diagnostic = public_error(
         error,
         default_code="invalid_case_evaluation",

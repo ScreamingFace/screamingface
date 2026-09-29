@@ -18,7 +18,7 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error,
     benchmark_definition_error,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.phases import observe_phase
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
@@ -67,7 +67,7 @@ def case_evaluation_endpoint(
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def endpoint(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
@@ -135,7 +135,7 @@ def attempt_records_endpoint(
         return compact_json(result)
 
     # WHY: imported benchmarks only package attempts here; their scorer runs later.
-    return observe_stage(ActivityKind.GRADING)(endpoint) if observe_grading else endpoint
+    return observe_phase(ActivityKind.GRADING)(endpoint) if observe_grading else endpoint
 
 
 def aggregate_endpoint(
@@ -148,7 +148,7 @@ def aggregate_endpoint(
 
     positive_count(available_case_count, "available_case_count")
 
-    @observe_stage(ActivityKind.AGGREGATION)
+    @observe_phase(ActivityKind.AGGREGATION)
     def endpoint(request: Request) -> str:
         selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
         try:
@@ -176,7 +176,7 @@ def async_aggregate_endpoint(
 
     positive_count(available_case_count, "available_case_count")
 
-    @observe_stage(ActivityKind.AGGREGATION)
+    @observe_phase(ActivityKind.AGGREGATION)
     async def endpoint(request: Request) -> str:
         selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
         try:

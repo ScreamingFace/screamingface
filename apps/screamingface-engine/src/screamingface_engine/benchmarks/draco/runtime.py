@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.draco import assets as protocol_assets
 from screamingface_engine.benchmarks.draco import grade as grading
-from screamingface_engine.benchmarks.draco import records, tasks
+from screamingface_engine.benchmarks.draco import judge_requests, records
 from screamingface_engine.benchmarks.draco import scoring as rubric_scoring
 from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_case_evaluation,
@@ -45,9 +46,8 @@ from screamingface_engine.benchmarks.failure_classes import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
-from screamingface_engine.benchmarks.grading_activity import grading_activity
+from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import observe_stage
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -67,7 +67,7 @@ def install(node: Url4Node, root: Path, variant: DracoVariant) -> None:
     """
     assets = _lazy_protocol_assets(root)
     install_cases(node, variant.routes.cases, _cases(assets))
-    node.endpoint(variant.routes.tasks)(_task_rows(root, variant))
+    node.endpoint(variant.routes.judge_requests)(_judge_request_rows(root, variant))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
     # no model routes at all (every benchmark-only test builds one).
@@ -123,7 +123,7 @@ def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
 
 
 def _cases(assets: Callable[[], ProtocolAssets]):
-    @observe_stage(ActivityKind.CASE_LOADING)
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         return assets()[0]
 
@@ -152,19 +152,19 @@ def _protocol_assets(
     )
 
 
-def _task_rows(
+def _judge_request_rows(
     root: Path,
     variant: DracoVariant,
 ):
-    @observe_stage(ActivityKind.GRADING)
-    def task_rows(request: Request) -> str:
+    @observe_phase(ActivityKind.GRADING)
+    def judge_request_rows(request: Request) -> str:
         try:
-            case_id = tasks.positive_case_id(request.intent)
-            grading_activity(case_id, "started")
+            case_id = judge_requests.positive_case_id(request.intent)
+            report_case_grading(case_id, "started")
             answer = candidate_answer(request.context)
             evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "DRACO cases")
-            criteria = tasks.load_criteria(root / "criteria", case_id)
+            criteria = judge_requests.load_criteria(root / "criteria", case_id)
             rubric = json_object(
                 _read(root / "rubrics" / f"{case_id}.json", f"DRACO Case {case_id} rubric"),
                 f"DRACO Case {case_id} rubric",
@@ -172,9 +172,9 @@ def _task_rows(
             selected = list(rubric_scoring.flatten_criteria(rubric))
             criteria_by_id = {str(criterion.get("id")): criterion for criterion in criteria}
             selected_criteria = [criteria_by_id[str(criterion["id"])] for criterion in selected]
-            result = tasks.build_tasks(
+            result = judge_requests.build_judge_requests(
                 case_id,
-                tasks.load_question(root / "criteria", case_id),
+                judge_requests.load_question(root / "criteria", case_id),
                 evaluator_text,
                 selected_criteria,
             )
@@ -225,11 +225,11 @@ def _task_rows(
             raise _unavailable(str(exc)) from exc
         return compact_json(result)
 
-    return task_rows
+    return judge_request_rows
 
 
 def _criterion_verdict(benchmark_id: str):
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def criterion_verdict(request: Request) -> str:
         try:
             case_id, sequence, criterion_id = binding_key(request.intent)
@@ -264,10 +264,10 @@ def _criterion_evaluation(judge_passes: int):
     against a three-pass benchmark's route and vice versa (every route is revision-pinned).
     """
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def handle(request: Request) -> str:
         try:
-            case_id = tasks.positive_case_id(request.intent)
+            case_id = judge_requests.positive_case_id(request.intent)
             payload = json_object(request.context, "DRACO Criterion evaluation")
             expected = (
                 "case",

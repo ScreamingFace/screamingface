@@ -139,7 +139,7 @@ class BenchmarkDeclaration:
     approve (OME-1039); a defaulted difficulty is a tier nobody assigned (OME-1257).
     AIDEV-NOTE: this record is THE extension point for later declared axes — a
     ``multi_turn`` interaction, or an ``environment`` declaration (image digest + setup +
-    verifier) lands as a new field/value HERE, never as a spine change. Do not add those
+    verifier) lands as a new field/value HERE, never as a shared-grading change. Do not add those
     fields before a benchmark needs them (YAGNI).
     """
 

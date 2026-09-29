@@ -34,7 +34,8 @@ from screamingface_engine.benchmarks.definition import (
     candidate,
 )
 from screamingface_engine.benchmarks.healthbench import verdict
-from screamingface_engine.benchmarks.healthbench.pins import (
+from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
+from screamingface_engine.benchmarks.healthbench.revision_inputs import (
     CHECK_CRITERION,
     DATASET,
     DATASET_REVISION,
@@ -43,7 +44,6 @@ from screamingface_engine.benchmarks.healthbench.pins import (
     JUDGE_RETRIES,
     PREPARER_REVISION,
 )
-from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
@@ -63,7 +63,7 @@ class Routes:
 
     prefix: str
     cases: str
-    tasks: str
+    judge_requests: str
     verdict: str
     rubric_evaluation: str
     case_evaluation: str
@@ -76,7 +76,7 @@ class Routes:
         return cls(
             prefix=prefix,
             cases=f"{prefix}/cases",
-            tasks=f"{prefix}/rubric-tasks",
+            judge_requests=f"{prefix}/rubric-tasks",
             verdict=f"{prefix}/rubric-verdict",
             rubric_evaluation=f"{prefix}/rubric-evaluation",
             case_evaluation=f"{prefix}/case-evaluation",
@@ -224,12 +224,12 @@ def build_variant_protocol(routes: Routes, case_count: int, available_case_count
         ),
         intent=Text("$rubric_evaluation"),
     )
-    # Stage 2 — per Case: call the Candidate once, fan out one judge task per rubric item.
+    # Stage 2 — per Case: call the Candidate once, fan out one judge request per rubric item.
     rubric_items = iterate(
         RelExpr(
-            path=routes.tasks,
+            path=routes.judge_requests,
             # This collection boundary invokes the Candidate exactly once per Case,
-            # then fans out one pre-rendered judge task per rubric item.
+            # then fans out one pre-rendered judge request per rubric item.
             context="$candidate_invocation",
             intent=Text("$item.case_id"),
         ),

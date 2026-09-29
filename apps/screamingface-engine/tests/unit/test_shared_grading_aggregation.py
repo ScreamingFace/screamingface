@@ -2,17 +2,17 @@
 
 The scored path is the marking room: one row per Case comes back from the fan-out,
 each script is marked against the benchmark's rubric, and the marks fold into the benchmark
-result. This module proves the marking room lives ONCE in the spine and that the
+result. This module proves the marking room lives ONCE in the shared grading code and that the
 only per-benchmark seam is `grade_case` — an async, data-in/data-out callable.
 
 INVARIANT (the hourglass waist): a `GradeRequest` carries ONLY plain, serializable
 data — kind-tagged payloads, the decoded row mapping, the benchmark's grading material.
 No `Path`, no engine objects, no callbacks. Three consumers force this: an enclave
-judge across a privacy boundary, the inspect_evals scorer shim, and future agentic
+judge across a privacy boundary, the inspect_evals scorer adapter, and future agentic
 benchmarks whose answer is not a string.
 
 INVARIANT: every unusable state stays a VISIBLE failed Case with a named code, and
-message wording stays benchmark-owned — the spine moves logic, never words.
+message wording stays benchmark-owned — the shared grading code moves logic, never words.
 """
 
 from __future__ import annotations
@@ -34,15 +34,18 @@ from screamingface_engine.benchmarks.contract import (
     Failure,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.mean_scorer import mean_scorer
-from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
-from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
 )
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
+from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload, TextPayload
+from screamingface_engine.benchmarks.shared_grading.rubric import rubric_grade_case
 
 MESSAGES = {
     "missing_rubric_asset": "test: rubric asset gone",
@@ -101,7 +104,7 @@ def _selected(*case_ids: int) -> list[SelectedCase]:
 
 
 class _Hook:
-    """A recording stub `grade_case` — the benchmark hook the spine must treat as opaque."""
+    """A recording stub `grade_case` — the benchmark hook shared grading must treat as opaque."""
 
     def __init__(self, outcome: CaseGradeOutcome | None = None) -> None:
         self.requests: list[GradeRequest] = []
@@ -119,7 +122,7 @@ class _Hook:
         return self.outcome
 
 
-def _path(hook: _Hook, **overrides: Any) -> ScoredPath:
+def _path(hook: _Hook, **overrides: Any) -> BenchmarkAggregation:
     values: dict[str, Any] = {
         "reader": CaseGradeReader(
             benchmark_label="TestBoard",
@@ -133,11 +136,11 @@ def _path(hook: _Hook, **overrides: Any) -> ScoredPath:
         "grading_failure_message": "test: the grader could not grade this Case",
     }
     values.update(overrides)
-    return ScoredPath(**values)
+    return BenchmarkAggregation(**values)
 
 
 def _aggregate(
-    path: ScoredPath,
+    path: BenchmarkAggregation,
     rows: Sequence[Mapping[str, Any]],
     selected: list[SelectedCase],
     material: Any = (5, -3),
@@ -393,7 +396,8 @@ def test_a_non_rubric_scorer_publishes_its_own_metric_vocabulary() -> None:
 
 def test_a_benchmark_owned_missing_row_hook_replaces_the_default_result() -> None:
     """OME-1101: ifeval's collected-row failure wording is pinned by its golden —
-    a benchmark may supply the whole missing-case CaseResult; the spine only files it."""
+    a benchmark may supply the whole missing-case CaseResult; the shared grading code only files
+    it."""
 
     calls: list[tuple[int, int, list[dict[str, Any]] | None]] = []
 
@@ -408,7 +412,7 @@ def test_a_benchmark_owned_missing_row_hook_replaces_the_default_result() -> Non
             output=None,
             finish_reason=None,
             refusal=None,
-            grade=None,  # INVARIANT: the benchmark's shape, not the spine's grade envelope
+            grade=None,  # INVARIANT: the benchmark's shape, not the shared grade envelope
             failures=[
                 Failure(
                     stage="grading",
@@ -509,7 +513,7 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
 
 def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
     # OME-1100: draco reports a missing case via the finalizer's `case_result_missing`
-    # (its zip simply dropped the Case) — the hook returns None and the spine files
+    # (its zip simply dropped the Case) — the hook returns None and the shared grading code files
     # nothing, so the finalizer materialises the missing Case itself.
     hook = _Hook()
     result = _path(hook, missing_case_result=lambda selected, index, orphans: None).aggregate(
@@ -555,7 +559,7 @@ def _benchmark_error_case(selected: SelectedCase, index: int, row: Mapping[str, 
 
 def test_a_benchmark_owned_error_row_hook_replaces_the_case_error_result() -> None:
     # draco's e2e tapes pin the UPSTREAM code ("rate_limited") on an error case,
-    # not the spine's fixed `case_error` — the benchmark supplies the whole result.
+    # not the shared grading code's fixed `case_error` — the benchmark supplies the whole result.
     hook = _Hook()
     row = {
         "case_id": 1,
@@ -735,7 +739,7 @@ def test_omitting_case_metadata_changes_nothing() -> None:
 
 def test_the_material_missing_code_is_benchmark_named() -> None:
     """OME-1149: an MCQ benchmark publishing `missing_rubric_asset` would contradict its
-    own message — the rung's published code is the benchmark's, not spine vocabulary."""
+    own message — the rung's published code is the benchmark's, not shared-grading vocabulary."""
 
     hook = _Hook()
     messages = dict(MESSAGES) | {"missing_answer_asset": "test: answer key gone"}

@@ -28,7 +28,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="laneB" value="RUN TIME — sit + mark the benchmark (ScoredPath.aggregate, per candidate run)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+        <mxCell id="laneB" value="RUN TIME — sit + mark the benchmark (BenchmarkAggregation.aggregate, per candidate run)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
           <mxGeometry x="40" y="280" width="1320" height="220" as="geometry" />
         </mxCell>
         <mxCell id="sel" value="select&#xa;cases" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
@@ -92,7 +92,7 @@
         <mxCell id="lg2" value="" style="rounded=0;html=1;fillColor=#1a2233;strokeColor=#8b98ab;" vertex="1" parent="legend">
           <mxGeometry x="10" y="54" width="30" height="16" as="geometry" />
         </mxCell>
-        <mxCell id="lg2t" value="spine owns (never edit)" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+        <mxCell id="lg2t" value="shared-grading owns (never edit)" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
           <mxGeometry x="50" y="52" width="270" height="20" as="geometry" />
         </mxCell>
         <mxCell id="lg3" value="" style="shape=cylinder3;html=1;fillColor=#221a33;strokeColor=#a78bfa;" vertex="1" parent="legend">

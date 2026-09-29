@@ -4,8 +4,8 @@ from hashlib import sha256
 
 from screamingface_engine.activity.contract import PREFIX, SCHEMA, Emitter, facts
 from screamingface_engine.activity.session import ActivitySession
+from screamingface_engine.benchmarks.case_grading_report import GradingState
 from screamingface_engine.benchmarks.contract import CaseId
-from screamingface_engine.benchmarks.grading_activity import GradingState
 
 MAX_PENDING_CASES = 1024
 

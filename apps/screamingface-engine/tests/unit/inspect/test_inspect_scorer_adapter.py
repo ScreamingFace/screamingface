@@ -26,11 +26,11 @@ inspect_ai_scorer = pytest.importorskip("inspect_ai.scorer")
 from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, match, pattern  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
 
-from screamingface_engine.benchmarks.spine.payloads import TextPayload  # noqa: E402
-from screamingface_engine.benchmarks.spine.scored import (  # noqa: E402
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
     CaseGradeOutcome,
     GradeRequest,
 )
+from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 
 

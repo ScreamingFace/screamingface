@@ -1,4 +1,4 @@
-"""Golden replay for the contracteval → serving-spine migration (OME-1236).
+"""Golden replay for the contracteval → shared serving migration (OME-1236).
 
 INVARIANT: an expression addressed to the current revision must resolve to
 byte-identical protocol before and after the extraction. Every literal below was

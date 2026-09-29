@@ -1,4 +1,4 @@
-"""Benchmark-owned stage facts; optional adapters own their interpretation and resources."""
+"""Benchmark-owned phase facts; optional adapters own their interpretation and resources."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from screamingface_engine.observations import LogEmitter, RunObservations, curre
 from url4.observe import current_log_sink
 
 
-class StageScope(Protocol):
+class PhaseScope(Protocol):
     """Inline sync hooks; async exit joins local resources without waiting for delivery.
 
     Exit must tolerate partially failed entry. Exit return values cannot suppress
@@ -32,21 +32,21 @@ class StageScope(Protocol):
 
 
 @runtime_checkable
-class StageObserver(Protocol):
+class PhaseObserver(Protocol):
     """Optional extension to a registered run observer. No request/result payloads cross it."""
 
-    def stage(self, stage: ActivityKind, emit: LogEmitter | None) -> StageScope | None: ...
+    def phase(self, phase: ActivityKind, emit: LogEmitter | None) -> PhaseScope | None: ...
 
 
-class _StageCall:
-    def __init__(self, stage: ActivityKind, run: RunObservations) -> None:
+class _PhaseCall:
+    def __init__(self, phase: ActivityKind, run: RunObservations) -> None:
         self.run = run
-        self.scopes: list[StageScope] = []
-        self.entered: list[StageScope] = []
+        self.scopes: list[PhaseScope] = []
+        self.entered: list[PhaseScope] = []
         for observer in run.observers:
             with run.guard():
-                if isinstance(observer, StageObserver):
-                    scope = observer.stage(stage, current_log_sink())
+                if isinstance(observer, PhaseObserver):
+                    scope = observer.phase(phase, current_log_sink())
                     if scope is not None:
                         self.scopes.append(scope)
 
@@ -95,8 +95,8 @@ class _StageCall:
             raise interrupted
 
 
-def observe_stage(stage: ActivityKind):
-    """Observe a whole native sync/async function using the shared stage vocabulary.
+def observe_phase(phase: ActivityKind):
+    """Observe a whole native sync/async function using the shared phase vocabulary.
 
     Shared endpoint factories declare this once for all benchmark callers.
     Completion means the function returned, not that a case passed. Async work
@@ -104,16 +104,16 @@ def observe_stage(stage: ActivityKind):
     supported. The activity adapter owns records, admission and heartbeat timers.
     """
 
-    if stage == ActivityKind.MODEL_CALL:
+    if phase == ActivityKind.MODEL_CALL:
         raise ValueError("model calls use the model observation interface")
 
     def decorate[**P, R](handler: Callable[P, R]) -> Callable[P, R]:
-        return _wrap_stage(stage, handler)
+        return _wrap_phase(phase, handler)
 
     return decorate
 
 
-def _wrap_stage[**P, R](stage: ActivityKind, handler: Callable[P, R]) -> Callable[P, R]:
+def _wrap_phase[**P, R](phase: ActivityKind, handler: Callable[P, R]) -> Callable[P, R]:
     if iscoroutinefunction(handler) or iscoroutinefunction(getattr(handler, "__call__", None)):
         async_handler = cast(Callable[P, Awaitable[object]], handler)
 
@@ -122,7 +122,7 @@ def _wrap_stage[**P, R](stage: ActivityKind, handler: Callable[P, R]) -> Callabl
             run = current_observations()
             if run is None:
                 return await async_handler(*args, **kwargs)
-            async with _StageCall(stage, run):
+            async with _PhaseCall(phase, run):
                 return await async_handler(*args, **kwargs)
 
         return cast(Callable[P, R], async_call)
@@ -132,7 +132,7 @@ def _wrap_stage[**P, R](stage: ActivityKind, handler: Callable[P, R]) -> Callabl
         run = current_observations()
         if run is None:
             return handler(*args, **kwargs)
-        with _StageCall(stage, run):
+        with _PhaseCall(phase, run):
             return handler(*args, **kwargs)
 
     return sync_call

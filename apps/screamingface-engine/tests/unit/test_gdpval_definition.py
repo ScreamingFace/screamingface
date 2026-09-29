@@ -13,7 +13,7 @@ from screamingface_engine.benchmarks.gdpval.definition import (
     TEXT_CASE_COUNT,
     TEXT_VARIANT,
 )
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL
 from screamingface_engine.benchmarks.gdpval.subset import TEXT_SUBSET_TASK_IDS, subset_sha
 from screamingface_engine.benchmarks.gdpval.variant import variant_revision
 from url4 import render
@@ -54,7 +54,7 @@ def test_every_route_carries_the_revision() -> None:
     routes = TEXT_VARIANT.routes
     for route in (
         routes.cases,
-        routes.tasks,
+        routes.judge_requests,
         routes.verdict,
         routes.rubric_evaluation,
         routes.case_evaluation,

@@ -16,7 +16,7 @@ from url4.peer.server import Request, Url4Node
 async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, registration):
     records = []
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.stages.current_log_sink",
+        "screamingface_engine.benchmarks.phases.current_log_sink",
         lambda: lambda body, attrs, **kwargs: records.append(dict(attrs)),
     )
     node = Url4Node("stages")
@@ -139,7 +139,7 @@ async def test_imported_benchmark_stages_use_the_same_optional_port(monkeypatch,
     single_shot.install_imported_benchmark(node, tmp_path, benchmark.benchmark.id)
     records = []
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.stages.current_log_sink",
+        "screamingface_engine.benchmarks.phases.current_log_sink",
         lambda: lambda body, attrs, **kwargs: records.append(dict(attrs)),
     )
     run = RunObservations((ActivityObserver,))

@@ -56,13 +56,13 @@ from inspect_ai.solver._multiple_choice import (
     set_choices_based_on_generated_response,
 )
 
-from screamingface_engine.benchmarks.grading_activity import grading_activity
-from screamingface_engine.benchmarks.spine.payloads import CasePayload
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CaseGradeOutcome,
     GradeCase,
     GradeRequest,
 )
+from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload
 from screamingface_engine.grading_call_scope import grading_call_scope
 
 #: Score string verdicts → floats, per inspect's own vocabulary: CORRECT / INCORRECT /
@@ -84,7 +84,7 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
             (inspect's ``parse_answers`` flag); single-answer benchmarks leave the default.
 
     Returns:
-        The async hook the spine calls once per gradeable Case.
+        The async hook the shared grading code calls once per gradeable Case.
     """
 
     async def grade(request: GradeRequest) -> CaseGradeOutcome:
@@ -104,13 +104,13 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
         return _outcome(score, state.output.completion)
 
     async def observed(request: GradeRequest) -> CaseGradeOutcome:
-        grading_activity(request.case_id, "started")
+        report_case_grading(request.case_id, "started")
         try:
             outcome = await grade(request)
         except Exception:
-            grading_activity(request.case_id, "failed")
+            report_case_grading(request.case_id, "failed")
             raise
-        grading_activity(request.case_id, "failed" if outcome.failure_code else "completed")
+        report_case_grading(request.case_id, "failed" if outcome.failure_code else "completed")
         return outcome
 
     return observed

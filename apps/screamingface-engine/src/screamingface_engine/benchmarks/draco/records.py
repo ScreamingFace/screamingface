@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.case_records import bind_case_record
+from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.draco.validation import (
     require_positive_integer,
     require_text,
@@ -22,7 +22,7 @@ def bind_case(
 ) -> dict[str, object]:
     """Bind evaluator text and exact Candidate outcome to one Engine-owned Case."""
 
-    return bind_case_record(
+    return build_case_record(
         raw_cases,
         case_id=case_id,
         candidate=candidate,

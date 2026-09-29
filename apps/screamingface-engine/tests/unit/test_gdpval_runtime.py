@@ -15,10 +15,10 @@ from screamingface_engine.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.runtime import (
     _cases,
-    _rubric_tasks,
+    _rubric_judge_requests,
     _rubric_verdict,
 )
 from screamingface_engine.grading_accounting import capture_grading_requests
@@ -107,7 +107,7 @@ def test_rubric_tasks_read_the_baked_assets_once_per_case(tmp_path, monkeypatch)
     reads: list[Path] = []
     _count_reads(monkeypatch, reads)
 
-    handler = _rubric_tasks(tmp_path, _CASE_IDS, "gdpval-text")
+    handler = _rubric_judge_requests(tmp_path, _CASE_IDS, "gdpval-text")
     context = encode_candidate_invocation("the deliverable", "stop", None)
     first = handler(Request(path="/t", context=context, intent="1", params={}))
     second = handler(Request(path="/t", context=context, intent="1", params={}))
@@ -119,7 +119,7 @@ def test_rubric_tasks_read_the_baked_assets_once_per_case(tmp_path, monkeypatch)
 
 def test_rubric_verdict_retains_its_exact_request_accounting(tmp_path: Path) -> None:
     _write_assets(tmp_path)
-    tasks = _rubric_tasks(tmp_path, _CASE_IDS, "gdpval-text")
+    tasks = _rubric_judge_requests(tmp_path, _CASE_IDS, "gdpval-text")
     verdict = _rubric_verdict("gdpval-text")
 
     with capture_request_accounting():

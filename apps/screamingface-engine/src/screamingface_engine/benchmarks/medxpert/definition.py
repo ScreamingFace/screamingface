@@ -34,7 +34,11 @@ from screamingface_engine.benchmarks.definition import (
     candidate,
     candidate_call,
 )
-from screamingface_engine.benchmarks.medxpert.pins import (
+from screamingface_engine.benchmarks.medxpert.prompts import (
+    COT_PROMPT_TEMPLATE,
+    COT_TRIGGER_TEMPLATE,
+)
+from screamingface_engine.benchmarks.medxpert.revision_inputs import (
     DATASET,
     DATASET_CONFIG,
     DATASET_REVISION,
@@ -42,16 +46,12 @@ from screamingface_engine.benchmarks.medxpert.pins import (
     PREPARER_REVISION,
     PROTOCOL_REVISION,
 )
-from screamingface_engine.benchmarks.medxpert.prompts import (
-    COT_PROMPT_TEMPLATE,
-    COT_TRIGGER_TEMPLATE,
-)
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from screamingface_engine.benchmarks.spine.serving import (
+from screamingface_engine.benchmarks.shared_grading.serving import (
     benchmark_routes,
     compute_benchmark_revision,
 )

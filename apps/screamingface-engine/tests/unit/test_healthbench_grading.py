@@ -23,9 +23,12 @@ from screamingface_engine.benchmarks.healthbench.scoring import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 
-# WHY the spine import: sample_stdev / verdict_coverage moved into the shared benchmark
-# scorer (OME-1097) — the tests follow the production location of the code they pin.
-from screamingface_engine.benchmarks.spine.mean_scorer import sample_stdev, verdict_coverage
+# WHY the shared grading code import: sample_stdev / verdict_coverage moved into the shared
+# benchmark scorer (OME-1097) — the tests follow the production location of the code they pin.
+from screamingface_engine.benchmarks.shared_grading.mean_scorer import (
+    sample_stdev,
+    verdict_coverage,
+)
 
 # --- prompts -------------------------------------------------------------------------
 

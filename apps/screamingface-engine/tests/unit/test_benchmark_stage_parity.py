@@ -67,8 +67,10 @@ async def run_benchmark(registration, root, enabled):
         return '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
 
     from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco_judge
-    from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL as gdpval_judge
-    from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL as health_judge
+    from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as gdpval_judge
+    from screamingface_engine.benchmarks.healthbench.revision_inputs import (
+        JUDGE_MODEL as health_judge,
+    )
 
     for model in {draco_judge, gdpval_judge, health_judge}:
         node.endpoint("/" + model)(judge)

@@ -22,7 +22,7 @@ task per rubric item"). This module reads the OUTERMOST one and only that:
 So by the time a case grade reaches this module the marking has happened and is stapled inside
 the script. `rubric_evaluations` is never read here; the benchmark's `grade_case` reads it.
 
-FEATURE: one grading spine per benchmark (OME-1024); this module is the second extraction
+FEATURE: one shared grading code per benchmark (OME-1024); this module is the second extraction
 (OME-1039 took the failure ladder) — the case grade reader gdpval and healthbench duplicated
 near byte-identically after the two-week-old fork.
 
@@ -43,10 +43,10 @@ Worked example — three Cases selected, `case_ids = (1, 2, 3)`:
     case grades[2] = an envelope whose grading errored  → CaseGradeIndex.grading_failures[3]
 
 Case 2 ends with no case grade at all, so the grader reports it as missing — and the orphan error
-retained above it is what tells the reader *why*. On the spine's default missing-case step, the
-orphan's code (say `model_token_cap`) becomes the Case's failure code; a Case with no orphan,
-or an orphan naming no code, reads as `missing_case_row`. Benchmarks that own their missing-case
-step (IFEval, DRACO) spell it their own way.
+retained above it is what tells the reader *why*. On the shared grading code's default missing-case
+step, the orphan's code (say `model_token_cap`) becomes the Case's failure code; a Case with no
+orphan, or an orphan naming no code, reads as `missing_case_row`. Benchmarks that own their
+missing-case step (IFEval, DRACO) spell it their own way.
 
 INVARIANT: the case grade is an OPAQUE benchmark-owned envelope. This module files it and never
 looks inside, so nothing here can freeze "a candidate's answer is text". The kind taxonomy is
@@ -87,7 +87,8 @@ class CaseGradeIndex:
     """One per-Case fan-out's case grades, split by what each position turned out to be.
 
     Attributes:
-        case_grades: Case id → the benchmark-decoded evaluation envelope, opaque to the spine. Also
+        case_grades: Case id → the benchmark-decoded evaluation envelope, opaque to the shared
+        grading code. Also
             holds an identified error case, which IS that Case's case grade.
         collected_errors: Case id → the anonymous `on_error=collect` payloads that arrived
             at that position, retained so a missing case can name its cause.

@@ -46,7 +46,7 @@ from screamingface_engine.benchmarks.gdpval.ingestion import (
     extract_reference_text,
     pdf_reader,
 )
-from screamingface_engine.benchmarks.gdpval.pins import DATASET, DATASET_REVISION
+from screamingface_engine.benchmarks.gdpval.revision_inputs import DATASET, DATASET_REVISION
 from screamingface_engine.benchmarks.gdpval.rubric_filter import strip_format_criteria
 from screamingface_engine.benchmarks.gdpval.subset import (
     EXCLUDED_TASK_IDS,

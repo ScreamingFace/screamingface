@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.case_records import bind_case_record
+from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.evaluation import CandidateAnswer
 
 CASE_SCHEMA = "screamingface.gdpval-case-record.v1"
@@ -17,7 +17,7 @@ def bind_case(
 ) -> dict[str, object]:
     """Bind the work request and the exact Candidate outcome to one Engine-owned Case."""
 
-    return bind_case_record(
+    return build_case_record(
         raw_cases,
         case_id=case_id,
         candidate=candidate,

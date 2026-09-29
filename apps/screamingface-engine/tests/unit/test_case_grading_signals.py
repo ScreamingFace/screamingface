@@ -1,7 +1,7 @@
 import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
-from screamingface_engine.benchmarks.grading_activity import grading_activity
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.observations import RunObservations
 
 
@@ -13,15 +13,15 @@ def test_case_grading_records_pair_and_releases_pending_cases(monkeypatch, enabl
         records.append(dict(attributes or {}))
 
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.grading_activity.current_log_sink", lambda: emit
+        "screamingface_engine.benchmarks.case_grading_report.current_log_sink", lambda: emit
     )
     observer = ActivityObserver(enabled=enabled)
     with RunObservations((lambda: observer,)).bind():
-        grading_activity("007", "started")
-        grading_activity("007", "started")
-        grading_activity("007", "completed")
-        grading_activity(7, "started")
-        grading_activity(7, "failed")
+        report_case_grading("007", "started")
+        report_case_grading("007", "started")
+        report_case_grading("007", "completed")
+        report_case_grading(7, "started")
+        report_case_grading(7, "failed")
     assert not observer._calls
     assert not observer._grading
     if not enabled:
@@ -45,7 +45,7 @@ async def test_shipped_grading_entries_report_explicit_case_before_work(monkeypa
 
     records = []
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.grading_activity.current_log_sink",
+        "screamingface_engine.benchmarks.case_grading_report.current_log_sink",
         lambda: lambda body, attrs, **kwargs: records.append(dict(attrs)),
     )
     for registration in BUILTIN_REGISTRATIONS:
@@ -82,7 +82,7 @@ def test_case_envelope_reports_failure_without_changing_result(monkeypatch):
 
     signals = []
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.case_execution.grading_activity",
+        "screamingface_engine.benchmarks.case_execution.report_case_grading",
         lambda *args: signals.append(args),
     )
     invocation = encode_candidate_invocation("answer", "stop", None)
@@ -136,7 +136,7 @@ def test_case_phase_excludes_candidate_checks_and_contains_observer_faults(monke
 
     with RunObservations((Broken,)).bind():
         with candidate_invocation_scope():
-            grading_activity(7, "started")
+            report_case_grading(7, "started")
         assert not calls
-        grading_activity(7, "started")
+        report_case_grading(7, "started")
     assert len(calls) == 1

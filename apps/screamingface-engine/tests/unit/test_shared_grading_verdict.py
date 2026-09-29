@@ -19,11 +19,11 @@ from typing import Any, cast
 
 import pytest
 
-from screamingface_engine.benchmarks.spine.verdict import (
+from screamingface_engine.benchmarks.shared_grading.verdict import (
     Verdict,
     VerdictShape,
+    extract_json_array,
     parse_verdict,
-    recovered_array,
     rubric_binding_key,
 )
 
@@ -252,11 +252,11 @@ def test_rubric_binding_key_rejects_malformed_or_non_positive(value: str) -> Non
 # --- the check surface's array recovery shares the same JSON-recovery primitive ----------
 
 
-def test_recovered_array_reads_a_fenced_ordinal_reply() -> None:
+def test_extract_json_array_reads_a_fenced_ordinal_reply() -> None:
     reply = '```json\n[{"id": 1, "status": "MET"}]\n```'
-    assert recovered_array(reply) == [{"id": 1, "status": "MET"}]
+    assert extract_json_array(reply) == [{"id": 1, "status": "MET"}]
 
 
-def test_recovered_array_refuses_replies_with_no_array() -> None:
-    assert recovered_array("no verdicts here") is None
-    assert recovered_array("") is None
+def test_extract_json_array_refuses_replies_with_no_array() -> None:
+    assert extract_json_array("no verdicts here") is None
+    assert extract_json_array("") is None

@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.contract import (
     CaseId,
     decode_candidate_invocation,
@@ -19,7 +20,6 @@ from screamingface_engine.benchmarks.evaluation import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
-from screamingface_engine.benchmarks.grading_activity import grading_activity
 from url4.peer.server import Request, Url4Node
 
 CASE_EXECUTION_ROUTE = "/benchmarks/case-execution"
@@ -146,7 +146,7 @@ def _case_execution(request: Request) -> str:
         raise _contract_error(str(exc)) from exc
     result = compact_json(case_execution_payload(case_id, invocation, grading))
     failed = isinstance(grading[0], Mapping) and "error" in grading[0]
-    grading_activity(case_id, "failed" if failed else "completed")
+    report_case_grading(case_id, "failed" if failed else "completed")
     return result
 
 

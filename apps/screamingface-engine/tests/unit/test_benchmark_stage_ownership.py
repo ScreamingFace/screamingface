@@ -6,7 +6,7 @@ import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks import evaluation, stages
+from screamingface_engine.benchmarks import evaluation, phases
 from screamingface_engine.observations import ModelCall, RunObservations
 from url4.peer.server import Request
 
@@ -15,7 +15,7 @@ from url4.peer.server import Request
 def test_shared_endpoint_emits_without_an_installation_wrapper(monkeypatch, factory):
     records = []
     monkeypatch.setattr(
-        stages,
+        phases,
         "current_log_sink",
         lambda: lambda body, attributes, **kw: records.append(attributes),
     )
@@ -47,11 +47,11 @@ async def test_decorator_covers_awaited_work_and_preserves_parentage(monkeypatch
     def emit(body, attributes=None, **kwargs):
         records.append(attributes)
 
-    monkeypatch.setattr(stages, "current_log_sink", lambda: emit)
+    monkeypatch.setattr(phases, "current_log_sink", lambda: emit)
     error = ValueError("private")
     run = RunObservations((ActivityObserver,))
 
-    @stages.observe_stage(ActivityKind.ANSWERING)
+    @phases.observe_phase(ActivityKind.ANSWERING)
     async def answer():
         async with ModelCall("writer", emit):
             await asyncio.sleep(0)
@@ -70,12 +70,12 @@ async def test_decorator_covers_awaited_work_and_preserves_parentage(monkeypatch
 def test_decorator_observes_shared_vocabulary_without_registration(monkeypatch):
     records = []
     monkeypatch.setattr(
-        stages,
+        phases,
         "current_log_sink",
         lambda: lambda body, attributes, **kw: records.append(attributes),
     )
 
-    @stages.observe_stage(ActivityKind.GRADING)
+    @phases.observe_phase(ActivityKind.GRADING)
     def check():
         return "checked"
 
