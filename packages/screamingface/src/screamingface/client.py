@@ -359,8 +359,10 @@ class Client:
         json: Any = None,
         headers: Mapping[str, str] | None = None,
         replay_safe: bool = False,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
         return self._scoreboard_http.request(
             method,
             path,
@@ -368,6 +370,7 @@ class Client:
             json=json,
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
+            **options,
         )
 
 
@@ -676,8 +679,10 @@ class AsyncClient:
         json: Any = None,
         headers: Mapping[str, str] | None = None,
         replay_safe: bool = False,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
         return await self._scoreboard_http.request(
             method,
             path,
@@ -685,6 +690,7 @@ class AsyncClient:
             json=json,
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
+            **options,
         )
 
 
