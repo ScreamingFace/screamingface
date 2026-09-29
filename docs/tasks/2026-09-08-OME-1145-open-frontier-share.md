@@ -1,13 +1,13 @@
 ---
 id: OME-1145
 linear_url: https://linear.app/openmined/issue/OME-1145/open-frontier-share-percentage-on-the-leaderboard-is-inaccurate
-status: in_review
+status: done
 type: bug
 priority: high
 labels: [scoreboard, agentic, bug, autonomous]
 parent: OME-1282
 created: 2026-09-08
-closed:
+closed: 2026-09-29
 ---
 
 # "Open frontier share" percentage on the leaderboard is inaccurate
@@ -24,3 +24,4 @@ Plan: `docs/plan/2026-09-25-OME-1145-frontier-openness.md`.
 - 2026-09-11: identities fixed via `OME-1180` / `OME-1181`.
 - 2026-09-25: decisions D-Q4, D-S, D-T, D-U and the prior-test list approved; built.
   Still reads 0% on dev until real costs land (`OME-1143`, D-K).
+- 2026-09-29: merged via #1080 (`5fd16fb4`) after three review rounds; closed in Linear by the owner's decision. The dev demonstration (card reading above 0%) now sits under `OME-1143`. Review follow-up: `OME-1409`.

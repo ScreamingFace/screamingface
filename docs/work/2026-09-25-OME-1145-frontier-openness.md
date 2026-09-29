@@ -1,9 +1,9 @@
 ---
 ticket: OME-1145
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-09-25
-finished:
+finished: 2026-09-29
 ---
 
 # OME-1145 — compute the open share over the cost/score Pareto frontier
