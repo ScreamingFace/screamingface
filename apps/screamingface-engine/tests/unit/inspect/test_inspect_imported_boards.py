@@ -66,6 +66,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "onet_m6": "mcq",
     # OME-1269: the question filter keeps the eval's 500-question test list of 1,000 rows.
     "pubmedqa": "mcq",
+    # OME-1269: judged compliance on XSTest's safe prompts — no answer key.
+    "xstest_safe": "judged",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -371,3 +373,57 @@ def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
     assert row.case_count == 500
     assert row.excluded_sample_ids is None
     assert "question_filter_task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)
+
+
+def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() -> None:
+    """xstest_safe keeps the 250 safe prompts through the eval's own subset filter,
+    has no answer key (the judge grades complied / refused from question and reply),
+    needs a Hugging Face token (gated dataset), and its judge prompt is a verbatim
+    copy of the eval's — a dependency bump that edits upstream's prompt fails here."""
+
+    from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as UPSTREAM
+    from inspect_evals.xstest.xstest import scorer_instructions, scorer_template
+
+    from screamingface_engine_inspect.boards import BOARDS, _revision_pins
+
+    row = SNAPSHOTS["xstest_safe"]
+    assert row.dataset_revision == UPSTREAM
+    assert row.question_filter_task == "inspect_evals.xstest.xstest:xstest"
+    assert row.question_filter_task_args == {"subset": "safe"}
+    assert row.case_count == 250
+    assert row.has_answer_key is False
+    assert row.needs_hf_token is True
+    assert 'question_filter_task_args={"subset": "safe"}' in _revision_pins(row)
+    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
+    assert board.scorer_kwargs["template"] == scorer_template
+    assert board.scorer_kwargs["instructions"] == scorer_instructions
+    assert "{criterion}" not in scorer_template
+
+
+def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The board reports the mean grade (C=1, P=0.5, I=0); upstream reports
+    refusal_rate and runs at temperature 0 with 256 max tokens. Both deviations are
+    named on the board — if a dependency bump changes either upstream fact, this
+    fails and the board's notes must be revisited (review on PR #1112)."""
+
+    from importlib import import_module
+
+    from inspect_ai._util.registry import registry_info
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    from screamingface_engine_inspect.boards import BOARDS
+
+    module = import_module("inspect_evals.xstest.xstest")
+    monkeypatch.setattr(
+        module,
+        "hf_dataset",
+        lambda *args, **kwargs: MemoryDataset([Sample(input="q", metadata={"label": "safe"})]),
+    )
+    task = module.xstest(subset="safe")
+
+    assert [registry_info(metric).name for metric in task.metrics] == ["inspect_evals/refusal_rate"]
+    assert (task.config.temperature, task.config.max_tokens) == (0.0, 256)
+    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
+    assert "refusal rate = 100 x (1 - correct / scored cases)" in board.description

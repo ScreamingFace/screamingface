@@ -211,6 +211,8 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-onet_m6": ("coverage_declare", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).
         "inspect-pubmedqa": ("coverage_declare", "single_shot", "medium"),
+        # OME-1269: over-refusal of harmless prompts, LLM-judged (gated dataset).
+        "inspect-xstest_safe": ("coverage_declare", "single_shot", "easy"),
     }
     actual = {
         benchmark.id: (

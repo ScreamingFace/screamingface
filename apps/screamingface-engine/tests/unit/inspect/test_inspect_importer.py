@@ -2195,6 +2195,43 @@ def test_introspect_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPa
     assert any("cot" in flag for flag in facts.custom_solvers)
 
 
+# ---------------------------------------------------------------------------
+# Gated datasets — the Hub's gate is observed, never typed (OME-1269, xstest)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("hub_gated", "expected"), [("auto", True), ("manual", True), (False, False)]
+)
+def test_capture_records_whether_the_dataset_needs_an_hf_token(
+    hub_gated: Any, expected: bool
+) -> None:
+    """The bake needs a token for a gated dataset; the importer reads the gate from
+    the Hub (dataset_info.gated: False, "auto" or "manual") so the row says so."""
+
+    info = types.SimpleNamespace(sha="c" * 40, card_data={"license": "cc-by-4.0"}, gated=hub_gated)
+
+    observations = capture_observations(
+        _facts(), dataset_info=lambda dataset, revision: info, count_rows=lambda f, r: 3
+    )
+
+    assert observations.needs_hf_token is expected
+
+
+def test_a_row_needing_an_hf_token_says_so_and_a_public_row_does_not() -> None:
+    token_row = render_fragments(
+        "sums",
+        _facts(),
+        Observations(revision="c" * 40, case_count=3, license="mit", needs_hf_token=True),
+    )
+    public = render_fragments(
+        "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+    )
+
+    assert "        needs_hf_token=True," in token_row.snapshot
+    assert "needs_hf_token=" not in public.snapshot
+
+
 def _dedupe_then_filter_task() -> Task:
     """Drops duplicates, THEN keeps a subset — the subset filter is the exam's."""
 
@@ -2246,3 +2283,31 @@ def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> Non
     with pytest.raises(ImporterError, match="is a list") as refusal:
         _generate(engine_src_copy, filters_after_load=True, task_args={"subjects": ["anatomy"]})
     assert "injection" not in str(refusal.value)
+
+
+def test_introspect_flags_an_evals_own_metrics_for_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A board reports the mean per-case score. xstest reports refusal_rate instead,
+    and the importer never looked, so the deviation went unnamed (review on PR #1112):
+    a task's own metrics= must surface as a review item on the generated board row."""
+
+    from inspect_ai.scorer import accuracy
+
+    def with_metrics() -> Task:
+        task = _free_text_task()
+        return Task(dataset=task.dataset, solver=task.solver, scorer=match(), metrics=[accuracy()])
+
+    _install_fake_eval(monkeypatch, sums=with_metrics)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+    fragments = render_fragments(
+        "sums", facts, Observations(revision="c" * 40, case_count=3, license="mit")
+    )
+
+    assert facts.custom_metrics == ("inspect_ai/accuracy",)
+    assert "TODO(review): the eval reports its own metric inspect_ai/accuracy" in fragments.board
+    assert (
+        "own metric"
+        not in render_fragments(
+            "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+        ).board
+    )

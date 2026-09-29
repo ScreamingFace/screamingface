@@ -69,10 +69,18 @@ jobs:
       # --list-bundles inside process substitution does NOT trip `set -e` — the loop
       # would see an empty list, prepare nothing, and the pytest step would then have
       # skipped green without SCREAMINGFACE_PAID_REQUIRED below.
+      - name: Install the engine's preparer extra
+        working-directory: apps/screamingface-engine
+        run: uv sync --extra benchmarks
+
       - name: Prepare imported benchmark assets
         working-directory: apps/screamingface-engine
+        # Read-only Hugging Face token for gated datasets (xstest, OME-1269), scoped to
+        # this step only (not the dependency install above); without it the bake refuses
+        # the gated board by name, which fails this owner-pressed run.
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_BENCHMARKS }}
         run: |
-          uv sync --extra benchmarks
           assets=/tmp/screamingface-data/benchmark-assets
           bundles_file="$(mktemp)"
           uv run python -m screamingface_engine.benchmarks.prepare --list-bundles > "$bundles_file"

@@ -133,6 +133,10 @@ class TaskFacts:
     #: The args the import ran the task with; a question-filter row forwards them at
     #: bake time because they can change what the filter keeps (xstest's subset).
     task_args: Mapping[str, Any] = field(default_factory=dict)
+    #: The eval's own ``Task(metrics=...)`` by registry name (xstest's
+    #: refusal_rate). An imported board always reports the MEAN per-case score, so a
+    #: custom metric is a deviation the board must name (review on PR #1112).
+    custom_metrics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,9 @@ class Observations:
     revision: str
     case_count: int
     license: str | None
+    #: The Hub's gate on the dataset (dataset_info.gated is "auto"/"manual" when set):
+    #: the bake then needs a token from an account that accepted its terms (OME-1269).
+    needs_hf_token: bool = False
 
 
 @dataclass(frozen=True)
@@ -234,7 +241,28 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
             cases_load_stub, filters, len(recorded), kwargs, task_ref
         ),
         task_args=dict(task_args or {}),
+        custom_metrics=_custom_metrics(task),
     )
+
+
+def _custom_metrics(task: Any) -> tuple[str, ...]:
+    """The eval's own ``metrics=`` by registry name — empty when it uses the scorer's."""
+
+    from inspect_ai._util.registry import registry_info
+
+    metrics: Any = getattr(task, "metrics", None)
+    if not metrics:
+        return ()
+    # WHY the fallback: inspect also takes metric GROUPS (a dict of name → metrics),
+    # which carry no registry entry; the review flag only needs a readable name.
+    listed: list[Any] = list(metrics) if isinstance(metrics, list) else [metrics]
+    names: list[str] = []
+    for metric in listed:
+        try:
+            names.append(str(registry_info(metric).name))
+        except Exception:  # noqa: BLE001 — any unregistered shape still gets flagged
+            names.append(repr(metric))
+    return tuple(names)
 
 
 def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
@@ -891,6 +919,7 @@ def capture_observations(
         revision=revision,
         case_count=int(counter(facts, revision)),
         license=None if license_value is None else str(license_value),
+        needs_hf_token=bool(getattr(info, "gated", False)),
     )
 
 
@@ -1033,7 +1062,9 @@ def render_fragments(
         )
         snapshot_lines.append("        # address a candidate's system role).")
         snapshot_lines.append(f'        system_message="{facts.system_message}",')
-    snapshot_lines.extend([*seed_snapshot_lines, *_question_filter_lines(facts)])
+    snapshot_lines.extend(
+        [*seed_snapshot_lines, *_question_filter_lines(facts), *_hf_token_lines(observations)]
+    )
     for solver_name in facts.custom_solvers:
         snapshot_lines.append(
             f"        # TODO(review): solver {solver_name} is not reproduced by "
@@ -1098,6 +1129,18 @@ def _seed_fragments(
     return pin_lines, import_names, snapshot_lines
 
 
+def _hf_token_lines(observations: Observations) -> list[str]:
+    """The SnapshotSpec line marking a dataset gated on the Hub (none otherwise)."""
+
+    if not observations.needs_hf_token:
+        return []
+    return [
+        "        # Gated on the Hub: the bake needs HF_TOKEN from an account that",
+        "        # accepted the dataset's terms (OME-1269).",
+        "        needs_hf_token=True,",
+    ]
+
+
 def _question_filter_lines(facts: TaskFacts) -> list[str]:
     """The SnapshotSpec kwarg lines that run a board's questions through its task (OME-1269).
 
@@ -1154,6 +1197,14 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
             for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    for metric_name in facts.custom_metrics:
+        board_lines.append(
+            f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
+        )
+        board_lines.append(
+            "        # board reports the mean per-case score — name that deviation (and how"
+        )
+        board_lines.append("        # to convert between the two) in the board's description.")
     judged: bool = _is_judged(facts)
     if judged:
         # OME-1240: a judged row must never land silently — the TODO model is
