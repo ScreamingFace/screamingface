@@ -891,15 +891,18 @@ def _score_text(value: float | None) -> str:
 def _tokens_total(usage: Any) -> str:
     """One figure for the cell — the in/out split is carried by the receipt strip."""
 
-    if usage.input_tokens is None and usage.output_tokens is None:
+    # INVARIANT: a partial observation is not a total, even when the known half is zero.
+    if usage.input_tokens is None or usage.output_tokens is None:
         return "—"
-    return _compact((usage.input_tokens or 0) + (usage.output_tokens or 0))
+    return _compact(usage.input_tokens + usage.output_tokens)
 
 
 def _tokens(usage: Any) -> str:
     if usage.input_tokens is None and usage.output_tokens is None:
         return "—"
-    return f"{_compact(usage.input_tokens or 0)} / {_compact(usage.output_tokens or 0)}"
+    input_tokens = "—" if usage.input_tokens is None else _compact(usage.input_tokens)
+    output_tokens = "—" if usage.output_tokens is None else _compact(usage.output_tokens)
+    return f"{input_tokens} / {output_tokens}"
 
 
 def _compact(value: int) -> str:

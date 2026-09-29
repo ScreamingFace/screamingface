@@ -125,3 +125,10 @@ including run remainders. Type AccountingRow.stage as generation | synthesis | g
    strict anonymous bucket and all other grouping behavior.
 3. Run the full Client gates against the pre-follow-up PR head for append-only protection,
    record the result, commit and push to the existing PR branch.
+
+## Partial-token review correction — 2026-09-29
+
+1. Reproduce the owner's P2 report through evaluation, member usage projection and HTML.
+2. Require both counts for a token total; render missing split components as `—`.
+3. Preserve existing tests; verify partial counts in both directions, zero, unknown and
+   complete controls, then run full Client gates and update PR #1097.

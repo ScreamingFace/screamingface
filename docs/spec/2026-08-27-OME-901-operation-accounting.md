@@ -264,3 +264,11 @@ If any row still has unknown model identity, every named `by_model` summary is u
 that row could belong to any named group. The `None` bucket retains its own strict summary
 of anonymous observations; it is not a named model total. Complete records keep their
 observed request model. Other groupings, root usage and retained JSON are unchanged.
+
+## Partial token display clarification — 2026-09-29
+
+A completed Report token total requires both known input and output counts. If either
+is missing, show the existing unknown marker (`—`), including when the known count is
+zero. An input/output split preserves each known count and marks each unknown half
+explicitly (for example `10 / —`). Known zero is still displayed as zero. This applies
+at the shared renderer used by Candidate and newly populated member usage.
