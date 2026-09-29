@@ -190,3 +190,28 @@ async def test_the_verdict_read_shares_the_pages_snapshot(
 
     assert None not in seen.values()
     assert seen["leaderboard"] is seen["frontier_member_models"]
+
+
+# --- Rebase onto the merged frontier (2026-09-29): bounded logging on the table too -------------
+
+
+async def test_a_page_logs_its_unrecognised_models_once_in_aggregate(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """INVARIANT: the table's log volume does not grow with the routes it renders.
+
+    `classify_entry` is silent since the frontier's review round 3; the table uses the same
+    aggregated `classify_members`, so a page of rows with unknown routes writes ONE warning.
+    """
+    await _board()
+    for i in range(5):
+        routes = [f"openrouter/nobody/m{i}-{j}" for j in range(4)]
+        await _score(f"s{i}", 0.5 + i / 100, f"{i + 1}.00", routes, hours=i)
+
+    with caplog.at_level("WARNING"):
+        rows = await _rows(client)
+
+    assert {row["openness"] for row in rows.values()} == {"closed"}
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "20 unrecognized" in warnings[0].getMessage()

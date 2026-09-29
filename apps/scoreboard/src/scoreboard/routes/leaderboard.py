@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 
-from scoreboard.classification.openness import EntryVerdict, classify_entry
+from scoreboard.classification.openness import EntryVerdict
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
     ReadIdentity,
@@ -15,8 +15,8 @@ from scoreboard.routes.dependencies import (
 )
 from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.frontier import (
-    FrontierMember,
     FrontierReplay,
+    classify_members,
     compute_frontier_openness,
     frontier_member_ids,
     replay_frontier,
@@ -97,7 +97,7 @@ class RankedLeaderboardEntry(BaseModel):
     # weights (OME-1179 D1, Q1). With `on_pareto_frontier` it answers "which entries win the open
     # frontier" (B1): a row carrying both.
     #
-    # INVARIANT: computed by `classify_entry`, the function the "N% open" card counts with, so a
+    # INVARIANT: computed by `classify_members`, the function the "N% open" card counts with, so a
     # row cannot read open while the card counted it closed. `unidentified` means the entry
     # declared no models, which is not the same claim as closed.
     #
@@ -186,15 +186,8 @@ def _ranked_entry(
     entry: LeaderboardEntry,
     *,
     on_pareto_frontier: bool,
-    member: FrontierMember | None,
+    openness: EntryVerdict,
 ) -> RankedLeaderboardEntry:
-    # A row the verdict read did not return (deleted between the reads) is unidentified, never
-    # guessed, exactly as the card treats it.
-    openness, _ = (
-        classify_entry(member.models, member.openness_override)
-        if member is not None
-        else ("unidentified", ())
-    )
     return RankedLeaderboardEntry(
         rank=rank,
         on_pareto_frontier=on_pareto_frontier,
@@ -378,6 +371,9 @@ async def get_leaderboard(
     # nothing here and leaves the function honest for any caller with legitimately mixed
     # revisions.
     frontier_ids = compute_pareto_frontier_ids(frontier_inputs) if pinned else frozenset()
+    # WHY `classify_members`: the card's own classifier, which logs the page's unknown routes as
+    # ONE warning. `classify_entry` alone is silent.
+    verdicts = classify_members(members)
 
     return LeaderboardResponse(
         benchmark=benchmark,
@@ -389,7 +385,9 @@ async def get_leaderboard(
                 # exact stored-row identity prevents a concurrent replacement for this spec
                 # from transferring its mark onto the older row rendered here.
                 on_pareto_frontier=row.source_id in frontier_ids,
-                member=members.get(row.source_id),
+                # A row the verdict read did not return (deleted between the reads) is
+                # unidentified, never guessed, exactly as the card treats it.
+                openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
             )
             for index, row in enumerate(rows, start=1)
         ],

@@ -54,3 +54,20 @@ Spec §4.
      still fits at 958px.
   3. **Private `my_submissions` carry no verdict:** they are not ranked. Out of scope, as the
      spec says.
+
+## Rebase onto main after #1080 merged (2026-09-29)
+
+#1080 was squash-merged (`5fd16fb4`), so this branch's three commits moved onto `origin/main`.
+Two conflicts, both additive: `portal.css` (the weights-line block beside the mark-column header,
+which #1049 had stripped of its ticket marker) and `routes/leaderboard.py` (the page's verdict read
+and #1080's in-snapshot `benchmark_scope` both kept, verdicts inside the snapshot).
+
+**Logging follow-up from #1080 review round 3.** `classify_entry` became silent there, so the
+table's per-row verdict would have logged nothing. `frontier._verdicts` is now the public
+`classify_members` and the table uses it: one aggregated warning per page, the same classifier as
+the card. `_ranked_entry` takes the verdict rather than classifying. **Test:**
+`test_a_page_logs_its_unrecognised_models_once_in_aggregate` (5 rows x 4 unknown routes gives one
+line naming 20). RED before (`0 == 1`), GREEN after.
+
+Gates ALL GREEN with the approved append-only skip; without it the check flags only the approved
+`_PUBLIC_BOARD_ENTRY_FIELDS` change and the portal JS file it cannot parse.
