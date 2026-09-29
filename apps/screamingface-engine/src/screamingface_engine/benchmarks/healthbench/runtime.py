@@ -216,7 +216,7 @@ def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: 
             raw_cases = _read(root / "cases.json", "HealthBench cases")
             transcript = _transcript(raw_cases, case_id)
             items = _rubric_items(root, case_id)
-            case_record = records.bind_case(
+            case_record = records.case_record(
                 raw_cases,
                 case_id=case_id,
                 candidate=answer,
@@ -238,7 +238,7 @@ def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: 
                     context=grader_prompt,
                     intent="",
                 )
-                rubric_record = records.bind_rubric_item(
+                rubric_record = records.rubric_item_record(
                     rendered, case_id=case_id, rubric_id=item["rubric_id"]
                 )
                 judge_requests.append(

@@ -9,13 +9,13 @@ CASE_SCHEMA = "screamingface.gdpval-case-record.v1"
 RUBRIC_SCHEMA = "screamingface.gdpval-rubric-record.v1"
 
 
-def bind_case(
+def case_record(
     raw_cases: str,
     *,
     case_id: int,
     candidate: CandidateAnswer,
 ) -> dict[str, object]:
-    """Bind the work request and the exact Candidate outcome to one Engine-owned Case."""
+    """Build the work request and the exact Candidate outcome to one Engine-owned Case."""
 
     return build_case_record(
         raw_cases,
@@ -26,8 +26,8 @@ def bind_case(
     )
 
 
-def bind_rubric_item(rubric_item: str, *, case_id: int, rubric_id: int) -> dict[str, object]:
-    """Bind one rendered ``[points] criterion`` line to Engine-known identities.
+def rubric_item_record(rubric_item: str, *, case_id: int, rubric_id: int) -> dict[str, object]:
+    """Build one rendered ``[points] criterion`` line to Engine-known identities.
 
     INVARIANT: the numeric points live ONLY in the private rubric assets. This record carries the
     rendered line for audit; the aggregate reads points from disk, never from anything that has
@@ -62,4 +62,4 @@ def _text(value: object, label: str) -> str:
     return value
 
 
-__all__ = ["CASE_SCHEMA", "RUBRIC_SCHEMA", "bind_case", "bind_rubric_item"]
+__all__ = ["CASE_SCHEMA", "RUBRIC_SCHEMA", "case_record", "rubric_item_record"]

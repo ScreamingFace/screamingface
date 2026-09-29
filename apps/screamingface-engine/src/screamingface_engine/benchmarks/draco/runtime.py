@@ -178,7 +178,7 @@ def _judge_request_rows(
                 evaluator_text,
                 selected_criteria,
             )
-            case_record = records.bind_case(
+            case_record = records.case_record(
                 raw_cases,
                 case_id=case_id,
                 candidate=answer,
@@ -210,7 +210,7 @@ def _judge_request_rows(
                     else "{}"
                 )
                 row["check_record"] = json.dumps(
-                    records.bind_check(
+                    records.check_record(
                         row["criterion"],
                         case_id=case_id,
                         criterion_id=row["criterion_id"],

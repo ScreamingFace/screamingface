@@ -1,4 +1,4 @@
-"""Shared binding of one Candidate outcome to one selected Benchmark Case."""
+"""Shared builder for one Candidate outcome's record on one selected Benchmark Case."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def build_case_record(
     schema: str,
     benchmark: str,
 ) -> dict[str, object]:
-    """Bind generic Candidate fields without owning Benchmark-specific semantics."""
+    """Build generic Candidate fields without owning Benchmark-specific semantics."""
 
     selected_id = positive_case_id(case_id)
     validate_candidate_outcome(

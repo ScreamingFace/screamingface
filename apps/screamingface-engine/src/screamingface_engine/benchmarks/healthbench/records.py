@@ -9,13 +9,13 @@ CASE_SCHEMA = "screamingface.healthbench-case-record.v1"
 RUBRIC_SCHEMA = "screamingface.healthbench-rubric-record.v1"
 
 
-def bind_case(
+def case_record(
     raw_cases: str,
     *,
     case_id: int,
     candidate: CandidateAnswer,
 ) -> dict[str, object]:
-    """Bind evaluator text and exact Candidate outcome to one Engine-owned Case."""
+    """Build evaluator text and exact Candidate outcome to one Engine-owned Case."""
 
     return build_case_record(
         raw_cases,
@@ -26,13 +26,13 @@ def bind_case(
     )
 
 
-def bind_rubric_item(
+def rubric_item_record(
     rubric_item: str,
     *,
     case_id: int,
     rubric_id: int,
 ) -> dict[str, object]:
-    """Bind one rendered ``[points] criterion`` line to Engine-known identities.
+    """Build one rendered ``[points] criterion`` line to Engine-known identities.
 
     WHY: the judge sees points in the rendered item (the official template's own
     examples reference negative point values) — there is no weight-blinding here,
@@ -72,4 +72,4 @@ def _text(value: object, label: str) -> str:
     return value
 
 
-__all__ = ["CASE_SCHEMA", "RUBRIC_SCHEMA", "bind_case", "bind_rubric_item"]
+__all__ = ["CASE_SCHEMA", "RUBRIC_SCHEMA", "case_record", "rubric_item_record"]

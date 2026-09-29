@@ -186,7 +186,7 @@ def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: 
             work_request = text_memo[case_id]
             if case_id not in items_memo:
                 items_memo[case_id] = _rubric_items(root, case_id)
-            case_record = records.bind_case(raw_cases, case_id=case_id, candidate=answer)
+            case_record = records.case_record(raw_cases, case_id=case_id, candidate=answer)
             judge_requests: list[dict[str, str]] = []
             for item in items_memo[case_id]:
                 rendered = render_rubric_item(item["points"], item["criterion"])
@@ -203,7 +203,7 @@ def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: 
                     context=grader_prompt,
                     intent="",
                 )
-                rubric_record = records.bind_rubric_item(
+                rubric_record = records.rubric_item_record(
                     rendered, case_id=case_id, rubric_id=item["rubric_id"]
                 )
                 judge_requests.append(
