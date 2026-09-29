@@ -79,10 +79,6 @@ def _gateway_config_summary(settings: _GatewayConfigView) -> dict[str, str]:
 # cryptography), its sqlite database (aiosqlite), the Engine app (prometheus_client for
 # metrics), and the servers (uvicorn).
 #
-# WHY no kubernetes: the Engine's Kubernetes Job adapter was retired (#822), and nothing on the
-# boot path imports it. Probing for it anyway crashed the frozen Studio sidecar, which bundles
-# only what is imported (OME-1415).
-#
 # WHY probed with find_spec and not imported: the check must stay fast (importing litellm
 # alone costs seconds) and must run in CI, which installs no runtime extra.
 #

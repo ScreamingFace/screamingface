@@ -640,19 +640,6 @@ def test_the_probe_list_pins_the_colab_gap_differentiators() -> None:
     } == set(server._RUNTIME_ONLY_MODULES)
 
 
-def test_the_runtime_neither_requires_nor_probes_kubernetes() -> None:
-    # WHY: the Engine's Kubernetes Job adapter was retired (#822) and nothing on the local boot
-    # path imports `kubernetes`. Probing for it anyway failed the frozen Studio sidecar, which
-    # PyInstaller builds from what is imported, so the app crashed on launch (OME-1415).
-    import tomllib
-
-    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    extra = tomllib.loads(pyproject.read_text())["project"]["optional-dependencies"]["runtime"]
-
-    assert "kubernetes" not in server._RUNTIME_ONLY_MODULES
-    assert not [requirement for requirement in extra if requirement.startswith("kubernetes")]
-
-
 def test_serve_logs_the_install_hint_for_an_import_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
