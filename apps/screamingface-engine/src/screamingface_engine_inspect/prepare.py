@@ -653,7 +653,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         choice_template="inspect_evals.pubmedqa.pubmedqa:TEMPLATE",
         # The eval drops questions after loading; the bake runs its task over
         # the pinned questions and keeps exactly what it keeps (OME-1269).
-        task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
+        question_filter_task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
     ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }

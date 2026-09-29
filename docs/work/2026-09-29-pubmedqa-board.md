@@ -6,11 +6,11 @@ started: 2026-09-29
 finished: 2026-09-29
 ---
 
-# pubmedqa-board — import pubmedqa through the task route (OME-1269, PR 2 of 3)
+# pubmedqa-board — import pubmedqa through its question filter (OME-1269, PR 2 of 3)
 
 ## Intent
 
-Ship the `pubmedqa` board on the task route from PR 1: the eval loads 1,000 labelled
+Ship the `pubmedqa` board on the question filter from PR 1: the eval loads 1,000 labelled
 questions and keeps the 500 on its bundled test list; the board keeps exactly those 500.
 Spec: `docs/spec/2026-09-29-inspect-task-route-bake.md`.
 
@@ -23,7 +23,7 @@ Spec: `docs/spec/2026-09-29-inspect-task-route-bake.md`.
 
 ## Test plan
 
-Board registry tests; a pin test for the route, template and kept count; a free real bake
+Board registry tests; a pin test for the question filter, template and kept count; a free real bake
 compared with inspect's own load.
 
 ## Acceptance
@@ -36,7 +36,7 @@ Ticket acceptance 4 for `pubmedqa`: 500 cases, ids equal to inspect's own load.
 - **Commits:** one on `OME-1269-pubmedqa-board`, stacked on `OME-1269-task-route-bake`.
 - **Gates:** ruff check, ruff format --check, pyright (0 errors), check_layering OK,
   `pytest --cov` 4585 passed / 44 skipped, coverage 93.67%; inspect lane 461 passed.
-- **Free real-data check (no token):** the importer writes the route row with 500 cases.
+- **Free real-data check (no token):** the importer writes the question-filter row with 500 cases.
   The production bake gives 500 cases; the bake's samples have exactly the ids of inspect's
   own `pubmedqa()` load, with the same input, target and choices. No row seed: upstream
   serves dataset order, and its answers are already mixed (first 50: 26 yes, 14 no, 10
