@@ -281,3 +281,24 @@ async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
     rendered = json.dumps(research["grade"]["checks"])
     assert "Could not parse verdict" in rendered
     assert '"raw_points": 0' in rendered
+
+
+@pytest.mark.asyncio
+async def test_the_judges_reasoning_reaches_the_explanation_end_to_end(
+    tmp_path: Path,
+) -> None:
+    """Through the board's aggregate route, a judged imported Case carries its judge's
+    words in the evidence's explanation — the field the notebook report shows under the
+    verdict — and the wire model accepts it (OME-1339)."""
+
+    node = Url4Node("test")
+    node.endpoint(_JUDGE_ROUTE)(_FormatAwareJudge())
+    _bake_by_hand(tmp_path)
+    BOARD.benchmark.install(node, tmp_path)
+
+    rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
+    result = json.loads(await _call(node, BOARD.aggregate_route, rows, "aggregate:2"))
+
+    research = result["cases"][1]["grade"]["checks"][0]["evidence"][0]
+    assert "VERDICT: 7.5" in research["explanation"]
+    assert research["explanation"] == research["raw_output"]

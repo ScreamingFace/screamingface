@@ -101,7 +101,7 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
             # named failure, not an aborted aggregate for the other 49 Cases.
             return _failure("scorer_error", f"{type(exc).__name__}: {exc}")
         # Stage 4 — copy their mark back onto our form.
-        return _outcome(score)
+        return _outcome(score, state.output.completion)
 
     async def observed(request: GradeRequest) -> CaseGradeOutcome:
         grading_activity(request.case_id, "started")
@@ -116,7 +116,7 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
     return observed
 
 
-def _outcome(score: Score | None) -> CaseGradeOutcome:
+def _outcome(score: Score | None, completion: str) -> CaseGradeOutcome:
     """Stage 4 — one complete outcome per Score, unmappable values failing by name."""
 
     if score is None:
@@ -125,7 +125,7 @@ def _outcome(score: Score | None) -> CaseGradeOutcome:
     value: float | None = _score_as_float(score.value)
     if value is None:
         return _failure("invalid_score_value", repr(score.value), score)
-    return CaseGradeOutcome(score=value, metrics={}, checks=[_check(score, value)])
+    return CaseGradeOutcome(score=value, metrics={}, checks=[_check(score, value, completion)])
 
 
 def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskState, Target]:
@@ -213,9 +213,10 @@ def _score_as_float(value: object) -> float | None:
     return mapped
 
 
-def _check(score: Score, value: float) -> dict[str, Any]:
+def _check(score: Score, value: float, completion: str) -> dict[str, Any]:
     """One check entry preserving the judge's own words as evidence."""
 
+    reasoning: str | None = _judge_reasoning(score, completion)
     return {
         "type": "inspect_scorer",
         "id": "1",
@@ -229,6 +230,8 @@ def _check(score: Score, value: float) -> dict[str, Any]:
                 "outcome": "PASS" if value >= 1.0 else "FAIL",
                 # The judge's own words, verbatim — audit material for every Case.
                 "raw_output": score.explanation or "",
+                # The same words where the notebook report reads them (OME-1339).
+                **({} if reasoning is None else {"explanation": reasoning}),
                 "metadata": {
                     "value": score.value if isinstance(score.value, str) else value,
                     "answer": score.answer,
@@ -239,6 +242,25 @@ def _check(score: Score, value: float) -> dict[str, Any]:
         ],
         "metadata": {"answer": score.answer},
     }
+
+
+def _judge_reasoning(score: Score, completion: str) -> str | None:
+    """The scorer's explanation when it actually explains something, else ``None``.
+
+    WHY: inspect's match, choice, pattern and math scorers put the candidate's own
+    completion in ``explanation`` — shown under the verdict it would repeat the answer
+    as if it were the judge's reasoning (owner decision, 2026-09-28). One comparison
+    against the graded completion, so still zero per-scorer branches. ``None`` (not "")
+    keeps the wire field absent, so an echoing scorer's evidence serializes as before.
+    A scorer's OWN message is reasoning and does show — ``pattern()``'s "Scoring
+    pattern not matched in output: …" on boolq, the AIME scorer's "Model produced
+    empty completion" — because it says why a Case failed.
+    """
+
+    explanation: str | None = score.explanation
+    if not explanation or explanation == completion:
+        return None
+    return explanation
 
 
 def _json_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
