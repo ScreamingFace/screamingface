@@ -28,16 +28,11 @@ including a window-era `[default, backup]` pair that previously auto-selected `d
 
 ## Gate
 
-Offline implementation and verification may proceed. Merge and deployment activation remain blocked
-by the Linear `blockedBy` relation to `OME-1401` after Engine build `df6e9b92` until both checks pass:
-
-- the approved quick alpha drain proof for old ingress pods, legacy queued/in-flight/redelivered
-  `AIGATEWAY_PROFILE` work, and ambient worker `AIGATEWAY_PROFILE`;
-- a separately authorized privacy-safe upper-bound count of unmigrated pairs with multiple active
-  Connections and an active `default` label; a nonzero result requires owner disposition or explicit
-  impact acceptance.
-
-This issue does not authorize the production read.
+Owner waiver recorded 2026-09-29 on `OME-1401`: merge may proceed through normal review and CI
+without the alpha drain proof or multi-active/default-label census. No production or cluster read was
+performed and no zero-count claim is made. The owner accepts residual fail-closed `400`/`409` risk for
+alpha-canary activation. An unexpected increase triggers rollback to Gateway selector honoring while
+Engine remains producer-off. `OME-1401` is canceled as waived and no longer blocks this issue.
 
 ## Implementation Status
 

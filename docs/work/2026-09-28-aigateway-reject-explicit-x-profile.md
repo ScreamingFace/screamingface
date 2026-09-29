@@ -57,8 +57,8 @@ pair's one effective Connection.
   clean.
 - **Deviations:** the exact 16-file prior-test re-pin was approved after the unchanged old suite
   reported `70 failed, 4901 passed, 52 skipped, 37 deselected`; append-only was skipped only for
-  that approved list. No deployment or production access occurred; merge/deployment remains gated
-  on the alpha drain proof.
+  that approved list. No deployment or production access occurred; at this checkpoint,
+  merge/deployment remained gated on the alpha drain proof.
 
 ## Review follow-up
 
@@ -99,8 +99,8 @@ pair's one effective Connection.
   format, Pyright, no-enterprise, full pytest coverage >=80); `git diff --check` clean.
 - **Deviations:** owner-approved review corrections update prior selector/live tests, so the
   append-only precheck is skipped for that reviewed set. Real live provider calls were not run
-  because credentials are absent. No deployment or production access occurred; merge remains
-  blocked on the alpha drain proof.
+  because credentials are absent. No deployment or production access occurred; at this checkpoint,
+  merge remained blocked on the alpha drain proof.
 
 ## Decision and rollout clarification
 
@@ -137,3 +137,13 @@ pair's one effective Connection.
 - **Deviations:** append-only remains skipped for the owner-approved contract re-pins and review
   corrections already recorded above. No production read, deployment, rebase, push, or runtime
   behavior change occurred.
+
+## Activation waiver
+
+- **Decision:** on 2026-09-29 the owner accepted the residual fail-closed risk and waived the
+  pre-merge alpha drain proof and multi-active/default-label census. No production or cluster read
+  was performed and no zero-count claim is made.
+- **Disposition:** `OME-1401` was canceled as waived and its `blockedBy` relation was removed from
+  `OME-1394`; PR #1114 may proceed through normal review and CI.
+- **Rollback:** treat alpha as the canary; an unexpected increase in `400 x_profile_unsupported` or
+  `409 connection_ambiguous` restores Gateway selector honoring while Engine remains producer-off.

@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
 created: 2026-09-09
-updated: 2026-09-28
+updated: 2026-09-29
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)
@@ -256,11 +256,13 @@ the historical resolver snapshot in §2 and the Stage B rule below describe the 
 not post-sunset behavior. The affected request now returns `409 connection_ambiguous`; callers must
 remove extra active Connections.
 
-Before the Gateway reject may merge, the alpha drain proof adds a privacy-safe upper-bound count of
-unmigrated `(account, provider)` pairs with two or more active Connections and at least one active
-Connection labelled `default`. A nonzero count requires explicit owner disposition or impact
-acceptance. This aggregate production read requires separate authorization; this specification and
-the OME-1394 implementation do not authorize or perform it.
+**Activation waiver (2026-09-29, owner, `OME-1401`):** the Gateway reject may proceed to alpha
+without the pre-merge drain proof or multi-active/default-label census. No production or cluster read
+was performed and no zero-count claim is made. The owner accepts the residual fail-closed risk: stale
+selector-bearing work or unknown callers may receive `400 x_profile_unsupported`, and existing
+multi-active pairs may receive `409 connection_ambiguous` until corrected. Alpha is the canary; an
+unexpected increase in these responses triggers rollback to Gateway `HONOUR` while Engine remains
+producer-off. `OME-1401` was canceled as waived, not completed as evidence.
 
 ### 3.7 Defaults (D2 preserved)
 
@@ -437,7 +439,7 @@ Conflicts are presented, not resolved.
 | D1 | Persistence | slot with single PK + UNIQUE pair, generation fence, no defaults | preserved; **conditional on D11(a)**; option (b) needs the same semantics in its own table |
 | D2 | Defaults | full REMOVE at an explicit cutover; no transfer anywhere; behaviour preserved until then | settled 2026-09-10; restated by the adapter-first input |
 | D3 | Collisions | only unambiguous, compatibility-safe automatic mappings; otherwise quarantine | preserved; applies at Stage B and to the admin successor's pair→record mapping |
-| D4 | Selector retirement | supported semantics in the window; reject unsupported after sunset; never silent | preserved; enforcement point is now the boundary's parse step; **activation detail decided 2026-09-25 (owner, `OME-1377`):** blank and whitespace-only headers are absent; literal `default` is rejected like any other nonblank value (no window); rollout is two-phase — Engine producer-off, drain proof, then the gateway reject; rollback floor is the producer-off Engine build and the gateway may return to `HONOUR`; the explicit-selector census was **waived 2026-09-25 (owner, recorded on `OME-1381`)** because dev evidence and the absence of first-party selector producers were sufficient for Engine producer-off. **Clarified 2026-09-28 (owner, `OME-1394`):** before Gateway reject, the drain gate separately requires an authorized privacy-safe upper-bound count of unmigrated multi-active pairs containing a `default` label; nonzero requires disposition or explicit impact acceptance. The sunset date remains open until both drain checks pass. |
+| D4 | Selector retirement | supported semantics in the window; reject unsupported after sunset; never silent | preserved; enforcement point is now the boundary's parse step; **activation detail decided 2026-09-25 (owner, `OME-1377`):** blank and whitespace-only headers are absent; literal `default` is rejected like any other nonblank value (no window); rollout is Engine producer-off then Gateway reject; rollback floor is the producer-off Engine build and the gateway may return to `HONOUR`; the explicit-selector census was **waived 2026-09-25 (owner, recorded on `OME-1381`)** because dev evidence and the absence of first-party selector producers were sufficient for Engine producer-off. **Clarified 2026-09-28 (owner, `OME-1394`):** selector-less multi-active pairs containing a `default` label become ambiguous. **Activation waiver 2026-09-29 (owner, `OME-1401`):** the pre-merge drain proof and multi-active census are waived without a zero-count claim; residual fail-closed risk is accepted for alpha-canary activation, with Gateway `HONOUR` as rollback while Engine remains producer-off. |
 | D5 | Rollback | tested R1 after the first canonical write; R0 needs proof | preserved (Stage B) |
 | D6 | Retention | API sunset separate from data retention | preserved (Stage E) |
 | D7 | Units | first units were S1–S3 | **re-approved 2026-09-14:** Stage 0 then A1 are the first units; U0/U0e/U1 authorised and filed; stop after A1 for review; A2–A4 and any backing migration need a new authorisation |
