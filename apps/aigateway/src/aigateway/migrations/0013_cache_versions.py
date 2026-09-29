@@ -4,7 +4,7 @@ UPGRADE. Five ``CREATE TABLE`` plus their indexes: ``request_cache_prompt``,
 ``cache_capture_entry`` (with the ``(account_id, trace_id, ordinal)`` index and the ``(key_hash)``
 index for the prune anti-join), ``cache_version`` (unique ``(owner_account_id, trace_id)``, and the
 ``(status, created_at)`` exporter index), ``cache_version_blob`` and ``cache_version_entry`` (unique
-``(version_id, key_hash, blob_sha256)``, which also serves the replay lookup by
+``(version_id, key_hash, blob_id)``, which also serves the replay lookup by
 ``(version_id, key_hash)``). Expand-only: no existing table is touched or rebuilt, so the standalone
 indexes SQLite drops with a rebuilt table are not at risk. All five tables are created EMPTY.
 
@@ -26,15 +26,17 @@ WHY ``cache_capture_entry.key_hash`` is NULL for an unkeyable call (plan OD-2): 
 has a capture row and no key (erd.md 3.2 says NOT NULL).
 
 WHY ``cache_version_entry`` has a UUID surrogate primary key: Tortoise 1.1.8 has no composite
-primary key, so the ``(version_id, key_hash, blob_sha256)`` rule is a unique index.
+primary key, so the ``(version_id, key_hash, blob_id)`` rule is a unique index.
 
 AUTHORING NOTE. Generated with ``tortoise makemigrations -n cache_versions models`` and then
 edited. The autodetector's extra proposal, ``AlterField`` on ``OAuthConnection.account``, is
 DROPPED. That is the pre-existing drift that the 0012 docstring records; applying it would rebuild
-``oauth_connections`` on SQLite and drop that table's standalone indexes. The ``blob`` foreign key
-keeps the database column ``blob_sha256`` through ``source_field``, so the column name states what
-it holds. The generated file spelled it ``blob_id``; that spelling would create a column that the
-model does not read.
+``oauth_connections`` on SQLite and drop that table's standalone indexes.
+
+The two foreign keys keep the Tortoise native column names ``version_id`` and ``blob_id`` (decision
+D8). Tortoise 1.1.8 overwrites a custom FK ``source_field`` with ``<attr>_id`` at init, so a custom
+column name would make the autodetector propose an ``AlterField`` for ever. ``blob_id`` holds the
+``CacheVersionBlob.sha256`` value (erd.md 3.4 differs).
 """
 
 from uuid import uuid4
@@ -143,7 +145,7 @@ class Migration(migrations.Migration):
                     "blob",
                     fields.ForeignKeyField(
                         "models.CacheVersionBlob",
-                        source_field="blob_sha256",
+                        source_field="blob_id",
                         db_constraint=True,
                         to_field="sha256",
                         related_name="entries",

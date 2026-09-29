@@ -12,6 +12,7 @@ about them afterwards, so a later ``makemigrations`` never proposes them again.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
@@ -59,7 +60,7 @@ _EXPECTED_COLUMNS = {
         "metadata_json",
         "size_bytes",
     },
-    "cache_version_entry": {"id", "version_id", "key_hash", "blob_sha256", "first_ordinal"},
+    "cache_version_entry": {"id", "version_id", "key_hash", "blob_id", "first_ordinal"},
 }
 _NULLABLE = {
     "cache_capture_entry": {"key_hash", "response_json"},
@@ -156,12 +157,12 @@ def test_0013_creates_the_five_tables_on_a_populated_database(
             )
     assert _foreign_keys(db, "cache_version_entry") == {
         ("cache_version", "version_id", "RESTRICT"),
-        ("cache_version_blob", "blob_sha256", "RESTRICT"),
+        ("cache_version_blob", "blob_id", "RESTRICT"),
     }
     assert (
         "version_id",
         "key_hash",
-        "blob_sha256",
+        "blob_id",
     ) in _unique_indexes(db, "cache_version_entry")
     assert _columns(db, "request_cache_prompt")["key_hash"]["pk"] == 1
     assert _columns(db, "cache_capture_entry")["ordinal"]["pk"] == 1
@@ -220,3 +221,51 @@ def test_0013_depends_on_0012() -> None:
 def test_the_cache_version_models_are_registered_with_the_orm() -> None:
     # WHY: `generate_schemas` (tests, local dev) and the autodetector both read this list.
     assert _MODELS_MODULE in TORTOISE_CONFIG["apps"]["models"]["models"]
+
+
+def test_autodetector_proposes_no_cache_version_change() -> None:
+    """The projected state after 0013 equals the declared models: no phantom pending change.
+
+    Runs out of process because the autodetector needs its own ``Tortoise.init`` and the unit suite
+    shares one global registry.
+
+    # WHY (D8): Tortoise 1.1.8 overwrites the ``source_field`` of a foreign key with ``<attr>_id``
+    # at init. A custom FK column name (``blob_sha256``) would therefore make the autodetector
+    # propose ``AlterField`` on ``CacheVersionEntry`` for ever. The FK columns keep native names.
+    """
+    script = """
+import asyncio, json
+from tortoise import Tortoise
+from tortoise.migrations.autodetector import MigrationAutodetector
+from aigateway.db import build_tortoise_config
+
+async def main():
+    config = build_tortoise_config("sqlite://:memory:")
+    await Tortoise.init(config=config, init_connections=False)
+    try:
+        writers = await MigrationAutodetector(Tortoise.apps, config["apps"]).changes()
+        print(json.dumps([op.describe() for w in writers for op in w.operations]))
+    finally:
+        await Tortoise.close_connections()
+
+asyncio.run(main())
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=APP_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    proposed = json.loads(result.stdout.strip().splitlines()[-1])
+
+    version_ops = [
+        op
+        for op in proposed
+        if any(name in op for name in ("CacheVersion", "CacheCapture", "RequestCachePrompt"))
+        or any(table in op for table in _TABLES)
+    ]
+    assert version_ops == [], (
+        f"autodetector proposes {version_ops}: migration 0013 and the models disagree, so a "
+        "future `makemigrations` would propose the cache-version tables again"
+    )

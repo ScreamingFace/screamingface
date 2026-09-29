@@ -1,8 +1,12 @@
 """The frozen-version tables (OME-1307, GW-capture creates them; GW-freeze and GW-replay use them).
 
 # FEATURE: OME-1307 (E14) - a cache version is the frozen set of answers of one traced run.
-# INVARIANT: an entry is immutable once written; `(version_id, key_hash, blob_sha256)` is unique.
+# INVARIANT: an entry is immutable once written; `(version_id, key_hash, blob_id)` is unique.
 # WHY the entry has a UUID surrogate primary key: Tortoise 1.1.8 has no composite primary key.
+# WHY the FK columns keep the native names `version_id` and `blob_id` (D8): Tortoise 1.1.8
+# overwrites a custom FK `source_field` with `<attr>_id` at init, so a custom column name makes the
+# autodetector propose an `AlterField` for ever. `blob_id` holds the `CacheVersionBlob.sha256`
+# value.
 """
 
 from __future__ import annotations
@@ -51,14 +55,12 @@ class CacheVersionEntry(Model):
     id = fields.UUIDField(primary_key=True, default=uuid.uuid4)
     version: fields.ForeignKeyRelation[CacheVersion] = fields.ForeignKeyField(
         "models.CacheVersion",
-        source_field="version_id",
         related_name="entries",
         on_delete=fields.OnDelete.RESTRICT,
     )
     key_hash = fields.CharField(max_length=64)
     blob: fields.ForeignKeyRelation[CacheVersionBlob] = fields.ForeignKeyField(
         "models.CacheVersionBlob",
-        source_field="blob_sha256",
         to_field="sha256",
         related_name="entries",
         on_delete=fields.OnDelete.RESTRICT,
