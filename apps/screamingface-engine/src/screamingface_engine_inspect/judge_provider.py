@@ -44,8 +44,21 @@ import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
-from inspect_ai.model import ChatMessage, GenerateConfig, ModelAPI, ModelOutput, modelapi
+from inspect_ai.model import (
+    ChatMessage,
+    GenerateConfig,
+    ModelAPI,
+    ModelOutput,
+    get_model,
+    model_roles,
+    modelapi,
+)
+
+# WHY the private import: init_model_roles is the setter inspect's own eval() uses
+# to bind roles; the public model_roles() is read-only (OME-1370).
+from inspect_ai.model._model import init_model_roles
 from inspect_ai.tool import ToolChoice, ToolInfo
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
@@ -99,6 +112,31 @@ def bound_judge_transport(transport: JudgeTransport) -> Iterator[None]:
         yield
     finally:
         _transport.reset(token)
+
+
+@contextmanager
+def bound_judge_role(role: str, model: str) -> Iterator[None]:
+    """Fill one inspect model role with our gateway judge for one grading pass.
+
+    Most inspect judges never name a model — they call ``get_model(role="grader")``
+    and expect the eval runner to have bound the role. Outside inspect's own eval
+    loop nobody has, so this binds ``role`` to ``screamingface/<model>``: the scorer's
+    lookup then resolves to THIS provider, and the call rides the bound transport
+    like any named judge (OME-1370).
+
+    WHY save-and-restore through ``init_model_roles``: inspect exposes no token for
+    its ``model_roles`` ContextVar, so the previous mapping is put back by value.
+    INVARIANT: the binding never leaks past its context — an unbound role falls
+    back to inspect's own resolution, which outside an eval raises (verified
+    against inspect 0.3.263), so the next board cannot ride this board's judge.
+    """
+
+    previous: dict[str, Any] = dict(model_roles())
+    init_model_roles({**previous, role: get_model(f"{PROVIDER_NAME}/{model}")})
+    try:
+        yield
+    finally:
+        init_model_roles(previous)
 
 
 @modelapi(name=PROVIDER_NAME)
@@ -262,4 +300,10 @@ def _message(message: ChatMessage) -> dict[str, str]:
     return {"role": role, "content": message.text}
 
 
-__all__ = ["PROVIDER_NAME", "JudgeFetch", "JudgeTransport", "bound_judge_transport"]
+__all__ = [
+    "PROVIDER_NAME",
+    "JudgeFetch",
+    "JudgeTransport",
+    "bound_judge_role",
+    "bound_judge_transport",
+]
