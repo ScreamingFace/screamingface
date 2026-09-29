@@ -23,3 +23,4 @@ Delivered as a 3-PR stack:
 Spec: ../spec/2026-09-29-inspect-task-route-bake.md
 Plan: ../plan/2026-09-29-inspect-task-route-bake.md
 Ledger (PR 1): ../work/2026-09-29-inspect-task-route-bake.md
+Ledger (PR 2): ../work/2026-09-29-pubmedqa-board.md
