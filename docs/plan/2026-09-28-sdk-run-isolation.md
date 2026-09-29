@@ -1,6 +1,6 @@
 # Plan — SDK run isolation (OME-1071, OME-1067, OME-1066)
 
-Status: approved (user order: "spec + plan, then code"). Spec:
+Status: approved (user order: "spec + plan, then code"); units 1-3 merged; unit 4 approved 2026-09-29. Spec:
 `docs/spec/2026-09-28-sdk-run-isolation.md`. Language: ASD-STE100.
 Stack: `screamingface` (`packages/screamingface`). No Engine change (spec E1).
 
@@ -13,7 +13,7 @@ A stack of branches. Each unit is green alone and adds only its own diff.
 | 1 | `sdk-run-isolation-stop-one` (`origin/main`) | OME-1071 | spec + plan; `_stop_own_run`; C2 → stop one Run; B1 abort flag reset |
 | 2 | `sdk-run-isolation-disconnect` (unit 1) | OME-1067 | C3 → stop one Run; B2 retire a completed Run |
 | 3 | `sdk-run-isolation-submit-retry` (unit 2) | OME-1066 | 503 + `Retry-After` retry of run start; notices; B3 |
-| 4 | `sdk-run-isolation-evaluation-outcome` (unit 3) | OME-1071 (+1067 acceptance) | runner C1 classification + Partial Report — **waits for Q1, Q2, Q3** |
+| 4 | `OME-1071-sdk-evaluation-outcome` (`origin/main`, after units 1-3 merged) | OME-1071 (+1067 acceptance) | runner C1 classification + Partial Report — owner answered Q1-Q5 on 2026-09-29 |
 
 WHY the runner change moved from unit 1 to unit 4: it needs two owner answers (a prior
 test must change, and a public shape must be chosen). Everything in units 1-3 is correct
@@ -77,10 +77,37 @@ Ledger: `docs/work/2026-09-28-sdk-run-isolation-submit-retry.md`.
    `_core/ports.py` `_ConnectionState` gets `waiting_for_capacity` / `admitted`;
    `_evaluation/progress.py`, `_ui/evaluation_state.py` render them.
 
-## Unit 4 — Evaluation outcome (waits for owner)
+## Unit 4 — Evaluation outcome (OME-1071 runner half, OME-1067 multi-Candidate part)
 
-After Q1-Q3: runner C1a/C1b/C1c split, wait for siblings, Partial Report per Q2, the pinned
-test replaced per Q1, regression pin for KeyboardInterrupt / cancellation sweep.
+Ledger: `docs/work/2026-09-28-sdk-run-isolation-evaluation-outcome.md`. Owner answers of
+2026-09-29: Q1 (a), Q2 (a), Q3 (a), Q4 accepted (nothing to build), Q5 deferred.
+
+1. Spec + plan update first (this commit): decisions, §5 behavior, §5.1 callback tag,
+   §5.2 Partial Report semantics.
+2. RED — new tests (sync + async), with the real transport against
+   `tests/_isolation_engine.py` where a Run is involved:
+   - one Candidate's reconnect refused (401) or never admitted (503 until the budget ends)
+     while a sibling is held → the sibling completes; only the failed Run's `DELETE /`;
+     `candidates_failed` with `details["failed"]`, `__cause__`, Partial Report of the
+     sibling;
+   - all fail → `partial_report is None`; no code → `unexpected_error`; a success whose
+     result does not decode → named in `failed`, not in the Partial Report;
+   - one Candidate → the error itself (today);
+   - `on_event` raises → that exception (identity) and the sibling is swept;
+   - replacement pin (Q1): no sweep on an ordinary failure; KeyboardInterrupt (sync) /
+     outer cancellation (async) sweeps once and records the note;
+   - progress: the failed row is `run_failed` while a sibling still runs; terminal line;
+     the final abort keeps both rows;
+   - async: no pending task after `candidates_failed`.
+3. GREEN — `errors.py` (`partial_report`); new `_evaluation/outcome.py` (failure record,
+   private carrier exception, code fallback, Partial Report, the error); `runner.py`
+   (C1a/C1b/C1c split, `FIRST_EXCEPTION` wait in the sync twin so an abort-class failure
+   is seen at once, callback identity tag, per-Candidate failure notice);
+   `progress.py`, `_ui/evaluation_state.py`, `_ui/evaluation_widget.py` (failed row).
+4. Replace `test_abort_sweep_records_note_when_stop_rejected` (Q1); regenerate
+   `tests/public_surface_snapshot.json` (Q2); CHANGELOG entry.
+5. Gates: `run_gates.py screamingface --base origin/main --skip-append-only` (the approved
+   replacement fails the append-only check on purpose; recorded in the ledger).
 
 ## Gates (every unit)
 
