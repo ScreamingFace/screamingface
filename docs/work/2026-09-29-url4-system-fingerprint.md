@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: url4
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-29
-finished:
+finished: 2026-09-29
 ---
 
 # url4-system-fingerprint — the pure `system_fingerprint` in `packages/url4` (E14, OME-1307, unit URL4-fp)
@@ -100,9 +100,39 @@ not committed): the output is byte-identical to the file in the tree.
   ledger held any evidence. The stage-by-stage re-verification above is the evidence for the
   TDD order. It is not a claim that the earlier run observed each RED.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** (pending)
-- **Commits:** (pending)
-- **Gates:** (pending)
-- **Deviations:** (pending)
+- **Actual files:** as planned, no extra file. `packages/url4/src/url4/fingerprint.py`;
+  `packages/url4/tests/unit/test_fingerprint.py`, `test_fingerprint_properties.py`,
+  `test_fingerprint_parity.py`, `test_fingerprint_purity.py`;
+  `packages/url4/tests/fixtures/fingerprint_vectors.json`; `packages/url4/pyproject.toml`,
+  `packages/url4/uv.lock`, `apps/screamingface-engine/uv.lock` (one line);
+  `packages/url4/ARCHITECTURE.md`, `packages/url4/README.md`; this ledger.
+  No migration (no database).
+- **Commits (on `unit/URL4-fp`):** d1d531d9 `docs(url4): start the E14 system fingerprint ledger`;
+  b597027a `build(url4): add hypothesis to the dev group`;
+  91128cb1 `feat(url4): add the pure system_fingerprint for the E14 system registry`;
+  and the docs commit that fills this outcome.
+- **Gates (all green):** `run_gates.py url4 --base e14-reproducible-submission-spec` (append-only,
+  ruff check, ruff format, pyright, pytest cov >= 95: 98 % total, `fingerprint.py` 100 %; 1437
+  passed); `uv lock --check` in `packages/url4` and `apps/screamingface-engine`;
+  `check_suppressions.py` (7, baseline 7); `check_module_size.py`; the four fingerprint test
+  files (78 passed); `run_gates.py screamingface-engine` and `run_gates.py screamingface` (both
+  ALL GATES GREEN). Note: the first `screamingface` run failed in pyright, only with
+  `reportMissingImports` for `ipywidgets`, because the local venv lacked the `notebook` extra
+  (CI runs `uv sync --extra notebook`). After `uv sync --extra notebook` in
+  `packages/screamingface` (venv only, no tracked file) the lane is green. It is an environment
+  matter, not a change in a gate.
+- **Wisdom review:** no simpler design (two public functions, two helpers, as in the plan). No
+  speculative generality. The tests use a `hashlib` oracle over literals, so no expected value
+  comes from the code under test. Blast radius: one new module; `__init__.py`, `test_layering.py`
+  and the module-size baseline are untouched; no prior test was changed (append-only gate green).
+  No secret, no I/O, no fail-open path. No `# type: ignore`, no bare `except`.
+  `packages/url4/.hypothesis/` appeared during test runs; it was deleted and not committed.
+- **Deviations:**
+  - tortoise-dev waived by the user for E14 (no Tortoise code in this unit).
+  - A previous implementer run stopped part-way and left uncommitted work. This run kept it,
+    checked it against the plan, and re-verified each RED and GREEN step by stage (see the
+    evidence section). No RED was recorded before the stop.
+  - The plan lists no fixed intermediate-stage code for the re-verification; the T1/T2/T3
+    stage files were made in the scratchpad outside the repo and are not committed.
