@@ -137,7 +137,7 @@ def test_the_professional_benchmark_is_registered_under_its_id() -> None:
     assert PROFESSIONAL_VARIANT.id == "healthbench-professional"
 
 
-def test_the_professional_benchmark_serves_every_baked_case() -> None:
+def test_the_professional_benchmark_serves_every_prepared_case() -> None:
     # WHY 1..525 with no gaps: prepare.py numbers Cases by their 1-based position in the
     # HF file, so "the whole benchmark" IS the contiguous range — any hole would mean a filter.
     assert PROFESSIONAL_CASE_COUNT == 525

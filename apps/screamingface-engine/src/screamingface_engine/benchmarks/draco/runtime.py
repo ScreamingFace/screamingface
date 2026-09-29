@@ -107,7 +107,7 @@ ProtocolAssets = tuple[str, list[dict[str, object]], dict[int, dict[str, Any]]]
 def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
     """A memoized accessor for the shared assets — loaded on first use, never at install.
 
-    Baked assets are immutable for the process lifetime, so one successful load serves every
+    Prepared assets are immutable for the process lifetime, so one successful load serves every
     later resolution. A FAILED load is never cached: the next resolution re-reads and re-fails
     with the same named error, keeping missing-asset failures loud rather than one-shot.
     """

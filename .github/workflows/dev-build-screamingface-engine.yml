@@ -111,7 +111,7 @@ jobs:
           build-args: |
             BASE=ghcr.io/screamingface/screamingface-engine:main-${{ needs.image.outputs.short }}
           # Read-only Hugging Face token for gated datasets (OME-1269). Main builds do NOT
-          # set the skip switch: a missing secret fails the bake by name.
+          # set the skip switch: a missing secret fails the prepare step by name.
           secrets: |
             hf_token=${{ secrets.HF_TOKEN_BENCHMARKS }}
           tags: |

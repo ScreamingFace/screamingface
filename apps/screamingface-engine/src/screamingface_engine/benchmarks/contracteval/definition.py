@@ -51,7 +51,7 @@ BENCHMARK_ID = "contracteval"
 ASSET_BUNDLE_ID = BENCHMARK_ID
 # WHY sourced from pins and not a second literal (review of PR #984): this value feeds the
 # expression's `available_case_count`, and a copy here could drift from the count `prepare`
-# actually bakes.
+# actually prepares.
 CASE_COUNT = EXPECTED_CASES
 DATASET_URL = "https://huggingface.co/datasets/theatticusproject/cuad-qa"
 # INVARIANT: grading is retrieval-free — the answer must be quoted FROM the supplied contract,
@@ -99,7 +99,7 @@ AGGREGATE_ROUTE = _ROUTES.aggregate
 def _build(case_count: int) -> Node:
     """Build the single-shot ContractEval expression.
 
-    One Candidate answer per Case, checked once. The whole instruction set is baked into
+    One Candidate answer per Case, checked once. The whole instruction set is written into
     `$item.input` by `prepare`, so there is nothing to assemble here.
     """
 

@@ -91,7 +91,7 @@ def aggregate(
         rows_json: the collected array of Case execution rows, in selected order.
         rubrics: case_id → the installed private rubric (the grading material).
         benchmark_id: the benchmark publishing this result ("draco" / "draco-3pass").
-        selected_cases: the raw selected-case mappings from the baked ``cases.json``
+        selected_cases: the raw selected-case mappings from the prepared ``cases.json``
             prefix — every field beyond id/input rides the result as Case metadata.
         judge_passes: this benchmark's evidence cardinality (5-pass vs 3-pass).
         benchmark_revision: the benchmark's revision, stamped into the result.

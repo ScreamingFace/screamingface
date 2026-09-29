@@ -14,7 +14,7 @@ from __future__ import annotations
 DATASET = "openai/gdpval"
 # WHY pinned: the gold subset is published data that can be re-pushed. The frozen selection in
 # `subset.py` addresses tasks by id, so a revision bump that dropped or renamed one must fail the
-# build rather than silently bake a smaller benchmark.
+# build rather than silently prepare a smaller benchmark.
 #
 # WHY THIS revision specifically: it is "Release GDPval v2 (rubrics + deliverables)" (2026-02-10),
 # the commit that ADDED `rubric_json`. This benchmark grades those rubrics, so any earlier revision
@@ -23,7 +23,7 @@ DATASET = "openai/gdpval"
 # AIDEV-NOTE: do NOT copy the pin from UKGovernmentBEIS/inspect_evals
 # (`a3848a2a812d5d4d0f08003fac3c8eac40805962`, 2025-09-25). That reference implementation never
 # reads the rubrics — it uploads deliverables to OpenAI's grading service — so its pin predates
-# them and carries `rubric_json: null` on all 220 rows. Baking from it fails the build at case 1,
+# them and carries `rubric_json: null` on all 220 rows. Preparing from it fails the build at case 1,
 # which is how this was found.
 DATASET_REVISION = "11e7900cdcac61bc4daf59e65feb238acda98fbf"
 

@@ -113,7 +113,7 @@ def _build(case_count: int) -> Node:
     the private key and roll the rows into the aggregate.
     """
 
-    # Turn 1 — free reasoning. The cases file bakes the ready-made CoT prompt.
+    # Turn 1 — free reasoning. The cases file prepares the ready-made CoT prompt.
     # INVARIANT: this node is bound at CASE-EXECUTION scope (via `bindings=` below), never
     # inside the grading scope. The protective iterate rebinds `$item` to the
     # `{candidate_invocation, case_id}` struct, so `$item.cot_prompt` read there resolves

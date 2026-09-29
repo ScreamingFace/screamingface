@@ -1,4 +1,4 @@
-"""Baking ContractEval: the public contract question and the private gold spans."""
+"""Preparing ContractEval: the public contract question and the private gold spans."""
 
 from __future__ import annotations
 
@@ -131,9 +131,9 @@ class TestEmit:
 
 class TestModuleEntryPoint:
     def test_prepare_is_runnable_as_a_module(self) -> None:
-        """REGRESSION: the SDK bakes assets by spawning
+        """REGRESSION: the SDK prepares assets by spawning
         `python -m screamingface_engine.benchmarks.contracteval.prepare --out <dir>`, so a
-        missing `main` fails only at bake time with "prepared output is missing [...]", which
+        missing `main` fails only at prepare time with "prepared output is missing [...]", which
         names the symptom and hides the cause. The family guard in test_benchmark_deployment
         checks that the command STRING matches its regex — not that the module answers it.
         """
@@ -185,7 +185,7 @@ class TestPreflight:
 
 
 class TestContextGuardHeadroom:
-    def test_a_contract_at_the_real_dataset_maximum_still_bakes(self) -> None:
+    def test_a_contract_at_the_real_dataset_maximum_still_prepares(self) -> None:
         """The other half of "the guard both ways" (review, PR #984) — the guard must not fire
         on real data, and this test is what says so in CI rather than in a spec sentence.
 
@@ -264,10 +264,10 @@ class TestCasesRouteMemo:
 
 
 class TestRowCountGuard:
-    def test_a_resized_split_fails_the_bake(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_resized_split_fails_the_prepare(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """REVIEW (PR #984): the captured count used to be a bare literal in `definition.py`,
         outside the revision hash and compared to nothing. Bump the dataset revision against a
-        split of a different size and the bake succeeded while the expression still declared
+        split of a different size and the prepare step succeeded while the expression still declared
         4,182 — so coverage percentages divided by a denominator nobody had verified.
         """
 

@@ -5,7 +5,7 @@ serves text, so those files are flattened to text ONCE at image build time — a
 offline with a read-only disk and cannot parse anything.
 
 INVARIANT under test: a reference that does not yield usable text FAILS THE BUILD, naming the
-task and the file. It is never baked as an empty reference. A silently empty reference produces
+task and the file. It is never prepared as an empty reference. A silently empty reference produces
 a task the model cannot do and a score that reads as model weakness — the same failure mode the
 seven excluded tasks exist to prevent.
 
@@ -84,7 +84,7 @@ def test_a_reader_failure_is_reported_against_its_task_and_file() -> None:
 
 
 def test_extraction_is_deterministic() -> None:
-    # INVARIANT: the baked text is part of the answer key. Two builds over one revision must
+    # INVARIANT: the prepared text is part of the answer key. Two builds over one revision must
     # produce identical bytes.
     body = "q" * (MIN_VIABLE_CHARS + 40)
     first = extract_reference_text(_TASK, "Ref.pdf", reader=_reader(body))

@@ -36,7 +36,7 @@ _CONTRACT = f"1. Term. Five years. 2. Governing Law. {_GOLD}"
 
 
 def _assets(tmp_path: Path) -> Path:
-    """Bake one real Case under the layout `install_contracteval` expects."""
+    """Prepare one real Case under the layout `install_contracteval` expects."""
 
     bundle = tmp_path / benchmark.ASSET_BUNDLE_ID
     bundle.mkdir(parents=True)
@@ -110,7 +110,7 @@ async def test_the_candidate_receives_the_real_contract_and_not_empty_text(
     user = next(m["content"] for m in seen[0]["messages"] if m["role"] == "user")
     assert _CONTRACT in user
     assert "Which state's law governs?" in user
-    # The baked input also carries the instructions — prompt bytes are benchmark identity here.
+    # The prepared input also carries the instructions — prompt bytes are benchmark identity here.
     assert "Do not rephrase or summarize" in user
 
 

@@ -32,7 +32,7 @@ Run from ``apps/screamingface-engine``::
         inspect_evals.arc.arc:arc_easy --key arc_easy
 
 (gsm8k, the original example, now refuses: its hf_dataset call passes
-``data_dir``, which the bake does not reproduce — its merged row was
+``data_dir``, which the prepare step does not reproduce — its merged row was
 hand-verified before the refusal existed.)
 
 STORY: onboarding is AI-first — an agent runs the command, writes the catalogue
@@ -62,11 +62,13 @@ CLEARED_DATASET_LICENSES: frozenset[str] = frozenset(
     {"mit", "apache-2.0", "cc0-1.0", "cc-by-4.0", "cc-by-sa-4.0", "odc-by"}
 )
 
-#: Solvers whose render the bake reproduces outright (prepare.py's templated/MCQ/raw
-#: prompt paths). Anything else — including prompt settings the bake would silently
+#: Solvers whose render the prepare step reproduces outright (prepare.py's templated/MCQ/raw
+#: prompt paths). Anything else — including prompt settings the prepare step would silently
 #: drop, like system instructions or a custom choice template — earns a review flag
 #: in the facts rather than a guess (review finding on PR 965).
-_FULLY_BAKED_SOLVERS: frozenset[str] = frozenset({"prompt_template", "generate", "multiple_choice"})
+_FULLY_REPRODUCED_SOLVERS: frozenset[str] = frozenset(
+    {"prompt_template", "generate", "multiple_choice"}
+)
 
 # The insertion contract: each generated row lands immediately ABOVE its
 # file's anchor comment. The anchors live in the three files themselves.
@@ -101,7 +103,7 @@ class InspectTaskFacts:
     #: (the family renderer, OME-1116 milestone C).
     choice_template: str | None = None
     #: The eval's system instruction when it lives in a module-level constant —
-    #: captured as a fact the row POINTS at; the bake delivers it as leading
+    #: captured as a fact the row POINTS at; the prepare step delivers it as leading
     #: input text (a benchmark cannot address a candidate's system role — the
     #: contracteval named-deviation pattern, owner-approved on OME-1253). An
     #: inline-literal system message still earns the review flag instead.
@@ -124,14 +126,14 @@ class InspectTaskFacts:
     data_files: dict[str, str] | None = None
     #: hf_dataset's Features schema as a dotted POINTER at the eval's own
     #: module constant (infinite_bench's constants:ft) — the row points, never
-    #: copies; resolved and type-checked at bake time (OME-1264 ext 2).
+    #: copies; resolved and type-checked at prepare time (OME-1264 ext 2).
     features: str | None = None
     #: The eval drops questions after loading — a ``.filter()`` on the benchmark load
     #: other than inspect_evals' duplicate-id remover (OME-1269). The row then
-    #: names the task function, so the bake lets the eval's own filter pick.
+    #: names the task function, so the prepare step lets the eval's own filter pick.
     filters_after_load: bool = False
     #: The args the import ran the task with; a question-filter row forwards them at
-    #: bake time because they can change what the filter keeps (xstest's subset).
+    #: prepare time because they can change what the filter keeps (xstest's subset).
     task_args: Mapping[str, Any] = field(default_factory=dict)
     #: The eval's own ``Task(metrics=...)`` by registry name (xstest's
     #: refusal_rate). An imported benchmark always reports the MEAN per-case score, so a
@@ -147,7 +149,7 @@ class HubDatasetFacts:
     case_count: int
     license: str | None
     #: The Hub's gate on the dataset (dataset_info.gated is "auto"/"manual" when set):
-    #: the bake then needs a token from an account that accepted its terms (OME-1269).
+    #: the prepare step then needs a token from an account that accepted its terms (OME-1269).
     needs_hf_token: bool = False
 
 
@@ -281,7 +283,7 @@ def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
     test ids; onet_m6 keeps answerable single-answer questions) rejects the
     dummy, since it has no id and no metadata, and inspect then refuses the empty
     Task before the importer can read it. Returning the stub itself keeps the Task
-    buildable and its identity intact; the real filter runs at bake time
+    buildable and its identity intact; the real filter runs at prepare time
     (OME-1269). Each call is recorded as ``(dataset, predicate)`` so only filters
     on the benchmark load count.
     """
@@ -297,9 +299,9 @@ def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
 
 
 #: inspect_evals' duplicate-id remover, by module + qualname. It is the one post-load
-#: filter the bake does NOT send through its task: six live benchmarks run it (wmdp x3, mmlu,
-#: race_h, winogrande), and sending them through their task would move their published revisions.
-#: The wmdp rows carry a hand-verified note that it is a no-op at their pins.
+#: filter the prepare step does NOT send through its task: six live benchmarks run it (wmdp x3,
+#: mmlu, race_h, winogrande), and sending them through their task would move their published
+#: revisions. The wmdp rows carry a hand-verified note that it is a no-op at their pins.
 _DEDUPE_FILTER = "inspect_evals.utils.deps_utils:filter_duplicate_ids.<locals>.is_unique_id"
 
 
@@ -310,15 +312,15 @@ def _drops_questions_after_load(
     kwargs: Mapping[str, Any],
     task_ref: str,
 ) -> bool:
-    """Whether the eval drops benchmark questions after loading — then the bake must run
+    """Whether the eval drops benchmark questions after loading — then the prepare step must run
     its task (OME-1269). Filters on other loads (a fewshot pool) change no benchmark.
 
     Three combinations refuse by name, because the question filter could not reproduce them:
-    a second load (the bake hands the pinned questions to every load the task
-    makes); ``auto_id`` (inspect numbers the rows 1..N at load, the bake's swapped
+    a second load (the prepare step hands the pinned questions to every load the task
+    makes); ``auto_id`` (inspect numbers the rows 1..N at load, the prepare step's swapped
     loader does not, so a filter that reads ids would keep different questions);
     and an upstream-seeded choice shuffle (upstream draws each case's choice order
-    over every row before its filter, the bake over the kept rows).
+    over every row before its filter, the prepare step over the kept rows).
     """
 
     question_filters: list[str] = [
@@ -331,13 +333,13 @@ def _drops_questions_after_load(
     if load_count != 1:
         raise ImporterError(
             f"{task_ref}: the eval drops questions after loading and loads {load_count} "
-            "datasets — the bake's question-filter step hands the pinned questions to every load, "
+            "datasets — the question-filter step hands the pinned questions to every load, "
             "so it cannot reproduce these questions; import it by hand"
         )
     if kwargs.get("auto_id"):
         raise ImporterError(
             f"{task_ref}: the eval drops questions after loading and numbers its rows "
-            "with auto_id — the bake's question-filter step hands the task samples without those "
+            "with auto_id — the question-filter step hands the task samples without those "
             "ids, so a filter that reads them would keep different questions; import it "
             "by hand"
         )
@@ -345,14 +347,14 @@ def _drops_questions_after_load(
         raise ImporterError(
             f"{task_ref}: the eval drops questions after loading and pins its own "
             "choice-shuffle seed — upstream draws each case's choice order over every "
-            "row before its filter, the bake over the kept rows, so the same seed "
-            "would bake different questions; import it by hand"
+            "row before its filter, the prepare step over the kept rows, so the same seed "
+            "would prepare different questions; import it by hand"
         )
     return True
 
 
 def _reproducible_data_files(raw: Any, task_ref: str) -> dict[str, str] | None:
-    """data_files in a shape the bake reproduces verbatim, or a named refusal.
+    """data_files in a shape the prepare step reproduces verbatim, or a named refusal.
 
     Only the shape seen upstream is reproduced: a dict of str split names to str
     file names (infinite_bench's {"passkey": "passkey.jsonl"}). Everything else
@@ -369,7 +371,7 @@ def _reproducible_data_files(raw: Any, task_ref: str) -> dict[str, str] | None:
         return dict(raw)
     raise ImporterError(
         f"{task_ref}: hf_dataset data_files has a shape the importer does not conserve "
-        f"({type(raw).__name__}) — only a dict of str to str is reproduced by the bake; "
+        f"({type(raw).__name__}) — only a dict of str to str is reproduced by the prepare step; "
         "extend the importer for this family"
     )
 
@@ -529,9 +531,9 @@ def _dataset_holds_the_stub(dataset: Any) -> bool:
         return False
 
 
-#: hf_dataset parameters the bake either reproduces (path/name/split/revision/
+#: hf_dataset parameters the prepare step either reproduces (path/name/split/revision/
 #: sample_fields; shuffle and shuffle_choices via a pinned seed each) or that
-#: cannot change the benchmark's content (auto_id renumbers ids the bake reassigns
+#: cannot change the benchmark's content (auto_id renumbers ids the prepare step reassigns
 #: anyway; trust/cached/retry only affect how loading happens).
 _REPRODUCED_DATASET_KWARGS: frozenset[str] = frozenset(
     {
@@ -568,7 +570,7 @@ def _refuse_irreproducible_dataset_kwargs(kwargs: dict[str, Any], task_ref: str)
     if dropped:
         raise ImporterError(
             f"{task_ref}: hf_dataset kwarg(s) {', '.join(dropped)} are not reproduced "
-            "by the bake — importing would silently change the exam; add the row by "
+            "by the prepare step — importing would silently change the exam; add the row by "
             "hand or extend the importer for this family"
         )
 
@@ -643,7 +645,7 @@ def _solver_facts(
             choice_template_ref = _choice_template_fact(
                 module, solver, registry_name, task_ref, custom
             )
-        elif name not in _FULLY_BAKED_SOLVERS:
+        elif name not in _FULLY_REPRODUCED_SOLVERS:
             custom.append(registry_name)
     template_ref: str | None = _prompt_template_fact(module, template_solvers, task_ref)
     system_message_ref: str | None = _system_message_fact(module, system_solvers, task_ref, custom)
@@ -667,13 +669,13 @@ def _choice_template_fact(
     module: Any, solver: Any, registry_name: str, task_ref: str, custom: list[str]
 ) -> str | None:
     """The row's ``choice_template`` pointer for one multiple_choice solver — None
-    means inspect's default render; anything the bake cannot render earns a flag."""
+    means inspect's default render; anything the prepare step cannot render earns a flag."""
 
     from inspect_ai._util.registry import registry_params
 
     params: dict[str, Any] = registry_params(solver)
     if params.get("template") is not None:
-        # A custom choice template the bake CAN reproduce — when it resolves
+        # A custom choice template the prepare step CAN reproduce — when it resolves
         # to one module attribute the row points at (the family renderer,
         # OME-1116 milestone C); an unresolvable one still earns the flag.
         return _resolved_or_flagged(
@@ -681,16 +683,16 @@ def _choice_template_fact(
             solver,
             task_ref,
             custom,
-            f"{registry_name} (custom choice template is not baked)",
+            f"{registry_name} (custom choice template is not prepared)",
         )
     # WHY (OME-1269): cot=True swaps in inspect's "Think step by step" template;
-    # ignoring the flag baked the plain wording, a different benchmark (onet_m6).
+    # ignoring the flag prepared the plain wording, a different benchmark (onet_m6).
     # Answer parsing is the same for both templates, so grading is unchanged.
     cot_template: str | None = _COT_CHOICE_TEMPLATE if params.get("cot") else None
     if cot_template is not None and params.get("multiple_correct"):
-        # The bake renders single-answer MCQ only; guessing the multi-answer
+        # The prepare step renders single-answer MCQ only; guessing the multi-answer
         # CoT wording would change the benchmark silently.
-        custom.append(f"{registry_name} (cot with multiple_correct is not baked)")
+        custom.append(f"{registry_name} (cot with multiple_correct is not prepared)")
         cot_template = None
     return cot_template
 
@@ -720,7 +722,7 @@ def _reads_a_file(template: Any) -> bool:
 def _refuse_file_template(template: Any, task_ref: str) -> None:
     """A prompt_template read from a file refuses by name (OME-1272).
 
-    WHY refuse, not flag: the bake formats the constant's own text, and a path
+    WHY refuse, not flag: the prepare step formats the constant's own text, and a path
     has no {prompt} slot — every case would become the path string. That
     matches how an unresolvable prompt template already refuses.
     """
@@ -728,7 +730,7 @@ def _refuse_file_template(template: Any, task_ref: str) -> None:
     if _reads_a_file(template):
         raise ImporterError(
             f"{task_ref}: prompt_template reads its template from a file ({template}) — "
-            "the bake formats the constant's own text, so every case would become the "
+            "the prepare step formats the constant's own text, so every case would become the "
             "path; add the row by hand or extend the importer for this family"
         )
 
@@ -738,9 +740,9 @@ def _prompt_template_fact(module: Any, solvers: list[Any], task_ref: str) -> str
 
     inspect applies every prompt_template in turn, each wrapping the previous
     one's output ("Think carefully.\\n\\n{prompt}" around "Solve: {prompt}"); the
-    row points at one template and the bake applies only it. So two or more
+    row points at one template and the prepare step applies only it. So two or more
     refuse (OME-1272), as does a file-path template or one with no single module
-    attribute to point at — the bake cannot reproduce any of them.
+    attribute to point at — the prepare step cannot reproduce any of them.
     """
 
     from inspect_ai._util.registry import registry_params
@@ -748,7 +750,7 @@ def _prompt_template_fact(module: Any, solvers: list[Any], task_ref: str) -> str
     if len(solvers) > 1:
         raise ImporterError(
             f"{task_ref}: the task applies {len(solvers)} prompt templates — inspect wraps "
-            "each around the previous one's output, the bake applies only one; add the "
+            "each around the previous one's output, the prepare step applies only one; add the "
             "row by hand or extend the importer for this family"
         )
     if not solvers:
@@ -763,7 +765,7 @@ def _system_message_fact(
 ) -> str | None:
     """Point the row at THE system-message constant, or record why it cannot.
 
-    A module-level system instruction the bake CAN deliver — as leading input
+    A module-level system instruction the prepare step CAN deliver — as leading input
     text (a benchmark cannot address a candidate's system role; contracteval
     named-deviation pattern, owner-approved on OME-1253). The row holds ONE
     pointer, so a chain sending two or more system messages flags (inspect
@@ -778,13 +780,13 @@ def _system_message_fact(
         return None
     registry_name: str = registry_info(solvers[0]).name
     rewrite: str | None = (
-        f"the task sends {len(solvers)} system messages; the bake delivers only one"
+        f"the task sends {len(solvers)} system messages; the prepare step delivers only one"
         if len(solvers) > 1
         else _system_message_mismatch_reason(solvers[0])
     )
     if rewrite is not None:
-        # WHY no fact at all (OME-1272): the bake delivers ONE constant's text
-        # verbatim, so any other text inspect sends would bake a different benchmark
+        # WHY no fact at all (OME-1272): the prepare step delivers ONE constant's text
+        # verbatim, so any other text inspect sends would prepare a different benchmark
         # with every guard green.
         custom.append(f"{registry_name} ({rewrite})")
         return None
@@ -793,14 +795,14 @@ def _system_message_fact(
         solvers[0],
         task_ref,
         custom,
-        f"{registry_name} (system instructions are not baked)",
+        f"{registry_name} (system instructions are not prepared)",
     )
 
 
 def _system_message_mismatch_reason(solver: Any) -> str | None:
     """Why the text inspect SENDS would differ from the template constant, or None.
 
-    Think of the constant as a letter the bake photocopies. inspect does not post
+    Think of the constant as a letter the prepare step photocopies. inspect does not post
     the letter as written: ``system_message(template, **params)`` (1) READS it
     through ``resource()`` — a path or URL becomes that file's contents — then
     (2) runs ``str.format`` over it with the params plus the sample's metadata and
@@ -824,7 +826,7 @@ def _system_message_mismatch_reason(solver: Any) -> str | None:
     if params:
         reason = f"fills params {', '.join(sorted(params))} into the template at run time"
     elif not isinstance(template, str):
-        # Not text at all: _template_attribute still points at it, and the bake
+        # Not text at all: _template_attribute still points at it, and the prepare step
         # refuses a non-text resolution by name (prepare._resolved_system_text).
         reason = None
     elif _reads_a_file(template):
@@ -941,10 +943,10 @@ def _hub_dataset_info(dataset: str, revision: str | None) -> Any:
 
 
 def _hub_count_rows(facts: InspectTaskFacts, revision: str) -> int:
-    """Row count at the pinned revision — the bake's drift guard, observed once.
+    """Row count at the pinned revision — the prepare step's drift guard, observed once.
 
     A question-filter row counts the questions the eval KEEPS instead (pubmedqa: 500 of
-    1,000 rows), by running the bake's own question filter over the pinned rows (OME-1269).
+    1,000 rows), by running the prepare step's own question filter over the pinned rows (OME-1269).
     """
 
     if facts.filters_after_load:
@@ -1065,7 +1067,9 @@ def render_generated_rows(
         cases_lines.append(
             "        # Named deviation: the eval sends this as a SYSTEM message; the"
         )
-        cases_lines.append("        # bake delivers it as leading input text (a benchmark cannot")
+        cases_lines.append(
+            "        # prepare delivers it as leading input text (a benchmark cannot"
+        )
         cases_lines.append("        # address a candidate's system role).")
         cases_lines.append(f'        system_message="{facts.system_message}",')
     cases_lines.extend(
@@ -1074,7 +1078,7 @@ def render_generated_rows(
     for solver_name in facts.unreproduced_solvers:
         cases_lines.append(
             f"        # TODO(review): solver {solver_name} is not reproduced by "
-            "the bake — verify the baked prompt matches the eval's render."
+            "the prepare step — verify the prepared prompt matches the eval's render."
         )
     cases_lines.append("    ),")
 
@@ -1141,7 +1145,7 @@ def _hf_token_lines(hub_facts: HubDatasetFacts) -> list[str]:
     if not hub_facts.needs_hf_token:
         return []
     return [
-        "        # Gated on the Hub: the bake needs HF_TOKEN from an account that",
+        "        # Gated on the Hub: the prepare step needs HF_TOKEN from an account that",
         "        # accepted the dataset's terms (OME-1269).",
         "        needs_hf_token=True,",
     ]
@@ -1156,7 +1160,7 @@ def _question_filter_lines(facts: InspectTaskFacts) -> list[str]:
     if not facts.filters_after_load:
         return []
     lines: list[str] = [
-        "        # The eval drops questions after loading; the bake runs its task over",
+        "        # The eval drops questions after loading; the prepare step runs its task over",
         "        # the pinned questions and keeps exactly what it keeps (OME-1269).",
         f'        question_filter_task="{facts.task_ref}",',
     ]
@@ -1521,7 +1525,7 @@ def main(
         # run — the import must pin ONE order. An explicit --shuffle-seed (policy)
         # wins; otherwise the eval's own seed is pinned AS EXAM IDENTITY.
         # AIDEV-NOTE: pinning upstream's seed does NOT reproduce upstream's row
-        # order — the bake shuffles with random.Random, upstream with HF's
+        # order — the prepare step shuffles with random.Random, upstream with HF's
         # Dataset.shuffle (different algorithm, same seed). Harmless while rows
         # are the only shuffle (any pinned order is a valid benchmark); combined with
         # a choice shuffle it is refused below (review blocker on PR #1031).
@@ -1565,7 +1569,7 @@ def main(
 def _resolved_choice_shuffle_seed(
     task_ref: str, facts: InspectTaskFacts, flag_seed: int | None, row_shuffle_seed: int | None
 ) -> int | None:
-    """The one pinned choice-order seed this import bakes with, or None.
+    """The one pinned choice-order seed this import prepares with, or None.
 
     The policy flag exists for exactly one situation: the eval shuffles choices
     UNSEEDED, so someone must pick the order. Everywhere else the flag would
@@ -1575,7 +1579,7 @@ def _resolved_choice_shuffle_seed(
     unseeded shuffle with no flag refuses too: reproduced, never dropped.
 
     One more cell refuses (review blocker on PR #1031): a choice shuffle
-    COMBINED with a row shuffle when upstream seeded either one. The bake's row
+    COMBINED with a row shuffle when upstream seeded either one. The prepare step's row
     shuffle is Python's, upstream's is HF's ``Dataset.shuffle`` — same seed,
     different order — and the choice shuffle draws each case's permutation from
     one stream in row order, so the upstream-seeded benchmark cannot be reproduced.
@@ -1588,7 +1592,7 @@ def _resolved_choice_shuffle_seed(
             raise ImporterError(
                 f"{task_ref}: the eval pins its own choice-shuffle seed "
                 f"({facts.upstream_choice_shuffle_seed}) — --choice-shuffle-seed would "
-                "bake a different exam than upstream ever produces; drop the flag"
+                "prepare a different exam than upstream ever produces; drop the flag"
             )
         if flag_seed is None and facts.upstream_choice_shuffle_seed is None:
             raise ImporterError(
@@ -1601,16 +1605,16 @@ def _resolved_choice_shuffle_seed(
         ):
             raise ImporterError(
                 f"{task_ref}: upstream seeds its shuffle, and a row shuffle combined "
-                "with a choice shuffle cannot reproduce that exam — the bake's row "
+                "with a choice shuffle cannot reproduce that exam — the prepare step's row "
                 "shuffle is not HF's algorithm, and each case's choice order depends "
-                "on its row position; import this eval by hand or extend the bake to "
+                "on its row position; import this eval by hand or extend the prepare step to "
                 "replay HF's row permutation"
             )
         return flag_seed if flag_seed is not None else facts.upstream_choice_shuffle_seed
     if flag_seed is not None:
         raise ImporterError(
             f"{task_ref}: --choice-shuffle-seed was passed but the eval does not "
-            "shuffle choices — the policy seed would bake a different exam; drop the flag"
+            "shuffle choices — the policy seed would prepare a different exam; drop the flag"
         )
     return None
 

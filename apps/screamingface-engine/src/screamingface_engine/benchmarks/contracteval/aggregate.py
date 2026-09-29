@@ -78,7 +78,7 @@ def load_answer(root: Path, case_id: int) -> dict[str, Any] | None:
 
 
 def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
-    """The roll call from the baked ``cases.json``, in selected order."""
+    """The roll call from the prepared ``cases.json``, in selected order."""
 
     return read_selected_cases(
         root, case_ids, benchmark_label="ContractEval", error_type=AggregateError
@@ -145,7 +145,7 @@ async def _grade_case(request: GradeRequest) -> CaseGradeOutcome:
     material = request.material
     assert isinstance(material, Mapping)  # the ladder already rejected unusable assets
     is_positive = bool(material.get("is_positive"))
-    # INVARIANT: the baked key is the authority on polarity; the check record carries its own
+    # INVARIANT: the prepared key is the authority on polarity; the check record carries its own
     # copy. Disagreement means the assets and the run are out of step, and silently trusting
     # either one files the Case in the WRONG confusion-matrix cell.
     if bool(attempt.get("is_positive")) != is_positive:

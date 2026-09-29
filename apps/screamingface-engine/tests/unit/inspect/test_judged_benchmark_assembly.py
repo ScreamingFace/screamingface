@@ -46,7 +46,7 @@ def _judged_spec(**overrides: Any) -> BenchmarkSpec:
     """One minimal judged row — a model_graded_qa benchmark pinned to gateway judge-4."""
 
     values: dict[str, Any] = {
-        "key": "gsm8k",  # reuses the real snapshot row; the benchmark caches are patched
+        "key": "gsm8k",  # reuses the real cases row; the benchmark caches are patched
         "title": "Judged Test Benchmark",
         "description": "test",
         "focus": "test",
@@ -221,7 +221,7 @@ class _JudgeEndpoint:
         return self.reply
 
 
-def _bake_by_hand(root: Path, benchmark_id: str) -> None:
+def _prepare_by_hand(root: Path, benchmark_id: str) -> None:
     benchmark_root = root / benchmark_id
     (benchmark_root / "targets").mkdir(parents=True)
     (benchmark_root / "cases.json").write_text(
@@ -276,7 +276,7 @@ async def test_the_aggregate_binds_the_judge_transport_end_to_end(
     judge = _JudgeEndpoint()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    _prepare_by_hand(tmp_path, benchmark.benchmark.id)
     benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
@@ -307,7 +307,7 @@ async def test_a_judge_route_failure_fails_the_case_by_name(
 
     node = Url4Node("test")
     node.endpoint("/judge-4")(refusing)
-    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    _prepare_by_hand(tmp_path, benchmark.benchmark.id)
     benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris.")])
@@ -384,7 +384,7 @@ async def test_the_judged_aggregate_runs_its_judge_fetch_on_the_runs_loop(
     judge = _LoopRecordingJudge()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    _prepare_by_hand(tmp_path, benchmark.benchmark.id)
     benchmark.benchmark.install(node, tmp_path)
 
     outer = asyncio.get_running_loop()

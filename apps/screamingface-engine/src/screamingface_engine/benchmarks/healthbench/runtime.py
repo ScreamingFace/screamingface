@@ -3,9 +3,9 @@
 If ``benchmark.py`` writes the recipe (the expression tree that names six routes),
 this module is the kitchen: it registers a handler behind each of those routes so the
 recipe can actually resolve. Every benchmark installs its own copy of them under its own
-revision prefix, all reading one baked answer key. Data flows through them in question order:
+revision prefix, all reading one prepared answer key. Data flows through them in question order:
 
-    /cases             → serve the selected question booklet (from the baked assets)
+    /cases             → serve the selected question booklet (from the prepared assets)
     /rubric-tasks      → Candidate answered one Case: fetch its private rubric, render
                          one fully-built judge prompt per rubric item
     /rubric-verdict    → parse one judge reply into a verdict (or raise → retry)
@@ -81,11 +81,11 @@ def install(node: Url4Node, root: Path, variant: HealthbenchVariant) -> None:
     INVARIANT: every benchmark is namespaced by its own id AND revision, so several benchmarks
     install into ONE Runner world over ONE ``root`` without colliding — which is exactly
     how the worst-30% challenge and the full professional variant coexist over a single
-    baked answer key.
+    prepared answer key.
 
     Args:
         node: the Runner world to register the routes in.
-        root: the baked HealthBench asset directory (shared by every benchmark).
+        root: the prepared HealthBench asset directory (shared by every benchmark).
         benchmark: which Cases this benchmark serves, at which addresses, under which final mean.
     """
     # Install the six routes that implement the benchmark's protocol.
@@ -159,7 +159,7 @@ def _install_protocol_once(
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark.
+    """Fail before the FIRST paid call when the prepared assets cannot serve this benchmark.
 
     A broken asset (missing cases.json, unreadable rubric) is knowable before any
     model runs. Without this check it would surface in the reducer — AFTER paying
@@ -190,7 +190,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 def _cases(root: Path, case_ids: tuple[int, ...]):
     # Reference counterpart: the example selection at the top of the reference's
     # eval loop (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py)
-    # — here the selection is this benchmark's case list, served from the baked assets.
+    # — here the selection is this benchmark's case list, served from the prepared assets.
     @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         preflight(root, case_ids)
@@ -250,7 +250,7 @@ def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: 
                         # — nothing about the prompt is assembled inside the expression.
                         "grader_prompt": grader_prompt,
                         # Dedup: the full Case record (Candidate's whole output) rides
-                        # the FIRST task only; the rest carry "{}" — case_evaluation.py
+                        # the FIRST task only; the rest carry "{}" — case_grade.py
                         # hoists it back to one record per Case.
                         "case_record": (
                             json.dumps(case_record, ensure_ascii=False, separators=(",", ":"))

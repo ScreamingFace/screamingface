@@ -92,7 +92,7 @@ def _role_spec(**overrides: Any) -> BenchmarkSpec:
     for its grader role, which the declaration binds to gateway judge-4."""
 
     values: dict[str, Any] = {
-        "key": "gsm8k",  # reuses the real snapshot row; the benchmark caches are patched
+        "key": "gsm8k",  # reuses the real cases row; the benchmark caches are patched
         "title": "Role Judged Test Benchmark",
         "description": "test",
         "focus": "test",

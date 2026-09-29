@@ -5,7 +5,7 @@ module is the benchmark's contribution: its failure wording, its judge's identit
 rubric reader, and its official per-Case formula bound into the shared rubric ``grade_case``. The
 engine ships mechanisms; a benchmark ships semantics.
 
-INVARIANT: points come from the PRIVATE baked rubric on disk, never from anything that
+INVARIANT: points come from the PRIVATE prepared rubric on disk, never from anything that
 has passed through a model. The judge decides whether a criterion was met; it never
 decides what it is worth.
 

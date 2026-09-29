@@ -26,7 +26,7 @@ _ANSWER = "STOPDAPT-2 studied 1-month DAPT after PCI; which variant do you mean?
 
 
 def _write_full_assets(root: Path, points: tuple[int, ...] = (8,)) -> None:
-    """The whole baked answer key — all 525 Cases, the superset both benchmarks select from.
+    """The whole prepared answer key — all 525 Cases, the superset both benchmarks select from.
 
     ``points`` is the rubric every Case carries. A positive item is a win a good answer
     earns; a negative one is a penalty. INVARIANT (prepare.py): at least one item must be
@@ -59,10 +59,10 @@ def _write_full_assets(root: Path, points: tuple[int, ...] = (8,)) -> None:
 
 @pytest.mark.asyncio
 async def test_both_benchmarks_serve_one_answer_key_from_separate_addresses(tmp_path: Path) -> None:
-    """INVARIANT (OME-903): two benchmarks, ONE baked asset root, zero route collisions.
+    """INVARIANT (OME-903): two benchmarks, ONE prepared asset root, zero route collisions.
 
     The professional benchmark is a second SELECTION over the same `cases.json` — never a
-    second bake and never a renumbering. Installing both into one Runner world must
+    second prepare and never a renumbering. Installing both into one Runner world must
     therefore work, and each benchmark must serve exactly its own case list.
     """
 

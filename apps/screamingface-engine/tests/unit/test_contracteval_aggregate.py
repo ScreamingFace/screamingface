@@ -297,7 +297,7 @@ class TestPolarityAgreement:
     def test_a_check_record_disagreeing_with_the_answer_key_fails_the_case(
         self, tmp_path: Path
     ) -> None:
-        """INVARIANT: the baked answer key is the authority on a Case's polarity, and the check
+        """INVARIANT: the prepared answer key is the authority on a Case's polarity, and the check
         record carries its own copy. If the two disagree the assets and the run are out of step
         — a wrong revision, or a stale bundle — and silently trusting either one puts the Case
         in the WRONG confusion-matrix cell. Fail it loudly instead.

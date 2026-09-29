@@ -159,7 +159,7 @@ def test_read_inspect_task_reads_the_mcq_task(monkeypatch: pytest.MonkeyPatch) -
     assert facts.config == ""
     assert facts.scorer == "inspect_ai.scorer:choice"
     assert facts.scorer_kwargs == {}
-    # The DEFAULT choice template is fully baked — no review flag.
+    # The DEFAULT choice template is fully prepared — no review flag.
     assert facts.unreproduced_solvers == ()
 
 
@@ -175,10 +175,10 @@ def test_read_inspect_task_picks_the_dataset_the_task_holds(
     assert facts.split == "test"
 
 
-def test_read_inspect_task_flags_a_system_message_the_bake_would_drop(
+def test_read_inspect_task_flags_a_system_message_the_prepare_would_drop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """System instructions have no bake channel — vanishing silently would change
+    """System instructions have no prepare channel — vanishing silently would change
     the imported benchmark (review finding on PR 965)."""
 
     from inspect_ai.solver import system_message
@@ -201,7 +201,7 @@ def test_read_inspect_task_flags_a_system_message_the_bake_would_drop(
 
 
 def test_read_inspect_task_flags_a_custom_choice_template(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The bake renders MCQ with the default SINGLE_ANSWER template; a custom one
+    """The prepare step renders MCQ with the default SINGLE_ANSWER template; a custom one
     must surface for review, not silently change the benchmark (review finding on PR 965)."""
 
     def custom_mcq() -> Task:
@@ -678,7 +678,7 @@ def test_generate_rows_refuses_a_key_that_already_exists(engine_src_copy: Path) 
         _generate(engine_src_copy, key="gsm8k")
 
 
-def test_generated_snapshot_row_resolves_against_the_real_spec(
+def test_generated_cases_row_resolves_against_the_real_spec(
     engine_src_copy: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The inserted entry must construct a real CasesSpec when the file executes."""
@@ -826,7 +826,7 @@ def test_read_inspect_task_captures_a_resolvable_custom_choice_template(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A custom multiple_choice template that IS a module attribute is a fact the
-    bake reproduces (choice_template reference), not a review flag."""
+    prepare reproduces (choice_template reference), not a review flag."""
 
     def custom_mcq() -> Task:
         module = sys.modules[_FAKE_MODULE]
@@ -847,7 +847,7 @@ def test_read_inspect_task_captures_a_resolvable_custom_choice_template(
     assert facts.unreproduced_solvers == ()
 
 
-def test_captured_choice_template_lands_in_the_snapshot_row() -> None:
+def test_captured_choice_template_lands_in_the_cases_row() -> None:
     rows = render_generated_rows(
         "quiz",
         _facts(
@@ -927,10 +927,10 @@ def _task_with_dataset_kwargs(**dataset_kwargs: Any) -> Any:
     return task_fn
 
 
-def test_read_inspect_task_refuses_a_limit_the_bake_would_ignore(
+def test_read_inspect_task_refuses_a_limit_the_prepare_would_ignore(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An eval with limit=N examines N cases; baking the full split would publish
+    """An eval with limit=N examines N cases; preparing the full split would publish
     a DIFFERENT benchmark with every guard green (review blocker, 2026-09-17)."""
 
     _install_fake_eval(monkeypatch, limited=_task_with_dataset_kwargs(limit=500))
@@ -1112,10 +1112,10 @@ def test_choice_shuffling_eval_requires_a_pinned_seed(
 def test_upstream_row_seed_with_a_choice_shuffle_is_refused(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
-    """Review blocker on PR #1031: the bake's row shuffle is Python's, upstream's
+    """Review blocker on PR #1031: the prepare step's row shuffle is Python's, upstream's
     is HF's — same seed, different order — and the choice shuffle draws each
     case's permutation from ONE stream in row order. So when upstream SEEDS a
-    shuffle (it defined one benchmark) and both shuffles combine, the bake cannot
+    shuffle (it defined one benchmark) and both shuffles combine, the prepare step cannot
     reproduce that benchmark and must refuse, never ship a different one silently."""
 
     _install_fake_eval(
@@ -1252,7 +1252,7 @@ def test_choice_shuffle_seed_flag_is_refused_when_the_eval_pins_its_own(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
     """A seeded upstream (shuffle_choices=N) defines ONE benchmark — overriding it with
-    a policy seed would silently bake a benchmark upstream never produces (review
+    a policy seed would silently prepare a benchmark upstream never produces (review
     finding on PR #1031). The flag is refused, same rationale as the stray-flag
     refusal one test down."""
 
@@ -1279,7 +1279,7 @@ def test_choice_shuffle_seed_flag_is_refused_when_the_eval_pins_its_own(
 def test_choice_shuffle_seed_flag_without_an_upstream_choice_shuffle_is_refused(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
-    """Shuffling choices the eval does NOT shuffle would bake a different benchmark —
+    """Shuffling choices the eval does NOT shuffle would prepare a different benchmark —
     the stray policy flag refuses instead of silently deviating from upstream."""
 
     _install_fake_eval(monkeypatch, plain=_task_with_dataset_kwargs())
@@ -1338,7 +1338,7 @@ def test_read_inspect_task_refuses_a_features_value_with_no_module_attribute(
 def test_read_inspect_task_refuses_an_exotic_data_files_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only the shape the bake reproduces (dict[str, str]) is reproduced;
+    """Only the shape the prepare step reproduces (dict[str, str]) is reproduced;
     anything else — even a bare str — refuses by name, never dropped."""
 
     _install_fake_eval(monkeypatch, exotic=_task_with_dataset_kwargs(data_files=123))
@@ -1351,7 +1351,7 @@ def test_data_files_and_features_are_reproduced_in_the_rows(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
     """The emitted rows carry the data_files pin and the features pointer, so
-    the bake loads exactly the files and schema the eval declares."""
+    the prepare step loads exactly the files and schema the eval declares."""
 
     schema = object()
     module = _install_fake_eval(
@@ -1427,7 +1427,7 @@ def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: P
 # ---------------------------------------------------------------------------
 
 
-def test_emitted_snapshot_row_constructs_the_real_snapshot_spec(engine_src_copy: Path) -> None:
+def test_emitted_cases_row_constructs_the_real_cases_spec(engine_src_copy: Path) -> None:
     """An emitted prepare.py row must construct the real CasesSpec, so a spec
     change breaks here — in the spec-changer's own PR — not as a TypeError inside
     a generated file at the next import session.
@@ -1485,7 +1485,7 @@ def test_emitted_benchmark_row_constructs_the_real_benchmark_spec(engine_src_cop
     """An emitted benchmarks.py row must construct the real BenchmarkSpec, so a spec
     change breaks here — in the spec-changer's own PR — not at the next import.
 
-    INVARIANT: same as the snapshot round-trip — construction against the real
+    INVARIANT: same as the prepared cases round-trip — construction against the real
     dataclass is the schema check; no parallel copy.
     """
 
@@ -1513,7 +1513,7 @@ def test_emitted_benchmark_row_constructs_the_real_benchmark_spec(engine_src_cop
     assert benchmark.title == "TODO"
 
 
-def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
+def test_emitted_minimal_cases_row_constructs_the_real_cases_spec(
     engine_src_copy: Path,
 ) -> None:
     """The template's OTHER branch: a row with no prompt_template, no
@@ -1548,7 +1548,7 @@ def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
     assert cases.choice_shuffle_seed is None
 
 
-def test_emitted_choice_shuffled_snapshot_row_constructs_the_real_snapshot_spec(
+def test_emitted_choice_shuffled_cases_row_constructs_the_real_cases_spec(
     engine_src_copy: Path,
 ) -> None:
     """The choice_shuffle_seed arm of the template: its pin must be emitted, be in
@@ -1577,7 +1577,7 @@ def test_emitted_choice_shuffled_snapshot_row_constructs_the_real_snapshot_spec(
     assert referenced == set(rows.import_names)
 
 
-def test_emitted_data_files_snapshot_row_constructs_the_real_snapshot_spec(
+def test_emitted_data_files_cases_row_constructs_the_real_cases_spec(
     engine_src_copy: Path,
 ) -> None:
     """The data_files/features arm of the template: the pin plus the pointer
@@ -1654,7 +1654,7 @@ def test_read_inspect_task_binds_a_module_level_system_message_as_a_fact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OME-1253 (owner-approved): an eval's system instruction kept in a module
-    constant is delivered as LEADING INPUT TEXT at bake time (a benchmark cannot
+    constant is delivered as LEADING INPUT TEXT at prepare time (a benchmark cannot
     address a candidate's system role — contracteval precedent), so the row
     POINTS at it as a fact instead of dropping it behind a review flag. An
     inline-literal system message still flags (the prior test)."""
@@ -1706,7 +1706,7 @@ def test_read_inspect_task_flags_a_system_message_that_fills_params(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OME-1272: system_message(template, **params) sends the template AFTER
-    str.format fills the params in. Binding the bare constant would bake text
+    str.format fills the params in. Binding the bare constant would prepare text
     the eval never sends — so the row gets no fact and the flag names the param."""
 
     facts: InspectTaskFacts = _read_inspect_task_with_module_system_message(
@@ -1748,7 +1748,7 @@ def test_read_inspect_task_flags_a_system_message_read_from_a_file(
 ) -> None:
     """OME-1272: a template that is a path to an existing file is READ by inspect
     (resource()), so the eval sends the file's contents. Binding the constant
-    would bake the path itself as the instruction."""
+    would prepare the path itself as the instruction."""
 
     prompt_file: Path = tmp_path / "system.txt"
     prompt_file.write_text("You are a careful accountant.")
@@ -1765,7 +1765,7 @@ def test_read_inspect_task_refuses_a_prompt_template_read_from_a_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """OME-1272 (PR #1064 review): prompt_template() also READS a path through
-    resource(), so the eval sends the file's template. The bake formats the
+    resource(), so the eval sends the file's template. The prepare step formats the
     constant's own text — a path with no {prompt} slot — so every case would
     become the path string. It refuses by name, like an unresolvable template."""
 
@@ -1794,7 +1794,7 @@ def test_read_inspect_task_flags_a_chain_with_two_system_messages(
 ) -> None:
     """OME-1272 (PR #1064 review): inspect sends EVERY system message in the
     chain, but the row holds one pointer — the last used to win silently, so
-    the bake dropped the first instruction. Now nothing binds and the flag
+    the prepare step dropped the first instruction. Now nothing binds and the flag
     says why."""
 
     from inspect_ai.solver import system_message
@@ -1881,8 +1881,8 @@ def test_read_inspect_task_refuses_a_task_with_two_prompt_templates(
 ) -> None:
     """OME-1272 (PR #1064 second review): inspect applies EVERY prompt_template in
     turn, each wrapping the previous one's output, but the row points at one
-    template and the bake applies only it — the last one used to win silently.
-    It refuses by name, like every other prompt template the bake cannot
+    template and the prepare step applies only it — the last one used to win silently.
+    It refuses by name, like every other prompt template the prepare step cannot
     reproduce (an unresolvable one, a file path)."""
 
     def double_templated() -> Task:
@@ -2073,8 +2073,8 @@ def test_read_inspect_task_ignores_a_filter_on_a_non_question_load(
 def test_read_inspect_task_refuses_a_filtering_task_that_loads_two_datasets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The bake hands the pinned questions to every load the task makes, so a second
-    load would be fed the benchmark — refuse by name instead of baking a wrong benchmark."""
+    """The prepare step hands the pinned questions to every load the task makes, so a second
+    load would be fed the benchmark — refuse by name instead of preparing a wrong benchmark."""
 
     _install_fake_eval(monkeypatch, sums=_filtering_two_loads_task)
 
@@ -2086,7 +2086,7 @@ def test_read_inspect_task_refuses_a_filtering_task_with_a_seeded_choice_shuffle
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Upstream draws each case's choice order over ALL rows, before its filter; the
-    bake would draw over the kept rows only — a different benchmark for the same seed."""
+    prepare would draw over the kept rows only — a different benchmark for the same seed."""
 
     def seeded() -> Task:
         return _filtering_task(shuffle_choices=9)
@@ -2129,7 +2129,7 @@ def test_a_question_filter_benchmark_counts_the_questions_the_eval_keeps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The row's case count is the KEPT count (pubmedqa's 500, not 1,000 rows): the
-    default counter runs the bake's own question filter over the pinned rows."""
+    default counter runs the prepare step's own question filter over the pinned rows."""
 
     from screamingface_engine_inspect import prepare as prepare_module
 
@@ -2184,7 +2184,7 @@ def test_read_inspect_task_points_a_cot_mcq_at_inspects_own_cot_template(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """cot=True swaps inspect's prompt for its "Think step by step" variant; before
-    OME-1269 the importer ignored the flag, so the bake silently rendered the
+    OME-1269 the importer ignored the flag, so the prepare step silently rendered the
     plain template — a different benchmark wording (onet_m6 hit this)."""
 
     from inspect_ai.solver._multiple_choice import SINGLE_ANSWER_TEMPLATE_COT
@@ -2201,7 +2201,7 @@ def test_read_inspect_task_points_a_cot_mcq_at_inspects_own_cot_template(
 
 
 def test_read_inspect_task_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The bake has no multi-answer render — flag it rather than guess a template."""
+    """The prepare step has no multi-answer render — flag it rather than guess a template."""
 
     _install_fake_eval(monkeypatch, cot_multi=_cot_mcq_task(cot=True, multiple_correct=True))
 
@@ -2222,7 +2222,7 @@ def test_read_inspect_task_flags_cot_with_multiple_correct(monkeypatch: pytest.M
 def test_capture_records_whether_the_dataset_needs_an_hf_token(
     hub_gated: Any, expected: bool
 ) -> None:
-    """The bake needs a token for a gated dataset; the importer reads the gate from
+    """The prepare step needs a token for a gated dataset; the importer reads the gate from
     the Hub (dataset_info.gated: False, "auto" or "manual") so the row says so."""
 
     info = types.SimpleNamespace(sha="c" * 40, card_data={"license": "cc-by-4.0"}, gated=hub_gated)
@@ -2270,7 +2270,7 @@ def test_read_inspect_task_flags_a_task_that_filters_after_dropping_duplicates(
 ) -> None:
     """The dedupe exemption covers the duplicate remover ONLY: an eval that dedupes and
     then keeps one subject (mmlu_0_shot with subjects) must still take the question filter, or
-    the bake would ship every row while inspect runs the subset (review on PR #1110)."""
+    the prepare step would ship every row while inspect runs the subset (review on PR #1110)."""
 
     _install_fake_eval(monkeypatch, sums=_dedupe_then_filter_task)
 
@@ -2280,7 +2280,7 @@ def test_read_inspect_task_flags_a_task_that_filters_after_dropping_duplicates(
 def test_read_inspect_task_refuses_a_filtering_task_that_numbers_rows_with_auto_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """inspect numbers auto_id rows 1..N at load; the bake's swapped loader does not,
+    """inspect numbers auto_id rows 1..N at load; the prepare step's swapped loader does not,
     so a filter that reads ids would keep different questions (review on PR #1110)."""
 
     def numbered() -> Task:

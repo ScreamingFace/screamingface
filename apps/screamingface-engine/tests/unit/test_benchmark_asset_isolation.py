@@ -51,7 +51,7 @@ async def test_an_unprepared_benchmark_fails_at_its_own_route_with_its_own_name(
 
 @pytest.mark.asyncio
 async def test_a_benchmark_reads_its_assets_once_across_resolutions(tmp_path: Path) -> None:
-    # Baked assets are immutable for the process lifetime; the memo must serve every later
+    # Prepared assets are immutable for the process lifetime; the memo must serve every later
     # resolution without re-reading, and both resolutions must serve identical bytes.
     (tmp_path / "criteria").mkdir(parents=True)
     (tmp_path / "rubrics").mkdir()

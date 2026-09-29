@@ -176,7 +176,7 @@ def test_a_decode_failure_is_not_relabelled_as_a_bundle_selection_mistake(
     """A malformed dataset row must surface as itself, traceback intact.
 
     INVARIANT: five preparers call `json.loads` on dataset rows, and `json.JSONDecodeError`
-    subclasses `ValueError` — so an `except ValueError` around the bake would print an
+    subclasses `ValueError` — so an `except ValueError` around the prepare step would print an
     operator-facing "selection failed" line for a dataset fault and swallow the stack,
     sending someone hunting for a typo that does not exist. Unknown bundle ids are caught
     before any preparer runs instead.
@@ -267,11 +267,11 @@ def _family_package(registration: BenchmarkRegistration) -> str:
 def test_every_benchmark_is_registered_against_the_bundle_its_installer_reads(
     registration: BenchmarkRegistration,
 ) -> None:
-    """INVARIANT: the deployment bakes the directory the benchmark goes on to open.
+    """INVARIANT: the deployment prepares the directory the benchmark goes on to open.
 
     WHY derived rather than a hand-written benchmark->bundle map (OME-1095): the map had to be
     edited for every new benchmark, and it could only ever restate what the registration already
-    says. Registering a benchmark against another family's bundle bakes one directory and reads
+    says. Registering a benchmark against another family's bundle prepares one directory and reads
     another — the benchmark's assets are simply absent at runtime — and that is what this catches
     for a benchmark nobody has written yet.
     """
@@ -348,9 +348,9 @@ def test_a_refusal_still_reports_the_bundles_that_already_completed(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """INVARIANT: evidence for a completed bake survives a later bundle's refusal.
+    """INVARIANT: evidence for a completed prepare survives a later bundle's refusal.
 
-    WHY: bundles bake in ID order and write real files as they go. Printing only after the
+    WHY: bundles prepare in ID order and write real files as they go. Printing only after the
     whole sequence succeeds means an operator reading the build log cannot tell which
     bundles landed — losing exactly the audit trail this unit exists to provide.
     """
@@ -551,7 +551,7 @@ def test_the_family_guard_matches_a_computed_family_segment() -> None:
 
 
 def _two_bundle_deployment(calls: list[Path]) -> BenchmarkDeployment:
-    """A deployment whose two bundles each record the directory they were baked into."""
+    """A deployment whose two bundles each record the directory they were prepared into."""
 
     def prepare(out: Path) -> dict[str, object]:
         calls.append(out)
@@ -570,11 +570,11 @@ def _bundle(bundle_id: str, prepare: Any) -> BenchmarkAssetBundle:
 
 
 def test_preparing_a_named_subset_leaves_every_other_bundle_untouched(tmp_path: Path) -> None:
-    """INVARIANT: a resumed bake must not re-enter a bundle that already completed.
+    """INVARIANT: a resumed prepare must not re-enter a bundle that already completed.
 
     The imported preparer refuses a non-empty directory by design, so without a way to name
-    the bundles still missing, one interrupted bake forces every sibling to be deleted and
-    re-downloaded. Selection is what makes the bake resumable.
+    the bundles still missing, one interrupted prepare forces every sibling to be deleted and
+    re-downloaded. Selection is what makes the prepare step resumable.
     """
 
     calls: list[Path] = []
@@ -589,7 +589,7 @@ def test_preparing_a_named_subset_leaves_every_other_bundle_untouched(tmp_path: 
 def test_selecting_a_bundle_the_deployment_never_declared_refuses_by_name(
     tmp_path: Path,
 ) -> None:
-    """A silent no-op would look exactly like a successful bake in a build log."""
+    """A silent no-op would look exactly like a successful prepare in a build log."""
 
     calls: list[Path] = []
 
@@ -599,7 +599,7 @@ def test_selecting_a_bundle_the_deployment_never_declared_refuses_by_name(
     assert calls == []
 
 
-def test_prepare_cli_bakes_only_the_bundles_named_on_the_command_line(
+def test_prepare_cli_prepares_only_the_bundles_named_on_the_command_line(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -623,7 +623,7 @@ def test_prepare_cli_bakes_only_the_bundles_named_on_the_command_line(
     assert [record["bundle"] for record in records] == ["draco"]
 
 
-def test_prepare_cli_lists_bundle_ids_without_baking_anything(
+def test_prepare_cli_lists_bundle_ids_without_preparing_anything(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -642,9 +642,9 @@ def test_prepare_cli_lists_bundle_ids_without_baking_anything(
 
 
 def test_every_benchmark_image_build_passes_the_hugging_face_token_secret() -> None:
-    """Gated datasets (xstest_safe, OME-1269) bake only with the ``hf_token`` BuildKit
+    """Gated datasets (xstest_safe, OME-1269) prepare only with the ``hf_token`` BuildKit
     secret, because ``docker build`` never sees a shell's variables. A builder that
-    forgets it either fails its bake by name or skips the benchmark, and the kind lane
+    forgets it either fails its prepare by name or skips the benchmark, and the kind lane
     that exercises ``deploy/kind/up.sh`` skips in CI without a cluster — so pin it
     here, for every workflow and script that builds the image (review on PR #1112)."""
 

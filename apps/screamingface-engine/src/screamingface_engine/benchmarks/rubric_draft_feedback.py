@@ -457,7 +457,7 @@ def _verdict_row(row: object, count: int) -> tuple[int, bool] | None:
 
 
 def _decoded_array(reply: str) -> list[object] | None:
-    # The shared JSON-recovery primitive (shared-grading.verdict, OME-1099) — same fence
+    # The shared JSON-recovery primitive (shared_grading.judge_evidence, OME-1099) — same fence
     # stripping and first-value scan as the per-item verdict parsers.
     return extract_json_array(reply or "")
 

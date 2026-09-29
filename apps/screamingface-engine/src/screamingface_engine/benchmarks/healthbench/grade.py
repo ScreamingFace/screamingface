@@ -93,7 +93,7 @@ def aggregate(
     Reference counterpart: the metric aggregation in ``HealthBenchEval``
     (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py) —
     matching it on the clip when ``mean`` is ``clipped_mean``, and deliberately
-    diverging on spread (sample stdev, see ``shared-grading.benchmark.sample_stdev``).
+    diverging on spread (sample stdev, see ``shared_grading.mean_scorer.sample_stdev``).
     """
 
     return _PATH.aggregate(

@@ -209,7 +209,7 @@ def test_incomplete_verdicts_fail_with_judged_and_expected_counts() -> None:
 
 def test_complete_but_unscorable_case_names_no_positive_points() -> None:
     # WHY distinct from incomplete_verdicts: a complete-but-unscorable Case means the
-    # baked asset lost its guaranteed positive item — a baked-asset defect, not judge loss.
+    # prepared asset lost its guaranteed positive item — a prepared-asset defect, not judge loss.
     case = _case_result({"verdicts": {1: True, 2: False}}, [0, -3])
     failure = _sole_failure(case)
     assert (failure["stage"], failure["code"]) == ("grading", "no_positive_points")

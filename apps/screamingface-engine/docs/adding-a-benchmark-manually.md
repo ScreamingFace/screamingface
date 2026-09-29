@@ -49,11 +49,11 @@ One directory: `src/screamingface_engine/benchmarks/<benchmark>/`. MedXpertQA's 
 | File | Role (exam terms) |
 |---|---|
 | `pins.py` | which printing of the question paper — dataset id, config, revision, split, `PREPARER_REVISION` / `PROTOCOL_REVISION` |
-| `prepare.py` | prints the paper — dataset → baked assets, at image build time |
+| `prepare.py` | prints the paper — dataset → prepared assets, at image build time |
 | `definition.py` | the exam's public listing — the `Benchmark` record, `compute_revision()`, the url4 protocol template, the declaration |
 | `runtime.py` | the exam hall's doors — the benchmark's FastAPI routes |
 | `aggregate.py` | the marking room — `grade_case`, the `BenchmarkAggregation` wiring, the scorer |
-| `case_evaluation.py` | the benchmark's answer-sheet format — schema-validated per-Case evaluation envelopes |
+| `case_grade.py` | the benchmark's answer-sheet format — schema-validated per-Case evaluation envelopes |
 | `grading.py` / `answering.py` / `prompts.py` | benchmark-private marking and prompting helpers |
 
 Unit tests go to `tests/unit/test_<benchmark>_*.py` (medxpert ships seven). Spine tests
@@ -87,7 +87,7 @@ uv run --with datasets python -m screamingface_engine.benchmarks.medxpert.prepar
 
 Two row shapes, one public, one benchmark-owned:
 
-- **The baked dataset row** (`cases.json`): a JSON array of objects with an `int` `id`
+- **The prepared dataset row** (`cases.json`): a JSON array of objects with an `int` `id`
   and a non-blank `str` `input`; every other key rides through as Case metadata. The
   shared grading decodes it into `SelectedCase` (`benchmarks/aggregation.py`).
 - **The evaluation row** your `grade_case` receives: an **opaque, benchmark-owned envelope**
@@ -138,7 +138,7 @@ async def _grade_case(request: GradeRequest) -> CaseGradeOutcome:
     )
 ```
 
-Read the example's grammar: `material` is the answer key your benchmark baked in Step 2;
+Read the example's grammar: `material` is the answer key your benchmark prepared in Step 2;
 `row` is your own envelope from Step 3; the returned `checks` are
 `Check`/`Evidence`-shaped dicts (`benchmarks/contract.py`) so the judge's work is
 auditable per Case.

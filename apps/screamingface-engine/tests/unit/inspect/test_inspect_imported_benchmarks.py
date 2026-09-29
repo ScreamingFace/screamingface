@@ -53,7 +53,7 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "hellaswag": "mcq",
     # LAB-Bench text subsets (OME-1264 batch 1): MCQ graded by the eval's OWN
     # precision_choice scorer — still the MCQ family (draft-feedback offer refused);
-    # FigQA/TableQA are image-based and stay out of the text-only bake.
+    # FigQA/TableQA are image-based and stay out of the text-only prepare.
     "lab_bench_litqa": "mcq",
     "lab_bench_suppqa": "mcq",
     "lab_bench_dbqa": "mcq",
@@ -122,7 +122,7 @@ def test_cases_row_pins_benchmark_identity(key: str) -> None:
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
-def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> None:
+def test_cases_row_references_resolve_inside_the_pinned_eval(key: str) -> None:
     """The rows POINT at the eval's own code; a dangling reference must fail CI,
     not the image build."""
 
@@ -135,7 +135,7 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
     if cases_spec.system_message is not None:
         references.append(cases_spec.system_message)
     if cases_spec.question_filter_task is not None:
-        # The question-filter pointer (OME-1269): the bake CALLS it at image build.
+        # The question-filter pointer (OME-1269): the prepare step CALLS it at image build.
         references.append(cases_spec.question_filter_task)
     for reference in references:
         module_name, _, attribute = reference.partition(":")
@@ -221,7 +221,7 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
 def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
     """LAB-Bench builds every case with the correct answer FIRST and shuffles
     choices per run (shuffle_choices=True, unseeded) — without a pinned choice
-    order every baked answer would be 'A'. The six text benchmarks must carry the
+    order every prepared answer would be 'A'. The six text benchmarks must carry the
     policy choice-shuffle seed, and it must ride benchmark identity."""
 
     from screamingface_engine_inspect.benchmarks import _revision_pins
@@ -279,7 +279,7 @@ def test_aime25_pin_tracks_upstreams_own_revision_constant() -> None:
 def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
     """Same drift guard as aime24/25: the sha is COPIED from the eval's own
     pinned constant — a dependency bump that moves upstream's pin must fail
-    here, never leave us baking the old sha with the new scorer."""
+    here, never leave us preparing the old sha with the new scorer."""
 
     from inspect_evals.hellaswag.hellaswag import HELLASWAG_DATASET_REVISION as UPSTREAM
 
@@ -361,7 +361,7 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
     assert any(pin.startswith("excluded_sample_ids=") for pin in pins)
 
 
-def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
+def test_pubmedqa_prepares_the_evals_test_list_through_its_task() -> None:
     """pubmedqa loads all 1,000 labelled questions and keeps the 500 on its bundled
     test list; the benchmark runs the eval's task so its own filter keeps
     them, the count pins the KEPT 500, and the eval's template renders them."""

@@ -13,7 +13,7 @@ Everything else is derived. ``variant_revision`` fingerprints the whole benchmar
 ``/benchmarks/<id>/<revision>/``; ``build_variant_protocol`` writes the url4 expression tree.
 ``healthbench_benchmark`` is the one call a benchmark module makes.
 
-INVARIANT: two benchmarks built here share the baked assets and differ ONLY where the three
+INVARIANT: two benchmarks built here share the prepared assets and differ ONLY where the three
 knobs above differ. A benchmark's revision changes if ANY hashed input changes, so an
 expression addressed to an old revision physically cannot resolve against a new benchmark.
 """
@@ -328,8 +328,8 @@ def healthbench_benchmark(
         # runtime code (draco precedent).
         from screamingface_engine.benchmarks.healthbench.runtime import install as install_runtime
 
-        # INVARIANT: every benchmark reads the SAME baked asset directory — one immutable
-        # answer key, selected from at serve time, never a per-benchmark bake.
+        # INVARIANT: every benchmark reads the SAME prepared asset directory — one immutable
+        # answer key, selected from at serve time, never a per-benchmark prepare.
         install_runtime(node, assets / ASSET_BUNDLE_ID, variant)
 
     benchmark = Benchmark(

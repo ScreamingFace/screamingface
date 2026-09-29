@@ -3,8 +3,8 @@
 INVARIANT: Case, criterion, sequence, and producer identity come from Engine-owned URL4
 bindings; the Judge supplies only the verdict payload and cannot relabel its Evidence.
 
-The parsing work lives once in ``shared-grading.verdict`` (OME-1099); this module keeps what is
-DRACO's to own: its ``MET``/``UNMET`` enum dialect with a required explanation, its
+The parsing work lives once in ``shared_grading.judge_evidence`` (OME-1099); this module keeps what
+is DRACO's to own: its ``MET``/``UNMET`` enum dialect with a required explanation, its
 reason vocabulary, and its own ``call``/``evidence_record_key`` — DRACO's key carries a
 ``sequence`` and an opaque criterion id, unlike the rubric benchmarks' integer pair.
 """

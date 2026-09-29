@@ -2,12 +2,12 @@
 
 FEATURE: GDPval hands the worker the files a professional would have been given — a population
 spreadsheet, a prior report, an intake form. This benchmark serves TEXT, so those files are
-flattened once at image build time and baked into the Case input.
+flattened once at image build time and written into the Case input.
 
 INVARIANT: extraction happens at BUILD time only. A Runner Job is offline with a read-only disk;
 nothing here may run while a Candidate is being evaluated.
 
-INVARIANT: a reference that does not yield usable text FAILS THE BUILD. It is never baked empty.
+INVARIANT: a reference that does not yield usable text FAILS THE BUILD. It is never prepared empty.
 A silently empty reference produces a task the model cannot do and a score that reads as model
 weakness rather than as a broken input — the same failure the seven excluded tasks avoid.
 

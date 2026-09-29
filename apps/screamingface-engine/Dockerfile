@@ -39,7 +39,7 @@ WORKDIR /app/apps/screamingface-engine
 # WHY --extra inspect: the imported inspect_evals benchmarks call the upstream eval's OWN scorer and
 # prompt code, so a deployment without it registers none of them (`inspect_available()` answers
 # the empty contribution) and the catalogue silently loses ten benchmarks. The benchmark image builds
-# FROM this one, so this is also what lets its preparer bake their dataset snapshots. Safe to
+# FROM this one, so this is also what lets its preparer prepare their Cases. Safe to
 # carry here, unlike in `packages/screamingface`, whose runtime extra pins litellm — the conflict
 # is declared between THOSE two, and this app depends on neither.
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -76,6 +76,6 @@ ENTRYPOINT ["tini", "--"]
 # Serving is the default mode, which is what keeps the chart's `command: [url4-cloud]` working.
 # The runner pool overrides it with `["screamingface-engine", "worker"]` (deployment-runner.yaml),
 # and the worker's children exec `screamingface-engine run` (worker/exec_wrapper.py).
-# INVARIANT: AIGATEWAY_BASE_URL is NOT baked here — it reaches each worker pod from the chart's
+# INVARIANT: AIGATEWAY_BASE_URL is NOT baked into the image — it reaches each worker pod from the chart's
 # runner-env ConfigMap, so the endpoint follows the deployment, not the artifact (§9).
 CMD ["url4-cloud"]

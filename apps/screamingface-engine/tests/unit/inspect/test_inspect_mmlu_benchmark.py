@@ -1,6 +1,6 @@
 """The imported `inspect-mmlu` proof benchmark — the MCQ declaration shape (OME-1115).
 
-INVARIANT the suite defends: an MCQ benchmark bakes their SINGLE_ANSWER prompt as data,
+INVARIANT the suite defends: an MCQ benchmark prepares their SINGLE_ANSWER prompt as data,
 grades through their real `choice()` scorer via the scorer adapter's choices replay, and is
 REFUSED a draft-feedback offer — pass/fail feedback over a handful of options is an
 elimination attack (OME-796), so the client preflight's refusal of a loop recipe is
@@ -104,8 +104,8 @@ def test_mcq_benchmark_is_refused_a_check_surface() -> None:
 # ── runtime + shared-grading aggregate through their real choice() scorer ─────────────
 
 
-def _bake(root: Path) -> tuple[Path, dict[int, str]]:
-    """Bake the snapshot; return the root and each case's correct letter."""
+def _prepare(root: Path) -> tuple[Path, dict[int, str]]:
+    """Prepare the prepared cases; return the root and each case's correct letter."""
 
     out = root / MMLU_BENCHMARK.benchmark.id
     emit_cases(BENCHMARK_CASES["mmlu"], _ROWS, out)
@@ -160,7 +160,7 @@ def _row(case_id: int, answer: str) -> dict[str, object]:
 async def test_aggregate_grades_letters_through_their_choice_scorer(
     tmp_path: Path,
 ) -> None:
-    root, letters = _bake(tmp_path)
+    root, letters = _prepare(tmp_path)
     node = _node(root)
     right: str = letters[1]
     wrong: str = next(letter for letter in "ABCD" if letter != letters[2])
@@ -175,7 +175,7 @@ async def test_aggregate_grades_letters_through_their_choice_scorer(
 async def test_an_unparseable_reply_scores_zero_not_a_failure(tmp_path: Path) -> None:
     """Their choice() verdict for a letterless reply is INCORRECT — a grade, not an outage."""
 
-    root, _letters = _bake(tmp_path)
+    root, _letters = _prepare(tmp_path)
     node = _node(root)
     rows = json.dumps([_row(1, "I refuse to pick a letter.")])
     result = json.loads(await _call(node, MMLU_BENCHMARK.aggregate_route, rows, "aggregate:1"))

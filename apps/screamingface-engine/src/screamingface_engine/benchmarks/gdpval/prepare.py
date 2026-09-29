@@ -1,4 +1,4 @@
-"""Bake the GDPval text-subset assets: the public Cases and the private rubrics.
+"""Prepare the GDPval text-subset assets: the public Cases and the private rubrics.
 
 Run at IMAGE BUILD time, never at run time: a Job's rootfs is read-only apart from ``/tmp`` and
 holds no HuggingFace credential, so every benchmark artifact must exist before the Job starts.
@@ -17,7 +17,7 @@ answer key stays in the image.
 INVARIANT — Engine Case ids are 1-based positions in ``subset.TEXT_SUBSET_TASK_IDS``, not in the
 upstream row order. GDPval rows carry stable ``task_id``s, so the selection is addressed by id
 and the build ASSERTS every frozen id is present; a dataset that dropped or renamed one fails the
-build rather than silently baking a smaller benchmark under the same identity.
+build rather than silently preparing a smaller benchmark under the same identity.
 
 INVARIANT — container criteria are stripped HERE, so no scoring path can include one. A rubric
 left with no positive points after stripping fails the build: its score would divide by zero.
@@ -68,7 +68,7 @@ _FETCH_BACKOFF_S = 2.0
 
 
 class PrepareError(BenchmarkAssetPreparationError):
-    """The build refuses to bake these assets. Always says which task and why.
+    """The build refuses to prepare these assets. Always says which task and why.
 
     WHY this base: OME-925 made asset preparation auditable, and
     `BenchmarkAssetPreparationError` is the orchestrator's exit-1 channel for dataset and
@@ -91,7 +91,7 @@ def select_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         raise PrepareError(
             f"{len(missing)} frozen task id(s) are absent from {DATASET}@{DATASET_REVISION}, "
             f"first {missing[0]!r} — the dataset moved under the frozen selection; refusing to "
-            f"bake a different benchmark under this identity"
+            f"prepare a different benchmark under this identity"
         )
     return [by_id[task_id] for task_id in TEXT_SUBSET_TASK_IDS]
 
@@ -137,7 +137,7 @@ def rubric_items(row: Mapping[str, Any], case_id: int) -> list[dict[str, Any]]:
 def case_input(row: Mapping[str, Any], *, reader: ReferenceReader) -> str:
     """The candidate-input envelope as PLAIN JSON — prompt followed by every reference.
 
-    WHY plain JSON rather than a url4 struct: a value baked into ``cases.json`` is substituted
+    WHY plain JSON rather than a url4 struct: a value written into ``cases.json`` is substituted
     into the Candidate call VERBATIM as data, so it must already be what the Runner's envelope
     decoder ``json.loads``es.
     """
@@ -261,7 +261,7 @@ def _fetch(task_id: str, file_name: str, urls: Mapping[str, str], cache: Path) -
     # INVARIANT: the destination path only ever appears COMPLETE. The cache-hit check above is
     # presence plus non-zero size, so a download killed mid-write (Ctrl-C, disk full) would
     # otherwise leave a truncated file that every later run accepts forever — and a truncated
-    # PDF that still parses past MIN_VIABLE_CHARS would bake truncated reference text into the
+    # PDF that still parses past MIN_VIABLE_CHARS would prepare truncated reference text into the
     # answer key. Bytes land in a temp sibling; only a finished download is renamed into place.
     part = destination.with_suffix(destination.suffix + ".part")
     # WHY retry: this fetches 85 files in sequence from a public CDN, and a single reset
@@ -300,7 +300,7 @@ def _default_reference_cache() -> Path:
 
 
 def prepare(out: Path, *, assets_root: Path | None = None) -> dict[str, Any]:
-    """Bake the GDPval text-subset assets into ``out``, returning its audit summary."""
+    """Prepare the GDPval text-subset assets into ``out``, returning its audit summary."""
 
     rows = load_rows()
     cache = assets_root or _default_reference_cache()
@@ -333,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"gdpval prepare failed: {exc}", file=sys.stderr)
         return 1
     print(
-        f"gdpval: baked {summary['cases']} cases into {args.out} "
+        f"gdpval: prepared {summary['cases']} cases into {args.out} "
         f"({summary['excluded_tasks']} tasks excluded for unusable references)"
     )
     return 0

@@ -100,7 +100,7 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "missing_case_rubric",
         "scorer_error",
         "invalid_score_value",
-        # fallback defaults (evaluation.py upstream re-raise, aggregation.py default_code)
+        # fallback defaults (grading_endpoints.py upstream re-raise, aggregation.py default_code)
         "grading_dependency_failed",
         "grading_failed",
         # upstream pass-through codes observed in reports today (public_error keeps

@@ -62,7 +62,7 @@ def install(node: Url4Node, root: Path) -> None:
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark."""
+    """Fail before the FIRST paid call when the prepared assets cannot serve this benchmark."""
 
     benchmark_preflight(
         root,
@@ -84,7 +84,7 @@ def _cases(root: Path):
 def _build_public_cases(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
     """Enrich each row with its ready-made turn-1 prompt and turn-2 trigger.
 
-    WHY the prompt and trigger are baked rather than assembled in the expression:
+    WHY the prompt and trigger are prepared rather than assembled in the expression:
     prompt bytes are benchmark identity on a judge-free benchmark, and an expression that
     composed them would put that identity outside the revision hash.
     """

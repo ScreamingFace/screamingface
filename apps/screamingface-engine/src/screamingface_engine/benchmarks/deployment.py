@@ -159,7 +159,7 @@ class BenchmarkDeployment:
                     f"{type(observed).__name__}, not a summary mapping"
                 )
             # INVARIANT: snapshot the adapter's own top-level observations so a later mutation
-            # of the mapping it handed back cannot rewrite this bake's reported evidence.
+            # of the mapping it handed back cannot rewrite this prepare's reported evidence.
             # AIDEV-NOTE: shallow by design — a preparer must build its values fresh rather
             # than hand back a container it keeps mutating. Deep-copying arbitrary adapter
             # values would be the orchestrator guessing at their semantics.

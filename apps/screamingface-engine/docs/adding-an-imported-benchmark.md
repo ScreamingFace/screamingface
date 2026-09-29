@@ -2,7 +2,7 @@
 
 **TLDR: an imported benchmark is someone else's benchmark, and onboarding it is a customs
 operation, not an authoring project. A benchmark is two data rows — a `CasesSpec` (how to
-bake the frozen dataset) and a `BenchmarkSpec` (the catalogue entry) — and one command
+prepare the frozen dataset) and a `BenchmarkSpec` (the catalogue entry) — and one command
 generates both by reading the eval's own code. You never write grading code, prompt
 code, or a module: the eval's own `record_to_sample`, prompt template, and scorer are
 CALLED, never reimplemented.** If you find yourself writing a `grade_case` or a new
@@ -22,7 +22,7 @@ edits is an acceptance criterion, not an aspiration).
 
 The importer handles **single-shot** evals (one candidate call per Case, deterministic
 scorer). Before running anything, open the eval's task module in the *installed*
-`inspect_evals` (the exact `==`-pinned version — what you read is what bakes) and
+`inspect_evals` (the exact `==`-pinned version — what you read is what prepares) and
 check:
 
 - The benchmark loads via `hf_dataset(...)` from the HuggingFace Hub. Local/JSON datasets
@@ -50,7 +50,7 @@ check:
     without them as a NAMED DEVIATION (below).
   - Every case has a non-empty text target. A judged eval whose rubric IS the target
     (coconot, sosbench — the target is empty and the judge carries the whole rule)
-    fails the deterministic bake today; the bake extension is an unfiled follow-up,
+    fails the deterministic prepare today; the prepare step extension is an unfiled follow-up,
     not a knob you can flip.
 
 ## Step 1 — run the importer
@@ -76,13 +76,13 @@ uv run python -m screamingface_engine_inspect.importer \
 - `--choice-shuffle-seed N` pins one per-case **choice order**. Required when the
   eval passes `shuffle_choices=True` (unseeded — lab_bench, truthfulqa); refused
   when the eval doesn't shuffle choices at all, and refused when the eval seeds
-  its own choice shuffle (upstream already defines ONE order). The bake applies
+  its own choice shuffle (upstream already defines ONE order). The prepare step applies
   inspect's own `MemoryDataset.shuffle_choices`, and the seed rides the revision
   hash too.
 - `data_files` + `features` (infinite_bench) need no flag — both are reproduced
   automatically: `data_files` as a literal pin (dict of str to str only), and
   `features` as a dotted pointer at the eval's own `Features` constant, resolved
-  and type-checked at bake. Both ride the revision hash.
+  and type-checked at prepare. Both ride the revision hash.
 
 The command edits `pins.py`, `prepare.py`, and `benchmarks.py` in place at their anchor
 comments, all-or-nothing, and `git diff` is the artifact everything downstream
@@ -99,7 +99,7 @@ flags. The importing agent (not a human) resolves all of them:
   grading works, and how the score is computed — string-match benchmarks say that no judge
   tokens are spent, judged benchmarks say judge calls are routed and metered through our
   gateway).
-- **`TODO(review)` flags** — each names a setting the bake does not reproduce (a
+- **`TODO(review)` flags** — each names a setting the prepare step does not reproduce (a
   custom solver, a system message, an unreproduced dataset option). For each one:
   either confirm it does not change the benchmark (and say why in the comment), or stop —
   the eval is not row-importable and silently shipping a different benchmark is the one
@@ -146,7 +146,7 @@ uv run .claude/scripts/run_gates.py screamingface-engine   # from the repo root
 
 The row machinery's shared tests already cover registration, revision identity, and
 the extra-less catalogue; add the per-benchmark definition assertions to the imported
-benchmarks' test module (follow the existing benchmarks' entries). Sanity-check the bake on a
+benchmarks' test module (follow the existing benchmarks' entries). Sanity-check the prepare step on a
 handful of rows if the eval's `record_to_sample` has any unusual shape.
 
 The shared activity integration tests live in
@@ -181,7 +181,7 @@ checklist (minutes, not hours):
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
     are benchmark identity — expect the revision to move if any of them changes.
   - If the scorer dispatches on sample metadata (frontierscience's `format`), the
-    snapshot row sets `keep_sample_metadata=True` — otherwise the scorer grades blind.
+    cases row sets `keep_sample_metadata=True` — otherwise the scorer grades blind.
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.
@@ -208,12 +208,12 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 
 | Refusal | Meaning | What to do |
 |---|---|---|
-| not a 40-hex commit sha | the revision resolved to a mutable ref | let the tool resolve it; never hand-write a branch/tag (the bake and benchmark assembly refuse it too) |
-| hf_dataset kwarg(s) … not reproduced | the eval uses a dataset option the bake doesn't carry (`limit`, `trust`, …) | decide per kwarg: neutralize via `--task-arg`, or the eval isn't row-importable |
+| not a 40-hex commit sha | the revision resolved to a mutable ref | let the tool resolve it; never hand-write a branch/tag (the prepare step and benchmark assembly refuse it too) |
+| hf_dataset kwarg(s) … not reproduced | the eval uses a dataset option the prepare step doesn't carry (`limit`, `trust`, …) | decide per kwarg: neutralize via `--task-arg`, or the eval isn't row-importable |
 | shuffles with no seed | upstream order is random per run; an import must pin ONE order | pass `--shuffle-seed` |
 | shuffles each case's choice order with no seed | `shuffle_choices=True` randomizes the answer options per run; an import must pin ONE choice order | pass `--choice-shuffle-seed` |
-| upstream seeds its shuffle, and a row shuffle combined with a choice shuffle cannot reproduce that benchmark | the bake's row shuffle is not HF's algorithm, and each case's choice order depends on its row position — upstream's seeded benchmark would silently differ | import by hand, or extend the bake to replay HF's row permutation |
-| eval pins its own choice-shuffle seed | upstream already defines ONE choice order; a policy seed would bake a benchmark upstream never produces | drop `--choice-shuffle-seed` |
+| upstream seeds its shuffle, and a row shuffle combined with a choice shuffle cannot reproduce that benchmark | the prepare step's row shuffle is not HF's algorithm, and each case's choice order depends on its row position — upstream's seeded benchmark would silently differ | import by hand, or extend the prepare step to replay HF's row permutation |
+| eval pins its own choice-shuffle seed | upstream already defines ONE choice order; a policy seed would prepare a benchmark upstream never produces | drop `--choice-shuffle-seed` |
 | data_files has a shape the importer does not reproduce | only a dict of str to str round-trips through the generated literal | extend the importer for this family |
 | features does not resolve to one module attribute | an inline `Features(...)` has nothing the row can point at | extend the importer or add the row by hand |
 | fewshot/extra load is not the benchmark | the Task's dataset isn't the HF load the tool saw | pass task args that disable the extras |
@@ -238,5 +238,5 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 - `src/screamingface_engine_inspect/pins.py` — the lockfile docstring: the three row
   kinds and WHY frozen data is the security property.
 - `docs/spec/2026-09-09-OME-1113-inspect-evals-import.md` — the import spec (§4 dual
-  registration, §5 snapshots, §6 revision identity).
+  registration, §5 prepared cases, §6 revision identity).
 - Diagram source: `diagrams/importer-pipeline.drawio` (draw.io, `sf-dark` palette).

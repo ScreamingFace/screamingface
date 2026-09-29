@@ -1047,7 +1047,7 @@ def _judge_prompt_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
 
 
 def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
-    """Benchmark-identity pins derived from the benchmark's snapshot row — never duplicated."""
+    """Benchmark-identity pins derived from the benchmark's cases row — never duplicated."""
 
     pins: list[str] = [
         cases_spec.dataset,
@@ -1064,7 +1064,7 @@ def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
         # identity exactly like the row-shuffle seed (OME-1264).
         pins.append(f"choice_shuffle_seed={cases_spec.choice_shuffle_seed}")
     if cases_spec.keep_sample_metadata:
-        # Flipping the opt-in changes what the bake ships — benchmark identity moves.
+        # Flipping the opt-in changes what the prepare step ships — benchmark identity moves.
         pins.append("keep_sample_metadata=1")
     if cases_spec.system_message is not None:
         # WHY: adding or dropping the leading instruction changes the benchmark a
@@ -1075,7 +1075,7 @@ def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
     if cases_spec.data_files is not None:
         # WHY: data_files selects WHICH files of the pinned revision load —
         # a different selection is a different benchmark (OME-1264 extension 2).
-        # json.dumps(sort_keys=True) keeps the pin deterministic across bakes.
+        # json.dumps(sort_keys=True) keeps the pin deterministic across prepares.
         pins.append(f"data_files={json.dumps(cases_spec.data_files, sort_keys=True)}")
     if cases_spec.features is not None:
         # WHY: the schema fixes how the selected files parse into rows, so the

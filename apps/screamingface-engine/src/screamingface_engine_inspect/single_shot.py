@@ -226,7 +226,7 @@ def single_shot_benchmark(
         case_count: rows in the pinned split — the benchmark's declared benchmark size.
         revision_pins: every dataset fact that participates in benchmark identity.
         scorer_factory: zero-arg callable returning the imported eval's scorer.
-        prepare: the benchmark's build-time asset baker (its snapshot of the dataset).
+        prepare: the benchmark's build-time asset preparer (its prepared copy of the dataset).
         install: the benchmark module's OWN installer wrapper (defined beside its
             ``ASSET_BUNDLE_ID`` constant, per the deployment conformance rule), which
             delegates to :func:`install_imported_benchmark`.
@@ -757,7 +757,7 @@ def _grading_material(root: Path, case_id: int) -> Mapping[str, Any] | None:
 
 
 def _case_by_input(root: Path, prompt: str) -> int:
-    """Resolve the case whose baked prompt is exactly ``prompt`` (prompts are unique)."""
+    """Resolve the case whose prepared prompt is exactly ``prompt`` (prompts are unique)."""
 
     try:
         cases: object = json.loads((root / "cases.json").read_text(encoding="utf-8"))

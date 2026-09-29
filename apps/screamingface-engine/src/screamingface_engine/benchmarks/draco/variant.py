@@ -13,7 +13,7 @@ into a 16-hex revision; ``Routes`` hangs the seven protocol routes plus the chec
 surface under ``/benchmarks/<id>/<revision>/``; ``build_draco_protocol`` writes the
 url4 expression tree. ``draco_benchmark`` is the one call a benchmark module makes.
 
-INVARIANT: two benchmarks built here share the baked assets and differ ONLY where the
+INVARIANT: two benchmarks built here share the prepared assets and differ ONLY where the
 knobs above differ. A benchmark's revision changes if ANY hashed input changes, so an
 expression addressed to an old revision physically cannot resolve against a new benchmark.
 
@@ -57,7 +57,7 @@ DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
 DATASET_PREPARER_REVISION = "datasets-5.0.0"
 CASE_COUNT = 100
 # The one physical asset directory every DRACO benchmark reads — one immutable case/rubric
-# bake, never a per-benchmark one. The deployment names this id when it prepares the bundle
+# prepare, never a per-benchmark one. The deployment names this id when it prepares the bundle
 # (OME-875); definition.py re-exports it for the image build.
 ASSET_BUNDLE_ID = "draco"
 # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09. Google designated
@@ -350,8 +350,8 @@ def draco_benchmark(
         # runtime code (healthbench precedent).
         from screamingface_engine.benchmarks.draco.runtime import install as install_runtime
 
-        # INVARIANT: every benchmark reads the SAME baked asset directory — one immutable
-        # case/rubric set, never a per-benchmark bake.
+        # INVARIANT: every benchmark reads the SAME prepared asset directory — one immutable
+        # case/rubric set, never a per-benchmark prepare.
         install_runtime(node, assets / ASSET_BUNDLE_ID, variant)
 
     benchmark = Benchmark(

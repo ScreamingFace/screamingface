@@ -294,7 +294,7 @@ class BenchmarkAggregation:
         handler over this face and no second loop ever exists.
         """
 
-        # Stage 1-2 — roll call and row filing (position is identity; see rows.py).
+        # Stage 1-2 — roll call and row filing (position is identity; see case_grades.py).
         case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
         indexed: CaseGradeIndex = self.reader.index(raw_case_grades, case_ids)
         # Stage 3-4 — the hook is async (an enclave call is a network hop).

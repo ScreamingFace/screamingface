@@ -141,11 +141,11 @@ async def test_no_two_benchmarks_are_published_under_the_same_focus_line() -> No
     assert len(set(lines)) == len(lines), f"duplicate focus lines across benchmarks: {lines}"
 
 
-async def test_benchmarks_baked_from_one_asset_bundle_publish_one_dataset_link() -> None:
+async def test_benchmarks_prepared_from_one_asset_bundle_publish_one_dataset_link() -> None:
     """INVARIANT: one physical dataset, one published link — derived, not hand-listed.
 
     A benchmark's dataset link is a fact about the assets it reads, and benchmarks that share an
-    asset bundle read the same baked files. Two links under one bundle means at least one
+    asset bundle read the same prepared files. Two links under one bundle means at least one
     benchmark sends a reader to a dataset it was not built from.
 
     WHY nothing here asserts which benchmarks have a link at all: that is a per-benchmark editorial

@@ -1,8 +1,8 @@
 """How any GDPval benchmark is built — identity, addresses, and the one expression tree.
 
-The template is fixed: one dataset, one baked answer key, one judge, one grading chain. A benchmark
-varies only which Cases it serves, how it totals them, and what it calls itself — and ``id``
-decides every route address.
+The template is fixed: one dataset, one prepared answer key, one judge, one grading chain. A
+benchmark varies only which Cases it serves, how it totals them, and what it calls itself — and
+``id`` decides every route address.
 
 ``variant_revision`` fingerprints the whole identity into 16 hex characters; ``Routes`` hangs the
 six protocol routes plus the draft-feedback offer under ``/benchmarks/<id>/<revision>/``;
@@ -54,7 +54,7 @@ from screamingface_engine.benchmarks.protocol import (
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
-#: The one physical asset directory every GDPval benchmark reads — one immutable bake.
+#: The one physical asset directory every GDPval benchmark reads — one immutable prepare.
 ASSET_BUNDLE_ID = "gdpval"
 
 #: The pass criterion of the mid-run draft-feedback offer.

@@ -78,7 +78,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Gated datasets (xstest, OME-1269) download only with a Hugging Face token from an account that
 # accepted their terms. The token arrives as an OPTIONAL BuildKit secret (`id=hf_token`), read into
 # this one RUN's environment: a secret mount is never written into a layer, and the token is never
-# a build arg (build args are recorded in the image history). Without a token the bake refuses the
+# a build arg (build args are recorded in the image history). Without a token the prepare step refuses the
 # gated benchmark by name, so a main or release image can never ship missing one. PR builds, which get
 # no secret from forks or Dependabot, pass SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1 to skip those
 # benchmarks with a loud warning instead. Local build with the token:

@@ -250,7 +250,7 @@ def read_selected_cases(
     benchmark_label: str,
     error_type: type[Exception],
 ) -> list[SelectedCase]:
-    """Read the roll call from the baked ``cases.json``, in selected order.
+    """Read the roll call from the prepared ``cases.json``, in selected order.
 
     The same benchmark-varying bits as `CaseGradeReader` are injected — the label for error
     wording and the benchmark's own error class (OME-1097 moved this reader in from the

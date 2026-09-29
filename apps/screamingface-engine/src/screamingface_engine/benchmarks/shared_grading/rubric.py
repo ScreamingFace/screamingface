@@ -79,8 +79,8 @@ def rubric_grade_case(*, case_score: CaseScore, judge_producer_id: str) -> Grade
         complete: bool = len(verdicts) == len(points) and not invalid
         score: float | None = case_score(points, verdicts) if complete else None
         if score is None:
-            # WHY the split: a complete-but-unscorable Case means the baked asset
-            # lost its guaranteed positive-points item — a baked-asset defect, not
+            # WHY the split: a complete-but-unscorable Case means the prepared asset
+            # lost its guaranteed positive-points item — a prepared-asset defect, not
             # judge loss; the two must stay distinguishable in the report.
             code: str = "no_positive_points" if complete else "incomplete_verdicts"
             return CaseGradeOutcome(score=None, metrics=metrics, checks=checks, failure_code=code)

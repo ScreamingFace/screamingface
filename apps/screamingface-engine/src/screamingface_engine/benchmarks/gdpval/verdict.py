@@ -1,8 +1,8 @@
 """GDPval's verdict dialect — a shape declaration over the shared grading parser.
 
 The parsing work (JSON recovery, strict-boolean gate, identity stamping, mandatory audit
-trail — OME-1023's raw-reply rule included) lives once in ``shared-grading.verdict`` (OME-1099);
-this module keeps only what is GDPval's to own: its schema string and its prose reason
+trail — OME-1023's raw-reply rule included) lives once in ``shared_grading.judge_evidence``
+(OME-1099); this module keeps only what is GDPval's to own: its schema string and its prose reason
 vocabulary, which reaches the wire on rejected verdicts and must stay byte-identical.
 """
 

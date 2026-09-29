@@ -83,7 +83,7 @@ def _cost_usd(record: dict[str, object]) -> object:
 
 
 def _write_assets(root: Path) -> None:
-    # Bake the full worst30 subset — the benchmark preflights ALL 157 Cases, so a partial
+    # Prepare the full worst30 subset — the benchmark preflights ALL 157 Cases, so a partial
     # fixture cannot serve any route. The exercised first Case carries the real rubric
     # the assertions read; the rest carry an interchangeable one-item rubric.
     root.mkdir(parents=True, exist_ok=True)

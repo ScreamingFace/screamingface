@@ -44,7 +44,7 @@ _REVISION = "0123456789abcdef"
 
 
 def _emit_bundle(root: Path, *, case_ids: tuple[int, ...] = (1, 2)) -> Path:
-    """Bake a minimal two-file bundle: the public booklet and the private key."""
+    """Prepare a minimal two-file bundle: the public booklet and the private key."""
 
     rows = [{"id": case_id, "input": f"question {case_id}"} for case_id in case_ids]
     root.mkdir(parents=True, exist_ok=True)
@@ -162,7 +162,7 @@ class TestComputeBenchmarkRevision:
 
     def test_parts_are_joined_not_concatenated(self) -> None:
         # WHY newline joining is pinned: ("ab","c") and ("a","bc") must not collide,
-        # and the join rule participates in every existing benchmark's baked revision.
+        # and the join rule participates in every existing benchmark's prepared revision.
         assert compute_benchmark_revision("ab", "c") != compute_benchmark_revision("a", "bc")
 
 
@@ -370,7 +370,7 @@ class TestServeCases:
 
 
 class TestBenchmarkCaseCount:
-    def test_counts_the_baked_booklet(self, tmp_path: Path) -> None:
+    def test_counts_the_prepared_booklet(self, tmp_path: Path) -> None:
         root = _emit_bundle(tmp_path / "toy", case_ids=(1, 2, 3))
 
         assert benchmark_case_count(root, declared=99) == 3

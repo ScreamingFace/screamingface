@@ -76,7 +76,7 @@ jobs:
       - name: Prepare imported benchmark assets
         working-directory: apps/screamingface-engine
         # Read-only Hugging Face token for gated datasets (xstest, OME-1269), scoped to
-        # this step only (not the dependency install above); without it the bake refuses
+        # this step only (not the dependency install above); without it the prepare step refuses
         # the gated board by name, which fails this owner-pressed run.
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN_BENCHMARKS }}

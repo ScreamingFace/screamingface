@@ -71,7 +71,7 @@ def load_answer(root: Path, case_id: int) -> dict[str, Any] | None:
 
 
 def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
-    """The roll call from the baked ``cases.json``, in selected order."""
+    """The roll call from the prepared ``cases.json``, in selected order."""
 
     return read_selected_cases(
         root, case_ids, benchmark_label="MedXpertQA", error_type=AggregateError

@@ -1,6 +1,6 @@
 """The two HealthBench benchmarks this Engine serves, and what makes them different.
 
-Both sit the SAME benchmark over the SAME baked answer key — 525 physician-rubric-graded
+Both sit the SAME benchmark over the SAME prepared answer key — 525 physician-rubric-graded
 conversations, one AI judge, one grading chain. They differ in exactly two places:
 
     benchmark            cases                    benchmark-level score
@@ -66,7 +66,7 @@ WORST30_VARIANT, HEALTHBENCH_WORST30 = healthbench_benchmark(
 
 # ── Benchmark 2 — the full professional variant ─────────────────────────────────────────────
 # INVARIANT: the pinned dataset revision holds exactly this many professional rows, and
-# ``prepare.emit`` refuses to bake anything else — a dataset that grew or shrank would
+# ``prepare.emit`` refuses to prepare anything else — a dataset that grew or shrank would
 # otherwise ship a differently-sized benchmark under this identity.
 PROFESSIONAL_CASE_COUNT = 525
 # WHY a contiguous range: Engine Case ids ARE the 1-based positions prepare.py numbers by,
@@ -88,7 +88,7 @@ PROFESSIONAL_VARIANT, HEALTHBENCH_PROFESSIONAL = healthbench_benchmark(
     scoring="official-clipped-mean-v1",
     mean=clipped_mean,
     # WHY the Case ids, not dataset row ids: this benchmark's selection IS "every position in
-    # the baked file", so the id list is the honest fingerprint of what it serves.
+    # the prepared file", so the id list is the honest fingerprint of what it serves.
     selection_sha=case_ids_sha(PROFESSIONAL_CASE_IDS),
     # Physician-rubric clinical safety: published frontier scores sit well under
     # saturation, so the full benchmark is frontier work too (OME-1257).

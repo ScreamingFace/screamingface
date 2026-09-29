@@ -7,7 +7,7 @@ A GDPval rubric is a checklist; the judge ticks each line against the candidate'
 Case score is points earned over points available. Most lines judge content and transfer to a
 text answer unchanged. A minority judge the artifact itself — "provided as a Microsoft Word
 (.docx) document", "A single PDF file is delivered". This benchmark never produces a file, so every
-candidate fails those identically. They are stripped in ``prepare`` and never reach the baked
+candidate fails those identically. They are stripped in ``prepare`` and never reach the prepared
 assets.
 
 INVARIANT: filtering happens at BUILD time, so no scoring path can include a container criterion
@@ -89,7 +89,7 @@ def is_format_criterion(criterion: str) -> bool:
 def strip_format_criteria(items: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """Drop container criteria, preserving the order of everything else.
 
-    INVARIANT: order is preserved — rubric position is part of the baked answer key.
+    INVARIANT: order is preserved — rubric position is part of the prepared answer key.
     """
 
     return [item for item in items if not is_format_criterion(str(item["criterion"]))]

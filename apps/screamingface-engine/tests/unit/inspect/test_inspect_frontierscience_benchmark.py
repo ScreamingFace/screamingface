@@ -56,7 +56,7 @@ def test_benchmark_identity_and_declaration() -> None:
 
 
 def test_the_judge_is_declared_and_pinned() -> None:
-    """The benchmark calls the SAME judge it declares, and the snapshot bakes the
+    """The benchmark calls the SAME judge it declares, and the prepared cases prepares the
     metadata its scorer dispatches on."""
 
     spec = next(spec for spec in BENCHMARKS if spec.key == "frontierscience")
@@ -94,7 +94,7 @@ class _FormatAwareJudge:
         return "Matches the reference answer.\n\nGRADE: C"
 
 
-def _bake_by_hand(root: Path) -> None:
+def _prepare_by_hand(root: Path) -> None:
     benchmark_root = root / BENCHMARK.benchmark.id
     (benchmark_root / "targets").mkdir(parents=True)
     (benchmark_root / "cases.json").write_text(
@@ -155,13 +155,13 @@ async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
 @pytest.mark.asyncio
 async def test_both_judge_formats_grade_through_the_gateway_route(tmp_path: Path) -> None:
     """One olympiad Case (GRADE: C → 1.0) and one research Case (VERDICT: 7.5 →
-    0.75) — the scorer dispatches each on its baked metadata, and every judge
+    0.75) — the scorer dispatches each on its prepared metadata, and every judge
     call exits through the declared node route with the pinned params."""
 
     judge = _FormatAwareJudge()
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
-    _bake_by_hand(tmp_path)
+    _prepare_by_hand(tmp_path)
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
@@ -202,7 +202,7 @@ async def test_a_gradeless_judge_reply_fails_one_case_not_the_run(tmp_path: Path
     judge = _GradelessOnOlympic()
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
-    _bake_by_hand(tmp_path)
+    _prepare_by_hand(tmp_path)
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
@@ -227,7 +227,7 @@ async def test_the_olympic_judge_prompt_is_upstreams_template_verbatim(
     judge = _FormatAwareJudge()
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
-    _bake_by_hand(tmp_path)
+    _prepare_by_hand(tmp_path)
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds")])
@@ -267,7 +267,7 @@ async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
     judge = _VerdictlessOnResearch()
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
-    _bake_by_hand(tmp_path)
+    _prepare_by_hand(tmp_path)
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
@@ -293,7 +293,7 @@ async def test_the_judges_reasoning_reaches_the_explanation_end_to_end(
 
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(_FormatAwareJudge())
-    _bake_by_hand(tmp_path)
+    _prepare_by_hand(tmp_path)
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])

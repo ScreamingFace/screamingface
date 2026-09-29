@@ -29,7 +29,7 @@
         <mxCell id="pins" value="pins.py — pin row&#xa;dataset · split · sha ·&#xa;case count · license note&#xa;(the imported benchmarks&#39; lockfile)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="1500" y="80" width="300" height="100" as="geometry" />
         </mxCell>
-        <mxCell id="prep" value="prepare.py — CasesSpec row&#xa;how to bake the frozen dataset&#xa;snapshot (+ sorted pins import)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="prep" value="prepare.py — CasesSpec row&#xa;how to prepare the frozen dataset&#xa;prepared cases (+ sorted pins import)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="1500" y="220" width="300" height="100" as="geometry" />
         </mxCell>
         <mxCell id="brd" value="benchmarks.py — BenchmarkSpec row&#xa;scorer(+kwargs) · dataset_url ·&#xa;draft-feedback offer iff free text&#xa;title/description = TODO(review)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
@@ -38,7 +38,7 @@
         <mxCell id="review" value="AGENT WRITES, HUMAN VERIFIES&#xa;&#xa;git diff IS the review artifact:&#xa;agent fills TODO(review) prose,&#xa;human verifies pins · license ·&#xa;flags — import time is the&#xa;ONLY trust window" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="1880" y="180" width="300" height="170" as="geometry" />
         </mxCell>
-        <mxCell id="done" value="merged → on the catalogue&#xa;&#xa;build bakes the CasesSpec →&#xa;frozen assets; factory stamps&#xa;routes + revision from pins&#xa;→ /v1/benchmarks:&#xa;inspect-&amp;lt;key&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="done" value="merged → on the catalogue&#xa;&#xa;build prepares the CasesSpec →&#xa;frozen assets; factory stamps&#xa;routes + revision from pins&#xa;→ /v1/benchmarks:&#xa;inspect-&amp;lt;key&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="2260" y="180" width="300" height="170" as="geometry" />
         </mxCell>
         <mxCell id="e_pkg" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;endArrow=classic;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.3;" edge="1" parent="1" source="pkg" target="s1">

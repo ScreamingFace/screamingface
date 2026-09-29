@@ -1,7 +1,7 @@
 """The imported `inspect-gsm8k` proof benchmark — spec §3 end to end, minus the paid run.
 
 FEATURE: the first stranger-authored benchmark on the shared grading with zero shared-grading
-edits (OME-1115). This suite drives the benchmark's definition, asset snapshot, runtime
+edits (OME-1115). This suite drives the benchmark's definition, prepared assets, runtime
 routes, the shared grading aggregate through the scorer adapter, and the §4 draft-feedback offer
 (the SAME wrapped scorer serving mid-run feedback).
 
@@ -40,8 +40,8 @@ _ROWS: list[dict[str, Any]] = [
 ]
 
 
-def _bake(root: Path) -> Path:
-    """Bake a two-case snapshot in the benchmark's asset layout (assets/<benchmark id>/)."""
+def _prepare(root: Path) -> Path:
+    """Write two prepared Cases in the benchmark's asset layout (assets/<benchmark id>/)."""
 
     emit_cases(BENCHMARK_CASES["gsm8k"], _ROWS, root / GSM8K_BENCHMARK.benchmark.id)
     return root
@@ -89,7 +89,7 @@ def test_resource_renders_a_protocol_for_a_selection() -> None:
 
 def _node(tmp_path: Path) -> Url4Node:
     node = Url4Node("test")
-    GSM8K_BENCHMARK.benchmark.install(node, _bake(tmp_path))
+    GSM8K_BENCHMARK.benchmark.install(node, _prepare(tmp_path))
     return node
 
 

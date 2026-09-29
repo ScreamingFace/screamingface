@@ -4,7 +4,7 @@ If ``benchmark.py`` writes the recipe — the expression tree that names six rou
 the kitchen: it registers a handler behind each route so the recipe can resolve. Data flows
 through them in question order:
 
-    /cases             -> serve the selected work requests (from the baked assets)
+    /cases             -> serve the selected work requests (from the prepared assets)
     /rubric-tasks      -> Candidate submitted one Case: fetch its private rubric, render one
                           fully-built judge prompt per surviving criterion
     /rubric-verdict    -> parse one judge reply into a verdict (or raise -> retry)
@@ -112,7 +112,7 @@ def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> str:
-    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark.
+    """Fail before the FIRST paid call when the prepared assets cannot serve this benchmark.
 
     A broken asset is knowable before any model runs. Without this check it would surface in the
     reducer — AFTER paying for a full Candidate run and ~44 judge calls per Case — only to score
@@ -145,7 +145,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> str:
 
 
 def _cases(root: Path, case_ids: tuple[int, ...]):
-    # WHY a memo: baked assets are immutable for the process lifetime, and cases.json is
+    # WHY a memo: prepared assets are immutable for the process lifetime, and cases.json is
     # multi-MB — it embeds the flattened text of all 85 reference documents. Only a SUCCESSFUL
     # payload is cached, so a broken asset re-checks (and re-fails loudly) on every call.
     memo: dict[str, str] = {}
@@ -166,7 +166,7 @@ def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: 
     """The fan-out point: one Candidate submission in, N ready-to-send judge requests out."""
 
     # WHY memos: without them a 102-case run re-reads and re-parses the multi-MB cases.json
-    # ~204 times and re-opens every rubric file per submission. The baked assets never change
+    # ~204 times and re-opens every rubric file per submission. The prepared assets never change
     # within a process; failures are never cached, so a broken asset keeps failing visibly.
     raw_memo: dict[str, str] = {}
     text_memo: dict[int, str] = {}

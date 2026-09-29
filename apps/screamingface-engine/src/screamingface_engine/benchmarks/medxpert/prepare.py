@@ -1,4 +1,4 @@
-"""Bake the MedXpertQA (Text) assets: the public questions and the private answer key.
+"""Prepare the MedXpertQA (Text) assets: the public questions and the private answer key.
 
 Run at IMAGE BUILD time, never at run time: a Job's rootfs is read-only apart from ``/tmp`` and
 holds no HuggingFace credential, so every benchmark artifact must exist before the Job starts.
@@ -16,7 +16,7 @@ INVARIANT — ``cases.json`` carries NO label. The client receives Case ids and 
 answer key stays in the image. (The dataset is public on HF; this boundary keeps the ENGINE
 honest, it is not anti-cheat.)
 
-INVARIANT — the baked ``input`` is the question VERBATIM. MedXpertQA embeds its own choice list
+INVARIANT — the prepared ``input`` is the question VERBATIM. MedXpertQA embeds its own choice list
 in the question text, so rendering ``options`` into the prompt as well would duplicate every
 choice and quietly change what each model is asked.
 
@@ -50,7 +50,7 @@ _MAX_OPTIONS = 10
 
 
 class PrepareError(BenchmarkAssetPreparationError):
-    """The build refuses to bake these assets. Always says which row and why.
+    """The build refuses to prepare these assets. Always says which row and why.
 
     WHY this base: OME-925 made asset preparation auditable, and this is the orchestrator's
     exit-1 channel for dataset drift — reported to an operator without a traceback. A row whose
@@ -147,7 +147,7 @@ def load_rows() -> list[dict[str, Any]]:
 
 
 def prepare(out: Path) -> dict[str, Any]:
-    """Bake the MedXpertQA assets into ``out``, returning the audit summary."""
+    """Prepare the MedXpertQA assets into ``out``, returning the audit summary."""
 
     return emit(load_rows(), out)
 

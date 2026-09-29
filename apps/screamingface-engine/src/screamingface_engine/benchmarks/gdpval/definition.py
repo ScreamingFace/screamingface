@@ -46,7 +46,7 @@ from screamingface_engine.benchmarks.gdpval.variant import gdpval_benchmark
 GDPVAL_DATASET_URL = "https://huggingface.co/datasets/openai/gdpval"
 
 # WHY a contiguous range: Engine Case ids ARE the 1-based positions `prepare.py` numbers by, and
-# this benchmark serves every baked Case. A gap here would silently make it a subset of a subset.
+# this benchmark serves every prepared Case. A gap here would silently make it a subset of a subset.
 TEXT_CASE_COUNT = len(TEXT_SUBSET_TASK_IDS)
 TEXT_CASE_IDS = tuple(range(1, TEXT_CASE_COUNT + 1))
 

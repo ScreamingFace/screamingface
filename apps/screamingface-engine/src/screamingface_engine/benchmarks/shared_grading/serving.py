@@ -92,7 +92,7 @@ def benchmark_routes(benchmark_id: str, revision: str) -> BenchmarkRoutes:
 def compute_benchmark_revision(*parts: str) -> str:
     """Fingerprint a benchmark's identity parts into the 16 hex characters its routes carry.
 
-    WHY newline joining: it is what every existing benchmark's baked revision used, and it
+    WHY newline joining: it is what every existing benchmark's prepared revision used, and it
     keeps ("ab","c") distinct from ("a","bc").
     """
 
@@ -114,7 +114,7 @@ class ServedBenchmark:
       deviations (contracteval says unavailable, medxpert says definition error)
       live in that call, not here. AIDEV-NOTE: pass a module-level function (or a
       closure over one) so tests can monkeypatch the benchmark's `preflight` seam.
-    - `build_public_cases`: turns the baked `cases.json` rows into the served public booklet.
+    - `build_public_cases`: turns the prepared `cases.json` rows into the served public booklet.
       INVARIANT (sealed envelope): rows carry questions, never which answers grade them.
     - `check`: the benchmark's own grading gate, given the bundle root. Benchmark-specific by
       design — the shared grading code does not average over benchmarks.
@@ -183,7 +183,7 @@ def benchmark_preflight(
     load_answer: AnswerLoader,
     error: ErrorFactory = benchmark_unavailable,
 ) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark."""
+    """Fail before the FIRST paid call when the prepared assets cannot serve this benchmark."""
 
     problems: list[str] = []
     if not (root / "cases.json").is_file():
@@ -292,7 +292,7 @@ def benchmark_aggregate(root: Path, benchmark: ServedBenchmark) -> Callable[[str
 
 
 def benchmark_case_count(root: Path, *, declared: int) -> int:
-    """Count the baked booklet, or stand on the declared count when assets are absent.
+    """Count the prepared booklet, or stand on the declared count when assets are absent.
 
     WHY the fallback: install happens on a resource-only control plane where assets may
     be absent; preflight — not this count — is what refuses a run it cannot serve.
@@ -305,7 +305,7 @@ def benchmark_case_count(root: Path, *, declared: int) -> int:
 
 
 def read_asset(path: Path, label: str) -> str:
-    """Read one baked asset, or fail bounded — never a raw OSError to a caller."""
+    """Read one prepared asset, or fail bounded — never a raw OSError to a caller."""
 
     try:
         return path.read_text(encoding="utf-8")

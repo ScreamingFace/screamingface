@@ -25,7 +25,7 @@ from screamingface_engine.benchmarks.gdpval.verdict import SCHEMA as VERDICT_SCH
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 
 
-def _bake(root: Path, case_id: int, points: list[int]) -> None:
+def _prepare(root: Path, case_id: int, points: list[int]) -> None:
     cases_path = root / "cases.json"
     cases = json.loads(cases_path.read_text()) if cases_path.exists() else []
     cases.append({"id": case_id, "input": f"input-{case_id}"})
@@ -95,8 +95,8 @@ def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
 def test_gdpval_metric_keys_are_byte_identical_to_the_pre_extraction_benchmark(
     tmp_path: Path,
 ) -> None:
-    _bake(tmp_path, 1, [5, 3, -3])
-    _bake(tmp_path, 2, [4])
+    _prepare(tmp_path, 1, [5, 3, -3])
+    _prepare(tmp_path, 2, [4])
     rows = json.dumps([_case_row(1, {1: True, 2: False, 3: True}), _case_row(2, {1: True})])
 
     result = aggregate(

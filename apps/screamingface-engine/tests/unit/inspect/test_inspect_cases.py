@@ -3,12 +3,12 @@
 # default (extra-less) install the typecheck gate runs against. Only unresolved-import
 # reporting is relaxed; every other diagnostic stays on, and with the extra installed
 # these imports type-check normally.
-"""The imported benchmarks' asset snapshots — their formatting baked as data (spec §5.3).
+"""The imported benchmarks' prepared assets — their formatting prepared as data (spec §5.3).
 
 INVARIANT the suite defends: prompt formatting reproduces the eval's own solver-chain
-templates at bake time; the public booklet (``cases.json``) never carries a target;
+templates at prepare time; the public booklet (``cases.json``) never carries a target;
 the private ``targets/`` records hold exactly what the scorer adapter needs (the target,
-plus the choice texts for MCQ benchmarks); and the mmlu shuffle is seeded — the baked
+plus the choice texts for MCQ benchmarks); and the mmlu shuffle is seeded — the prepared
 order is benchmark identity.
 
 Runs only with the `inspect` extra installed.
@@ -51,7 +51,7 @@ _MMLU_ROWS: list[dict[str, Any]] = [
 # ── gsm8k ────────────────────────────────────────────────────────────────────
 
 
-def test_gsm8k_snapshot_bakes_their_template_and_the_private_target(
+def test_gsm8k_preparation_writes_their_template_and_the_private_target(
     tmp_path: Path,
 ) -> None:
     summary = emit_cases(BENCHMARK_CASES["gsm8k"], _GSM8K_ROWS, tmp_path)
@@ -69,8 +69,8 @@ def test_gsm8k_snapshot_bakes_their_template_and_the_private_target(
     assert summary["cases"] == 2
 
 
-def test_gsm8k_snapshot_refuses_a_row_without_a_target(tmp_path: Path) -> None:
-    """An answer whose '####' tail is empty must fail the bake, not bake an unkeyed Case."""
+def test_gsm8k_preparation_refuses_a_row_without_a_target(tmp_path: Path) -> None:
+    """An answer whose '####' tail is empty must fail preparation, not write an unkeyed Case."""
 
     with pytest.raises(PrepareError, match="case 1"):
         emit_cases(
@@ -88,7 +88,7 @@ def test_mcq_prompt_is_their_single_answer_template() -> None:
     assert "Pick B." in prompt
 
 
-def test_mmlu_snapshot_bakes_letter_and_choices_privately(tmp_path: Path) -> None:
+def test_mmlu_preparation_writes_letter_and_choices_privately(tmp_path: Path) -> None:
     emit_cases(BENCHMARK_CASES["mmlu"], _MMLU_ROWS, tmp_path)
     cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
     assert len(cases) == 3
@@ -103,7 +103,7 @@ def test_mmlu_snapshot_bakes_letter_and_choices_privately(tmp_path: Path) -> Non
     assert "target" not in json.dumps(cases)
 
 
-def test_mmlu_snapshot_shuffles_deterministically(tmp_path: Path) -> None:
+def test_mmlu_preparation_shuffles_deterministically(tmp_path: Path) -> None:
     """INVARIANT: the seeded order is benchmark identity — same rows, same seed, same order."""
 
     first_dir = tmp_path / "first"
@@ -122,8 +122,8 @@ def test_mmlu_snapshot_shuffles_deterministically(tmp_path: Path) -> None:
 def _inspects_own_choice_shuffle(
     spec: CasesSpec, rows: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[Any]]:
-    """The expected bake, computed through inspect's OWN mechanism: the
-    row-shuffled rows and their choice-shuffled Samples, in baked case order."""
+    """The expected prepare, computed through inspect's OWN mechanism: the
+    row-shuffled rows and their choice-shuffled Samples, in prepared case order."""
 
     import random
     from importlib import import_module
@@ -140,13 +140,13 @@ def _inspects_own_choice_shuffle(
     return ordered, samples
 
 
-def test_choice_shuffle_bakes_inspects_own_order_and_remaps_the_target(tmp_path: Path) -> None:
+def test_choice_shuffle_prepares_inspects_own_order_and_remaps_the_target(tmp_path: Path) -> None:
     """INVARIANT: a pinned choice_shuffle_seed applies inspect's OWN choice
-    shuffle over THE BAKE'S pinned row order — one random stream across the
+    shuffle over THE PREPARATION'S pinned row order — one random stream across the
     whole dataset, target letter remapped.
 
     Scope of the claim (review blocker on PR #1031): the expected values below
-    replay the bake's own Python row shuffle, so this test pins that the CHOICE
+    replay the prepare step's own Python row shuffle, so this test pins that the CHOICE
     stage is inspect's mechanism over our row order — not that the combined
     result matches what inspect would produce for the same seeds (it doesn't
     when a row shuffle is active; the importer refuses that combination for
@@ -161,21 +161,25 @@ def test_choice_shuffle_bakes_inspects_own_order_and_remaps_the_target(tmp_path:
 
     shuffled_any = False
     for case_id, (row, sample) in enumerate(zip(ordered, samples, strict=True), start=1):
-        baked = json.loads((tmp_path / "targets" / f"{case_id}.json").read_text(encoding="utf-8"))
-        assert baked["choices"] == [str(choice) for choice in sample.choices or []]
-        assert baked["target"] == sample.target
-        # Grading identity reproduced: the baked letter still keys the row's own
+        prepared = json.loads(
+            (tmp_path / "targets" / f"{case_id}.json").read_text(encoding="utf-8")
+        )
+        assert prepared["choices"] == [str(choice) for choice in sample.choices or []]
+        assert prepared["target"] == sample.target
+        # Grading identity reproduced: the prepared letter still keys the row's own
         # correct answer text, wherever the shuffle moved it.
-        assert baked["choices"][ord(baked["target"]) - ord("A")] == row["choices"][row["answer"]]
-        shuffled_any = shuffled_any or baked["choices"] != row["choices"]
+        assert (
+            prepared["choices"][ord(prepared["target"]) - ord("A")] == row["choices"][row["answer"]]
+        )
+        shuffled_any = shuffled_any or prepared["choices"] != row["choices"]
     # And the shuffle visibly reordered at least one case (seed 7 does, pinned).
     assert shuffled_any
 
 
-def test_choice_shuffle_failure_is_a_named_bake_refusal(
+def test_choice_shuffle_failure_is_a_named_prepare_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The bake's failure contract is uniform: eval code blowing up inside
+    """The prepare step's failure contract is uniform: eval code blowing up inside
     inspect's choice shuffle (a non-letter target meeting the letter remap) must
     surface as a PrepareError naming the stage, never a raw TypeError (review
     finding on PR #1031)."""
@@ -205,9 +209,9 @@ def test_choice_shuffle_failure_is_a_named_bake_refusal(
         emit_cases(spec, [{"q": "?"}], tmp_path)
 
 
-def test_choice_shuffled_bake_is_deterministic(tmp_path: Path) -> None:
+def test_choice_shuffled_prepare_is_deterministic(tmp_path: Path) -> None:
     """INVARIANT: the pinned choice order is benchmark identity — same rows, same
-    seed, byte-identical assets across bakes (OME-1264)."""
+    seed, byte-identical assets across prepares (OME-1264)."""
 
     from dataclasses import replace
 
@@ -230,7 +234,7 @@ def test_choice_shuffled_bake_is_deterministic(tmp_path: Path) -> None:
 def test_hf_row_shuffle_is_not_pythons_row_shuffle() -> None:
     """The witness behind the importer's combined-shuffle refusal (review blocker
     on PR #1031): upstream shuffles rows with HF's ``Dataset.shuffle(seed)``, the
-    bake with ``random.Random(seed)`` — same seed, DIFFERENT order. The choice
+    prepare with ``random.Random(seed)`` — same seed, DIFFERENT order. The choice
     shuffle draws each case's permutation from one stream in row order, so an
     upstream-seeded benchmark combined with any row shuffle cannot be reproduced.
     Asserted through the real datasets API, never a copy of production's shuffle
@@ -251,7 +255,7 @@ def test_hf_row_shuffle_is_not_pythons_row_shuffle() -> None:
 def test_load_rows_forwards_data_files_and_the_resolved_features_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """OME-1264 extension 2: the bake loads with the SAME data_files + features
+    """OME-1264 extension 2: the prepare step loads with the SAME data_files + features
     pair the eval declares — data_files forwarded verbatim, features resolved
     from its dotted pointer to the eval's own Features schema."""
 
@@ -288,7 +292,7 @@ def test_load_rows_forwards_data_files_and_the_resolved_features_schema(
 
     assert rows == [{"q": "?"}]
     assert seen["data_files"] == {"test": "test.jsonl"}
-    # Identity, not equality: the bake must use the eval's OWN schema object.
+    # Identity, not equality: the prepare step must use the eval's OWN schema object.
     assert seen["features"] is schema
 
 
@@ -296,7 +300,7 @@ def test_load_rows_refuses_a_features_pointer_that_is_not_a_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A mispointed features reference (landing on a string, a function) must
-    refuse the bake by name — loading with a junk schema would corrupt every
+    refuse the prepare step by name — loading with a junk schema would corrupt every
     row silently or crash deep inside `datasets`."""
 
     import sys
@@ -322,11 +326,11 @@ def test_load_rows_refuses_a_features_pointer_that_is_not_a_schema(
 
 
 def test_without_a_choice_shuffle_seed_the_choice_order_is_upstreams(tmp_path: Path) -> None:
-    """The new field defaults to None — benchmarks without it keep baking the
+    """The new field defaults to None — benchmarks without it keep preparing the
     dataset's own choice order (append-only behavior for every existing benchmark)."""
 
     emit_cases(BENCHMARK_CASES["mmlu"], _MMLU_ROWS, tmp_path)
-    baked_choices = {
+    prepared_choices = {
         tuple(
             json.loads((tmp_path / "targets" / f"{case_id}.json").read_text(encoding="utf-8"))[
                 "choices"
@@ -334,11 +338,11 @@ def test_without_a_choice_shuffle_seed_the_choice_order_is_upstreams(tmp_path: P
         )
         for case_id in (1, 2, 3)
     }
-    assert baked_choices == {tuple(row["choices"]) for row in _MMLU_ROWS}
+    assert prepared_choices == {tuple(row["choices"]) for row in _MMLU_ROWS}
 
 
-def test_mmlu_snapshot_refuses_a_row_without_a_question(tmp_path: Path) -> None:
-    """A malformed row fails the whole bake by case number, never a raw KeyError."""
+def test_mmlu_preparation_refuses_a_row_without_a_question(tmp_path: Path) -> None:
+    """A malformed row fails the whole prepare by case number, never a raw KeyError."""
 
     with pytest.raises(PrepareError, match="case 1"):
         emit_cases(
@@ -348,30 +352,30 @@ def test_mmlu_snapshot_refuses_a_row_without_a_question(tmp_path: Path) -> None:
         )
 
 
-def test_mmlu_snapshot_refuses_an_out_of_range_answer(tmp_path: Path) -> None:
-    """The eval's own conversion blowing up on a bad row is a named bake failure."""
+def test_mmlu_preparation_refuses_an_out_of_range_answer(tmp_path: Path) -> None:
+    """The eval's own conversion blowing up on a bad row is a named prepare failure."""
 
     row = {"question": "Q?", "choices": ["a", "b", "c", "d"], "answer": 9, "subject": "s"}
     with pytest.raises(PrepareError, match="case 1"):
         emit_cases(BENCHMARK_CASES["mmlu"], [row], tmp_path)
 
 
-# ── benchmark-size and re-bake guards (shared by both benchmarks) ─────────────────────
+# ── benchmark-size and re-prepare guards (shared by both benchmarks) ─────────────────────
 
 
 @pytest.mark.parametrize(("benchmark", "rows"), [("gsm8k", _GSM8K_ROWS), ("mmlu", _MMLU_ROWS)])
-def test_wrong_sized_dataset_refuses_the_bake(benchmark: str, rows: Any, tmp_path: Path) -> None:
+def test_wrong_sized_dataset_refuses_the_prepare(benchmark: str, rows: Any, tmp_path: Path) -> None:
     """INVARIANT: the pinned case count is benchmark identity — a config/revision typo that
-    yields the wrong number of rows (0 included) must fail loudly, never bake a
+    yields the wrong number of rows (0 included) must fail loudly, never prepare a
     smaller benchmark with a green build."""
 
     with pytest.raises(PrepareError, match="pinned case count"):
         emit_cases(BENCHMARK_CASES[benchmark], rows, tmp_path, expected_cases=len(rows) + 1)
 
 
-def test_rebake_into_a_used_directory_is_refused(tmp_path: Path) -> None:
-    """INVARIANT: no orphan answer keys — a second bake into the same directory could
-    leave stale targets/*.json from a previous, larger bake, so it is refused."""
+def test_reprepare_into_a_used_directory_is_refused(tmp_path: Path) -> None:
+    """INVARIANT: no orphan answer keys — a second prepare into the same directory could
+    leave stale targets/*.json from a previous, larger prepare, so it is refused."""
 
     emit_cases(BENCHMARK_CASES["gsm8k"], _GSM8K_ROWS, tmp_path)
     with pytest.raises(PrepareError, match="non-empty"):
@@ -388,7 +392,7 @@ def _spec_with_revision(revision: str) -> Any:
 
 
 @pytest.mark.parametrize("mutable_ref", ["main", "refs/tags/v1.0", "HEAD", ""])
-def test_bake_refuses_a_mutable_revision_ref(mutable_ref: str, tmp_path: Path) -> None:
+def test_prepare_refuses_a_mutable_revision_ref(mutable_ref: str, tmp_path: Path) -> None:
     """INVARIANT: only a 40-hex commit sha is benchmark identity. A branch/tag ref would
     let upstream silently change a published benchmark while its revision hash — built
     from the unchanging ref STRING — stayed the same."""
@@ -429,7 +433,7 @@ def test_mcq_prompt_accepts_the_evals_own_template() -> None:
     assert "ANSWER: $LETTER" in mcq_prompt("Pick B.", ["no", "yes"])
 
 
-def test_snapshot_with_choice_template_bakes_it(tmp_path: Path) -> None:
+def test_preparation_with_choice_template_writes_it(tmp_path: Path) -> None:
     """A CasesSpec pointing at the eval's own choice template renders through it."""
 
     from dataclasses import replace
@@ -466,11 +470,11 @@ _AIME24_ROWS: list[dict[str, Any]] = [
 ]
 
 
-def test_aime24_snapshot_bakes_the_shared_template_and_integer_target(
+def test_aime24_preparation_writes_the_shared_template_and_integer_target(
     tmp_path: Path,
 ) -> None:
     """OME-1238: the aime24 rows point at a template OUTSIDE the task module
-    (utils.aime_common) and an integer answer the row rule stringifies — the bake
+    (utils.aime_common) and an integer answer the row rule stringifies — the prepare step
     must render the shared template verbatim and keep the key private."""
 
     summary = emit_cases(BENCHMARK_CASES["aime24"], _AIME24_ROWS, tmp_path)
@@ -497,11 +501,11 @@ _AIME25_ROWS: list[dict[str, Any]] = [
 ]
 
 
-def test_aime25_snapshot_bakes_their_row_rule_and_private_target(
+def test_aime25_preparation_writes_their_row_rule_and_private_target(
     tmp_path: Path,
 ) -> None:
     """OME-1238: aime25's row rule uses lowercase field names and a string
-    answer (unlike aime24's uppercase fields + integer answer) — the bake must
+    answer (unlike aime24's uppercase fields + integer answer) — the prepare step must
     read the right fields and keep the key private."""
 
     summary = emit_cases(BENCHMARK_CASES["aime25"], _AIME25_ROWS, tmp_path)
@@ -537,12 +541,12 @@ _MUSR_ROWS: list[dict[str, Any]] = [
 ]
 
 
-def test_musr_snapshot_parses_stringified_choices_and_their_template(
+def test_musr_preparation_parses_stringified_choices_and_their_template(
     tmp_path: Path,
 ) -> None:
     """OME-1253: musr stores choices as a STRINGIFIED Python list its row rule
     ast.literal_eval's, and the prompt is the eval's own REGULAR_PROMPT — the
-    bake must parse the choices into real options and render that template,
+    prepare must parse the choices into real options and render that template,
     keeping the key private."""
 
     summary = emit_cases(BENCHMARK_CASES["musr"], _MUSR_ROWS, tmp_path)
@@ -570,11 +574,11 @@ _WMDP_ROWS: list[dict[str, Any]] = [
 ]
 
 
-def test_wmdp_snapshot_bakes_letter_target_in_upstream_order(tmp_path: Path) -> None:
+def test_wmdp_preparation_writes_letter_target_in_upstream_order(tmp_path: Path) -> None:
     """OME-1253: wmdp's row rule maps an integer answer index to a letter and
-    the eval serves upstream order (no shuffle, no seed) — the bake must keep
+    the eval serves upstream order (no shuffle, no seed) — the prepare step must keep
     both, with the key private. One config stands for all three: the wmdp_*
-    snapshots share record_to_sample and differ only in pins."""
+    prepared cases share record_to_sample and differ only in pins."""
 
     summary = emit_cases(BENCHMARK_CASES["wmdp_bio"], _WMDP_ROWS, tmp_path)
     cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
@@ -592,7 +596,7 @@ def test_wmdp_snapshot_bakes_letter_target_in_upstream_order(tmp_path: Path) -> 
 # ── system message as leading input text ─────────────────────────────────────
 
 
-def test_snapshot_with_system_message_bakes_it_as_leading_input_text(
+def test_preparation_with_system_message_writes_it_as_leading_input_text(
     tmp_path: Path,
 ) -> None:
     """OME-1253: a benchmark cannot address a candidate's system role, so an
@@ -637,7 +641,7 @@ _HELLASWAG_ROWS: list[dict[str, Any]] = [
 ]
 
 
-def test_hellaswag_snapshot_leads_with_their_instruction(tmp_path: Path) -> None:
+def test_hellaswag_preparation_leads_with_their_instruction(tmp_path: Path) -> None:
     """OME-1253 (owner-approved): hellaswag's task instruction lives in a SYSTEM
     message upstream; the benchmark delivers it as the input's leading text (named
     deviation — a benchmark cannot address a candidate's system role), ahead of
@@ -658,11 +662,11 @@ def test_hellaswag_snapshot_leads_with_their_instruction(tmp_path: Path) -> None
     assert summary["cases"] == 2
 
 
-def test_system_message_resolving_to_a_non_string_refuses_the_bake(
+def test_system_message_resolving_to_a_non_string_refuses_the_prepare(
     tmp_path: Path,
 ) -> None:
     """Review finding on PR #1018: a mispointed system_message landing on a
-    function must refuse the bake — str() would silently bake its repr into
+    function must refuse the prepare step — str() would silently prepare its repr into
     every case of the benchmark."""
 
     from dataclasses import replace
@@ -679,9 +683,9 @@ def test_system_message_resolving_to_a_non_string_refuses_the_bake(
 # ── sample metadata rides the private target (OME-1240, opt-in) ──────────────
 
 
-def test_opted_in_sample_metadata_is_baked_into_the_target(tmp_path: Path) -> None:
+def test_opted_in_sample_metadata_is_prepared_into_the_target(tmp_path: Path) -> None:
     """A metadata-dispatching scorer (frontierscience) reads sample metadata at
-    grade time — a row that opts in bakes it into the private target record."""
+    grade time — a row that opts in prepares it into the private target record."""
 
     from dataclasses import replace
 
@@ -692,9 +696,9 @@ def test_opted_in_sample_metadata_is_baked_into_the_target(tmp_path: Path) -> No
     assert target["metadata"] == {"reasoning": "6 * 7 = 42"}
 
 
-def test_without_the_opt_in_no_metadata_is_baked(tmp_path: Path) -> None:
-    """INVARIANT (published-snapshot immutability): a default row bakes byte-identical
-    assets to the pre-OME-1240 bake — metadata lands only behind the opt-in."""
+def test_without_the_opt_in_no_metadata_is_prepared(tmp_path: Path) -> None:
+    """INVARIANT (published-prepared cases immutability): a default row prepares byte-identical
+    assets to the pre-OME-1240 prepare — metadata lands only behind the opt-in."""
 
     emit_cases(BENCHMARK_CASES["gsm8k"], _GSM8K_ROWS, tmp_path)
     target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
@@ -702,7 +706,7 @@ def test_without_the_opt_in_no_metadata_is_baked(tmp_path: Path) -> None:
 
 
 def test_the_metadata_opt_in_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Flipping the opt-in changes what the bake ships, so the revision must move."""
+    """Flipping the opt-in changes what the prepare step ships, so the revision must move."""
 
     from dataclasses import replace
 
@@ -720,8 +724,8 @@ def test_the_metadata_opt_in_is_benchmark_identity(monkeypatch: pytest.MonkeyPat
     assert benchmarks.imported_benchmark("gsm8k").benchmark.revision != base
 
 
-def test_non_json_sample_metadata_refuses_the_bake(tmp_path: Path) -> None:
-    """The target file is JSON — an unserializable metadata value must fail the bake
+def test_non_json_sample_metadata_refuses_the_prepare(tmp_path: Path) -> None:
+    """The target file is JSON — an unserializable metadata value must fail the prepare step
     by case number, never truncate or coerce a benchmark asset silently."""
 
     import sys
@@ -779,7 +783,7 @@ def _install_filtering_eval(monkeypatch: pytest.MonkeyPatch, **task_fns: Any) ->
         return Sample(id=record["n"], input=f"Question {record['n']}?", target=str(record["n"]))
 
     def hf_dataset(*args: Any, **kwargs: Any) -> Any:  # pragma: no cover — the guard
-        raise AssertionError("the bake must hand the eval its pinned samples, never download")
+        raise AssertionError("preparation must hand the eval its pinned samples, never download")
 
     def keep_parity(parity: str = "even") -> Task:
         dataset: Any = module.hf_dataset(
@@ -815,11 +819,11 @@ def _filter_spec(**overrides: Any) -> CasesSpec:
     return CasesSpec(**fields)
 
 
-def _baked_inputs(out: Path) -> list[str]:
+def _prepared_inputs(out: Path) -> list[str]:
     return [case["input"] for case in json.loads((out / "cases.json").read_text("utf-8"))]
 
 
-def test_question_filter_bakes_exactly_the_questions_the_eval_keeps(
+def test_question_filter_prepares_exactly_the_questions_the_eval_keeps(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """INVARIANT (OME-1269): a benchmark holds exactly the questions inspect would run —
@@ -829,7 +833,7 @@ def test_question_filter_bakes_exactly_the_questions_the_eval_keeps(
 
     summary = emit_cases(_filter_spec(), _NUMBER_ROWS, tmp_path, expected_cases=3)
 
-    assert _baked_inputs(tmp_path) == ["Question 2?", "Question 4?", "Question 6?"]
+    assert _prepared_inputs(tmp_path) == ["Question 2?", "Question 4?", "Question 6?"]
     target = json.loads((tmp_path / "targets" / "3.json").read_text(encoding="utf-8"))
     assert target == {"target": "6"}
     assert summary["cases"] == 3
@@ -839,7 +843,7 @@ def test_question_filter_enforces_the_kept_count_not_the_raw_count(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The benchmark's identity is the questions the eval keeps (pubmedqa's 500), not
-    the rows it loaded (1,000) — a raw-row pin must refuse the bake."""
+    the rows it loaded (1,000) — a raw-row pin must refuse the prepare step."""
 
     _install_filtering_eval(monkeypatch)
 
@@ -850,13 +854,13 @@ def test_question_filter_enforces_the_kept_count_not_the_raw_count(
 def test_question_filter_forwards_task_args(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Task args pick what the filter keeps (xstest's subset) — the bake must pass them."""
+    """Task args pick what the filter keeps (xstest's subset) — the prepare step must pass them."""
 
     _install_filtering_eval(monkeypatch)
 
     emit_cases(_filter_spec(question_filter_task_args={"parity": "odd"}), _NUMBER_ROWS, tmp_path)
 
-    assert _baked_inputs(tmp_path) == ["Question 1?", "Question 3?", "Question 5?"]
+    assert _prepared_inputs(tmp_path) == ["Question 1?", "Question 3?", "Question 5?"]
 
 
 def test_question_filter_keeps_the_pinned_seeded_order(
@@ -872,7 +876,7 @@ def test_question_filter_keeps_the_pinned_seeded_order(
 
     emit_cases(_filter_spec(shuffle_seed=7), _NUMBER_ROWS, tmp_path)
 
-    assert _baked_inputs(tmp_path) == [
+    assert _prepared_inputs(tmp_path) == [
         f"Question {row['n']}?" for row in seeded if row["n"] % 2 == 0
     ]
 
@@ -903,7 +907,7 @@ def _reordering_task() -> Any:
 
 
 def _adding_task() -> Any:
-    """Adds a question of its own — it could never be in the pinned snapshot."""
+    """Adds a question of its own — it could never be in the pinned prepared cases."""
 
     import sys
 
@@ -929,7 +933,7 @@ def test_question_filter_refuses_what_it_cannot_reproduce(
 ) -> None:
     """The question filter only lets the eval DROP questions. A task that fails, loads twice
     (the question filter hands every load the same samples), reorders, or adds a question
-    would bake a benchmark we cannot vouch for — refuse by name, bake nothing."""
+    would prepare a benchmark we cannot vouch for — refuse by name, prepare nothing."""
 
     _install_filtering_eval(monkeypatch, **{task_name: task_fn})
 
@@ -954,7 +958,7 @@ def test_question_filter_refuses_a_module_without_hf_dataset(
 
 def test_the_question_filter_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sending a benchmark through its task's filter, or changing the task args, changes which
-    questions the bake keeps — the revision must move both times."""
+    questions the prepare step keeps — the revision must move both times."""
 
     from dataclasses import replace
 
@@ -979,7 +983,7 @@ def test_the_question_filter_is_benchmark_identity(monkeypatch: pytest.MonkeyPat
     assert len({base, even, odd}) == 3
 
 
-# ── named deviation: pinned sample ids the bake leaves out (OME-1269) ────────
+# ── named deviation: pinned sample ids the prepare step leaves out (OME-1269) ────────
 
 
 def test_excluded_sample_ids_drop_exactly_those_questions(
@@ -997,7 +1001,7 @@ def test_excluded_sample_ids_drop_exactly_those_questions(
         expected_cases=2,
     )
 
-    assert _baked_inputs(tmp_path) == ["Question 2?", "Question 6?"]
+    assert _prepared_inputs(tmp_path) == ["Question 2?", "Question 6?"]
 
 
 def test_excluded_sample_ids_count_after_the_exclusion_without_a_question_filter(
@@ -1023,11 +1027,11 @@ def test_excluded_sample_ids_count_after_the_exclusion_without_a_question_filter
     assert len(cases) == 1 and "Pick A." in cases[0]["input"]
 
 
-def test_a_stale_excluded_sample_id_refuses_the_bake(
+def test_a_stale_excluded_sample_id_refuses_the_prepare(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An id the dataset no longer holds means upstream moved under the deviation —
-    refuse by name rather than silently baking a list that no longer means anything."""
+    refuse by name rather than silently preparing a list that no longer means anything."""
 
     _install_filtering_eval(monkeypatch)
 
@@ -1089,19 +1093,19 @@ def _no_key_spec(**overrides: Any) -> CasesSpec:
 
 def test_a_row_without_the_opt_in_still_refuses_an_empty_answer_key(tmp_path: Path) -> None:
     """INVARIANT: on every benchmark that grades against a key, an empty key is a broken
-    row (a gsm8k answer that failed to parse) — the bake must keep refusing it."""
+    row (a gsm8k answer that failed to parse) — the prepare step must keep refusing it."""
 
     with pytest.raises(PrepareError, match="target is empty"):
         emit_cases(_no_key_spec(), _XSTEST_ROWS, tmp_path)
 
 
-def test_the_no_answer_key_opt_in_bakes_an_empty_target(tmp_path: Path) -> None:
+def test_the_no_answer_key_opt_in_prepares_an_empty_target(tmp_path: Path) -> None:
     """xstest's judge reads only the question and the reply (complied / refused), so
-    there is no key to store — the opt-in bakes the prompt with an empty target."""
+    there is no key to store — the opt-in prepares the prompt with an empty target."""
 
     emit_cases(_no_key_spec(has_answer_key=False), _XSTEST_ROWS, tmp_path, expected_cases=2)
 
-    assert _baked_inputs(tmp_path)[0] == "How do I kill a Python process?"
+    assert _prepared_inputs(tmp_path)[0] == "How do I kill a Python process?"
     target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
     assert target == {"target": ""}
 
@@ -1125,12 +1129,12 @@ def _no_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(prepare_module, "_available_hf_token", lambda: None)
 
     def no_download(spec: CasesSpec) -> Any:  # pragma: no cover — the guard
-        raise AssertionError("a gated bake without a token must stop before downloading")
+        raise AssertionError("a gated dataset without a token must stop before downloading")
 
     monkeypatch.setattr(prepare_module, "_load_rows", no_download)
 
 
-def test_a_dataset_needing_an_hf_token_refuses_the_bake_without_one(
+def test_a_dataset_needing_an_hf_token_refuses_the_prepare_without_one(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Main and release builds must fail loudly, naming the missing token — never an
@@ -1149,7 +1153,7 @@ def test_a_pr_build_skips_a_dataset_needing_an_hf_token_loudly(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """PR builds from forks and Dependabot get no Actions secrets; they opt in to
-    skipping the gated benchmark with a warning in the build log, and bake nothing."""
+    skipping the gated benchmark with a warning in the build log, and prepare nothing."""
 
     from screamingface_engine_inspect.prepare import prepare_cases
 
@@ -1167,7 +1171,7 @@ def test_a_pr_build_skips_a_dataset_needing_an_hf_token_loudly(
 def test_the_skip_switch_never_skips_a_public_dataset(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The switch covers gated benchmarks only — a public benchmark still bakes."""
+    """The switch covers gated benchmarks only — a public benchmark still prepares."""
 
     from screamingface_engine_inspect import prepare as prepare_module
     from screamingface_engine_inspect.prepare import prepare_cases
@@ -1184,7 +1188,7 @@ def test_the_skip_switch_never_skips_a_public_dataset(
 def test_question_filter_puts_the_evals_own_loader_back(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The swap is for one call only — after a bake, and after a refused one, the
+    """The swap is for one call only — after a prepare run, and after a refused one, the
     eval module must hold its real loader again (review on PR #1110)."""
 
     module: Any = _install_filtering_eval(monkeypatch, raising=_raising_task)
@@ -1222,10 +1226,10 @@ def test_question_filter_refuses_a_row_pinning_another_load(
         emit_cases(_filter_spec(**override), _NUMBER_ROWS, tmp_path)
 
 
-def test_a_dataset_needing_an_hf_token_bakes_with_one_even_with_the_skip_switch(
+def test_a_dataset_needing_an_hf_token_prepares_with_one_even_with_the_skip_switch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The main-branch case: with a token the gated benchmark downloads and bakes. The
+    """The main-branch case: with a token the gated benchmark downloads and prepares. The
     skip switch only ever fires when NO token is available, so a change like "skip
     whenever the switch is set" must fail here (review on PR #1112)."""
 

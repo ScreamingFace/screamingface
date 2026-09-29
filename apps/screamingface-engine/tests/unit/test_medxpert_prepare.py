@@ -1,6 +1,6 @@
-"""Baking the MedXpertQA assets — and every way the build refuses to bake a wrong benchmark.
+"""Preparing the MedXpertQA assets — and every way the build refuses to prepare a wrong benchmark.
 
-INVARIANT under test: the baked `input` is the row's question VERBATIM. MedXpertQA embeds its
+INVARIANT under test: the prepared `input` is the row's question VERBATIM. MedXpertQA embeds its
 choice list inside the question text, so re-rendering `options` into the prompt would duplicate
 every choice — a silently degraded prompt that shifts scores against the published leaderboard
 with nothing in the output pointing at the cause.
@@ -43,7 +43,7 @@ def _rows(count: int = 3) -> list[dict]:
     return [_row(f"Text-{i}", label="ABCDEFGHIJ"[i % 10]) for i in range(count)]
 
 
-def test_the_baked_input_is_the_question_verbatim() -> None:
+def test_the_prepared_input_is_the_question_verbatim() -> None:
     # THE F1a REGRESSION. If a future change appends the rendered options, this fails — which is
     # the only signal available, since a duplicated choice list still produces plausible scores.
     cases, _ = case_records(_rows(1))

@@ -49,7 +49,7 @@ from url4.peer.server import Request, Url4Node  # noqa: E402
 
 def _judged_spec(**overrides: Any) -> BenchmarkSpec:
     values: dict[str, Any] = {
-        "key": "gsm8k",  # reuses the real snapshot row; the benchmark caches are patched
+        "key": "gsm8k",  # reuses the real cases row; the benchmark caches are patched
         "title": "Judged Observability Benchmark",
         "description": "test",
         "focus": "test",
@@ -106,7 +106,7 @@ class _ConnectorFaithfulJudge:
         return "The answer matches.\n\nGRADE: C"
 
 
-def _bake_by_hand(root: Path, benchmark_id: str) -> None:
+def _prepare_by_hand(root: Path, benchmark_id: str) -> None:
     benchmark_root = root / benchmark_id
     (benchmark_root / "targets").mkdir(parents=True)
     (benchmark_root / "cases.json").write_text(
@@ -161,7 +161,7 @@ async def test_judge_cost_lands_in_the_cases_evidence_accounting(
     judge = _ConnectorFaithfulJudge()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    _prepare_by_hand(tmp_path, benchmark.benchmark.id)
     benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
@@ -188,7 +188,7 @@ async def test_a_string_match_benchmarks_evidence_accounting_stays_none(
         monkeypatch,
     )
     node = Url4Node("test")
-    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    _prepare_by_hand(tmp_path, benchmark.benchmark.id)
     benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "ANSWER: Paris")])

@@ -2,7 +2,7 @@
 
 INVARIANT under test: a dataset that moved under the frozen subset (missing id,
 re-ordered rows) or that violates the grading contract (float points, no positive
-item) FAILS THE BUILD — it can never bake a silently different answer key.
+item) FAILS THE BUILD — it can never prepare a silently different answer key.
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ def test_cli_renders_the_current_preparation_summary(
 
     assert main(["--out", str(tmp_path)]) == 0
     assert capsys.readouterr().out == (
-        f"healthbench: baked 525 cases into {tmp_path} "
-        "— the professional board serves all 525, worst30 serves 157\n"
+        f"healthbench: prepared 525 cases into {tmp_path} "
+        "— the professional benchmark serves all 525, worst30 serves 157\n"
     )
 
 
@@ -68,7 +68,7 @@ def _synthetic_rows() -> list[dict[str, object]]:
     return rows
 
 
-def test_emit_bakes_public_cases_and_private_rubrics(tmp_path: Path) -> None:
+def test_emit_prepares_public_cases_and_private_rubrics(tmp_path: Path) -> None:
     total, subset = emit(_synthetic_rows(), tmp_path)
     assert (total, subset) == (_TOTAL_ROWS, 157)
     cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
@@ -126,7 +126,7 @@ def test_a_dataset_that_gained_a_row_fails_the_build(tmp_path: Path) -> None:
 
     The frozen-position check above only proves the worst-30% rows did not MOVE. A row
     appended at the END leaves every frozen position intact, so it sails through — and the
-    image would then bake a 526-Case benchmark under a 525-Case identity. The count is its own
+    image would then prepare a 526-Case benchmark under a 525-Case identity. The count is its own
     gate.
     """
 
@@ -154,6 +154,6 @@ def test_cli_summary_keys_match_real_preparation(
 
     assert main(["--out", str(tmp_path)]) == 0
     assert capsys.readouterr().out == (
-        f"healthbench: baked 525 cases into {tmp_path} "
-        "— the professional board serves all 525, worst30 serves 157\n"
+        f"healthbench: prepared 525 cases into {tmp_path} "
+        "— the professional benchmark serves all 525, worst30 serves 157\n"
     )
