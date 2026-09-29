@@ -17,11 +17,16 @@ from uuid import UUID
 import httpx
 
 from screamingface._core.ports import _FreezeOutcome, _FreezeUnavailable, _FrozenCacheVersion
+from screamingface.errors import AuthenticationError, EngineUnavailableError
 
 _PATH: Final = "/v1/cache-versions"
 _TIMEOUT_S: Final = 60.0  # C2a
 _RETRY_STATUS: Final = frozenset({502, 503, 504})  # C2a
 _ATTEMPTS: Final = 2  # C2a: one retry
+# WHY these three: the engine request can fail with an `httpx` error that is not a transport
+# error (`DecodingError`, `TooManyRedirects`) and with an SDK error from the Access auth flow.
+# None of them may leave `freeze`: a failed freeze never stops a submit (SC-E1).
+_UNRETRIED: Final = (httpx.HTTPError, AuthenticationError, EngineUnavailableError)
 # INVARIANT: a reason goes into a log line and a user-visible warning, so it is always a token
 # that matches this pattern, never text from a server body.
 _REASON: Final = re.compile(r"^[a-z0-9_]{1,64}$")
@@ -59,6 +64,8 @@ class EngineCacheVersions:
             except httpx.TransportError as exc:
                 outcome = _transport_failure(exc)
                 continue
+            except _UNRETRIED as exc:
+                return _unretried_failure(exc)
             outcome, retry = _outcome(response)
             if not retry:
                 break
@@ -92,6 +99,8 @@ class AsyncEngineCacheVersions:
             except httpx.TransportError as exc:
                 outcome = _transport_failure(exc)
                 continue
+            except _UNRETRIED as exc:
+                return _unretried_failure(exc)
             outcome, retry = _outcome(response)
             if not retry:
                 break
@@ -101,6 +110,13 @@ class AsyncEngineCacheVersions:
 def _transport_failure(exc: httpx.TransportError) -> _FreezeUnavailable:
     return _FreezeUnavailable(
         "timeout" if isinstance(exc, httpx.TimeoutException) else "unreachable"
+    )
+
+
+def _unretried_failure(exc: Exception) -> _FreezeUnavailable:
+    """A failure that is not a transient network fault, so C2a gives it no retry."""
+    return _FreezeUnavailable(
+        "engine_auth_failed" if isinstance(exc, AuthenticationError) else "unreachable"
     )
 
 

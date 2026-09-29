@@ -26,6 +26,7 @@ from screamingface._engine.cache_versions import AsyncEngineCacheVersions, Engin
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import _compiled_operation
 from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards, _decode_score
+from screamingface.errors import AuthenticationError, EngineUnavailableError
 
 SCOREBOARD_URL = "https://scoreboard.example"
 ENGINE_URL = "https://engine.example"
@@ -378,6 +379,78 @@ async def test_sc19_freeze_failure_submits_without_version_and_warns(
     assert f"cache_version_unavailable: {reason} (run_id={RUN_ID})" in lines
     # INVARIANT: no trace id and no receipt reach a log line.
     assert all(TRACE_ID not in line and RECEIPT not in line for line in lines)
+
+
+# WHY a second table and not more rows in the first: the first table is the prior contract and
+# stays untouched (append-only). These rows are the errors that are not `httpx.TransportError`.
+_PARAMS_SC19_NOT_TRANSPORT: list[tuple[str, list[Reply], str]] = [
+    ("decoding_error", [httpx.DecodingError("bad gzip")], "unreachable"),
+    ("too_many_redirects", [httpx.TooManyRedirects("loop")], "unreachable"),
+    (
+        "engine_authentication_error",
+        [AuthenticationError("Access login timed out", code="access_login_timeout")],
+        "engine_auth_failed",
+    ),
+    (
+        "engine_unavailable_error",
+        [EngineUnavailableError("no Access discovery", engine_url=ENGINE_URL)],
+        "unreachable",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize(
+    ("engine", "reason"),
+    [(engine, reason) for _, engine, reason in _PARAMS_SC19_NOT_TRANSPORT],
+    ids=[name for name, _, _ in _PARAMS_SC19_NOT_TRANSPORT],
+)
+async def test_sc19_an_engine_failure_that_is_not_a_transport_error_submits_and_warns(
+    mode: Mode,
+    engine: list[Reply],
+    reason: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    wire = _Wire(engine, [_stored()])
+
+    with caplog.at_level(logging.WARNING):
+        async with _session(mode, wire) as submit:
+            score = await submit(_candidate())
+
+    assert wire.calls[-1] == "scoreboard POST /v1/scores"
+    assert score.cache_version_warning == f"cache_version_unavailable: {reason}"
+    posted = wire.board.bodies[0]
+    assert "cache_version_receipt" not in posted
+    assert "trace_id" not in posted
+    lines = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert f"cache_version_unavailable: {reason} (run_id={RUN_ID})" in lines
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.DecodingError("bad gzip"),
+        httpx.TooManyRedirects("loop"),
+        AuthenticationError("Access login timed out", code="access_login_timeout"),
+        EngineUnavailableError("no Access discovery", engine_url=ENGINE_URL),
+    ],
+    ids=["decoding_error", "too_many_redirects", "authentication_error", "engine_unavailable"],
+)
+async def test_sc19_an_engine_failure_that_is_not_a_transport_error_is_not_retried(
+    mode: Mode, failure: Exception
+) -> None:
+    # INVARIANT: only a transport error or a C2a retry status earns the one retry; these
+    # failures are not transient network faults, so a second call would only repeat them.
+    wire = _Wire([failure], [_stored()])
+
+    async with _session(mode, wire) as submit:
+        await submit(_candidate())
+
+    assert wire.engine_calls() == 1
+    assert wire.waits == []
 
 
 @pytest.mark.asyncio
