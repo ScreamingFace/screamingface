@@ -42,6 +42,12 @@ class Url4Fingerprinter:
             # working member `_sf_recipe` sends a url4 that cannot be fingerprinted safely: a bad
             # url4 (SR-E6, 422 invalid_url4), not a server fault.
             raise InvalidUrl4(str(exc)) from exc
+        except RecursionError as exc:
+            # WHY: url4 parses and renders recursively, so a short, deeply nested text escapes as
+            # `RecursionError`, far under the 32,000 character cap. The port contract is
+            # `InvalidUrl4` (422, and a `backfill_systems` row instead of an aborted run). The
+            # input is never echoed.
+            raise InvalidUrl4("url4 expression is nested too deeply") from exc
         return SystemIdentity(
             fingerprint=hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
             candidate_url4=candidate,

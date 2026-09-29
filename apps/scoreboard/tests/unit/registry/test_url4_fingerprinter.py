@@ -115,6 +115,30 @@ def test_sr19_a_real_unparseable_text_is_invalid_url4() -> None:
         Url4Fingerprinter().identify("(((")
 
 
+def _nested(depth: int) -> str:
+    # `depth` source groups around one call: far under the 32,000 character cap.
+    text = "/openrouter/model($input)"
+    for _ in range(depth):
+        text = f"(m:0.0:{text})!'x'"
+    return text
+
+
+def test_sr19_a_deeply_nested_url4_is_invalid_url4_not_a_recursion_error() -> None:
+    # WHY: url4 recurses on nested source groups, so a short, hostile text (about 2,400
+    # characters at 200 levels) would escape as `RecursionError`. The port contract says
+    # `InvalidUrl4`, so a client sees 422 and the backfill reports the row instead of aborting.
+    text = _nested(200)
+    assert len(text) < 32_000
+
+    with pytest.raises(InvalidUrl4) as info:
+        Url4Fingerprinter().identify(text)
+
+    assert info.value.code == "invalid_url4"
+    assert isinstance(info.value.__cause__, RecursionError)
+    assert "nested too deeply" in str(info.value)
+    assert "openrouter" not in str(info.value)  # the input is never echoed
+
+
 _RECIPE = "_sf_recipe"
 
 

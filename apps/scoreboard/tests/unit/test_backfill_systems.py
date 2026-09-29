@@ -19,6 +19,7 @@ import pytest
 from tortoise import Tortoise
 
 import scoreboard.backfill_systems as module
+from scoreboard.adapters.url4_fingerprinter import Url4Fingerprinter
 from scoreboard.backfill_systems import BackfillRow, backfill_systems, format_report, main
 from scoreboard.core.registry import RegistryService, RegistryWriteConflict
 from scoreboard.db import close_db, init_db
@@ -112,6 +113,24 @@ async def test_bf1_apply_writes_what_the_dry_run_reported(tortoise_db: None) -> 
 
 
 @pytest.mark.asyncio
+async def test_bf1b_dry_run_links_nothing_for_an_already_registered_fingerprint(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: "dry run writes nothing" also holds when the head's fingerprint is registered,
+    # where the code has a real revision id to write (BF-1 seeds fresh heads only).
+    await _board("b1")
+    repository, service = _service()
+    await service.resolve_for_submit("U_1", "kevins-best", None, KEVIN, "public")
+    await _head(url4="U_1", spec_id="kevins-best")
+
+    rows = await backfill_systems(apply=False, repository=repository, registry=service)
+
+    assert _actions(rows) == ["link"]
+    assert set((await _linked()).values()) == {None}
+    assert await System.all().count() == 1  # only the registration above
+
+
+@pytest.mark.asyncio
 async def test_bf2_earliest_head_claims_its_spec_id(tortoise_db: None) -> None:
     await _board("b1")
     await _board("b2")
@@ -170,6 +189,25 @@ async def test_bf3_a_clash_with_a_registered_system_is_reported(tortoise_db: Non
     assert _actions(rows) == ["clash"]
     assert await System.all().count() == 1
     assert await SystemRevision.all().count() == 1
+
+
+@pytest.mark.asyncio
+async def test_bf3b_dry_run_predicts_the_clash_with_a_registered_system(
+    tortoise_db: None,
+) -> None:
+    # INVARIANT: the dry run reports what `--apply` will do, also when the name is taken in the
+    # database (not only in this pass's plan).
+    await _board("b1")
+    repository, service = _service()
+    await service.resolve_for_submit("U_OTHER", "kevins-best", None, ANA, "public")
+    await _head(spec_id="kevins-best", url4="U_1")
+
+    dry = await backfill_systems(apply=False, repository=repository, registry=service)
+    applied = await backfill_systems(apply=True, repository=repository, registry=service)
+
+    assert _actions(dry) == ["clash"]
+    assert _actions(applied) == _actions(dry)
+    assert await System.all().count() == 1
 
 
 @pytest.mark.asyncio
@@ -341,6 +379,30 @@ async def test_bf7_an_oversize_url4_is_reported_as_invalid_url4(tortoise_db: Non
     rows = await _run(apply=True)
 
     assert [(row.action, row.score_id) for row in rows] == [("invalid_url4", head.id)]
+
+
+@pytest.mark.asyncio
+async def test_bf7_a_deeply_nested_head_is_reported_and_the_run_goes_on(
+    tortoise_db: None,
+) -> None:
+    # WHY the real adapter: the failure is url4 recursing, which the fake never does. One such
+    # legacy head must not abort the whole run with a traceback.
+    await _board("b1")
+    nested = "/openrouter/model($input)"
+    for _ in range(200):
+        nested = f"(m:0.0:{nested})!'x'"
+    deep = await _head(spec_id="deep", url4=nested, minute=0)
+    fine = await _head(spec_id="fine", url4="(a:/m()!'x')!'$a'", minute=1)
+    repository = TortoiseSystemRepository()
+    service = RegistryService(repository, Url4Fingerprinter())
+
+    rows = await backfill_systems(apply=True, repository=repository, registry=service)
+
+    assert _actions(rows) == ["invalid_url4", "claim", "link"]
+    assert rows[0].score_id == deep.id
+    linked = await _linked()
+    assert linked[deep.id] is None
+    assert linked[fine.id] is not None
 
 
 @pytest.mark.asyncio

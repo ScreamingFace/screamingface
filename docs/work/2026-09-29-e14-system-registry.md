@@ -110,3 +110,72 @@ Standing approvals from the orchestrator, and what was used:
     then calls `asyncio.run` inside a running loop (existing behaviour), so the full suite must not
     run with that variable set. The PostgreSQL module builds its own connection and runs alone.
   - `# type: ignore` is not used in any new file.
+
+## Review-fix round 1 (blocking findings of the design review)
+
+Status: done.
+
+### Planned changes
+
+- `apps/scoreboard/src/scoreboard/adapters/url4_fingerprinter.py`: `identify` also catches
+  `RecursionError` and raises `InvalidUrl4("url4 expression is nested too deeply")` from it. The input
+  is not echoed.
+- `apps/scoreboard/tests/unit/guards/test_scoreboard_layering.py`: the import walk resolves relative
+  imports to absolute names (`importlib.util.resolve_name` against the module package) and checks
+  `module.name` for `from pkg import name`. C11-SB-2 becomes an allowlist (standard library plus
+  `scoreboard.core.registry`). The C11-SB-1 and C11-SB-3 denylists keep their form.
+- `apps/scoreboard/tests/unit/registry/test_url4_fingerprinter.py`: add the deep-nesting test.
+- `apps/scoreboard/tests/unit/test_backfill_systems.py`: add BF-1b (dry run over a registered
+  fingerprint), BF-3b (dry run reports the DB clash), and BF-7b (a deep head does not stop the run).
+- No production change other than the adapter. No migration.
+
+### Test plan
+
+- RED: deep-nesting adapter test and BF-7b fail with `RecursionError` before the fix.
+- RED: the new guard self-test cases fail against the current helper (relative imports pass).
+- RED for BF-1b and BF-3b: the code is correct today, so they are regression pins. Each is proven by
+  its mutation (M1 `if known.ref is not None:` at the link write, M2 no DB lookup in the clash check).
+- Finding 2 (behavioral RED of test_service.py and test_backfill_systems.py): put
+  `NotImplementedError` stubs back for a short time, run both modules, record the failure reasons here,
+  restore. The stubs are never committed.
+
+### Acceptance
+
+- All new tests green, mutation checks fail as stated, scoreboard gates green.
+
+### Outcome
+
+- **Adapter (finding 3):** `Url4Fingerprinter.identify` maps `RecursionError` to
+  `InvalidUrl4("url4 expression is nested too deeply")`, with the `RecursionError` as cause. RED:
+  the 200-level text (2,425 characters) raised `RecursionError` in the adapter test and in the
+  backfill test (BF-7b). GREEN after the fix. The backfill needed no code change: `_check` already
+  turns `InvalidUrl4` into an `invalid_url4` row, and BF-7b proves the next head is still processed.
+- **Guard (findings 1 and 5):** the import walk resolves relative imports with
+  `importlib.util.resolve_name` against the package of the file, and checks `module.name` for
+  `from pkg import name`. C11-SB-2 is now an allowlist (`sys.stdlib_module_names` plus
+  `scoreboard.core.registry`). RED: the old helper returned `[]` for `from ...scores.models import
+  System`, `from scoreboard import scores` and `from ...config import Settings`. Mutation on the real
+  file: appending each of `from ...scores.models import System`, `from ...config import Settings`,
+  `from scoreboard import scores` and `import httpx` to `core/registry/pins.py` fails
+  `test_c11_registry_core_imports_only_the_standard_library` (pins.py restored). The line
+  `from .. import adapters` cannot be appended to the real file: it does not import (there is no
+  `scoreboard.core.adapters`), so the literal self-test pins it.
+- **Backfill pins (finding 4):** BF-1b and BF-3b added. Mutation M1 (`if known.ref is not None:` at
+  the link write) fails BF-1b only. Mutation M2 (the clash check without the DB lookup) fails BF-3b
+  only. Both reverted (`git diff` on `backfill_systems.py` is empty).
+- **Behavioral RED (finding 2):** with `raise NotImplementedError` in `RegistryService.resolve_for_submit`,
+  `resolve_pin`, `identify` and in `backfill_systems`, `pytest tests/unit/registry/test_service.py
+  tests/unit/test_backfill_systems.py` gave 61 failed, 4 passed. All 61 failures are
+  `NotImplementedError`, none an import or mark error. The 4 that pass do not call a stubbed body:
+  `test_sr1_no_parameter_of_resolve_for_submit_is_a_fingerprint` (reads the signature),
+  `test_the_app_wires_the_registry_service_with_the_real_adapters` (reads app state),
+  `test_the_report_names_the_mode_and_counts_each_action` (`format_report`) and
+  `test_bf7_the_command_requires_exactly_one_mode` (the argument parser). The stubs were restored and
+  are not committed. This covers SR-6..11, 13, 18, 20 and BF-1..7 for the RED that the first run lacked.
+- **Gates by hand (the append-only check fails on the same approved edit to
+  `test_visibility_exit_guard.py` as before; no other prior test changed):** `ruff check`,
+  `ruff format --check`, `pyright` (0 errors), `pytest --cov=scoreboard --cov-fail-under=80`
+  (1016 passed, 12 skipped, coverage 89%), the `node --test` portal command, `uv lock --check`: green.
+- **Deviations:** `_forbidden_imports` now takes a required `package` argument, and the existing
+  literal self-test calls were updated for it (the helper file is new in this unit, so no prior-cycle
+  test is weakened). The C11-SB-1 and C11-SB-3 checks keep their denylists.
