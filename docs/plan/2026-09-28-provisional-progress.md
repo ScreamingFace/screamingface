@@ -91,3 +91,6 @@ Prove shared binding parity with real fixtures, then replace the IFEval-specific
 
 ### Bounds/progress review fixes
 Add loader-spy endpoint and immediate failed-case snapshot regressions first. Require board count in endpoint wiring, publish aggregation-created failures, and exempt unscored failure completion from coalescing. Retain final-result authority and verify repeated aggregation deduplication.
+
+### Review correction sequence
+Add failing tests for crash/cancellation, terminal rows, flush and schema/isolation first. Implement contained fixes, reconcile documentation, run gates and update draft. Investigate revision continuity independently without modifying scoreboard policy.

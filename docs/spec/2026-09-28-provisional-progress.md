@@ -1,6 +1,6 @@
 # OME-932 — provisional progress investigation
 
-Status: proposal; implementation not approved. Source audit only, not runtime proof.
+Status: implementation approved and under review in PR #1096. The initial audit below is retained as context; subsequent sections record approved scope and validation.
 
 Audited origin/main df6e9b92d1a55fb7c3a898164c82fea117522d5c on 2026-09-28.
 Issue: https://linear.app/openmined/issue/OME-932/publish-terminal-benchmark-progress-and-provisional-scores
@@ -104,7 +104,7 @@ This slice does not yet publish provisional score events, change the Client tabl
 
 After each production IFEval grade, dispatch an optional observation fact with explicit benchmark/revision and canonical scorer. The enabled activity adapter maintains per-run, per-benchmark result state for cumulative scalar snapshots. It never regrades or owns the authoritative result. Repeated case facts replace by identity without double counting; rapid updates may coalesce, and the final CandidateResult remains authoritative. No arbitrary score inference in the Client. Initial rollout is explicitly IFEval; other boards need their corresponding production callback integration and acceptance tests.
 
-Snapshot attributes: `sf.progress.schema=screamingface.benchmark-progress.v1`, `sf.progress.benchmark`, `sf.progress.benchmark_revision`, `sf.progress.revision`, `sf.progress.completed`, `sf.progress.graded`, and nullable finite `sf.progress.score`. The Client presents score zero correctly, rejects malformed/out-of-order snapshots, and marks partial scores Provisional. Active case numbering stays independent.
+Snapshot attributes: `sf.progress.schema=screamingface.benchmark-progress.v1`, `sf.progress.benchmark`, `sf.progress.benchmark_revision`, `sf.progress.revision`, `sf.progress.completed`, `sf.progress.graded`, and nullable finite `sf.progress.score`. The Client presents score zero correctly, rejects malformed/out-of-order snapshots, and displays only the running numeric score during execution. Active case numbering stays independent.
 
 ## Approved all-board extension
 The user approved extending live score updates to all benchmarks. Publish canonical grade completion through the shared scored path for aggregate-time judges. Built-in early grading must carry the same typed result into final aggregation rather than grade twice. Preserve each board's scorer (including ContractEval confusion-matrix F1), failure mappings and metadata. This requires explicit built-in protocol/fixture migrations. The Client remains generic and shows only the running numeric score, without provisional text.
@@ -117,3 +117,6 @@ IFEval must bind its existing canonical ScoredPath and native scorer into the sh
 
 ### Direct endpoint bounds and terminal failures
 Early-grade routes validate selected count against board availability before invoking loaders. Canonical failures first resolved during aggregation publish completion through the deduplicated progress observer. Failure completion is not dropped by fast-score coalescing; it must not create a numeric score for ungradeable cases.
+
+### Review corrections approved 29 September
+Unexpected early-grader exceptions must remain sanitized run-level contract failures; cancellation must propagate. Running scores are displayed only on active rows, and terminal rows without authoritative results have no numeric score. Flush coalesced progress at the end of grading before final aggregation exits, including exceptional exits. Pin exact scalar schema, Engine-to-Client decoding and nested/interleaved isolation. Leaderboard revision consequences require a separate explicit rollout decision.

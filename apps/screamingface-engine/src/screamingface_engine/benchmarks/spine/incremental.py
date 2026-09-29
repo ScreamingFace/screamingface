@@ -10,7 +10,7 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import SelectedCase, finalize_candidate_result
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.graded_results import decode_results, encode_result
-from screamingface_engine.benchmarks.progress import ScoreCases, completed_case
+from screamingface_engine.benchmarks.progress import ScoreCases, completed_case, grading_progress
 from screamingface_engine.benchmarks.spine.scored import ScoredPath
 
 
@@ -50,25 +50,26 @@ class Scoring:
         return encode_result(result, benchmark_id=self.benchmark_id, revision=self.revision)
 
     async def finish(self, raw: str) -> dict[str, Any]:
-        rows = json.loads(raw)
-        if not isinstance(rows, list) or len(rows) > len(self.selected):
-            raise ValueError("graded results must be an array within the selected Case count")
-        results: list[CaseResult] = []
-        for index, selected in enumerate(self.selected):
-            row = rows[index] if index < len(rows) else None
-            row = json.loads(row) if isinstance(row, str) else row
-            if index < len(rows) and row is None:
-                raise ValueError("invalid graded Case result envelope")
-            result = await self._completed_row(row, selected, index)
-            if result is not None:
-                results.append(result)
-        return finalize_candidate_result(
-            benchmark_id=self.benchmark_id,
-            benchmark_revision=self.revision,
-            selected_cases=self.selected,
-            cases=results,
-            scorer=self.scorer,
-        ).as_payload()
+        with grading_progress(self.benchmark_id, self.revision, self.scorer):
+            rows = json.loads(raw)
+            if not isinstance(rows, list) or len(rows) > len(self.selected):
+                raise ValueError("graded results must be an array within the selected Case count")
+            results: list[CaseResult] = []
+            for index, selected in enumerate(self.selected):
+                row = rows[index] if index < len(rows) else None
+                row = json.loads(row) if isinstance(row, str) else row
+                if index < len(rows) and row is None:
+                    raise ValueError("invalid graded Case result envelope")
+                result = await self._completed_row(row, selected, index)
+                if result is not None:
+                    results.append(result)
+            return finalize_candidate_result(
+                benchmark_id=self.benchmark_id,
+                benchmark_revision=self.revision,
+                selected_cases=self.selected,
+                cases=results,
+                scorer=self.scorer,
+            ).as_payload()
 
     async def _completed_row(self, row, selected, index) -> CaseResult | None:
         if (

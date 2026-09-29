@@ -71,6 +71,14 @@ class ActivityObserver:
             progress = self._progress.setdefault((benchmark, revision), Progress())
             progress.observe(benchmark, revision, result, scorer, emit)
 
+    def flush_progress(
+        self, benchmark: str, revision: str, scorer: ScoreCases, emit: LogEmitter | None
+    ) -> None:
+        if self.session is not None and self.session.active and emit is not None:
+            progress = self._progress.get((benchmark, revision))
+            if progress is not None:
+                progress.flush(benchmark, revision, scorer, emit)
+
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
         if self.session is None or not self.session.active:
             return {}

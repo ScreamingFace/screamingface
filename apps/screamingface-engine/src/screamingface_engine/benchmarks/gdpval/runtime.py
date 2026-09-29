@@ -299,26 +299,6 @@ def _rubric_evaluation(request: Request) -> str:
     return compact_json(result)
 
 
-def _aggregate(
-    root: Path,
-    benchmark_id: str,
-    benchmark_revision: str,
-    case_ids: tuple[int, ...],
-    mean: ExamMean,
-):
-    def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return reducing.aggregate(
-            case_evaluations,
-            root,
-            benchmark_id=benchmark_id,
-            benchmark_revision=benchmark_revision,
-            case_ids=case_ids[:selected_case_count],
-            mean=mean,
-        )
-
-    return aggregate_handler
-
-
 def _scoring(
     root: Path,
     benchmark_id: str,

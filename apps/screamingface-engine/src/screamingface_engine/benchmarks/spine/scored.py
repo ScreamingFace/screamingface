@@ -75,7 +75,7 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.case_execution import CaseExecutionOutcome
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
-from screamingface_engine.benchmarks.progress import completed_case
+from screamingface_engine.benchmarks.progress import completed_case, grading_progress
 from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
 from screamingface_engine.benchmarks.spine.rows import RowIndex, RowReader
 
@@ -292,24 +292,25 @@ class ScoredPath:
         handler over this face and no second loop ever exists.
         """
 
-        case_results = []
-        async for result in self.iter_case_results(
-            raw_rows,
-            selected_cases=selected_cases,
-            grading_material=grading_material,
-            case_metadata=case_metadata,
-        ):
-            case_results.append(result)
-            # INVARIANT: publish only after canonical grading; observing never regrades.
-            completed_case(benchmark_id, benchmark_revision, result, scorer)
-        # Stage 5 — fold the marks into the class results.
-        return finalize_candidate_result(
-            benchmark_id=benchmark_id,
-            benchmark_revision=benchmark_revision,
-            selected_cases=list(selected_cases),
-            cases=case_results,
-            scorer=scorer,
-        ).as_payload()
+        with grading_progress(benchmark_id, benchmark_revision, scorer):
+            case_results = []
+            async for result in self.iter_case_results(
+                raw_rows,
+                selected_cases=selected_cases,
+                grading_material=grading_material,
+                case_metadata=case_metadata,
+            ):
+                case_results.append(result)
+                # INVARIANT: publish only after canonical grading; observing never regrades.
+                completed_case(benchmark_id, benchmark_revision, result, scorer)
+            # Stage 5 — fold the marks into the class results.
+            return finalize_candidate_result(
+                benchmark_id=benchmark_id,
+                benchmark_revision=benchmark_revision,
+                selected_cases=list(selected_cases),
+                cases=case_results,
+                scorer=scorer,
+            ).as_payload()
 
     async def iter_case_results(
         self,

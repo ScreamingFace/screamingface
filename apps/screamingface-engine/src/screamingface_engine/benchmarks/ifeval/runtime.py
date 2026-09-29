@@ -19,8 +19,7 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
 from screamingface_engine.benchmarks.grading_activity import grading_activity
-from screamingface_engine.benchmarks.ifeval import grade as scoring
-from screamingface_engine.benchmarks.ifeval import grading
+from screamingface_engine.benchmarks.ifeval import grade, grading
 from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
 from screamingface_engine.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
@@ -92,7 +91,7 @@ def _check(root: Path):
             # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         record = {
-            "schema": scoring.SCHEMA,
+            "schema": grade.SCHEMA,
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,

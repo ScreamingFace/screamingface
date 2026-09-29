@@ -8,11 +8,14 @@ from screamingface_engine.benchmarks.contract import CaseId, CaseResult
 from screamingface_engine.benchmarks.progress import ScoreCases
 from screamingface_engine.observations import LogEmitter
 
+PROGRESS_INTERVAL_SECONDS = 0.1
+
 
 @dataclass
 class Progress:
     cases: dict[CaseId, CaseResult] = field(default_factory=dict)
     revision: int = 0
+    emitted_revision: int = 0
     emitted_at: float = float("-inf")
 
     def observe(
@@ -28,13 +31,18 @@ class Progress:
         self.cases[result.case_id] = result
         self.revision += 1
         now = time.monotonic()
-        # WHY: avoid reducing every prefix in a fast batch. Final results reconcile
-        # coalesced tails; the next snapshot independently recovers dropped logs.
+        # WHY: avoid reducing every prefix in a fast batch. Coalesced tails
+        # are flushed before leaving the grading scope.
         terminal_failure = bool(result.failures) and (
             result.grade is None or result.grade.score is None
         )
         # INVARIANT: an unscored terminal failure still advances completed coverage.
-        if not terminal_failure and now - self.emitted_at < 0.1:
+        if not terminal_failure and now - self.emitted_at < PROGRESS_INTERVAL_SECONDS:
+            return
+        self.flush(benchmark, revision, scorer, emit)
+
+    def flush(self, benchmark: str, revision: str, scorer: ScoreCases, emit: LogEmitter) -> None:
+        if self.revision == self.emitted_revision:
             return
         graded = tuple(
             c for c in self.cases.values() if c.grade is not None and c.grade.score is not None
@@ -54,4 +62,5 @@ class Progress:
                 "sf.progress.score": score,
             },
         )
-        self.emitted_at = now
+        self.emitted_at = time.monotonic()
+        self.emitted_revision = self.revision

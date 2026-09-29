@@ -1,9 +1,9 @@
 ---
 ticket: OME-932
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-28
-finished:
+finished: 2026-09-28
 ---
 # Incremental canonical case results
 
@@ -26,4 +26,4 @@ Validation: RED demonstrated the missing interface; all Engine gates passed via 
 
 Wisdom review: no parallel grader, extra dependency, public wire schema, expression or client change. The interface performs grading explicitly and exposes no logging side effects. Existing board hooks and final missing-case reconciliation remain authoritative.
 
-Limitations: this is a draft prerequisite. Early built-in grade production, cumulative structured snapshots, all-board incremental acceptance and Client table updates are unfinished. OME-932 remains In Progress. The all-board runtime matrix in the plan has not yet been run.
+Historical scope at this step (superseded by the all-benchmark live-score ledger): this was a draft prerequisite. Early built-in grade production, cumulative structured snapshots, all-board incremental acceptance and Client table updates are unfinished. OME-932 remains In Progress. The all-board runtime matrix in the plan has not yet been run.

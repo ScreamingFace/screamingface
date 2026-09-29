@@ -134,6 +134,7 @@ def _route(value: object, label: str) -> str:
 
 
 __all__ = [
+    "early_result",
     "EVALUATION_PROTOCOL_REVISION",
     "build_evaluation_protocol",
     "preserve_candidate_outcome",

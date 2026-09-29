@@ -28,7 +28,9 @@ def case_result_endpoint(load: Callable[[int], Scoring], *, available_case_count
             if not 0 < count <= available_case_count or not 0 <= index < count:
                 raise ValueError("invalid selected Case position")
             return await selection(count).grade_row(request.context, index)
-        except (OSError, IndexError, KeyError, TypeError, ValueError) as exc:
+        # Grader crashes must abort just as they do in batch aggregation.
+        # Cancellation remains outside this boundary (BaseException).
+        except Exception as exc:
             raise CaseFinalizationError(
                 "could not finalize Case grade", code="benchmark_contract_error", permanent=True
             ) from exc
@@ -40,7 +42,13 @@ def aggregate_result_endpoint(
     *, label: str, available_case_count: int, load: Callable[[int], Scoring]
 ):
     async def aggregate(raw: str, count: int):
-        return await load(count).finish(raw)
+        scoring = load(count)
+        try:
+            return await scoring.finish(raw)
+        except ValueError as exc:
+            raise CaseFinalizationError(
+                "invalid completed Case results", code="benchmark_contract_error", permanent=True
+            ) from exc
 
     return async_aggregate_endpoint(
         label=label, available_case_count=available_case_count, aggregate=aggregate

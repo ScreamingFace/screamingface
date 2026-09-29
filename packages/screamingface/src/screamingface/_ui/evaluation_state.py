@@ -63,11 +63,13 @@ class _CandidateProgress:
     def score(self) -> float | None:
         if self.result is not None:
             return self.result.score
-        return None if self.provisional is None else self.provisional.score
+        if self.status not in {"queued", "running"} or self.provisional is None:
+            return None
+        return self.provisional.score
 
     @property
     def score_available(self) -> bool:
-        return self.result is not None or self.provisional is not None
+        return self.result is not None or self.score is not None
 
     @property
     def qualifier(self) -> str | None:
@@ -264,8 +266,10 @@ class _CandidateProgress:
         self.activity = "Result ready"
 
     def abort(self, exc: BaseException) -> None:
-        if self.result is not None or self.status not in {"queued", "running"}:
+        if self.result is not None or self.status not in {"queued", "running", "finished"}:
             return
+        # A successful transport still needs a decoded final result.
+        self.terminal_status = None
         if not self.submitted:
             self.workflow_status = "not_run"
             self.activity = "Not started"

@@ -306,24 +306,6 @@ def _criterion_evaluation(judge_passes: int):
     return handle
 
 
-def _aggregate(
-    assets: Callable[[], ProtocolAssets],
-    exam: DracoExam,
-):
-    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        _cases_json, selected_cases, rubrics = assets()
-        return grading.aggregate(
-            case_evaluations,
-            rubrics,
-            exam.id,
-            selected_cases=selected_cases[:selected_case_count],
-            judge_passes=exam.judge_passes,
-            benchmark_revision=exam.revision,
-        )
-
-    return aggregate
-
-
 def _scoring(
     assets: Callable[[], ProtocolAssets],
     exam: DracoExam,
