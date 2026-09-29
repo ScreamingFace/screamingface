@@ -27,7 +27,7 @@ from scoreboard import delete_scores as module
 from scoreboard.db import build_tortoise_config
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import ScoreSubmission
-from scoreboard.scores.store import ScoreStore, SubmitOutcome
+from scoreboard.scores.store import BenchmarkVisibilityChanged, ScoreStore, SubmitOutcome
 
 pytestmark = pytest.mark.asyncio
 
@@ -199,4 +199,54 @@ async def test_a_replay_racing_the_delete_is_not_acknowledged_and_then_lost(
         assert not await Score.filter(id=old_id).exists()
     finally:
         await paused.finish()
+        await _drain_and_clean(replaying)
+
+
+async def _hold_row_lock(score_id: uuid.UUID) -> asyncpg.Connection:
+    """Another session takes FOR UPDATE on the score and keeps its transaction open."""
+    holder = await asyncpg.connect(DATABASE_URL.replace("postgres://", "postgresql://", 1))
+    await holder.execute("BEGIN")
+    await holder.execute("SELECT 1 FROM scores WHERE id = $1 FOR UPDATE", score_id)
+    return holder
+
+
+async def _flip_private() -> None:
+    other = await asyncpg.connect(DATABASE_URL.replace("postgres://", "postgresql://", 1))
+    try:
+        await other.execute("UPDATE benchmarks SET visibility = 'private' WHERE id = $1", BOARD)
+    finally:
+        await other.close()
+
+
+@pytest.mark.skipif(not DATABASE_URL.startswith("postgres"), reason="requires PostgreSQL")
+async def test_a_replay_that_waited_on_its_row_re_decides_visibility_afterwards() -> None:
+    """Review round 4 (Dmitry, reproduced on PostgreSQL 17).
+
+    The round-3 wait ran AFTER the visibility and readability decision. If the board turned
+    private while the replay waited on the score row, the replay returned the full stored score,
+    metadata and `url4_expression` included, under the stale public rules.
+
+    INVARIANT: the decision that releases a stored score is taken after the wait, on fresh state.
+    """
+    await Tortoise.init(config=build_tortoise_config(DATABASE_URL))
+    holder: asyncpg.Connection | None = None
+    replaying: asyncio.Task[object] | None = None
+    try:
+        await Tortoise.generate_schemas(safe=True)
+        score_id = await _seed()
+        holder = await _hold_row_lock(score_id)
+
+        replaying = asyncio.create_task(ScoreStore().submit(_identical()))
+        await asyncio.sleep(0.5)
+        assert not replaying.done()
+
+        await _flip_private()
+        await holder.execute("ROLLBACK")
+
+        with pytest.raises(BenchmarkVisibilityChanged):
+            await asyncio.wait_for(replaying, timeout=10)
+    finally:
+        if holder is not None:
+            with contextlib.suppress(Exception):
+                await holder.close()
         await _drain_and_clean(replaying)

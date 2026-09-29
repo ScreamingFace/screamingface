@@ -1015,6 +1015,19 @@ class ScoreStore:
             # the submission as new instead, so what the submitter is told is true.
             if not await self._replayed_row_survives(existing.id):
                 return None
+            # INVARIANT (review of PR #1079, round 4): the wait can be long, and it locks only
+            # the Score row, so the board may turn private while it waits. The decision that
+            # releases the stored row is therefore taken again AFTER the wait, on fresh state:
+            # the request's board and the row's own board, as above. Reproduced on PostgreSQL:
+            # without this a replay returned the full score, url4 included, under stale rules.
+            await self._revalidate_visibility(submission.benchmark_id, per_submitter)
+            readable = await self._readable_by(
+                existing,
+                submitted_by=submission.submitted_by,
+                identity_verified=identity_verified,
+            )
+            if readable is None:
+                raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
             return readable
 
         async with in_transaction() as connection:

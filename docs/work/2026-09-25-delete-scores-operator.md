@@ -134,3 +134,19 @@ Gates: ALL GREEN against the merge base `69971220` (against current `origin/main
 check reports #1049's `test_portal_static.py` change only because this branch predates it). The
 visibility-exit guard passes with no change to its recorded list. PostgreSQL: 5 passed, including
 the two existing idempotency suites, against a throwaway PostgreSQL 16.
+
+## Review round 4 (2026-09-29, Dmitry, changes requested at `1236f600`)
+
+**High, verified and reproduced: visibility could go stale during the round-3 wait.** The wait on
+the score row ran after the visibility and readability decision, and locks only the Score row, so
+a board flipped private during the wait still got the full stored score, `url4_expression`
+included. This was introduced by round 3. **Fix (owner: wait first, then check):** after
+`_replayed_row_survives` returns, `_confirm_replayable` runs `_revalidate_visibility` and
+`_readable_by` again on fresh state before releasing the row. The first check stays, so every exit
+is still guarded; no locks are combined, so lock ordering with `delete_scores` is unchanged.
+**Test:** `test_a_replay_that_waited_on_its_row_re_decides_visibility_afterwards` holds the row
+from another session, starts an identical unverified replay, flips the board private, releases the
+row, and expects `BenchmarkVisibilityChanged`. RED before ("DID NOT RAISE"), GREEN after.
+
+PostgreSQL: 6 passed (the delete tests plus both idempotency suites). Gates ALL GREEN against the
+merge base; the visibility-exit guard passes unchanged.
