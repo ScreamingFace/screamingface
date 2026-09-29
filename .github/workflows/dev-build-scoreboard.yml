@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "apps/scoreboard/**"
+      - "packages/url4/**"
       - ".github/workflows/dev-build-scoreboard.yml"
   workflow_dispatch:
 permissions:
