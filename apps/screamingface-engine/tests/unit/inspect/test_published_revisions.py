@@ -3,7 +3,7 @@
 # default (extra-less) install the typecheck gate runs against.
 """The published benchmarks' EXACT revisions — frozen as literals.
 
-A benchmark's revision is its benchmark identity: members' published scores hang off it, and
+A benchmark's revision is its identity: members' published scores hang off it, and
 the asset store treats a revision's prepared assets as immutable. Every revision
 input so far (pins, protocol constants, the OME-1240 judge pins) is code an innocent
 refactor can touch, and the uniqueness/moves tests cannot see a WHOLESALE shift —
