@@ -3,7 +3,7 @@
 # default (extra-less) install the typecheck gate runs against.
 """The pin-generator importer — the tool that turns an inspect task into row diffs.
 
-INVARIANT the suite defends: the importer never invents exam facts. Everything it
+INVARIANT the suite defends: the importer never invents benchmark facts. Everything it
 writes is either read from the eval's own task (dataset args, conversion/template/
 scorer references) or captured as a named Hub dataset fact (revision sha, row count,
 license) — and it lands ONLY between the three files' anchor comments, as a diff a
@@ -113,7 +113,7 @@ def _mcq_task() -> Task:
 
 
 def _fewshot_task() -> Task:
-    """Two hf_dataset calls; only the one the Task holds is the exam."""
+    """Two hf_dataset calls; only the one the Task holds is the benchmark."""
 
     module = sys.modules[_FAKE_MODULE]
     module.hf_dataset(
@@ -166,7 +166,7 @@ def test_read_inspect_task_reads_the_mcq_task(monkeypatch: pytest.MonkeyPatch) -
 def test_read_inspect_task_picks_the_dataset_the_task_holds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A fewshot eval calls hf_dataset twice; the exam is the Task's dataset."""
+    """A fewshot eval calls hf_dataset twice; the benchmark is the Task's dataset."""
 
     _install_fake_eval(monkeypatch, sums=_fewshot_task)
 
@@ -179,7 +179,7 @@ def test_read_inspect_task_flags_a_system_message_the_bake_would_drop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """System instructions have no bake channel — vanishing silently would change
-    the imported exam (review finding on PR 965)."""
+    the imported benchmark (review finding on PR 965)."""
 
     from inspect_ai.solver import system_message
 
@@ -202,7 +202,7 @@ def test_read_inspect_task_flags_a_system_message_the_bake_would_drop(
 
 def test_read_inspect_task_flags_a_custom_choice_template(monkeypatch: pytest.MonkeyPatch) -> None:
     """The bake renders MCQ with the default SINGLE_ANSWER template; a custom one
-    must surface for review, not silently change the exam (review finding on PR 965)."""
+    must surface for review, not silently change the benchmark (review finding on PR 965)."""
 
     def custom_mcq() -> Task:
         module = sys.modules[_FAKE_MODULE]
@@ -531,9 +531,9 @@ def test_mcq_rows_refuse_the_check_surface() -> None:
 def test_mcq_detection_follows_the_solver_not_the_scorer_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """lab_bench grades its MCQ exams with its OWN scorer (precision_choice), so
+    """lab_bench grades its MCQ benchmarks with its OWN scorer (precision_choice), so
     keying mcq on the scorer name reads them as free-text and hands an MCQ benchmark
-    the check surface — an elimination attack (OME-796). MCQ-ness is the exam's
+    the check surface — an elimination attack (OME-796). MCQ-ness is the benchmark's
     SHAPE, declared by the multiple_choice solver, and is detected there."""
 
     from inspect_ai.scorer import Score, Target, accuracy, scorer
@@ -572,7 +572,7 @@ def test_mcq_detection_sees_through_a_custom_solver_wrapper(
     """Detects MCQ when a custom wrapper hides the multiple_choice solver but the
     choice scorer proves the shape (the mmlu family case, OME-796 guard): mmlu's
     mmlu_multiple_choice calls multiple_choice() INSIDE its own @solver, so the
-    registry walk never meets it — reading such an exam as free-text would hand
+    registry walk never meets it — reading such a benchmark as free-text would hand
     an MCQ benchmark the check surface (the elimination attack)."""
 
     from inspect_ai.solver import Generate, TaskState, solver
@@ -906,7 +906,7 @@ def test_rendered_row_lines_fit_the_lint_gate() -> None:
 # ---------------------------------------------------------------------------
 # dataset-kwarg reproduction (review round 2026-09-17 on this branch: every
 # fact the importer reads but does not reproduce must refuse or flag — never
-# silently drop exam identity)
+# silently drop benchmark identity)
 # ---------------------------------------------------------------------------
 
 
@@ -931,7 +931,7 @@ def test_read_inspect_task_refuses_a_limit_the_bake_would_ignore(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An eval with limit=N examines N cases; baking the full split would publish
-    a DIFFERENT exam with every guard green (review blocker, 2026-09-17)."""
+    a DIFFERENT benchmark with every guard green (review blocker, 2026-09-17)."""
 
     _install_fake_eval(monkeypatch, limited=_task_with_dataset_kwargs(limit=500))
 
@@ -993,7 +993,7 @@ def test_read_inspect_task_records_an_upstream_shuffle_as_a_fact(
 
 
 def test_read_inspect_task_ignores_benign_dataset_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
-    """auto_id / trust / cached change how loading happens, never what the exam is."""
+    """auto_id / trust / cached change how loading happens, never what the benchmark is."""
 
     _install_fake_eval(
         monkeypatch, benign=_task_with_dataset_kwargs(auto_id=True, trust=True, cached=False)
@@ -1027,13 +1027,13 @@ def test_read_inspect_task_binds_positional_hf_dataset_arguments(
     assert facts.split == "test"
 
 
-def test_single_call_fallback_requires_the_task_to_hold_the_recorded_exam(
+def test_single_call_fallback_requires_the_task_to_hold_the_recorded_load(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An eval whose exam is a local dataset but whose fewshots load from HF must
-    refuse — the fewshot split is NOT the exam (review should-fix 3)."""
+    """An eval whose benchmark is a local dataset but whose fewshots load from HF must
+    refuse — the fewshot split is NOT the benchmark (review should-fix 3)."""
 
-    def json_exam() -> Task:
+    def json_quiz() -> Task:
         module = sys.modules[_FAKE_MODULE]
         module.hf_dataset(path="acme/sums", split="train", sample_fields=module.record_to_sample)
         return Task(
@@ -1042,10 +1042,10 @@ def test_single_call_fallback_requires_the_task_to_hold_the_recorded_exam(
             scorer=match(),
         )
 
-    _install_fake_eval(monkeypatch, json_exam=json_exam)
+    _install_fake_eval(monkeypatch, json_quiz=json_quiz)
 
     with pytest.raises(ImporterError, match="dataset"):
-        read_inspect_task(f"{_FAKE_MODULE}:json_exam")
+        read_inspect_task(f"{_FAKE_MODULE}:json_quiz")
 
 
 def test_shuffling_eval_requires_a_pinned_seed(
@@ -1115,8 +1115,8 @@ def test_upstream_row_seed_with_a_choice_shuffle_is_refused(
     """Review blocker on PR #1031: the bake's row shuffle is Python's, upstream's
     is HF's — same seed, different order — and the choice shuffle draws each
     case's permutation from ONE stream in row order. So when upstream SEEDS a
-    shuffle (it defined one exam) and both shuffles combine, the bake cannot
-    reproduce that exam and must refuse, never ship a different one silently."""
+    shuffle (it defined one benchmark) and both shuffles combine, the bake cannot
+    reproduce that benchmark and must refuse, never ship a different one silently."""
 
     _install_fake_eval(
         monkeypatch, both=_task_with_dataset_kwargs(shuffle=True, seed=42, shuffle_choices=True)
@@ -1171,7 +1171,7 @@ def test_policy_seeded_double_shuffle_is_allowed(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
     """The lab_bench cell stays importable: upstream seeds NEITHER shuffle, so
-    there is no fixed upstream exam to miss — both policy seeds pin one, and
+    there is no fixed upstream benchmark to miss — both policy seeds pin one, and
     both pins land in the rows."""
 
     _install_fake_eval(
@@ -1203,7 +1203,7 @@ def test_policy_seeded_double_shuffle_is_allowed(
 def test_a_policy_choice_shuffle_seed_is_reproduced_in_the_rows(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
-    """--choice-shuffle-seed pins one choice order as exam identity: the pin row
+    """--choice-shuffle-seed pins one choice order as benchmark identity: the pin row
     and the CasesSpec field both land in the generated files."""
 
     _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
@@ -1251,8 +1251,8 @@ def test_an_upstream_choice_shuffle_seed_is_reproduced_in_the_rows(
 def test_choice_shuffle_seed_flag_is_refused_when_the_eval_pins_its_own(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
-    """A seeded upstream (shuffle_choices=N) defines ONE exam — overriding it with
-    a policy seed would silently bake an exam upstream never produces (review
+    """A seeded upstream (shuffle_choices=N) defines ONE benchmark — overriding it with
+    a policy seed would silently bake a benchmark upstream never produces (review
     finding on PR #1031). The flag is refused, same rationale as the stray-flag
     refusal one test down."""
 
@@ -1279,7 +1279,7 @@ def test_choice_shuffle_seed_flag_is_refused_when_the_eval_pins_its_own(
 def test_choice_shuffle_seed_flag_without_an_upstream_choice_shuffle_is_refused(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
-    """Shuffling choices the eval does NOT shuffle would bake a different exam —
+    """Shuffling choices the eval does NOT shuffle would bake a different benchmark —
     the stray policy flag refuses instead of silently deviating from upstream."""
 
     _install_fake_eval(monkeypatch, plain=_task_with_dataset_kwargs())
@@ -1409,7 +1409,7 @@ def test_generate_refuses_a_hostile_data_files_entry(engine_src_copy: Path) -> N
 
 
 def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: Path) -> None:
-    """The capture stage must never record 'None' or a short ref as exam identity."""
+    """The capture stage must never record 'None' or a short ref as benchmark identity."""
 
     with pytest.raises(ImporterError, match="revision"):
         write_generated_rows(
@@ -2014,7 +2014,7 @@ def _dedupe_only_task() -> Task:
 
 
 def _fewshot_filter_task() -> Task:
-    """The filter trims the fewshot pool; the exam load is untouched."""
+    """The filter trims the fewshot pool; the benchmark load is untouched."""
 
     module = sys.modules[_FAKE_MODULE]
     fewshots = module.hf_dataset(
@@ -2025,7 +2025,7 @@ def _fewshot_filter_task() -> Task:
 
 
 def _filtering_two_loads_task() -> Task:
-    """A filtered exam PLUS a second load — the question filter would feed both loads."""
+    """A filtered benchmark PLUS a second load — the question filter would feed both loads."""
 
     module = sys.modules[_FAKE_MODULE]
     module.hf_dataset(path="acme/sums", split="train", sample_fields=module.record_to_sample)
@@ -2060,10 +2060,10 @@ def test_read_inspect_task_keeps_a_dedupe_only_task_on_todays_path(
     assert read_inspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
 
 
-def test_read_inspect_task_ignores_a_filter_on_a_non_exam_load(
+def test_read_inspect_task_ignores_a_filter_on_a_non_question_load(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only the exam's questions matter — trimming a fewshot pool changes no exam."""
+    """Only the benchmark's questions matter — trimming a fewshot pool changes no benchmark."""
 
     _install_fake_eval(monkeypatch, sums=_fewshot_filter_task)
 
@@ -2074,7 +2074,7 @@ def test_read_inspect_task_refuses_a_filtering_task_that_loads_two_datasets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The bake hands the pinned questions to every load the task makes, so a second
-    load would be fed the exam — refuse by name instead of baking a wrong exam."""
+    load would be fed the benchmark — refuse by name instead of baking a wrong benchmark."""
 
     _install_fake_eval(monkeypatch, sums=_filtering_two_loads_task)
 
@@ -2086,7 +2086,7 @@ def test_read_inspect_task_refuses_a_filtering_task_with_a_seeded_choice_shuffle
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Upstream draws each case's choice order over ALL rows, before its filter; the
-    bake would draw over the kept rows only — a different exam for the same seed."""
+    bake would draw over the kept rows only — a different benchmark for the same seed."""
 
     def seeded() -> Task:
         return _filtering_task(shuffle_choices=9)
@@ -2185,7 +2185,7 @@ def test_read_inspect_task_points_a_cot_mcq_at_inspects_own_cot_template(
 ) -> None:
     """cot=True swaps inspect's prompt for its "Think step by step" variant; before
     OME-1269 the importer ignored the flag, so the bake silently rendered the
-    plain template — a different exam wording (onet_m6 hit this)."""
+    plain template — a different benchmark wording (onet_m6 hit this)."""
 
     from inspect_ai.solver._multiple_choice import SINGLE_ANSWER_TEMPLATE_COT
 
@@ -2249,7 +2249,7 @@ def test_a_row_needing_an_hf_token_says_so_and_a_public_row_does_not() -> None:
 
 
 def _dedupe_then_filter_task() -> Task:
-    """Drops duplicates, THEN keeps a subset — the subset filter is the exam's."""
+    """Drops duplicates, THEN keeps a subset — the subset filter is the benchmark's."""
 
     from inspect_evals.utils.deps_utils import filter_duplicate_ids
 

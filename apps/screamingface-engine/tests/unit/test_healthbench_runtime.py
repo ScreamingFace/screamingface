@@ -23,7 +23,7 @@ from screamingface_engine.benchmarks.healthbench.case_evaluation import (
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
-    WORST30_EXAM,
+    WORST30_VARIANT,
 )
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.healthbench.prepare import envelope
@@ -83,7 +83,7 @@ def _cost_usd(record: dict[str, object]) -> object:
 
 
 def _write_assets(root: Path) -> None:
-    # Bake the full worst30 subset — the exam preflights ALL 157 Cases, so a partial
+    # Bake the full worst30 subset — the benchmark preflights ALL 157 Cases, so a partial
     # fixture cannot serve any route. The exercised first Case carries the real rubric
     # the assertions read; the rest carry an interchangeable one-item rubric.
     root.mkdir(parents=True, exist_ok=True)
@@ -128,7 +128,7 @@ async def _captured_grading_verdict(
         with capture_grading_requests():
             tasks = await _call(
                 node,
-                WORST30_EXAM.routes.tasks,
+                WORST30_VARIANT.routes.tasks,
                 encode_candidate_invocation(_ANSWER, None, None),
                 str(_CASE_ID),
             )
@@ -144,7 +144,7 @@ async def _captured_grading_verdict(
                 record_operation_call("judge reply", "stop", _accounting())
             verdict = await _call(
                 node,
-                WORST30_EXAM.routes.verdict,
+                WORST30_VARIANT.routes.verdict,
                 '{"explanation": "asks which study", "criteria_met": true}',
                 f"{_CASE_ID}:1",
             )
@@ -166,22 +166,22 @@ def test_preflight_names_a_missing_rubric(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_the_worst30_cases_route_preflights_all_157(tmp_path: Path) -> None:
-    # Partial assets cannot serve the exam — the data route must refuse BEFORE any
+    # Partial assets cannot serve the benchmark — the data route must refuse BEFORE any
     # Candidate call instead of iterating over an incomplete subset.
     _write_assets(tmp_path)
     (tmp_path / "rubrics" / f"{_CASE_ID}.json").unlink()
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     with pytest.raises(ResolutionError, match="failed preflight"):
-        (await node.evaluate(f"{WORST30_EXAM.routes.cases}()!'157'")).text
+        (await node.evaluate(f"{WORST30_VARIANT.routes.cases}()!'157'")).text
 
 
 @pytest.mark.asyncio
 async def test_the_cases_route_serves_the_frozen_subset(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
-    cases = json.loads((await node.evaluate(f"{WORST30_EXAM.routes.cases}()!'157'")).text)
+    install(node, tmp_path, WORST30_VARIANT)
+    cases = json.loads((await node.evaluate(f"{WORST30_VARIANT.routes.cases}()!'157'")).text)
     assert [case["id"] for case in cases] == list(WORST30_CASE_IDS)
     # Privacy: the public rows carry the chat envelope and NOTHING of the rubric.
     assert "rubric" not in json.dumps(cases)
@@ -192,10 +192,10 @@ async def test_the_cases_route_serves_the_frozen_subset(tmp_path: Path) -> None:
 async def test_rubric_tasks_render_the_reference_prompt_bytes(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     rows = await _call(
         node,
-        WORST30_EXAM.routes.tasks,
+        WORST30_VARIANT.routes.tasks,
         encode_candidate_invocation(_ANSWER, "stop", None),
         str(_CASE_ID),
     )
@@ -223,12 +223,12 @@ async def test_rubric_tasks_grade_exact_refusal_text_through_the_normal_judge(
 ) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     exact = "I cannot provide a medical recommendation."
 
     rows = await _call(
         node,
-        WORST30_EXAM.routes.tasks,
+        WORST30_VARIANT.routes.tasks,
         encode_candidate_invocation("", "content_filter", exact),
         str(_CASE_ID),
     )
@@ -246,14 +246,14 @@ async def test_rubric_tasks_grade_exact_refusal_text_through_the_normal_judge(
 async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     task, verdict = await _captured_grading_verdict(node)
     assert verdict["valid"] is True
     assert verdict["case_id"] == _CASE_ID
     assert _cost_usd(verdict) == "0.25"
     rubric_evaluation = await _call(
         node,
-        WORST30_EXAM.routes.rubric_evaluation,
+        WORST30_VARIANT.routes.rubric_evaluation,
         {
             "case": task["case_record"],
             "rubric": task["rubric_record"],
@@ -265,7 +265,7 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     assert rubric_evaluation["schema"] == RUBRIC_EVALUATION_SCHEMA
     case_evaluation = await _call(
         node,
-        WORST30_EXAM.routes.case_evaluation,
+        WORST30_VARIANT.routes.case_evaluation,
         [json.dumps(rubric_evaluation)],
         str(_CASE_ID),
     )
@@ -273,7 +273,7 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
     assert case_evaluation["schema"] == CASE_EVALUATION_SCHEMA
     result = await _call(
         node,
-        WORST30_EXAM.routes.aggregate,
+        WORST30_VARIANT.routes.aggregate,
         json.dumps(
             [
                 case_execution_payload(
@@ -303,7 +303,7 @@ async def test_a_malformed_judge_reply_retries_with_a_fresh_sample(tmp_path: Pat
     # sample. Sibling wiring would deterministically re-deliver the same bad reply.
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     calls = {"judge": 0}
 
     @node.endpoint(f"/{JUDGE_MODEL}")
@@ -319,7 +319,7 @@ async def test_a_malformed_judge_reply_retries_with_a_fresh_sample(tmp_path: Pat
             judge_call,
             case_id=str(_CASE_ID),
             rubric_id="1",
-            route=WORST30_EXAM.routes.verdict,
+            route=WORST30_VARIANT.routes.verdict,
             retry=2,
         ),
         intent=Text("$verdict"),
@@ -334,7 +334,7 @@ async def test_a_malformed_judge_reply_retries_with_a_fresh_sample(tmp_path: Pat
 async def test_exhausted_judge_retries_fail_loudly(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     calls = {"judge": 0}
 
     @node.endpoint(f"/{JUDGE_MODEL}")
@@ -348,7 +348,7 @@ async def test_exhausted_judge_retries_fail_loudly(tmp_path: Path) -> None:
             judge_call,
             case_id=str(_CASE_ID),
             rubric_id="1",
-            route=WORST30_EXAM.routes.verdict,
+            route=WORST30_VARIANT.routes.verdict,
             retry=2,
         ),
         intent=Text("$verdict"),
@@ -362,9 +362,9 @@ async def test_exhausted_judge_retries_fail_loudly(tmp_path: Path) -> None:
 async def test_the_aggregate_route_rejects_other_operations(tmp_path: Path) -> None:
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     with pytest.raises(ResolutionError, match="unsupported HealthBench operation"):
-        await _call(node, WORST30_EXAM.routes.aggregate, "[]", "score")
+        await _call(node, WORST30_VARIANT.routes.aggregate, "[]", "score")
 
 
 @pytest.mark.asyncio
@@ -376,7 +376,7 @@ async def test_a_limit_one_expression_resolves_end_to_end(tmp_path: Path) -> Non
     # same sliced (limit=1) expression the SDK compiles for a cheap rehearsal.
     _write_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
     install_case_execution(node)
 
     @node.endpoint(CANDIDATE_ROUTE)

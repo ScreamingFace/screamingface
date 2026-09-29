@@ -1,6 +1,6 @@
 """Download the pinned HealthBench Professional dataset and emit its runtime assets.
 
-Think of this as printing the exam papers AND the answer key before exam day: the
+Think of this as printing the benchmark papers AND the answer key before benchmark day: the
 question booklet (``cases.json``) goes where students can see it; the marking
 scheme (``rubrics/``) stays locked in the teachers' room.
 
@@ -11,7 +11,7 @@ never a build-time fork, because:
 1. Engine Case ids are positions in the FULL file — baking only the subset would
    force a renumbering layer, exactly the silent answer-key drift this build
    refuses to allow.
-2. The assets cover every professional row, so the served exam stays a pure
+2. The assets cover every professional row, so the served benchmark stays a pure
    filter over one immutable answer key.
 3. 525 conversations of JSON is cheap; a filter is simpler than a fork.
 
@@ -183,12 +183,12 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
     # The professional benchmark declares exactly this many Cases, so the file must hold
     # exactly this many rows. WHY its own check: the frozen-position assertion below only
     # proves the worst-30% rows did not MOVE — a row appended at the END passes it, and the
-    # image would bake a 526-Case exam under a 525-Case identity.
+    # image would bake a 526-Case benchmark under a 525-Case identity.
     if len(rows) != PROFESSIONAL_CASE_COUNT:
         raise PrepareError(
             f"{DATASET}@{DATASET_REVISION} holds {len(rows)} rows, but the professional "
             f"board declares {PROFESSIONAL_CASE_COUNT} Cases; refusing to bake a "
-            "differently-sized exam under that identity"
+            "differently-sized benchmark under that identity"
         )
     # Where does each frozen HF row id sit in TODAY'S file? (1-based position)
     positions = {

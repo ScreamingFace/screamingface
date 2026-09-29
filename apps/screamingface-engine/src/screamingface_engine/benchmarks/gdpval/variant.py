@@ -4,16 +4,16 @@ The template is fixed: one dataset, one baked answer key, one judge, one grading
 varies only which Cases it serves, how it totals them, and what it calls itself — and ``id``
 decides every route address.
 
-``exam_revision`` fingerprints the whole identity into 16 hex characters; ``Routes`` hangs the
+``variant_revision`` fingerprints the whole identity into 16 hex characters; ``Routes`` hangs the
 six protocol routes plus the check surface under ``/benchmarks/<id>/<revision>/``;
-``build_exam_protocol`` writes the url4 tree. ``gdpval_benchmark`` is the one call a benchmark
+``build_variant_protocol`` writes the url4 tree. ``gdpval_benchmark`` is the one call a benchmark
 makes.
 
 INVARIANT: a benchmark's revision changes if ANY hashed input changes — dataset pin, preparer,
 container filter, judge pinning, grader template, selection, scoring rule. An expression
-addressed to an old revision physically cannot resolve against a new exam.
+addressed to an old revision physically cannot resolve against a new benchmark.
 
-WHY this mirrors ``healthbench/exam.py`` rather than importing it: that module's tree is bound to
+WHY this mirrors ``healthbench/variant.py`` rather than importing it: that module's tree is bound to
 simple-evals parity and its worst30 benchmark's revision is FROZEN at a published value.
 Parameterising it to serve a second benchmark would put a live, frozen identity at risk for the sake
 of removing a structural resemblance. The two trees agree today because the rubric shapes agree, not
@@ -60,7 +60,7 @@ ASSET_BUNDLE_ID = "gdpval"
 #: The pass criterion of the mid-run check surface.
 CHECK_CRITERION = "gdpval-pass.v1"
 
-ExamMean = Callable[[Sequence[float | None]], float | None]
+VariantMean = Callable[[Sequence[float | None]], float | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +77,7 @@ class Routes:
     check_surface: str
 
     @classmethod
-    def for_exam(cls, benchmark_id: str, revision: str) -> Routes:
+    def for_variant(cls, benchmark_id: str, revision: str) -> Routes:
         prefix = f"/benchmarks/{benchmark_id}/{revision}"
         return cls(
             prefix=prefix,
@@ -92,21 +92,21 @@ class Routes:
 
 
 @dataclass(frozen=True, slots=True)
-class Exam:
+class GdpvalVariant:
     """One GDPval identity: which Cases, which final mean, at which addresses."""
 
     id: str
     case_ids: tuple[int, ...]
     revision: str
     routes: Routes
-    mean: ExamMean
+    mean: VariantMean
 
 
-def exam_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -> str:
-    """Fingerprint one exam identity into the 16 hex characters its routes carry.
+def variant_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -> str:
+    """Fingerprint one benchmark identity into the 16 hex characters its routes carry.
 
     Everything a Candidate's score depends on goes in — including ``FILTER_REVISION``, because
-    which criteria are scored is as much a part of this exam as which Cases are asked.
+    which criteria are scored is as much a part of this benchmark as which Cases are asked.
     """
 
     return hashlib.sha256(
@@ -136,7 +136,7 @@ def case_ids_sha(case_ids: Sequence[int]) -> str:
     return hashlib.sha256("\n".join(str(case_id) for case_id in case_ids).encode()).hexdigest()
 
 
-def build_exam_protocol(routes: Routes, case_count: int, available_case_count: int) -> Node:
+def build_variant_protocol(routes: Routes, case_count: int, available_case_count: int) -> Node:
     """Build the whole benchmark as one url4 expression tree (a recipe, not a run).
 
     Reading outside-in, the Engine will:
@@ -250,36 +250,36 @@ def gdpval_benchmark(
     case_ids: tuple[int, ...],
     protocol_revision: str,
     scoring: str,
-    mean: ExamMean,
+    mean: VariantMean,
     selection_sha: str,
     difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
-) -> tuple[Exam, Benchmark]:
+) -> tuple[GdpvalVariant, Benchmark]:
     """Wire one GDPval benchmark: identity → addresses → expression → private routes."""
 
-    revision = exam_revision(
+    revision = variant_revision(
         protocol_revision=protocol_revision,
         selection_sha=selection_sha,
         scoring=scoring,
     )
-    exam = Exam(
+    variant = GdpvalVariant(
         id=id,
         case_ids=case_ids,
         revision=revision,
-        routes=Routes.for_exam(id, revision),
+        routes=Routes.for_variant(id, revision),
         mean=mean,
     )
 
     def build(case_count: int) -> Node:
-        return build_exam_protocol(exam.routes, case_count, len(case_ids))
+        return build_variant_protocol(variant.routes, case_count, len(case_ids))
 
     def install(node: Url4Node, assets: Path) -> None:
         # Lazy import keeps the resource-only control-plane path from loading filesystem runtime
         # code (draco precedent).
         from screamingface_engine.benchmarks.gdpval.runtime import install as install_runtime
 
-        install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
+        install_runtime(node, assets / ASSET_BUNDLE_ID, variant)
 
     benchmark = Benchmark(
         id=id,
@@ -302,12 +302,12 @@ def gdpval_benchmark(
         dataset_url=dataset_url,
         # Every check is a judge call over the Case's rubric, so the loop's cost is real.
         check_surface=CheckSurface(
-            check_route=exam.routes.check_surface,
+            check_route=variant.routes.check_surface,
             feedback_intent="feedback",
             expected_check_cost="paid",
         ),
     )
-    return exam, benchmark
+    return variant, benchmark
 
 
 def _model_route(model: str) -> str:
@@ -317,11 +317,11 @@ def _model_route(model: str) -> str:
 __all__ = [
     "ASSET_BUNDLE_ID",
     "CHECK_CRITERION",
-    "Exam",
-    "ExamMean",
+    "GdpvalVariant",
+    "VariantMean",
     "Routes",
-    "build_exam_protocol",
+    "build_variant_protocol",
     "case_ids_sha",
-    "exam_revision",
+    "variant_revision",
     "gdpval_benchmark",
 ]

@@ -1,9 +1,9 @@
 """Install HealthBench's private assets and deterministic functions into one Runner world.
 
-If ``exam.py`` writes the recipe (the expression tree that names six routes),
+If ``benchmark.py`` writes the recipe (the expression tree that names six routes),
 this module is the kitchen: it registers a handler behind each of those routes so the
 recipe can actually resolve. Every benchmark installs its own copy of them under its own
-revision prefix, all reading one baked answer key. Data flows through them in exam order:
+revision prefix, all reading one baked answer key. Data flows through them in question order:
 
     /cases             → serve the selected question booklet (from the baked assets)
     /rubric-tasks      → Candidate answered one Case: fetch its private rubric, render
@@ -50,12 +50,12 @@ from screamingface_engine.benchmarks.healthbench.case_evaluation import (
     bind_rubric_evaluation,
 )
 from screamingface_engine.benchmarks.healthbench.check_policy import HEALTHBENCH_CHECK
-from screamingface_engine.benchmarks.healthbench.exam import Exam, ExamMean
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.healthbench.prompts import (
     build_grader_prompt,
     render_rubric_item,
 )
+from screamingface_engine.benchmarks.healthbench.variant import HealthbenchVariant, VariantMean
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from screamingface_engine.benchmarks.stages import observe_stage
@@ -68,7 +68,7 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, exam: Exam) -> None:
+def install(node: Url4Node, root: Path, variant: HealthbenchVariant) -> None:
     """Register every route one HealthBench benchmark's expressions reference.
 
     Providers read lazily so a general-purpose Runner can carry the installed
@@ -77,29 +77,29 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
 
     INVARIANT: every benchmark is namespaced by its own id AND revision, so several benchmarks
     install into ONE Runner world over ONE ``root`` without colliding — which is exactly
-    how the worst-30% challenge and the full professional exam coexist over a single
+    how the worst-30% challenge and the full professional variant coexist over a single
     baked answer key.
 
     Args:
         node: the Runner world to register the routes in.
         root: the baked HealthBench asset directory (shared by every benchmark).
-        exam: which Cases this benchmark serves, at which addresses, under which final mean.
+        benchmark: which Cases this benchmark serves, at which addresses, under which final mean.
     """
-    # Install the six routes that implement the exam's protocol.
+    # Install the six routes that implement the benchmark's protocol.
     _install_protocol_once(
         node,
         root,
-        cases_route=exam.routes.cases,
-        tasks_route=exam.routes.tasks,
-        verdict_route=exam.routes.verdict,
-        rubric_evaluation_route=exam.routes.rubric_evaluation,
-        case_evaluation_route=exam.routes.case_evaluation,
-        aggregate_route=exam.routes.aggregate,
-        check_surface_route=exam.routes.check_surface,
-        benchmark_id=exam.id,
-        benchmark_revision=exam.revision,
-        case_ids=exam.case_ids,
-        mean=exam.mean,
+        cases_route=variant.routes.cases,
+        tasks_route=variant.routes.tasks,
+        verdict_route=variant.routes.verdict,
+        rubric_evaluation_route=variant.routes.rubric_evaluation,
+        case_evaluation_route=variant.routes.case_evaluation,
+        aggregate_route=variant.routes.aggregate,
+        check_surface_route=variant.routes.check_surface,
+        benchmark_id=variant.id,
+        benchmark_revision=variant.revision,
+        case_ids=variant.case_ids,
+        mean=variant.mean,
     )
 
 
@@ -117,7 +117,7 @@ def _install_protocol_once(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
-    mean: ExamMean,
+    mean: VariantMean,
 ) -> None:
     install_cases(node, cases_route, _cases(root, case_ids))
     routes = frozenset(node.processor_routes())
@@ -153,7 +153,7 @@ def _install_protocol_once(
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam.
+    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark.
 
     A broken asset (missing cases.json, unreadable rubric) is knowable before any
     model runs. Without this check it would surface in the reducer — AFTER paying
@@ -337,7 +337,7 @@ def _aggregate(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
-    mean: ExamMean,
+    mean: VariantMean,
 ):
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         return reducing.aggregate(

@@ -65,12 +65,12 @@ def compute_revision(
     system_prompt: str = SYSTEM_PROMPT,
     user_template: str = USER_TEMPLATE,
 ) -> str:
-    """Fingerprint this exam into the 16 hex characters its routes carry.
+    """Fingerprint this benchmark into the 16 hex characters its routes carry.
 
     WHY the prompts are hashed: this benchmark has no judge, so the prompt is the only thing between
     a model and its score — and here it is unusually load-bearing, because "Do not rephrase or
     summarize" is what makes verbatim containment a fair test at all. A changed prompt is a
-    changed exam and must re-address every route.
+    changed benchmark and must re-address every route.
     """
 
     return compute_benchmark_revision(

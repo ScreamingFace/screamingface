@@ -1,6 +1,6 @@
 """How ANY DRACO benchmark is built — identity, addresses, and the one expression tree.
 
-Think of it as printing an exam paper from a template. The template is fixed: the same
+Think of it as printing a benchmark paper from a template. The template is fixed: the same
 100-case dataset (``perplexity-ai/draco``), the same criteria, the same Judge
 (Gemini-3.1-Pro Preview), the same grading chain. What the printer varies per benchmark is
 exactly two things:
@@ -15,7 +15,7 @@ url4 expression tree. ``draco_benchmark`` is the one call a benchmark module mak
 
 INVARIANT: two benchmarks built here share the baked assets and differ ONLY where the
 knobs above differ. A benchmark's revision changes if ANY hashed input changes, so an
-expression addressed to an old revision physically cannot resolve against a new exam.
+expression addressed to an old revision physically cannot resolve against a new benchmark.
 
 INVARIANT (frozen canonical): the canonical benchmark keeps the pre-factory revision —
 ``draco_revision`` reproduces the original hash tuple byte-for-byte, so ``draco``'s
@@ -110,7 +110,7 @@ class Routes:
     check_surface: str
 
     @classmethod
-    def for_exam(cls, benchmark_id: str, revision: str) -> Routes:
+    def for_variant(cls, benchmark_id: str, revision: str) -> Routes:
         prefix = f"/benchmarks/{benchmark_id}/{revision}"
         return cls(
             prefix=prefix,
@@ -125,7 +125,7 @@ class Routes:
 
 
 @dataclass(frozen=True, slots=True)
-class DracoExam:
+class DracoVariant:
     """One DRACO benchmark identity: how many judge passes, at which addresses.
 
     This is what the runtime needs to serve a benchmark — it carries no metadata a human
@@ -146,7 +146,7 @@ def draco_revision(*, protocol_revision: str, judge_passes: int) -> str:
     schema, the retrieval policy, the judge pinning, the judge-instruction bytes — plus
     the two per-benchmark inputs (protocol revision and pass count, which also decides the
     pass seeds). Change any of them and every route address moves, which is the only
-    safe way to change an exam.
+    safe way to change a benchmark.
 
     INVARIANT (frozen): the tuple below reproduces the original canonical hash
     byte-for-byte — same order, same repr() shapes — so the canonical benchmark's revision
@@ -308,7 +308,7 @@ def draco_benchmark(
     difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
-) -> tuple[DracoExam, Benchmark]:
+) -> tuple[DracoVariant, Benchmark]:
     """Wire one DRACO benchmark: identity → addresses → expression → private routes.
 
     Args:
@@ -326,7 +326,7 @@ def draco_benchmark(
         dataset_url: where a reader can go and look at the source data.
 
     Returns:
-        ``(exam, benchmark)`` — the ``DracoExam`` for the runtime's private routes, and
+        ``(benchmark, benchmark)`` — the ``DracoVariant`` for the runtime's private routes, and
         the public ``Benchmark`` the registry publishes. The benchmark module exports both:
         the runtime needs the first, the catalogue the second.
     """
@@ -335,15 +335,15 @@ def draco_benchmark(
         protocol_revision=protocol_revision,
         judge_passes=judge_passes,
     )
-    exam = DracoExam(
+    variant = DracoVariant(
         id=id,
         revision=revision,
-        routes=Routes.for_exam(id, revision),
+        routes=Routes.for_variant(id, revision),
         judge_passes=judge_passes,
     )
 
     def build(selected_case_count: int) -> Node:
-        return build_draco_protocol(exam.routes, selected_case_count, exam.judge_passes)
+        return build_draco_protocol(variant.routes, selected_case_count, variant.judge_passes)
 
     def install(node: Url4Node, assets: Path) -> None:
         # Lazy import keeps the resource-only control-plane path from loading filesystem
@@ -352,7 +352,7 @@ def draco_benchmark(
 
         # INVARIANT: every benchmark reads the SAME baked asset directory — one immutable
         # case/rubric set, never a per-benchmark bake.
-        install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
+        install_runtime(node, assets / ASSET_BUNDLE_ID, variant)
 
     benchmark = Benchmark(
         id=id,
@@ -378,12 +378,12 @@ def draco_benchmark(
         # The mid-run check is a real Judge call over the case rubric, so a corrective
         # loop's check budget is paid (same surface as canonical).
         check_surface=CheckSurface(
-            check_route=exam.routes.check_surface,
+            check_route=variant.routes.check_surface,
             feedback_intent="feedback",
             expected_check_cost="paid",
         ),
     )
-    return exam, benchmark
+    return variant, benchmark
 
 
 def _model_route(model: str) -> str:
@@ -409,7 +409,7 @@ __all__ = [
     "DATASET",
     "DATASET_PREPARER_REVISION",
     "DATASET_REVISION",
-    "DracoExam",
+    "DracoVariant",
     "EXCLUDED_DOMAINS",
     "JUDGE_MODEL",
     "JUDGE_PARAMS",

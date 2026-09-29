@@ -44,7 +44,7 @@ def test_describe_failures_returns_official_description_text_for_failed_only() -
 
     assert len(descriptions) == 1
     # WHY the verifier's own wording: the feedback the retry sees must describe the
-    # exam's constraint exactly as the checker enforces it — no paraphrase drift.
+    # benchmark's constraint exactly as the checker enforces it — no paraphrase drift.
     assert "5" in descriptions[0] or "five" in descriptions[0].lower()
 
 

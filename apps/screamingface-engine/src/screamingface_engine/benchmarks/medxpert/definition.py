@@ -73,11 +73,12 @@ def compute_revision(
     cot_template: str = COT_PROMPT_TEMPLATE,
     trigger_template: str = COT_TRIGGER_TEMPLATE,
 ) -> str:
-    """Fingerprint this exam into the 16 hex characters its routes carry.
+    """Fingerprint this benchmark into the 16 hex characters its routes carry.
 
     WHY the prompt templates are hashed: this benchmark has no judge, so the prompt is the only
-    thing between a model and its score. A changed template is a changed exam and must re-address
-    every route — otherwise already-recorded submissions would silently become incomparable.
+    thing between a model and its score. A changed template is a changed benchmark and must
+    re-address every route — otherwise already-recorded submissions would silently become
+    incomparable.
     """
 
     return compute_benchmark_revision(

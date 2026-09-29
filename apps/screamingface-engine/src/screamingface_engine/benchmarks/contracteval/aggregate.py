@@ -5,7 +5,7 @@ contribution: its containment ``grade_case`` (every gold sentence quoted verbati
 correct abstention), its confusion-matrix scorer, and its own failure wording.
 
 INVARIANT — the headline score is F1 from a DATASET-level confusion matrix, not a mean of
-case scores. Every other benchmark binds ``exam_scorer(mean)``; this one cannot, because a mean
+case scores. Every other benchmark binds ``mean_scorer(mean)``; this one cannot, because a mean
 destroys the fact that distinguishes the two ways of being wrong:
 
     positive row (a clause exists)  → TP if the reply contains every gold span, else FN
@@ -38,7 +38,7 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.contracteval.case_evaluation import decode_case_evaluation
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
     GradeRequest,
@@ -83,7 +83,7 @@ def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
 
 
 def aggregate(
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     benchmark_id: str,
@@ -96,7 +96,7 @@ def aggregate(
         case_id: load_answer(root, case_id) for case_id in case_ids
     }
     return _PATH.aggregate(
-        raw_rows,
+        raw_case_grades,
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
         selected_cases=selected_cases(root, case_ids),
@@ -262,7 +262,7 @@ def _confusion_matrix_score(cases: Sequence[CaseResult]) -> CandidateScore:
 # WHY bound at module bottom: the scored path lives in the spine; the hooks and the failure
 # wording stay benchmark-owned, so per-Case output keeps this benchmark's voice.
 _PATH = ScoredPath(
-    reader=RowReader(
+    reader=CaseGradeReader(
         benchmark_label="ContractEval",
         error_type=AggregateError,
         decode_case_evaluation=_decode,

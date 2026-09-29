@@ -110,7 +110,7 @@ async def test_the_candidate_receives_the_real_contract_and_not_empty_text(
     user = next(m["content"] for m in seen[0]["messages"] if m["role"] == "user")
     assert _CONTRACT in user
     assert "Which state's law governs?" in user
-    # The baked input also carries the instructions — prompt bytes are exam identity here.
+    # The baked input also carries the instructions — prompt bytes are benchmark identity here.
     assert "Do not rephrase or summarize" in user
 
 

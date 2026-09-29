@@ -241,7 +241,7 @@ def _installer_bundle_id(registration: BenchmarkRegistration) -> str | None:
     amendment, 2026-09-16): a table-registered benchmark (benchmarks-as-rows plugins) stamps
     ``ASSET_BUNDLE_ID`` on the installer FUNCTION itself; a home-grown family module
     exports it as a module constant beside the installer — see
-    ``benchmarks/gdpval/exam.py``. Either way the value is read from the benchmark itself
+    ``benchmarks/gdpval/variant.py``. Either way the value is read from the benchmark itself
     rather than from a second list, and it is the directory the installer actually
     opens at runtime.
     """

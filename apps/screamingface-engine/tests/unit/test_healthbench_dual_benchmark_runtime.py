@@ -11,8 +11,8 @@ from screamingface_engine.benchmarks.case_execution import install_case_executio
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
-    PROFESSIONAL_EXAM,
-    WORST30_EXAM,
+    PROFESSIONAL_VARIANT,
+    WORST30_VARIANT,
 )
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prepare import envelope
@@ -35,7 +35,7 @@ def _write_full_assets(root: Path, points: tuple[int, ...] = (8,)) -> None:
     """
 
     root.mkdir(parents=True, exist_ok=True)
-    case_ids = tuple(PROFESSIONAL_EXAM.case_ids)
+    case_ids = tuple(PROFESSIONAL_VARIANT.case_ids)
     (root / "cases.json").write_text(
         json.dumps([{"id": case_id, "input": envelope(_MESSAGES)} for case_id in case_ids]),
         encoding="utf-8",
@@ -59,7 +59,7 @@ def _write_full_assets(root: Path, points: tuple[int, ...] = (8,)) -> None:
 
 @pytest.mark.asyncio
 async def test_both_benchmarks_serve_one_answer_key_from_separate_addresses(tmp_path: Path) -> None:
-    """INVARIANT (OME-903): two exams, ONE baked asset root, zero route collisions.
+    """INVARIANT (OME-903): two benchmarks, ONE baked asset root, zero route collisions.
 
     The professional benchmark is a second SELECTION over the same `cases.json` — never a
     second bake and never a renumbering. Installing both into one Runner world must
@@ -68,22 +68,24 @@ async def test_both_benchmarks_serve_one_answer_key_from_separate_addresses(tmp_
 
     _write_full_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, WORST30_EXAM)
-    install(node, tmp_path, PROFESSIONAL_EXAM)
+    install(node, tmp_path, WORST30_VARIANT)
+    install(node, tmp_path, PROFESSIONAL_VARIANT)
 
-    professional_routes = PROFESSIONAL_EXAM.routes
-    assert professional_routes.cases != WORST30_EXAM.routes.cases
+    professional_routes = PROFESSIONAL_VARIANT.routes
+    assert professional_routes.cases != WORST30_VARIANT.routes.cases
 
-    worst30_cases = json.loads((await node.evaluate(f"{WORST30_EXAM.routes.cases}()!'157'")).text)
+    worst30_cases = json.loads(
+        (await node.evaluate(f"{WORST30_VARIANT.routes.cases}()!'157'")).text
+    )
     professional_cases = json.loads(
         (await node.evaluate(f"{professional_routes.cases}()!'525'")).text
     )
     assert [case["id"] for case in worst30_cases] == list(WORST30_CASE_IDS)
     assert [case["id"] for case in professional_cases] == list(range(1, 526))
-    # The hard subset is a strict subset of the full exam — same ids, same answer key.
+    # The hard subset is a strict subset of the full benchmark — same ids, same answer key.
     assert set(WORST30_CASE_IDS) <= {case["id"] for case in professional_cases}
     # INVARIANT: the answer key stays private on BOTH benchmarks — a Candidate sees chat
-    # envelopes and nothing of the rubric, whichever exam it is sitting.
+    # envelopes and nothing of the rubric, whichever benchmark it is sitting.
     served = json.dumps(professional_cases)
     assert "rubric" not in served
     assert "criterion" not in served
@@ -104,7 +106,7 @@ async def test_the_official_clip_reaches_the_score_through_the_real_expression(
 
     _write_full_assets(tmp_path, points=(2, -8))
     node = Url4Node("test")
-    install(node, tmp_path, PROFESSIONAL_EXAM)
+    install(node, tmp_path, PROFESSIONAL_VARIANT)
     install_case_execution(node)
 
     @node.endpoint(CANDIDATE_ROUTE)
@@ -124,6 +126,6 @@ async def test_the_official_clip_reaches_the_score_through_the_real_expression(
     result = json.loads((await node.evaluate(render(expression))).text)
 
     assert result["score"] == 0.0, result["cases"]
-    # The Case's own grade keeps the unclamped truth — only the exam total is floored.
+    # The Case's own grade keeps the unclamped truth — only the benchmark total is floored.
     assert result["cases"][0]["grade"]["score"] == -3.0
     assert result["benchmark_id"] == "healthbench-professional"

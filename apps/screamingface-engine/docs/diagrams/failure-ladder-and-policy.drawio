@@ -11,7 +11,7 @@
         <mxCell id="r1" value="1 · grading failure?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
           <mxGeometry x="80" y="50" width="280" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="r2" value="2 · error_row_result hook&#xa;(optional, benchmark-set)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
+        <mxCell id="r2" value="2 · error_case_result hook&#xa;(optional, benchmark-set)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">
           <mxGeometry x="80" y="130" width="280" height="50" as="geometry" />
         </mxCell>
         <mxCell id="r3" value="3 · missing grading material?&#xa;→ missing_material_code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="lad">

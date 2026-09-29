@@ -7,7 +7,7 @@ control flow and invocation boundaries that URL4 composes into the complete
 Recipe: nested member/role invocation, conditional gating, verbatim selection,
 chain collapse, and terminal-outcome projection.
 
-Mental model: an exam room's clockwork. Drafts and their check records flow in
+Mental model: a benchmark room's clockwork. Drafts and their check records flow in
 as data; these endpoints decide STOP/RETRY, pick the submitted draft word-for-
 word, and hand the final answer back up the gated chain. They know NOTHING
 about any benchmark: `passed` and `satisfaction` were computed behind the

@@ -1,12 +1,12 @@
 """Both HealthBench benchmarks — registry, revisions, and the expression contract.
 
 Mirrors `healthbench/definition.py` 1:1: what the two benchmarks SHARE is asserted once, then
-each benchmark gets its own section. Every test names its benchmark, because "the exam" is
+each benchmark gets its own section. Every test names its benchmark, because "the benchmark" is
 ambiguous now and a failure report has to say which one broke.
 
 INVARIANT under test: a benchmark's protocol identity (template bytes, judge pinning, case
 selection, scoring rule) is frozen into its revision and its rendered expression — any
-drift must fail here before it can ship a different exam under the same name. The two
+drift must fail here before it can ship a different benchmark under the same name. The two
 benchmarks differ in case selection and the final clip, and in NOTHING else.
 """
 
@@ -20,8 +20,8 @@ from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
     PROFESSIONAL_CASE_COUNT,
     PROFESSIONAL_CASE_IDS,
-    PROFESSIONAL_EXAM,
-    WORST30_EXAM,
+    PROFESSIONAL_VARIANT,
+    WORST30_VARIANT,
 )
 from screamingface_engine.benchmarks.healthbench.pins import CHECK_CRITERION, JUDGE_MODEL
 from screamingface_engine.benchmarks.healthbench.prompts import GRADER_TEMPLATE
@@ -79,7 +79,7 @@ def test_every_benchmark_expression_renders_and_reparses() -> None:
     for benchmark in _BENCHMARKS:
         rendered = _url4(benchmark)
         parse(rendered)
-        # S-RT1: the whole exam must stay far under transport-hostile sizes — the
+        # S-RT1: the whole benchmark must stay far under transport-hostile sizes — the
         # per-item fan-out is built Engine-side, not pre-expanded into the address.
         # 525 Cases must therefore render no larger than 157 do.
         assert len(rendered) < 4_000
@@ -99,7 +99,7 @@ def test_the_worst30_subset_is_the_frozen_157() -> None:
 
 
 def test_the_worst30_routes_are_revision_pinned() -> None:
-    assert WORST30_EXAM.revision in _url4(HEALTHBENCH_WORST30)
+    assert WORST30_VARIANT.revision in _url4(HEALTHBENCH_WORST30)
 
 
 def test_the_worst30_revision_is_frozen_against_refactors() -> None:
@@ -111,7 +111,7 @@ def test_the_worst30_revision_is_frozen_against_refactors() -> None:
     this literal AND re-seeds the benchmark in the same breath.
     """
 
-    assert WORST30_EXAM.revision == "39cfd96b068f7230"
+    assert WORST30_VARIANT.revision == "39cfd96b068f7230"
 
 
 def test_both_healthbench_benchmarks_link_the_openai_healthbench_dataset() -> None:
@@ -129,39 +129,39 @@ def test_a_limit_slices_the_worst30_run() -> None:
     assert ")!'3'" in _url4(HEALTHBENCH_WORST30, 3)
 
 
-# ── Benchmark 2 — the full professional exam ─────────────────────────────────────────────
+# ── Benchmark 2 — the full professional variant ─────────────────────────────────────────────
 
 
 def test_the_professional_benchmark_is_registered_under_its_id() -> None:
     assert BUILTIN_BENCHMARKS.get("healthbench-professional") is HEALTHBENCH_PROFESSIONAL
-    assert PROFESSIONAL_EXAM.id == "healthbench-professional"
+    assert PROFESSIONAL_VARIANT.id == "healthbench-professional"
 
 
 def test_the_professional_benchmark_serves_every_baked_case() -> None:
     # WHY 1..525 with no gaps: prepare.py numbers Cases by their 1-based position in the
-    # HF file, so "the whole exam" IS the contiguous range — any hole would mean a filter.
+    # HF file, so "the whole benchmark" IS the contiguous range — any hole would mean a filter.
     assert PROFESSIONAL_CASE_COUNT == 525
     assert PROFESSIONAL_CASE_IDS == tuple(range(1, 526))
     assert HEALTHBENCH_PROFESSIONAL.case_count == 525
 
 
 def test_the_professional_routes_are_revision_pinned() -> None:
-    assert PROFESSIONAL_EXAM.revision in _url4(HEALTHBENCH_PROFESSIONAL)
+    assert PROFESSIONAL_VARIANT.revision in _url4(HEALTHBENCH_PROFESSIONAL)
 
 
 def test_the_two_benchmarks_have_separate_addresses() -> None:
     # INVARIANT: worst30 keeps its own revision and routes — an existing submission can
     # never be re-interpreted as a professional-benchmark submission, or vice versa.
-    assert PROFESSIONAL_EXAM.revision != WORST30_EXAM.revision
+    assert PROFESSIONAL_VARIANT.revision != WORST30_VARIANT.revision
     professional = _url4(HEALTHBENCH_PROFESSIONAL)
-    assert f"/benchmarks/healthbench-professional/{PROFESSIONAL_EXAM.revision}" in professional
+    assert f"/benchmarks/healthbench-professional/{PROFESSIONAL_VARIANT.revision}" in professional
     assert "healthbench-worst30" not in professional
-    assert WORST30_EXAM.revision not in professional
+    assert WORST30_VARIANT.revision not in professional
 
 
 def test_a_limit_slices_the_professional_run_without_redefining_the_benchmark() -> None:
     limited = HEALTHBENCH_PROFESSIONAL.resource(3)
-    # The benchmark still IS the 525-case exam; a smoke run just executes fewer of its Cases.
+    # The benchmark still IS the 525-case benchmark; a smoke run just executes fewer of its Cases.
     assert limited["case_count"] == 525
     assert limited["selected_case_count"] == 3
     assert "iteration.slice=0:3" in _url4(HEALTHBENCH_PROFESSIONAL, 3)
@@ -174,7 +174,7 @@ def test_the_professional_check_surface_sits_under_its_own_prefix() -> None:
     surface = HEALTHBENCH_PROFESSIONAL.check_surface
     assert surface is not None
     assert surface.check_route == (
-        f"/benchmarks/{PROFESSIONAL_EXAM.id}/{PROFESSIONAL_EXAM.revision}"
+        f"/benchmarks/{PROFESSIONAL_VARIANT.id}/{PROFESSIONAL_VARIANT.revision}"
         f"/check-surface/{CHECK_CRITERION}"
     )
     assert surface.expected_check_cost == "paid"

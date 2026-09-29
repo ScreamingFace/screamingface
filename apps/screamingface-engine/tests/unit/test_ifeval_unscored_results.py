@@ -80,7 +80,7 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
             "failures": [
                 {
                     # WHY stage "grading": one IFEval row spans invocation AND checking,
-                    # and engine-collected url4 error rows carry no code (kind+message
+                    # and engine-collected url4 error cases carry no code (kind+message
                     # only), so a code-prefix stage guess could never fire on real rows —
                     # the aggregate now reports the one stage it actually knows: the row
                     # produced no valid evaluation record.
@@ -156,7 +156,7 @@ def test_an_identified_error_row_takes_the_spine_case_error_shape() -> None:
 
     Today a url4 ``on_error=collect`` row carries no case_id, so every collected
     IFEval error takes the anonymous path above (stage "grading", the diagnostic's
-    own code — the wording the golden pins). An error row that DOES carry a
+    own code — the wording the golden pins). An error case that DOES carry a
     matching case_id lands on the spine's identified rung instead: stage
     "candidate", published code "case_error", the diagnostic demoted to
     ``source_error`` metadata, and a grade envelope with score ``None`` rather

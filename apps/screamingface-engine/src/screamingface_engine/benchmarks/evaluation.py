@@ -236,7 +236,7 @@ def compact_json(value: object) -> str:
 
 
 def _raise_collected_failure(decoded: JsonObject, item_label: str) -> None:
-    """Re-raise a url4 collected-error row as its original failure.
+    """Re-raise a url4 collected-error case as its original failure.
 
     INVARIANT: the detection mirrors the case-execution decoder's strictness — ONLY the
     exact one-key ``{"error": {...}}`` shape is a collected failure; anything else stays
@@ -244,7 +244,7 @@ def _raise_collected_failure(decoded: JsonObject, item_label: str) -> None:
     ``code`` and ``retryable`` (present since OME-924's url4 change) so retryability
     survives to the public CaseResult; a lean row (kind+message only) defaults to a
     retryable ``grading_dependency_failed``. With OME-924's fail-fast fan-outs an
-    error row should no longer reach this route for the built-in benchmarks — this
+    error case should no longer reach this route for the built-in benchmarks — this
     seam is the belt-and-braces guard for any other collect boundary.
     """
     if set(decoded) != {"error"}:

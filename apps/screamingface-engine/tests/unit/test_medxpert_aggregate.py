@@ -82,9 +82,9 @@ def _rows(*letters_by_case: tuple[int, str]) -> str:
     )
 
 
-def _aggregate(root: Path, raw_rows: str, case_ids: tuple[int, ...] = (1, 2)) -> dict:
+def _aggregate(root: Path, raw_case_grades: str, case_ids: tuple[int, ...] = (1, 2)) -> dict:
     return aggregate(
-        raw_rows,
+        raw_case_grades,
         root,
         benchmark_id=BENCHMARK_ID,
         benchmark_revision=REVISION,
@@ -224,7 +224,7 @@ def _refused_record(case_id: int, refusal: str | None) -> dict[str, object]:
 def test_a_text_refusal_is_a_graded_wrong_answer_not_a_failure(tmp_path: Path) -> None:
     """INVARIANT (OME-1037): a model that DECLINED in words committed no letter — that is an
     answer graded 0.0 on the official verdict, kept in the denominator with the refusal text
-    carried, never a case failure that would shrink the exam."""
+    carried, never a case failure that would shrink the benchmark."""
 
     rows = json.dumps(
         [

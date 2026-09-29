@@ -1,7 +1,7 @@
-"""ContractEval's exam declaration — the serving spine runs the kitchen (OME-1236).
+"""ContractEval's benchmark declaration — the serving spine runs the kitchen (OME-1236).
 
 If `definition.py` writes the recipe, this module now only declares what makes this
-exam different: how its booklet rows look, how a reply is graded against the private
+benchmark different: how its booklet rows look, how a reply is graded against the private
 gold spans, and which reducer rolls the verdicts into the paper's confusion-matrix F1.
 The routes, memoized preflight, case serving and aggregate wiring live in
 `spine/serving.py` — one kitchen for every hand-built deterministic benchmark.
@@ -53,7 +53,7 @@ def install(node: Url4Node, root: Path) -> None:
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam."""
+    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark."""
 
     benchmark_preflight(root, case_ids, label="ContractEval", load_answer=reducing.load_answer)
 
@@ -64,11 +64,11 @@ def _cases(root: Path):
     return serve_cases(root, BENCHMARK)
 
 
-def _build_rows(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
+def _build_public_cases(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
     """Project the baked rows into the sealed public booklet — never the gold spans.
 
     WHY the whole instruction text is baked rather than assembled here: prompt bytes
-    are exam identity on a judge-free benchmark, and an expression that composed them
+    are benchmark identity on a judge-free benchmark, and an expression that composed them
     would put that identity outside the revision hash.
     """
 
@@ -126,7 +126,7 @@ BENCHMARK = ServedBenchmark(
     # test_preflight_runs_once_across_repeated_serves assigns it directly; a direct
     # reference here would freeze the original.
     preflight=lambda root, case_ids: preflight(root, case_ids),
-    build_rows=_build_rows,
+    build_public_cases=_build_public_cases,
     check=_check,
     bind_case_evaluation=bind_case_evaluation,
     reduce=reducing.aggregate,

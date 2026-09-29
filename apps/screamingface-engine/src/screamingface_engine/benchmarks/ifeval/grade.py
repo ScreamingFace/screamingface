@@ -14,7 +14,7 @@ INVARIANT: only connector-owned diagnostics establish Candidate provenance for a
 anonymous collected row (OME-981). Ambiguous rows retain the grading fallback;
 protected checker failures retain the shared spine's explicit grading boundary.
 
-INVARIANT: malformed or mismatched verifier envelopes abort the run (the RowReader
+INVARIANT: malformed or mismatched verifier envelopes abort the run (the CaseGradeReader
 wraps this module's decode ``ValueError`` with the row position) — their identity
 cannot be trusted, and scoring the wrong Case is worse than reporting a failed one.
 """
@@ -36,7 +36,7 @@ from screamingface_engine.benchmarks.contract import CaseResult, Failure
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.ifeval.case_evaluation import CHECK_SCHEMA, graded_record
 from screamingface_engine.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
-from screamingface_engine.benchmarks.spine.rows import RowReader
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
     GradeRequest,
@@ -47,7 +47,7 @@ SCHEMA = CHECK_SCHEMA
 
 # WHY the rubric-vocabulary keys: the ladder rungs are spine-fixed names. Neither can
 # fire for IFEval — selection aborts on a missing spec before any grading, and this
-# benchmark's collected rows are anonymous (the missing-row hook owns them) — but the
+# benchmark's collected rows are anonymous (the missing-case hook owns them) — but the
 # table must answer for every rung the spine could look up.
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the installed instruction spec for this Case is missing",
@@ -130,7 +130,7 @@ def aggregate(
 
     selected = _selected_cases(specs, case_order, selected_case_count)
     path = ScoredPath(
-        reader=RowReader(
+        reader=CaseGradeReader(
             benchmark_label="IFEval",
             error_type=AggregateError,
             decode_case_evaluation=_decode(specs),
@@ -140,7 +140,7 @@ def aggregate(
         method="deterministic",
         grading_failure_code="ifeval_checker_failed",
         grading_failure_message="the IFEval checker could not grade this Case",
-        missing_row_result=_missing_row_result,
+        missing_case_result=_missing_case_result,
     )
     return path.aggregate(
         rows_json,
@@ -186,11 +186,11 @@ def _selected_cases(
 
 
 def _decode(specs: Mapping[int, Mapping[str, Any]]) -> Callable[[object, int], dict[str, Any]]:
-    """Bind the private specs into the benchmark's row decoder for the spine's RowReader.
+    """Bind the private specs into the benchmark's row decoder for the spine's CaseGradeReader.
 
     Returns the row the spine files: the authentic verifier record under ``record``
     plus a hoisted ``case`` mapping (the spine reads the candidate's half of the row
-    there). Raises ``ValueError`` on any untrustworthy envelope — the RowReader turns
+    there). Raises ``ValueError`` on any untrustworthy envelope — the CaseGradeReader turns
     that into this benchmark's abort with the row position attached.
     """
 
@@ -257,14 +257,14 @@ async def _grade_case(request: GradeRequest) -> CaseGradeOutcome:
     )
 
 
-def _missing_row_result(
+def _missing_case_result(
     selected_case: SelectedCase,
     selected_index: int,
     orphan_errors: list[dict[str, Any]] | None,
 ) -> CaseResult:
     """This benchmark's shape for a selected Case with no usable row — wording pinned.
 
-    A collected error row retains the diagnostic and row index, attributing known
+    A collected error case retains the diagnostic and row index, attributing known
     Gateway-call failures to Candidate execution (OME-981); a Case
     with no row at all keeps the pre-fold ``case_result_missing`` synthesis.
     """

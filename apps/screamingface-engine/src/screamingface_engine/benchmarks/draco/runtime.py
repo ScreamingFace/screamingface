@@ -1,6 +1,6 @@
 """Install one DRACO benchmark's private assets and functions into a Runner world.
 
-The benchmark's routes and judge-pass count come from the :class:`DracoExam` the benchmark
+The benchmark's routes and judge-pass count come from the :class:`DracoVariant` the benchmark
 module passes in — the same dataset assets serve every benchmark, and only the
 addresses and the evidence cardinality differ.
 """
@@ -23,13 +23,13 @@ from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_criterion_evaluation,
 )
 from screamingface_engine.benchmarks.draco.check_policy import DRACO_CHECK
-from screamingface_engine.benchmarks.draco.exam import (
+from screamingface_engine.benchmarks.draco.prompts import judge_context, judge_intent
+from screamingface_engine.benchmarks.draco.variant import (
     CASE_COUNT,
     JUDGE_MODEL,
     JUDGE_PARAMS,
-    DracoExam,
+    DracoVariant,
 )
-from screamingface_engine.benchmarks.draco.prompts import judge_context, judge_intent
 from screamingface_engine.benchmarks.draco.verdict import bind, binding_key
 from screamingface_engine.benchmarks.evaluation import (
     aggregate_endpoint,
@@ -56,7 +56,7 @@ from screamingface_engine.grading_accounting import (
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
+def install(node: Url4Node, root: Path, variant: DracoVariant) -> None:
     """Register the routes referenced by one DRACO benchmark.
 
     INVARIANT (OME-999): install registers LAZY providers and reads no asset. A Runner world
@@ -66,28 +66,28 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
     memoized, so a missing asset fails identically — and loudly — on every resolution.
     """
     assets = _lazy_protocol_assets(root)
-    install_cases(node, exam.routes.cases, _cases(assets))
-    node.endpoint(exam.routes.tasks)(_task_rows(root, exam))
+    install_cases(node, variant.routes.cases, _cases(assets))
+    node.endpoint(variant.routes.tasks)(_task_rows(root, variant))
     # The mid-run check surface the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
     # no model routes at all (every benchmark-only test builds one).
-    node.endpoint(exam.routes.check_surface)(
+    node.endpoint(variant.routes.check_surface)(
         check_surface(
             node,
             root,
             DRACO_CHECK,
         )
     )
-    node.endpoint(exam.routes.verdict)(_criterion_verdict(exam.id))
-    node.endpoint(exam.routes.criterion_evaluation)(_criterion_evaluation(exam.judge_passes))
-    node.endpoint(exam.routes.case_evaluation)(
+    node.endpoint(variant.routes.verdict)(_criterion_verdict(variant.id))
+    node.endpoint(variant.routes.criterion_evaluation)(_criterion_evaluation(variant.judge_passes))
+    node.endpoint(variant.routes.case_evaluation)(
         case_evaluation_endpoint(
             label="DRACO Case evaluation",
             item_name="Criterion evaluation",
             bind=bind_case_evaluation,
         )
     )
-    node.endpoint(exam.routes.aggregate)(
+    node.endpoint(variant.routes.aggregate)(
         aggregate_endpoint(
             label="DRACO",
             # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
@@ -95,7 +95,7 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
             available_case_count=CASE_COUNT,
             aggregate=_aggregate(
                 assets,
-                exam,
+                variant,
             ),
         )
     )
@@ -154,7 +154,7 @@ def _protocol_assets(
 
 def _task_rows(
     root: Path,
-    exam: DracoExam,
+    variant: DracoVariant,
 ):
     @observe_stage(ActivityKind.GRADING)
     def task_rows(request: Request) -> str:
@@ -191,10 +191,10 @@ def _task_rows(
                     answer=row["answer"],
                 )
                 request_intent = judge_intent()
-                for sequence in range(1, exam.judge_passes + 1):
+                for sequence in range(1, variant.judge_passes + 1):
                     register_grading_request(
                         GradingEvidenceOwner(
-                            benchmark_id=exam.id,
+                            benchmark_id=variant.id,
                             case_id=case_id,
                             check_id=row["criterion_id"],
                             sequence=sequence,
@@ -302,17 +302,17 @@ def _criterion_evaluation(judge_passes: int):
 
 def _aggregate(
     assets: Callable[[], ProtocolAssets],
-    exam: DracoExam,
+    variant: DracoVariant,
 ):
     def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         _cases_json, selected_cases, rubrics = assets()
         return grading.aggregate(
             case_evaluations,
             rubrics,
-            exam.id,
+            variant.id,
             selected_cases=selected_cases[:selected_case_count],
-            judge_passes=exam.judge_passes,
-            benchmark_revision=exam.revision,
+            judge_passes=variant.judge_passes,
+            benchmark_revision=variant.revision,
         )
 
     return aggregate

@@ -5,7 +5,7 @@
 
 INVARIANT the suite defends: a benchmark is two data rows the importer generated and a
 human reviewed — so each row pair must (1) register under its `inspect-<key>` id,
-(2) pin a 40-hex dataset revision and a positive case count (exam identity), (3)
+(2) pin a 40-hex dataset revision and a positive case count (benchmark identity), (3)
 declare the check surface by family — free-text benchmarks carry it, MCQ benchmarks are
 refused it (OME-796) — and (4) point at a scorer and templates that actually
 resolve inside the pinned eval package. Catalogue prose is filled (never TODO):
@@ -106,14 +106,14 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
 
 
 def test_benchmark_revisions_are_distinct() -> None:
-    """Two benchmarks must never share a revision — the revision addresses the exam."""
+    """Two benchmarks must never share a revision — the revision addresses the benchmark."""
 
     revisions = {imported_benchmark(key).benchmark.revision for key in _EXPECTED_FAMILIES}
     assert len(revisions) == len(_EXPECTED_FAMILIES)
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
-def test_snapshot_row_pins_exam_identity(key: str) -> None:
+def test_cases_row_pins_benchmark_identity(key: str) -> None:
     cases_spec = BENCHMARK_CASES[key]
     assert len(cases_spec.dataset_revision) == 40
     int(cases_spec.dataset_revision, 16)
@@ -175,7 +175,7 @@ def test_benchmark_row_prose_is_filled_not_todo(key: str) -> None:
 
 
 def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
-    """The upstream evals of these benchmarks randomize exam order per run
+    """The upstream evals of these benchmarks randomize question order per run
     (hf_dataset shuffle=True); an import must pin one order — a dropped shuffle
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
@@ -222,7 +222,7 @@ def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
     """LAB-Bench builds every case with the correct answer FIRST and shuffles
     choices per run (shuffle_choices=True, unseeded) — without a pinned choice
     order every baked answer would be 'A'. The six text benchmarks must carry the
-    policy choice-shuffle seed, and it must ride exam identity."""
+    policy choice-shuffle seed, and it must ride benchmark identity."""
 
     from screamingface_engine_inspect.benchmarks import _revision_pins
 
@@ -256,7 +256,7 @@ def test_lab_bench_pins_track_upstreams_own_revision_constant() -> None:
 def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
     """The aime24 sha is COPIED from the eval's own pinned constant (upstream pins
     win at import time) — a dependency bump that moves upstream's pin must fail
-    here instead of silently serving a different exam than the eval means."""
+    here instead of silently serving a different benchmark than the eval means."""
 
     from inspect_evals.aime2024.aime2024 import AIME2024_DATASET_REVISION
 
@@ -288,8 +288,8 @@ def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
     assert HELLASWAG_DATASET_REVISION == UPSTREAM
 
 
-def test_choice_shuffle_seed_rides_exam_identity() -> None:
-    """OME-1264: the pinned choice order is part of the exam a candidate sits —
+def test_choice_shuffle_seed_rides_benchmark_identity() -> None:
+    """OME-1264: the pinned choice order is part of the benchmark a candidate sits —
     a re-import that gains or loses the choice-shuffle seed cannot keep the
     benchmark's revision identity."""
 
@@ -305,9 +305,9 @@ def test_choice_shuffle_seed_rides_exam_identity() -> None:
     )
 
 
-def test_data_files_and_features_ride_exam_identity() -> None:
+def test_data_files_and_features_ride_benchmark_identity() -> None:
     """OME-1264 extension 2: data_files selects WHICH files load and features
-    fixes their schema — both change the exam, so both ride the benchmark's
+    fixes their schema — both change the benchmark, so both ride the benchmark's
     revision identity."""
 
     from dataclasses import replace
@@ -324,9 +324,9 @@ def test_data_files_and_features_ride_exam_identity() -> None:
     )
 
 
-def test_system_message_pointer_rides_exam_identity() -> None:
+def test_system_message_pointer_rides_benchmark_identity() -> None:
     """Review finding on PR #1018: adding or dropping the leading instruction
-    changes the exam a candidate sits, so the pointer must move the benchmark's
+    changes the benchmark a candidate sits, so the pointer must move the benchmark's
     revision identity — a re-import that lost it cannot keep the revision."""
 
     from screamingface_engine_inspect.benchmarks import _revision_pins

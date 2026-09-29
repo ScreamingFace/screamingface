@@ -45,7 +45,7 @@ def test_identity_is_flat_and_revision_addressed() -> None:
 
 
 def test_revision_is_deterministic_and_pin_sensitive() -> None:
-    """§6: same pins → same revision; changed pins → a new exam identity."""
+    """§6: same pins → same revision; changed pins → a new benchmark identity."""
 
     assert _benchmark().benchmark.revision == _benchmark().benchmark.revision
     other = single_shot_benchmark(
@@ -75,7 +75,7 @@ def test_registration_and_protocol_are_complete() -> None:
 
 def test_case_count_rides_the_revision() -> None:
     """§6: the factory hashes the subset size ITSELF — a benchmark author who forgets
-    it in revision_pins cannot get a subset change with an unchanged exam identity."""
+    it in revision_pins cannot get a subset change with an unchanged benchmark identity."""
 
     assert (
         _benchmark("count-a", case_count=3).benchmark.revision
@@ -94,7 +94,7 @@ def test_duplicate_benchmark_key_with_different_pins_is_refused() -> None:
 
 def test_a_revision_pin_with_a_newline_is_refused() -> None:
     """Newline-joined hashing: an embedded newline would let two different pin
-    lists collide into one exam identity."""
+    lists collide into one benchmark identity."""
 
     with pytest.raises(ValueError, match="newline"):
         _benchmark("nl", revision_pins=("dataset", "rev-a\nsplit=test"))

@@ -1,7 +1,7 @@
 """OME-1097: the shared scored path behind the `grade_case` hook.
 
 The scored path is the marking room: one row per Case comes back from the fan-out,
-each script is marked against the benchmark's rubric, and the marks fold into the exam
+each script is marked against the benchmark's rubric, and the marks fold into the benchmark
 result. This module proves the marking room lives ONCE in the spine and that the
 only per-benchmark seam is `grade_case` — an async, data-in/data-out callable.
 
@@ -34,9 +34,9 @@ from screamingface_engine.benchmarks.contract import (
     Failure,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.spine.exam import exam_scorer
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
+from screamingface_engine.benchmarks.spine.mean_scorer import mean_scorer
 from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
@@ -121,7 +121,7 @@ class _Hook:
 
 def _path(hook: _Hook, **overrides: Any) -> ScoredPath:
     values: dict[str, Any] = {
-        "reader": RowReader(
+        "reader": CaseGradeReader(
             benchmark_label="TestBoard",
             error_type=BenchmarkError,
             decode_case_evaluation=_decode,
@@ -148,7 +148,7 @@ def _aggregate(
         benchmark_revision="rev",
         selected_cases=selected,
         grading_material=lambda case_id: material,
-        scorer=exam_scorer(_mean),
+        scorer=mean_scorer(_mean),
     )
 
 
@@ -308,10 +308,10 @@ def test_every_selected_case_stays_on_the_roll_call() -> None:
     assert result["coverage"] == 0.5
 
 
-# ── the shared exam scorer: mean is the parameter, vocabulary is fixed ──────
+# ── the shared benchmark scorer: mean is the parameter, vocabulary is fixed ──────
 
 
-def test_exam_metric_vocabulary_is_pinned_and_the_mean_is_the_benchmarks() -> None:
+def test_variant_metric_vocabulary_is_pinned_and_the_mean_is_the_benchmarks() -> None:
     graded = CaseGradeOutcome(
         score=1.0,
         metrics={"judged": 2, "expected": 2, "invalid_replies": 1},
@@ -388,16 +388,16 @@ def test_a_non_rubric_scorer_publishes_its_own_metric_vocabulary() -> None:
     assert set(result["metrics"]) == {"prompt_level_strict_accuracy"}
 
 
-# ── the benchmark-owned missing-row hook: wording stays the benchmark's ─────────────
+# ── the benchmark-owned missing-case hook: wording stays the benchmark's ─────────────
 
 
 def test_a_benchmark_owned_missing_row_hook_replaces_the_default_result() -> None:
     """OME-1101: ifeval's collected-row failure wording is pinned by its golden —
-    a benchmark may supply the whole missing-row CaseResult; the spine only files it."""
+    a benchmark may supply the whole missing-case CaseResult; the spine only files it."""
 
     calls: list[tuple[int, int, list[dict[str, Any]] | None]] = []
 
-    def benchmark_missing_row(
+    def benchmark_missing_case(
         selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
     ) -> CaseResult:
         calls.append((int(selected.case_id), index, orphans))
@@ -428,13 +428,13 @@ def test_a_benchmark_owned_missing_row_hook_replaces_the_default_result() -> Non
 
     hook = _Hook()
     orphan = {"error": {"kind": "transport", "message": "boom"}}
-    result = _path(hook, missing_row_result=benchmark_missing_row).aggregate(
+    result = _path(hook, missing_case_result=benchmark_missing_case).aggregate(
         json.dumps([orphan]),
         benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: (5,),
-        scorer=exam_scorer(_mean),
+        scorer=mean_scorer(_mean),
     )
 
     assert hook.requests == []
@@ -466,7 +466,7 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
     # collected cause — the benchmark hook must be able to tell the two apart.
     seen: list[list[dict[str, Any]] | None] = []
 
-    def benchmark_missing_row(
+    def benchmark_missing_case(
         selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
     ) -> CaseResult:
         seen.append(orphans)
@@ -492,13 +492,13 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
         )
 
     hook = _Hook()
-    _path(hook, missing_row_result=benchmark_missing_row).aggregate(
+    _path(hook, missing_case_result=benchmark_missing_case).aggregate(
         json.dumps([]),
         benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: (5,),
-        scorer=exam_scorer(_mean),
+        scorer=mean_scorer(_mean),
     )
 
     assert seen == [None]
@@ -508,17 +508,17 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
 
 
 def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
-    # OME-1100: draco reports a missing row via the finalizer's `case_result_missing`
+    # OME-1100: draco reports a missing case via the finalizer's `case_result_missing`
     # (its zip simply dropped the Case) — the hook returns None and the spine files
     # nothing, so the finalizer materialises the missing Case itself.
     hook = _Hook()
-    result = _path(hook, missing_row_result=lambda selected, index, orphans: None).aggregate(
+    result = _path(hook, missing_case_result=lambda selected, index, orphans: None).aggregate(
         json.dumps([_envelope(1, _grading(1))]),
         benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1, 2),
         grading_material=lambda case_id: (5,),
-        scorer=exam_scorer(_mean),
+        scorer=mean_scorer(_mean),
     )
 
     case = result["cases"][1]
@@ -527,7 +527,7 @@ def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
     assert result["coverage"] == 0.5
 
 
-def _benchmark_error_row(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
+def _benchmark_error_case(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
     """The draco shape: the upstream error's own code, no grade envelope at all."""
 
     error: Any = row["error"]
@@ -554,14 +554,14 @@ def _benchmark_error_row(selected: SelectedCase, index: int, row: Mapping[str, A
 
 
 def test_a_benchmark_owned_error_row_hook_replaces_the_case_error_result() -> None:
-    # draco's e2e tapes pin the UPSTREAM code ("rate_limited") on an error row,
+    # draco's e2e tapes pin the UPSTREAM code ("rate_limited") on an error case,
     # not the spine's fixed `case_error` — the benchmark supplies the whole result.
     hook = _Hook()
     row = {
         "case_id": 1,
         "error": {"kind": "GatewayError", "code": "rate_limited", "message": "provider limit"},
     }
-    result = _aggregate(_path(hook, error_row_result=_benchmark_error_row), [row], _selected(1))
+    result = _aggregate(_path(hook, error_case_result=_benchmark_error_case), [row], _selected(1))
 
     assert hook.requests == []
     case = result["cases"][0]
@@ -572,11 +572,11 @@ def test_a_benchmark_owned_error_row_hook_replaces_the_case_error_result() -> No
 
 def test_a_benchmark_owned_error_row_outranks_missing_material() -> None:
     # draco's ladder order: a broken row is reported before the benchmark's own missing
-    # asset — a benchmark that owns its error rows owns their rank too.
+    # asset — a benchmark that owns its error cases owns their rank too.
     hook = _Hook()
     row = {"case_id": 1, "error": {"kind": "E", "code": "provider_error", "message": "x"}}
     result = _aggregate(
-        _path(hook, error_row_result=_benchmark_error_row), [row], _selected(1), material=None
+        _path(hook, error_case_result=_benchmark_error_case), [row], _selected(1), material=None
     )
 
     assert result["cases"][0]["failures"][0]["code"] == "provider_error"
@@ -705,7 +705,7 @@ def test_a_scored_outcome_never_reaches_the_hook_failure_result() -> None:
 
 def test_case_metadata_rides_scored_and_failed_results() -> None:
     """OME-1149: MedXpertQA's slice tags come from the PRIVATE answer asset, not the
-    row — a per-case loader must reach scored, ladder-failed, and missing-row
+    row — a per-case loader must reach scored, ladder-failed, and missing-case
     results alike, so failure-mode analysis can group by the same axes."""
 
     hook = _Hook()
@@ -715,14 +715,14 @@ def test_case_metadata_rides_scored_and_failed_results() -> None:
         benchmark_revision="rev",
         selected_cases=_selected(1, 2),
         grading_material=lambda case_id: (5,),
-        scorer=exam_scorer(_mean),
+        scorer=mean_scorer(_mean),
         case_metadata=lambda case_id: {"body_system": f"slice-{case_id}"},
     )
 
     scored, failed = result["cases"]
     assert scored["status"] == "scored"
     assert scored["metadata"]["body_system"] == "slice-1"
-    assert failed["status"] == "failed"  # missing row — slice tag must survive
+    assert failed["status"] == "failed"  # missing case — slice tag must survive
     assert failed["metadata"]["body_system"] == "slice-2"
 
 
@@ -749,7 +749,7 @@ def test_the_material_missing_code_is_benchmark_named() -> None:
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: None,
-        scorer=exam_scorer(_mean),
+        scorer=mean_scorer(_mean),
     )
 
     assert hook.requests == []
@@ -970,7 +970,7 @@ def test_the_async_aggregate_face_runs_hooks_on_the_callers_loop() -> None:
             benchmark_revision="rev",
             selected_cases=_selected(1),
             grading_material=lambda case_id: (5, -3),
-            scorer=exam_scorer(_mean),
+            scorer=mean_scorer(_mean),
         )
         assert seen_loops == [outer]
         return result

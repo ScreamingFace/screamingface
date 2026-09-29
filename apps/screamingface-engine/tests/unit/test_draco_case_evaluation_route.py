@@ -13,7 +13,7 @@ from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_criterion_evaluation,
 )
 from screamingface_engine.benchmarks.draco.definition import (
-    CANONICAL_EXAM,
+    CANONICAL_VARIANT,
     CASE_EVALUATION_ROUTE,
     CASES_ROUTE,
     CRITERION_EVALUATION_ROUTE,
@@ -77,7 +77,7 @@ def test_draco_builds_exact_criterion_and_case_evaluations() -> None:
 async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Path) -> None:
     _canonical_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, CANONICAL_EXAM)
+    install(node, tmp_path, CANONICAL_VARIANT)
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,
@@ -192,7 +192,7 @@ async def _fetch_cases(node: Url4Node) -> str:
 @pytest.mark.asyncio
 async def test_missing_assets_fail_every_cases_resolution_by_name(tmp_path: Path) -> None:
     node = Url4Node("test")
-    install(node, tmp_path, CANONICAL_EXAM)
+    install(node, tmp_path, CANONICAL_VARIANT)
 
     for _attempt in range(2):  # never memoized: the second resolution fails identically
         with pytest.raises(ResolutionError, match="could not read DRACO cases"):
@@ -205,7 +205,7 @@ async def test_a_truncated_case_set_fails_resolution_with_the_expected_count(
 ) -> None:
     _one_case_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, CANONICAL_EXAM)
+    install(node, tmp_path, CANONICAL_VARIANT)
 
     with pytest.raises(ResolutionError, match="expected 100 DRACO cases"):
         await _fetch_cases(node)

@@ -31,19 +31,19 @@ from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.benchmarks.draco import grade as draco_agg
 from screamingface_engine.benchmarks.draco import prepare
 from screamingface_engine.benchmarks.draco.definition import DRACO
-from screamingface_engine.benchmarks.draco.exam import (
+from screamingface_engine.benchmarks.draco.variant import (
     JUDGE_MODEL,
     build_draco_protocol,
 )
-from screamingface_engine.benchmarks.draco.exam import (
+from screamingface_engine.benchmarks.draco.variant import (
     Routes as DracoRoutes,
 )
 from screamingface_engine.benchmarks.healthbench import grade as healthbench_agg
-from screamingface_engine.benchmarks.healthbench.exam import (
+from screamingface_engine.benchmarks.healthbench.variant import (
     Routes as HealthRoutes,
 )
-from screamingface_engine.benchmarks.healthbench.exam import (
-    build_exam_protocol,
+from screamingface_engine.benchmarks.healthbench.variant import (
+    build_variant_protocol,
 )
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
@@ -70,7 +70,7 @@ _CANDIDATE_MODEL = "openrouter/deepseek/deepseek-v4-pro"
 
 
 async def test_draco_inner_grading_fanout_fails_fast() -> None:
-    routes = DracoRoutes.for_exam("draco", "0123456789abcdef")
+    routes = DracoRoutes.for_variant("draco", "0123456789abcdef")
     rendered = render(build_draco_protocol(routes, case_count=1, judge_passes=5))
     # Exactly ONE explicit fail-fast policy: the inner criterion fan-out. The outer Case
     # fan-out and the preserve_candidate_outcome boundary keep the collect default, which
@@ -79,8 +79,8 @@ async def test_draco_inner_grading_fanout_fails_fast() -> None:
 
 
 async def test_healthbench_inner_grading_fanout_fails_fast() -> None:
-    routes = HealthRoutes.for_exam("healthbench-worst30", "0123456789abcdef")
-    rendered = render(build_exam_protocol(routes, case_count=1, available_case_count=1))
+    routes = HealthRoutes.for_variant("healthbench-worst30", "0123456789abcdef")
+    rendered = render(build_variant_protocol(routes, case_count=1, available_case_count=1))
     assert rendered.count(";iteration.on_error=fail") == 1
 
 
@@ -172,7 +172,7 @@ async def test_draco_grading_failure_keeps_a_permanent_classification() -> None:
 
 async def test_draco_grading_failure_without_code_falls_back_to_the_default() -> None:
     # A legacy collect payload (kind + message only) still renders, with the benchmark's
-    # declared default code — backward compatible with pre-OME-924 error rows.
+    # declared default code — backward compatible with pre-OME-924 error cases.
     result = draco_agg.aggregate(
         json.dumps([_execution(1, "the candidate answer", _error_row())]),
         {1: _RUBRIC},

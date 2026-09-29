@@ -1,8 +1,8 @@
 """Install GDPval's private assets and deterministic functions into one Runner world.
 
-If ``exam.py`` writes the recipe — the expression tree that names six routes — this module is
+If ``benchmark.py`` writes the recipe — the expression tree that names six routes — this module is
 the kitchen: it registers a handler behind each route so the recipe can resolve. Data flows
-through them in exam order:
+through them in question order:
 
     /cases             -> serve the selected work requests (from the baked assets)
     /rubric-tasks      -> Candidate submitted one Case: fetch its private rubric, render one
@@ -48,9 +48,9 @@ from screamingface_engine.benchmarks.gdpval.case_evaluation import (
     bind_rubric_evaluation,
 )
 from screamingface_engine.benchmarks.gdpval.check_policy import GDPVAL_CHECK
-from screamingface_engine.benchmarks.gdpval.exam import Exam, ExamMean
 from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
+from screamingface_engine.benchmarks.gdpval.variant import GdpvalVariant, VariantMean
 from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
 from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
@@ -64,24 +64,24 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, exam: Exam) -> None:
+def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
     """Register every route this benchmark's expressions reference.
 
     INVARIANT: routes are namespaced by benchmark id AND revision, so several benchmarks can install
     into ONE Runner world over ONE ``root`` without colliding.
     """
 
-    install_cases(node, exam.routes.cases, _cases(root, exam.case_ids))
+    install_cases(node, variant.routes.cases, _cases(root, variant.case_ids))
     installed = frozenset(node.processor_routes())
     endpoints = (
-        (exam.routes.tasks, _rubric_tasks(root, exam.case_ids, exam.id)),
+        (variant.routes.tasks, _rubric_tasks(root, variant.case_ids, variant.id)),
         # Closes over `node` so the judge route resolves per request — installation must still
         # work in a world holding no model routes.
-        (exam.routes.check_surface, check_surface(node, root, GDPVAL_CHECK)),
-        (exam.routes.verdict, _rubric_verdict(exam.id)),
-        (exam.routes.rubric_evaluation, _rubric_evaluation),
+        (variant.routes.check_surface, check_surface(node, root, GDPVAL_CHECK)),
+        (variant.routes.verdict, _rubric_verdict(variant.id)),
+        (variant.routes.rubric_evaluation, _rubric_evaluation),
         (
-            exam.routes.case_evaluation,
+            variant.routes.case_evaluation,
             case_evaluation_endpoint(
                 label="GDPval Case evaluation",
                 item_name="Rubric evaluation",
@@ -90,11 +90,13 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
             ),
         ),
         (
-            exam.routes.aggregate,
+            variant.routes.aggregate,
             aggregate_endpoint(
                 label="GDPval",
-                available_case_count=len(exam.case_ids),
-                aggregate=_aggregate(root, exam.id, exam.revision, exam.case_ids, exam.mean),
+                available_case_count=len(variant.case_ids),
+                aggregate=_aggregate(
+                    root, variant.id, variant.revision, variant.case_ids, variant.mean
+                ),
             ),
         ),
     )
@@ -104,7 +106,7 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> str:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam.
+    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark.
 
     A broken asset is knowable before any model runs. Without this check it would surface in the
     reducer — AFTER paying for a full Candidate run and ~44 judge calls per Case — only to score
@@ -294,7 +296,7 @@ def _aggregate(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
-    mean: ExamMean,
+    mean: VariantMean,
 ):
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         return reducing.aggregate(

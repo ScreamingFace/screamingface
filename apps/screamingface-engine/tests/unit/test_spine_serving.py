@@ -62,7 +62,7 @@ def _load_answer(root: Path, case_id: int) -> Mapping[str, Any] | None:
     return answers.get(str(case_id))
 
 
-def _build_rows(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
+def _build_public_cases(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
     return [
         {"id": int(row["id"]), "case_id": str(int(row["id"])), "input": row["input"]}
         for row in rows
@@ -126,7 +126,7 @@ def _toy_benchmark(*, reduce: _Reduce | None = None, declared: int = 2) -> Serve
         revision=_REVISION,
         declared_case_count=declared,
         preflight=_preflight,
-        build_rows=_build_rows,
+        build_public_cases=_build_public_cases,
         check=_check,
         bind_case_evaluation=_bind,
         reduce=reduce or _Reduce(),
@@ -138,7 +138,7 @@ def _toy_benchmark(*, reduce: _Reduce | None = None, declared: int = 2) -> Serve
 
 class TestBenchmarkRoutes:
     def test_routes_carry_id_and_revision(self) -> None:
-        # INVARIANT: the route layout is exam identity — every migrated benchmark must keep
+        # INVARIANT: the route layout is benchmark identity — every migrated benchmark must keep
         # resolving at exactly these addresses, so the layout is pinned byte-for-byte.
         routes = benchmark_routes("toy", _REVISION)
 
@@ -157,7 +157,7 @@ class TestComputeBenchmarkRevision:
         assert set(revision) <= set("0123456789abcdef")
 
     def test_any_changed_part_changes_the_revision(self) -> None:
-        # WHY: a changed prompt or pin is a changed exam and must re-address every route.
+        # WHY: a changed prompt or pin is a changed benchmark and must re-address every route.
         assert compute_benchmark_revision("a", "b") != compute_benchmark_revision("a", "c")
 
     def test_parts_are_joined_not_concatenated(self) -> None:
@@ -272,7 +272,7 @@ class TestBenchmarkPreflight:
             benchmark_preflight(root, (9,), label="Toy", load_answer=_load_answer)
 
     def test_problem_list_is_capped_at_eight(self, tmp_path: Path) -> None:
-        # WHY the cap: the message travels in a public failure row; an exam with
+        # WHY the cap: the message travels in a public failure row; a benchmark with
         # thousands of broken cases must not ship a megabyte of diagnostics.
         root = _emit_bundle(tmp_path / "toy", case_ids=(1,))
 
@@ -343,7 +343,7 @@ class TestServeCases:
             revision=_REVISION,
             declared_case_count=2,
             preflight=counting_preflight,
-            build_rows=_build_rows,
+            build_public_cases=_build_public_cases,
             check=_check,
             bind_case_evaluation=_bind,
             reduce=_Reduce(),
@@ -397,7 +397,7 @@ class TestReadAsset:
 
 class TestBenchmarkAggregate:
     def test_forwards_identity_and_the_selected_case_ids(self, tmp_path: Path) -> None:
-        # INVARIANT: case_ids are 1..selected — the reducer scores exactly the exam
+        # INVARIANT: case_ids are 1..selected — the reducer scores exactly the benchmark
         # that was selected, and identity (id + revision) rides into the report.
         reduce = _Reduce()
         root = _emit_bundle(tmp_path / "toy")

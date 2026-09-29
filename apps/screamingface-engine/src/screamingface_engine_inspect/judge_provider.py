@@ -83,7 +83,7 @@ class JudgeTransport:
         fetch: the node's in-process relative fetch (``Url4Node.fetch`` bound with
             ``relative=True``) — the ONLY exit a judge call has.
         params: protocol params pinned at import time (e.g. ``temperature``),
-            emitted on the wire before ``q=``; part of the judge's exam identity.
+            emitted on the wire before ``q=``; part of the judge's benchmark identity.
     """
 
     fetch: JudgeFetch
@@ -200,7 +200,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
         completion: str = await transport.fetch(target)
         if not completion.strip():
             # A blank completion can never be a grade — refuse loudly; a scorer
-            # coercing silence into a score is a silently wrong exam.
+            # coercing silence into a score is a silently wrong benchmark.
             raise RuntimeError(f"the gateway judge at {self.model_name!r} returned an empty reply")
         # Stage 4 — their output form, the text verbatim.
         return ModelOutput.from_content(model=self.model_name, content=completion)
@@ -209,7 +209,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
 #: GenerateConfig fields that change DELIVERY, never the grade — the only ones an
 #: eval may set. Everything else is ALLOWLIST-refused by name: the wire carries only
 #: the JudgeSpec's pinned params, so any other field would be dropped silently and
-#: the judge would grade a different exam (persistbench's reasoning_effort="high"
+#: the judge would grade a different benchmark (persistbench's reasoning_effort="high"
 #: is the live example). A forbidden-list here would go stale on every inspect
 #: field addition; the allowlist refuses new fields by default.
 #: WHY cache: inspect passes an eval's max_connections, adaptive_connections,

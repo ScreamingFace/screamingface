@@ -6,9 +6,13 @@ spine extraction — the live-progress branches (OME-932, OME-934) own those fil
 spine grows beside them as new modules only.
 """
 
-from screamingface_engine.benchmarks.spine.exam import exam_scorer
+from screamingface_engine.benchmarks.spine.case_grades import (
+    CaseGradeIndex,
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.spine.mean_scorer import mean_scorer
 from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
-from screamingface_engine.benchmarks.spine.rows import RowIndex, RowReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
@@ -31,11 +35,11 @@ __all__ = [
     "BenchmarkRoutes",
     "CaseGradeOutcome",
     "CasePayload",
-    "exam_scorer",
+    "mean_scorer",
     "GradeCase",
     "GradeRequest",
-    "RowIndex",
-    "RowReader",
+    "CaseGradeIndex",
+    "CaseGradeReader",
     "ScoredPath",
     "ServedBenchmark",
     "TextPayload",

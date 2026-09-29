@@ -1,11 +1,11 @@
 """The imported benchmarks' LOCKFILE — treat this module exactly like ``uv.lock``.
 
 Like a lockfile, this is frozen, reviewable DATA, not logic: one small set of rows
-per imported benchmark, and the diff to these rows IS the exam changing. Every value
+per imported benchmark, and the diff to these rows IS the benchmark changing. Every value
 participates in the benchmark's revision hash (spec §6: revision = sha over the pinned
 package identity + the imported case subset's identity), so changing one changes
 every route address — an expression addressed to an old revision never resolves
-against a changed exam.
+against a changed benchmark.
 
 Also like a lockfile, the rows are of three kinds, written by different authors:
 
@@ -15,12 +15,12 @@ Also like a lockfile, the rows are of three kinds, written by different authors:
    named — verified against inspect-evals 0.20.0 on 2026-09-15.
 2. CAPTURED at import time (dataset revision sha, case count): most inspect_evals
    tasks do NOT pin a HF revision — they fetch the Hub's latest. These rows record
-   what HEAD resolved to when we froze the exam, the way a lockfile records the
+   what HEAD resolved to when we froze the benchmark, the way a lockfile records the
    resolved version, and the count is the bake's drift guard (prepare refuses a
    dataset that no longer yields exactly this many rows). They cannot be derived
    from any code; they are observations.
 3. OURS by policy (shuffle seed, preparer/protocol revisions): decisions this repo
-   makes about how the exam is administered, not facts about upstream.
+   makes about how the benchmark is administered, not facts about upstream.
 
 WHY frozen data instead of resolving at build or run time: a reviewable diff is the
 security property. Builds fetch by the recorded sha and runs never fetch at all
@@ -50,7 +50,7 @@ MMLU_SPLIT = "test"
 MMLU_DATASET_REVISION = "c30699e8356da336a370243923dbaf21066bb9fe"
 MMLU_CASE_COUNT = 14042
 # WHY a seeded shuffle: the HF split is subject-grouped, so an unshuffled `limit=N`
-# run would examine one subject only. The seed is exam identity (it fixes which
+# run would examine one subject only. The seed is benchmark identity (it fixes which
 # cases a limit selects), so it rides the revision hash.
 MMLU_SHUFFLE_SEED = 20260915
 
@@ -83,8 +83,8 @@ COMMONSENSE_QA_CONFIG = ""
 COMMONSENSE_QA_SPLIT = "validation"
 COMMONSENSE_QA_DATASET_REVISION = "94630fe30dad47192a8546eb75f094926d47e155"
 COMMONSENSE_QA_CASE_COUNT = 1221
-# WHY the seed: the upstream eval shuffles its exam order on every run
-# (hf_dataset shuffle=True, no seed), so the import pins ONE order as exam
+# WHY the seed: the upstream eval shuffles its question order on every run
+# (hf_dataset shuffle=True, no seed), so the import pins ONE order as benchmark
 # identity; the seed rides the revision hash (review round 2026-09-17).
 COMMONSENSE_QA_SHUFFLE_SEED = 20260917
 
@@ -97,8 +97,8 @@ PAWS_CONFIG = "labeled_final"
 PAWS_SPLIT = "test"
 PAWS_DATASET_REVISION = "161ece9501cf0a11f3e48bd356eaa82de46d6a09"
 PAWS_CASE_COUNT = 8000
-# WHY the seed: the upstream eval shuffles its exam order on every run
-# (hf_dataset shuffle=True, no seed), so the import pins ONE order as exam
+# WHY the seed: the upstream eval shuffles its question order on every run
+# (hf_dataset shuffle=True, no seed), so the import pins ONE order as benchmark
 # identity; the seed rides the revision hash (review round 2026-09-17).
 PAWS_SHUFFLE_SEED = 20260917
 
@@ -111,8 +111,8 @@ BOOLQ_CONFIG = ""
 BOOLQ_SPLIT = "validation"
 BOOLQ_DATASET_REVISION = "35b264d03638db9f4ce671b711558bf7ff0f80d5"
 BOOLQ_CASE_COUNT = 3270
-# WHY the seed: the upstream eval shuffles its exam order on every run
-# (hf_dataset shuffle=True, no seed), so the import pins ONE order as exam
+# WHY the seed: the upstream eval shuffles its question order on every run
+# (hf_dataset shuffle=True, no seed), so the import pins ONE order as benchmark
 # identity; the seed rides the revision hash (review round 2026-09-17).
 BOOLQ_SHUFFLE_SEED = 20260917
 
@@ -126,7 +126,7 @@ MMLU_PRO_SPLIT = "test"
 MMLU_PRO_DATASET_REVISION = "527feea0afed1de15a8c115abf7be4c912123315"
 MMLU_PRO_CASE_COUNT = 12032
 # WHY the seed: the upstream eval shuffles per run (shuffle=True, no seed) AND
-# the split is category-grouped — the seed pins one order as exam identity so
+# the split is category-grouped — the seed pins one order as benchmark identity so
 # a limit=N run spans disciplines (review round 2026-09-17).
 MMLU_PRO_SHUFFLE_SEED = 20260917
 
@@ -155,7 +155,7 @@ RACE_H_DATASET_REVISION = "2fec9fd81f1dc971569a9b729c43f2f0e6436637"
 # at this revision (0 duplicate ids — row count unchanged), 2026-09-17.
 RACE_H_CASE_COUNT = 3498
 # WHY the seed: the upstream eval shuffles per run (shuffle=True, no seed) AND
-# questions arrive in per-passage runs — the seed pins one order as exam
+# questions arrive in per-passage runs — the seed pins one order as benchmark
 # identity so a limit=N run spans passages (review round 2026-09-17).
 RACE_H_SHUFFLE_SEED = 20260917
 
@@ -239,7 +239,7 @@ HELLASWAG_CASE_COUNT = 10042
 # WHY the seed (OURS by policy — review finding on PR #1018): the pinned
 # validation split is domain-grouped, 3,243 ActivityNet rows then 6,799
 # WikiHow, so an unshuffled `limit=N` run with N ≤ 3243 would examine zero
-# WikiHow cases. The seed pins one mixed order as exam identity.
+# WikiHow cases. The seed pins one mixed order as benchmark identity.
 HELLASWAG_SHUFFLE_SEED = 20260922
 
 # lab_bench_litqa — generated by the importer on 2026-09-23 from
@@ -347,7 +347,7 @@ ONET_M6_EXCLUDED_SAMPLE_IDS = (
     "2021_13_1922",
     "2021_4_b447",
 )
-# OURS policy seed: upstream shuffles the exam order per run (shuffle=True, no seed).
+# OURS policy seed: upstream shuffles the question order per run (shuffle=True, no seed).
 ONET_M6_SHUFFLE_SEED = 7
 
 # pubmedqa — generated by the importer on 2026-09-29 from
@@ -372,7 +372,7 @@ XSTEST_SAFE_CASE_COUNT = 250
 
 # --- importer: generated pin rows land above this line ---
 
-# WHY: prepare's emission rules are part of the exam; bump when they change.
+# WHY: prepare's emission rules are part of the benchmark; bump when they change.
 PREPARER_REVISION = "inspect-single-shot-v1"
 # WHY: the exchange itself — one candidate invocation, aggregate-side scoring.
 PROTOCOL_REVISION = "inspect-single-shot-v1"

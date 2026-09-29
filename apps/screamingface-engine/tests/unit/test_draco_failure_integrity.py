@@ -139,7 +139,7 @@ def test_an_error_row_case_carries_the_selected_cases_own_metadata() -> None:
     """An errored Case publishes its cases.json extras (e.g. domain), like every other Case."""
     # INVARIANT: the selected Case's extra fields (everything beyond id/input in the
     # baked cases.json) ride the published Case result even when the candidate call
-    # errored. Pre-fold aggregate.py published {} here; the spine fold made error rows
+    # errored. Pre-fold aggregate.py published {} here; the spine fold made error cases
     # consistent with scored/missing/ungraded rows — an owner-approved delta (OME-1100
     # review), declared in grade.py's module docstring.
     selected: list[dict[str, object]] = [

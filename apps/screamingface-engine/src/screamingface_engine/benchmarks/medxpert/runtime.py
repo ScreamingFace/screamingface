@@ -1,7 +1,7 @@
-"""MedXpertQA's exam declaration — the serving spine runs the kitchen (OME-1236).
+"""MedXpertQA's benchmark declaration — the serving spine runs the kitchen (OME-1236).
 
 If `definition.py` writes the recipe, this module now only declares what makes this
-exam different: booklet rows enriched with each Case's ready-made CoT prompt and
+benchmark different: booklet rows enriched with each Case's ready-made CoT prompt and
 trigger, the two-field check that extracts the committed letter, and the accuracy
 reducer. The routes, memoized preflight, case serving and aggregate wiring live in
 `spine/serving.py` — one kitchen for every hand-built deterministic benchmark.
@@ -62,7 +62,7 @@ def install(node: Url4Node, root: Path) -> None:
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam."""
+    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark."""
 
     benchmark_preflight(
         root,
@@ -81,11 +81,11 @@ def _cases(root: Path):
     return serve_cases(root, BENCHMARK)
 
 
-def _build_rows(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
+def _build_public_cases(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
     """Enrich each row with its ready-made turn-1 prompt and turn-2 trigger.
 
     WHY the prompt and trigger are baked rather than assembled in the expression:
-    prompt bytes are exam identity on a judge-free benchmark, and an expression that
+    prompt bytes are benchmark identity on a judge-free benchmark, and an expression that
     composed them would put that identity outside the revision hash.
     """
 
@@ -182,7 +182,7 @@ BENCHMARK = ServedBenchmark(
     # seam (whose prepare-test assigns `runtime.preflight` directly); a direct
     # reference here would freeze the original against any such replacement.
     preflight=lambda root, case_ids: preflight(root, case_ids),
-    build_rows=_build_rows,
+    build_public_cases=_build_public_cases,
     check=_check,
     bind_case_evaluation=bind_case_evaluation,
     reduce=reducing.aggregate,

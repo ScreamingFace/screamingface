@@ -2,7 +2,7 @@
 
 The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
 contribution: its failure wording, its judge's identity, its private rubric reader, and
-the reference per-Case formula bound into the shared rubric ``grade_case``. The exam
+the reference per-Case formula bound into the shared rubric ``grade_case``. The benchmark
 ``mean`` stays a caller choice because it is the ONLY place the two HealthBench benchmarks
 differ: ``scoring.clipped_mean`` for the official professional number,
 ``scoring.unclipped_mean`` for the worst-30% challenge metric.
@@ -21,8 +21,8 @@ from typing import Any
 
 from screamingface_engine.benchmarks.healthbench.case_evaluation import decode_case_evaluation
 from screamingface_engine.benchmarks.healthbench.scoring import case_score
-from screamingface_engine.benchmarks.spine.exam import exam_scorer
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
+from screamingface_engine.benchmarks.spine.mean_scorer import mean_scorer
 from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
 from screamingface_engine.benchmarks.spine.scored import ScoredPath
 
@@ -72,7 +72,7 @@ def _points_from(decoded: object) -> list[int] | None:
 
 
 def aggregate(
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     benchmark_id: str,
@@ -88,18 +88,18 @@ def aggregate(
     Reference counterpart: the metric aggregation in ``HealthBenchEval``
     (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py) —
     matching it on the clip when ``mean`` is ``clipped_mean``, and deliberately
-    diverging on spread (sample stdev, see ``spine.exam.sample_stdev``).
+    diverging on spread (sample stdev, see ``spine.benchmark.sample_stdev``).
     """
 
     return _PATH.aggregate(
-        raw_rows,
+        raw_case_grades,
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
         selected_cases=read_selected_cases(
             root, case_ids, benchmark_label="HealthBench", error_type=AggregateError
         ),
         grading_material=lambda case_id: load_rubric_points(root, case_id),
-        scorer=exam_scorer(mean),
+        scorer=mean_scorer(mean),
     )
 
 
@@ -107,7 +107,7 @@ def aggregate(
 # and the failure-message wording stay benchmark-owned so per-case failure output is
 # byte-identical to the pre-extraction copies (the goldens pin every failure code).
 _PATH = ScoredPath(
-    reader=RowReader(
+    reader=CaseGradeReader(
         benchmark_label="HealthBench",
         error_type=AggregateError,
         decode_case_evaluation=decode_case_evaluation,

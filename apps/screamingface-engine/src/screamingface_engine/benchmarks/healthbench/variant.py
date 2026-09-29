@@ -1,6 +1,6 @@
 """How ANY HealthBench benchmark is built — identity, addresses, and the one expression tree.
 
-Think of it as printing an exam paper from a template. The template is fixed: the same
+Think of it as printing a benchmark paper from a template. The template is fixed: the same
 dataset, the same physician rubric, the same AI judge, the same grading chain. What the
 printer varies per benchmark is only three things:
 
@@ -8,14 +8,14 @@ printer varies per benchmark is only three things:
     how it totals the papers       (``mean`` — the challenge metric, or the official clip)
     what it calls itself           (``id`` — which decides every route address)
 
-Everything else is derived. ``exam_revision`` fingerprints the whole exam identity into a
+Everything else is derived. ``variant_revision`` fingerprints the whole benchmark identity into a
 16-hex revision; ``Routes`` hangs the six protocol routes plus the check surface under
-``/benchmarks/<id>/<revision>/``; ``build_exam_protocol`` writes the url4 expression tree.
+``/benchmarks/<id>/<revision>/``; ``build_variant_protocol`` writes the url4 expression tree.
 ``healthbench_benchmark`` is the one call a benchmark module makes.
 
 INVARIANT: two benchmarks built here share the baked assets and differ ONLY where the three
 knobs above differ. A benchmark's revision changes if ANY hashed input changes, so an
-expression addressed to an old revision physically cannot resolve against a new exam.
+expression addressed to an old revision physically cannot resolve against a new benchmark.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ from screamingface_engine.benchmarks.protocol import (
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
-type ExamMean = Callable[[Sequence[float]], float | None]
+type VariantMean = Callable[[Sequence[float]], float | None]
 
 ASSET_BUNDLE_ID = "healthbench"
 
@@ -71,7 +71,7 @@ class Routes:
     check_surface: str
 
     @classmethod
-    def for_exam(cls, benchmark_id: str, revision: str) -> Routes:
+    def for_variant(cls, benchmark_id: str, revision: str) -> Routes:
         prefix = f"/benchmarks/{benchmark_id}/{revision}"
         return cls(
             prefix=prefix,
@@ -86,7 +86,7 @@ class Routes:
 
 
 @dataclass(frozen=True, slots=True)
-class Exam:
+class HealthbenchVariant:
     """One HealthBench identity: which Cases, which final mean, at which addresses.
 
     This is what the runtime needs to serve a benchmark — it carries no metadata a human
@@ -97,17 +97,17 @@ class Exam:
     case_ids: tuple[int, ...]
     revision: str
     routes: Routes
-    mean: ExamMean
+    mean: VariantMean
 
 
-def exam_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -> str:
-    """Fingerprint one exam identity into the 16 hex characters its routes carry.
+def variant_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -> str:
+    """Fingerprint one benchmark identity into the 16 hex characters its routes carry.
 
     Everything a Candidate's score depends on goes in: the dataset pin, the preparer that
     turned it into assets, the shared evaluation protocol, the Candidate result schema,
     the judge pinning, the grader-template bytes — plus the three per-benchmark inputs. Change
     any of them and every route address moves, which is the only safe way to change an
-    exam.
+    benchmark.
     """
 
     return hashlib.sha256(
@@ -136,10 +136,10 @@ def case_ids_sha(case_ids: Sequence[int]) -> str:
     return hashlib.sha256("\n".join(str(case_id) for case_id in case_ids).encode()).hexdigest()
 
 
-def build_exam_protocol(routes: Routes, case_count: int, available_case_count: int) -> Node:
+def build_variant_protocol(routes: Routes, case_count: int, available_case_count: int) -> Node:
     """Build the whole benchmark as one url4 expression tree (a recipe, not a run).
 
-    Think of it as an exam pipeline, written inside-out because each stage is
+    Think of it as a benchmark pipeline, written inside-out because each stage is
     nested in the next. Reading outside-in, the Engine will:
 
     1. Fetch the Cases (patient conversations) from ``routes.cases``, and for each:
@@ -155,7 +155,7 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
        as a sibling, a malformed-but-successful model call would never be retried.
     4. Roll verdicts up: rubric rows → ``routes.rubric_evaluation`` → per-Case score
        at ``routes.case_evaluation`` → all Case rows into ``routes.aggregate``, which
-       computes this benchmark's exam-level mean. Rows travel as context, not argv, so
+       computes this benchmark's benchmark-level mean. Rows travel as context, not argv, so
        no OS argument-length limit can truncate them.
 
     ``case_count`` < ``available_case_count`` slices to a partial run (the SDK's
@@ -279,12 +279,12 @@ def healthbench_benchmark(
     case_ids: tuple[int, ...],
     protocol_revision: str,
     scoring: str,
-    mean: ExamMean,
+    mean: VariantMean,
     selection_sha: str,
     difficulty: DifficultyTier,
     focus: str | None = None,
     dataset_url: str | None = None,
-) -> tuple[Exam, Benchmark]:
+) -> tuple[HealthbenchVariant, Benchmark]:
     """Wire one HealthBench benchmark: identity → addresses → expression → private routes.
 
     Args:
@@ -295,33 +295,33 @@ def healthbench_benchmark(
         case_ids: the Engine Case ids this benchmark serves, in serve order.
         protocol_revision: this benchmark's own protocol version string (hashed).
         scoring: this benchmark's scoring-rule name (hashed) — the metric's identity.
-        mean: the exam-level reduction over per-Case scores.
+        mean: the benchmark-level reduction over per-Case scores.
         selection_sha: the fingerprint of the case selection (hashed).
         focus: the short editorial line the leaderboard shows in its "Focus" column. It has
             to separate this benchmark from its siblings at a glance, since they share a dataset.
         dataset_url: where a reader can go and look at the source data.
 
     Returns:
-        ``(exam, benchmark)`` — the ``Exam`` for the runtime's private routes, and the
+        ``(benchmark, benchmark)`` — the ``Benchmark`` for the runtime's private routes, and the
         public ``Benchmark`` the registry publishes. The benchmark module exports both: the
         runtime needs the first, the catalogue the second.
     """
 
-    revision = exam_revision(
+    revision = variant_revision(
         protocol_revision=protocol_revision,
         selection_sha=selection_sha,
         scoring=scoring,
     )
-    exam = Exam(
+    variant = HealthbenchVariant(
         id=id,
         case_ids=case_ids,
         revision=revision,
-        routes=Routes.for_exam(id, revision),
+        routes=Routes.for_variant(id, revision),
         mean=mean,
     )
 
     def build(case_count: int) -> Node:
-        return build_exam_protocol(exam.routes, case_count, len(case_ids))
+        return build_variant_protocol(variant.routes, case_count, len(case_ids))
 
     def install(node: Url4Node, assets: Path) -> None:
         # Lazy import keeps the resource-only control-plane path from loading filesystem
@@ -330,7 +330,7 @@ def healthbench_benchmark(
 
         # INVARIANT: every benchmark reads the SAME baked asset directory — one immutable
         # answer key, selected from at serve time, never a per-benchmark bake.
-        install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
+        install_runtime(node, assets / ASSET_BUNDLE_ID, variant)
 
     benchmark = Benchmark(
         id=id,
@@ -355,12 +355,12 @@ def healthbench_benchmark(
         dataset_url=dataset_url,
         # Every check is a Judge call over the case rubric, so the loop's cost is real.
         check_surface=CheckSurface(
-            check_route=exam.routes.check_surface,
+            check_route=variant.routes.check_surface,
             feedback_intent="feedback",
             expected_check_cost="paid",
         ),
     )
-    return exam, benchmark
+    return variant, benchmark
 
 
 def _model_route(model: str) -> str:
@@ -368,11 +368,11 @@ def _model_route(model: str) -> str:
 
 
 __all__ = [
-    "Exam",
-    "ExamMean",
+    "HealthbenchVariant",
+    "VariantMean",
     "Routes",
-    "build_exam_protocol",
+    "build_variant_protocol",
     "case_ids_sha",
-    "exam_revision",
+    "variant_revision",
     "healthbench_benchmark",
 ]

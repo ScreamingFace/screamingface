@@ -28,11 +28,11 @@ from screamingface_engine.benchmarks.draco.case_evaluation import (
     bind_criterion_evaluation,
 )
 from screamingface_engine.benchmarks.draco.definition import (
-    CANONICAL_EXAM,
+    CANONICAL_VARIANT,
     DRACO,
     DRACO_3PASS,
     JUDGE_MODEL,
-    THREE_PASS_EXAM,
+    THREE_PASS_VARIANT,
 )
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
@@ -44,7 +44,7 @@ from url4.peer.server import Url4Node
 # revision math must land on the SAME value (healthbench-worst30 precedent).
 # OME-993 moved it DELIBERATELY (from 66a463248586b277): the judge now pins
 # reasoning_effort=low (max_tokens stays the paper's 4096), and judge params are hashed
-# into the benchmark identity — a different exam is a different revision.
+# into the benchmark identity — a different benchmark is a different revision.
 #  Scoreboard seeds, cache seeds, and goldens re-record against this value.
 CANONICAL_REVISION = "62718f04ea1a980f"
 
@@ -58,7 +58,7 @@ def _url4(benchmark, limit: int | None = None) -> str:
 
 def test_the_canonical_revision_is_frozen_against_refactors() -> None:
     assert DRACO.revision == CANONICAL_REVISION
-    assert CANONICAL_EXAM.revision == CANONICAL_REVISION
+    assert CANONICAL_VARIANT.revision == CANONICAL_REVISION
 
 
 def test_both_draco_benchmarks_are_registered_under_their_own_ids() -> None:
@@ -87,31 +87,31 @@ def test_the_three_pass_benchmark_has_its_own_identity() -> None:
     assert DRACO_3PASS.id == "draco-3pass"
     assert DRACO_3PASS.title == "DRACO 3-Pass"
     assert DRACO_3PASS.case_count == 100
-    assert THREE_PASS_EXAM.judge_passes == 3
+    assert THREE_PASS_VARIANT.judge_passes == 3
     assert DRACO_3PASS.revision != DRACO.revision
 
 
 def test_the_three_pass_routes_are_revision_pinned_and_separate() -> None:
-    assert THREE_PASS_EXAM.revision in _url4(DRACO_3PASS)
-    prefix = THREE_PASS_EXAM.routes.prefix
-    assert prefix == f"/benchmarks/draco-3pass/{THREE_PASS_EXAM.revision}"
+    assert THREE_PASS_VARIANT.revision in _url4(DRACO_3PASS)
+    prefix = THREE_PASS_VARIANT.routes.prefix
+    assert prefix == f"/benchmarks/draco-3pass/{THREE_PASS_VARIANT.revision}"
     canonical_routes = {
-        CANONICAL_EXAM.routes.cases,
-        CANONICAL_EXAM.routes.tasks,
-        CANONICAL_EXAM.routes.verdict,
-        CANONICAL_EXAM.routes.criterion_evaluation,
-        CANONICAL_EXAM.routes.case_evaluation,
-        CANONICAL_EXAM.routes.aggregate,
-        CANONICAL_EXAM.routes.check_surface,
+        CANONICAL_VARIANT.routes.cases,
+        CANONICAL_VARIANT.routes.tasks,
+        CANONICAL_VARIANT.routes.verdict,
+        CANONICAL_VARIANT.routes.criterion_evaluation,
+        CANONICAL_VARIANT.routes.case_evaluation,
+        CANONICAL_VARIANT.routes.aggregate,
+        CANONICAL_VARIANT.routes.check_surface,
     }
     three_pass_routes = {
-        THREE_PASS_EXAM.routes.cases,
-        THREE_PASS_EXAM.routes.tasks,
-        THREE_PASS_EXAM.routes.verdict,
-        THREE_PASS_EXAM.routes.criterion_evaluation,
-        THREE_PASS_EXAM.routes.case_evaluation,
-        THREE_PASS_EXAM.routes.aggregate,
-        THREE_PASS_EXAM.routes.check_surface,
+        THREE_PASS_VARIANT.routes.cases,
+        THREE_PASS_VARIANT.routes.tasks,
+        THREE_PASS_VARIANT.routes.verdict,
+        THREE_PASS_VARIANT.routes.criterion_evaluation,
+        THREE_PASS_VARIANT.routes.case_evaluation,
+        THREE_PASS_VARIANT.routes.aggregate,
+        THREE_PASS_VARIANT.routes.check_surface,
     }
     assert all(route.startswith(prefix) for route in three_pass_routes)
     assert not (canonical_routes & three_pass_routes)
@@ -123,7 +123,7 @@ def test_the_catalogue_serves_both_benchmarks() -> None:
     assert entry["case_count"] == 100
     check = entry["check_surface"]
     assert isinstance(check, dict)
-    assert check["check_route"].startswith(f"/benchmarks/draco-3pass/{THREE_PASS_EXAM.revision}")
+    assert check["check_route"].startswith(f"/benchmarks/draco-3pass/{THREE_PASS_VARIANT.revision}")
 
 
 # ── protocol shape ------------------------------------------------------------------
@@ -182,23 +182,23 @@ def test_both_benchmarks_install_and_validate_on_one_world(tmp_path: Path) -> No
 
     registered = set(node.processor_routes())
     for route in (
-        CANONICAL_EXAM.routes.tasks,
-        CANONICAL_EXAM.routes.verdict,
-        CANONICAL_EXAM.routes.criterion_evaluation,
-        CANONICAL_EXAM.routes.case_evaluation,
-        CANONICAL_EXAM.routes.aggregate,
-        CANONICAL_EXAM.routes.check_surface,
-        THREE_PASS_EXAM.routes.tasks,
-        THREE_PASS_EXAM.routes.verdict,
-        THREE_PASS_EXAM.routes.criterion_evaluation,
-        THREE_PASS_EXAM.routes.case_evaluation,
-        THREE_PASS_EXAM.routes.aggregate,
-        THREE_PASS_EXAM.routes.check_surface,
+        CANONICAL_VARIANT.routes.tasks,
+        CANONICAL_VARIANT.routes.verdict,
+        CANONICAL_VARIANT.routes.criterion_evaluation,
+        CANONICAL_VARIANT.routes.case_evaluation,
+        CANONICAL_VARIANT.routes.aggregate,
+        CANONICAL_VARIANT.routes.check_surface,
+        THREE_PASS_VARIANT.routes.tasks,
+        THREE_PASS_VARIANT.routes.verdict,
+        THREE_PASS_VARIANT.routes.criterion_evaluation,
+        THREE_PASS_VARIANT.routes.case_evaluation,
+        THREE_PASS_VARIANT.routes.aggregate,
+        THREE_PASS_VARIANT.routes.check_surface,
     ):
         assert route in registered
     # Cases validate the selected count before iteration starts.
-    assert CANONICAL_EXAM.routes.cases in registered
-    assert THREE_PASS_EXAM.routes.cases in registered
+    assert CANONICAL_VARIANT.routes.cases in registered
+    assert THREE_PASS_VARIANT.routes.cases in registered
 
 
 def test_the_three_pass_install_rejects_evidence_that_is_not_three_wide(
@@ -215,7 +215,7 @@ def test_the_three_pass_install_rejects_evidence_that_is_not_three_wide(
     # The canonical benchmark's expression (five evidence slots) must not resolve against
     # the three-pass benchmark's criterion-evaluation route: every route is revision-pinned,
     # so the canonical protocol literally addresses a different path.
-    assert CANONICAL_EXAM.routes.criterion_evaluation not in node.processor_routes()
+    assert CANONICAL_VARIANT.routes.criterion_evaluation not in node.processor_routes()
 
 
 # ── aggregation -----------------------------------------------------------------------
@@ -308,11 +308,11 @@ def test_three_pass_aggregate_carries_the_variant_identity() -> None:
         benchmark_id="draco-3pass",
         selected_cases=_selected_cases(1),
         judge_passes=3,
-        benchmark_revision=THREE_PASS_EXAM.revision,
+        benchmark_revision=THREE_PASS_VARIANT.revision,
     )
 
     assert result["benchmark_id"] == "draco-3pass"
-    assert result["benchmark_revision"] == THREE_PASS_EXAM.revision
+    assert result["benchmark_revision"] == THREE_PASS_VARIANT.revision
     assert result["metrics"]["n_runs"] == 3
     assert result["score"] == 1.0
 

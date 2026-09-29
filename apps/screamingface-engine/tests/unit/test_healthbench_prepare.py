@@ -126,7 +126,7 @@ def test_a_dataset_that_gained_a_row_fails_the_build(tmp_path: Path) -> None:
 
     The frozen-position check above only proves the worst-30% rows did not MOVE. A row
     appended at the END leaves every frozen position intact, so it sails through — and the
-    image would then bake a 526-Case exam under a 525-Case identity. The count is its own
+    image would then bake a 526-Case benchmark under a 525-Case identity. The count is its own
     gate.
     """
 

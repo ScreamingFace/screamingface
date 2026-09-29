@@ -3,7 +3,7 @@
 INVARIANT: an expression addressed to the current revision must resolve to
 byte-identical protocol before and after the extraction. Every literal below was
 captured from the pre-migration benchmark at the head of this branch's base; if any
-assertion here fails, the migration changed the exam, not just its plumbing.
+assertion here fails, the migration changed the benchmark, not just its plumbing.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_revision_is_byte_identical_to_the_pre_migration_exam() -> None:
+def test_revision_is_byte_identical_to_the_pre_migration_benchmark() -> None:
     assert REVISION == _GOLDEN_REVISION
 
 
@@ -93,7 +93,7 @@ def test_a_missing_answer_record_is_a_definition_error(tmp_path: Path) -> None:
     """Pin medxpert's per-benchmark deviation: a broken bundle is a DEFINITION error.
 
     WHY the direct `preflight` call (review of this PR): through `serve_cases`,
-    a missing answer record trips `_build_rows`' own raise before the preflight
+    a missing answer record trips `_build_public_cases`' own raise before the preflight
     ever runs, so the declaration's error class was unreachable from that path
     and its deletion survived the whole suite. This is the one test that dies
     if `preflight` stops raising `benchmark_definition_error`.

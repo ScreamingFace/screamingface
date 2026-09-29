@@ -180,7 +180,7 @@ async def test_both_judge_formats_grade_through_the_gateway_route(tmp_path: Path
 
 
 def test_the_benchmarks_revision_is_pinned() -> None:
-    """The judged benchmark's exam identity, frozen — the published-revisions test
+    """The judged benchmark's benchmark identity, frozen — the published-revisions test
     covers the string-match benchmarks; this literal is FrontierScience's."""
 
     assert BENCHMARK.benchmark.revision == "34155c32aec9841b"

@@ -1,11 +1,11 @@
 """The shared scored path — every rubric benchmark's marking room, written once.
 
-A benchmark run is an url4 expression that fans out one sub-call per Case — 100 exam
+A benchmark run is an url4 expression that fans out one sub-call per Case — 100 benchmark
 questions → 100 parallel candidate calls. It returns one row per Case (the graded paper),
-and this module is the marking room that turns the pile into the exam result.
+and this module is the marking room that turns the pile into the benchmark result.
 The only per-benchmark step is ``grade_case`` — the one function every benchmark writes to
 mark one script; everything around it (the roll call, the failure ladder, result
-assembly, the exam-level reduction) is spine machinery a benchmark author never sees.
+assembly, the benchmark-level reduction) is spine machinery a benchmark author never sees.
 
 The goal of this module is to have a shared grading pipeline (the "spine"), and each
 benchmark only plugs in its own marking logic. Before this shared module, ``gdpval/grade.py``
@@ -14,11 +14,11 @@ rows by case, runs the failure ladder, grades each case, and computes the final 
 The copies were almost character-for-character the same.
 This is the path for any rubric-scored (LLM-as-judge) benchmark, present or future.
 
-One aggregate call = marking one class's exam.
+One aggregate call = marking one class's benchmark.
 - Stage 1 — roll call. Get the class list: which Cases (questions/students) were selected
     for this run, in order. Say Cases [3, 7, 12].
 - Stage 2 — sort the pile. The fan-out dumped back a pile of result rows in whatever order.
-    RowReader files each row under its Case id, so "give me Case 7's paper" is a lookup.
+    CaseGradeReader files each row under its Case id, so "give me Case 7's paper" is a lookup.
 - Stage 3 — the ladder: decide if each paper is even gradeable. Before marking, check each
     Case against a list of broken states, worst first. First match wins, and the Case becomes
     a visible failure in the results — never silently dropped:
@@ -28,14 +28,14 @@ One aggregate call = marking one class's exam.
           row left a named cause (the model ran out of tokens → model_token_cap), that
           cause is the code instead, with the source error kept in metadata
         - a paper turned up but it's an error report, not an answer → case_error
-        - Example: Case 7's row is an error row → it gets a case_error result and skips Stage 4.
+        - Example: Case 7's row is an error case → it gets a case_error result and skips Stage 4.
 - Stage 4 — mark the survivors. For each Case that passed the ladder, call grade_case,
     the one function the benchmark author writes. Answer + rubric in, grade out.
     The hook can still fail a Case (e.g. the judge returned verdicts for only 3 of 5 rubric
     points → incomplete_verdicts), and the failure message text belongs to the benchmark,
     not the spine.
 - Stage 5 — total the marks. Wrap each Case's outcome into a `CaseResult`, then compute the
-    exam-level score with the shared scorer. The benchmark contributes exactly one thing
+    benchmark-level score with the shared scorer. The benchmark contributes exactly one thing
     here: its mean (how per-Case scores average into the headline number). Everything else —
     the metric names in the output — is fixed spine vocabulary, so every benchmark's
     report looks the same.
@@ -75,8 +75,8 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.case_execution import CaseExecutionOutcome
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeIndex, CaseGradeReader
 from screamingface_engine.benchmarks.spine.payloads import CasePayload, TextPayload
-from screamingface_engine.benchmarks.spine.rows import RowIndex, RowReader
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,23 +122,23 @@ class CaseGradeOutcome:
 #: (an enclave judge), data-only because nothing else crosses a privacy boundary.
 type GradeCase = Callable[[GradeRequest], Awaitable[CaseGradeOutcome]]
 
-#: A benchmark-owned replacement for the whole missing-row CaseResult — called as
+#: A benchmark-owned replacement for the whole missing-case CaseResult — called as
 #: ``(selected, selected_index, orphan_errors_or_None)``. WHY the whole result and
-#: not just the failure dict: ifeval publishes a missing-row Case with ``grade: None``
+#: not just the failure dict: ifeval publishes a missing-case Case with ``grade: None``
 #: (no grade envelope at all), and its golden pins that shape byte-for-byte.
 #: Returning ``None`` (OME-1100) files NOTHING for the Case, so the finalizer
-#: materialises it as ``case_result_missing`` — draco's pinned missing-row shape.
-type MissingRowResult = Callable[
+#: materialises it as ``case_result_missing`` — draco's pinned missing-case shape.
+type MissingCaseResult = Callable[
     [SelectedCase, int, list[dict[str, Any]] | None], CaseResult | None
 ]
 
-#: A benchmark-owned replacement for the whole error-row CaseResult — called as
+#: A benchmark-owned replacement for the whole error-case CaseResult — called as
 #: ``(selected, selected_index, row)`` where ``row`` carries the ``"error"`` payload.
 #: WHY (OME-1100): draco publishes the UPSTREAM error's own code ("rate_limited",
 #: "provider_error") on a candidate-stage failure with no grade envelope, where the
 #: spine default publishes the fixed ``case_error`` code with an empty grade — the
 #: e2e failure tapes pin draco's shape byte-for-byte.
-type ErrorRowResult = Callable[[SelectedCase, int, Mapping[str, Any]], CaseResult]
+type ErrorCaseResult = Callable[[SelectedCase, int, Mapping[str, Any]], CaseResult]
 
 #: A benchmark-owned replacement for the whole missing-material CaseResult — called as
 #: ``(selected, selected_index, row_or_None)`` when ``grading_material`` returned
@@ -158,7 +158,7 @@ type HookFailureResult = Callable[
 
 
 class _Omitted:
-    """Sentinel: the benchmark's missing-row hook filed nothing for this Case.
+    """Sentinel: the benchmark's missing-case hook filed nothing for this Case.
 
     Distinct from ``None`` on the ladder, which means "the Case is gradeable".
     """
@@ -174,7 +174,7 @@ class ScoredPath:
     Each benchmark constructs one module-level instance. What a benchmark still owns:
 
     Attributes:
-        reader: the benchmark's `RowReader` (its label, error class, envelope decoder).
+        reader: the benchmark's `CaseGradeReader` (its label, error class, envelope decoder).
         grade_case: the benchmark's hook — the only per-benchmark grading code.
         failure_messages: failure code → the public message shown for it. Wording is
             benchmark voice; this path never invents text.
@@ -182,14 +182,14 @@ class ScoredPath:
             "deterministic" for ifeval).
         grading_failure_code: the benchmark's code for "the grading step itself failed".
         grading_failure_message: its default public message.
-        missing_row_result: optional benchmark-owned builder for the WHOLE missing-row
+        missing_case_result: optional benchmark-owned builder for the WHOLE missing-case
             CaseResult (wording, codes, grade shape). ``None`` keeps the spine
             default (the orphan's own code when it names one, e.g. ``model_token_cap``,
             else ``missing_case_row``; the orphan cause attached either way). WHY
             (OME-1101): ifeval's recorded golden pins its own collected-row wording
             (stage "grading", the diagnostic's code), and OME-981 owns the
             candidate-vs-grading boundary decision — the spine must not default it.
-        error_row_result: optional benchmark-owned builder for the WHOLE error-row
+        error_case_result: optional benchmark-owned builder for the WHOLE error-case
             CaseResult. A benchmark that sets it also owns the rung's RANK: its error
             rows are reported before the material rung (draco reports a broken row
             over its own missing rubric). ``None`` keeps the ``case_error`` default.
@@ -208,21 +208,21 @@ class ScoredPath:
             there would contradict its own message.
     """
 
-    reader: RowReader
+    reader: CaseGradeReader
     grade_case: GradeCase
     failure_messages: Mapping[str, str]
     method: str
     grading_failure_code: str
     grading_failure_message: str
-    missing_row_result: MissingRowResult | None = None
-    error_row_result: ErrorRowResult | None = None
+    missing_case_result: MissingCaseResult | None = None
+    error_case_result: ErrorCaseResult | None = None
     missing_material_result: MissingMaterialResult | None = None
     hook_failure_result: HookFailureResult | None = None
     missing_material_code: str = "missing_rubric_asset"
 
     def aggregate(
         self,
-        raw_rows: str,
+        raw_case_grades: str,
         *,
         benchmark_id: str,
         benchmark_revision: str,
@@ -231,17 +231,17 @@ class ScoredPath:
         scorer: Callable[[Sequence[CaseResult]], CandidateScore],
         case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Mark every selected Case, then score the exam with the benchmark's own scorer.
+        """Mark every selected Case, then score the benchmark with the benchmark's own scorer.
 
         Args:
-            raw_rows: the collected array of Case execution rows, in selected order.
+            raw_case_grades: the collected array of Case execution rows, in selected order.
             benchmark_id: the benchmark publishing this result.
             benchmark_revision: that benchmark's revision, stamped into the result.
             selected_cases: the authoritative roll call, in selected order.
             grading_material: per-Case loader for the benchmark's grading material;
                 ``None`` marks the material unusable (``missing_material_code``).
-            scorer: the exam-level reduction, the benchmark's whole ``CandidateScore``
-                builder. Rubric benchmarks bind ``exam_scorer(mean)`` (fixed rubric
+            scorer: the benchmark-level reduction, the benchmark's whole ``CandidateScore``
+                builder. Rubric benchmarks bind ``mean_scorer(mean)`` (fixed rubric
                 vocabulary, mean the only choice); a non-rubric benchmark (ifeval)
                 supplies its published metric vocabulary here (OME-1101).
             case_metadata: optional per-Case loader for PUBLIC report metadata that
@@ -253,14 +253,14 @@ class ScoredPath:
 
         Returns:
             The Candidate result payload: every selected Case, its grade or its
-            failure, the exam score, and the run's factual coverage.
+            failure, the benchmark score, and the run's factual coverage.
         """
 
         # WHY the sync face stays: every existing benchmark's aggregate handler is a
         # sync url4 endpoint; only the async face below changes who drives the loop.
         return _run_sync(
             self.aggregate_async(
-                raw_rows,
+                raw_case_grades,
                 benchmark_id=benchmark_id,
                 benchmark_revision=benchmark_revision,
                 selected_cases=selected_cases,
@@ -272,7 +272,7 @@ class ScoredPath:
 
     async def aggregate_async(
         self,
-        raw_rows: str,
+        raw_case_grades: str,
         *,
         benchmark_id: str,
         benchmark_revision: str,
@@ -293,7 +293,7 @@ class ScoredPath:
 
         # Stage 1-2 — roll call and row filing (position is identity; see rows.py).
         case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
-        indexed: RowIndex = self.reader.index(raw_rows, case_ids)
+        indexed: CaseGradeIndex = self.reader.index(raw_case_grades, case_ids)
         # Stage 3-4 — the hook is async (an enclave call is a network hop).
         case_results: list[CaseResult] = await self._case_results(
             selected_cases, indexed, grading_material, case_metadata
@@ -310,7 +310,7 @@ class ScoredPath:
     async def _case_results(
         self,
         selected_cases: Sequence[SelectedCase],
-        indexed: RowIndex,
+        indexed: CaseGradeIndex,
         grading_material: Callable[[int], object | None],
         case_metadata: Callable[[int], Mapping[str, Any]] | None,
     ) -> list[CaseResult]:
@@ -320,7 +320,7 @@ class ScoredPath:
             await self._case_result(selected, index, indexed, grading_material, case_metadata)
             for index, selected in enumerate(selected_cases)
         ]
-        # An omitted Case (a missing-row hook returned None) files nothing; the
+        # An omitted Case (a missing-case hook returned None) files nothing; the
         # finalizer materialises it as case_result_missing, so nothing vanishes.
         return [result for result in results if result is not None]
 
@@ -328,12 +328,12 @@ class ScoredPath:
         self,
         selected_case: SelectedCase,
         selected_index: int,
-        indexed: RowIndex,
+        indexed: CaseGradeIndex,
         grading_material: Callable[[int], object | None],
         case_metadata: Callable[[int], Mapping[str, Any]] | None,
     ) -> CaseResult | None:
         case_id: int = int(selected_case.case_id)
-        row: dict[str, Any] | None = indexed.rows.get(case_id)
+        row: dict[str, Any] | None = indexed.case_grades.get(case_id)
         material: object | None = grading_material(case_id)
         extra_metadata: Mapping[str, Any] = case_metadata(case_id) if case_metadata else {}
         ladder: CaseResult | _Omitted | None = self._ladder_result(
@@ -369,7 +369,7 @@ class ScoredPath:
         self,
         selected: SelectedCase,
         selected_index: int,
-        indexed: RowIndex,
+        indexed: CaseGradeIndex,
         row: Mapping[str, Any] | None,
         material: object | None,
         extra_metadata: Mapping[str, Any],
@@ -389,14 +389,14 @@ class ScoredPath:
                 default_code=self.grading_failure_code,
                 default_message=self.grading_failure_message,
             )
-        elif self.error_row_result is not None and row is not None and "error" in row:
-            # A benchmark that owns its error rows also owns their rank: the broken row
+        elif self.error_case_result is not None and row is not None and "error" in row:
+            # A benchmark that owns its error cases also owns their rank: the broken row
             # is reported before the benchmark's own missing material (draco's order).
-            result = self.error_row_result(selected, selected_index, row)
+            result = self.error_case_result(selected, selected_index, row)
         elif material is None:
             result = self._missing_material(selected, selected_index, row, extra_metadata)
         elif row is None:
-            result = self._missing_row(selected, selected_index, indexed, case_id, extra_metadata)
+            result = self._missing_case(selected, selected_index, indexed, case_id, extra_metadata)
         elif "error" in row:
             failure = self._failure(case_id, "candidate", "case_error", error=row["error"])
             result = self._failed_result(selected, row, [], failure, extra_metadata)
@@ -420,20 +420,20 @@ class ScoredPath:
         )
         return self._failed_result(selected, row, [], failure, extra_metadata)
 
-    def _missing_row(
+    def _missing_case(
         self,
         selected: SelectedCase,
         selected_index: int,
-        indexed: RowIndex,
+        indexed: CaseGradeIndex,
         case_id: int,
         extra_metadata: Mapping[str, Any],
     ) -> CaseResult | _Omitted:
-        """The missing-row rung: benchmark-owned shape — or omission — when the hook is set."""
+        """The missing-case rung: benchmark-owned shape — or omission — when the hook is set."""
 
         orphans: list[dict[str, Any]] | None = indexed.collected_errors.get(case_id)
-        if self.missing_row_result is None:
-            return self._missing_row_result(selected, orphans, extra_metadata)
-        benchmark_result: CaseResult | None = self.missing_row_result(
+        if self.missing_case_result is None:
+            return self._missing_case_result(selected, orphans, extra_metadata)
+        benchmark_result: CaseResult | None = self.missing_case_result(
             selected, selected_index, orphans
         )
         # None from the benchmark hook means "file nothing" — the finalizer reports
@@ -492,14 +492,14 @@ class ScoredPath:
             return refusal_case_result(refusal=fields.refusal, **common)
         return scored_case_result(output=fields.output, **common)
 
-    def _missing_row_result(
+    def _missing_case_result(
         self,
         selected: SelectedCase,
         orphan_errors: list[dict[str, Any]] | None,
         extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
         # WHY the collected_errors attachment: an on_error=collect row loses its
-        # Case identity, so a mid-chain error surfaces HERE as a missing row —
+        # Case identity, so a mid-chain error surfaces HERE as a missing case —
         # without the orphan payloads the report would name the symptom but hide
         # the cause (exactly what happened in the first live smoke run).
         failure: dict[str, Any] = self._failure(
@@ -684,11 +684,11 @@ def _source_error(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
 __all__ = [
     "CaseGradeOutcome",
-    "ErrorRowResult",
+    "ErrorCaseResult",
     "MissingMaterialResult",
     "GradeCase",
     "GradeRequest",
     "HookFailureResult",
-    "MissingRowResult",
+    "MissingCaseResult",
     "ScoredPath",
 ]

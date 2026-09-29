@@ -14,7 +14,7 @@ GDPval grading has three layers, and only the third is reachable from this Engin
    without knowing which is which, and picks the better one (or a tie). Score = the model's
    WIN RATE against the human deliverable. One comparison takes over an hour, because judging
    "is this competitor-landscape deck actually good?" takes an expert reading everything.
-   That's the number in frontier-model launch tables. Mental model: not an exam with an answer
+   That's the number in frontier-model launch tables. Mental model: not a benchmark with an answer
    key — a blind hiring panel comparing two portfolios.
 
 2. OpenAI's automated stand-in. They also built an experimental automated grader that tries to
@@ -39,9 +39,9 @@ References:
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.gdpval.exam import gdpval_benchmark
 from screamingface_engine.benchmarks.gdpval.scoring import mean
 from screamingface_engine.benchmarks.gdpval.subset import TEXT_SUBSET_TASK_IDS, subset_sha
+from screamingface_engine.benchmarks.gdpval.variant import gdpval_benchmark
 
 GDPVAL_DATASET_URL = "https://huggingface.co/datasets/openai/gdpval"
 
@@ -50,7 +50,7 @@ GDPVAL_DATASET_URL = "https://huggingface.co/datasets/openai/gdpval"
 TEXT_CASE_COUNT = len(TEXT_SUBSET_TASK_IDS)
 TEXT_CASE_IDS = tuple(range(1, TEXT_CASE_COUNT + 1))
 
-TEXT_EXAM, GDPVAL_TEXT = gdpval_benchmark(
+TEXT_VARIANT, GDPVAL_TEXT = gdpval_benchmark(
     id="gdpval-text",
     title="GDPval Text Subset",
     description=(
@@ -80,6 +80,6 @@ TEXT_EXAM, GDPVAL_TEXT = gdpval_benchmark(
     dataset_url=GDPVAL_DATASET_URL,
 )
 
-# AIDEV-NOTE: a benchmark exposes exactly two names — the `Exam` (what the runtime installs) and the
-# `Benchmark` (what the catalogue publishes). Reach a route through `TEXT_EXAM.routes.*`.
-__all__ = ["GDPVAL_TEXT", "TEXT_CASE_COUNT", "TEXT_CASE_IDS", "TEXT_EXAM"]
+# AIDEV-NOTE: a benchmark exposes exactly two names — the `Benchmark` (what the runtime installs)
+# and the `Benchmark` (what the catalogue publishes). Reach a route through `TEXT_VARIANT.routes.*`.
+__all__ = ["GDPVAL_TEXT", "TEXT_CASE_COUNT", "TEXT_CASE_IDS", "TEXT_VARIANT"]

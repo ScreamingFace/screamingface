@@ -11,11 +11,11 @@ on the shared hook — the proof the hook is not single-pass-shaped.
 STORY: as a researcher, the number I publish is the DRACO paper's
 ``normalized_score`` (arXiv:2602.11685 §4.2).
 
-The stages, in execution order (one aggregate call = marking one benchmark's exam):
+The stages, in execution order (one aggregate call = marking one benchmark's benchmark):
 
     Stage 1  selection validation      → non-empty, unique positive ids, input text
-    Stage 2  row filing (spine)        → RowReader + the exact envelope decoder;
-             draco CLAIMS anonymous error rows — position is identity here
+    Stage 2  row filing (spine)        → CaseGradeReader + the exact envelope decoder;
+             draco CLAIMS anonymous error cases — position is identity here
     Stage 3  the ladder (spine)        → draco's benchmark-owned failure shapes ride the
              four result hooks below; the spine's default rungs never fire
     Stage 4  grade_case (this module)  → valid verdicts per rubric → score_case over
@@ -23,12 +23,12 @@ The stages, in execution order (one aggregate call = marking one benchmark's exa
     Stage 5  the scorer (this module)  → the official cross-Case reduction
 
 INVARIANT: failure output is byte-identical to the pre-fold ``draco/aggregate.py``,
-with ONE owner-approved delta: an error row's Case now carries the selected Case's
+with ONE owner-approved delta: an error case's Case now carries the selected Case's
 own metadata (the cases.json extras, e.g. ``domain``) where pre-fold published
-``{}`` — error rows were the only Case shape dropping it (pinned in
+``{}`` — error cases were the only Case shape dropping it (pinned in
 ``test_draco_failure_integrity.py::test_an_error_row_case_carries_the_selected_cases_own_metadata``).
-The seven e2e failure tapes pin an error row's UPSTREAM code ("rate_limited",
-"provider_error") on a candidate-stage, grade-less failure; a missing row lands as
+The seven e2e failure tapes pin an error case's UPSTREAM code ("rate_limited",
+"provider_error") on a candidate-stage, grade-less failure; a missing case lands as
 the finalizer's ``case_result_missing``; a missing rubric is ``missing_case_rubric``
 with a ``row_index``; an unscoreable Case is ``judge_reply_invalid`` carrying its
 full zeroed metric block as audit material. The draco-3pass golden pins the scored
@@ -58,7 +58,7 @@ from screamingface_engine.benchmarks.draco.case_evaluation import decode_case_ev
 from screamingface_engine.benchmarks.draco.definition import JUDGE_PASSES, REVISION
 from screamingface_engine.benchmarks.draco.errors import AggregateError
 from screamingface_engine.benchmarks.draco.validation import optional_integer
-from screamingface_engine.benchmarks.spine.rows import RowReader
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
     GradeCase,
@@ -112,11 +112,11 @@ def aggregate(
         for case in expected
     ]
     path = ScoredPath(
-        reader=RowReader(
+        reader=CaseGradeReader(
             benchmark_label="DRACO",
             error_type=AggregateError,
             decode_case_evaluation=_decode(judge_passes),
-            # Position is identity: an anonymous error row IS that Case's row here.
+            # Position is identity: an anonymous error case IS that Case's row here.
             claim_anonymous_errors=True,
         ),
         grade_case=_grade_case(judge_passes),
@@ -124,10 +124,10 @@ def aggregate(
         method="rubric",
         grading_failure_code="draco_grading_failed",
         grading_failure_message="the DRACO grader could not grade this Case",
-        # A missing row files NOTHING — the finalizer reports case_result_missing,
+        # A missing case files NOTHING — the finalizer reports case_result_missing,
         # exactly the shape the pre-fold zip produced by dropping the Case.
-        missing_row_result=lambda selected, index, orphans: None,
-        error_row_result=_error_row_result,
+        missing_case_result=lambda selected, index, orphans: None,
+        error_case_result=_error_case_result,
         missing_material_result=_missing_material_result,
         hook_failure_result=_hook_failure_result,
     )
@@ -174,8 +174,8 @@ def _grade_case(judge_passes: int) -> GradeCase:
 # ── the benchmark-owned failure shapes (each replaces one spine rung) ───────────
 
 
-def _error_row_result(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
-    """An error row publishes the UPSTREAM error's own code, with no grade envelope."""
+def _error_case_result(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
+    """An error case publishes the UPSTREAM error's own code, with no grade envelope."""
 
     metadata: dict[str, Any] = {"row_index": index}
     diagnostic = public_error(

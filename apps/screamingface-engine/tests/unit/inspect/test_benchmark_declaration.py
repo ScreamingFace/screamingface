@@ -207,7 +207,7 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-lab_bench_protocolqa": ("coverage_declare", "single_shot", "hard"),
         "inspect-lab_bench_seqqa": ("coverage_declare", "single_shot", "hard"),
         "inspect-lab_bench_cloning_scenarios": ("coverage_declare", "single_shot", "hard"),
-        # OME-1269: Thai grade-12 national exam MCQ, the first question-filter benchmark.
+        # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
         "inspect-onet_m6": ("coverage_declare", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).
         "inspect-pubmedqa": ("coverage_declare", "single_shot", "medium"),

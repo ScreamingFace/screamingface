@@ -4,7 +4,7 @@ gdpval-text has NO e2e golden yet (OME-1098), so this pin is the only net provin
 shared scored path did not move the benchmark's published surface. The keys are the class
 results a leaderboard reader parses; renaming one silently breaks every consumer.
 
-INVARIANT: the metric key set — and the exam-payload keys around it — stay exactly as
+INVARIANT: the metric key set — and the benchmark-payload keys around it — stay exactly as
 the pre-extraction `gdpval/aggregate.py` emitted them.
 """
 
@@ -116,7 +116,7 @@ def test_gdpval_metric_keys_are_byte_identical_to_the_pre_extraction_benchmark(
         "verdict_coverage",
         "judge_invalid_replies",
     }
-    # And the surrounding exam payload keeps its published shape and math:
+    # And the surrounding benchmark payload keeps its published shape and math:
     # case 1 = (5-3)/8 = 0.25, case 2 = 4/4 = 1.0, mean = 0.625.
     assert result["score"] == 0.625
     assert result["coverage"] == 1.0

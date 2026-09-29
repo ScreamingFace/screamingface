@@ -91,8 +91,8 @@ Two row shapes, one public, one benchmark-owned:
   and a non-blank `str` `input`; every other key rides through as Case metadata. The
   spine decodes it into `SelectedCase` (`benchmarks/aggregation.py`).
 - **The evaluation row** your `grade_case` receives: an **opaque, benchmark-owned envelope**
-  (`benchmarks/spine/rows.py` files it and never looks inside). Your
-  `RowReader.decode_case_evaluation` shapes it; the one sub-key the spine reads is
+  (`benchmarks/spine/case_grades.py` files it and never looks inside). Your
+  `CaseGradeReader.decode_case_evaluation` shapes it; the one sub-key the spine reads is
   `row["case"]` — the candidate fields (`status`, `output`, `finish_reason`, `refusal`,
   `execution`, `operations`, `metadata`) — so your decode must hoist that mapping (copy
   `medxpert/aggregate.py` or `ifeval/grade.py`).
@@ -175,7 +175,7 @@ complete registration of the whole surface (`medxpert/aggregate.py`):
 
 ```python
 _PATH = ScoredPath(
-    reader=RowReader(...),  # your decode from Step 3
+    reader=CaseGradeReader(...),  # your decode from Step 3
     grade_case=_grade_case,  # your marking rule from Step 4
     failure_messages=...,  # your benchmark's wording per failure code
     method="exact_match",
@@ -185,11 +185,11 @@ _PATH = ScoredPath(
 )
 ```
 
-then call `_PATH.aggregate(raw_rows, benchmark_id=..., benchmark_revision=...,
+then call `_PATH.aggregate(raw_case_grades, benchmark_id=..., benchmark_revision=...,
 selected_cases=..., grading_material=..., scorer=..., case_metadata=...)`. Four optional
-hooks let a benchmark reshape a ladder rung's result — `ifeval` sets `missing_row_result`,
+hooks let a benchmark reshape a ladder rung's result — `ifeval` sets `missing_case_result`,
 `draco` sets all four; don't set any until a golden or a spec forces you to. For the
-scorer: rubric benchmarks use the shared `exam_scorer(mean)` (`benchmarks/spine/exam.py`, fixed metric
+scorer: rubric benchmarks use the shared `mean_scorer(mean)` (`benchmarks/spine/mean_scorer.py`, fixed metric
 vocabulary); other benchmarks pass their own function (medxpert's `_accuracy`, ifeval's
 `_ifeval_score`).
 

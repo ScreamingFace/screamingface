@@ -1,10 +1,10 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this suite imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""Judged-benchmark assembly — the judge is exam identity, and its only exit is the node.
+"""Judged-benchmark assembly — the judge is benchmark identity, and its only exit is the node.
 
-A judged benchmark's exam is not just its dataset: swap the judge model, its prompt, or
-its pinned params and a candidate sits a DIFFERENT exam. This suite pins that the
+A judged benchmark's benchmark is not just its dataset: swap the judge model, its prompt, or
+its pinned params and a candidate sits a DIFFERENT benchmark. This suite pins that the
 judge declaration (``JudgeSpec``) rides the revision hash, that every misdeclaration
 refuses at assembly (CI), never at grade time, and that the aggregate binds the
 judge transport so the scorer's judge call leaves through the node's model route.
@@ -74,13 +74,13 @@ def _revision(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> str:
     return str(_assembled(spec, monkeypatch).benchmark.revision)
 
 
-# ── the judge is exam identity ───────────────────────────────────────────────
+# ── the judge is benchmark identity ───────────────────────────────────────────────
 
 
 def test_a_judged_benchmarks_revision_moves_with_the_judge_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """INVARIANT: swapping the judge is a different exam — the revision must move."""
+    """INVARIANT: swapping the judge is a different benchmark — the revision must move."""
 
     base = _revision(_judged_spec(), monkeypatch)
     other = _revision(
@@ -96,7 +96,7 @@ def test_a_judged_benchmarks_revision_moves_with_the_judge_model(
 def test_a_judged_benchmarks_revision_moves_with_the_judge_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The judge's grading prompt (template/instructions kwargs) is exam identity."""
+    """The judge's grading prompt (template/instructions kwargs) is benchmark identity."""
 
     base = _revision(_judged_spec(), monkeypatch)
     other = _revision(
@@ -132,7 +132,7 @@ def test_a_string_match_benchmarks_kwargs_stay_outside_the_hash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """INVARIANT (frozen published revisions): for an UNDECLARED benchmark, scorer kwargs
-    were never exam identity before OME-1240 and must not become it now — the 10
+    were never benchmark identity before OME-1240 and must not become it now — the 10
     published benchmarks keep their revisions byte-identical."""
 
     plain = _judged_spec(
@@ -155,7 +155,7 @@ def test_an_undeclared_gateway_judge_kwarg_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A row whose scorer calls the gateway without a JudgeSpec would grade with an
-    unpinned judge — silently outside exam identity. Refuse at assembly (CI)."""
+    unpinned judge — silently outside benchmark identity. Refuse at assembly (CI)."""
 
     spec = _judged_spec(judge=None)
     with pytest.raises(ValueError, match="judge"):
@@ -338,7 +338,7 @@ def test_a_judge_model_kwarg_without_a_declaration_is_refused(
     """Detection must key on the KWARG, not the scorer's name: a custom eval-module
     scorer (frontierscience's shape) carries its judge under a model kwarg while
     matching no model_graded_* name — importing it undeclared shipped a judge
-    outside exam identity (review finding, 2026-09-24)."""
+    outside benchmark identity (review finding, 2026-09-24)."""
 
     for kwargs in ({"model": None}, {"model": "openai/gpt-4o"}, {"grader_model": "openai/gpt-4o"}):
         spec = _judged_spec(
@@ -354,7 +354,7 @@ def test_a_non_gateway_judge_model_value_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A judge-model kwarg naming another provider would call OpenAI directly —
-    unmetered, outside the gateway, outside exam identity. Refused by name."""
+    unmetered, outside the gateway, outside benchmark identity. Refused by name."""
 
     spec = _judged_spec(
         scorer_kwargs={"model": "screamingface/judge-4", "grader_model": "openai/gpt-4o"},

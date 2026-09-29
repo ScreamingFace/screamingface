@@ -118,10 +118,10 @@ class BenchmarkDeployment:
     ) -> dict[str, BenchmarkAssetSummary]:
         """Download each benchmark's dataset once and write it to disk as fixed files.
 
-        Think of it as stocking a library before it opens: every exam is fetched, rendered
+        Think of it as stocking a library before it opens: every benchmark is fetched, rendered
         into questions plus an answer key, and written under ``root/<bundle id>/``. A run
         afterwards only reads those files and never reaches the network, which is what makes
-        an exam reproducible — questions that could shift between runs would not be a
+        a benchmark reproducible — questions that could shift between runs would not be a
         benchmark. Each bundle is one directory; several Benchmarks may share one, so a
         shared bundle is prepared once. Summaries come back in stable id order.
 

@@ -5,7 +5,7 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="laneA" value="IMAGE BUILD TIME — print the exam (prepare.py, runs once per image)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+        <mxCell id="laneA" value="IMAGE BUILD TIME — print the benchmark (prepare.py, runs once per image)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
           <mxGeometry x="40" y="40" width="1320" height="180" as="geometry" />
         </mxCell>
         <mxCell id="prep" value="pins.py + prepare.py&#xa;(dataset → baked assets)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneA">
@@ -28,7 +28,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="laneB" value="RUN TIME — sit + mark the exam (ScoredPath.aggregate, per candidate run)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
+        <mxCell id="laneB" value="RUN TIME — sit + mark the benchmark (ScoredPath.aggregate, per candidate run)" style="swimlane;startSize=30;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=14;fontStyle=1;pointerEvents=0;" vertex="1" parent="1">
           <mxGeometry x="40" y="280" width="1320" height="220" as="geometry" />
         </mxCell>
         <mxCell id="sel" value="select&#xa;cases" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
@@ -37,7 +37,7 @@
         <mxCell id="invoke" value="invoke&#xa;Candidate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
           <mxGeometry x="210" y="70" width="130" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="decode" value="decode rows&#xa;your RowReader" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
+        <mxCell id="decode" value="decode rows&#xa;your CaseGradeReader" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">
           <mxGeometry x="390" y="70" width="160" height="70" as="geometry" />
         </mxCell>
         <mxCell id="ladder" value="failure&#xa;ladder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="laneB">

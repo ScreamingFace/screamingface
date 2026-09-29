@@ -133,8 +133,8 @@ def load_rows() -> list[dict[str, Any]]:
         ) from exc
     loaded = datasets_mod.load_dataset(DATASET, revision=DATASET_REVISION, split=DATASET_SPLIT)
     rows = [dict(row) for row in loaded]
-    # INVARIANT: the pinned split holds exactly the exam this benchmark declares. Without this the
-    # bake succeeds on a resized split while the expression still declares EXPECTED_CASES, and
+    # INVARIANT: the pinned split holds exactly the benchmark this benchmark declares. Without this
+    # the bake succeeds on a resized split while the expression still declares EXPECTED_CASES, and
     # every coverage percentage divides by a denominator nobody verified.
     if len(rows) != EXPECTED_CASES:
         raise PrepareError(

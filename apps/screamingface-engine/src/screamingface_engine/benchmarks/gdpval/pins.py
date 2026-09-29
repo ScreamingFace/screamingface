@@ -2,7 +2,7 @@
 
 INVARIANT: every value here participates in the benchmark's revision hash. Changing one changes
 every route address, which is the point: an expression addressed to the old revision must never
-resolve against a changed exam.
+resolve against a changed benchmark.
 
 References:
     - Paper: https://arxiv.org/abs/2510.04374 (GDPval, Patwardhan et al., OpenAI, 2025)
@@ -14,7 +14,7 @@ from __future__ import annotations
 DATASET = "openai/gdpval"
 # WHY pinned: the gold subset is published data that can be re-pushed. The frozen selection in
 # `subset.py` addresses tasks by id, so a revision bump that dropped or renamed one must fail the
-# build rather than silently bake a smaller exam.
+# build rather than silently bake a smaller benchmark.
 #
 # WHY THIS revision specifically: it is "Release GDPval v2 (rubrics + deliverables)" (2026-02-10),
 # the commit that ADDED `rubric_json`. This benchmark grades those rubrics, so any earlier revision

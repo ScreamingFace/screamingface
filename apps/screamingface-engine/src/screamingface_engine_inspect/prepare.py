@@ -19,12 +19,12 @@ ONE generic pipeline serves every imported single-shot benchmark; a benchmark is
 :class:`CasesSpec` DATA entry in :data:`BENCHMARK_CASES` — dataset pins plus two dotted
 references into the eval's own code (its ``record_to_sample`` row rule, its prompt
 template). Row conversion and prompt formatting are inspect's own functions, CALLED,
-never reimplemented, so an imported exam's content is exactly what the eval publishes.
+never reimplemented, so an imported benchmark's content is exactly what the eval publishes.
 Importing eval #3 means adding one spec entry, zero new functions.
 
 INVARIANT — the Sample coming back from the eval's ``record_to_sample`` crosses ONE
 validated boundary (:func:`_validated_target`): a malformed row fails the whole bake
-by case number, never bakes a half-keyed or unkeyed exam.
+by case number, never bakes a half-keyed or unkeyed benchmark.
 
 INVARIANT — ``cases.json`` carries NO target. The client receives ids and prompts; the
 answer key stays in the image.
@@ -244,7 +244,7 @@ class CasesSpec:
     #: Pins one per-case CHOICE order for an eval whose hf_dataset call shuffles
     #: choices (shuffle_choices) — applied via inspect's own
     #: ``MemoryDataset.shuffle_choices`` over THIS BAKE'S pinned row order. The
-    #: pinned order is exam identity (it rides the benchmark's revision pins); it is
+    #: pinned order is benchmark identity (it rides the benchmark's revision pins); it is
     #: NOT the order inspect would produce for the same seeds when a row shuffle
     #: is also active, because the bake's row shuffle is not HF's algorithm —
     #: the importer refuses that combination whenever upstream seeded either
@@ -274,14 +274,14 @@ class CasesSpec:
     #: count. None (every benchmark before OME-1269) skips the step entirely.
     question_filter_task: str | None = None
     #: Arguments forwarded to ``task`` (xstest's {"subset": "safe"}) — they can
-    #: change which questions the filter keeps, so they ride exam identity too.
+    #: change which questions the filter keeps, so they ride benchmark identity too.
     question_filter_task_args: dict[str, Any] | None = None
     #: A NAMED DEVIATION from inspect: sample ids (``str(Sample.id)``) the bake
     #: leaves out even though inspect keeps them — for questions that cannot be
     #: graded as published (onet_m6: an answer letter past the last choice).
     #: Every id must be present, or the bake refuses (upstream moved under the
     #: deviation); ``case_count`` is the count left after the exclusion. The row
-    #: says why beside the ids, and the ids ride exam identity (OME-1269).
+    #: says why beside the ids, and the ids ride benchmark identity (OME-1269).
     excluded_sample_ids: tuple[str, ...] | None = None
     #: False for a judged benchmark whose judge grades from the question and the reply
     #: alone (xstest: complied / refused), so the dataset has no answer key to store.
@@ -292,7 +292,7 @@ class CasesSpec:
     #: The dataset sits behind a Hugging Face gate, so downloading it needs a token
     #: from an account that accepted its terms (xstest). Without one the bake stops by
     #: name, unless SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1 (PR builds, which get no
-    #: secret) skips the benchmark with a warning. Access, not exam identity: no pin.
+    #: secret) skips the benchmark with a warning. Access, not benchmark identity: no pin.
     needs_hf_token: bool = False
 
 
@@ -362,9 +362,9 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # letter target); prompt = the default MCQ render. Verified by a full
         # offline bake, 2026-09-17.
         record_to_sample="inspect_evals.commonsense_qa.commonsense_qa:record_to_sample",
-        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # WHY the seed: the upstream eval shuffles this benchmark's order per run
         # (hf_dataset shuffle=True, no seed) — the import pins one order as
-        # exam identity (review round 2026-09-17).
+        # benchmark identity (review round 2026-09-17).
         shuffle_seed=COMMONSENSE_QA_SHUFFLE_SEED,
     ),
     "paws": CasesSpec(
@@ -377,9 +377,9 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # Yes/No from the label. Verified by a full offline bake, 2026-09-17.
         record_to_sample="inspect_evals.paws.paws:record_to_sample",
         prompt_template="inspect_evals.paws.paws:TEMPLATE",
-        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # WHY the seed: the upstream eval shuffles this benchmark's order per run
         # (hf_dataset shuffle=True, no seed) — the import pins one order as
-        # exam identity (review round 2026-09-17).
+        # benchmark identity (review round 2026-09-17).
         shuffle_seed=PAWS_SHUFFLE_SEED,
     ),
     "boolq": CasesSpec(
@@ -392,9 +392,9 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # the question, Yes/No target); raw-input render (no template).
         # Verified by a full offline bake, 2026-09-17.
         record_to_sample="inspect_evals.boolq.boolq:record_to_sample",
-        # WHY the seed: the upstream eval shuffles this exam's order per run
+        # WHY the seed: the upstream eval shuffles this benchmark's order per run
         # (hf_dataset shuffle=True, no seed) — the import pins one order as
-        # exam identity (review round 2026-09-17).
+        # benchmark identity (review round 2026-09-17).
         shuffle_seed=BOOLQ_SHUFFLE_SEED,
     ),
     "mmlu_pro": CasesSpec(
@@ -481,7 +481,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # WHY the unbaked system_message is benign (review flag resolved): the
         # eval's SYSTEM_PROMPT is the generic "You are a helpful assistant that
         # will answer the questions given by the user." — boilerplate with no
-        # exam content. Every format instruction rides REGULAR_PROMPT, which IS
+        # benchmark content. Every format instruction rides REGULAR_PROMPT, which IS
         # the baked choice_template, so the baked prompt matches the eval's
         # rendered user turn.
     ),
@@ -496,7 +496,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # verify against the eval's task.
         # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
         # this pinned revision (verified 1273/1273 unique stable ids), so the
-        # bake's unfiltered rows are the same exam.
+        # bake's unfiltered rows are the same benchmark.
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
     "wmdp_chem": CasesSpec(
@@ -510,7 +510,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # verify against the eval's task.
         # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
         # this pinned revision (verified 408/408 unique stable ids), so the
-        # bake's unfiltered rows are the same exam.
+        # bake's unfiltered rows are the same benchmark.
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
     "wmdp_cyber": CasesSpec(
@@ -524,7 +524,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # verify against the eval's task.
         # WHY the eval's post-load filter_duplicate_ids is benign: a no-op at
         # this pinned revision (verified 1987/1987 unique stable ids), so the
-        # bake's unfiltered rows are the same exam.
+        # bake's unfiltered rows are the same benchmark.
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
     "hellaswag": CasesSpec(
@@ -702,7 +702,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # the dataset has no answer key (xstest's row rule sets no target).
         has_answer_key=False,
         # WHY the unbaked system_message is benign (musr precedent): the eval's
-        # system message is the generic "You are a helpful assistant." — no exam
+        # system message is the generic "You are a helpful assistant." — no benchmark
         # content, and the grading prompt never sees it.
     ),
     # --- importer: generated CasesSpec rows land above this line ---
@@ -710,11 +710,11 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
 
 
 def require_commit_sha(revision: str) -> str:
-    """Refuse a mutable revision ref — only a 40-hex commit sha is exam identity.
+    """Refuse a mutable revision ref — only a 40-hex commit sha is benchmark identity.
 
     WHY: a branch/tag ref like ``main`` resolves to different data over time while
     the benchmark's revision hash — built from the unchanging ref STRING — stays the
-    same: two builds could carry different exams under one revision. The importer
+    same: two builds could carry different benchmarks under one revision. The importer
     resolves refs to shas at import time; this is the mechanical backstop for a
     hand-written row (review round 2026-09-17).
     """
@@ -748,7 +748,7 @@ def mcq_prompt(question: str, choices: Sequence[str], template: str | None = Non
     eval's own override when it passes one to ``multiple_choice`` (the benchmark's
     ``choice_template`` reference, resolved by the caller); None renders inspect's
     default SINGLE_ANSWER template — a custom template must render VERBATIM, or the
-    baked exam would silently differ from the eval's (OME-1116 milestone C).
+    baked benchmark would silently differ from the eval's (OME-1116 milestone C).
     """
 
     # AIDEV-NOTE: private-module import (inspect_ai.solver._multiple_choice) — safe
@@ -773,14 +773,14 @@ def emit_cases(
 ) -> dict[str, Any]:
     """Bake any imported single-shot benchmark from the eval's own conversion functions.
 
-    Think of it as one print shop for every imported exam: the spec points at the
+    Think of it as one print shop for every imported benchmark: the spec points at the
     eval's own row-to-Sample rule and prompt template, and the shop prints the public
     booklet plus the sealed answer keys. Stages, in execution order:
 
-        Stage 1 — refuse a mutable revision ref (only a 40-hex sha is exam identity)
+        Stage 1 — refuse a mutable revision ref (only a 40-hex sha is benchmark identity)
                   and a wrong-sized dataset (the pinned case count is, too). A
                   question-filter benchmark checks its count after Stage 3b instead.
-        Stage 2 — shuffle when the spec pins a seed (the baked order is exam identity).
+        Stage 2 — shuffle when the spec pins a seed (the baked order is benchmark identity).
         Stage 3 — per row: the eval's ``record_to_sample`` builds the Sample; any raise
                   fails the bake by case number.
         Stage 3b — question-filter benchmarks only: the eval's own task function drops the
@@ -789,7 +789,7 @@ def emit_cases(
         Stage 4 — shuffle each Sample's CHOICE order when the spec pins a choice seed,
                   via inspect's own ``MemoryDataset.shuffle_choices`` over the WHOLE
                   dataset at once — upstream draws every case's permutation from one
-                  random stream, so a per-case shuffle would pin a different exam.
+                  random stream, so a per-case shuffle would pin a different benchmark.
         Stage 5 — per Sample: cross the one validated boundary (non-empty input/target,
                   target letter within the choices for MCQ benchmarks), then render the
                   prompt from the Sample's own shape: choices → the MCQ formatter; a
@@ -847,7 +847,7 @@ def emit_cases(
 def _pinned_samples(
     spec: CasesSpec, rows: list[dict[str, Any]], expected_cases: int | None
 ) -> list[Sample]:
-    """Stages 1 (size), 2, 3 and 3b — the raw rows become the exam's Samples, in the
+    """Stages 1 (size), 2, 3 and 3b — the raw rows become the benchmark's Samples, in the
     pinned order. A benchmark that drops questions (a question filter, or a named exclusion)
     checks its size on what is left instead of on the raw rows."""
 
@@ -922,12 +922,12 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
                   ``spec.question_filter_task_args``. A raise refuses by name — e.g. inspect's
                   "dataset is empty" when the filter kept nothing.
         Stage 3 — refuse unless the loader ran exactly once (a second load, a
-                  fewshot pool, would have been handed the exam's samples too), and
+                  fewshot pool, would have been handed the benchmark's samples too), and
                   asked for the dataset, config and split this row pins (the swap
-                  ignores them, so a mismatched row would bake another load's exam).
+                  ignores them, so a mismatched row would bake another load's benchmark).
         Stage 4 — refuse unless the Task's samples are an in-order subset of ours,
                   compared by identity: the question filter may only DROP questions. An
-                  added, duplicated or reordered sample is an exam we never pinned.
+                  added, duplicated or reordered sample is a benchmark we never pinned.
 
     Args:
         spec: the benchmark's bake declaration; ``spec.question_filter_task`` must be set.
@@ -1071,7 +1071,7 @@ def _shuffle_choices(samples: list[Sample], seed: int) -> None:
     WHY the whole dataset at once: ``MemoryDataset.shuffle_choices`` draws every
     sample's permutation (and target-letter remap) from ONE ``random.Random(seed)``
     stream, so each case's order depends on its position — shuffling per case
-    would bake a different exam than the eval family produces for this seed.
+    would bake a different benchmark than the eval family produces for this seed.
     """
 
     from inspect_ai.dataset import MemoryDataset
@@ -1095,7 +1095,7 @@ def _resolved_system_text(spec: CasesSpec) -> str | None:
     (hellaswag's SYSTEM_MESSAGE); the leading text must join the render with
     exactly one blank line. A non-string resolution (a mispointed reference
     landing on a function) refuses the bake — str() would silently bake its
-    repr into every case of the exam (review finding on PR #1018).
+    repr into every case of the benchmark (review finding on PR #1018).
     """
 
     if spec.system_message is None:
@@ -1193,7 +1193,7 @@ def _validated_target(
 
 def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any]:
     """The target file is JSON — refuse an unserializable metadata value by case
-    number; truncating or coercing an exam asset silently is never an option."""
+    number; truncating or coercing a benchmark asset silently is never an option."""
 
     try:
         json.dumps(metadata)
@@ -1205,11 +1205,11 @@ def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any
 
 
 def _require_case_count(count: int, expected: int | None, source: str, unit: str) -> None:
-    """Refuse a wrong-sized bake — a config/revision typo must never ship a smaller exam.
+    """Refuse a wrong-sized bake — a config/revision typo must never ship a smaller benchmark.
 
-    WHY: the row count is part of the exam's identity (the pinned CASE_COUNT rides the
+    WHY: the row count is part of the benchmark's identity (the pinned CASE_COUNT rides the
     revision hash); an upstream change or a wrong split silently yielding 0 or N±k rows
-    would bake a DIFFERENT exam with a green build. ``source``/``unit`` name what was
+    would bake a DIFFERENT benchmark with a green build. ``source``/``unit`` name what was
     counted: raw rows ("dataset yielded … rows") or a question filter's kept cases.
     """
 

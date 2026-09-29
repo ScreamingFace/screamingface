@@ -19,14 +19,14 @@ from screamingface_engine.benchmarks.draco.definition import (
 )
 from screamingface_engine.benchmarks.draco.definition import DRACO, DRACO_3PASS
 from screamingface_engine.benchmarks.gdpval.definition import GDPVAL_TEXT
-from screamingface_engine.benchmarks.gdpval.exam import (
+from screamingface_engine.benchmarks.gdpval.variant import (
     ASSET_BUNDLE_ID as GDPVAL_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
 )
-from screamingface_engine.benchmarks.healthbench.exam import (
+from screamingface_engine.benchmarks.healthbench.variant import (
     ASSET_BUNDLE_ID as HEALTHBENCH_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.ifeval.definition import (

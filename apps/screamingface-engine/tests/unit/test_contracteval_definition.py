@@ -1,6 +1,6 @@
 """The ContractEval benchmark — identity, revision inputs, and the expression contract.
 
-INVARIANT under test: prompt bytes are exam identity. Grading spends no judge tokens, so the
+INVARIANT under test: prompt bytes are benchmark identity. Grading spends no judge tokens, so the
 prompt is the only thing standing between a model and its score — and on this benchmark it is
 unusually load-bearing, because "Do not rephrase or summarize" is what makes verbatim
 containment a fair test at all.
@@ -30,7 +30,7 @@ def test_the_benchmark_is_registered() -> None:
 
 def test_every_route_carries_the_revision() -> None:
     """INVARIANT: an expression addressed to an old revision must never resolve against a
-    changed exam, which is only true while every route carries the revision."""
+    changed benchmark, which is only true while every route carries the revision."""
 
     for route in (
         benchmark.CASES_ROUTE,

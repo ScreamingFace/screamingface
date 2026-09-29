@@ -57,7 +57,7 @@ def test_selection_returns_the_frozen_tasks_in_frozen_order() -> None:
 
 def test_a_missing_task_fails_the_build_and_names_it() -> None:
     # INVARIANT: the dataset moving under the frozen selection must stop the build, never
-    # silently bake a smaller exam under the same identity.
+    # silently bake a smaller benchmark under the same identity.
     rows = [r for r in _all_rows() if r["task_id"] != TEXT_SUBSET_TASK_IDS[0]]
     with pytest.raises(PrepareError) as excinfo:
         select_rows(rows)

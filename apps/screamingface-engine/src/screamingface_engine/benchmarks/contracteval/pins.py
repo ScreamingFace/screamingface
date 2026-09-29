@@ -3,7 +3,7 @@
 INVARIANT: the IDENTITY pins below participate in the benchmark's revision hash — dataset, split,
 dataset revision, preparer revision, protocol revision. Changing one changes every route
 address, which is the point: an expression addressed to an old revision must never resolve
-against a changed exam.
+against a changed benchmark.
 
 AIDEV-NOTE (review, PR #984): this header used to claim EVERY value here is hashed. It is not,
 and the lockfile's own header must not overclaim. `MAX_TOKENS`, `TEMPERATURE` and
@@ -34,7 +34,7 @@ DATASET_REVISION = "d9c4ee0250ae2eb97bdb5b50773ab14ea62d0631"
 # WHY: prepare's emission rules are part of the answer key; bump when they change.
 #: The captured row count — 102 contracts × 41 clause categories. Asserted at bake time by
 #: `prepare.load_rows`, so bumping DATASET_REVISION against a split of a different size fails
-#: the build instead of silently serving an exam whose declared `case_count` it does not hold.
+#: the build instead of silently serving a benchmark whose declared `case_count` it does not hold.
 #: WHY it matters beyond tidiness (review of PR #984): `available_case_count` feeds the
 #: expression, and coverage percentages divide by a denominator nobody would have verified.
 EXPECTED_CASES = 4182

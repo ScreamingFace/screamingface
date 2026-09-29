@@ -58,7 +58,7 @@ def test_the_pronoun_i_is_read_as_choice_i_at_ten_options() -> None:
 
     AIDEV-NOTE: it is only reachable at >= 9 options, and only when the model writes a bare "I"
     in the committed span. Do not "fix" it without changing PROTOCOL_REVISION — that is a
-    different exam.
+    different benchmark.
     """
 
     assert extract_choice_letter("I could not determine the answer.", 10) == "I"

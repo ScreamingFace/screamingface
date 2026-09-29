@@ -3,7 +3,7 @@
 # default (extra-less) install the typecheck gate runs against.
 """The published benchmarks' EXACT revisions — frozen as literals.
 
-A benchmark's revision is its exam identity: members' published scores hang off it, and
+A benchmark's revision is its benchmark identity: members' published scores hang off it, and
 the snapshot store treats a revision's baked assets as immutable. Every revision
 input so far (pins, protocol constants, the OME-1240 judge pins) is code an innocent
 refactor can touch, and the uniqueness/moves tests cannot see a WHOLESALE shift —
@@ -12,7 +12,7 @@ stayed green (2026-09-24). These literals make that failure loud.
 
 When a revision here changes on purpose (a pin bump, a protocol revision bump),
 updating the literal IS the review act — the diff line is the declaration that the
-published exam moved.
+published benchmark moved.
 
 Runs only with the `inspect` extra installed.
 """

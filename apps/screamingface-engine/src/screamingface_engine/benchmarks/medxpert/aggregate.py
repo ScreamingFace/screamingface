@@ -34,7 +34,7 @@ from screamingface_engine.benchmarks.aggregation import CandidateScore, Selected
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.medxpert.case_evaluation import decode_case_evaluation
 from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
     GradeRequest,
@@ -76,7 +76,7 @@ def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
 
 
 def aggregate(
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     benchmark_id: str,
@@ -91,7 +91,7 @@ def aggregate(
         case_id: load_answer(root, case_id) for case_id in case_ids
     }
     return _PATH.aggregate(
-        raw_rows,
+        raw_case_grades,
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
         selected_cases=selected_cases(root, case_ids),
@@ -132,7 +132,7 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
 
 
 async def _grade_case(request: GradeRequest) -> CaseGradeOutcome:
-    """Exact-match one committed letter against the private key — the whole exam rule.
+    """Exact-match one committed letter against the private key — the whole benchmark rule.
 
     INVARIANT: an unanswered Case scores 0.0, not None — the official empty-prediction
     verdict. It counts toward the denominator like any other answered Case.
@@ -229,7 +229,7 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
 # failure-message wording stay benchmark-owned so per-case output is byte-identical to the
 # pre-fold copy (the medxpert unit suite pins every rung — no golden exists yet).
 _PATH = ScoredPath(
-    reader=RowReader(
+    reader=CaseGradeReader(
         benchmark_label="MedXpertQA",
         error_type=AggregateError,
         decode_case_evaluation=_decode,

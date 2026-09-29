@@ -11,7 +11,7 @@ grading pass — the same wall socket FrontierScience's named judge plugs into.
 
 INVARIANT the suite defends: an unbound role never calls anyone. The binding is scoped
 to one grading pass, a role-based scorer without a declared judge refuses at assembly,
-and a judge that fills a model role is exam identity exactly like a named one.
+and a judge that fills a model role is benchmark identity exactly like a named one.
 
 Runs only with the `inspect` extra installed.
 """
@@ -226,7 +226,7 @@ def test_a_model_role_judge_assembles_and_rides_the_benchmark(
 def test_a_model_role_benchmarks_revision_moves_with_the_judge_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """INVARIANT: a judge that fills a model role is exam identity — swap it, the exam moves."""
+    """INVARIANT: the model-role judge is revision identity — swap it and the revision moves."""
 
     base = str(_assembled(_role_spec(), monkeypatch).benchmark.revision)
     other = str(

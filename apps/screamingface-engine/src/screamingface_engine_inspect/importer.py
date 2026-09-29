@@ -5,7 +5,7 @@
 # these imports type-check normally.
 """The pin generator — turn one inspect eval into this plugin's three row diffs.
 
-Think of it as a customs officer for imported exams: the eval declares what it is
+Think of it as a customs officer for imported benchmarks: the eval declares what it is
 (the importer READS the task — never re-types it), the officer stamps what it
 observed (revision sha, row count, license — facts no eval file carries), and the
 paperwork lands as an in-place edit to pins.py / prepare.py / benchmarks.py so that
@@ -106,7 +106,7 @@ class InspectTaskFacts:
     #: contracteval named-deviation pattern, owner-approved on OME-1253). An
     #: inline-literal system message still earns the review flag instead.
     system_message: str | None = None
-    #: The eval shuffles its exam order (hf_dataset shuffle=True). Without a seed
+    #: The eval shuffles its question order (hf_dataset shuffle=True). Without a seed
     #: the upstream order is random per run, so an import must pin one order —
     #: the upstream seed when the eval has one, else a --shuffle-seed policy seed.
     upstream_shuffle: bool = False
@@ -126,7 +126,7 @@ class InspectTaskFacts:
     #: module constant (infinite_bench's constants:ft) — the row points, never
     #: copies; resolved and type-checked at bake time (OME-1264 ext 2).
     features: str | None = None
-    #: The eval drops questions after loading — a ``.filter()`` on the exam load
+    #: The eval drops questions after loading — a ``.filter()`` on the benchmark load
     #: other than inspect_evals' duplicate-id remover (OME-1269). The row then
     #: names the task function, so the bake lets the eval's own filter pick.
     filters_after_load: bool = False
@@ -187,7 +187,7 @@ def read_inspect_task(
     if not hasattr(module, "hf_dataset"):
         raise ImporterError(
             f"{module_name} has no hf_dataset binding — the importer only reads evals "
-            "that load their exam from the HuggingFace Hub"
+            "that load their questions from the HuggingFace Hub"
         )
 
     recorded: list[tuple[dict[str, Any], Any]] = []
@@ -208,7 +208,7 @@ def read_inspect_task(
     finally:
         module.hf_dataset = original  # type: ignore[attr-defined]
 
-    kwargs, cases_load_stub = _exam_dataset_kwargs(task, recorded, task_ref)
+    kwargs, cases_load_stub = _question_dataset_kwargs(task, recorded, task_ref)
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _require_module_level_record_to_sample(
         kwargs.get("sample_fields"), task_ref
@@ -283,7 +283,7 @@ def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
     Task before the importer can read it. Returning the stub itself keeps the Task
     buildable and its identity intact; the real filter runs at bake time
     (OME-1269). Each call is recorded as ``(dataset, predicate)`` so only filters
-    on the exam load count.
+    on the benchmark load count.
     """
 
     from inspect_ai.dataset import MemoryDataset, Sample
@@ -310,8 +310,8 @@ def _drops_questions_after_load(
     kwargs: Mapping[str, Any],
     task_ref: str,
 ) -> bool:
-    """Whether the eval drops exam questions after loading — then the bake must run
-    its task (OME-1269). Filters on other loads (a fewshot pool) change no exam.
+    """Whether the eval drops benchmark questions after loading — then the bake must run
+    its task (OME-1269). Filters on other loads (a fewshot pool) change no benchmark.
 
     Three combinations refuse by name, because the question filter could not reproduce them:
     a second load (the bake hands the pinned questions to every load the task
@@ -321,18 +321,18 @@ def _drops_questions_after_load(
     over every row before its filter, the bake over the kept rows).
     """
 
-    exam_filters: list[str] = [
+    question_filters: list[str] = [
         f"{getattr(predicate, '__module__', '')}:{getattr(predicate, '__qualname__', '')}"
         for dataset, predicate in filters
         if dataset is cases_load_stub
     ]
-    if all(name == _DEDUPE_FILTER for name in exam_filters):
+    if all(name == _DEDUPE_FILTER for name in question_filters):
         return False
     if load_count != 1:
         raise ImporterError(
             f"{task_ref}: the eval drops questions after loading and loads {load_count} "
             "datasets — the bake's question-filter step hands the pinned questions to every load, "
-            "so it cannot reproduce this exam; import it by hand"
+            "so it cannot reproduce these questions; import it by hand"
         )
     if kwargs.get("auto_id"):
         raise ImporterError(
@@ -346,7 +346,7 @@ def _drops_questions_after_load(
             f"{task_ref}: the eval drops questions after loading and pins its own "
             "choice-shuffle seed — upstream draws each case's choice order over every "
             "row before its filter, the bake over the kept rows, so the same seed "
-            "would bake a different exam; import it by hand"
+            "would bake different questions; import it by hand"
         )
     return True
 
@@ -454,7 +454,7 @@ def _bound_call_arguments(
 
     WHY: the kwarg-reproduction guard judges kwargs BY NAME — a bucket entry like
     ``kwargs={'limit': 500}`` would be judged as one opaque kwarg called
-    'kwargs' instead of the ``limit`` that actually changes the exam.
+    'kwargs' instead of the ``limit`` that actually changes the benchmark.
     """
 
     try:
@@ -493,13 +493,13 @@ def _require_module_level_record_to_sample(sample_fields: Any, task_ref: str) ->
     return sample_fields
 
 
-def _exam_dataset_kwargs(
+def _question_dataset_kwargs(
     task: Any, recorded: list[tuple[dict[str, Any], Any]], task_ref: str
 ) -> tuple[dict[str, Any], Any]:
-    """The hf_dataset call whose result the Task holds — fewshot loads are not the exam.
+    """The hf_dataset call whose result the Task holds — fewshot loads are not the benchmark.
 
-    Returns that call's kwargs plus the stub it returned (the exam stub, whose
-    recorded filters are the ones that drop exam questions).
+    Returns that call's kwargs plus the stub it returned (the benchmark stub, whose
+    recorded filters are the ones that drop benchmark questions).
     """
 
     if not recorded:
@@ -510,12 +510,12 @@ def _exam_dataset_kwargs(
     if len(recorded) == 1 and _dataset_holds_the_stub(task.dataset):
         # WHY the fallback: some evals wrap the loaded dataset (shuffle/slice), so
         # identity breaks — but the wrapped dataset still CONTAINS the stub sample.
-        # A single HF call whose stub never reached the Task (a json exam with HF
-        # fewshots) must refuse: that call is not the exam (review round 2026-09-17).
+        # A single HF call whose stub never reached the Task (a json benchmark with HF
+        # fewshots) must refuse: that call is not the benchmark (review round 2026-09-17).
         return recorded[0]
     raise ImporterError(
         f"{task_ref}: {len(recorded)} hf_dataset call(s) and none is the Task's dataset — "
-        "cannot tell the exam load apart; pass task args that disable the extras"
+        "cannot tell the question load apart; pass task args that disable the extras"
     )
 
 
@@ -531,7 +531,7 @@ def _dataset_holds_the_stub(dataset: Any) -> bool:
 
 #: hf_dataset parameters the bake either reproduces (path/name/split/revision/
 #: sample_fields; shuffle and shuffle_choices via a pinned seed each) or that
-#: cannot change the exam's content (auto_id renumbers ids the bake reassigns
+#: cannot change the benchmark's content (auto_id renumbers ids the bake reassigns
 #: anyway; trust/cached/retry only affect how loading happens).
 _REPRODUCED_DATASET_KWARGS: frozenset[str] = frozenset(
     {
@@ -553,8 +553,8 @@ _BENIGN_DATASET_KWARGS: frozenset[str] = frozenset({"auto_id", "trust", "cached"
 def _refuse_irreproducible_dataset_kwargs(kwargs: dict[str, Any], task_ref: str) -> None:
     """Every hf_dataset kwarg is reproduced: reproduced, benign, or a refusal.
 
-    WHY: dropped kwargs are exam identity vanishing silently — an eval with
-    ``limit=500`` imported as the full split publishes a different exam with
+    WHY: dropped kwargs are benchmark identity vanishing silently — an eval with
+    ``limit=500`` imported as the full split publishes a different benchmark with
     every guard green (review blocker, 2026-09-17).
     """
 
@@ -604,7 +604,7 @@ def _solver_facts(
     task: Any, module: Any, task_ref: str
 ) -> tuple[str | None, str | None, str | None, tuple[str, ...], bool]:
     """The template references (prompt_template / custom multiple_choice / module-level
-    system message) + unknowns + whether the chain declares an MCQ exam."""
+    system message) + unknowns + whether the chain declares an MCQ benchmark."""
 
     from inspect_ai._util.registry import registry_info
 
@@ -632,7 +632,7 @@ def _solver_facts(
         elif name == "system_message":
             system_solvers.append(solver)
         elif name == "multiple_choice":
-            # WHY the flag: MCQ-ness is the exam's SHAPE (options + letter answer),
+            # WHY the flag: MCQ-ness is the benchmark's SHAPE (options + letter answer),
             # and this solver is one of its two witnesses (the other is the choice
             # scorer — see the mcq fact). The solver witness covers an eval grading
             # MCQ with its own scorer (lab_bench's precision_choice), which must
@@ -684,12 +684,12 @@ def _choice_template_fact(
             f"{registry_name} (custom choice template is not baked)",
         )
     # WHY (OME-1269): cot=True swaps in inspect's "Think step by step" template;
-    # ignoring the flag baked the plain wording, a different exam (onet_m6).
+    # ignoring the flag baked the plain wording, a different benchmark (onet_m6).
     # Answer parsing is the same for both templates, so grading is unchanged.
     cot_template: str | None = _COT_CHOICE_TEMPLATE if params.get("cot") else None
     if cot_template is not None and params.get("multiple_correct"):
         # The bake renders single-answer MCQ only; guessing the multi-answer
-        # CoT wording would change the exam silently.
+        # CoT wording would change the benchmark silently.
         custom.append(f"{registry_name} (cot with multiple_correct is not baked)")
         cot_template = None
     return cot_template
@@ -768,7 +768,7 @@ def _system_message_fact(
     named-deviation pattern, owner-approved on OME-1253). The row holds ONE
     pointer, so a chain sending two or more system messages flags (inspect
     sends them all; OME-1272). An inline literal has no module attribute for
-    the row to POINT at, and the importer never copies exam text, so it stays
+    the row to POINT at, and the importer never copies benchmark text, so it stays
     flagged too.
     """
 
@@ -784,7 +784,7 @@ def _system_message_fact(
     )
     if rewrite is not None:
         # WHY no fact at all (OME-1272): the bake delivers ONE constant's text
-        # verbatim, so any other text inspect sends would bake a different exam
+        # verbatim, so any other text inspect sends would bake a different benchmark
         # with every guard green.
         custom.append(f"{registry_name} ({rewrite})")
         return None
@@ -1113,7 +1113,7 @@ def _dataset_selection_parts(
 def _seed_parts(
     prefix: str, shuffle_seed: int | None, choice_shuffle_seed: int | None
 ) -> tuple[list[str], list[str], list[str]]:
-    """The two conditional exam-identity seeds' generated lines, in one place.
+    """The two conditional benchmark-identity seeds' generated lines, in one place.
 
     Returns (pin lines, import names, CasesSpec kwarg lines) — each seed
     contributes to all three lists or to none, so the pin-name contract
@@ -1225,7 +1225,7 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
             '        # "screamingface/<gateway-model-id>" and declare the SAME id (plus'
         )
         benchmark_lines.append(
-            "        # pinned params) here — both join the benchmark's exam identity."
+            "        # pinned params) here — both join the benchmark's identity."
         )
         benchmark_lines.append("        # If the scorer dispatches on sample metadata, also set")
         benchmark_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
@@ -1523,7 +1523,7 @@ def main(
         # AIDEV-NOTE: pinning upstream's seed does NOT reproduce upstream's row
         # order — the bake shuffles with random.Random, upstream with HF's
         # Dataset.shuffle (different algorithm, same seed). Harmless while rows
-        # are the only shuffle (any pinned order is a valid exam); combined with
+        # are the only shuffle (any pinned order is a valid benchmark); combined with
         # a choice shuffle it is refused below (review blocker on PR #1031).
         shuffle_seed: int | None = (
             args.shuffle_seed if args.shuffle_seed is not None else facts.upstream_shuffle_seed
@@ -1569,7 +1569,7 @@ def _resolved_choice_shuffle_seed(
 
     The policy flag exists for exactly one situation: the eval shuffles choices
     UNSEEDED, so someone must pick the order. Everywhere else the flag would
-    silently deviate from the exam upstream defines, so it refuses by name —
+    silently deviate from the benchmark upstream defines, so it refuses by name —
     over a seeded upstream (upstream already picked ONE order; review finding
     on PR #1031) and over an eval that does not shuffle choices at all. An
     unseeded shuffle with no flag refuses too: reproduced, never dropped.
@@ -1578,8 +1578,8 @@ def _resolved_choice_shuffle_seed(
     COMBINED with a row shuffle when upstream seeded either one. The bake's row
     shuffle is Python's, upstream's is HF's ``Dataset.shuffle`` — same seed,
     different order — and the choice shuffle draws each case's permutation from
-    one stream in row order, so the upstream-seeded exam cannot be reproduced.
-    With both seeds OURS (lab_bench) there is no fixed upstream exam to miss,
+    one stream in row order, so the upstream-seeded benchmark cannot be reproduced.
+    With both seeds OURS (lab_bench) there is no fixed upstream benchmark to miss,
     so the combination stays importable as pinned policy.
     """
 

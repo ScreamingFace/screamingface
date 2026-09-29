@@ -1,13 +1,13 @@
 """What every HealthBench benchmark pins identically — dataset, preparer, judge, check.
 
 Two benchmarks ship from this package: the worst-30% challenge (`definition.py`) and the full
-525-case professional exam (`professional.py`). They differ in which Cases they select and
-in the exam-level mean — and in NOTHING else. These constants are that "nothing else",
+525-case professional variant (`professional.py`). They differ in which Cases they select and
+in the benchmark-level mean — and in NOTHING else. These constants are that "nothing else",
 kept in one place so the two benchmarks cannot drift apart by accident.
 
 INVARIANT: every value here participates in both benchmarks' revision hashes. Changing one
 changes every route address on both benchmarks — which is the point: an old expression must
-never resolve against a changed exam.
+never resolve against a changed benchmark.
 
 References:
     - simple-evals (protocol authority): https://github.com/openai/simple-evals

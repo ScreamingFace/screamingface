@@ -1,4 +1,4 @@
-"""Baking the MedXpertQA assets — and every way the build refuses to bake a wrong exam.
+"""Baking the MedXpertQA assets — and every way the build refuses to bake a wrong benchmark.
 
 INVARIANT under test: the baked `input` is the row's question VERBATIM. MedXpertQA embeds its
 choice list inside the question text, so re-rendering `options` into the prompt would duplicate

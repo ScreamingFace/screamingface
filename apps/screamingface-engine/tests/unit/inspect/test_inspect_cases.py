@@ -9,7 +9,7 @@ INVARIANT the suite defends: prompt formatting reproduces the eval's own solver-
 templates at bake time; the public booklet (``cases.json``) never carries a target;
 the private ``targets/`` records hold exactly what the scorer adapter needs (the target,
 plus the choice texts for MCQ benchmarks); and the mmlu shuffle is seeded — the baked
-order is exam identity.
+order is benchmark identity.
 
 Runs only with the `inspect` extra installed.
 """
@@ -104,7 +104,7 @@ def test_mmlu_snapshot_bakes_letter_and_choices_privately(tmp_path: Path) -> Non
 
 
 def test_mmlu_snapshot_shuffles_deterministically(tmp_path: Path) -> None:
-    """INVARIANT: the seeded order is exam identity — same rows, same seed, same order."""
+    """INVARIANT: the seeded order is benchmark identity — same rows, same seed, same order."""
 
     first_dir = tmp_path / "first"
     second_dir = tmp_path / "second"
@@ -206,7 +206,7 @@ def test_choice_shuffle_failure_is_a_named_bake_refusal(
 
 
 def test_choice_shuffled_bake_is_deterministic(tmp_path: Path) -> None:
-    """INVARIANT: the pinned choice order is exam identity — same rows, same
+    """INVARIANT: the pinned choice order is benchmark identity — same rows, same
     seed, byte-identical assets across bakes (OME-1264)."""
 
     from dataclasses import replace
@@ -232,7 +232,7 @@ def test_hf_row_shuffle_is_not_pythons_row_shuffle() -> None:
     on PR #1031): upstream shuffles rows with HF's ``Dataset.shuffle(seed)``, the
     bake with ``random.Random(seed)`` — same seed, DIFFERENT order. The choice
     shuffle draws each case's permutation from one stream in row order, so an
-    upstream-seeded exam combined with any row shuffle cannot be reproduced.
+    upstream-seeded benchmark combined with any row shuffle cannot be reproduced.
     Asserted through the real datasets API, never a copy of production's shuffle
     — if the two orders ever converged, the refusal could be revisited."""
 
@@ -356,14 +356,14 @@ def test_mmlu_snapshot_refuses_an_out_of_range_answer(tmp_path: Path) -> None:
         emit_cases(BENCHMARK_CASES["mmlu"], [row], tmp_path)
 
 
-# ── exam-size and re-bake guards (shared by both benchmarks) ─────────────────────
+# ── benchmark-size and re-bake guards (shared by both benchmarks) ─────────────────────
 
 
 @pytest.mark.parametrize(("benchmark", "rows"), [("gsm8k", _GSM8K_ROWS), ("mmlu", _MMLU_ROWS)])
 def test_wrong_sized_dataset_refuses_the_bake(benchmark: str, rows: Any, tmp_path: Path) -> None:
-    """INVARIANT: the pinned case count is exam identity — a config/revision typo that
+    """INVARIANT: the pinned case count is benchmark identity — a config/revision typo that
     yields the wrong number of rows (0 included) must fail loudly, never bake a
-    smaller exam with a green build."""
+    smaller benchmark with a green build."""
 
     with pytest.raises(PrepareError, match="pinned case count"):
         emit_cases(BENCHMARK_CASES[benchmark], rows, tmp_path, expected_cases=len(rows) + 1)
@@ -389,7 +389,7 @@ def _spec_with_revision(revision: str) -> Any:
 
 @pytest.mark.parametrize("mutable_ref", ["main", "refs/tags/v1.0", "HEAD", ""])
 def test_bake_refuses_a_mutable_revision_ref(mutable_ref: str, tmp_path: Path) -> None:
-    """INVARIANT: only a 40-hex commit sha is exam identity. A branch/tag ref would
+    """INVARIANT: only a 40-hex commit sha is benchmark identity. A branch/tag ref would
     let upstream silently change a published benchmark while its revision hash — built
     from the unchanging ref STRING — stayed the same."""
 
@@ -418,7 +418,7 @@ def test_benchmark_assembly_refuses_a_mutable_revision_ref(
 def test_mcq_prompt_accepts_the_evals_own_template() -> None:
     """INVARIANT: a benchmark whose eval passes a custom template to multiple_choice
     must render THAT template — the default SINGLE_ANSWER render would silently
-    change the imported exam."""
+    change the imported benchmark."""
 
     template = "Choose one of {letters}.\n{question}\n{choices}\nReply with the letter."
     prompt = mcq_prompt("Pick B.", ["no", "yes"], template=template)
@@ -663,7 +663,7 @@ def test_system_message_resolving_to_a_non_string_refuses_the_bake(
 ) -> None:
     """Review finding on PR #1018: a mispointed system_message landing on a
     function must refuse the bake — str() would silently bake its repr into
-    every case of the exam."""
+    every case of the benchmark."""
 
     from dataclasses import replace
 
@@ -701,7 +701,7 @@ def test_without_the_opt_in_no_metadata_is_baked(tmp_path: Path) -> None:
     assert "metadata" not in target
 
 
-def test_the_metadata_opt_in_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_metadata_opt_in_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """Flipping the opt-in changes what the bake ships, so the revision must move."""
 
     from dataclasses import replace
@@ -722,7 +722,7 @@ def test_the_metadata_opt_in_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -
 
 def test_non_json_sample_metadata_refuses_the_bake(tmp_path: Path) -> None:
     """The target file is JSON — an unserializable metadata value must fail the bake
-    by case number, never truncate or coerce an exam asset silently."""
+    by case number, never truncate or coerce a benchmark asset silently."""
 
     import sys
     import types
@@ -838,7 +838,7 @@ def test_question_filter_bakes_exactly_the_questions_the_eval_keeps(
 def test_question_filter_enforces_the_kept_count_not_the_raw_count(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The exam's identity is the questions the eval keeps (pubmedqa's 500), not
+    """The benchmark's identity is the questions the eval keeps (pubmedqa's 500), not
     the rows it loaded (1,000) — a raw-row pin must refuse the bake."""
 
     _install_filtering_eval(monkeypatch)
@@ -862,7 +862,7 @@ def test_question_filter_forwards_task_args(
 def test_question_filter_keeps_the_pinned_seeded_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The question filter runs over OUR seeded order and never re-shuffles it (exam identity)."""
+    """The question filter keeps OUR seeded order, never re-shuffles it (benchmark identity)."""
 
     import random
 
@@ -929,7 +929,7 @@ def test_question_filter_refuses_what_it_cannot_reproduce(
 ) -> None:
     """The question filter only lets the eval DROP questions. A task that fails, loads twice
     (the question filter hands every load the same samples), reorders, or adds a question
-    would bake an exam we cannot vouch for — refuse by name, bake nothing."""
+    would bake a benchmark we cannot vouch for — refuse by name, bake nothing."""
 
     _install_filtering_eval(monkeypatch, **{task_name: task_fn})
 
@@ -952,7 +952,7 @@ def test_question_filter_refuses_a_module_without_hf_dataset(
         emit_cases(_filter_spec(), _NUMBER_ROWS, tmp_path)
 
 
-def test_the_question_filter_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_question_filter_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sending a benchmark through its task's filter, or changing the task args, changes which
     questions the bake keeps — the revision must move both times."""
 
@@ -1035,7 +1035,7 @@ def test_a_stale_excluded_sample_id_refuses_the_bake(
         emit_cases(_filter_spec(excluded_sample_ids=("99",)), _NUMBER_ROWS, tmp_path)
 
 
-def test_excluded_sample_ids_are_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_excluded_sample_ids_are_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     from dataclasses import replace
 
     from screamingface_engine_inspect import benchmarks, single_shot

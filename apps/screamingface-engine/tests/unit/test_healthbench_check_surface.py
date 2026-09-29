@@ -31,7 +31,7 @@ from screamingface_engine.benchmarks.healthbench.check_policy import (
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
-    WORST30_EXAM,
+    WORST30_VARIANT,
 )
 from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL
 from screamingface_engine.benchmarks.rubric_check import RubricCheck, check_surface
@@ -39,8 +39,8 @@ from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
-# The benchmark under test here is worst30; its check route is read off its Exam.
-_CHECK_ROUTE = WORST30_EXAM.routes.check_surface
+# The benchmark under test here is worst30; its check route is read off its Benchmark.
+_CHECK_ROUTE = WORST30_VARIANT.routes.check_surface
 
 _TURN = "I have had a headache for three days. What should I do?"
 _ENVELOPE = json.dumps(

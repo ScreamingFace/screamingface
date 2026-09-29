@@ -19,7 +19,7 @@ CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
 type CheckCost = Literal["free", "paid"]
 # What a Case that never got a valid grade (model call errored, judge died, rubric asset
-# missing) does to the published score. Picture an exam of 157 questions where 33 answer
+# missing) does to the published score. Picture a benchmark of 157 questions where 33 answer
 # sheets got lost in the mail:
 #   "withhold"         — the lost sheets count against the candidate: score = earned / all
 #                        157. Coverage always reads 100%; failures are silently priced in,
@@ -41,12 +41,12 @@ type FailurePolicy = Literal["withhold", "coverage_declare"]
 #                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
 # Agentic/tool-environment interactions arrive later as further declared values.
 type InteractionType = Literal["single_shot", "multi_turn"]
-# How hard the exam is — the catalogue's easy→hard axis (OME-1257). Hand-assigned by the
+# How hard the benchmark is — the catalogue's easy→hard axis (OME-1257). Hand-assigned by the
 # benchmark's author/importer and reviewed in the PR that lands it; NOT measured from score
 # distributions (a measured tier would be a separate, later mechanism).
 #   "easy" — largely saturated material (grade-school sets, binary choices):
 #                    frontier models pass ~90%+, so the benchmark gives quick, cheap signal.
-#   "medium" — real headroom without expert stakes: broad knowledge exams,
+#   "medium" — real headroom without expert stakes: broad knowledge benchmarks,
 #                    instruction following, specialized extraction.
 #   "hard"     — expert-written material today's best models visibly fail (clinical
 #                    safety, deep research, real professional work) — where a
@@ -119,8 +119,8 @@ class CheckSurface:
 class BenchmarkDeclaration:
     """The declared grading contract a Benchmark registers — public, typed, no defaults.
 
-    Think of it as the rules printed on the exam's cover sheet: before anyone sits the
-    exam, a reader can see how a failed paper counts. Three axes today:
+    Think of it as the rules printed on the benchmark's cover sheet: before anyone sits the
+    benchmark, a reader can see how a failed paper counts. Three axes today:
 
     ``failure_policy`` — what a Case that never got a valid grade does to the published
     score. ``withhold``: the case counts against the candidate (all-or-nothing).
@@ -130,7 +130,7 @@ class BenchmarkDeclaration:
     ``interaction`` — how the Candidate is exercised. ``single_shot`` and ``multi_turn``
     today; any other value is refused by name before any paid request.
 
-    ``difficulty`` — how hard the exam is, the catalogue's easy→hard axis (OME-1257).
+    ``difficulty`` — how hard the benchmark is, the catalogue's easy→hard axis (OME-1257).
     A hand-assigned tier from the closed set above, so the listing can group benchmarks
     into a map a newcomer reads without knowing each benchmark by name.
 

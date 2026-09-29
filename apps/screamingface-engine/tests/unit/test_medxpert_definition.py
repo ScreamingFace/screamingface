@@ -4,7 +4,7 @@ INVARIANT under test: the exchange is TWO candidate invocations. Turn 1 reasons;
 against a bare trigger, which is what makes the committed letter come first and the official
 first-match extraction correct. Collapsing this to one invocation is the 35-point regression.
 
-INVARIANT under test: prompt bytes are exam identity. Grading spends no judge tokens, so the
+INVARIANT under test: prompt bytes are benchmark identity. Grading spends no judge tokens, so the
 prompt is the only thing standing between a model and its score.
 """
 
@@ -55,7 +55,7 @@ def test_the_check_route_receives_both_turns() -> None:
 
 
 def test_changing_the_prompt_bytes_changes_the_revision() -> None:
-    # A changed prompt is a changed exam — it must re-address every route.
+    # A changed prompt is a changed benchmark — it must re-address every route.
     baseline = benchmark.compute_revision()
     assert benchmark.REVISION == baseline
     assert benchmark.compute_revision(cot_template="Q: {question}\nA: think.") != baseline

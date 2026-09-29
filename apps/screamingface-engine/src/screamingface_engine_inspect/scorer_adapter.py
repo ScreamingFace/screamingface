@@ -5,7 +5,7 @@
 # these imports type-check normally.
 """Wrap one inspect scorer as a benchmark's ``grade_case`` hook — the hourglass waist proof.
 
-Think of an inspect scorer as an external examiner who only reads their own exam-office
+Think of an inspect scorer as an external examiner who only reads their own benchmark-office
 forms. This adapter is the clerk who copies our sealed grade request onto their forms
 (``TaskState`` + ``Target``), hands them over, and copies their mark (``Score``) back
 onto ours (``CaseGradeOutcome``) — one clerk for ALL scorers, with ZERO per-scorer
@@ -88,7 +88,7 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
     """
 
     async def grade(request: GradeRequest) -> CaseGradeOutcome:
-        # Stage 1-2 — unpack our envelope, build their exam-office forms.
+        # Stage 1-2 — unpack our envelope, build their benchmark-office forms.
         state, target = _task_state(request, multiple_correct)
         # Stage 3 — their examiner marks the script, under the Case's grading
         # scope: a judge call made inside resolves to THIS Case for the run's

@@ -1,28 +1,28 @@
 """The serving spine — one kitchen shared by every hand-built deterministic benchmark.
 
-Think of a benchmark as an exam: the DECLARATION says what makes this exam different
-(its dataset, prompt bytes, grading rules, scorer), and this module is the exam
+Think of a benchmark as a benchmark: the DECLARATION says what makes this benchmark different
+(its dataset, prompt bytes, grading rules, scorer), and this module is the benchmark
 hall that serves any declaration — builds the routes, refuses a broken bundle
 before money moves, hands out the booklet, and rolls graded papers into a score.
 
 Execution order, per run:
 
     1. `benchmark_routes` / `compute_benchmark_revision` — `definition.py` fingerprints the
-       exam and derives the addresses its expression references.
+       benchmark and derives the addresses its expression references.
     2. `install_benchmark` — registers the four routes behind one `ServedBenchmark`
        declaration; a registered benchmark is structurally served, so no hand-wired
        slot (the PR #865 "preflight defined, invoked from nowhere" class) exists.
     3. `serve_cases` — the public booklet. Runs `benchmark_preflight` at the last
        moment before money moves and memoizes ONLY a success.
-    4. the benchmark's own `check` — exam-specific, stays in the benchmark; it assembles
+    4. the benchmark's own `check` — benchmark-specific, stays in the benchmark; it assembles
        its record through `candidate_record` so the envelope stays byte-stable.
-    5. `benchmark_aggregate` — forwards graded Cases plus exam identity to the
+    5. `benchmark_aggregate` — forwards graded Cases plus benchmark identity to the
        benchmark's reducer.
 
 INVARIANT: everything here is deterministic and spends no tokens. The model calls
 live in the expression, not in these handlers.
 
-FEATURE (OME-1236): a new deterministic benchmark declares only its exam — this module
+FEATURE (OME-1236): a new deterministic benchmark declares only its benchmark — this module
 owns the ~600 lines of plumbing each benchmark used to re-type by hand.
 """
 
@@ -50,7 +50,7 @@ from url4.peer.server import Request, Url4Node
 
 JsonObject = dict[str, Any]
 AnswerLoader = Callable[[Path, int], Mapping[str, Any] | None]
-RowBuilder = Callable[[Path, list[Any]], list[JsonObject]]
+PublicCaseBuilder = Callable[[Path, list[Any]], list[JsonObject]]
 CheckFactory = Callable[[Path], Callable[[Request], str]]
 ErrorFactory = Callable[[str], ResolutionError]
 PreflightCheck = Callable[[Path, tuple[int, ...]], None]
@@ -65,7 +65,7 @@ _PREFLIGHT_PROBLEM_CAP = 8
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkRoutes:
-    """The four addresses a benchmark's expression references, derived from exam identity."""
+    """The four addresses a benchmark's expression references, derived from benchmark identity."""
 
     prefix: str
     cases: str
@@ -77,7 +77,7 @@ class BenchmarkRoutes:
 def benchmark_routes(benchmark_id: str, revision: str) -> BenchmarkRoutes:
     """Derive the route layout every hand-built benchmark pins: /benchmarks/<id>/<revision>/…"""
 
-    # INVARIANT: the layout is exam identity — recorded submissions resolve at these
+    # INVARIANT: the layout is benchmark identity — recorded submissions resolve at these
     # exact addresses, so the shape is not free to drift.
     prefix = f"/benchmarks/{benchmark_id}/{revision}"
     return BenchmarkRoutes(
@@ -90,7 +90,7 @@ def benchmark_routes(benchmark_id: str, revision: str) -> BenchmarkRoutes:
 
 
 def compute_benchmark_revision(*parts: str) -> str:
-    """Fingerprint an exam's identity parts into the 16 hex characters its routes carry.
+    """Fingerprint a benchmark's identity parts into the 16 hex characters its routes carry.
 
     WHY newline joining: it is what every existing benchmark's baked revision used, and it
     keeps ("ab","c") distinct from ("a","bc").
@@ -101,11 +101,11 @@ def compute_benchmark_revision(*parts: str) -> str:
 
 @dataclass(frozen=True)
 class ServedBenchmark:
-    """One deterministic benchmark's declaration — everything its exam needs said once.
+    """One deterministic benchmark's declaration — everything its benchmark needs said once.
 
-    The benchmark writes what makes its exam different; the spine serves it. Fields:
+    The benchmark writes what makes its benchmark different; the spine serves it. Fields:
 
-    - `benchmark_id` / `revision`: exam identity; the route layout derives from them.
+    - `benchmark_id` / `revision`: benchmark identity; the route layout derives from them.
     - `label`: the human name endpoint failures speak ("ContractEval").
     - `declared_case_count`: stands in when assets are absent at install time.
     - `preflight`: refuses a broken bundle for the given case_ids by raising the
@@ -113,12 +113,12 @@ class ServedBenchmark:
       deviations (contracteval says unavailable, medxpert says definition error)
       live in that call, not here. AIDEV-NOTE: pass a module-level function (or a
       closure over one) so tests can monkeypatch the benchmark's `preflight` seam.
-    - `build_rows`: turns the baked `cases.json` rows into the served public booklet.
+    - `build_public_cases`: turns the baked `cases.json` rows into the served public booklet.
       INVARIANT (sealed envelope): rows carry questions, never which answers grade them.
-    - `check`: the benchmark's own grading gate, given the bundle root. Exam-specific by
+    - `check`: the benchmark's own grading gate, given the bundle root. Benchmark-specific by
       design — the spine does not average over benchmarks.
     - `bind_case_evaluation`: bundles checked attempts into the per-Case artifact.
-    - `reduce`: the benchmark's reducer (`aggregate.aggregate`), fed exam identity and the
+    - `reduce`: the benchmark's reducer (`aggregate.aggregate`), fed benchmark identity and the
       exact selected case_ids.
     """
 
@@ -127,7 +127,7 @@ class ServedBenchmark:
     revision: str
     declared_case_count: int
     preflight: PreflightCheck
-    build_rows: RowBuilder
+    build_public_cases: PublicCaseBuilder
     check: CheckFactory
     bind_case_evaluation: CaseEvaluationBinder
     reduce: BenchmarkReducer
@@ -182,7 +182,7 @@ def benchmark_preflight(
     load_answer: AnswerLoader,
     error: ErrorFactory = benchmark_unavailable,
 ) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam."""
+    """Fail before the FIRST paid call when the baked assets cannot serve this benchmark."""
 
     problems: list[str] = []
     if not (root / "cases.json").is_file():
@@ -222,7 +222,7 @@ def serve_cases(root: Path, benchmark: ServedBenchmark) -> Callable[[], str]:
     def cases() -> str:
         nonlocal preflighted
         rows = json.loads(read_asset(root / "cases.json", f"{benchmark.label} cases"))
-        served = benchmark.build_rows(root, rows)
+        served = benchmark.build_public_cases(root, rows)
         if not preflighted:
             benchmark.preflight(root, tuple(int(row["id"]) for row in served))
             preflighted = True
@@ -271,9 +271,9 @@ def candidate_record(
 
 
 def benchmark_aggregate(root: Path, benchmark: ServedBenchmark) -> Callable[[str, int], JsonObject]:
-    """Forward graded Cases plus exam identity to the benchmark's reducer.
+    """Forward graded Cases plus benchmark identity to the benchmark's reducer.
 
-    INVARIANT: case_ids are 1..selected — the reducer scores exactly the exam that was
+    INVARIANT: case_ids are 1..selected — the reducer scores exactly the benchmark that was
     selected, and identity (id + revision) rides into the report.
     """
 

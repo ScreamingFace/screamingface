@@ -7,7 +7,7 @@ per-benchmark modules (`gsm8k.py`, `mmlu.py`) shrink to declarations — the spe
 lines per benchmark" budget made structural.
 
 The load-bearing move (spec §4): when a benchmark declares a check surface, the SAME
-wrapped scorer serves both the grading route (after the exam) and the mid-run check
+wrapped scorer serves both the grading route (after the benchmark) and the mid-run check
 (during it). MCQ benchmarks get NO check surface — pass/fail feedback over a handful of
 options is an elimination attack (OME-796), and the client preflight's refusal of a
 loop recipe there is correct behavior.
@@ -64,8 +64,8 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.payloads import TextPayload
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
     GradeRequest,
@@ -131,11 +131,11 @@ class JudgeSpec:
 
     Attributes:
         model: the gateway model id the judge call goes to (the node route is
-            ``/<model>``) — exam identity, hashed into the benchmark revision.
+            ``/<model>``) — benchmark identity, hashed into the benchmark revision.
         params: protocol params pinned onto every judge call (e.g.
-            ``(("temperature", "0"),)``) — exam identity too.
+            ``(("temperature", "0"),)``) — benchmark identity too.
         model_role: the inspect model role this judge fills, or None when the scorer
-            names its judge in a kwarg. Exam identity when set.
+            names its judge in a kwarg. Benchmark identity when set.
     """
 
     model: str
@@ -170,7 +170,7 @@ class ImportedBenchmark:
         from screamingface_engine_inspect.scorer_adapter import inspect_grade_case
 
         return ScoredPath(
-            reader=RowReader(
+            reader=CaseGradeReader(
                 benchmark_label=self.benchmark.title,
                 error_type=AggregateError,
                 decode_case_evaluation=_decode,
@@ -220,8 +220,8 @@ def single_shot_benchmark(
         title, description, focus, dataset_url: leaderboard display fields (OME-904).
         difficulty: the catalogue's hand-assigned easy→hard tier, authored on the
             BenchmarkSpec row (OME-1257).
-        case_count: rows in the pinned split — the benchmark's declared exam size.
-        revision_pins: every dataset fact that participates in exam identity.
+        case_count: rows in the pinned split — the benchmark's declared benchmark size.
+        revision_pins: every dataset fact that participates in benchmark identity.
         scorer_factory: zero-arg callable returning the imported eval's scorer.
         prepare: the benchmark's build-time asset baker (its snapshot of the dataset).
         install: the benchmark module's OWN installer wrapper (defined beside its
@@ -262,12 +262,12 @@ def single_shot_benchmark(
                 # WHY hashed HERE, not left to revision_pins: the factory owns
                 # identity math (§6 — the case subset rides the revision); a benchmark
                 # author forgetting a pin must not get a subset change with an
-                # unchanged exam identity.
+                # unchanged benchmark identity.
                 f"case_count={case_count}",
                 f"check_surface={with_check_surface}",
-                # WHY conditional pins (OME-1240): the judge is exam identity —
+                # WHY conditional pins (OME-1240): the judge is benchmark identity —
                 # swapping the judge model or its pinned params is a different
-                # exam — but an UNDECLARED benchmark contributes nothing here, so the
+                # benchmark — but an UNDECLARED benchmark contributes nothing here, so the
                 # published string-match benchmarks' revisions stay byte-identical.
                 *(
                     ()
@@ -631,26 +631,26 @@ def check_surface_verdict(
 
 def benchmark_aggregate(
     benchmark: ImportedBenchmark,
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
     """Score every selected Case on the shared spine, then mean accuracy."""
 
-    return _run_sync(benchmark_aggregate_async(benchmark, raw_rows, root, case_ids=case_ids))
+    return _run_sync(benchmark_aggregate_async(benchmark, raw_case_grades, root, case_ids=case_ids))
 
 
 async def benchmark_aggregate_async(
     benchmark: ImportedBenchmark,
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
     # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
     return await benchmark.scored_path().aggregate_async(
-        raw_rows,
+        raw_case_grades,
         benchmark_id=benchmark.benchmark.id,
         benchmark_revision=benchmark.benchmark.revision,
         selected_cases=read_selected_cases(

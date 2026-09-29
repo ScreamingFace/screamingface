@@ -14,8 +14,8 @@ exactly one place:
                                  the shared response cache
 
 Everything else is shared and cannot drift: the dataset and judge pinning live in
-``exam.py``, and the revision math, route layout, and url4 expression tree live in
-``exam.py`` too. Each benchmark below is one call to ``draco_benchmark``.
+``benchmark.py``, and the revision math, route layout, and url4 expression tree live in
+``benchmark.py`` too. Each benchmark below is one call to ``draco_benchmark``.
 
 INVARIANT: canonical ``draco``'s revision is FROZEN at ``62718f04ea1a980f``
 (``test_draco_3pass_definition.py``; OME-993 moved it deliberately from
@@ -32,7 +32,7 @@ References:
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.draco.exam import (
+from screamingface_engine.benchmarks.draco.variant import (
     ASSET_BUNDLE_ID,
     CASE_COUNT,
     CHECK_CRITERION,
@@ -51,7 +51,7 @@ from screamingface_engine.benchmarks.draco.exam import (
 DRACO_DATASET_URL = "https://huggingface.co/datasets/perplexity-ai/draco"
 
 # ── Benchmark 1 — the canonical five-pass reproduction ──────────────────────────────────
-CANONICAL_EXAM, DRACO = draco_benchmark(
+CANONICAL_VARIANT, DRACO = draco_benchmark(
     id="draco",
     title="DRACO",
     description=(
@@ -69,7 +69,7 @@ CANONICAL_EXAM, DRACO = draco_benchmark(
 )
 
 # ── Benchmark 2 — the three-pass cache-seeded replay ────────────────────────────────────
-THREE_PASS_EXAM, DRACO_3PASS = draco_benchmark(
+THREE_PASS_VARIANT, DRACO_3PASS = draco_benchmark(
     id="draco-3pass",
     title="DRACO 3-Pass",
     description=(
@@ -93,20 +93,20 @@ THREE_PASS_EXAM, DRACO_3PASS = draco_benchmark(
 
 # ── canonical aliases (kept for the runtime and the tests that import them) ─────────
 # These are the canonical benchmark's values, re-exported so pre-factory callers keep
-# working unchanged. The runtime now reads the exam instead; only legacy imports touch
+# working unchanged. The runtime now reads the benchmark instead; only legacy imports touch
 # these.
-BENCHMARK_ID = CANONICAL_EXAM.id
-REVISION = CANONICAL_EXAM.revision
-JUDGE_PASSES = CANONICAL_EXAM.judge_passes
+BENCHMARK_ID = CANONICAL_VARIANT.id
+REVISION = CANONICAL_VARIANT.revision
+JUDGE_PASSES = CANONICAL_VARIANT.judge_passes
 JUDGE_SEEDS = tuple(range(1, JUDGE_PASSES + 1))
-ROUTE_PREFIX = CANONICAL_EXAM.routes.prefix
-CASES_ROUTE = CANONICAL_EXAM.routes.cases
-TASKS_ROUTE = CANONICAL_EXAM.routes.tasks
-VERDICT_ROUTE = CANONICAL_EXAM.routes.verdict
-CRITERION_EVALUATION_ROUTE = CANONICAL_EXAM.routes.criterion_evaluation
-CASE_EVALUATION_ROUTE = CANONICAL_EXAM.routes.case_evaluation
-AGGREGATE_ROUTE = CANONICAL_EXAM.routes.aggregate
-CHECK_SURFACE_ROUTE = CANONICAL_EXAM.routes.check_surface
+ROUTE_PREFIX = CANONICAL_VARIANT.routes.prefix
+CASES_ROUTE = CANONICAL_VARIANT.routes.cases
+TASKS_ROUTE = CANONICAL_VARIANT.routes.tasks
+VERDICT_ROUTE = CANONICAL_VARIANT.routes.verdict
+CRITERION_EVALUATION_ROUTE = CANONICAL_VARIANT.routes.criterion_evaluation
+CASE_EVALUATION_ROUTE = CANONICAL_VARIANT.routes.case_evaluation
+AGGREGATE_ROUTE = CANONICAL_VARIANT.routes.aggregate
+CHECK_SURFACE_ROUTE = CANONICAL_VARIANT.routes.check_surface
 
 __all__ = [
     "AGGREGATE_ROUTE",
@@ -115,7 +115,7 @@ __all__ = [
     "CASE_COUNT",
     "CASE_EVALUATION_ROUTE",
     "CASES_ROUTE",
-    "CANONICAL_EXAM",
+    "CANONICAL_VARIANT",
     "CHECK_CRITERION",
     "CHECK_SURFACE_ROUTE",
     "CRITERION_EVALUATION_ROUTE",
@@ -133,6 +133,6 @@ __all__ = [
     "REVISION",
     "ROUTE_PREFIX",
     "TASKS_ROUTE",
-    "THREE_PASS_EXAM",
+    "THREE_PASS_VARIANT",
     "VERDICT_ROUTE",
 ]

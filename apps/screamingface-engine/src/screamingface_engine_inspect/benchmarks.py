@@ -242,7 +242,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         focus="Harder multi-discipline knowledge, ten options (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
-        # Harder than MMLU but still curated exam knowledge, not expert-written
+        # Harder than MMLU but still curated benchmark knowledge, not expert-written
         # frontier work (OME-1257).
         difficulty="medium",
         # Provenance: this scorer is declared by the Task of
@@ -285,7 +285,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         focus="Long-passage reading comprehension (multiple choice)",
         dataset_url="https://huggingface.co/datasets/ehovy/race",
-        # High-school reading exams frontier models saturate (OME-1257).
+        # High-school reading benchmarks frontier models saturate (OME-1257).
         difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.race_h.race_h:race_h. License: other.
@@ -308,7 +308,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         focus="Competition mathematics (AIME 2024)",
         dataset_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
-        # Competition-exam mathematics: hard for non-reasoning models, high but
+        # Competition-benchmark mathematics: hard for non-reasoning models, high but
         # unsaturated for frontier reasoning models — headroom without expert
         # professional stakes (OME-1257).
         difficulty="medium",
@@ -683,7 +683,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         focus="Thai national high-school exam (multiple choice)",
         dataset_url="https://huggingface.co/datasets/matichon/thai-onet-m6-exam",
-        # Grade-12 exam material; OpenThaiGPT's published 70B-class results span
+        # Grade-12 benchmark material; OpenThaiGPT's published 70B-class results span
         # roughly 24-90% by subject, math and science the hardest (OME-1257).
         difficulty="medium",
         # Provenance: this scorer is declared by the Task of
@@ -866,7 +866,7 @@ def _check_judge_declaration(spec: BenchmarkSpec) -> None:
 
     The contract has two sides: a row whose scorer takes a judge (a judge-model
     kwarg, a gateway-spelled value, or a ``model_graded_*`` name) must declare a
-    :class:`JudgeSpec` (or it would grade with a judge outside exam identity),
+    :class:`JudgeSpec` (or it would grade with a judge outside benchmark identity),
     and a declared judge must be the exact gateway model the scorer calls (or
     the pinned judge and the called judge drift apart — and any OTHER provider's
     model would call that provider directly, unmetered). A judge that fills a model role
@@ -900,13 +900,13 @@ def _check_judge_declaration(spec: BenchmarkSpec) -> None:
             raise ValueError(
                 f"{spec.key}: scorer kwargs call a gateway judge ({called[0]!r}) but the "
                 "row declares no judge — add judge=JudgeSpec(...) so the judge joins "
-                "exam identity (OME-1240)"
+                "benchmark identity (OME-1240)"
             )
         if judge_kwargs:
             raise ValueError(
                 f"{spec.key}: scorer kwarg(s) {sorted(judge_kwargs)} take a judge model "
                 "but the row declares no judge — pin the gateway judge in the kwarg AND "
-                "declare judge=JudgeSpec(...) so it joins exam identity (OME-1240)"
+                "declare judge=JudgeSpec(...) so it joins benchmark identity (OME-1240)"
             )
         if scorer_name.startswith("model_graded_"):
             raise ValueError(
@@ -1032,7 +1032,7 @@ def _judge_prompt_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """The judge's PROMPT identity — scorer + kwargs (template/instructions) — for
     judged benchmarks only.
 
-    WHY judged-only: scorer kwargs were never exam identity before OME-1240, and
+    WHY judged-only: scorer kwargs were never benchmark identity before OME-1240, and
     hashing them for every benchmark would move all published string-match revisions.
     ``json.dumps`` escapes newlines inside kwarg strings, so a multiline judge
     template survives the factory's no-newline pin rule.
@@ -1047,39 +1047,39 @@ def _judge_prompt_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
 
 
 def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
-    """Exam-identity pins derived from the benchmark's snapshot row — never duplicated."""
+    """Benchmark-identity pins derived from the benchmark's snapshot row — never duplicated."""
 
     pins: list[str] = [
         cases_spec.dataset,
         cases_spec.config,
         cases_spec.split,
-        # Assembly-time backstop: a mutable ref must never become exam identity.
+        # Assembly-time backstop: a mutable ref must never become benchmark identity.
         require_commit_sha(cases_spec.dataset_revision),
     ]
     if cases_spec.shuffle_seed is not None:
         pins.append(f"shuffle_seed={cases_spec.shuffle_seed}")
     if cases_spec.choice_shuffle_seed is not None:
-        # WHY: the pinned per-case choice order changes the exam a candidate
-        # sits (and the letter that grades correct), so the seed rides exam
+        # WHY: the pinned per-case choice order changes the benchmark a candidate
+        # sits (and the letter that grades correct), so the seed rides benchmark
         # identity exactly like the row-shuffle seed (OME-1264).
         pins.append(f"choice_shuffle_seed={cases_spec.choice_shuffle_seed}")
     if cases_spec.keep_sample_metadata:
-        # Flipping the opt-in changes what the bake ships — exam identity moves.
+        # Flipping the opt-in changes what the bake ships — benchmark identity moves.
         pins.append("keep_sample_metadata=1")
     if cases_spec.system_message is not None:
-        # WHY: adding or dropping the leading instruction changes the exam a
-        # candidate sits, so the pointer rides exam identity. (The template
+        # WHY: adding or dropping the leading instruction changes the benchmark a
+        # candidate sits, so the pointer rides benchmark identity. (The template
         # pointers predate revision-pin coverage and cannot join without
         # moving every published benchmark's revision.)
         pins.append(f"system_message={cases_spec.system_message}")
     if cases_spec.data_files is not None:
         # WHY: data_files selects WHICH files of the pinned revision load —
-        # a different selection is a different exam (OME-1264 extension 2).
+        # a different selection is a different benchmark (OME-1264 extension 2).
         # json.dumps(sort_keys=True) keeps the pin deterministic across bakes.
         pins.append(f"data_files={json.dumps(cases_spec.data_files, sort_keys=True)}")
     if cases_spec.features is not None:
         # WHY: the schema fixes how the selected files parse into rows, so the
-        # pointer rides exam identity like system_message's does.
+        # pointer rides benchmark identity like system_message's does.
         pins.append(f"features={cases_spec.features}")
     pins.extend(_dropped_question_pins(cases_spec))
     return tuple(pins)
@@ -1092,13 +1092,13 @@ def _dropped_question_pins(cases_spec: CasesSpec) -> list[str]:
     pins: list[str] = []
     if cases_spec.question_filter_task is not None:
         # WHY: a question-filter benchmark's questions are whatever the eval's task keeps,
-        # and its args can change that (xstest's subset) — both are exam identity.
+        # and its args can change that (xstest's subset) — both are benchmark identity.
         # json.dumps(sort_keys=True) keeps the args pin deterministic.
         pins.append(f"question_filter_task={cases_spec.question_filter_task}")
         task_args: str = json.dumps(cases_spec.question_filter_task_args or {}, sort_keys=True)
         pins.append(f"question_filter_task_args={task_args}")
     if cases_spec.excluded_sample_ids is not None:
-        # WHY: the named deviation removes questions from the exam.
+        # WHY: the named deviation removes questions from the benchmark.
         pins.append(f"excluded_sample_ids={','.join(sorted(cases_spec.excluded_sample_ids))}")
     return pins
 

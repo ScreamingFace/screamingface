@@ -17,7 +17,7 @@ answer key stays in the image.
 INVARIANT — Engine Case ids are 1-based positions in ``subset.TEXT_SUBSET_TASK_IDS``, not in the
 upstream row order. GDPval rows carry stable ``task_id``s, so the selection is addressed by id
 and the build ASSERTS every frozen id is present; a dataset that dropped or renamed one fails the
-build rather than silently baking a smaller exam under the same identity.
+build rather than silently baking a smaller benchmark under the same identity.
 
 INVARIANT — container criteria are stripped HERE, so no scoring path can include one. A rubric
 left with no positive points after stripping fails the build: its score would divide by zero.
@@ -81,7 +81,7 @@ def select_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return the frozen selection, in frozen order.
 
     INVARIANT: order comes from ``TEXT_SUBSET_TASK_IDS``, never from the upstream file — Engine
-    Case ids are positions in that tuple, so inheriting upstream order would renumber the exam
+    Case ids are positions in that tuple, so inheriting upstream order would renumber the benchmark
     whenever HuggingFace reshuffled.
     """
 
@@ -91,7 +91,7 @@ def select_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         raise PrepareError(
             f"{len(missing)} frozen task id(s) are absent from {DATASET}@{DATASET_REVISION}, "
             f"first {missing[0]!r} — the dataset moved under the frozen selection; refusing to "
-            f"bake a different exam under this identity"
+            f"bake a different benchmark under this identity"
         )
     return [by_id[task_id] for task_id in TEXT_SUBSET_TASK_IDS]
 

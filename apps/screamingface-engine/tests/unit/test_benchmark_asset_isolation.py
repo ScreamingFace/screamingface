@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
-from screamingface_engine.benchmarks.draco.definition import CANONICAL_EXAM, CASES_ROUTE
+from screamingface_engine.benchmarks.draco.definition import CANONICAL_VARIANT, CASES_ROUTE
 from screamingface_engine.benchmarks.draco.runtime import install as install_draco
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
@@ -44,7 +44,7 @@ async def test_an_unprepared_benchmark_fails_at_its_own_route_with_its_own_name(
     # WHY: laziness must not soften the failure — DRACO without assets still fails loudly,
     # at DRACO's route, named as DRACO, exactly as the eager path failed.
     node = Url4Node("test")
-    install_draco(node, tmp_path, CANONICAL_EXAM)
+    install_draco(node, tmp_path, CANONICAL_VARIANT)
     with pytest.raises(ResolutionError, match="DRACO cases"):
         await _resolve_data(node, CASES_ROUTE)
 
@@ -67,7 +67,7 @@ async def test_a_benchmark_reads_its_assets_once_across_resolutions(tmp_path: Pa
             encoding="utf-8",
         )
     node = Url4Node("test")
-    install_draco(node, tmp_path, CANONICAL_EXAM)
+    install_draco(node, tmp_path, CANONICAL_VARIANT)
 
     reads: list[Path] = []
     original = Path.read_text

@@ -27,8 +27,8 @@ import pytest
 from screamingface_engine.benchmarks.aggregation import SelectedCase
 from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.spine.exam import exam_scorer
-from screamingface_engine.benchmarks.spine.rows import RowReader
+from screamingface_engine.benchmarks.spine.case_grades import CaseGradeReader
+from screamingface_engine.benchmarks.spine.mean_scorer import mean_scorer
 from screamingface_engine.benchmarks.spine.scored import (
     CaseGradeOutcome,
     GradeRequest,
@@ -86,7 +86,7 @@ async def _hook(request: GradeRequest) -> CaseGradeOutcome:
 
 
 PATH = ScoredPath(
-    reader=RowReader(
+    reader=CaseGradeReader(
         benchmark_label="TestBoard",
         error_type=BenchmarkError,
         decode_case_evaluation=lambda grading, case_id: dict(grading),  # type: ignore[arg-type]
@@ -125,7 +125,7 @@ def _case_result(
         benchmark_revision="rev",
         selected_cases=[CASE],
         grading_material=lambda case_id: points,
-        scorer=exam_scorer(lambda scores: sum(scores) / len(scores) if scores else None),
+        scorer=mean_scorer(lambda scores: sum(scores) / len(scores) if scores else None),
     )
     return result["cases"][0]
 
@@ -146,7 +146,7 @@ def test_missing_rubric_asset_is_the_first_check() -> None:
 
 def test_missing_case_row_surfaces_the_collected_orphan_error() -> None:
     # WHY: an on_error=collect row loses its Case identity, so a mid-chain error
-    # surfaces as a missing row — the orphan payload carries the actual cause, and
+    # surfaces as a missing case — the orphan payload carries the actual cause, and
     # the public metadata retains only the sanitized source_error, never raw rows.
     orphan = {"error": {"message": "boom 0", "type": "api_error"}}
     case = _case_result(orphan, [5, -3])

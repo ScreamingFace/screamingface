@@ -147,7 +147,7 @@ def subset_sha() -> str:
     """Fingerprint the selection, in serve order.
 
     INVARIANT: order participates. Two benchmarks serving the same tasks in a different order are
-    different exams, because Engine Case ids are the 1-based positions of this tuple.
+    different benchmarks, because Engine Case ids are the 1-based positions of this tuple.
     """
 
     return hashlib.sha256("\n".join(TEXT_SUBSET_TASK_IDS).encode()).hexdigest()

@@ -23,9 +23,9 @@ from screamingface_engine.benchmarks.healthbench.scoring import (
 )
 from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
 
-# WHY the spine import: sample_stdev / verdict_coverage moved into the shared exam
+# WHY the spine import: sample_stdev / verdict_coverage moved into the shared benchmark
 # scorer (OME-1097) — the tests follow the production location of the code they pin.
-from screamingface_engine.benchmarks.spine.exam import sample_stdev, verdict_coverage
+from screamingface_engine.benchmarks.spine.mean_scorer import sample_stdev, verdict_coverage
 
 # --- prompts -------------------------------------------------------------------------
 
@@ -136,7 +136,7 @@ def test_case_score_restricts_to_judged_items() -> None:
     assert case_score([-6], {1: False}) is None
 
 
-def test_the_exam_mean_is_unclipped() -> None:
+def test_the_variant_mean_is_unclipped() -> None:
     # WHY: official HealthBench clips max(0, mean); on the worst-30% subset every
     # serious baseline mean is negative and the clip would flatten the leaderboard
     # to 0.00 — the challenge keeps the raw mean.
@@ -156,7 +156,7 @@ def test_verdict_coverage() -> None:
 
 
 def test_the_official_aggregate_clips_only_where_the_reference_clips() -> None:
-    """The official HealthBench exam metric — the reference's ``np.clip(mean, 0, 1)``.
+    """The official HealthBench benchmark metric — the reference's ``np.clip(mean, 0, 1)``.
 
     Worked example: two Cases scoring ``[0.8, -1.4]`` average to -0.3; a published
     HealthBench figure would report 0.0, never a negative. The upper bound is structurally
@@ -167,5 +167,5 @@ def test_the_official_aggregate_clips_only_where_the_reference_clips() -> None:
     assert clipped_mean([0.8, -1.4]) == 0.0
     assert clipped_mean([0.25, 0.75]) == pytest.approx(0.5)
     assert clipped_mean([1.0, 1.0]) == 1.0
-    # Unscorable exam: "we could not score this" is not "the answer scored zero".
+    # Unscorable benchmark: "we could not score this" is not "the answer scored zero".
     assert clipped_mean([]) is None

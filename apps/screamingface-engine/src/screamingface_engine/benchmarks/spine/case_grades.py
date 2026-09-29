@@ -1,61 +1,62 @@
-"""Read the per-Case fan-out's collected rows back and file each one under its Case id.
+"""Read the per-Case fan-out's collected case grades back and file each one under its Case id.
 
-A benchmark run is one url4 expression; every case in it produces one row. The engine fans
-out over the selected cases, and each case comes back as a row holding the candidate's answer
+A benchmark run is one url4 expression; every case in it produces one case grade. The engine fans
+out over the selected cases, and each case comes back as a case grade holding the candidate's answer
 plus the judge's verdicts, or an error where either step failed. The aggregate step is the part
-that reads all those rows back: decode the collected array, index rows by case id, notice
-an outer error (the whole fan-out branch failed), and pull the value out of each row.
+that reads all those case grades back: decode the collected array, index case grades by case id,
+notice an outer error (the whole fan-out branch failed), and pull the value out of each case grade.
 Think of it as collecting the exam scripts from the hall and sorting them by student
 number before any marking starts.
 
 WHICH fan-out — the repo has three, nested, and every other mention names its axis
-(`ensemble/policy.py` says "member fan-out"; `healthbench/exam.py` says "fan out one judge
+(`ensemble/policy.py` says "member fan-out"; `healthbench/variant.py` says "fan out one judge
 task per rubric item"). This module reads the OUTERMOST one and only that:
 
     per-Case fan-out    one branch per selected Case          ← THIS MODULE reads it
       member fan-out    an ensemble Candidate's member models — runs INSIDE one Candidate
-                        invocation and is collapsed into one answer before a row exists;
-                        its attribution rides opaquely in the row's `operations` field
+                        invocation and is collapsed into one answer before a case grade exists;
+                        its attribution rides opaquely in the case grade's `operations` field
       judge fan-out     one judge call per rubric item        — already finished and nested
-                        inside the row as `rubric_evaluations`
+                        inside the case grade as `rubric_evaluations`
 
-So by the time a row reaches this module the marking has happened and is stapled inside
+So by the time a case grade reaches this module the marking has happened and is stapled inside
 the script. `rubric_evaluations` is never read here; the benchmark's `grade_case` reads it.
 
 FEATURE: one grading spine per benchmark (OME-1024); this module is the second extraction
-(OME-1039 took the failure ladder) — the row reader gdpval and healthbench duplicated
+(OME-1039 took the failure ladder) — the case grade reader gdpval and healthbench duplicated
 near byte-identically after the two-week-old fork.
 
 The stages, in execution order:
 
-    Stage 1  decode the collected array           → "rows are not JSON" / "must be an array"
-    Stage 2  guard the count against the roll call → more rows than Cases aborts
-    Stage 3  per position, unwrap the row value    → a row may arrive double-encoded
-    Stage 4  outer error?  identified → it IS that Case's row
+    Stage 1  decode the collected array           → "case grades are not JSON" / "must be an array"
+    Stage 2  guard the count against the roll call → more case grades than Cases aborts
+    Stage 3  per position, unwrap the case grade value    → a case grade may arrive double-encoded
+    Stage 4  outer error?  identified → it IS that Case's case grade
                            anonymous  → retained as an orphan against that position
-    Stage 5  otherwise decode the envelope         → grading error, or the benchmark-decoded row
+    Stage 5  otherwise decode the envelope         → grading error, or the benchmark-decoded case
+    grade
 
 Worked example — three Cases selected, `case_ids = (1, 2, 3)`:
 
-    rows[0] = a valid envelope for Case 1        → RowIndex.rows[1]
-    rows[1] = {"error": {...}}   (no case_id)    → RowIndex.collected_errors[2]
-    rows[2] = an envelope whose grading errored  → RowIndex.grading_failures[3]
+    case grades[0] = a valid envelope for Case 1        → CaseGradeIndex.case_grades[1]
+    case grades[1] = {"error": {...}}   (no case_id)    → CaseGradeIndex.collected_errors[2]
+    case grades[2] = an envelope whose grading errored  → CaseGradeIndex.grading_failures[3]
 
-Case 2 ends with no row at all, so the grader reports it as missing — and the orphan error
-retained above it is what tells the reader *why*. On the spine's default missing-row step, the
+Case 2 ends with no case grade at all, so the grader reports it as missing — and the orphan error
+retained above it is what tells the reader *why*. On the spine's default missing-case step, the
 orphan's code (say `model_token_cap`) becomes the Case's failure code; a Case with no orphan,
-or an orphan naming no code, reads as `missing_case_row`. Benchmarks that own their missing-row
+or an orphan naming no code, reads as `missing_case_row`. Benchmarks that own their missing-case
 step (IFEval, DRACO) spell it their own way.
 
-INVARIANT: the row is an OPAQUE benchmark-owned envelope. This module files it and never looks
-inside, so nothing here can freeze "a candidate's answer is text". The kind taxonomy is
+INVARIANT: the case grade is an OPAQUE benchmark-owned envelope. This module files it and never
+looks inside, so nothing here can freeze "a candidate's answer is text". The kind taxonomy is
 OME-1103's decision; the seam that opens the envelope is OME-1097's `grade_case`.
 
-INVARIANT: `case_ids` is the authoritative roll call and position is identity. A row that
+INVARIANT: `case_ids` is the authoritative roll call and position is identity. A case grade that
 claims a Case other than the one selected at its position aborts the run — scoring the
 wrong Case is worse than reporting a failed one.
 
-INVARIANT: a collected error is never dropped. An `on_error=collect` row loses its Case
+INVARIANT: a collected error is never dropped. An `on_error=collect` case grade loses its Case
 identity, so it cannot be indexed; it is retained as an orphan and attached to the position
 it arrived at, so the report names the cause and not just the symptom (exactly what was
 missing in the first live smoke run).
@@ -82,44 +83,44 @@ from screamingface_engine.benchmarks.case_execution import (
 
 
 @dataclass(frozen=True, slots=True)
-class RowIndex:
-    """One per-Case fan-out's rows, split by what each position turned out to be.
+class CaseGradeIndex:
+    """One per-Case fan-out's case grades, split by what each position turned out to be.
 
     Attributes:
-        rows: Case id → the benchmark-decoded evaluation envelope, opaque to the spine. Also
-            holds an identified error row, which IS that Case's row.
+        case_grades: Case id → the benchmark-decoded evaluation envelope, opaque to the spine. Also
+            holds an identified error case, which IS that Case's case grade.
         collected_errors: Case id → the anonymous `on_error=collect` payloads that arrived
-            at that position, retained so a missing row can name its cause.
+            at that position, retained so a missing case can name its cause.
         grading_failures: Case id → the preserved Candidate answer plus the grading error,
             for a Case whose Candidate answered but whose grading step failed.
     """
 
-    rows: dict[int, dict[str, Any]]
+    case_grades: dict[int, dict[str, Any]]
     collected_errors: dict[int, list[dict[str, Any]]]
     grading_failures: dict[int, CaseExecutionOutcome]
 
 
 @dataclass(frozen=True, slots=True)
-class RowReader:
-    """One benchmark's row reader — the shared reading steps bound to the benchmark's own names.
+class CaseGradeReader:
+    """One benchmark's case grade reader — the shared reading steps bound to its own names.
 
     Each benchmark constructs one module-level instance. Only three things differ between the
     benchmarks, and all three are here:
 
     Attributes:
         benchmark_label: the benchmark's display name as it appears in this module's two
-            decode error messages ("GDPval rows are not JSON"). Display text, NOT an
+            decode error messages ("GDPval case grades are not JSON"). Display text, NOT an
             identity — two Benchmarks (`healthbench-worst30`, `healthbench-professional`)
             share the one label "HealthBench", so this is deliberately not `benchmark_id`.
         error_type: the benchmark's own `AggregateError`. Injected rather than shared so a
             test asserting one benchmark raised keeps failing when the other one does.
         decode_case_evaluation: the benchmark's envelope validator, the only authority on its
-            own schema. Called as `(grading, expected_case_id) -> decoded row`; it raises
-            `ValueError`/`TypeError`, which this module wraps with the row's position.
-        claim_anonymous_errors: when True an anonymous `on_error=collect` row is ADOPTED
-            as the row of the Case selected at its position, instead of being retained
+            own schema. Called as `(grading, expected_case_id) -> decoded case grade`; it raises
+            `ValueError`/`TypeError`, which this module wraps with the case grade's position.
+        claim_anonymous_errors: when True an anonymous `on_error=collect` case grade is ADOPTED
+            as the case grade of the Case selected at its position, instead of being retained
             as an orphan cause. WHY (OME-1100): draco's fan-out emits anonymous error
-            rows and its pinned results report them as candidate-stage failures OF that
+            case grades and its pinned results report them as candidate-stage failures OF that
             Case — position is identity, so the adoption is sound for any benchmark that
             opts in.
     """
@@ -129,37 +130,37 @@ class RowReader:
     decode_case_evaluation: Callable[[object, int], dict[str, Any]]
     claim_anonymous_errors: bool = False
 
-    def index(self, raw_rows: str, case_ids: tuple[int, ...]) -> RowIndex:
-        """Sort one per-Case fan-out's collected rows into the three piles above.
+    def index(self, raw_case_grades: str, case_ids: tuple[int, ...]) -> CaseGradeIndex:
+        """Sort one per-Case fan-out's collected case grades into the three piles above.
 
         Args:
-            raw_rows: the collected array as JSON text, in selected order.
+            raw_case_grades: the collected array as JSON text, in selected order.
             case_ids: the Cases this run selected — the authoritative roll call, and the
                 identity of each position.
 
         Returns:
-            The `RowIndex`. A selected Case absent from all three piles simply had no row;
-            the grader reports that per Case, so nothing vanishes from the roll call.
+            The `CaseGradeIndex`. A selected Case absent from all three piles simply had no case
+            grade; the grader reports that per Case, so nothing vanishes from the roll call.
 
         Raises:
-            `error_type`: the payload, a row, or a row's claimed identity is unusable. Every
-            such abort happens BEFORE any scoring, so a corrupt per-Case fan-out can never
+            `error_type`: the payload, a case grade, or a case grade's claimed identity is unusable.
+            Every such abort happens BEFORE any scoring, so a corrupt per-Case fan-out can never
             become a quietly wrong score.
         """
 
         # Stage 1-2 — decode the array and check it against the roll call.
-        rows: list[Any] = self._decoded_rows(raw_rows)
+        rows: list[Any] = self._decoded_case_grades(raw_case_grades)
         if len(rows) > len(case_ids):
             raise self.error_type(
                 f"aggregate received {len(rows)} rows for {len(case_ids)} selected Cases"
             )
-        index = RowIndex(rows={}, collected_errors={}, grading_failures={})
-        # Stage 3-5 — position IS identity: row i belongs to the Case selected at i.
+        index = CaseGradeIndex(case_grades={}, collected_errors={}, grading_failures={})
+        # Stage 3-5 — position IS identity: case grade i belongs to the Case selected at i.
         for position, entry in enumerate(rows):
-            self._file_row(entry, position, case_ids[position], index)
+            self._file_case_grade(entry, position, case_ids[position], index)
         return index
 
-    def _decoded_rows(self, raw: str) -> list[Any]:
+    def _decoded_case_grades(self, raw: str) -> list[Any]:
         """Stage 1 — the collected array, still opaque, one entry per Case that ran."""
 
         try:
@@ -170,16 +171,16 @@ class RowReader:
             raise self.error_type(f"{self.benchmark_label} rows must be a JSON array")
         return decoded
 
-    def _file_row(
+    def _file_case_grade(
         self,
         entry: object,
         position: int,
         expected_case_id: int,
-        index: RowIndex,
+        index: CaseGradeIndex,
     ) -> None:
-        """Stages 3-5 — unwrap one row, then file it as an error, a failure, or a row."""
+        """Stages 3-5 — unwrap one case grade, then file it as an error, a failure, or a grade."""
 
-        row: Mapping[str, Any] = self._row_value(entry, position)
+        row: Mapping[str, Any] = self._case_grade_value(entry, position)
         if self._filed_outer_error(row, position, expected_case_id, index):
             return
         try:
@@ -192,14 +193,14 @@ class RowReader:
             if outcome.error is not None:
                 index.grading_failures[expected_case_id] = outcome
             else:
-                index.rows[expected_case_id] = self.decode_case_evaluation(
+                index.case_grades[expected_case_id] = self.decode_case_evaluation(
                     outcome.grading, expected_case_id
                 )
         except (TypeError, ValueError) as exc:
             raise self.error_type(f"Case result at position {position} is invalid: {exc}") from None
 
-    def _row_value(self, entry: object, position: int) -> Mapping[str, Any]:
-        """Stage 3 — url4 hands some rows back as JSON text rather than as objects."""
+    def _case_grade_value(self, entry: object, position: int) -> Mapping[str, Any]:
+        """Stage 3 — url4 hands some case grades back as JSON text rather than as objects."""
 
         try:
             row: object = json.loads(entry) if isinstance(entry, str) else entry
@@ -216,9 +217,9 @@ class RowReader:
         row: Mapping[str, Any],
         position: int,
         expected_case_id: int,
-        index: RowIndex,
+        index: CaseGradeIndex,
     ) -> bool:
-        """Stage 4 — this Case's whole branch failed; True when the row was filed here."""
+        """Stage 4 — this Case's whole branch failed; True when the case grade was filed here."""
 
         error: object = row.get("error")
         if error is None:
@@ -234,10 +235,10 @@ class RowReader:
         if claimed is None and not self.claim_anonymous_errors:
             # WHY: an anonymous error cannot be indexed, so it is retained against the
             # position it arrived at — the grader attaches it to the Case that ends up
-            # with no row, which is how the symptom keeps its cause.
+            # with no case grade, which is how the symptom keeps its cause.
             index.collected_errors.setdefault(expected_case_id, []).append(dict(row))
         else:
-            index.rows[expected_case_id] = dict(row)
+            index.case_grades[expected_case_id] = dict(row)
         return True
 
 
@@ -250,7 +251,7 @@ def read_selected_cases(
 ) -> list[SelectedCase]:
     """Read the roll call from the baked ``cases.json``, in selected order.
 
-    The same benchmark-varying bits as `RowReader` are injected — the label for error
+    The same benchmark-varying bits as `CaseGradeReader` are injected — the label for error
     wording and the benchmark's own error class (OME-1097 moved this reader in from the
     per-benchmark aggregates).
     """
@@ -278,4 +279,4 @@ def read_selected_cases(
     return selected
 
 
-__all__ = ["RowIndex", "RowReader", "read_selected_cases"]
+__all__ = ["CaseGradeIndex", "CaseGradeReader", "read_selected_cases"]

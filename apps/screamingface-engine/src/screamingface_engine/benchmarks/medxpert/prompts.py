@@ -1,8 +1,8 @@
 """The two-turn exchange, byte-frozen.
 
 INVARIANT: these templates are hashed into the benchmark's revision. A stray space is a different
-exam, because judge-free grading makes the prompt the ONLY thing standing between a model and its
-score.
+benchmark, because judge-free grading makes the prompt the ONLY thing standing between a model and
+its score.
 
 Ported from the official MedXpertQA harness (eval/config/prompt_templates.py), whose published
 leaderboard numbers use this exchange. Answer-only prompting is a different — and harsher —

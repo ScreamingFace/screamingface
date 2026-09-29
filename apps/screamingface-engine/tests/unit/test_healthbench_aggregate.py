@@ -501,7 +501,7 @@ def test_load_rubric_points_rejects_malformed_assets(tmp_path: Path) -> None:
 
 
 def test_the_official_benchmark_floors_a_negative_mean_at_zero(tmp_path: Path) -> None:
-    """INVARIANT (OME-903): one reduction, two exam-level metrics.
+    """INVARIANT (OME-903): one reduction, two benchmark-level metrics.
 
     The SAME graded Cases must produce the challenge number on the worst-30% benchmark and the
     official number on the professional benchmark — the clip is the ONLY difference. A run
@@ -531,7 +531,7 @@ def test_the_official_benchmark_floors_a_negative_mean_at_zero(tmp_path: Path) -
 
     assert challenge["score"] == pytest.approx(-3.0)
     assert official["score"] == 0.0
-    # Only the exam-level number moves: the per-Case grade keeps its unclamped truth, so a
+    # Only the benchmark-level number moves: the per-Case grade keeps its unclamped truth, so a
     # reader can still see WHY the benchmark says zero.
     assert official["cases"][0]["grade"]["score"] == pytest.approx(-3.0)
     assert official["coverage"] == challenge["coverage"] == 1.0

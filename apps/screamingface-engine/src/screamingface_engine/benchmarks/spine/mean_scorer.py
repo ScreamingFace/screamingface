@@ -1,7 +1,7 @@
-"""The shared exam-level reduction — folding per-Case marks into the class results.
+"""The shared benchmark-level reduction — folding per-Case marks into the class results.
 
 Every Case (one question) has already been graded to a number by this point. This
-module is the exam office: it takes the stack of per-Case grades and totals them into
+module is the benchmark office: it takes the stack of per-Case grades and totals them into
 ONE headline score plus a fixed row of quality metrics for the leaderboard.
 
 The benchmark chooses exactly one thing here — its ``mean``, the official way its
@@ -37,10 +37,10 @@ from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult
 
 
-def exam_scorer(
+def mean_scorer(
     mean: Callable[[Sequence[float]], float | None],
 ) -> Callable[[Sequence[CaseResult]], CandidateScore]:
-    """Bind one benchmark's exam-level mean into the shared penalty-bearing reduction.
+    """Bind one benchmark's benchmark-level mean into the shared penalty-bearing reduction.
 
     The metric vocabulary is fixed spine vocabulary — every rubric benchmark publishes
     exactly ``pass_rate``, ``scored_cases``, ``score_sd``, ``verdict_coverage``,
@@ -50,7 +50,7 @@ def exam_scorer(
     def score(cases: Sequence[CaseResult]) -> CandidateScore:
         grades: list[CaseGrade | None] = [case.grade for case in cases]
         if any(grade is None or grade.score is None for grade in grades):  # pragma: no cover
-            raise AssertionError("the exam scorer requires complete graded Cases")
+            raise AssertionError("the mean scorer requires complete graded Cases")
         typed: list[CaseGrade] = [
             grade for grade in grades if grade is not None and grade.score is not None
         ]
@@ -61,11 +61,11 @@ def exam_scorer(
         met_items: int = sum(
             1 for grade in typed for check in grade.checks if check.outcome == "MET"
         )
-        exam_score: float | None = mean(scores)
-        if exam_score is None:  # pragma: no cover - a Benchmark always selects one Case
-            raise AssertionError("the exam scorer requires at least one Case")
+        mean_score: float | None = mean(scores)
+        if mean_score is None:  # pragma: no cover - a Benchmark always selects one Case
+            raise AssertionError("the mean scorer requires at least one Case")
         return CandidateScore(
-            score=round(exam_score, 4),
+            score=round(mean_score, 4),
             metrics={
                 "pass_rate": round(met_items / judged_items, 4) if judged_items else 0.0,
                 "scored_cases": len(scores),
@@ -100,4 +100,4 @@ def verdict_coverage(judged: int, total: int) -> float:
     return judged / total
 
 
-__all__ = ["exam_scorer", "sample_stdev", "verdict_coverage"]
+__all__ = ["mean_scorer", "sample_stdev", "verdict_coverage"]
