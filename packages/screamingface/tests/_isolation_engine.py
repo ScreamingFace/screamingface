@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import select
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -42,13 +43,23 @@ _WAIT_S = 10.0
 
 type Step = int | Literal["accept", "drop"]
 
+# The Engine's two refusal details for a start (rest/routes.py, OME-1091 / #1098).
+CAPACITY_DETAIL = "the runner is at capacity — retry shortly"
+QUEUE_DETAIL = "the run queue is unavailable — retry shortly"
+
 
 @dataclass
 class RunPlan:
     first: Literal["complete", "drop"] = "complete"
     reconnects: list[Step] = field(default_factory=list)
-    # Answers to `GET /?q=` before the 202: (status, Retry-After header or None).
+    # Answers to `GET /?q=` before the 202: (status, Retry-After). With a Retry-After the
+    # answer is the ENGINE's problem+json; with None it is an edge proxy's plain-text page.
     admission: list[tuple[int, str | None]] = field(default_factory=list)
+    # The Engine's detail on its refusals (capacity by default; a queue outage otherwise).
+    refusal_detail: str = CAPACITY_DETAIL
+    # The FIRST refusal is a lie: the Engine scheduled the Run, but its answer said 503
+    # (a queue-unavailable 503 after a publish whose ack was lost).
+    hidden_accept: bool = False
     # A completing stream sends frames 1..2, then waits for this event before 3..5.
     hold: threading.Event | None = None
     # The result travels as an artifact claim ticket; its fetch waits for `artifact_hold`.
@@ -67,6 +78,8 @@ class StubState:
     deleted: list[str] = field(default_factory=list)  # capabilities named by DELETE /
     delete_status: HTTPStatus = HTTPStatus.NO_CONTENT
     artifact_requested: threading.Event = field(default_factory=threading.Event)
+    # Keepalive pings received per capability while its start was still waiting.
+    pings: dict[str, int] = field(default_factory=dict)
     # Capabilities whose client sent an in-band `ai.url4.stop` after the terminal frame.
     stop_frames: list[str] = field(default_factory=list)
 
@@ -123,31 +136,55 @@ class _Handler(BaseHTTPRequestHandler):
         state = self.server.state
         url4 = parse_qs(urlsplit(self.path).query)["q"][0]
         plan = state.plans[url4]
+        topic = state.topics[self.headers["URL4-Capability"]]
         with state.lock:
             state.start_attempts[url4] = state.start_attempts.get(url4, 0) + 1
+            first = state.start_attempts[url4] == 1
             answer = plan.admission.pop(0) if plan.admission else None
-        if answer is not None:
-            status, retry_after = answer
-            headers = {} if retry_after is None else {"Retry-After": retry_after}
-            self._json(
-                HTTPStatus(status),
-                {
-                    "type": "about:blank",
-                    "title": "Service Unavailable",
-                    "status": status,
-                    "detail": "the runner is at capacity — retry shortly",
-                },
-                content_type="application/problem+json",
-                headers=headers,
-            )
+            exists = topic in state.started
+            if plan.hidden_accept and first:
+                state.started[topic] = url4
+        if exists:
+            # One capability = one topic: a second start for it is refused (routes.py).
+            self._problem(HTTPStatus.CONFLICT, "Conflict", "a run already exists")
+        elif answer is not None:
+            self._refuse(answer, plan.refusal_detail)
+        else:
+            with state.lock:
+                state.started[topic] = url4
+            self.send_response(HTTPStatus.ACCEPTED)
+            self.send_header("Preference-Applied", "respond-async")
+            self.send_header("Location", "/?topic=isolation")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    def _refuse(self, answer: tuple[int, str | None], detail: str) -> None:
+        status, retry_after = answer
+        if retry_after is None:
+            body = b"upstream connect error or disconnect/reset before headers"
+            self.send_response(HTTPStatus(status))
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
-        with state.lock:
-            state.started[state.topics[self.headers["URL4-Capability"]]] = url4
-        self.send_response(HTTPStatus.ACCEPTED)
-        self.send_header("Preference-Applied", "respond-async")
-        self.send_header("Location", "/?topic=isolation")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        self._problem(
+            HTTPStatus(status), "Service Unavailable", detail, {"Retry-After": retry_after}
+        )
+
+    def _problem(
+        self,
+        status: HTTPStatus,
+        title: str,
+        detail: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self._json(
+            status,
+            {"type": "about:blank", "title": title, "status": int(status), "detail": detail},
+            content_type="application/problem+json",
+            headers=headers,
+        )
 
     def _artifact(self) -> None:
         state = self.server.state
@@ -190,11 +227,12 @@ class _Handler(BaseHTTPRequestHandler):
         # The Run starts only after the first attach (and after any admission refusals).
         state = self.server.state
         topic = state.topics[ticket]
-        waited = threading.Event()
         for _ in range(int(_WAIT_S / 0.01)):
             if topic in state.started:
                 break
-            waited.wait(0.01)
+            readable, _, _ = select.select([self.connection], [], [], 0.01)
+            if readable and not self._answer_control_frame(ticket):
+                return
         else:
             _send_close(self.wfile, 1011)
             return
@@ -227,6 +265,29 @@ class _Handler(BaseHTTPRequestHandler):
         if header[0] & 0x0F == 0x1 and b"ai.url4.stop" in payload:
             with self.server.state.lock:
                 self.server.state.stop_frames.append(ticket)
+
+    def _answer_control_frame(self, ticket: str) -> bool:
+        """Answer one client frame sent while the start waits; False once it closed.
+
+        A keepalive ping gets its pong (and is counted); a close — the client gave up, as
+        after an owner abort — is answered at once, as the engine does.
+        """
+        header = self.rfile.read(2)
+        if len(header) < 2:
+            return False
+        mask = self.rfile.read(4) if header[1] & 0x80 else b""
+        payload = bytes(
+            byte ^ mask[index % 4] for index, byte in enumerate(self.rfile.read(header[1] & 0x7F))
+        )
+        if header[0] & 0x0F == 0x9:
+            with self.server.state.lock:
+                pings = self.server.state.pings
+                pings[ticket] = pings.get(ticket, 0) + 1
+            self.wfile.write(bytes((0x8A, len(payload))) + payload)
+            self.wfile.flush()
+            return True
+        _send_close(self.wfile, 1000)
+        return False
 
     def _send_frames(self, ticket: str, first: int, last: int) -> None:
         state = self.server.state
