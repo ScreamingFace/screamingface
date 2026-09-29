@@ -133,6 +133,11 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # this field, so it was stored and never left the database, and a purge-certifying
         # export would have omitted data the purge deletes (review of PR #1055, P1).
         cache_saved_cost_usd=model.cache_saved_cost_usd,
+        # FEATURE: OME-1307 (E14) — inert here; each is excluded from output at its default.
+        paper_url=model.paper_url,
+        metadata_revision=model.metadata_revision,
+        metadata_updated_at=model.metadata_updated_at,
+        system_revision_id=model.system_revision_id,
     )
 
 
