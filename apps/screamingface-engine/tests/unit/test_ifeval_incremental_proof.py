@@ -121,7 +121,7 @@ class _Execution:
             benchmark_revision=REVISION,
             selected_cases=self.selected,
             cases=self.results,
-            scorer=grade._ifeval_score,
+            scorer=grade.score_cases,
         ).as_payload()
         assert self.checks == [self.first_answer, "Fresh tea"]
         assert self.marked == [1, 2]
@@ -145,7 +145,7 @@ async def test_case_grade_precedes_next_answer_and_final_payload_matches(
         assert execution.checks == [first_answer]
         assert execution.marked == [1]
         assert len(execution.results) == 1
-        assert grade._ifeval_score(execution.results).score == first_score
+        assert grade.score_cases(execution.results).score == first_score
         execution.release_second.set()
         await asyncio.wait_for(task, timeout=5)
     finally:

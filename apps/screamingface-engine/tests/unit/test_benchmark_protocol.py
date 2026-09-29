@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# OME-932 (owner-approved): early graded-results transport is additive; grading
+# and semantic revision pins remain unchanged to preserve ranked submissions.
 import asyncio
 import hashlib
 import json
@@ -288,11 +290,11 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # OME-1228: repin the explicit Case envelope; model input equivalence is tested separately.
         # OME-993 (atop OME-924's fail-fast re-pin): judge gains reasoning_effort=low
         # (max_tokens stays the paper's 4096) and a bounded ;retry=2 per verdict source.
-        (DRACO, "e3422106c97861a02fd2380f318185f70184f6a2c5b0957c4ecc94c5f643569c"),
-        (IFEVAL, "0abf9dc8c1b22ef08350fad5ad017cbf723d844485e0461a47b71f7eb51b46d0"),
+        (DRACO, "6e3eecc4c504dd1d0bcf0b788c312e6ad8c7ba0eaf4335d34b54e0450e16d02c"),
+        (IFEVAL, "ffc22c70f6f9bdc9b036ad884f4aa67c8d0df880c070e624748a81b7944bd3e7"),
         (
             HEALTHBENCH_WORST30,
-            "b3c3c806d470561442404e8f6288a345f383ce702f4e7df1a1de3255072fb8ca",
+            "e180999b91c3c2f8b62583056d1310f62f3e06b396ef571837ce7b1aadd4a359",
         ),
     ),
 )

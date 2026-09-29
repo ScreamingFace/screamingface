@@ -78,7 +78,6 @@ def compute_revision(
         PREPARER_REVISION,
         PROTOCOL_REVISION,
         EVALUATION_PROTOCOL_REVISION,
-        "early-graded-results-v1",
         CANDIDATE_RESULT_SCHEMA,
         system_prompt,
         user_template,
@@ -146,7 +145,7 @@ def _build(case_count: int) -> Node:
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=AGGREGATE_ROUTE,
+        aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
 
 

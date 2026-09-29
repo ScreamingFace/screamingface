@@ -33,6 +33,7 @@ from screamingface_engine.benchmarks.ifeval.definition import (
 from screamingface_engine.benchmarks.ifeval.scoring import scoring as scoring_binding
 from screamingface_engine.benchmarks.spine.incremental_routes import (
     aggregate_result_endpoint,
+    batch_result_endpoint,
     case_result_endpoint,
 )
 from screamingface_engine.benchmarks.stages import observe_stage
@@ -56,6 +57,12 @@ def install(node: Url4Node, root: Path) -> None:
         (CASE_RESULT_ROUTE, case_result_endpoint(load, available_case_count=CASE_COUNT)),
         (
             AGGREGATE_ROUTE,
+            batch_result_endpoint(
+                label="IFEval aggregation", available_case_count=CASE_COUNT, load=load
+            ),
+        ),
+        (
+            AGGREGATE_ROUTE + "/graded",
             aggregate_result_endpoint(
                 label="IFEval aggregation",
                 available_case_count=CASE_COUNT,

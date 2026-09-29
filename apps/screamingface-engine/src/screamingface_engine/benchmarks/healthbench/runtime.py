@@ -59,6 +59,7 @@ from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_ke
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from screamingface_engine.benchmarks.spine.incremental_routes import (
     aggregate_result_endpoint,
+    batch_result_endpoint,
     case_result_endpoint,
 )
 from screamingface_engine.benchmarks.stages import observe_stage
@@ -150,6 +151,14 @@ def _install_protocol_once(
         ),
         (
             aggregate_route,
+            batch_result_endpoint(
+                label="HealthBench",
+                available_case_count=len(case_ids),
+                load=_scoring(root, benchmark_id, benchmark_revision, case_ids, mean),
+            ),
+        ),
+        (
+            aggregate_route + "/graded",
             aggregate_result_endpoint(
                 label="HealthBench",
                 available_case_count=len(case_ids),

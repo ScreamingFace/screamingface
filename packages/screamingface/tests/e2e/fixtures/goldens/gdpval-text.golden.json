@@ -1,14 +1,14 @@
 {
   "schema": "screamingface.golden-report.v1",
   "board": "gdpval-text",
-  "revision": "2bd7b7b2d88e5775",
+  "revision": "cacfc3e6b83765f6",
   "models": [
     "openrouter/deepseek/deepseek-v4-pro",
     "openrouter/qwen/qwen3.8-2.4t-a95b",
     "openrouter/z-ai/glm-5.2"
   ],
   "limit": 25,
-  "expression_sha": "f3c57b574d0c525bf606902b4dbe5d36a845caaa825737fa9ce2c25d05c57bd1",
+  "expression_sha": "6e2eba3d7afe3cc92e2ec004b540169024977c03bae57a87e163a27dc8a59a44",
   "final_score": "0.8044",
   "case_count": 25,
   "gradeable_count": 20,

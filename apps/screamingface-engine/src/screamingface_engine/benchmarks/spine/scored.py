@@ -304,13 +304,18 @@ class ScoredPath:
                 # INVARIANT: publish only after canonical grading; observing never regrades.
                 completed_case(benchmark_id, benchmark_revision, result, scorer)
             # Stage 5 — fold the marks into the class results.
-            return finalize_candidate_result(
+            finalized = finalize_candidate_result(
                 benchmark_id=benchmark_id,
                 benchmark_revision=benchmark_revision,
                 selected_cases=list(selected_cases),
                 cases=case_results,
                 scorer=scorer,
-            ).as_payload()
+            )
+            observed = {case.case_id for case in case_results}
+            for case in finalized.cases:
+                if case.case_id not in observed:
+                    completed_case(benchmark_id, benchmark_revision, case, scorer)
+            return finalized.as_payload()
 
     async def iter_case_results(
         self,

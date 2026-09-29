@@ -116,7 +116,6 @@ def exam_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -
                 DATASET_REVISION,
                 protocol_revision,
                 EVALUATION_PROTOCOL_REVISION,
-                "early-graded-results-v1",
                 CANDIDATE_RESULT_SCHEMA,
                 PREPARER_REVISION,
                 FILTER_REVISION,
@@ -243,7 +242,7 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
         ),
         selected_case_count=case_count,
         available_case_count=available_case_count,
-        aggregate_route=routes.aggregate,
+        aggregate_route=routes.aggregate + "/graded",
     )
 
 

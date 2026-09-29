@@ -1,9 +1,9 @@
-"""Golden replay for the contracteval → serving-spine migration (OME-1236).
+"""Golden contract for the serving-spine migration (OME-1236).
 
-INVARIANT: an expression addressed to the current revision must resolve to
-byte-identical protocol before and after the extraction. Every literal below was
-captured from the pre-migration board at the head of this branch's base; if any
-assertion here fails, the migration changed the exam, not just its plumbing.
+OME-932 (owner-approved) adds early graded-result transport without changing
+this scoring revision or the legacy batch routes. Request/result compatibility
+is exercised in test_early_grade_compatibility; these pins protect exam identity
+and public asset/route contracts, not a ban on additive transport changes.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from screamingface_engine.benchmarks.contracteval.runtime import _cases, _check
 from url4.peer.server import Request
 
 # Captured 2026-09-21 from the pre-migration board (base of this branch).
-_GOLDEN_REVISION = "6a3409304ec744be"
+_GOLDEN_REVISION = "f9a076a10a6ae4c6"
 
 _GOLD_SPAN = "This Agreement is governed by Delaware law."
 

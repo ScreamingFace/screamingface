@@ -71,7 +71,7 @@ See docs/spec/2026-09-28-early-grade-transport.md. Proposed production design ca
 
 ## Approved production IFEval slice
 
-User approved production wiring on 2026-09-28. Add a versioned typed result row and a board-bound case-result endpoint after preserved execution. Change the canonical IFEval build to call it and final aggregation to consume those rows. Advance the IFEval protocol revision. The existing raw aggregate Python function remains a parity oracle; the production route must not accept both formats heuristically. New tests exercise actual generated execution and no-regrading replay. Snapshot/test migrations require the separately requested existing-test approval.
+User approved production wiring on 2026-09-28. Add a versioned typed result row and a board-bound case-result endpoint after preserved execution. Change the canonical IFEval build to call it and final aggregation to consume those rows. Use an additive typed-grade aggregate route while retaining the semantic revision and batch route (the completed review supersedes the earlier revision-bump proposal). The existing raw aggregate Python function remains a parity oracle; the production route must not accept both formats heuristically. New tests exercise actual generated execution and no-regrading replay. Snapshot/test migrations require the separately requested existing-test approval.
 
 ## Live preview iteration
 
@@ -80,17 +80,20 @@ Implement the scalar snapshot port and optional activity accumulator; invoke fro
 ## All-board implementation iteration
 1. Cover real built-in routes and blocked async grading with new progress tests; publish from shared aggregate consumption.
 2. Generalize early canonical-result production and typed-result transport for the remaining built-in families, preserving case positions and board-specific metadata/failure mappings.
-3. Migrate revisions/expression and replay fixtures only with existing-test approval; compare canonical outcomes and model request counts.
+3. Migrate expression fingerprints and replay fixtures only with existing-test approval; compare canonical outcomes and model request counts.
 4. Verify the registry, including every imported board, run stack gates and refresh the preview. Aggregate-only progress is an intermediate step, not completion of built-in early scoring.
 
 ### Review correction
 Add a real MedXpert batch-versus-early grading-failure regression, then validate decoded results against base selection before checking optional enrichment. Run full Engine gates and update the draft. Public single-case API and IFEval orchestration consolidation remain separate cleanup.
 
 ### IFEval consolidation steps
-Prove shared binding parity with real fixtures, then replace the IFEval-specific transport module with a board-owned Scoring factory and shared runtime/protocol adapters. Migrate approved route tests and revision fingerprints; run cache-only replay and stack gates before updating #1096.
+Prove shared binding parity with real fixtures, then replace the IFEval-specific transport module with a board-owned Scoring factory and shared runtime/protocol adapters. Migrate approved route tests and expression fingerprints; run cache-only replay and stack gates before updating #1096.
 
 ### Bounds/progress review fixes
 Add loader-spy endpoint and immediate failed-case snapshot regressions first. Require board count in endpoint wiring, publish aggregation-created failures, and exempt unscored failure completion from coalescing. Retain final-result authority and verify repeated aggregation deduplication.
 
 ### Review correction sequence
 Add failing tests for crash/cancellation, terminal rows, flush and schema/isolation first. Implement contained fixes, reconcile documentation, run gates and update draft. Investigate revision continuity independently without modifying scoreboard policy.
+
+### Complete review sequence
+Pin main's revisions and production expressions in compatibility tests. Separate typed reduction from batch route, restore semantic pins, verify all-board request/result parity for solo/fusion and multiple cases, then migrate expression-only fingerprints through recorded cache-only replays. Add minimal progress retention with native scorer parity; publish IFEval helper API; test real interleaved Client rows and accounting independence under retries/cache/shared requests. Reconcile all docs and ticket links, run both full gates and review before pushing.

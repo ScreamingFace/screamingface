@@ -163,7 +163,6 @@ def draco_revision(*, protocol_revision: str, judge_passes: int) -> str:
                 DATASET_PREPARER_REVISION,
                 protocol_revision,
                 EVALUATION_PROTOCOL_REVISION,
-                "early-graded-results-v1",
                 CANDIDATE_RESULT_SCHEMA,
                 RETRIEVAL_POLICY_ID,
                 repr(EXCLUDED_DOMAINS),
@@ -300,7 +299,7 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=routes.aggregate,
+        aggregate_route=routes.aggregate + "/graded",
     )
 
 

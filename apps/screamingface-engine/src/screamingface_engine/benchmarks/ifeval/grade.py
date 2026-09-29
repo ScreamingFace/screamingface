@@ -128,7 +128,7 @@ def aggregate(
     ``sorted(specs)`` or ``index + 1``.
     """
 
-    selected = _selected_cases(specs, case_order, selected_case_count)
+    selected = selected_cases(specs, case_order, selected_case_count)
     path = scored_path(specs)
     return path.aggregate(
         rows_json,
@@ -138,7 +138,7 @@ def aggregate(
         # The spec is verified present for every selected Case before any grading,
         # so the spine's missing-material rung is unreachable on this board.
         grading_material=lambda case_id: specs.get(case_id),
-        scorer=_ifeval_score,
+        scorer=score_cases,
     )
 
 
@@ -163,7 +163,7 @@ def scored_path(specs: Mapping[int, Mapping[str, Any]]) -> ScoredPath:
     )
 
 
-def _selected_cases(
+def selected_cases(
     specs: Mapping[int, Mapping[str, Any]],
     case_order: Sequence[int],
     selected_case_count: int,
@@ -346,7 +346,7 @@ def _is_candidate_execution_failure(error: Mapping[str, Any]) -> bool:
     return error.get("kind") == CandidateExecutionError.__name__
 
 
-def _ifeval_score(cases: Sequence[CaseResult]) -> CandidateScore:
+def score_cases(cases: Sequence[CaseResult]) -> CandidateScore:
     """Apply IFEval's published accuracy formulas to gradeable typed Cases."""
 
     grades = [case.grade for case in cases]
@@ -410,4 +410,6 @@ __all__ = [
     "load_case_order",
     "load_specs",
     "scored_path",
+    "score_cases",
+    "selected_cases",
 ]

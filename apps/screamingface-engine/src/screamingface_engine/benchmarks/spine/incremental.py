@@ -63,13 +63,18 @@ class Scoring:
                 result = await self._completed_row(row, selected, index)
                 if result is not None:
                     results.append(result)
-            return finalize_candidate_result(
+            finalized = finalize_candidate_result(
                 benchmark_id=self.benchmark_id,
                 benchmark_revision=self.revision,
                 selected_cases=self.selected,
                 cases=results,
                 scorer=self.scorer,
-            ).as_payload()
+            )
+            observed = {case.case_id for case in results}
+            for case in finalized.cases:
+                if case.case_id not in observed:
+                    completed_case(self.benchmark_id, self.revision, case, self.scorer)
+            return finalized.as_payload()
 
     async def _completed_row(self, row, selected, index) -> CaseResult | None:
         if (

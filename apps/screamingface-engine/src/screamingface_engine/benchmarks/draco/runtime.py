@@ -48,6 +48,7 @@ from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from screamingface_engine.benchmarks.spine.incremental_routes import (
     aggregate_result_endpoint,
+    batch_result_endpoint,
     case_result_endpoint,
 )
 from screamingface_engine.benchmarks.stages import observe_stage
@@ -94,6 +95,11 @@ def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
         case_result_endpoint(_scoring(assets, exam), available_case_count=CASE_COUNT)
     )
     node.endpoint(exam.routes.aggregate)(
+        batch_result_endpoint(
+            label="DRACO", available_case_count=CASE_COUNT, load=_scoring(assets, exam)
+        )
+    )
+    node.endpoint(exam.routes.aggregate + "/graded")(
         aggregate_result_endpoint(
             label="DRACO",
             # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first

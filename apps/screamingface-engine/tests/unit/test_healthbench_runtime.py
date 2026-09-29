@@ -281,7 +281,9 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
         ),
         "0:1",
     )
-    result = await _call(node, WORST30_EXAM.routes.aggregate, json.dumps([graded]), "aggregate:1")
+    result = await _call(
+        node, WORST30_EXAM.routes.aggregate + "/graded", json.dumps([graded]), "aggregate:1"
+    )
     assert isinstance(result, dict)
     # The single +8 item was met — the Case scores 1.0 and the mean follows.
     assert result["score"] == 1.0

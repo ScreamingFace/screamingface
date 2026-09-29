@@ -29,9 +29,9 @@ DATASET_REVISION = "966cd89545d6b6acfd7638bc708b98261ca58e84"
 # The pip-installable, bug-fixed fork that inspect_evals pins — vendored under ./vendor.
 VERIFIER_REPOSITORY = "josejg/instruction_following_eval"
 VERIFIER_REVISION = "0c495b2f95155e8b10acb919ae283bfb4d5be6e2"
-# WHY: v4 uses the shared selected-index/count early-grade transport.
-# Official case keys and the pinned prompt correction from v2 remain unchanged.
-PROTOCOL_REVISION = "ifeval-shared-graded-results-v4"
+# OME-932: additive grade transport preserves the exam and its leaderboard identity.
+# Official case keys and the pinned prompt correction remain unchanged.
+PROTOCOL_REVISION = "ifeval-official-identity-v2"
 CANDIDATE_WEB_SEARCH = False
 
 # The verifier code is the grading contract, so changing it changes the Benchmark revision.
@@ -106,7 +106,7 @@ def _build(case_count: int) -> Node:
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=AGGREGATE_ROUTE,
+        aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
 
 

@@ -9,12 +9,12 @@ from screamingface_engine.benchmarks.spine.incremental import Scoring
 
 def scoring(root: Path, selected_case_count: int) -> Scoring:
     specs = grade.load_specs(root / "instructions")
-    selected = grade._selected_cases(specs, grade.load_case_order(root), selected_case_count)
+    selected = grade.selected_cases(specs, grade.load_case_order(root), selected_case_count)
     return Scoring(
         path=grade.scored_path(specs),
         benchmark_id=BENCHMARK_ID,
         revision=REVISION,
         selected=selected,
         material=specs.get,
-        scorer=grade._ifeval_score,
+        scorer=grade.score_cases,
     )

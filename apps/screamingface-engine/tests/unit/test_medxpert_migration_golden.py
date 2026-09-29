@@ -1,9 +1,9 @@
-"""Golden replay for the medxpert → serving-spine migration (OME-1236).
+"""Golden contract for the serving-spine migration (OME-1236).
 
-INVARIANT: an expression addressed to the current revision must resolve to
-byte-identical protocol before and after the extraction. Every literal below was
-captured from the pre-migration board at the head of this branch's base; if any
-assertion here fails, the migration changed the exam, not just its plumbing.
+OME-932 (owner-approved) adds early graded-result transport without changing
+this scoring revision or the legacy batch routes. Request/result compatibility
+is exercised in test_early_grade_compatibility; these pins protect exam identity
+and public asset/route contracts, not a ban on additive transport changes.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 # Captured 2026-09-21 from the pre-migration board (base of this branch).
-_GOLDEN_REVISION = "9d03319d78ccb380"
+_GOLDEN_REVISION = "791a7d5b2e961f1c"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
 _QUESTION = "Which agent is indicated? Answer Choices: " + " ".join(

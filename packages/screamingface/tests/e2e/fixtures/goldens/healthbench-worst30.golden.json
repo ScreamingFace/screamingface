@@ -1,14 +1,14 @@
 {
   "schema": "screamingface.golden-report.v1",
   "board": "healthbench-worst30",
-  "revision": "8243eab2419cd5bd",
+  "revision": "39cfd96b068f7230",
   "models": [
     "openrouter/openai/gpt-oss-120b",
     "openrouter/nvidia/nemotron-3-ultra-550b-a55b",
     "openrouter/tencent/hy3"
   ],
   "limit": null,
-  "expression_sha": "ff7e75d0a5248768c5412d7fdb20064168fe25ae6aeb199abc89e1dcc1f654d1",
+  "expression_sha": "51598e8126b5fbe7766a13acab43c45809bfca4a36e87ee2d57d51713efbf1f6",
   "final_score": "-0.091",
   "case_count": 157,
   "gradeable_count": 124,

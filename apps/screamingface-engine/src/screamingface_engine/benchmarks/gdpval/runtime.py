@@ -55,6 +55,7 @@ from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.rubric_check import check_surface
 from screamingface_engine.benchmarks.spine.incremental_routes import (
     aggregate_result_endpoint,
+    batch_result_endpoint,
     case_result_endpoint,
 )
 from screamingface_engine.benchmarks.stages import observe_stage
@@ -101,6 +102,14 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
         ),
         (
             exam.routes.aggregate,
+            batch_result_endpoint(
+                label="GDPval",
+                available_case_count=len(exam.case_ids),
+                load=_scoring(root, exam.id, exam.revision, exam.case_ids, exam.mean),
+            ),
+        ),
+        (
+            exam.routes.aggregate + "/graded",
             aggregate_result_endpoint(
                 label="GDPval",
                 available_case_count=len(exam.case_ids),

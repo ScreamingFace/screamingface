@@ -4,7 +4,7 @@ from collections.abc import Callable
 from functools import lru_cache
 
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks.evaluation import async_aggregate_endpoint
+from screamingface_engine.benchmarks.evaluation import aggregate_endpoint, async_aggregate_endpoint
 from screamingface_engine.benchmarks.spine.incremental import Scoring
 from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
@@ -52,4 +52,13 @@ def aggregate_result_endpoint(
 
     return async_aggregate_endpoint(
         label=label, available_case_count=available_case_count, aggregate=aggregate
+    )
+
+
+def batch_result_endpoint(*, label: str, available_case_count: int, load: Callable[[int], Scoring]):
+    """Keep published batch expressions valid under their unchanged scoring revision."""
+    return aggregate_endpoint(
+        label=label,
+        available_case_count=available_case_count,
+        aggregate=lambda raw, count: load(count).aggregate(raw),
     )
