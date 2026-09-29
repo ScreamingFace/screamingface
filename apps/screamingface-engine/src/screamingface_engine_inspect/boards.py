@@ -896,12 +896,13 @@ def _dropped_question_pins(snapshot: SnapshotSpec) -> list[str]:
     for a row that drops nothing, so published revisions stay put."""
 
     pins: list[str] = []
-    if snapshot.task is not None:
-        # WHY: a task-route board's questions are whatever the eval's task keeps,
+    if snapshot.question_filter_task is not None:
+        # WHY: a question-filter board's questions are whatever the eval's task keeps,
         # and its args can change that (xstest's subset) — both are exam identity.
         # json.dumps(sort_keys=True) keeps the args pin deterministic.
-        pins.append(f"task={snapshot.task}")
-        pins.append(f"task_args={json.dumps(snapshot.task_args or {}, sort_keys=True)}")
+        pins.append(f"question_filter_task={snapshot.question_filter_task}")
+        task_args: str = json.dumps(snapshot.question_filter_task_args or {}, sort_keys=True)
+        pins.append(f"question_filter_task_args={task_args}")
     if snapshot.excluded_sample_ids is not None:
         # WHY: the named deviation removes questions from the exam.
         pins.append(f"excluded_sample_ids={','.join(sorted(snapshot.excluded_sample_ids))}")

@@ -258,17 +258,17 @@ class SnapshotSpec:
     #: Default False keeps every published board's baked assets byte-identical
     #: (snapshots are immutable at their revision); flipping it moves the revision.
     keep_sample_metadata: bool = False
-    #: OME-1269 task route: the eval's own task function (same dotted-reference
+    #: OME-1269 question filter: the eval's own task function (same dotted-reference
     #: convention), for an eval that DROPS questions after loading — a
     #: ``.filter()`` inside the task (pubmedqa keeps its 500 test ids of 1,000
     #: rows). The bake hands that function this board's pinned samples in place
     #: of its hf_dataset load and keeps exactly what its Task holds, so the
     #: eval's filter runs and is never copied. ``case_count`` is then the KEPT
     #: count. None (every board before OME-1269) skips the step entirely.
-    task: str | None = None
+    question_filter_task: str | None = None
     #: Arguments forwarded to ``task`` (xstest's {"subset": "safe"}) — they can
     #: change which questions the filter keeps, so they ride exam identity too.
-    task_args: dict[str, Any] | None = None
+    question_filter_task_args: dict[str, Any] | None = None
     #: A NAMED DEVIATION from inspect: sample ids (``str(Sample.id)``) the bake
     #: leaves out even though inspect keeps them — for questions that cannot be
     #: graded as published (onet_m6: an answer letter past the last choice).
@@ -636,7 +636,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=ONET_M6_SHUFFLE_SEED,
         # The eval drops questions after loading; the bake runs its task over
         # the pinned questions and keeps exactly what it keeps (OME-1269).
-        task="inspect_evals.onet.onet:onet_m6",
+        question_filter_task="inspect_evals.onet.onet:onet_m6",
         # Named deviation: six malformed questions inspect keeps (see the pin).
         excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
     ),
@@ -729,11 +729,11 @@ def emit_snapshot(
 
         Stage 1 — refuse a mutable revision ref (only a 40-hex sha is exam identity)
                   and a wrong-sized dataset (the pinned case count is, too). A
-                  task-route board checks its count after Stage 3b instead.
+                  question-filter board checks its count after Stage 3b instead.
         Stage 2 — shuffle when the spec pins a seed (the baked order is exam identity).
         Stage 3 — per row: the eval's ``record_to_sample`` builds the Sample; any raise
                   fails the bake by case number.
-        Stage 3b — task-route boards only: the eval's own task function drops the
+        Stage 3b — question-filter boards only: the eval's own task function drops the
                   questions it would drop in inspect (:func:`task_kept_samples`); the
                   pinned case count is enforced on what it keeps.
         Stage 4 — shuffle each Sample's CHOICE order when the spec pins a choice seed,
@@ -798,17 +798,19 @@ def _pinned_samples(
     spec: SnapshotSpec, rows: list[dict[str, Any]], expected_cases: int | None
 ) -> list[Sample]:
     """Stages 1 (size), 2, 3 and 3b — the raw rows become the exam's Samples, in the
-    pinned order. A board that drops questions (a task route, or a named exclusion)
+    pinned order. A board that drops questions (a question filter, or a named exclusion)
     checks its size on what is left instead of on the raw rows."""
 
-    drops_questions: bool = spec.task is not None or spec.excluded_sample_ids is not None
+    drops_questions: bool = (
+        spec.question_filter_task is not None or spec.excluded_sample_ids is not None
+    )
     if not drops_questions:
         _require_case_count(len(rows), expected_cases, "dataset yielded", "rows")
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
         random.Random(spec.shuffle_seed).shuffle(ordered)
     samples: list[Sample] = _converted_samples(ordered, _resolve(spec.record_to_sample))
-    if spec.task is not None:
+    if spec.question_filter_task is not None:
         samples = task_kept_samples(spec, samples)
     if spec.excluded_sample_ids is not None:
         samples = _without_excluded_samples(spec.excluded_sample_ids, samples)
@@ -867,18 +869,18 @@ def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]
         Stage 2 — swap that binding for a loader that returns a FRESH dataset of
                   our samples (no download, and the eval's own shuffle kwargs are
                   ignored: the order is already pinned), then call the task with
-                  ``spec.task_args``. A raise refuses by name — e.g. inspect's
+                  ``spec.question_filter_task_args``. A raise refuses by name — e.g. inspect's
                   "dataset is empty" when the filter kept nothing.
         Stage 3 — refuse unless the loader ran exactly once (a second load, a
                   fewshot pool, would have been handed the exam's samples too), and
                   asked for the dataset, config and split this row pins (the swap
                   ignores them, so a mismatched row would bake another load's exam).
         Stage 4 — refuse unless the Task's samples are an in-order subset of ours,
-                  compared by identity: the route may only DROP questions. An
+                  compared by identity: the question filter may only DROP questions. An
                   added, duplicated or reordered sample is an exam we never pinned.
 
     Args:
-        spec: the board's bake declaration; ``spec.task`` must be set.
+        spec: the board's bake declaration; ``spec.question_filter_task`` must be set.
         samples: our pinned samples — converted by the eval's ``record_to_sample``
             and already in the board's seeded order.
 
@@ -887,13 +889,13 @@ def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]
     """
 
     # Stage 1 — the task function and the load it makes.
-    task_ref: str = str(spec.task)
+    task_ref: str = str(spec.question_filter_task)
     module_name, _, attribute = task_ref.partition(":")
     module: Any = import_module(module_name)
     task_fn: Any = getattr(module, attribute)
     if not hasattr(module, "hf_dataset"):
         raise PrepareError(
-            f"task {task_ref}: its module has no hf_dataset binding — the task route "
+            f"task {task_ref}: its module has no hf_dataset binding — the question-filter step "
             "can only hand the pinned questions to an eval that loads through it"
         )
 
@@ -909,7 +911,7 @@ def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]
     original_loader: Any = module.hf_dataset
     module.hf_dataset = pinned_loader
     try:
-        task: Any = task_fn(**dict(spec.task_args or {}))
+        task: Any = task_fn(**dict(spec.question_filter_task_args or {}))
     except Exception as exc:  # noqa: BLE001 — WHY broad: this is eval code over our
         # pinned questions; ANY raise must refuse the bake by name, never crash raw.
         raise PrepareError(
@@ -924,7 +926,7 @@ def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]
         paths: str = ", ".join(str(load.get("path", "?")) for load in loads) or "none"
         raise PrepareError(
             f"task {task_ref}: loaded {len(loads)} datasets ({paths}) — "
-            "the task route hands the pinned questions to exactly one load"
+            "the question-filter step hands the pinned questions to exactly one load"
         )
     _require_the_pinned_load(task_ref, spec, loads[0])
 
@@ -953,7 +955,7 @@ def _load_arguments(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, 
 
 
 def _require_the_pinned_load(task_ref: str, spec: SnapshotSpec, arguments: dict[str, Any]) -> None:
-    """Stage 3 of the task route — the eval must ask for the load this row pins.
+    """Stage 3 of the question-filter step — the eval must ask for the load this row pins.
 
     WHY: the swap hands the task our pinned samples whatever it asks for, so a row
     whose dataset/config/split drifted from the task's own call would bake one
@@ -981,7 +983,7 @@ def _require_the_pinned_load(task_ref: str, spec: SnapshotSpec, arguments: dict[
 
 
 def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sample]) -> None:
-    """Stage 4 of the task route — refuse unless ``kept`` only DROPS from ``samples``.
+    """Stage 4 of the question-filter step — refuse unless ``kept`` only DROPS from ``samples``.
 
     Compared by object identity (inspect's filter keeps the very Sample objects),
     so a look-alike question the task built itself is caught too. Worked example:
@@ -1002,9 +1004,9 @@ def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sa
 
 
 def count_kept_cases(spec: SnapshotSpec) -> int:
-    """How many questions a task-route board keeps at its pinned revision.
+    """How many questions a question-filter board keeps at its pinned revision.
 
-    The importer's case count for a task-route row (import time only; this
+    The importer's case count for a question-filter row (import time only; this
     downloads the pinned split). Order cannot change the count, so no shuffle.
     """
 
@@ -1127,7 +1129,7 @@ def _require_case_count(count: int, expected: int | None, source: str, unit: str
     WHY: the row count is part of the exam's identity (the pinned CASE_COUNT rides the
     revision hash); an upstream change or a wrong split silently yielding 0 or N±k rows
     would bake a DIFFERENT exam with a green build. ``source``/``unit`` name what was
-    counted: raw rows ("dataset yielded … rows") or a task route's kept cases.
+    counted: raw rows ("dataset yielded … rows") or a question filter's kept cases.
     """
 
     if expected is not None and count != expected:
