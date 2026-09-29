@@ -662,6 +662,33 @@ BOARDS: tuple[BoardSpec, ...] = (
         # a judged mid-run check would spend judge tokens while advertising free.
         with_check_surface=False,
     ),
+    BoardSpec(
+        key="onet_m6",
+        title="O-NET M6",
+        description=(
+            "391 multiple-choice questions from Thailand's national grade-12 exam "
+            "(O-NET M6): mathematics, science, social studies, English and Thai "
+            "language, in Thai or English, imported from inspect_evals. Like "
+            "inspect, the board keeps only answerable single-answer questions; it "
+            "also leaves out 6 more that inspect keeps but that cannot be graded "
+            "as published (their answer letter points past the last choice), so "
+            "it serves 391 of inspect's 397. Each prompt opens with the eval's "
+            "language note and asks the model to think step by step before its "
+            "final 'ANSWER: X' line. Serving order is pinned by a policy seed "
+            "(upstream shuffles per run). Benchmark score = plain accuracy over "
+            "the cases run. No mid-run check surface (elimination attack over "
+            "few options)."
+        ),
+        focus="Thai national high-school exam (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/matichon/thai-onet-m6-exam",
+        # Grade-12 exam material; OpenThaiGPT's published 70B-class results span
+        # roughly 24-90% by subject, math and science the hardest (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.onet.onet:onet_m6.
+        # License: apache-2.0.
+        scorer="inspect_ai.scorer:choice",
+    ),
     # --- importer: generated BoardSpec rows land above this line ---
 )
 
@@ -836,7 +863,26 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
         # WHY: the schema fixes how the selected files parse into rows, so the
         # pointer rides exam identity like system_message's does.
         pins.append(f"features={snapshot.features}")
+    pins.extend(_dropped_question_pins(snapshot))
     return tuple(pins)
+
+
+def _dropped_question_pins(snapshot: SnapshotSpec) -> list[str]:
+    """Pins for the two ways a row drops questions after loading (OME-1269) — none
+    for a row that drops nothing, so published revisions stay put."""
+
+    pins: list[str] = []
+    if snapshot.question_filter_task is not None:
+        # WHY: a question-filter board's questions are whatever the eval's task keeps,
+        # and its args can change that (xstest's subset) — both are exam identity.
+        # json.dumps(sort_keys=True) keeps the args pin deterministic.
+        pins.append(f"question_filter_task={snapshot.question_filter_task}")
+        task_args: str = json.dumps(snapshot.question_filter_task_args or {}, sort_keys=True)
+        pins.append(f"question_filter_task_args={task_args}")
+    if snapshot.excluded_sample_ids is not None:
+        # WHY: the named deviation removes questions from the exam.
+        pins.append(f"excluded_sample_ids={','.join(sorted(snapshot.excluded_sample_ids))}")
+    return pins
 
 
 def _scorer_factory(spec: BoardSpec) -> Callable[[], Any]:

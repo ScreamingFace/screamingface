@@ -61,6 +61,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "lab_bench_seqqa": "mcq",
     "lab_bench_cloning_scenarios": "mcq",
     "frontierscience": "judged",
+    # OME-1269: the first question-filter board — the eval's own filter picks the
+    # questions; MCQ graded by the choice scorer, no check surface.
+    "onet_m6": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -127,6 +130,9 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
         references.append(snapshot.choice_template)
     if snapshot.system_message is not None:
         references.append(snapshot.system_message)
+    if snapshot.question_filter_task is not None:
+        # The question-filter pointer (OME-1269): the bake CALLS it at image build.
+        references.append(snapshot.question_filter_task)
     for reference in references:
         module_name, _, attribute = reference.partition(":")
         assert hasattr(import_module(module_name), attribute), reference
@@ -200,6 +206,9 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         # frontierscience: mixed formats/subjects in dataset order — OURS policy
         # seed so a limited run spans both formats (sweep 2026-09-22, OME-1240).
         "frontierscience",
+        # onet_m6: upstream shuffles rows per run (shuffle=True, no seed), so the
+        # import pins one order (OURS policy seed, OME-1269).
+        "onet_m6",
     }
 
 
@@ -318,3 +327,27 @@ def test_system_message_pointer_rides_exam_identity() -> None:
     assert "system_message=inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE" in pins
     # And a board without one carries no such pin (the field is conditional).
     assert not any(p.startswith("system_message=") for p in _revision_pins(SNAPSHOTS["musr"]))
+
+
+def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
+    """OME-1269's first question-filter board. Its questions are whatever the eval's own
+    filter keeps, minus the owner-approved named deviation (6 questions inspect keeps
+    whose answer letter lies past their choices), and it renders inspect's own
+    chain-of-thought template because the eval passes multiple_choice(cot=True).
+    The question filter and the exclusion change which questions are served, so both ride its
+    revision; the template pointer does not (template pointers predate revision-pin
+    coverage — see boards._revision_pins)."""
+
+    from inspect_evals.onet.onet import ONET_DATASET_REVISION as UPSTREAM
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    row = SNAPSHOTS["onet_m6"]
+    assert row.dataset_revision == UPSTREAM
+    assert row.question_filter_task == "inspect_evals.onet.onet:onet_m6"
+    assert row.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+    assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6
+    assert row.case_count == 397 - 6
+    pins = _revision_pins(row)
+    assert "question_filter_task=inspect_evals.onet.onet:onet_m6" in pins
+    assert any(pin.startswith("excluded_sample_ids=") for pin in pins)
