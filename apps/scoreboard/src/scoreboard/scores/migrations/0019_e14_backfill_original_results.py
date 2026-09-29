@@ -100,6 +100,9 @@ async def _noop(apps, schema_editor) -> None:
 class Migration(migrations.Migration):
     dependencies = [
         ("models", "0018_e14_registry_and_results_tables"),
+        # WHY: the backfill SQL reads `scores.run_cost_usd`, which 0004 adds. 0004 is a leaf off the
+        # main chain, so 0018 -> 0017 -> 0016 does not reach it.
+        ("models", "0004_add_run_cost_usd"),
     ]
 
     initial = False

@@ -17,6 +17,38 @@ from scoreboard.scores.models.partial_indexes import PARTIAL_UNIQUE_INDEX_SQL
 REPO_APP = Path(__file__).resolve().parents[2]
 TO_0016 = "0016_score_enriched_at"
 TO_0018 = "0018_e14_registry_and_results_tables"
+# The `scores` columns the 0019 backfill copies unchanged (`reporter` and `id` are checked apart).
+COPIED_COLUMNS = (
+    "score",
+    "total_questions",
+    "correct_questions",
+    "run_cost_usd",
+    "run_cost_status",
+    "cache_saved_cost_usd",
+    "models",
+    "ran_with_providers",
+    "client_name",
+    "client_version",
+    "client_platform",
+    "submitted_at",
+)
+# The `reported_result` columns an original from the backfill must leave NULL (no run_id in the
+# seeded metadata; no replay, cache or trace data exists for a legacy score).
+UNSET_COLUMNS = (
+    "run_id",
+    "trace_id",
+    "answer_seed",
+    "replayed_from_result_id",
+    "pinned_baseline_result_id",
+    "cache_version_id",
+    "cache_version_sha256",
+    "cache_entry_count",
+    "cache_call_count",
+    "cache_coverage_status",
+    "replay_hits",
+    "replay_misses",
+    "replay_repeated_key_collapses",
+)
 NEW_TABLES = {
     "system",
     "system_revision",
@@ -111,15 +143,55 @@ def _insert_score(
     return identifier
 
 
+def _distinct_copied_columns(number: int) -> dict[str, object]:
+    """A value per copied `scores` column that differs for every `number`, so a swap is visible."""
+    return {
+        "correct_questions": 3 + number,
+        "run_cost_status": ("complete", "partial", "unknown")[number],
+        "cache_saved_cost_usd": f"{number + 2}.250000",
+        "models": json.dumps([f"model-{number}", f"alt-{number}"]),
+        "ran_with_providers": json.dumps([f"provider-{number}"]),
+        "client_name": f"client-{number}",
+        "client_version": f"1.{number}.0",
+        "client_platform": ("linux", "darwin", "windows")[number],
+    }
+
+
 def _seed_legacy(database: Path) -> list[str]:
-    """Two benchmarks and three scores, written with only the 0016 columns."""
+    """Two benchmarks and three scores, written with only the 0016 columns.
+
+    INVARIANT: every column the 0019 backfill copies holds a different non-NULL value on each score,
+    so a dropped, NULLed or swapped column changes a compared value.
+    """
     connection = sqlite3.connect(database)
     _insert_benchmark(connection, "alpha")
     _insert_benchmark(connection, "beta")
     ids = [
-        _insert_score(connection, "alpha", score=0.25, run_cost_usd="1.500000"),
-        _insert_score(connection, "alpha", score=0.75, submitted_by=None),
-        _insert_score(connection, "beta", score=0.5, run_cost_usd="0.010000"),
+        _insert_score(
+            connection,
+            "alpha",
+            score=0.25,
+            run_cost_usd="1.500000",
+            submitted_at="2026-02-01 00:00:01",
+            extra=_distinct_copied_columns(0),
+        ),
+        _insert_score(
+            connection,
+            "alpha",
+            score=0.75,
+            submitted_by=None,
+            run_cost_usd="2.500000",
+            submitted_at="2026-02-01 00:00:02",
+            extra=_distinct_copied_columns(1),
+        ),
+        _insert_score(
+            connection,
+            "beta",
+            score=0.5,
+            run_cost_usd="0.010000",
+            submitted_at="2026-02-01 00:00:03",
+            extra=_distinct_copied_columns(2),
+        ),
     ]
     connection.commit()
     connection.close()
@@ -209,6 +281,13 @@ def test_sch2_backfill_creates_one_original_result_per_score(tmp_path: Path) -> 
         assert result["total_questions"] == head["total_questions"]
         assert result["run_cost_usd"] == head["run_cost_usd"]
         assert result["submitted_at"] == head["submitted_at"]
+        for column in COPIED_COLUMNS:
+            assert result[column] == head[column], column
+        for column in UNSET_COLUMNS:
+            assert result[column] is None, column
+    # WHY: the seed gives each score its own values, so a backfill that wrote one score's value
+    # into every row cannot pass the per-row equality above.
+    assert len({result["client_name"] for result in results}) == 3
 
 
 def test_sch3_backfill_is_idempotent_and_skips_a_head_with_an_original(tmp_path: Path) -> None:
@@ -384,3 +463,35 @@ def test_sch1b_migrations_reverse_and_reapply_cleanly(tmp_path: Path) -> None:
     originals = connection.execute("SELECT COUNT(*) FROM reported_result").fetchone()
     connection.close()
     assert originals == (3,)
+
+
+def test_sch15_a_targeted_migrate_to_0019_applies_on_an_empty_database(tmp_path: Path) -> None:
+    # INVARIANT: 0019 reads `scores.run_cost_usd`, which `0004_add_run_cost_usd` adds. That leaf is
+    # not on the 0018 -> 0017 -> 0016 chain, so 0019 must declare it as its own dependency, or a
+    # targeted migrate leaves 0017 and 0018 applied and fails on the backfill SQL.
+    database = tmp_path / "scoreboard.sqlite3"
+
+    result = _migrate(f"sqlite://{database}", "0019_e14_backfill_original_results")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_sch14_migration_delete_rules_of_the_result_foreign_keys(tmp_path: Path) -> None:
+    # INVARIANT (D8): the delete rule of each `reported_result` FK in the MIGRATED file, not the
+    # models' `generate_schemas` DDL. CASCADE lets `delete_scores` remove a head's results; NO
+    # ACTION on both replay FKs blocks the delete of an original that another cluster replayed or
+    # pinned as its baseline.
+    database = tmp_path / "scoreboard.sqlite3"
+    _migrated(database)
+
+    connection = sqlite3.connect(database)
+    rules = {
+        row[3]: row[6] for row in connection.execute('PRAGMA foreign_key_list("reported_result")')
+    }
+    connection.close()
+
+    assert rules == {
+        "head_id": "CASCADE",
+        "replayed_from_result_id": "NO ACTION",
+        "pinned_baseline_result_id": "NO ACTION",
+    }

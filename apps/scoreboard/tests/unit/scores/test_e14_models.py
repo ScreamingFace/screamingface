@@ -234,3 +234,21 @@ async def test_sch14_replay_fks_are_no_action(partial_unique_indexes: None) -> N
     assert await Score.filter(id=first).count() == 1
     assert await ReportedResult.filter(id=first_original.id).count() == 1
     assert await ReportedResult.filter(id=replay.id).count() == 1
+
+
+async def test_sch14c_a_baseline_pinned_in_another_cluster_blocks_the_delete(
+    partial_unique_indexes: None,
+) -> None:
+    # INVARIANT (I-R5, D8): `pinned_baseline_result` is NO ACTION like `replayed_from_result`. A
+    # result in ANOTHER cluster that pinned its baseline to this original, and replayed nothing,
+    # must block the delete of the original's head. CASCADE would delete that result silently.
+    first = await _score("baseline-cluster")
+    second = await _score("pinning-cluster")
+    baseline = await _result(first, is_original=True)
+    pinned = await _result(second, pinned_baseline_result_id=baseline.id)
+
+    with pytest.raises(IntegrityError):
+        await Score.filter(id=first).delete()
+    assert await Score.filter(id=first).count() == 1
+    assert await ReportedResult.filter(id=baseline.id).count() == 1
+    assert await ReportedResult.filter(id=pinned.id).count() == 1

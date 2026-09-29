@@ -16,6 +16,7 @@ import sys
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -26,6 +27,44 @@ import pytest
 REPO_APP = Path(__file__).resolve().parents[2]
 DATABASE_URL = os.getenv("SCOREBOARD_TEST_DATABASE_URL", "")
 TO_0016 = "0016_score_enriched_at"
+
+# The `scores` columns the 0019 backfill copies unchanged (`reporter` and `id` are checked apart).
+COPIED_COLUMNS = (
+    "score",
+    "total_questions",
+    "correct_questions",
+    "run_cost_usd",
+    "run_cost_status",
+    "cache_saved_cost_usd",
+    "models",
+    "ran_with_providers",
+    "client_name",
+    "client_version",
+    "client_platform",
+    "submitted_at",
+)
+# The `reported_result` columns an original from the backfill must leave NULL.
+UNSET_COLUMNS = (
+    "trace_id",
+    "answer_seed",
+    "replayed_from_result_id",
+    "pinned_baseline_result_id",
+    "cache_version_id",
+    "cache_version_sha256",
+    "cache_entry_count",
+    "cache_call_count",
+    "cache_coverage_status",
+    "replay_hits",
+    "replay_misses",
+    "replay_repeated_key_collapses",
+)
+# The `pg_constraint.confdeltype` code of each `reported_result` foreign key (D8): `c` is CASCADE
+# and `a` is NO ACTION.
+RESULT_FK_DELETE_RULES = {
+    "head_id": "c",
+    "replayed_from_result_id": "a",
+    "pinned_baseline_result_id": "a",
+}
 
 
 def _migrate(database_url: str, target: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -69,16 +108,22 @@ async def _seed(database_url: str) -> uuid.UUID:
                VALUES ('pg-board', 'PG board', 'public', $1)""",
             datetime(2026, 1, 1, tzinfo=UTC),
         )
+        # INVARIANT: every column the backfill copies holds a distinct non-NULL value, so a
+        # dropped, NULLed or swapped column, or a lossy numeric or jsonb round trip, is visible.
         await connection.execute(
             """INSERT INTO scores
                (id, version, spec_id, url4_expression, submitted_by, submitted_at,
-                total_questions, ran_with_providers, metadata, benchmark_id,
-                verified_by_screamingface, score)
-               VALUES ($1, 1, 'spec', 'url4://x', 'owner@example.test', $2, 10, '[]'::jsonb,
-                       $3::jsonb, 'pg-board', false, 0.5)""",
+                total_questions, correct_questions, ran_with_providers, metadata, benchmark_id,
+                verified_by_screamingface, score, run_cost_usd, run_cost_status,
+                cache_saved_cost_usd, models, client_name, client_version, client_platform)
+               VALUES ($1, 1, 'spec', 'url4://x', 'owner@example.test', $2, 10, 7,
+                       '["provider-a"]'::jsonb, $3::jsonb, 'pg-board', false, 0.5, $4, 'partial',
+                       $5, '["model-a", "model-b"]'::jsonb, 'client-x', '1.2.3', 'darwin')""",
             score_id,
             datetime(2026, 2, 1, tzinfo=UTC),
             json.dumps({"run_id": "pg-run-1"}),
+            Decimal("1.500000"),
+            Decimal("0.250000"),
         )
     finally:
         await connection.close()
@@ -92,6 +137,21 @@ class _Inspection:
     constraint_delete_action: str | None
     indexes: set[str]
     results: list[Any]
+    head: Any
+    result_fk_delete_rules: dict[str, str]
+
+
+async def _result_fk_delete_rules(connection: asyncpg.Connection, schema: Any) -> dict[str, str]:
+    """The `confdeltype` of each `reported_result` foreign key, keyed by its column."""
+    rows = await connection.fetch(
+        """SELECT a.attname AS column_name, c.confdeltype::text AS rule
+           FROM pg_constraint c
+           JOIN pg_namespace n ON n.oid = c.connamespace
+           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+           WHERE c.contype = 'f' AND c.conrelid = ('"' || $1 || '"."reported_result"')::regclass""",
+        schema,
+    )
+    return {row["column_name"]: row["rule"] for row in rows}
 
 
 async def _inspect(database_url: str) -> _Inspection:
@@ -113,9 +173,9 @@ async def _inspect(database_url: str) -> _Inspection:
                     "SELECT indexname FROM pg_indexes WHERE schemaname = $1", schema
                 )
             },
-            results=await connection.fetch(
-                'SELECT "id", "head_id", "is_original", "run_id" FROM reported_result'
-            ),
+            results=await connection.fetch("SELECT * FROM reported_result"),
+            head=await connection.fetchrow("SELECT * FROM scores"),
+            result_fk_delete_rules=await _result_fk_delete_rules(connection, schema),
         )
     finally:
         await connection.close()
@@ -136,6 +196,7 @@ def test_sch12_migrations_apply_on_postgres(postgres_schema_database_url: str) -
     # (OD-S1); `r` is ON DELETE RESTRICT.
     assert state.constraint_delete_action == "r"
     assert {"uidx_reported_result_one_original", "uidx_scores_public_head"} <= state.indexes
+    assert state.result_fk_delete_rules == RESULT_FK_DELETE_RULES
     assert len(state.results) == 1
     result = state.results[0]
     assert (result["id"], result["head_id"], result["is_original"], result["run_id"]) == (
@@ -144,6 +205,15 @@ def test_sch12_migrations_apply_on_postgres(postgres_schema_database_url: str) -
         True,
         "pg-run-1",
     )
+    assert result["reporter"] == state.head["submitted_by"]
+    for column in COPIED_COLUMNS:
+        assert result[column] == state.head[column], column
+    for column in UNSET_COLUMNS:
+        assert result[column] is None, column
+    # WHY: the seed is distinct per column, so equality above proves no column was swapped.
+    assert (result["client_name"], result["client_version"]) == ("client-x", "1.2.3")
+    assert result["models"] == '["model-a", "model-b"]'
+    assert result["run_cost_usd"] == Decimal("1.500000")
 
 
 async def _insert_head(connection: asyncpg.Connection, board: str) -> uuid.UUID:
@@ -215,6 +285,15 @@ async def _replay_fk_delete_rules(database_url: str) -> None:
             await connection.execute('DELETE FROM "scores" WHERE "id" = $1', first)
         assert await connection.fetchval("SELECT COUNT(*) FROM scores") == 2
         assert await connection.fetchval("SELECT COUNT(*) FROM reported_result") == 2
+
+        # (c) an original that a result in ANOTHER cluster pinned as its baseline, replaying
+        # nothing: the delete fails too, because `pinned_baseline_result_id` is NO ACTION as well.
+        third = await _insert_head(connection, "pg-board")
+        await _insert_result(connection, third, is_original=False, pinned_baseline=first_original)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute('DELETE FROM "scores" WHERE "id" = $1', first)
+        assert await connection.fetchval("SELECT COUNT(*) FROM scores") == 3
+        assert await connection.fetchval("SELECT COUNT(*) FROM reported_result") == 3
     finally:
         await connection.close()
 
@@ -227,3 +306,5 @@ def test_sch14_replay_fks_are_no_action_on_postgres(postgres_schema_database_url
     _migrated(postgres_schema_database_url)
 
     asyncio.run(_replay_fk_delete_rules(postgres_schema_database_url))
+    state = asyncio.run(_inspect(postgres_schema_database_url))
+    assert state.result_fk_delete_rules == RESULT_FK_DELETE_RULES
