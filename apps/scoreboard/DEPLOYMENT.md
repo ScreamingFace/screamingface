@@ -154,6 +154,39 @@ It refuses while any score or baseline references the benchmark, and refuses an 
 
 Disable seeding with `--set seedBenchmarks.enabled=false`.
 
+### Deleting scores from a public board
+
+There is no delete route. To remove named scores, run the operator module inside the scoreboard
+pod. It changes nothing without `--yes`, nothing unless the selection matches exactly `--expect`,
+and nothing unless the selection still hashes to the backup you reviewed.
+
+The **dry run** writes the backup of the selected scores (the `export_private_submissions` JSONL)
+to **stdout** and its SHA-256 to stderr. Redirect stdout to a file on your machine; a file written
+inside the pod is lost with the pod. The **confirmed run** takes that digest as `--expect-sha256`,
+recomputes it inside the deleting transaction, and refuses on any mismatch. It writes nothing to
+stdout, so never point it at the backup file.
+
+```bash
+# 1. dry run: the backup lands on YOUR disk before anything is deleted
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_scores \
+  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 10 \
+  > draco-3pass-backup.jsonl
+shasum -a 256 draco-3pass-backup.jsonl   # must equal the sha256 the dry run printed
+# 2. check the backup holds exactly the scores you mean to delete, then confirm with its digest:
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_scores \
+  --benchmark draco-3pass --submitted-before 2026-09-09T00:00:00Z --expect 10 \
+  --yes --expect-sha256 <digest>
+```
+
+The example is the `OME-1384` cleanup: 10 dev `draco-3pass` scores, 7 at the registered revision
+and 3 at a superseded one the table hides, all publishing a cached run's `0.000000` spend. The
+cutoff selects both revisions, which is why the count is 10 and not the 7 the table shows.
+
+Select with `--id <uuid>` (repeatable) or `--submitted-before <ISO 8601 with a timezone>`, not
+both. A count mismatch, an unknown benchmark or a private board exits 2 and deletes nothing.
+Private boards go through `purge_private_benchmark` instead. The backup is evidence, not a restore
+file: recreating a score means resubmitting it.
+
 ## Smoke Checks
 
 Run the Helm test and check public health:
