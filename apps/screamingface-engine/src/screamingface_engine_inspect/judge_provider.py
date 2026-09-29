@@ -128,7 +128,7 @@ def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
     its ``model_roles`` ContextVar, so the previous mapping is put back by value.
     INVARIANT: the binding never leaks past its context — an unbound role falls
     back to inspect's own resolution, which outside an eval raises (verified
-    against inspect 0.3.263), so the next board cannot ride this board's judge.
+    against inspect 0.3.266), so the next board cannot ride this board's judge.
     """
 
     previous: dict[str, Any] = dict(model_roles())
