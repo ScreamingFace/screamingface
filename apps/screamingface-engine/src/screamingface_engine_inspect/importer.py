@@ -142,6 +142,9 @@ class Observations:
     revision: str
     case_count: int
     license: str | None
+    #: The Hub's gate on the dataset (dataset_info.gated is "auto"/"manual" when set):
+    #: the bake then needs a token from an account that accepted its terms (OME-1269).
+    gated: bool = False
 
 
 @dataclass(frozen=True)
@@ -880,6 +883,7 @@ def capture_observations(
         revision=revision,
         case_count=int(counter(facts, revision)),
         license=None if license_value is None else str(license_value),
+        gated=bool(getattr(info, "gated", False)),
     )
 
 
@@ -1022,7 +1026,9 @@ def render_fragments(
         )
         snapshot_lines.append("        # address a candidate's system role).")
         snapshot_lines.append(f'        system_message="{facts.system_message}",')
-    snapshot_lines.extend([*seed_snapshot_lines, *_task_route_lines(facts)])
+    snapshot_lines.extend(
+        [*seed_snapshot_lines, *_task_route_lines(facts), *_gated_lines(observations)]
+    )
     for solver_name in facts.custom_solvers:
         snapshot_lines.append(
             f"        # TODO(review): solver {solver_name} is not reproduced by "
@@ -1085,6 +1091,18 @@ def _seed_fragments(
             import_names.append(constant)
             snapshot_lines.append(f"        {constant_stem.lower()}={constant},")
     return pin_lines, import_names, snapshot_lines
+
+
+def _gated_lines(observations: Observations) -> list[str]:
+    """The SnapshotSpec line marking a dataset gated on the Hub (none otherwise)."""
+
+    if not observations.gated:
+        return []
+    return [
+        "        # Gated on the Hub: the bake needs HF_TOKEN from an account that",
+        "        # accepted the dataset's terms (OME-1269).",
+        "        gated=True,",
+    ]
 
 
 def _task_route_lines(facts: TaskFacts) -> list[str]:

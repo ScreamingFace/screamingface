@@ -415,3 +415,57 @@ def test_the_run_sync_twins_stay_verbatim_identical() -> None:
         return ast.dump(function, include_attributes=False)
 
     assert body_dump(single_shot._run_sync) == body_dump(spine_scored._run_sync)
+
+
+# ── no answer key: judged boards only, and only when the judge never reads one ──
+
+
+def _no_key_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    from screamingface_engine_inspect.prepare import SNAPSHOTS
+
+    monkeypatch.setitem(SNAPSHOTS, "gsm8k", replace(SNAPSHOTS["gsm8k"], has_answer_key=False))
+
+
+def test_a_board_without_an_answer_key_must_be_judged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no key, nothing but a judge can grade — a string-match board would mark
+    every reply wrong against an empty string, silently."""
+
+    _no_key_snapshot(monkeypatch)
+    spec = _judged_spec(
+        scorer="inspect_ai.scorer:match", scorer_kwargs={}, judge=None, with_check_surface=False
+    )
+
+    with pytest.raises(ValueError, match="answer key"):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_judge_that_reads_the_key_refuses_a_board_without_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """model_graded_qa's default prompt compares against {criterion} (the key); with
+    no key the judge would grade against nothing, so the row must pass its own
+    template, and that template must not read the key."""
+
+    _no_key_snapshot(monkeypatch)
+
+    with pytest.raises(ValueError, match="criterion"):
+        _assembled(_judged_spec(), monkeypatch)
+    with pytest.raises(ValueError, match="criterion"):
+        _assembled(
+            _judged_spec(
+                scorer_kwargs={"model": "screamingface/judge-4", "template": "{criterion}"}
+            ),
+            monkeypatch,
+        )
+
+
+def test_a_judge_prompt_without_the_key_assembles(monkeypatch: pytest.MonkeyPatch) -> None:
+    _no_key_snapshot(monkeypatch)
+    spec = _judged_spec(
+        scorer_kwargs={
+            "model": "screamingface/judge-4",
+            "template": "[QUESTION]: {question}\n[RESPONSE]: {answer}\n{instructions}",
+        }
+    )
+
+    assert _assembled(spec, monkeypatch).benchmark.revision

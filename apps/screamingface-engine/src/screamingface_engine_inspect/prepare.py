@@ -33,7 +33,9 @@ answer key stays in the image.
 from __future__ import annotations
 
 import json
+import os
 import random
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
@@ -197,6 +199,11 @@ from screamingface_engine_inspect.pins import (
     WMDP_CYBER_DATASET,
     WMDP_CYBER_DATASET_REVISION,
     WMDP_CYBER_SPLIT,
+    XSTEST_SAFE_CASE_COUNT,
+    XSTEST_SAFE_CONFIG,
+    XSTEST_SAFE_DATASET,
+    XSTEST_SAFE_DATASET_REVISION,
+    XSTEST_SAFE_SPLIT,
 )
 
 if TYPE_CHECKING:
@@ -276,6 +283,21 @@ class SnapshotSpec:
     #: deviation); ``case_count`` is the count left after the exclusion. The row
     #: says why beside the ids, and the ids ride exam identity (OME-1269).
     excluded_sample_ids: tuple[str, ...] | None = None
+    #: False for a judged board whose judge grades from the question and the reply
+    #: alone (xstest: complied / refused), so the dataset has no answer key to store.
+    #: The bake then accepts an empty target; every other board keeps refusing one,
+    #: because there an empty key is a broken row. Assembly refuses the opt-in on a
+    #: board without a judge, or whose judge prompt reads the key (OME-1269, OME-1371).
+    has_answer_key: bool = True
+    #: The dataset sits behind a Hugging Face gate, so downloading it needs a token
+    #: from an account that accepted its terms (xstest). Without one the bake stops by
+    #: name, unless SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1 (PR builds, which get no
+    #: secret) skips the board with a warning. Access, not exam identity: no pin.
+    gated: bool = False
+
+
+#: The build-time switch that lets a PR build skip gated boards instead of failing.
+SKIP_GATED_ENV = "SCREAMINGFACE_SKIP_GATED_BENCHMARKS"
 
 
 #: Every imported board's bake. Importing another eval = one more entry here
@@ -655,6 +677,30 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # the pinned questions and keeps exactly what it keeps (OME-1269).
         task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
     ),
+    "xstest_safe": SnapshotSpec(
+        dataset=XSTEST_SAFE_DATASET,
+        config=XSTEST_SAFE_CONFIG,
+        split=XSTEST_SAFE_SPLIT,
+        dataset_revision=XSTEST_SAFE_DATASET_REVISION,
+        case_count=XSTEST_SAFE_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.xstest.xstest:xstest;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.xstest.xstest:record_to_sample",
+        # The eval drops questions after loading; the bake runs its task over
+        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        task="inspect_evals.xstest.xstest:xstest",
+        task_args={"subset": "safe"},
+        # Gated on the Hub: the bake needs HF_TOKEN from an account that
+        # accepted the dataset's terms (OME-1269).
+        gated=True,
+        # The judge grades complied / refused from the question and the reply;
+        # the dataset has no answer key (xstest's row rule sets no target).
+        has_answer_key=False,
+        # WHY the unbaked system_message is benign (musr precedent): the eval's
+        # system message is the generic "You are a helpful assistant." — no exam
+        # content, and the grading prompt never sees it.
+    ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
 
@@ -769,7 +815,7 @@ def emit_snapshot(
     cases: list[dict[str, Any]] = []
     targets: dict[int, dict[str, Any]] = {}
     for case_id, sample in enumerate(samples, start=1):
-        target, choices = _validated_target(sample, case_id)
+        target, choices = _validated_target(sample, case_id, spec.has_answer_key)
         input_text: str = _prompt(sample, choices, template, choice_template)
         if system_text is not None:
             # Named deviation (contracteval pattern): the eval's SYSTEM
@@ -1008,8 +1054,28 @@ def _resolved_system_text(spec: SnapshotSpec) -> str | None:
 
 
 def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:
-    """Snapshot one board's pinned HF split and bake its assets (build time only)."""
+    """Snapshot one board's pinned HF split and bake its assets (build time only).
 
+    A gated dataset needs a Hugging Face token (``HF_TOKEN``, or a cached login).
+    Without one the bake refuses by name, so a main or release image can never ship
+    missing a board; a PR build that sets ``SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1``
+    skips the board instead, writes nothing, and says so loudly in the build log.
+    """
+
+    if spec.gated and _available_hf_token() is None:
+        if os.environ.get(SKIP_GATED_ENV) != "1":
+            raise PrepareError(
+                f"{spec.dataset} is a gated Hugging Face dataset and no token is available — "
+                "set HF_TOKEN to a read-only token from an account that accepted its terms, "
+                f"or set {SKIP_GATED_ENV}=1 to skip it (PR builds only)"
+            )
+        print(
+            f"WARNING: skipping gated dataset {spec.dataset} — no Hugging Face token "
+            f"({SKIP_GATED_ENV}=1); this image has NO assets for its board",
+            file=sys.stderr,
+            flush=True,
+        )
+        return {"cases": 0, "skipped": "gated dataset, no Hugging Face token", "out": str(out)}
     rows: list[dict[str, Any]] = _load_rows(spec)
     return emit_snapshot(spec, rows, out, expected_cases=spec.case_count)
 
@@ -1037,12 +1103,20 @@ def _resolve(reference: str) -> Any:
     return getattr(import_module(module_name), attribute)
 
 
-def _validated_target(sample: Sample, case_id: int) -> tuple[str, list[str] | None]:
-    """The one trust boundary on eval-produced Samples — never bake an unkeyed Case."""
+def _validated_target(
+    sample: Sample, case_id: int, has_answer_key: bool = True
+) -> tuple[str, list[str] | None]:
+    """The one trust boundary on eval-produced Samples — never bake an unkeyed Case.
+
+    ``has_answer_key=False`` (a judged board whose judge never reads a key) is the
+    one place an empty target is accepted; the question itself is still required.
+    """
 
     if not isinstance(sample.input, str) or not sample.input.strip():
         raise PrepareError(f"case {case_id}: sample input is empty or not text")
     target: object = sample.target
+    if not has_answer_key and target in ("", []) and sample.choices is None:
+        return "", None
     if not isinstance(target, str) or not target.strip():
         raise PrepareError(f"case {case_id}: sample target is empty or not text")
     if sample.choices is None:
@@ -1106,6 +1180,14 @@ def _emit(
         json.dumps(cases, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
     )
     return {"cases": len(cases), "dataset_revision": dataset_revision, "out": str(out)}
+
+
+def _available_hf_token() -> str | None:
+    """The Hugging Face token ``datasets`` would send: ``HF_TOKEN`` or a cached login."""
+
+    from huggingface_hub import get_token
+
+    return get_token()
 
 
 def _load_rows(spec: SnapshotSpec) -> list[dict[str, Any]]:

@@ -66,6 +66,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "onet_m6": "mcq",
     # OME-1269: task route keeps the eval's 500-question test list of 1,000 rows.
     "pubmedqa": "mcq",
+    # OME-1269: judged compliance on XSTest's safe prompts — no answer key.
+    "xstest_safe": "judged",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -366,3 +368,28 @@ def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
     assert row.case_count == 500
     assert row.excluded_sample_ids is None
     assert "task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)
+
+
+def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() -> None:
+    """xstest_safe keeps the 250 safe prompts through the eval's own subset filter,
+    has no answer key (the judge grades complied / refused from question and reply),
+    needs a Hugging Face token (gated dataset), and its judge prompt is a verbatim
+    copy of the eval's — a dependency bump that edits upstream's prompt fails here."""
+
+    from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as UPSTREAM
+    from inspect_evals.xstest.xstest import scorer_instructions, scorer_template
+
+    from screamingface_engine_inspect.boards import BOARDS, _revision_pins
+
+    row = SNAPSHOTS["xstest_safe"]
+    assert row.dataset_revision == UPSTREAM
+    assert row.task == "inspect_evals.xstest.xstest:xstest"
+    assert row.task_args == {"subset": "safe"}
+    assert row.case_count == 250
+    assert row.has_answer_key is False
+    assert row.gated is True
+    assert 'task_args={"subset": "safe"}' in _revision_pins(row)
+    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
+    assert board.scorer_kwargs["template"] == scorer_template
+    assert board.scorer_kwargs["instructions"] == scorer_instructions
+    assert "{criterion}" not in scorer_template

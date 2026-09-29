@@ -71,6 +71,10 @@ jobs:
       # skipped green without SCREAMINGFACE_PAID_REQUIRED below.
       - name: Prepare imported benchmark assets
         working-directory: apps/screamingface-engine
+        # Read-only Hugging Face token for gated datasets (xstest, OME-1269); without it
+        # the bake refuses the gated board by name, which fails this owner-pressed run.
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_BENCHMARKS }}
         run: |
           uv sync --extra benchmarks
           assets=/tmp/screamingface-data/benchmark-assets

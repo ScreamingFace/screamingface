@@ -2193,3 +2193,36 @@ def test_introspect_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPa
 
     assert facts.choice_template is None
     assert any("cot" in flag for flag in facts.custom_solvers)
+
+
+# ---------------------------------------------------------------------------
+# Gated datasets — the Hub's gate is observed, never typed (OME-1269, xstest)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("hub_gated", "expected"), [("auto", True), ("manual", True), (False, False)]
+)
+def test_capture_records_whether_the_dataset_is_gated(hub_gated: Any, expected: bool) -> None:
+    """The bake needs a token for a gated dataset; the importer reads the gate from
+    the Hub (dataset_info.gated: False, "auto" or "manual") so the row says so."""
+
+    info = types.SimpleNamespace(sha="c" * 40, card_data={"license": "cc-by-4.0"}, gated=hub_gated)
+
+    observations = capture_observations(
+        _facts(), dataset_info=lambda dataset, revision: info, count_rows=lambda f, r: 3
+    )
+
+    assert observations.gated is expected
+
+
+def test_a_gated_row_says_so_and_a_public_row_does_not() -> None:
+    gated = render_fragments(
+        "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit", gated=True)
+    )
+    public = render_fragments(
+        "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+    )
+
+    assert "        gated=True," in gated.snapshot
+    assert "gated=" not in public.snapshot

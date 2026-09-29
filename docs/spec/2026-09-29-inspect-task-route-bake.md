@@ -62,6 +62,26 @@ the same input, target and choices for all four.
   ids. inspect keeps 397 questions; six have an answer letter past their last choice
   (upstream split the numbered choices wrongly). The board serves 391.
 
+## 2b. PR 3 — CI token and `xstest_safe` (owner decisions 2026-09-29)
+
+- R12. `SnapshotSpec.gated`: a dataset behind a Hugging Face gate. The bake refuses it by
+  name when no token is available (`HF_TOKEN` or a cached login), unless
+  `SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1`, which skips the board with a warning and writes
+  nothing. Not exam identity. The importer reads the gate from the Hub (`dataset_info.gated`).
+- R13. `SnapshotSpec.has_answer_key=False`: a judged board whose judge grades from the
+  question and the reply alone. The bake accepts an empty target for a case with no
+  choices; every other board keeps refusing one. Assembly refuses the opt-in on a board with
+  no judge, or whose judge prompt reads `{criterion}` (inspect's `model_graded_*` default
+  prompts do). This is the mechanism OME-1371 asked for.
+- R14. CI: `Dockerfile.benchmark` reads an optional BuildKit secret `hf_token` into the bake
+  step's environment. Main and release builds pass the `HF_TOKEN_BENCHMARKS` repo secret
+  with no skip switch; PR builds (preview, tests) pass it plus the skip switch; the paid smoke
+  passes it as `HF_TOKEN`.
+- R15. The `xstest_safe` board: task route with `subset=safe` (250 of 450), gated, no answer
+  key, judged by the house judge gpt-5.4 (a named deviation from inspect's default gpt-4o),
+  with the eval's own judge prompt copied verbatim and pinned by a drift test. The unsafe
+  subset waits for OME-1400 (safety-board scoring: refusing is the right answer there).
+
 ## 3. Out of scope (this unit)
 
 - The `pubmedqa` board (PR 2) and the `xstest` boards (PR 3). The CI token and the
