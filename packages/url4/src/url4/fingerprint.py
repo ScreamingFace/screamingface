@@ -18,12 +18,31 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import re
 
+from url4.core.errors import ErrorCode, Url4Error
 from url4.core.nodes import Expression, Node, Source, Text
 from url4.core.parser import build
 from url4.core.render import render
 
 CANDIDATE_BINDING = "candidate"
+
+
+# `$$` is the escape; `$name` takes the longest identifier (so `$_sf_recipe_input` is not a
+# reference to `_sf_recipe`). Mirrors `_ENV_VAR_RE` in url4.dag.semantics.ensemble, restated here
+# because this module may import `url4.core` and the standard library only.
+_REFERENCE = re.compile(r"\$\$|\$([a-zA-Z_]\w*|[0-9]+)", re.ASCII)
+
+
+class ExcludedBindingError(Url4Error):
+    """A source named in ``exclude_bindings`` is a working part of the system.
+
+    Raised instead of hiding it: dropping such a source would give two systems that behave
+    differently one fingerprint. Callers map it like any other ``Url4Error`` (a client
+    ``url4_expression`` error). ``code`` is ``malformed_source``; retrying cannot succeed.
+    """
+
+    code = ErrorCode.MALFORMED_SOURCE
 
 
 def canonical_system_url4(
@@ -38,8 +57,10 @@ def canonical_system_url4(
       the system is ``build(that text)``.
     - no such source (a direct run, SR-E5) → the system is ``build(linked)``.
     Then every root-level ``Source`` of the system whose name is in ``exclude_bindings``
-    is removed, and the result is ``render``-ed.
-    Raises the url4 errors unchanged (``url4.Url4Error``: ``ParseError``, ``RenderError``).
+    is removed, and the result is ``render``-ed. Only an inert source is removed (see
+    ``_without_bindings``).
+    Raises the url4 errors unchanged (``url4.Url4Error``: ``ParseError``, ``RenderError``),
+    and ``ExcludedBindingError`` when a source named in ``exclude_bindings`` is not inert.
     """
     root = build(linked)
     embedded = _binding_text(root, binding)
@@ -69,13 +90,52 @@ def _binding_text(root: Node, binding: str) -> str | None:
 
 
 def _without_bindings(system: Node, exclude_bindings: frozenset[str]) -> Node:
-    """``system`` with its root-level sources named in ``exclude_bindings`` removed."""
+    """``system`` with its inert root-level sources named in ``exclude_bindings`` removed.
+
+    INVARIANT: only inert metadata leaves the identity. A named source is inert when it is a
+    ``Source`` with a ``Text`` value and the scalar weight ``0.0``, and nothing left in the
+    system references its name. Any other named source raises ``ExcludedBindingError``.
+    WHY: the scoreboard takes client text. A client can name a working member `_sf_recipe`;
+    hiding it would file a different system under an existing fingerprint.
+    """
     if not exclude_bindings or not isinstance(system, Expression):
         return system
+    dropped = [s for s in system.sources if isinstance(s, Source) and s.name in exclude_bindings]
+    if not dropped:
+        return system
+    for source in dropped:
+        if not _is_inert_metadata(source):
+            raise ExcludedBindingError(
+                f"source {source.name!r} is named in exclude_bindings but is not inert "
+                "(it needs a Text value and weight 0.0)"
+            )
     kept = tuple(
         s for s in system.sources if not (isinstance(s, Source) and s.name in exclude_bindings)
     )
-    return dataclasses.replace(system, sources=kept)
+    remainder = dataclasses.replace(system, sources=kept)
+    referenced = {m.group(1) for m in _REFERENCE.finditer(render(remainder))}
+    for source in dropped:
+        if source.name in referenced:
+            raise ExcludedBindingError(
+                f"source {source.name!r} is named in exclude_bindings but the system references it"
+            )
+    return remainder
 
 
-__all__ = ["CANDIDATE_BINDING", "canonical_system_url4", "system_fingerprint"]
+def _is_inert_metadata(source: Source) -> bool:
+    """Text value and the explicit scalar weight ``0.0`` (the rule of `_is_instrumental_weight`)."""
+    weight = source.weight
+    return (
+        isinstance(source.value, Text)
+        and isinstance(weight, (int, float))
+        and not isinstance(weight, bool)
+        and float(weight) == 0.0
+    )
+
+
+__all__ = [
+    "CANDIDATE_BINDING",
+    "ExcludedBindingError",
+    "canonical_system_url4",
+    "system_fingerprint",
+]

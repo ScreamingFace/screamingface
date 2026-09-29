@@ -96,11 +96,16 @@ system_text = canonical_system_url4(linked, exclude_bindings=frozenset({"_sf_rec
 - `linked` is the url4 text that the client sends. If it has a root-level `candidate` source
   with a text value, the system is that text. If not, the system is the whole url4.
 - `exclude_bindings` is a keyword-only set of names. The caller names the metadata bindings
-  to drop. The function removes each root-level source of the system with one of these names.
-  The default is the empty set, and this module names no SDK binding itself.
+  to drop. The function removes a root-level source of the system with one of these names
+  only when the source is inert: it has a text value and the weight `0.0`, and no `$name`
+  reference to it remains in the system. If a source with one of these names is not inert,
+  the function raises `url4.fingerprint.ExcludedBindingError` (a `url4.Url4Error`). The
+  function does not hide a working part of a system. The default is the empty set, and this
+  module names no SDK binding itself.
 - The return value is the lowercase hex sha256 (64 characters) of the canonical text of the
   system, encoded as UTF-8. Spellings that mean the same url4 give the same value.
-- The functions are pure and raise `url4.Url4Error` for text that does not parse.
+- The functions are pure and raise `url4.Url4Error` for text that does not parse, and
+  `ExcludedBindingError` as described above.
 - There is no seed parameter. An answer seed travels out of band. A `seed` query parameter
   that the system declares itself stays in the value.
 

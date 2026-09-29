@@ -22,6 +22,8 @@ _ALLOWED_IMPORTS = {
     "__future__",
     "dataclasses",
     "hashlib",
+    "re",
+    "url4.core.errors",
     "url4.core.nodes",
     "url4.core.parser",
     "url4.core.render",

@@ -16,7 +16,7 @@ import re
 import pytest
 
 from url4 import Url4Error, build, expr, render, src, text
-from url4.fingerprint import canonical_system_url4, system_fingerprint
+from url4.fingerprint import ExcludedBindingError, canonical_system_url4, system_fingerprint
 
 C = "(model_1:0.0:/openrouter/model($input)!'Be brief')!'$model_1'"
 C2 = "(model_1:0.0:/openrouter/other($input)!'Be brief')!'$model_1'"
@@ -215,3 +215,91 @@ def test_fingerprint_strips_answer_seed() -> None:
         assert parameters["exclude_bindings"].default == frozenset()
     # the text the SDK submits for answer_seed=1 and for answer_seed=2 is this one text
     assert system_fingerprint(LINKED_1, exclude_bindings=SF) == sha(C)
+
+
+# --- exclude_bindings strips only INERT sources (review finding F1) --------------------------
+#
+# INVARIANT: a source leaves the identity only when it is a zero-weight Text source that no
+# other part of the system references. Anything else named in `exclude_bindings` is a working
+# part of the system: hiding it would give two systems that behave differently one fingerprint.
+# The scoreboard takes client text, so a client can name a working member `_sf_recipe`.
+
+
+def _worker(route: str) -> str:
+    """A system whose model_1 reads the `_sf_recipe` source through a sibling reference."""
+    return (
+        f"(_sf_recipe:0.0:/{route}($input)!'Solve it', "
+        "model_1:0.0:/openrouter/model($_sf_recipe)!'Copy the answer.')!'$model_1'"
+    )
+
+
+def test_fingerprint_exclude_refuses_a_referenced_member_named_like_metadata() -> None:
+    # The finding: a working `_sf_recipe` member fed model_1. Two different routes must not
+    # collapse to one fingerprint, and the caller must hear about it.
+    for candidate in (_worker("anthropic-claude-opus"), _worker("openai-gpt-5")):
+        with pytest.raises(ExcludedBindingError):
+            system_fingerprint(link(candidate), exclude_bindings=SF)
+        with pytest.raises(ExcludedBindingError):
+            canonical_system_url4(candidate, exclude_bindings=SF)
+    # without the exclude set the two systems keep two fingerprints (the ERD value)
+    assert system_fingerprint(link(_worker("anthropic-claude-opus"))) != system_fingerprint(
+        link(_worker("openai-gpt-5"))
+    )
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        pytest.param("_sf_recipe:1.0:/route($input)!'x'", id="weight-1.0-relexpr"),
+        pytest.param("_sf_recipe:0.5:'x'", id="weight-0.5-text"),
+        pytest.param("_sf_recipe:1.0:'x'", id="weight-1.0-text"),
+        pytest.param("_sf_recipe:0.0:/route($input)!'x'", id="zero-weight-relexpr"),
+        pytest.param("_sf_recipe:0.0:$input", id="zero-weight-varref"),
+        pytest.param("_sf_recipe:0.0:https://example.test/a", id="zero-weight-url"),
+    ],
+)
+def test_fingerprint_exclude_refuses_a_source_that_is_not_inert(member: str) -> None:
+    candidate = f"({member}, model_1:0.0:/openrouter/model($input)!'Be brief')!'$model_1'"
+    with pytest.raises(ExcludedBindingError):
+        system_fingerprint(candidate, exclude_bindings=SF)
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        pytest.param(
+            "(_sf_recipe:0.0:'x', m:0.0:/p($_sf_recipe)!'a')!'$m'", id="in-a-source-context"
+        ),
+        pytest.param("(_sf_recipe:0.0:'x', m:0.0:/p($input)!'a')!'$_sf_recipe'", id="in-intent"),
+        pytest.param(
+            "(_sf_recipe:0.0:'x', m:0.0:/p($input)!'a')!'$_sf_recipe.name'", id="with-field-path"
+        ),
+        pytest.param("(_sf_recipe:0.0:'x', m:0.0:'see $_sf_recipe')!'$m'", id="in-a-text-value"),
+    ],
+)
+def test_fingerprint_exclude_refuses_a_source_that_something_references(candidate: str) -> None:
+    with pytest.raises(ExcludedBindingError):
+        system_fingerprint(candidate, exclude_bindings=SF)
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        pytest.param("m:0.0:/p($input)!'$_sf_recipe_input'", id="longer-name"),
+        pytest.param("m:0.0:/p($input)!'$$_sf_recipe'", id="escaped-dollar"),
+    ],
+)
+def test_fingerprint_exclude_ignores_text_that_is_not_a_reference(tail: str) -> None:
+    # A longer identifier and an escaped `$$` are not references to `_sf_recipe`
+    # (`$_sf_recipe_input` is what the SDK corrective loop writes, corrective.py:67).
+    candidate = f"(_sf_recipe:0.0:'x', {tail})!'$m'"
+    assert canonical_system_url4(candidate, exclude_bindings=SF) == f"({tail})!'$m'"
+
+
+def test_excluded_binding_error_is_a_url4_error_with_a_stable_code() -> None:
+    with pytest.raises(Url4Error) as caught:
+        system_fingerprint(_worker("a-route"), exclude_bindings=SF)
+    assert isinstance(caught.value, ExcludedBindingError)
+    assert caught.value.code == "malformed_source"
+    assert caught.value.permanent is True
+    assert "_sf_recipe" in str(caught.value)
