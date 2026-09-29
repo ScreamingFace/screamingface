@@ -1956,3 +1956,190 @@ def test_a_judged_row_never_advertises_a_check_surface() -> None:
     )
     assert "with_check_surface" not in fragments.board
     assert "keep_sample_metadata" in fragments.board  # the reviewer reminder rides the flag
+
+
+# ---------------------------------------------------------------------------
+# Task route — evals that drop questions after loading (OME-1269)
+# ---------------------------------------------------------------------------
+
+
+def _filtering_task(subset: str = "kept", **dataset_kwargs: Any) -> Task:
+    """pubmedqa's shape: load the split, then keep only some questions with a lambda.
+
+    The keep-test rejects the probe's dummy question (target "A"), as every real
+    one does — that rejection is what used to crash the import with "dataset is empty".
+    """
+
+    module = sys.modules[_FAKE_MODULE]
+    dataset = module.hf_dataset(
+        path="acme/sums",
+        name="main",
+        split="test",
+        sample_fields=module.record_to_sample,
+        **dataset_kwargs,
+    )
+    return Task(
+        dataset=dataset.filter(
+            lambda sample: sample.target not in ("A", "skip") and subset == "kept"
+        ),
+        solver=[prompt_template(module.TEMPLATE), generate()],
+        scorer=match(numeric=True),
+    )
+
+
+def _dedupe_only_task() -> Task:
+    """wmdp's shape: inspect_evals' duplicate-id remover is the only post-load filter."""
+
+    from inspect_evals.utils.deps_utils import filter_duplicate_ids
+
+    module = sys.modules[_FAKE_MODULE]
+    dataset = module.hf_dataset(
+        path="acme/sums", split="test", sample_fields=module.record_to_sample
+    )
+    return Task(dataset=filter_duplicate_ids(dataset), solver=generate(), scorer=match())
+
+
+def _fewshot_filter_task() -> Task:
+    """The filter trims the fewshot pool; the exam load is untouched."""
+
+    module = sys.modules[_FAKE_MODULE]
+    fewshots = module.hf_dataset(
+        path="acme/sums", split="train", sample_fields=module.record_to_sample
+    )
+    fewshots.filter(lambda sample: sample.target != "skip")
+    return _free_text_task()
+
+
+def _filtering_two_loads_task() -> Task:
+    """A filtered exam PLUS a second load — the route would feed both the exam's questions."""
+
+    module = sys.modules[_FAKE_MODULE]
+    module.hf_dataset(path="acme/sums", split="train", sample_fields=module.record_to_sample)
+    return _filtering_task()
+
+
+def test_introspect_reads_a_filtering_task_as_a_task_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acceptance 2: the probe's dummy question used to fail the eval's keep-test,
+    and inspect crashed with "dataset is empty". Now the task builds, and the
+    import names it as a task route with the args it ran with."""
+
+    _install_fake_eval(monkeypatch, sums=_filtering_task)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums", {"subset": "kept"})
+
+    assert facts.task_route is True
+    assert facts.task_args == {"subset": "kept"}
+    assert facts.dataset == "acme/sums"
+    assert facts.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
+
+
+def test_introspect_keeps_a_dedupe_only_task_on_todays_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Six live boards (wmdp x3, mmlu, race_h, winogrande) run only the duplicate-id
+    remover; routing them would move their published revisions."""
+
+    _install_fake_eval(monkeypatch, sums=_dedupe_only_task)
+
+    assert introspect_task(f"{_FAKE_MODULE}:sums").task_route is False
+
+
+def test_introspect_ignores_a_filter_on_a_non_exam_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the exam's questions matter — trimming a fewshot pool changes no exam."""
+
+    _install_fake_eval(monkeypatch, sums=_fewshot_filter_task)
+
+    assert introspect_task(f"{_FAKE_MODULE}:sums").task_route is False
+
+
+def test_introspect_refuses_a_filtering_task_that_loads_two_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bake hands the pinned questions to every load the task makes, so a second
+    load would be fed the exam — refuse by name instead of baking a wrong exam."""
+
+    _install_fake_eval(monkeypatch, sums=_filtering_two_loads_task)
+
+    with pytest.raises(ImporterError, match="loads 2 datasets"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_introspect_refuses_a_filtering_task_with_a_seeded_choice_shuffle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upstream draws each case's choice order over ALL rows, before its filter; the
+    bake would draw over the kept rows only — a different exam for the same seed."""
+
+    def seeded() -> Task:
+        return _filtering_task(shuffle_choices=9)
+
+    _install_fake_eval(monkeypatch, sums=seeded)
+
+    with pytest.raises(ImporterError, match="choice-shuffle seed"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_a_task_route_row_names_the_task_and_its_args() -> None:
+    fragments = render_fragments(
+        "sums",
+        _facts(task_route=True, task_args={"subset": "kept", "limit_to": 2}),
+        Observations(revision="c" * 40, case_count=2, license="mit"),
+    )
+
+    assert f'task="{_FAKE_MODULE}:sums",' in fragments.snapshot
+    assert 'task_args={"limit_to": 2, "subset": "kept"},' in fragments.snapshot
+    ast.parse("x = {\n" + fragments.snapshot + "}")
+
+
+def test_a_row_without_the_route_carries_no_task_field() -> None:
+    """Every board before OME-1269 must render exactly as it did."""
+
+    fragments = render_fragments(
+        "sums", _facts(), Observations(revision="c" * 40, case_count=2, license="mit")
+    )
+
+    assert "task=" not in fragments.snapshot
+    assert "task_args=" not in fragments.snapshot
+
+
+def test_task_args_that_could_escape_the_row_are_refused(engine_src_copy: Path) -> None:
+    with pytest.raises(ImporterError, match="injection guard"):
+        _generate(engine_src_copy, task_route=True, task_args={"subset": 'x"\nimport os'})
+
+
+def test_a_task_route_counts_the_questions_the_eval_keeps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row's case count is the KEPT count (pubmedqa's 500, not 1,000 rows): the
+    default counter runs the bake's own route over the pinned rows."""
+
+    from screamingface_engine_inspect import prepare as prepare_module
+
+    _install_fake_eval(monkeypatch, sums=_filtering_task)
+    rows: list[dict[str, Any]] = [
+        {"q": "1+1", "a": "2"},
+        {"q": "dropped", "a": "skip"},
+        {"q": "2+2", "a": "4"},
+    ]
+    monkeypatch.setattr(prepare_module, "_load_rows", lambda spec: rows)
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+
+    assert importer_module._hub_count_rows(facts, "c" * 40) == 2
+
+
+def test_main_imports_a_filtering_task_instead_of_crashing(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    _install_fake_eval(monkeypatch, sums=_filtering_task)
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:sums", "--key", "sums", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 2,
+    )
+
+    assert exit_code == 0
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    assert f'task="{_FAKE_MODULE}:sums",' in prepare_text

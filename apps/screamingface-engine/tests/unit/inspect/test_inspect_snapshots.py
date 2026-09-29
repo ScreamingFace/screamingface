@@ -749,3 +749,219 @@ def test_non_json_sample_metadata_refuses_the_bake(tmp_path: Path) -> None:
             emit_snapshot(spec, _GSM8K_ROWS[:1], tmp_path)
     finally:
         del sys.modules["fake_metadata_eval"]
+
+
+# ── task route: the eval's own filter picks the questions (OME-1269) ─────────
+
+_ROUTE_MODULE = "fake_filtering_eval"
+
+#: Six numbered questions; the fake eval keeps the even (or odd) ones AFTER loading,
+#: the way pubmedqa keeps its 500 test ids out of 1,000 rows.
+_NUMBER_ROWS: list[dict[str, Any]] = [{"n": n} for n in range(1, 7)]
+
+
+def _install_filtering_eval(monkeypatch: pytest.MonkeyPatch, **task_fns: Any) -> Any:
+    """Register a fake eval whose task filters its dataset after loading."""
+
+    import sys
+    import types
+
+    from inspect_ai import Task
+    from inspect_ai.dataset import Sample
+    from inspect_ai.scorer import match
+    from inspect_ai.solver import generate
+
+    module = types.ModuleType(_ROUTE_MODULE)
+
+    def record_to_sample(record: dict[str, Any]) -> Sample:
+        return Sample(id=record["n"], input=f"Question {record['n']}?", target=str(record["n"]))
+
+    def hf_dataset(*args: Any, **kwargs: Any) -> Any:  # pragma: no cover — the guard
+        raise AssertionError("the bake must hand the eval its pinned samples, never download")
+
+    def keep_parity(parity: str = "even") -> Task:
+        dataset: Any = module.hf_dataset(
+            path="acme/numbers", split="test", sample_fields=record_to_sample
+        )
+        remainder: int = 0 if parity == "even" else 1
+        return Task(
+            dataset=dataset.filter(lambda sample: int(sample.id) % 2 == remainder),
+            solver=generate(),
+            scorer=match(),
+        )
+
+    module.record_to_sample = record_to_sample  # type: ignore[attr-defined]
+    module.hf_dataset = hf_dataset  # type: ignore[attr-defined]
+    module.keep_parity = keep_parity  # type: ignore[attr-defined]
+    for name, fn in task_fns.items():
+        setattr(module, name, fn)
+    monkeypatch.setitem(sys.modules, _ROUTE_MODULE, module)
+    return module
+
+
+def _route_spec(**overrides: Any) -> SnapshotSpec:
+    fields: dict[str, Any] = {
+        "dataset": "acme/numbers",
+        "config": "",
+        "split": "test",
+        "dataset_revision": "deadbeef" * 5,
+        "case_count": 3,
+        "record_to_sample": f"{_ROUTE_MODULE}:record_to_sample",
+        "task": f"{_ROUTE_MODULE}:keep_parity",
+    }
+    fields.update(overrides)
+    return SnapshotSpec(**fields)
+
+
+def _baked_inputs(out: Path) -> list[str]:
+    return [case["input"] for case in json.loads((out / "cases.json").read_text("utf-8"))]
+
+
+def test_task_route_bakes_exactly_the_questions_the_eval_keeps(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """INVARIANT (OME-1269): a board holds exactly the questions inspect would run —
+    the eval's own filter decides, so 6 rows become the 3 even-numbered cases."""
+
+    _install_filtering_eval(monkeypatch)
+
+    summary = emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path, expected_cases=3)
+
+    assert _baked_inputs(tmp_path) == ["Question 2?", "Question 4?", "Question 6?"]
+    target = json.loads((tmp_path / "targets" / "3.json").read_text(encoding="utf-8"))
+    assert target == {"target": "6"}
+    assert summary["cases"] == 3
+
+
+def test_task_route_enforces_the_kept_count_not_the_raw_count(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The exam's identity is the questions the eval keeps (pubmedqa's 500), not
+    the rows it loaded (1,000) — a raw-row pin must refuse the bake."""
+
+    _install_filtering_eval(monkeypatch)
+
+    with pytest.raises(PrepareError, match="pinned case count"):
+        emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path, expected_cases=len(_NUMBER_ROWS))
+
+
+def test_task_route_forwards_task_args(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Task args pick what the filter keeps (xstest's subset) — the bake must pass them."""
+
+    _install_filtering_eval(monkeypatch)
+
+    emit_snapshot(_route_spec(task_args={"parity": "odd"}), _NUMBER_ROWS, tmp_path)
+
+    assert _baked_inputs(tmp_path) == ["Question 1?", "Question 3?", "Question 5?"]
+
+
+def test_task_route_keeps_the_pinned_seeded_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The route filters OUR seeded order; it never re-shuffles (the order is exam identity)."""
+
+    import random
+
+    _install_filtering_eval(monkeypatch)
+    seeded: list[dict[str, Any]] = list(_NUMBER_ROWS)
+    random.Random(7).shuffle(seeded)
+
+    emit_snapshot(_route_spec(shuffle_seed=7), _NUMBER_ROWS, tmp_path)
+
+    assert _baked_inputs(tmp_path) == [
+        f"Question {row['n']}?" for row in seeded if row["n"] % 2 == 0
+    ]
+
+
+def _raising_task() -> Any:
+    raise RuntimeError("upstream exploded")
+
+
+def _two_loads_task() -> Any:
+    import sys
+
+    module: Any = sys.modules[_ROUTE_MODULE]
+    module.hf_dataset(path="acme/numbers", split="train")
+    return module.keep_parity()
+
+
+def _reordering_task() -> Any:
+    """Shuffles in place after loading — the kept order is no longer ours."""
+
+    import sys
+
+    from inspect_ai import Task
+
+    module: Any = sys.modules[_ROUTE_MODULE]
+    dataset: Any = module.hf_dataset(path="acme/numbers", split="test")
+    dataset.samples.reverse()
+    return Task(dataset=dataset)
+
+
+def _adding_task() -> Any:
+    """Adds a question of its own — it could never be in the pinned snapshot."""
+
+    import sys
+
+    from inspect_ai import Task
+    from inspect_ai.dataset import Sample
+
+    module: Any = sys.modules[_ROUTE_MODULE]
+    dataset: Any = module.hf_dataset(path="acme/numbers", split="test")
+    return Task(dataset=[*dataset, Sample(id=99, input="Extra?", target="99")])
+
+
+@pytest.mark.parametrize(
+    ("task_name", "task_fn", "reason"),
+    [
+        ("raising", _raising_task, "the eval's task refused the pinned questions"),
+        ("two_loads", _two_loads_task, "loaded 2 datasets"),
+        ("reordering", _reordering_task, "not an in-order subset"),
+        ("adding", _adding_task, "not an in-order subset"),
+    ],
+)
+def test_task_route_refuses_what_it_cannot_reproduce(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, task_name: str, task_fn: Any, reason: str
+) -> None:
+    """The route only lets the eval DROP questions. A task that fails, loads twice
+    (the route hands every load the same samples), reorders, or adds a question
+    would bake an exam we cannot vouch for — refuse by name, bake nothing."""
+
+    _install_filtering_eval(monkeypatch, **{task_name: task_fn})
+
+    with pytest.raises(PrepareError, match=reason):
+        emit_snapshot(_route_spec(task=f"{_ROUTE_MODULE}:{task_name}"), _NUMBER_ROWS, tmp_path)
+    assert not (tmp_path / "cases.json").exists()
+
+
+def test_task_route_refuses_a_module_without_hf_dataset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module: Any = _install_filtering_eval(monkeypatch)
+    monkeypatch.delattr(module, "hf_dataset")
+
+    with pytest.raises(PrepareError, match="no hf_dataset binding"):
+        emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path)
+
+
+def test_the_task_route_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Routing a board through its task, or changing the task args, changes which
+    questions the bake keeps — the revision must move both times."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect import boards, single_shot
+
+    def revision() -> str:
+        monkeypatch.setattr(boards, "_ASSEMBLED", {})
+        monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
+        return boards.imported_board("gsm8k").benchmark.revision
+
+    base: str = revision()
+    routed = replace(SNAPSHOTS["gsm8k"], task=f"{_ROUTE_MODULE}:keep_parity")
+    monkeypatch.setitem(SNAPSHOTS, "gsm8k", routed)
+    even: str = revision()
+    monkeypatch.setitem(SNAPSHOTS, "gsm8k", replace(routed, task_args={"parity": "odd"}))
+    odd: str = revision()
+
+    assert len({base, even, odd}) == 3

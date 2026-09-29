@@ -836,6 +836,12 @@ def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
         # WHY: the schema fixes how the selected files parse into rows, so the
         # pointer rides exam identity like system_message's does.
         pins.append(f"features={snapshot.features}")
+    if snapshot.task is not None:
+        # WHY: a task-route board's questions are whatever the eval's task keeps,
+        # and its args can change that (xstest's subset) — both are exam identity
+        # (OME-1269). json.dumps(sort_keys=True) keeps the args pin deterministic.
+        pins.append(f"task={snapshot.task}")
+        pins.append(f"task_args={json.dumps(snapshot.task_args or {}, sort_keys=True)}")
     return tuple(pins)
 
 
