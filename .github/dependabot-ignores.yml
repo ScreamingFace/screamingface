@@ -103,3 +103,21 @@ ignores:
       matrix_key: python-version
     note: >-
       NOT upstream-blocked; see the screamingface-engine entry. Extending this matrix is what lifts it.
+
+  - directory: /apps/screamingface-engine
+    dependency: inspect-ai
+    versions: ""
+    ticket: OME-1410
+    note: >-
+      NOT upstream-blocked, and no probe applies: the hold covers EVERY version, because each
+      imported board hashes the exact inspect-ai version into its revision, so any bump republishes
+      every imported exam (#1026 did, unchecked). The blocker is our own bump verification
+      (OME-1410); lift this when it lands. With no version floor the audit prints "cannot parse a
+      version floor" for this entry — expected, not a malfunction.
+
+  - directory: /apps/screamingface-engine
+    dependency: inspect-evals
+    versions: ""
+    ticket: OME-1410
+    note: >-
+      NOT upstream-blocked; see the inspect-ai entry. Held and lifted together with it.

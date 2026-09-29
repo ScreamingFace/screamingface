@@ -23,6 +23,19 @@ wheels = [
 ]
 
 [[package]]
+name = "aioboto3"
+version = "15.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiobotocore", extra = ["boto3"] },
+    { name = "aiofiles" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/01/92e9ab00f36e2899315f49eefcd5b4685fbb19016c7f19a9edf06da80bb0/aioboto3-15.5.0.tar.gz", hash = "sha256:ea8d8787d315594842fbfcf2c4dce3bac2ad61be275bc8584b2ce9a3402a6979", size = 255069, upload-time = "2025-10-30T13:37:16.122Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/3e/e8f5b665bca646d43b916763c901e00a07e40f7746c9128bdc912a089424/aioboto3-15.5.0-py3-none-any.whl", hash = "sha256:cc880c4d6a8481dd7e05da89f41c384dbd841454fc1998ae25ca9c39201437a6", size = 35913, upload-time = "2025-10-30T13:37:14.549Z" },
+]
+
+[[package]]
 name = "aiobotocore"
 version = "2.25.1"
 source = { registry = "https://pypi.org/simple" }
@@ -38,6 +51,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/62/94/2e4ec48cf1abb89971cb2612d86f979a6240520f0a659b53a43116d344dc/aiobotocore-2.25.1.tar.gz", hash = "sha256:ea9be739bfd7ece8864f072ec99bb9ed5c7e78ebb2b0b15f29781fbe02daedbc", size = 120560, upload-time = "2025-10-28T22:33:21.787Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/95/2a/d275ec4ce5cd0096665043995a7d76f5d0524853c76a3d04656de49f8808/aiobotocore-2.25.1-py3-none-any.whl", hash = "sha256:eb6daebe3cbef5b39a0bb2a97cffbe9c7cb46b2fcc399ad141f369f3c2134b1f", size = 86039, upload-time = "2025-10-28T22:33:19.949Z" },
+]
+
+[package.optional-dependencies]
+boto3 = [
+    { name = "boto3" },
+]
+
+[[package]]
+name = "aiofiles"
+version = "25.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/c3/534eac40372d8ee36ef40df62ec129bee4fdb5ad9706e58a29be53b2c970/aiofiles-25.1.0.tar.gz", hash = "sha256:a8d728f0a29de45dc521f18f07297428d56992a742f0cd2701ba86e44d23d5b2", size = 46354, upload-time = "2025-10-09T20:51:04.358Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bc/8a/340a1555ae33d7354dbca4faa54948d76d89a27ceef032c8c3bc661d003e/aiofiles-25.1.0-py3-none-any.whl", hash = "sha256:abe311e527c862958650f9438e859c1fa7568a141b22abcd015e120e86a85695", size = 14668, upload-time = "2025-10-09T20:51:03.174Z" },
 ]
 
 [[package]]
@@ -1125,11 +1152,11 @@ wheels = [
 
 [[package]]
 name = "inspect-ai"
-version = "0.3.266"
+version = "0.3.263"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "agent-client-protocol" },
-    { name = "aiobotocore" },
+    { name = "aioboto3" },
     { name = "anyio" },
     { name = "beautifulsoup4" },
     { name = "boto3" },
@@ -1169,14 +1196,14 @@ dependencies = [
     { name = "zipp" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/5b/2bb88d9bae363c613f64d1f9592ea93920c4a75da52669a18198a4b8d3fc/inspect_ai-0.3.266.tar.gz", hash = "sha256:07b26e1d197f22bf5d512f96e1790dc6130208eac4eafce6c170edd632856f0f", size = 35718190, upload-time = "2026-09-19T13:11:08.176Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/03/3bd61990e197e6e0a68ebd7f1496d0b80af6c1966eea0e48fcfc1ed3b793/inspect_ai-0.3.263.tar.gz", hash = "sha256:54553ca8bfe711853414b49d962e492a60fd4cac8df935be47287a4b719f92b1", size = 35796833, upload-time = "2026-09-04T01:38:04.104Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/c4/296659a1907e6b7179b44034a501d4919a757246a5f2feaa7433547208c6/inspect_ai-0.3.266-py3-none-any.whl", hash = "sha256:e30e1c2abf2844a9db221d5307b9b380e2da5fb1d29a9f2bff9094262c1044e6", size = 34697788, upload-time = "2026-09-19T13:11:02.102Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/c0/c12e505462462d5cc2b3fa98b6b2142c9589ebc0308144498f6e9de0c70c/inspect_ai-0.3.263-py3-none-any.whl", hash = "sha256:503e7ff509d77fcdf65989027a19fea966fb668deb88a234468c3290964fd86a", size = 34294681, upload-time = "2026-09-04T01:37:58.013Z" },
 ]
 
 [[package]]
 name = "inspect-evals"
-version = "0.21.0"
+version = "0.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -1193,9 +1220,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/f0/8565569c46b42836541cec69e7cdd48bc39463132cd509b74d4f45174fa4/inspect_evals-0.21.0.tar.gz", hash = "sha256:f48a3b6c3be6e7f597b5e23d5a4540086f84f5e3d81cd4eea8e3291d42d459b1", size = 37744840, upload-time = "2026-09-17T20:58:52.014Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/60/ad725d0b4a91cfdd62cea2e99110e025b11c389c5fcc1912bbaf3a3599b1/inspect_evals-0.20.0.tar.gz", hash = "sha256:08af9e211cc4c3fb2955fd5734e4feee0b7c721d4098b05f7a6cecd4d2652cc3", size = 37699137, upload-time = "2026-09-11T14:43:54.289Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/52/28/4028834d124fd72c56fa1fd51a57a6ffb1530c6e37ea296c30f99af89bf6/inspect_evals-0.21.0-py3-none-any.whl", hash = "sha256:fec31d96818a72c8914d94ecfe77433078421ddab5d559ca475f15c93f9f2018", size = 21098516, upload-time = "2026-09-17T20:58:47.874Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/0c/6dad96e4af640e5fe533b2ed50ac7f5565245b87e2e5034678c327ad8481/inspect_evals-0.20.0-py3-none-any.whl", hash = "sha256:6db2e849144bac3c3b0e05cc976a829bc2fae94a72d0d1d091d970ea202b1d82", size = 21078982, upload-time = "2026-09-11T14:43:50.811Z" },
 ]
 
 [[package]]
@@ -3530,8 +3557,8 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "immutabledict", specifier = ">=4.2.0" },
-    { name = "inspect-ai", marker = "extra == 'inspect'", specifier = "==0.3.266" },
-    { name = "inspect-evals", marker = "extra == 'inspect'", specifier = "==0.21.0" },
+    { name = "inspect-ai", marker = "extra == 'inspect'", specifier = "==0.3.263" },
+    { name = "inspect-evals", marker = "extra == 'inspect'", specifier = "==0.20.0" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "nats-py", specifier = ">=2.9.0" },
     { name = "nltk", specifier = ">=3.9.1" },
