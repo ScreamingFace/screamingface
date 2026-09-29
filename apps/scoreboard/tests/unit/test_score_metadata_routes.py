@@ -24,6 +24,7 @@ from scoreboard.config import Settings
 from scoreboard.main import create_app
 from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS
 from scoreboard.routes.scores import SCORE_NOT_FOUND_DETAIL, UNTRUSTED_PEER_DETAIL
+from scoreboard.scores import metadata_store
 from scoreboard.scores.models import Benchmark, ReportedResult, Score, ScoreMetadataEvent
 
 pytestmark = pytest.mark.asyncio
@@ -718,3 +719,48 @@ async def test_md_edit_logs_counts_and_never_emails(
     assert getattr(record, "actor_is_owner") is True
     assert getattr(record, "score_id") == seeded["id"]
     assert "@" not in caplog.text
+
+
+@pytest.mark.parametrize("caller", [None, BRUNO])
+async def test_md17_history_of_a_board_that_turns_private_mid_read_is_the_plain_404(
+    cf_client: AsyncClient, monkeypatch: pytest.MonkeyPatch, caller: str | None
+) -> None:
+    """INVARIANT (OME-894): the visibility decided first is re-checked before a public answer.
+
+    The board flips to private right after the store reads its visibility and before the events
+    query. Without the re-check the anonymous caller gets the edit history (raw-derived authors and
+    actor) of a board that is private by the time it answers.
+    """
+    seeded = await _seed(cf_client, owner=ANA)
+    assert (await _patch(cf_client, seeded["id"], {"authors": [ANA, BRUNO]})).is_success
+    real_get_or_none = Benchmark.get_or_none
+
+    async def flip_after_the_read(*args: Any, **kwargs: Any) -> Benchmark | None:
+        board = await real_get_or_none(*args, **kwargs)
+        await Benchmark.filter(id=PUBLIC_BOARD).update(visibility="private")
+        return board
+
+    monkeypatch.setattr(metadata_store.Benchmark, "get_or_none", flip_after_the_read)
+    headers = as_user(caller) if caller is not None else {}
+
+    response = await cf_client.get(f"/v1/scores/{seeded['id']}/metadata-history", headers=headers)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": SCORE_NOT_FOUND_DETAIL}
+    for header, value in PRIVATE_CACHE_HEADERS.items():
+        assert response.headers[header] == value
+
+
+async def test_md17_history_of_a_public_score_is_cacheable_for_an_identified_reader(
+    cf_client: AsyncClient,
+) -> None:
+    """The private cache policy follows the real visibility, not whether a caller is known."""
+    seeded = await _seed(cf_client, owner=ANA)
+    assert (await _patch(cf_client, seeded["id"], {"authors": [ANA, BRUNO]})).is_success
+
+    response = await cf_client.get(
+        f"/v1/scores/{seeded['id']}/metadata-history", headers=as_user(BRUNO)
+    )
+
+    assert response.status_code == 200
+    assert "Cache-Control" not in response.headers

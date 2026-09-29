@@ -21,7 +21,7 @@ from tortoise import BaseDBAsyncClient
 from tortoise.transactions import in_transaction
 
 from scoreboard.scores.models import Benchmark, Score, ScoreMetadataEvent
-from scoreboard.scores.schemas import ScoreSchema
+from scoreboard.scores.schemas import MetadataHistoryEvent, MetadataValues, ScoreSchema
 from scoreboard.scores.store import _score_to_schema
 
 
@@ -29,6 +29,15 @@ class MetadataEditOutcome(NamedTuple):
     score: ScoreSchema
     # False for the MD-D4 idempotent resend: the values already matched, nothing was written.
     changed: bool
+
+
+class MetadataHistoryPage(NamedTuple):
+    events: list[MetadataHistoryEvent]
+    next_revision: int | None
+    # The board the decision was taken from, so the route can re-check it before a public answer.
+    benchmark_id: str
+    # The board was private when the store decided, and the reader is its owner.
+    private: bool
 
 
 class ScoreNotFound(Exception):
@@ -152,24 +161,43 @@ class ScoreMetadataStore:
         reader: str | None,
         before_revision: int | None,
         limit: int,
-    ) -> tuple[list[ScoreMetadataEvent], int | None]:
+    ) -> MetadataHistoryPage:
         """Newest-first events of one score, and the cursor of the next page (or `None`).
 
         INVARIANT: the same read rule as `GET /v1/scores/{id}` — a private board's history is
         readable only by the owner, and everyone else gets the one `ScoreNotFound` refusal.
+        INVARIANT (OME-894): the events are read AFTER the visibility decision, so the page carries
+        the decision (`private`, `benchmark_id`) and the route re-checks it before a public answer
+        leaves.
+        AIDEV-NOTE: never name the re-check helper in this docstring. The exit guard test matches
+        source text, so the name would count as a revalidation this function does not perform.
         """
         row = await Score.get_or_none(id=score_id)
         if row is None:
             raise ScoreNotFound
-        benchmark = await Benchmark.get_or_none(id=_benchmark_id(row))
+        benchmark_id = _benchmark_id(row)
+        benchmark = await Benchmark.get_or_none(id=benchmark_id)
         private = benchmark is None or benchmark.visibility == "private"
         if private and (reader is None or reader != row.submitted_by):
             raise ScoreNotFound
         query = ScoreMetadataEvent.filter(score_id=score_id)
         if before_revision is not None:
             query = query.filter(to_revision__lt=before_revision)
-        events = await query.order_by("-to_revision").limit(limit + 1)
-        if len(events) <= limit:
-            return events, None
-        page = events[:limit]
-        return page, page[-1].to_revision
+        rows = await query.order_by("-to_revision").limit(limit + 1)
+        page = rows[:limit]
+        return MetadataHistoryPage(
+            events=[
+                MetadataHistoryEvent(
+                    actor=event.actor,
+                    at=event.at,
+                    from_revision=event.from_revision,
+                    to_revision=event.to_revision,
+                    before=MetadataValues.model_validate(event.before),
+                    after=MetadataValues.model_validate(event.after),
+                )
+                for event in page
+            ],
+            next_revision=page[-1].to_revision if len(rows) > limit else None,
+            benchmark_id=benchmark_id,
+            private=private,
+        )

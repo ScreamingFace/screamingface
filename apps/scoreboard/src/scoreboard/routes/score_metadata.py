@@ -20,7 +20,7 @@ from fastapi import APIRouter, Body, Header, HTTPException, Query, Request, Resp
 from pydantic import ValidationError
 from tortoise.exceptions import OperationalError
 
-from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity
+from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity, turned_private
 from scoreboard.routes.scores import SCORE_NOT_FOUND_DETAIL, STORE_UNAVAILABLE_DETAIL
 from scoreboard.routes.write_identity import WriteIdentity
 from scoreboard.scores.metadata_store import (
@@ -32,9 +32,7 @@ from scoreboard.scores.metadata_store import (
 from scoreboard.scores.schemas import (
     CodedErrorResponse,
     MessageErrorResponse,
-    MetadataHistoryEvent,
     MetadataHistoryResponse,
-    MetadataValues,
     ScoreMetadataPatch,
     ScoreSchema,
 )
@@ -242,35 +240,27 @@ async def score_metadata_history(
         )
     store = cast(ScoreMetadataStore, request.app.state.metadata_store)
     try:
-        events, next_revision = await store.metadata_history(
+        page = await store.metadata_history(
             score_id,
             reader=identity,
             before_revision=None if cursor is None else int(cursor),
             limit=limit,
         )
+        # INVARIANT (OME-894): the store decided from a visibility read and then queried the
+        # events, and the seed job can flip a board in between. Same rule as `get_score`: a private
+        # answer is marked private, a public one is re-checked, and this is the last await before
+        # the response.
+        if page.private:
+            response.headers.update(PRIVATE_CACHE_HEADERS)
+        elif await turned_private(page.benchmark_id):
+            raise _not_found()
     except ScoreNotFound as exc:
         raise _not_found() from exc
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=STORE_UNAVAILABLE_DETAIL
         ) from exc
-    # INVARIANT (OME-894): a private board's response varies by caller. Only an identified caller
-    # can read one, so identified responses carry the private policy; an anonymous read of a
-    # public board stays cacheable. Over-marking a public read is safe, under-marking a private
-    # one is a leak.
-    if identity is not None:
-        response.headers.update(PRIVATE_CACHE_HEADERS)
     return MetadataHistoryResponse(
-        events=[
-            MetadataHistoryEvent(
-                actor=event.actor,
-                at=event.at,
-                from_revision=event.from_revision,
-                to_revision=event.to_revision,
-                before=MetadataValues.model_validate(event.before),
-                after=MetadataValues.model_validate(event.after),
-            )
-            for event in events
-        ],
-        next_cursor=None if next_revision is None else str(next_revision),
+        events=page.events,
+        next_cursor=None if page.next_revision is None else str(page.next_revision),
     )
