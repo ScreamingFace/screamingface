@@ -31,11 +31,12 @@ def submit(
 ) -> LeaderboardScore:
     """Publish one evaluated Candidate Result to its registered Leaderboard."""
 
-    if paper_url is None:
-        return default_client().leaderboards.submit(candidate_result, authors=authors)
-    return default_client().leaderboards.submit(
-        candidate_result, authors=authors, paper_url=paper_url
-    )
+    # Send an optional keyword only when the caller gave it, so a board before E14a still
+    # accepts a normal submit. A later optional keyword adds one entry here, not a branch.
+    given: dict[str, str] = {}
+    if paper_url is not None:
+        given["paper_url"] = paper_url
+    return default_client().leaderboards.submit(candidate_result, authors=authors, **given)
 
 
 def get_score(score_id: UUID | str) -> LeaderboardScore:

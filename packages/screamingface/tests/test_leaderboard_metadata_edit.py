@@ -566,3 +566,27 @@ def test_md19_module_facade_passes_through(monkeypatch: pytest.MonkeyPatch) -> N
     assert calls[0][1]["authors"] is sf.leaderboards.UNSET
 
     monkeypatch.setattr(_default_client, "_client", None)
+
+
+def test_md19_module_facade_submit_forwards_paper_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeLeaderboards:
+        def submit(self, candidate_result: object, **kwargs: object) -> str:
+            calls.append(kwargs)
+            return "submitted"
+
+    class FakeClient:
+        leaderboards = FakeLeaderboards()
+
+    monkeypatch.setattr(_default_client, "_client", FakeClient())
+    candidate = _candidate_result()
+
+    assert sf.leaderboards.submit(candidate, paper_url=PAPER_URL) == "submitted"
+    assert calls[-1] == {"authors": None, "paper_url": PAPER_URL}
+
+    # A call without paper_url sends no paper_url key (a board before E14a stays valid).
+    assert sf.leaderboards.submit(candidate) == "submitted"
+    assert calls[-1] == {"authors": None}
+
+    monkeypatch.setattr(_default_client, "_client", None)
