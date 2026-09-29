@@ -632,11 +632,21 @@ async def _settled_tasks[T](tasks: tuple[asyncio.Task[T], ...]) -> tuple[T, ...]
     WHY `asyncio.wait` and not `gather`: when the Evaluation's own task is cancelled (owner
     abort), `gather` cancels every child at once — BEFORE the abort arm can set its flag and
     sweep. `wait` leaves the children alone, so the arm keeps its order: flag, sweep, cancel.
+
+    WHY a FIRST_COMPLETED loop and not `FIRST_EXCEPTION` (review of #1121): `asyncio.wait`
+    wakes for FIRST_EXCEPTION only when a task ended with an exception, and never for a task
+    that ended CANCELLED. A caller `on_event` that raises `CancelledError`, or a Run that ends
+    cancelled by itself, is an abort (spec 4.1 C1a / C1c). With FIRST_EXCEPTION the
+    Evaluation kept waiting for its siblings: they kept spending, and one held sibling kept it
+    from returning. The loop wakes after every task and treats a cancelled task like an
+    exception.
     """
-    done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-    for task in tasks:
-        if task in done and task.exception() is not None:
-            task.result()
+    pending = set(tasks)
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for task in tasks:  # the Candidates' order, as before
+            if task in done and (task.cancelled() or task.exception() is not None):
+                task.result()  # raises the CancelledError or the abort-class failure
     return tuple(task.result() for task in tasks)
 
 

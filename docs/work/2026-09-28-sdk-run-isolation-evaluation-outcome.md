@@ -141,7 +141,7 @@ caller's own `on_event` callback still stop everything.
   `wait()`, so it never blocks the loop and the twins stay identical). The abort arm sets it
   FIRST, before `_sweep_*`; `run_isolated` then calls the new `candidate_stopped` instead of
   `candidate_failed` (and, async, also for a sibling that is cancelled). The async twin
-  waits with `asyncio.wait(FIRST_EXCEPTION)` (`_settled_tasks`) instead of `gather`: when
+  waits with `asyncio.wait` (`_settled_tasks`; a FIRST_COMPLETED loop since the external review, see below) instead of `gather`: when
   the Evaluation's task is cancelled, `gather` cancels the children before the arm can set
   the flag and sweep. New observer method `candidate_stopped` on the sync/async observers,
   the terminal (`<name> · run stopped`), `_EvaluationProgress` / `_CandidateProgress.stop`
@@ -180,3 +180,23 @@ caller's own `on_event` callback still stop everything.
   `_ui/evaluation_widget.py`; docs: `README.md`, `CHANGELOG.md`, spec.
 - **Follow-ups:** move the observers out of `runner.py` (now 801 lines, over the 450-line
   guideline) in a separate refactor — prior tests patch its names.
+
+## External review of #1121 (keelancj, 2026-09-29) — finding validated and fixed
+
+- **Finding (blocking):** `asyncio.wait(..., FIRST_EXCEPTION)` in `_settled_tasks`
+  (`runner.py`) does not wake when a child task is CANCELLED. A caller `on_event` that raises
+  `asyncio.CancelledError` left the Evaluation waiting for its siblings.
+- **Validation:** CONFIRMED against the code. CPython's `_on_completion` wakes for
+  FIRST_EXCEPTION only when `not f.cancelled() and f.exception() is not None`. A probe on the
+  real runner (the existing async abort scene, callback raising `CancelledError`, siblings
+  held): before the fix the Evaluation hung (3 s guard), `cancel_active()` was never called
+  and the siblings stayed `running`; with an ordinary callback error the control aborted at
+  once. The sync twin is not affected: a worker thread stores any `BaseException` on its
+  future. Spec §4.1 C1a / C1c already required the abort; the code contradicted it. The
+  first review and my tests only used ordinary callback errors.
+- **Fix:** `_settled_tasks` loops on `FIRST_COMPLETED` and re-raises a task that is
+  cancelled or has an exception, in the Candidates' order. Spec §5 item 3 updated.
+- **Tests (new file `tests/test_evaluation_outcome_cancelled.py`, 4):** async callback that
+  raises `CancelledError`; async Run that ends cancelled by itself (both RED before the fix:
+  timeout with the siblings held); sync KeyboardInterrupt / SystemExit from a callback (a
+  regression pin, green before and after).

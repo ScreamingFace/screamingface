@@ -135,7 +135,10 @@ Behavior (owner answers Q1-Q3, 2026-09-29). It is the same in the sync and async
      (the sweep ended its stream) or that is cancelled is shown as `stopped` (row
      `stopped`, terminal `run stopped`), never as `run_failed`. The async twin waits with
      `asyncio.wait`, not `gather`: when the Evaluation's task is cancelled, `gather` would
-     cancel the siblings before the arm can set the flag and sweep.
+     cancel the siblings before the arm can set the flag and sweep. It loops on
+     `FIRST_COMPLETED` and treats a CANCELLED Candidate task like an exception: `FIRST_EXCEPTION`
+     never wakes for a cancelled task, so a callback that raises `CancelledError` would leave
+     the siblings running (C1a / C1c).
 4. All Candidates succeed → the Report (unchanged).
 5. One or more fail → `ExecutionError(code="candidates_failed")`, raised `from` the first
    failed Candidate in the caller's Candidate order, with:
