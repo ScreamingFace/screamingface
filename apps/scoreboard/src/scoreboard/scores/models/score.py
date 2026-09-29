@@ -39,6 +39,14 @@ class BaseScore(BaseScoreboardModel):
     # about what a system is made of.
     models = fields.JSONField(null=True)
     submitted_at = fields.DatetimeField(auto_now_add=True)
+    # FEATURE: OME-1145 — when a same-owner replay last filled a field the frontier reads (cost,
+    # models, providers). The open-share trend places a row at the LATER of this and
+    # `submitted_at`, so a Sep 5 enrichment is never replayed onto Sep 1's point.
+    #
+    # INVARIANT: NULL means "never enriched since this column existed", and the row enters the
+    # trend at `submitted_at`. Deliberately not backfilled: no earlier enrichment time survives.
+    # Only `_apply_replay_updates` writes it; authors and metadata do not move it.
+    enriched_at = fields.DatetimeField(null=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
     correct_questions = fields.IntField(null=True)

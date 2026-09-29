@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, NamedTuple, cast
@@ -21,6 +22,7 @@ from tortoise.transactions import in_transaction
 
 from scoreboard.classification.openness import Openness
 
+from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score
 from .pareto import ParetoEntry
 from .schemas import (
@@ -49,6 +51,17 @@ IDEMPOTENCY_TTL = timedelta(hours=24)
 # and spec ids are client-controlled. A single `WHERE id IN (...)` would eventually exceed the
 # driver's bind-parameter limit (SQLite's default is 999), at a board size no test reproduces.
 _MODELS_READ_CHUNK = 500
+
+
+async def _chunked_values(
+    score_ids: Sequence[str], *fields: str, connection: BaseDBAsyncClient | None = None
+) -> list[dict[str, Any]]:
+    """`Score.values(*fields)` for ``score_ids``, read in bounded chunks (see the note above)."""
+    rows: list[dict[str, Any]] = []
+    for start in range(0, len(score_ids), _MODELS_READ_CHUNK):
+        chunk = list(score_ids[start : start + _MODELS_READ_CHUNK])
+        rows.extend(await Score.filter(id__in=chunk).using_db(connection).values(*fields))
+    return rows
 
 
 class _Unset:
@@ -177,6 +190,10 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "run_cost_status",
     "cache_saved_cost_usd",
 )
+
+# INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
+# it stamps `enriched_at`. Authors and metadata are display-only and never move a row in time.
+_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "metadata"}
 
 
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
@@ -1112,7 +1129,15 @@ class ScoreStore:
 
         updates = _replay_updates(submission, locked)
         if updates:
-            updated = await Score.filter(id=locked.id).using_db(connection).update(**updates)
+            # WHY compare values, not keys: the cost branch of `_replay_updates` writes all three
+            # cost fields together, so an unpriced replay of an unpriced row returns them as
+            # None over None. Nothing the frontier reads changed, so nothing is dated.
+            touched = _ENRICHING_FIELDS & updates.keys()
+            enriched = any(updates[field] != getattr(locked, field) for field in touched)
+            stamp = {"enriched_at": datetime.now(UTC)} if enriched else {}
+            updated = await (
+                Score.filter(id=locked.id).using_db(connection).update(**updates, **stamp)
+            )
             if updated != 1:
                 raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
 
@@ -1374,9 +1399,14 @@ class ScoreStore:
         *,
         registered_revision: str | None | _Unset = _UNSET,
         registered_case_count: int | None | _Unset = _UNSET,
+        connection: BaseDBAsyncClient | None = None,
     ) -> list[LeaderboardStoreEntry]:
-        """The ranked display board. ``top_n=None`` remains available to internal callers."""
-        conn = Tortoise.get_connection("default")
+        """The ranked display board. ``top_n=None`` remains available to internal callers.
+
+        ``connection``: a `read_snapshot()` connection, so this read shares one snapshot with the
+        route's other reads.
+        """
+        conn = connection or Tortoise.get_connection("default")
         # The board is defined by the revision its benchmark is registered at; entries measured
         # against anything else are not comparable to it and do not rank (OME-775).
         # INVARIANT: when the caller supplies the revision, it is NOT read again. The route
@@ -1407,15 +1437,33 @@ class ScoreStore:
             row["source_id"] = str(row.pop("id"))
         return [LeaderboardStoreEntry(**row) for row in rows]
 
+    async def benchmark_scope(
+        self, benchmark_id: str, *, connection: BaseDBAsyncClient | None = None
+    ) -> tuple[str | None, int | None]:
+        """The registered revision and case count that decide which rows are comparable.
+
+        INVARIANT (OME-1145 review round 3): a read route calls this INSIDE `read_snapshot()`, so
+        the filter and the rows it filters come from one database state. Reading them before the
+        snapshot let a re-registration in between pair new-revision rows with the old filter.
+        A board deleted mid-request reads as unregistered: no revision, so no frontier claim.
+        """
+        rows = await (
+            Benchmark.filter(id=benchmark_id).using_db(connection).values("revision", "case_count")
+        )
+        if not rows:
+            return None, None
+        return cast("str | None", rows[0]["revision"]), cast("int | None", rows[0]["case_count"])
+
     async def leaderboard_pareto_inputs(
         self,
         benchmark_id: str,
         *,
         registered_revision: str | None,
         registered_case_count: int | None,
+        connection: BaseDBAsyncClient | None = None,
     ) -> list[ParetoEntry]:
         """The unbounded, minimal projection needed for a public Pareto frontier."""
-        conn = Tortoise.get_connection("default")
+        conn = connection or Tortoise.get_connection("default")
         result = await execute_pypika(
             _build_pareto_inputs_query(
                 benchmark_id,
@@ -1522,13 +1570,94 @@ class ScoreStore:
         to `None`, which is not the same as absent and must stay distinguishable — the contract
         excludes undeclared rows from the statistic rather than counting them closed.
         """
-        found: dict[str, list[str] | None] = {}
-        for start in range(0, len(score_ids), _MODELS_READ_CHUNK):
-            chunk = score_ids[start : start + _MODELS_READ_CHUNK]
-            rows = await Score.filter(id__in=chunk).values("id", "models")
-            for row in rows:
-                found[str(row["id"])] = cast("list[str] | None", row["models"])
-        return found
+        return {
+            str(row["id"]): cast("list[str] | None", row["models"])
+            for row in await _chunked_values(score_ids, "id", "models")
+        }
+
+    @asynccontextmanager
+    async def read_snapshot(self) -> AsyncIterator[BaseDBAsyncClient]:
+        """One consistent view of the board for all of a request's participant reads.
+
+        FEATURE (review round 1, 2026-09-26): the frontier route read the frontier inputs, the
+        history and the models in three independent statements, so a submission landing between
+        them could make the summary describe one board and the trend another. Inside this block
+        every read sees the same snapshot, so the response is assembled from one board.
+
+        INVARIANT: REPEATABLE READ on PostgreSQL, where the default (READ COMMITTED) gives each
+        statement its own snapshot. The level must be set before the first query of the
+        transaction, which is why it is the first thing here. SQLite serialises a transaction's
+        reads already.
+
+        INVARIANT: the privacy re-check (`turned_private`) must run AFTER this block, on the
+        default connection. Inside it, a snapshot would still see the visibility the transaction
+        started with, and a board flipped private mid-request would go undetected (OME-894).
+        """
+        async with in_transaction() as connection:
+            if connection.capabilities.dialect == "postgres":
+                await connection.execute_script("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            yield connection
+
+    async def frontier_member_models(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, FrontierMember]:
+        """What classifying each frontier entry needs: its routes and its override (OME-1145).
+
+        The sibling of `models_for_score_ids`, with the same bounds and the same chunking, plus
+        `openness_override`: D-Q4 (owner, 2026-09-25) keeps the operator's per-entry correction
+        working. A separate method rather than a wider return type, because that one's contract
+        is pinned by OME-1181's tests.
+
+        INVARIANT: selects `id`, `models` and `openness_override` and nothing else, for the reason
+        `models_for_score_ids` records.
+        """
+        return {
+            str(row["id"]): FrontierMember(
+                source_id=str(row["id"]),
+                models=None if row["models"] is None else tuple(row["models"]),
+                openness_override=cast("Openness | None", row["openness_override"]),
+            )
+            for row in await _chunked_values(
+                score_ids, "id", "models", "openness_override", connection=connection
+            )
+        }
+
+    async def frontier_history_inputs(
+        self,
+        benchmark_id: str,
+        *,
+        registered_revision: str,
+        registered_case_count: int | None,
+        connection: BaseDBAsyncClient | None = None,
+    ) -> list[HistoryRow]:
+        """Every comparable submission, for replaying the frontier over time (OME-1145, D-L).
+
+        INVARIANT: the SAME comparability the ranked query applies (`_build_leaderboard_query`):
+        the registered revision only (OME-775) and full coverage (OME-1056). A row the table
+        cannot rank must not shape the trend either; the old statistic mixed revisions live.
+
+        INVARIANT: the ranking fields only. Like `leaderboard_pareto_inputs`, this is a whole-board
+        read, so recipes and display metadata are never materialised.
+        """
+        query = Score.filter(
+            benchmark_id=benchmark_id, benchmark_revision=registered_revision
+        ).using_db(connection)
+        if registered_case_count is not None:
+            query = query.filter(total_questions__gte=registered_case_count)
+        rows = await query.order_by("submitted_at", "id").values(
+            "id", "spec_id", "score", "run_cost_usd", "submitted_at", "enriched_at"
+        )
+        return [
+            HistoryRow(
+                source_id=str(row["id"]),
+                spec_id=cast(str, row["spec_id"]),
+                score=cast(float, row["score"]),
+                run_cost_usd=cast("Decimal | None", row["run_cost_usd"]),
+                submitted_at=cast(datetime, row["submitted_at"]),
+                enriched_at=cast("datetime | None", row["enriched_at"]),
+            )
+            for row in rows
+        ]
 
     async def mark_verified(self, score_id: UUID | str) -> None:
         await Score.filter(id=score_id).update(verified_by_screamingface=True)
