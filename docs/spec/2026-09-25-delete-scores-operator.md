@@ -2,7 +2,7 @@
 
 For `OME-1384`, under epic `OME-1251`. Ledger: `docs/work/2026-09-25-delete-scores-operator.md`.
 
-**Revised by review rounds 1 and 2 (owner, 2026-09-26).** The first contract wrote the backup to
+**Revised by review rounds 1 to 3 (2026-09-26 to 2026-09-29).** The first contract wrote the backup to
 stdout in both modes, after the delete had committed. It is replaced below: the delete is bound to
 a backup already on the operator's disk, and the selected rows are locked until they are gone.
 
@@ -38,6 +38,7 @@ kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.delete_s
 | **Only the dry run writes stdout: the backup, the `export_private_submissions` JSONL of exactly the selected rows.** Its SHA-256 goes to stderr. The confirmed run writes nothing to stdout. | A file written in the pod is lost with the pod; stdout survives `kubectl exec`. The confirmed run is not where the backup comes from, so a redirect on it could only truncate the reviewed file (round 1). |
 | **`--yes` requires `--expect-sha256`, the reviewed backup's digest.** It is recomputed inside the deleting transaction; a mismatch deletes nothing. | The rows can only be deleted once a backup of exactly those rows is on the operator's disk, and a row that changed since the review is caught even when the count still matches (round 1). Same gate as `purge_private_benchmark`. |
 | **The selected rows are locked (`SELECT ... FOR UPDATE`) from the digest check to the delete.** | The benchmark lock serialises submit and replay, but `ScoreStore.mark_verified` updates a score without it. Without a row lock, a row could change after its digest matched and before it was deleted (round 2). Pinned on PostgreSQL. |
+| **An identical resubmission waits for an in-flight delete of its row.** `ScoreStore.submit()`'s no-change replay re-reads the matched row with `FOR NO KEY UPDATE`; if the row is gone once the delete commits, the submission is stored as new. | Without it, the replay answered "already stored" from an unlocked read while the delete was committing that row's removal: the submitter was told the score existed, and it did not (round 3, Dmitry, reproduced on PostgreSQL 17). Pinned on PostgreSQL. |
 | **Selection, count check, digest check and delete run in one transaction.** A delete count that differs rolls back. | A row landing between the read and the write must not be deleted unseen, and a partial delete must not happen. |
 | **Idempotency keys go with their score.** | Already `ON DELETE CASCADE` (`models/idempotency_key.py:30`). Tested, not reimplemented. |
 

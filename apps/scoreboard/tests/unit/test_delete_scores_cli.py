@@ -235,3 +235,15 @@ def test_yes_with_a_wrong_digest_exits_two_and_deletes_nothing(
     assert exit_info.value.code == 2
     assert "changed since" in capsys.readouterr().err
     assert _remaining_specs() == {"old-a", "old-b", "new"}
+
+
+def test_the_help_says_only_the_dry_run_is_redirected(capsys: pytest.CaptureFixture[str]) -> None:
+    """Review round 3 (Dmitry): following `--help` must not lead an operator to redirect the
+    confirmed run to the backup file. The shell empties that file before Python starts, the
+    digest still matches from the argument, and the delete completes with no backup left."""
+    with pytest.raises(SystemExit):
+        main(["--help"])
+
+    text = " ".join(capsys.readouterr().out.split())
+    assert "only the dry run" in text.lower()
+    assert "never redirect" in text.lower()

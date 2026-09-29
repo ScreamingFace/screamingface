@@ -108,3 +108,29 @@ comparison fails 2 tests. Gates: ALL GREEN vs `origin/main`, no append-only exce
    two-step, digest-bound, row-locked contract, with a revision note.
 
 Gates: ALL GREEN vs `origin/main`, no append-only exception.
+
+## Review round 3 (2026-09-29, Dmitry, changes requested at `e8a32f45`)
+
+1. **High, verified and reproduced: a concurrent replay could be acknowledged and then deleted.**
+   `ScoreStore.submit()`'s existing-row, no-change replay (`_confirm_replayable` returning early)
+   read the row with no lock, so the delete's `FOR UPDATE` never made it wait. The submitter got
+   `created=False` with the id while the delete committed that row's removal. **Fix (owner: lock
+   the row in the replay path):** the no-change replay calls `_replayed_row_survives`, a short
+   transaction taking `FOR NO KEY UPDATE` on the row (a model projection, so the lock is not
+   dropped). It waits for an in-flight delete and costs nothing otherwise. If the row is gone,
+   `_confirm_replayable` returns None and `submit` stores the submission as new; the insert-collision
+   fallback treats None as "nothing resolved" and keeps its existing refusal. **Test:**
+   `test_a_replay_racing_the_delete_is_not_acknowledged_and_then_lost` pauses the delete after
+   both locks, runs the identical `submit()`, and asserts it waits, then comes back `created=True`
+   with a row that exists. RED before (`created=False`, answered while the delete held its locks),
+   GREEN after; disabling the wait fails it again. The first RED run also exposed a teardown
+   deadlock (cleanup waiting on the paused delete's row lock); the test now always releases it.
+2. **Medium, verified: `--help` told the operator to redirect stdout in both modes.** Redirecting
+   the confirmed run to the backup file empties it before Python starts, and the delete still goes
+   ahead. **Fix:** the description and `--yes` help say only the dry run is redirected and never to
+   redirect `--yes`; `test_the_help_says_only_the_dry_run_is_redirected` pins it.
+
+Gates: ALL GREEN against the merge base `69971220` (against current `origin/main` the append-only
+check reports #1049's `test_portal_static.py` change only because this branch predates it). The
+visibility-exit guard passes with no change to its recorded list. PostgreSQL: 5 passed, including
+the two existing idempotency suites, against a throwaway PostgreSQL 16.

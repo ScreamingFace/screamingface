@@ -238,8 +238,12 @@ def _aware_datetime(value: str) -> datetime:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Permanently delete named scores from a public board. The backup JSONL goes to "
-            "stdout; redirect it to a file."
+            "Permanently delete named scores from a public board, in two steps. "
+            "1) Dry run (no --yes): writes the backup JSONL to stdout and its sha256 to "
+            "stderr. Only the dry run is redirected to a file. "
+            "2) Confirm with --yes --expect-sha256 <digest>: writes nothing to stdout. Never "
+            "redirect the confirmed run to the backup file: the shell empties it before the "
+            "command starts, and the delete would still go ahead."
         ),
     )
     parser.add_argument("--benchmark", required=True, help="Benchmark id to delete from.")
@@ -265,7 +269,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="Actually delete. Without it, write the backup and change nothing.",
+        help=(
+            "Actually delete. Needs --expect-sha256. Writes nothing to stdout: do not redirect "
+            "it. Without --yes, write the backup and change nothing."
+        ),
     )
     parser.add_argument(
         "--expect-sha256",
