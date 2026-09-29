@@ -28,3 +28,12 @@ Independent correctness review identified the missing finalizer progress and req
 
 ## Wisdom
 Transport evolution need not change an exam's scoring identity: preserve the batch contract and add an explicitly separate typed reduction route. Test the old generated expression against the new serving code. Progress projection must preserve board-native evidence needed by scoring, while discarding diagnostic payloads. Finalization can synthesize terminal cases, so completion publication must cover that boundary too.
+
+## Authoring-guide review correction
+
+Updated the Running scores guidance to match the approved compatibility policy: retain the
+batch route, add `/aggregate/graded`, preserve semantic revisions when request/scoring/result
+parity is proven, and deploy Engine routes before publishing new expressions. This replaces
+the stale instruction to change the benchmark revision for the transport change. Validation:
+checked against the approved spec and ran `git diff --check`; documentation only, no runtime
+or test changes.

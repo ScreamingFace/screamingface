@@ -372,7 +372,11 @@ install `case_result_endpoint` plus `aggregate_result_endpoint`. The first endpo
 once and carries a versioned typed result; the final endpoint validates those results and
 performs authoritative reduction and accounting. `ServedBoard.scoring` wires these endpoints
 for deterministic boards. Do not reconstruct grades from log text or grade again in an
-observer. Include the transport change in the benchmark's protocol revision.
+observer. Preserve the existing batch aggregate route and add a separate
+`/aggregate/graded` route for typed results. When old/new protocol comparisons prove unchanged
+requests, scoring and complete results, preserve the semantic benchmark revision; a transport
+change alone does not require a leaderboard revision reset. Deploy the Engine routes before
+publishing expressions that use them.
 
 An async aggregate that performs its judging there already publishes completed grades through
 `ScoredPath.aggregate_async`. Such a board updates scores during judging, after answering;
