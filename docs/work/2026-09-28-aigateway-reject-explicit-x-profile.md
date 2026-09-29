@@ -1,9 +1,9 @@
 ---
 ticket: OME-1394
 stack: aigateway
-status: done
+status: in_progress
 started: 2026-09-28
-finished: 2026-09-28
+finished:
 ---
 
 # aigateway-reject-explicit-x-profile — reject obsolete credential selectors

@@ -29,7 +29,7 @@ including a window-era `[default, backup]` pair that previously auto-selected `d
 ## Gate
 
 Offline implementation and verification may proceed. Merge and deployment activation remain blocked
-after Engine build `df6e9b92` until both checks pass:
+by the Linear `blockedBy` relation to `OME-1401` after Engine build `df6e9b92` until both checks pass:
 
 - the approved quick alpha drain proof for old ingress pods, legacy queued/in-flight/redelivered
   `AIGATEWAY_PROFILE` work, and ambient worker `AIGATEWAY_PROFILE`;
