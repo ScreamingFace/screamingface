@@ -142,6 +142,16 @@ class Settings(BaseSettings):
         default=1_000_000, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES"
     )
 
+    # FEATURE: OME-1307 (E14) - E14 kill switch. On: the chat route captures traced calls, and (from
+    # GW-freeze) the freeze route answers. Off: no capture row, no prompt row; `POST
+    # /v1/cache-versions` answers `503 capture_disabled`.
+    # WHY the default stays False: same data-posture reason as `request_cache_enabled` above.
+    # Capture stores prompt text, so it is turned on deliberately in hosted config and in the local
+    # runtime, not inherited from a code default.
+    cache_versions_enabled: bool = Field(
+        default=False, validation_alias="AIGW_CACHE_VERSIONS_ENABLED"
+    )
+
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
     # POST /v1/admin/cache/snapshots. Deliberately on the compressed bytes — that is what
     # crosses the wire and fills the spool directory — and deliberately generous: the DRACO

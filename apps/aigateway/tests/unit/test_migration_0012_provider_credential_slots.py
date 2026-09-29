@@ -168,7 +168,7 @@ def test_0012_rerun_is_a_noop(populated_0011: tuple[Path, str]) -> None:
 
 def test_0012_downgrade_drops_only_the_marker_table(populated_0011: tuple[Path, str]) -> None:
     db, url = populated_0011
-    _tortoise(url, "migrate")
+    _tortoise(url, "migrate", "models", _MIGRATION)
     with_marker = _schema_objects(db)
     assert any(tbl_name == _TABLE for _, _, tbl_name in with_marker)
 
