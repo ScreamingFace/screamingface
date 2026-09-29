@@ -81,6 +81,29 @@ This is an SDK language extension: existing expressions that use their own `inde
 iterations must rename that binding. The index interpolates as decimal text, like other
 references; it does not introduce arithmetic or a collection-count variable.
 
+## System fingerprint
+
+`url4.fingerprint` gives the identity of a *system*: the url4 without the benchmark. The
+leaderboard uses this value to know that two runs come from the same system.
+
+```python
+from url4.fingerprint import canonical_system_url4, system_fingerprint
+
+fingerprint = system_fingerprint(linked, exclude_bindings=frozenset({"_sf_recipe"}))
+system_text = canonical_system_url4(linked, exclude_bindings=frozenset({"_sf_recipe"}))
+```
+
+- `linked` is the url4 text that the client sends. If it has a root-level `candidate` source
+  with a text value, the system is that text. If not, the system is the whole url4.
+- `exclude_bindings` is a keyword-only set of names. The caller names the metadata bindings
+  to drop. The function removes each root-level source of the system with one of these names.
+  The default is the empty set, and this module names no SDK binding itself.
+- The return value is the lowercase hex sha256 (64 characters) of the canonical text of the
+  system, encoded as UTF-8. Spellings that mean the same url4 give the same value.
+- The functions are pure and raise `url4.Url4Error` for text that does not parse.
+- There is no seed parameter. An answer seed travels out of band. A `seed` query parameter
+  that the system declares itself stays in the value.
+
 ## The `url4` CLI: serve a node
 
 A url4 expression *is* the address. `(/upper(hello)!'go')` names a route, a context, and an
