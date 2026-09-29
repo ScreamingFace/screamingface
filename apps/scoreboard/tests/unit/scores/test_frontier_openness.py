@@ -349,3 +349,42 @@ def test_an_intraday_change_that_reverts_leaves_no_trend_point() -> None:
     result = compute_frontier_openness(current, replay_frontier(rows), members, pinned=True)
 
     assert [p.open_share for p in result.trend] == [0.0]
+
+
+# --- Review round 3 (Dmitry, 2026-09-29): bounded logging ---------------------------------------
+
+
+def test_one_request_logs_the_unrecognised_models_once_in_aggregate(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """INVARIANT: a public read never amplifies into per-route warnings.
+
+    Every frontier member may declare 32 client-chosen routes, and the frontier is unbounded:
+    2,000 non-dominated rows logged 64,000 warnings from one request. Classification in this path
+    is silent; the request logs ONE bounded line with the count and a capped sample.
+    """
+    entries = [_entry(f"e{i}", 0.5 + i / 1000, f"{i + 1}.00") for i in range(300)]
+    members = [
+        _member(f"e{i}", tuple(f"openrouter/nobody/m{i}-{j}" for j in range(32)))
+        for i in range(300)
+    ]
+
+    with caplog.at_level("WARNING"):
+        result = _compute(entries, members)
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "9600" in warnings[0].getMessage()
+    assert len(warnings[0].getMessage()) < 2000
+    assert len(result.unrecognised_models) == 20
+
+
+def test_a_board_with_no_unrecognised_models_logs_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    entries = [_entry("a", 0.5, "1.00")]
+
+    with caplog.at_level("WARNING"):
+        _compute(entries, [_member("a", OPEN)])
+
+    assert [r for r in caplog.records if r.levelname == "WARNING"] == []

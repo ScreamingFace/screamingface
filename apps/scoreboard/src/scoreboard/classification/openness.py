@@ -225,7 +225,8 @@ def classify_entry(
     route closes the whole entry: a fusion you cannot run end to end is not reproducible.
 
     INVARIANT (D4): an unknown route fails closed AND is returned, so a stale registry is visible
-    rather than looking like a genuinely closed board.
+    rather than looking like a genuinely closed board. It is NOT logged here; the caller logs the
+    returned routes once per request (`frontier._log_unrecognised`).
 
     WHY `unidentified` is a third verdict: an entry with no `models` (submitted before OME-1180)
     says nothing about what it ran. Counting it closed would understate the open share for a
@@ -240,7 +241,11 @@ def classify_entry(
     # would read as open. Submissions refuse an empty list, but a stored row is not a submission.
     if not models:
         return "unidentified", ()
-    verdicts = [(route, classify_model(route)) for route in models]
+    # WHY silent, not `classify_model` (review round 3, 2026-09-29): this runs on a public read
+    # over an unbounded frontier, and every entry may declare 32 client-chosen routes. Logging
+    # per route let one request write 64,000 warnings. The unknown routes are RETURNED instead,
+    # and the caller logs them once, in aggregate.
+    verdicts = [(route, _owner_verdict(_split_route(route))) for route in models]
     unknown = tuple(route for route, verdict in verdicts if verdict == "unknown")
     return ("open" if all(v == "open" for _, v in verdicts) else "closed"), unknown
 

@@ -521,8 +521,9 @@ async def test_every_score_field_reaches_at_least_one_read_dto() -> None:
         | set(ScoreSchema.model_fields)
     )
     # Deliberately unpublished: dedup plumbing, the FK object, and the reverse
-    # relation to idempotency keys (a relation, not a column).
-    internal = {"content_hash", "benchmark", "idempotency_keys"}
+    # relation to idempotency keys (a relation, not a column). `enriched_at` only places a row
+    # in the open-share trend (OME-1145 review round 3; owner approved 2026-09-29).
+    internal = {"content_hash", "benchmark", "idempotency_keys", "enriched_at"}
     columns = {name for name in Score._meta.fields_map if not name.startswith("_")}
 
     missing = columns - exposed - internal

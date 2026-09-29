@@ -819,13 +819,14 @@ class FrontierPoint(BaseModel):
 
     INVARIANT (D-U, amended in review round 1): daily sampling, not per submission. Changes within
     one day collapse to that day's end state, so a share that moves and moves back on the same day
-    shows neither move. `at` is the day's last submission, a real event time. See `frontier.py`'s
-    `FrontierReplay` for why: per-submission replay was quadratic on a public endpoint.
+    shows neither move. `at` is the day's last event (a submission or an enrichment), a real
+    time. See `frontier.py`'s `FrontierReplay` for why: per-submission replay was quadratic on a
+    public endpoint.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    # The last submission of the day this point summarises.
+    # The last event (submission or enrichment) of the day this point summarises.
     at: datetime
     # None when that frontier held nothing classifiable (D-S).
     open_share: float | None

@@ -122,3 +122,43 @@ classification per member), 2 in `test_route_read_snapshot.py`, 1 PostgreSQL-onl
    so it is a documented behaviour rather than a surprise.
 
 Gates ALL GREEN (append-only flags only the approved files).
+
+## Review round 3 (2026-09-29, Dmitry, changes requested at `abe5a505`)
+
+1. **High, verified: a later enrichment was backdated into the trend.** A same-owner replay can
+   fill a stored row's cost or models (`_replay_updates`, fill-only). The replay read each row's
+   current values at its original `submitted_at`, so a row enriched on Sep 5 showed its Sep 5 cost
+   and models on Sep 1's point. **Fix (owner: record when a score was enriched):** new nullable
+   column `scores.enriched_at`, migration `0016_score_enriched_at` (not backfilled). It is stamped
+   by `_apply_replay_updates` only when a replay changes a field the frontier reads (models,
+   providers, cost amount, status or saving); authors and metadata do not move it, and an unpriced
+   replay of an unpriced row (None over None) does not either. `HistoryRow.effective_at` is the
+   later of the two times, and the replay orders, buckets and stamps by it. A score tie in
+   best-per-spec still goes to the newer `submitted_at`, as the ranked query does, so a late
+   enrichment cannot displace a newer submission. **Tests:** `test_frontier_enrichment.py` (7),
+   including the reviewer's cross-day scenario end to end. **Approved prior-test change (owner,
+   2026-09-29):** `enriched_at` joins the unpublished-columns allowlist in
+   `test_every_score_field_reaches_at_least_one_read_dto`; it is not published.
+2. **High, verified: unbounded warnings from a public read.** `classify_entry` logged each
+   unknown route, so one request over 2,000 frontier rows with 32 routes each wrote 64,000
+   warnings. **Fix:** `classify_entry` is silent and returns the routes; `frontier._verdicts`
+   logs ONE warning per request with the count and the first 20, sorted. **Tests:** 2 in
+   `test_frontier_openness.py` (300 members x 32 routes gives exactly one line naming 9600; a clean
+   board logs nothing).
+3. **Medium, verified: the board's revision and case count were read before the snapshot.**
+   A re-registration in between could pair new-revision rows with the old filter. **Fix:**
+   `ScoreStore.benchmark_scope()` re-reads both inside `read_snapshot()` in `get_leaderboard` and
+   `get_frontier`; the pre-snapshot read now decides visibility only, and `turned_private` stays
+   after the snapshot. The table response reports the revision its rows were filtered by.
+   **Tests:** `test_frontier_route_consistency.py` (2) re-register the board as the snapshot opens
+   and assert every read used the new revision. RED before (`['r1'] == ['r2']`), GREEN after.
+
+Mutation check: reverting the tie-break fails its test. PostgreSQL lane green against a fresh
+local PostgreSQL 16 schema (the local container kept an old `scores` table, which
+`generate_schemas(safe=True)` does not alter; CI uses a fresh database). Gates ALL GREEN with the
+approved append-only skip: 794 passed, 4 skipped; `frontier.py`, `openness.py` and
+`routes/leaderboard.py` at 100%.
+
+**Note for #1081:** that PR's per-row badge also calls `classify_entry`, which is now silent. The
+badge reads a bounded page, so it loses its per-route warnings; its rebase should log the page's
+unknown routes the same aggregated way.

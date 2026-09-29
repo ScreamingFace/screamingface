@@ -69,6 +69,17 @@ submissions**. Emit a point when that day's `open_share` differs from the previo
 stamped with the day's last submission. Members are classified once per request and reuse §3's
 bounded read over the union of their ids.
 
+**Event time (review round 3, owner 2026-09-29).** A row enters the replay at its
+`effective_at`: the later of `submitted_at` and `enriched_at`. `enriched_at` is stamped when a
+same-owner replay fills a field the frontier reads (models, providers, cost), so an enrichment is
+never shown on a day before it happened. Rows enriched before the column existed keep
+`submitted_at`, since that time is not recoverable. A score tie in best-per-spec still goes to the
+newer `submitted_at`, as the ranked query does.
+
+**Reads.** The board's registered revision and case count are read inside the same snapshot as
+the rows they filter. Unknown model routes are logged once per request, in aggregate (count plus
+the first 20), never once per route.
+
 **What daily sampling gives up.** Changes within one day collapse to that day's end state. If the
 share moves and moves back on the same day, the trend shows neither move. The trend answers "how
 open was the frontier at the end of each day", not "every moment it changed".
@@ -117,6 +128,7 @@ this full list on 2026-09-25. Anything outside it that breaks is a new Confidenc
 | `tests/unit/test_leaderboard_routes.py` | `test_get_frontier_returns_empty_trend_for_a_benchmark_with_no_scores`, `test_get_frontier_reflects_real_submissions`, the OME-1056 case-count frontier test (`:1322`), and `_PUBLIC_FRONTIER_FIELDS` (`:726`) | they assert `current`, the holder trend and the exact field set |
 | `tests/unit/guards/test_visibility_exit_guard.py` | `EXPECTED_UNGUARDED` entries for `get_frontier` if its exits change | the guard's recorded counts |
 | `tests/portal/*.test.js` | any that read `current` | the portal stops reading it |
+| `tests/unit/test_leaderboard_routes.py` | `test_every_score_field_reaches_at_least_one_read_dto`: `enriched_at` joins its unpublished allowlist (owner, 2026-09-29) | the column only places a row in the trend and is not published |
 
 The two in `test_frontier.py` that pin real invariants (case count, no registered count) are
 **re-expressed** in the new tests, not dropped. Nothing is weakened: each replaced assertion has a

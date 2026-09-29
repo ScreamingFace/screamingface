@@ -191,6 +191,10 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "cache_saved_cost_usd",
 )
 
+# INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
+# it stamps `enriched_at`. Authors and metadata are display-only and never move a row in time.
+_ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {"authors", "metadata"}
+
 
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
     """The ONLY fields a replay of an existing recipe may correct on the stored row.
@@ -1125,7 +1129,15 @@ class ScoreStore:
 
         updates = _replay_updates(submission, locked)
         if updates:
-            updated = await Score.filter(id=locked.id).using_db(connection).update(**updates)
+            # WHY compare values, not keys: the cost branch of `_replay_updates` writes all three
+            # cost fields together, so an unpriced replay of an unpriced row returns them as
+            # None over None. Nothing the frontier reads changed, so nothing is dated.
+            touched = _ENRICHING_FIELDS & updates.keys()
+            enriched = any(updates[field] != getattr(locked, field) for field in touched)
+            stamp = {"enriched_at": datetime.now(UTC)} if enriched else {}
+            updated = await (
+                Score.filter(id=locked.id).using_db(connection).update(**updates, **stamp)
+            )
             if updated != 1:
                 raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
 
@@ -1425,6 +1437,23 @@ class ScoreStore:
             row["source_id"] = str(row.pop("id"))
         return [LeaderboardStoreEntry(**row) for row in rows]
 
+    async def benchmark_scope(
+        self, benchmark_id: str, *, connection: BaseDBAsyncClient | None = None
+    ) -> tuple[str | None, int | None]:
+        """The registered revision and case count that decide which rows are comparable.
+
+        INVARIANT (OME-1145 review round 3): a read route calls this INSIDE `read_snapshot()`, so
+        the filter and the rows it filters come from one database state. Reading them before the
+        snapshot let a re-registration in between pair new-revision rows with the old filter.
+        A board deleted mid-request reads as unregistered: no revision, so no frontier claim.
+        """
+        rows = await (
+            Benchmark.filter(id=benchmark_id).using_db(connection).values("revision", "case_count")
+        )
+        if not rows:
+            return None, None
+        return cast("str | None", rows[0]["revision"]), cast("int | None", rows[0]["case_count"])
+
     async def leaderboard_pareto_inputs(
         self,
         benchmark_id: str,
@@ -1616,7 +1645,7 @@ class ScoreStore:
         if registered_case_count is not None:
             query = query.filter(total_questions__gte=registered_case_count)
         rows = await query.order_by("submitted_at", "id").values(
-            "id", "spec_id", "score", "run_cost_usd", "submitted_at"
+            "id", "spec_id", "score", "run_cost_usd", "submitted_at", "enriched_at"
         )
         return [
             HistoryRow(
@@ -1625,6 +1654,7 @@ class ScoreStore:
                 score=cast(float, row["score"]),
                 run_cost_usd=cast("Decimal | None", row["run_cost_usd"]),
                 submitted_at=cast(datetime, row["submitted_at"]),
+                enriched_at=cast("datetime | None", row["enriched_at"]),
             )
             for row in rows
         ]

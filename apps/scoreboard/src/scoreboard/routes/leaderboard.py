@@ -295,30 +295,36 @@ async def get_leaderboard(
     # then depend on `top`, which is not a property a claim about money may have (review of
     # PR #778). The complete-board read is a minimal projection; the page itself remains
     # bounded so client-controlled recipes and display metadata are never materialised en masse.
-    pinned = benchmark.revision is not None
     store = _score_store(request)
     # The page and the frontier it is marked against come from ONE snapshot, so a submission
     # landing between the two reads cannot mark a row against a board it is not on.
     async with store.read_snapshot() as snapshot:
+        # INVARIANT (review round 3): the revision and case count are re-read INSIDE the
+        # snapshot. The pre-snapshot read decides visibility only; filtering with it let a
+        # re-registration in between serve new-revision rows under the old revision's filter.
+        revision, case_count = await store.benchmark_scope(benchmark_id, connection=snapshot)
+        # The same read decides `pinned` and builds the query's revision filter, so the gate and
+        # the filter can never disagree within one request.
+        pinned = revision is not None
         rows = await store.leaderboard(
             benchmark_id=benchmark_id,
             top_n=min(top, MAX_LEADERBOARD_TOP),
-            # The same read that decided `pinned` above also builds the query's revision filter,
-            # so the gate and the filter can never disagree within one request.
-            registered_revision=benchmark.revision,
-            registered_case_count=benchmark.case_count,
+            registered_revision=revision,
+            registered_case_count=case_count,
             connection=snapshot,
         )
         frontier_inputs = (
             await store.leaderboard_pareto_inputs(
                 benchmark_id,
-                registered_revision=benchmark.revision,
-                registered_case_count=benchmark.case_count,
+                registered_revision=revision,
+                registered_case_count=case_count,
                 connection=snapshot,
             )
             if pinned
             else []
         )
+    # The response describes the revision its rows were filtered by.
+    benchmark = benchmark.model_copy(update={"revision": revision, "case_count": case_count})
     if await turned_private(benchmark_id):
         # The board went private while the ranking query ran. Answer it correctly rather than
         # erroring — a read can, where a write cannot.
@@ -444,27 +450,30 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
             detail=FRONTIER_NOT_AVAILABLE_DETAIL,
             headers=PRIVATE_CACHE_HEADERS,
         )
-    # INVARIANT (D12): a board with no registered revision makes no frontier claim, here or in the
-    # table. The same read decides the gate and builds the revision filter.
-    pinned = benchmark.revision is not None
     store = _score_store(request)
     current = []
     replay = FrontierReplay(())
     members = {}
-    if benchmark.revision is not None:
-        # One snapshot for all three reads (review round 1): the summary and the trend must
-        # describe the same board, and the models must belong to the rows that were read.
-        async with store.read_snapshot() as snapshot:
+    # One snapshot for every read (review round 1): the summary and the trend must describe the
+    # same board, and the models must belong to the rows that were read.
+    async with store.read_snapshot() as snapshot:
+        # INVARIANT (review round 3): the revision and case count come from this snapshot too, so
+        # the filter and the rows it filters never straddle a re-registration.
+        revision, case_count = await store.benchmark_scope(benchmark_id, connection=snapshot)
+        # INVARIANT (D12): a board with no registered revision makes no frontier claim, here or in
+        # the table. The same read decides the gate and builds the revision filter.
+        pinned = revision is not None
+        if revision is not None:
             current = await store.leaderboard_pareto_inputs(
                 benchmark_id,
-                registered_revision=benchmark.revision,
-                registered_case_count=benchmark.case_count,
+                registered_revision=revision,
+                registered_case_count=case_count,
                 connection=snapshot,
             )
             history = await store.frontier_history_inputs(
                 benchmark_id,
-                registered_revision=benchmark.revision,
-                registered_case_count=benchmark.case_count,
+                registered_revision=revision,
+                registered_case_count=case_count,
                 connection=snapshot,
             )
             # Built once and shared by the member ids and the trend (review round 1).

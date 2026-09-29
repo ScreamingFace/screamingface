@@ -17,6 +17,7 @@ domination rule would drift, and the card would then disagree with the table's m
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -31,6 +32,8 @@ from .schemas import FrontierPoint, FrontierResult
 # the response when a registry is badly out of date.
 MAX_UNRECOGNISED_MODELS = 20
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class HistoryRow:
@@ -41,6 +44,19 @@ class HistoryRow:
     score: float
     run_cost_usd: Decimal | None
     submitted_at: datetime
+    enriched_at: datetime | None = None
+
+    @property
+    def effective_at(self) -> datetime:
+        """When the row's CURRENT values first existed (review round 3, 2026-09-29).
+
+        WHY: a replay can fill a stored row's cost or models later. The trend replays current
+        values, so placing the row at `submitted_at` would show an enrichment on a day before it
+        happened. The later of the two times is the first moment the row looked like this.
+        """
+        if self.enriched_at is None:
+            return self.submitted_at
+        return max(self.submitted_at, self.enriched_at)
 
 
 @dataclass(frozen=True)
@@ -73,12 +89,32 @@ def _verdicts(members: Mapping[str, FrontierMember]) -> dict[str, _Verdict]:
 
     WHY: the trend visits the same members at every step. Classifying per visit repeated the
     work and logged each unrecognised route once per step, a log flood a crafted board could
-    drive. Each member is now classified, and logged, once per request.
+    drive. Each member is now classified once per request, and the misses are logged together.
     """
-    return {
+    verdicts: dict[str, _Verdict] = {
         source_id: classify_entry(member.models, member.openness_override)
         for source_id, member in members.items()
     }
+    _log_unrecognised(verdicts)
+    return verdicts
+
+
+def _log_unrecognised(verdicts: Mapping[str, _Verdict]) -> None:
+    """ONE bounded warning per request for every route the registry did not recognise.
+
+    INVARIANT (review round 3, 2026-09-29): the log volume of a public read does not grow with the
+    board. `classify_entry` is silent; this line carries the count and a capped, sorted sample.
+    WHY keep a log at all: a miss is a model the registry does not know yet, quietly understating
+    "open" until someone updates the list.
+    """
+    unknown = sorted({route for _, routes in verdicts.values() for route in routes})
+    if unknown:
+        logger.warning(
+            "%d unrecognized model routes for openness classification, first %d: %r",
+            len(unknown),
+            min(len(unknown), MAX_UNRECOGNISED_MODELS),
+            unknown[:MAX_UNRECOGNISED_MODELS],
+        )
 
 
 def _split(ids: frozenset[str], verdicts: Mapping[str, _Verdict]) -> _Split:
@@ -123,23 +159,27 @@ class FrontierReplay:
 
 
 def replay_frontier(history: Sequence[HistoryRow]) -> FrontierReplay:
-    """Replay ``history`` in submission order, one frontier per UTC day.
+    """Replay ``history`` in event order, one frontier per UTC day.
 
     INVARIANT: best-per-spec exactly as the ranked query collapses it: highest score wins, and on
     a tie the newer row (`store._build_leaderboard_query`'s `score DESC, submitted_at DESC`). A
     spec that improved must not count twice on a historical frontier.
 
-    Each step is stamped with the last submission of its day, a real event time.
+    Each step is stamped with the last event of its day, a real event time. A row's event is its
+    `effective_at`: its submission, or its later enrichment by a replay.
     """
     best: dict[str, HistoryRow] = {}
     steps: list[tuple[datetime, frozenset[str]]] = []
-    ordered = sorted(history, key=lambda r: (r.submitted_at, r.source_id))
+    ordered = sorted(history, key=lambda r: (r.effective_at, r.source_id))
     for index, row in enumerate(ordered):
         held = best.get(row.spec_id)
-        if held is None or row.score >= held.score:
+        # WHY compare `submitted_at` on a tie, not arrival order: rows now arrive by
+        # `effective_at`, so an old row enriched late would otherwise beat a newer submission of
+        # the same score, and the last step would disagree with the table's collapse.
+        if held is None or (row.score, row.submitted_at) >= (held.score, held.submitted_at):
             best[row.spec_id] = row
         following = ordered[index + 1] if index + 1 < len(ordered) else None
-        if following is not None and _day(following.submitted_at) == _day(row.submitted_at):
+        if following is not None and _day(following.effective_at) == _day(row.effective_at):
             continue
         frontier = compute_pareto_frontier_ids(
             [
@@ -149,7 +189,7 @@ def replay_frontier(history: Sequence[HistoryRow]) -> FrontierReplay:
                 for r in best.values()
             ]
         )
-        steps.append((row.submitted_at, frontier))
+        steps.append((row.effective_at, frontier))
     return FrontierReplay(tuple(steps))
 
 
