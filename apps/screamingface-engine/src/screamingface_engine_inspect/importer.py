@@ -278,10 +278,12 @@ def _is_task_route(
     """Whether the eval drops exam questions after loading — then the bake must run
     its task (OME-1269). Filters on other loads (a fewshot pool) change no exam.
 
-    Two combinations refuse by name, because the route could not reproduce them:
+    Three combinations refuse by name, because the route could not reproduce them:
     a second load (the bake hands the pinned questions to every load the task
-    makes), and an upstream-seeded choice shuffle (upstream draws each case's
-    choice order over every row before its filter, the bake over the kept rows).
+    makes); ``auto_id`` (inspect numbers the rows 1..N at load, the bake's swapped
+    loader does not, so a filter that reads ids would keep different questions);
+    and an upstream-seeded choice shuffle (upstream draws each case's choice order
+    over every row before its filter, the bake over the kept rows).
     """
 
     exam_filters: list[str] = [
@@ -296,6 +298,13 @@ def _is_task_route(
             f"{task_ref}: the eval drops questions after loading and loads {load_count} "
             "datasets — the bake's task route hands the pinned questions to every load, "
             "so it cannot reproduce this exam; import it by hand"
+        )
+    if kwargs.get("auto_id"):
+        raise ImporterError(
+            f"{task_ref}: the eval drops questions after loading and numbers its rows "
+            "with auto_id — the bake's task route hands the task samples without those "
+            "ids, so a filter that reads them would keep different questions; import it "
+            "by hand"
         )
     if _choice_shuffle_seed_fact(kwargs.get("shuffle_choices")) is not None:
         raise ImporterError(
@@ -1328,6 +1337,13 @@ def _refuse_injectable_task_args(facts: TaskFacts) -> None:
     if not facts.task_route:
         return
     for name, value in facts.task_args.items():
+        if not isinstance(value, str | int | float | bool | None):
+            # WHY a separate message: a list arg (mmlu_0_shot's subjects) is not an
+            # injection attempt; the row format just has no place for it yet.
+            raise ImporterError(
+                f"task arg {name} is a {type(value).__name__} — a task-route row only "
+                "carries str, int, float, bool or None args; import this eval by hand"
+            )
         safe_value: bool = (
             bool(_REFERENCE_CHARSET.match(value))
             if isinstance(value, str)
