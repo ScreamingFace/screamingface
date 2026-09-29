@@ -1,7 +1,7 @@
 ---
 ticket: OME-1071
 stack: screamingface
-status: done   # planned | in_progress | done | blocked
+status: done
 started: 2026-09-28
 finished: 2026-09-28
 ---

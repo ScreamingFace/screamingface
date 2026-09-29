@@ -1,9 +1,9 @@
 ---
 ticket: OME-1071
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-09-29
-finished:   # set when the PR is merged
+finished: 2026-09-29
 ---
 
 # sdk-run-isolation-evaluation-outcome — one failed Candidate does not stop its siblings

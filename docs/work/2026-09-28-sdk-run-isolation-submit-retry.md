@@ -1,9 +1,9 @@
 ---
 ticket: OME-1066
 stack: screamingface
-status: done   # planned | in_progress | done | blocked
+status: done
 started: 2026-09-28
-finished: 2026-09-28
+finished: 2026-09-29
 ---
 
 # sdk-run-isolation-submit-retry — wait for Engine capacity instead of failing the Candidate
