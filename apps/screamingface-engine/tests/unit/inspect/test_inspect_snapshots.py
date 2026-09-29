@@ -1035,3 +1035,40 @@ def test_excluded_sample_ids_are_exam_identity(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setitem(SNAPSHOTS, "gsm8k", replace(SNAPSHOTS["gsm8k"], excluded_sample_ids=("7",)))
 
     assert revision() != base
+
+
+def test_task_route_puts_the_evals_own_loader_back(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The swap is for one call only — after a bake, and after a refused one, the
+    eval module must hold its real loader again (review on PR #1110)."""
+
+    module: Any = _install_filtering_eval(monkeypatch, raising=_raising_task)
+    original: Any = module.hf_dataset
+
+    emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path / "ok")
+    assert module.hf_dataset is original
+    with pytest.raises(PrepareError):
+        emit_snapshot(_route_spec(task=f"{_ROUTE_MODULE}:raising"), _NUMBER_ROWS, tmp_path / "no")
+    assert module.hf_dataset is original
+
+
+@pytest.mark.parametrize(
+    ("override", "field"),
+    [
+        ({"dataset": "acme/other"}, "dataset"),
+        ({"split": "train"}, "split"),
+        ({"config": "x"}, "config"),
+    ],
+)
+def test_task_route_refuses_a_row_pinning_another_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, override: dict[str, str], field: str
+) -> None:
+    """The swap ignores what the task asks for, so the row must pin the SAME load —
+    otherwise one load's questions go through another load's filter with every count
+    agreeing (review on PR #1110)."""
+
+    _install_filtering_eval(monkeypatch)
+
+    with pytest.raises(PrepareError, match=f"different load.*{field}"):
+        emit_snapshot(_route_spec(**override), _NUMBER_ROWS, tmp_path)
