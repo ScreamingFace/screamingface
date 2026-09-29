@@ -30,9 +30,12 @@ from screamingface.fusion import Fusion
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
+    LeaderboardCacheVersion,
     LeaderboardEntry,
     LeaderboardInfo,
+    LeaderboardNotice,
     LeaderboardRankingNotice,
+    LeaderboardReportedResult,
     LeaderboardScore,
 )
 from screamingface.model import Model
@@ -90,10 +93,13 @@ __all__ = [
     "Fusion",
     "Leaderboard",
     "LeaderboardBaseline",
+    "LeaderboardCacheVersion",
     "LeaderboardEntry",
     "LeaderboardError",
     "LeaderboardInfo",
+    "LeaderboardNotice",
     "LeaderboardRankingNotice",
+    "LeaderboardReportedResult",
     "LeaderboardScore",
     "MemberResult",
     "Model",
