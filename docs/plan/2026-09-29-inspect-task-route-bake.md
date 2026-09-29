@@ -39,7 +39,18 @@ even ids.
 - Tests: toy filtered task gives a route row (not a `ValueError`); dedupe-only task stays on
   today's path; a filter on the fewshot load is ignored; filter plus two loads refuses by name.
 
-## Step 5 — verify
+## Step 5 — onet_m6 (owner decision 2026-09-29)
+
+- Importer: `_choice_template_fact` maps `cot=True` to inspect's CoT template (tests: CoT
+  pointer resolves to inspect's constant; `cot` with `multiple_correct` is flagged).
+- Bake: `SnapshotSpec.excluded_sample_ids` + `_without_excluded_samples`; the size check
+  moves after the exclusion; `_dropped_question_pins` in `boards.py` (tests: exact drop,
+  plain board, stale id refuses, exam identity).
+- Board: run the importer (`--shuffle-seed 7`), then add the six ids and the 391 count in
+  `pins.py`, the exclusion on the row, and the catalogue prose and tier in `boards.py`.
+  Register it in `test_benchmark_declaration.py` and `test_inspect_imported_boards.py`.
+
+## Step 6 — verify
 
 - Gates: `ruff check`, `ruff format --check`, `pyright`, the inspect lane
   (`uv run --extra inspect pytest -q tests/unit/inspect`), and the extra-less suite.

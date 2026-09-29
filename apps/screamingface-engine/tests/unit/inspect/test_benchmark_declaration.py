@@ -207,6 +207,8 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-lab_bench_protocolqa": ("coverage_declare", "single_shot", "hard"),
         "inspect-lab_bench_seqqa": ("coverage_declare", "single_shot", "hard"),
         "inspect-lab_bench_cloning_scenarios": ("coverage_declare", "single_shot", "hard"),
+        # OME-1269: Thai grade-12 national exam MCQ, the first task-route board.
+        "inspect-onet_m6": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {
         benchmark.id: (

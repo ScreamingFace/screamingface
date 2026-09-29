@@ -153,6 +153,13 @@ from screamingface_engine_inspect.pins import (
     MUSR_DATASET_REVISION,
     MUSR_SHUFFLE_SEED,
     MUSR_SPLIT,
+    ONET_M6_CASE_COUNT,
+    ONET_M6_CONFIG,
+    ONET_M6_DATASET,
+    ONET_M6_DATASET_REVISION,
+    ONET_M6_EXCLUDED_SAMPLE_IDS,
+    ONET_M6_SHUFFLE_SEED,
+    ONET_M6_SPLIT,
     PAWS_CASE_COUNT,
     PAWS_CONFIG,
     PAWS_DATASET,
@@ -257,6 +264,13 @@ class SnapshotSpec:
     #: Arguments forwarded to ``task`` (xstest's {"subset": "safe"}) — they can
     #: change which questions the filter keeps, so they ride exam identity too.
     task_args: dict[str, Any] | None = None
+    #: A NAMED DEVIATION from inspect: sample ids (``str(Sample.id)``) the bake
+    #: leaves out even though inspect keeps them — for questions that cannot be
+    #: graded as published (onet_m6: an answer letter past the last choice).
+    #: Every id must be present, or the bake refuses (upstream moved under the
+    #: deviation); ``case_count`` is the count left after the exclusion. The row
+    #: says why beside the ids, and the ids ride exam identity (OME-1269).
+    excluded_sample_ids: tuple[str, ...] | None = None
 
 
 #: Every imported board's bake. Importing another eval = one more entry here
@@ -599,6 +613,28 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         keep_sample_metadata=True,
         shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
     ),
+    "onet_m6": SnapshotSpec(
+        dataset=ONET_M6_DATASET,
+        config=ONET_M6_CONFIG,
+        split=ONET_M6_SPLIT,
+        dataset_revision=ONET_M6_DATASET_REVISION,
+        case_count=ONET_M6_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.onet.onet:onet_m6;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.onet.onet:record_to_sample",
+        choice_template="inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT",
+        # Named deviation: the eval sends this as a SYSTEM message; the
+        # bake delivers it as leading input text (a benchmark cannot
+        # address a candidate's system role).
+        system_message="inspect_evals.onet.onet:SYSTEM_MESSAGE",
+        shuffle_seed=ONET_M6_SHUFFLE_SEED,
+        # The eval drops questions after loading; the bake runs its task over
+        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        task="inspect_evals.onet.onet:onet_m6",
+        # Named deviation: six malformed questions inspect keeps (see the pin).
+        excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
+    ),
     # --- importer: generated SnapshotSpec rows land above this line ---
 }
 
@@ -742,9 +778,11 @@ def _pinned_samples(
     spec: SnapshotSpec, rows: list[dict[str, Any]], expected_cases: int | None
 ) -> list[Sample]:
     """Stages 1 (size), 2, 3 and 3b — the raw rows become the exam's Samples, in the
-    pinned order; a task-route board's size is checked on what its task keeps."""
+    pinned order. A board that drops questions (a task route, or a named exclusion)
+    checks its size on what is left instead of on the raw rows."""
 
-    if spec.task is None:
+    drops_questions: bool = spec.task is not None or spec.excluded_sample_ids is not None
+    if not drops_questions:
         _require_case_count(len(rows), expected_cases, "dataset yielded", "rows")
     ordered: list[dict[str, Any]] = list(rows)
     if spec.shuffle_seed is not None:
@@ -752,8 +790,29 @@ def _pinned_samples(
     samples: list[Sample] = _converted_samples(ordered, _resolve(spec.record_to_sample))
     if spec.task is not None:
         samples = task_kept_samples(spec, samples)
-        _require_case_count(len(samples), expected_cases, "the task kept", "cases")
+    if spec.excluded_sample_ids is not None:
+        samples = _without_excluded_samples(spec.excluded_sample_ids, samples)
+    if drops_questions:
+        _require_case_count(len(samples), expected_cases, "the bake kept", "cases")
     return samples
+
+
+def _without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sample]) -> list[Sample]:
+    """The named deviation — drop the pinned ids, refusing any id that is not there.
+
+    WHY refuse a missing id: the list was written against one revision's data; an
+    id that no longer matches means the exclusion now describes nothing we can
+    check, so the bake stops instead of shipping it.
+    """
+
+    present: set[str] = {str(sample.id) for sample in samples}
+    missing: list[str] = sorted(set(excluded_ids) - present)
+    if missing:
+        raise PrepareError(
+            f"excluded_sample_ids {', '.join(missing)} are not in the dataset — the named "
+            "deviation no longer matches the pinned questions"
+        )
+    return [sample for sample in samples if str(sample.id) not in excluded_ids]
 
 
 def _converted_samples(ordered: list[dict[str, Any]], record_to_sample: Any) -> list[Sample]:

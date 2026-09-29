@@ -965,3 +965,73 @@ def test_the_task_route_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> Non
     odd: str = revision()
 
     assert len({base, even, odd}) == 3
+
+
+# ── named deviation: pinned sample ids the bake leaves out (OME-1269) ────────
+
+
+def test_excluded_sample_ids_drop_exactly_those_questions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """onet_m6's precedent: inspect keeps 6 questions whose answer letter lies past
+    their choices; the board drops them BY ID, and the pinned count is what is left."""
+
+    _install_filtering_eval(monkeypatch)
+
+    emit_snapshot(
+        _route_spec(excluded_sample_ids=("4",), case_count=2),
+        _NUMBER_ROWS,
+        tmp_path,
+        expected_cases=2,
+    )
+
+    assert _baked_inputs(tmp_path) == ["Question 2?", "Question 6?"]
+
+
+def test_excluded_sample_ids_count_after_the_exclusion_without_a_route(tmp_path: Path) -> None:
+    """The deviation works on a plain board too: the size check moves to what is left."""
+
+    from inspect_evals.wmdp.wmdp import record_to_sample
+
+    spec = SnapshotSpec(
+        dataset="acme/sums",
+        config="",
+        split="test",
+        dataset_revision="deadbeef" * 5,
+        case_count=1,
+        record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
+        excluded_sample_ids=(str(record_to_sample(_WMDP_ROWS[0]).id),),
+    )
+
+    emit_snapshot(spec, _WMDP_ROWS, tmp_path, expected_cases=1)
+
+    cases = json.loads((tmp_path / "cases.json").read_text(encoding="utf-8"))
+    assert len(cases) == 1 and "Pick A." in cases[0]["input"]
+
+
+def test_a_stale_excluded_sample_id_refuses_the_bake(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An id the dataset no longer holds means upstream moved under the deviation —
+    refuse by name rather than silently baking a list that no longer means anything."""
+
+    _install_filtering_eval(monkeypatch)
+
+    with pytest.raises(PrepareError, match="99"):
+        emit_snapshot(_route_spec(excluded_sample_ids=("99",)), _NUMBER_ROWS, tmp_path)
+
+
+def test_excluded_sample_ids_are_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dataclasses import replace
+
+    from screamingface_engine_inspect import boards, single_shot
+
+    def revision() -> str:
+        monkeypatch.setattr(boards, "_ASSEMBLED", {})
+        monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
+        return boards.imported_board("gsm8k").benchmark.revision
+
+    base: str = revision()
+    monkeypatch.setitem(SNAPSHOTS, "gsm8k", replace(SNAPSHOTS["gsm8k"], excluded_sample_ids=("7",)))
+
+    assert revision() != base

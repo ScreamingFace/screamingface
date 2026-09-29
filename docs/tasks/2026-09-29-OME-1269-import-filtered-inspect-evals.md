@@ -15,8 +15,9 @@ Parent epic: `OME-1299`. Absorbs `OME-1270` (marked Duplicate).
 
 Delivered as a 3-PR stack:
 
-1. The task-route mechanism, no boards — this mirror's first PR.
-2. `onet_m6` and `pubmedqa` boards.
+1. The task-route mechanism plus the `onet_m6` board (391 questions, a named deviation from
+   inspect's 397) — this mirror's first PR.
+2. The `pubmedqa` board.
 3. CI token wiring plus the `xstest` safe and unsafe boards.
 
 Spec: ../spec/2026-09-29-inspect-task-route-bake.md

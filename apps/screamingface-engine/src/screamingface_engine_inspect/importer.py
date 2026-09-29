@@ -559,7 +559,7 @@ def _solver_facts(
     """The template references (prompt_template / custom multiple_choice / module-level
     system message) + unknowns + whether the chain declares an MCQ exam."""
 
-    from inspect_ai._util.registry import registry_info, registry_params
+    from inspect_ai._util.registry import registry_info
 
     # WHY setup first (OME-1272): inspect always runs Task(setup=...) before the
     # solver chain, so anything there reaches the candidate too — a walk of
@@ -593,17 +593,9 @@ def _solver_facts(
             # covers an eval hiding multiple_choice inside a custom @solver
             # wrapper (mmlu's mmlu_multiple_choice), invisible to this walk.
             uses_multiple_choice = True
-            if registry_params(solver).get("template") is not None:
-                # A custom choice template the bake CAN reproduce — when it resolves
-                # to one module attribute the row points at (the family renderer,
-                # OME-1116 milestone C); an unresolvable one still earns the flag.
-                choice_template_ref = _resolved_or_flagged(
-                    module,
-                    solver,
-                    task_ref,
-                    custom,
-                    f"{registry_name} (custom choice template is not baked)",
-                )
+            choice_template_ref = _choice_template_fact(
+                module, solver, registry_name, task_ref, custom
+            )
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
     template_ref: str | None = _prompt_template_fact(module, template_solvers, task_ref)
@@ -615,6 +607,45 @@ def _solver_facts(
         tuple(custom),
         uses_multiple_choice,
     )
+
+
+#: inspect's own chain-of-thought choice template — what ``multiple_choice(cot=True)``
+#: renders when the eval passes no template. AIDEV-NOTE: a private-module constant
+#: (inspect_ai.solver._multiple_choice), like prepare.mcq_prompt's formatter — safe
+#: under the exact == pin; re-verify on any pin bump.
+_COT_CHOICE_TEMPLATE = "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+
+
+def _choice_template_fact(
+    module: Any, solver: Any, registry_name: str, task_ref: str, custom: list[str]
+) -> str | None:
+    """The row's ``choice_template`` pointer for one multiple_choice solver — None
+    means inspect's default render; anything the bake cannot render earns a flag."""
+
+    from inspect_ai._util.registry import registry_params
+
+    params: dict[str, Any] = registry_params(solver)
+    if params.get("template") is not None:
+        # A custom choice template the bake CAN reproduce — when it resolves
+        # to one module attribute the row points at (the family renderer,
+        # OME-1116 milestone C); an unresolvable one still earns the flag.
+        return _resolved_or_flagged(
+            module,
+            solver,
+            task_ref,
+            custom,
+            f"{registry_name} (custom choice template is not baked)",
+        )
+    # WHY (OME-1269): cot=True swaps in inspect's "Think step by step" template;
+    # ignoring the flag baked the plain wording, a different exam (onet_m6).
+    # Answer parsing is the same for both templates, so grading is unchanged.
+    cot_template: str | None = _COT_CHOICE_TEMPLATE if params.get("cot") else None
+    if cot_template is not None and params.get("multiple_correct"):
+        # The bake renders single-answer MCQ only; guessing the multi-answer
+        # CoT wording would change the exam silently.
+        custom.append(f"{registry_name} (cot with multiple_correct is not baked)")
+        cot_template = None
+    return cot_template
 
 
 def _solver_list(solvers: Any) -> list[Any]:

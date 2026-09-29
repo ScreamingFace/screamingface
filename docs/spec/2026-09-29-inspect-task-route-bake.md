@@ -5,9 +5,10 @@
 - Ticket: OME-1269 (absorbs OME-1270). Parent epic: OME-1299.
 - Ledger: `docs/work/2026-09-29-inspect-task-route-bake.md`. Plan:
   `docs/plan/2026-09-29-inspect-task-route-bake.md`.
-- Scope of THIS unit: PR 1 of the ticket's 3-PR stack. It adds the mechanism only, with no new
-  board. PR 2 adds the `onet_m6` and `pubmedqa` boards. PR 3 adds the CI token and the two
-  `xstest` boards.
+- Scope of THIS unit: PR 1 of the ticket's 3-PR stack. It adds the mechanism and the
+  `onet_m6` board (owner, 2026-09-29: "ship it with 391 questions and a named deviation from
+  inspect, and add multiple_choice(cot=True) in the PR itself"). PR 2 adds the `pubmedqa`
+  board. PR 3 adds the CI token and the two `xstest` boards.
 
 ## 1. Problem
 
@@ -50,9 +51,20 @@ the same input, target and choices for all four.
   the bake over the kept rows).
 - R8. Dedupe-only tasks (wmdp_bio, wmdp_chem, wmdp_cyber, mmlu, race_h, winogrande with
   `fewshot=0`) import exactly as today, with no `task=` field.
+- R9. The importer maps `multiple_choice(cot=True)` with no custom template to inspect's own
+  CoT template (`inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT`) as the row's
+  `choice_template`. `cot` with `multiple_correct` gets a review flag. Answer parsing is the
+  same for both templates, so grading does not change.
+- R10. A row can name a deviation from inspect: `excluded_sample_ids`, sample ids the bake
+  leaves out although inspect keeps them. Every id must be in the dataset, or the bake
+  refuses. `case_count` is the count left after the exclusion. The ids join the revision.
+- R11. The `onet_m6` board: task route, CoT template, policy row seed 7, and six excluded
+  ids. inspect keeps 397 questions; six have an answer letter past their last choice
+  (upstream split the numbered choices wrongly). The board serves 391.
 
 ## 3. Out of scope (this unit)
 
-- New boards (PR 2, PR 3). The CI token and the `Dockerfile.benchmark` secret (PR 3).
+- The `pubmedqa` board (PR 2) and the `xstest` boards (PR 3). The CI token and the
+  `Dockerfile.benchmark` secret (PR 3).
 - Post-load trims other than `.filter()` (slicing, sort then truncate). The ticket lists
   this as a known limitation.

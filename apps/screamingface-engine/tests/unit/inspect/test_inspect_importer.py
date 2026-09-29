@@ -2143,3 +2143,53 @@ def test_main_imports_a_filtering_task_instead_of_crashing(
     assert exit_code == 0
     prepare_text: str = (engine_src_copy / "prepare.py").read_text()
     assert f'task="{_FAKE_MODULE}:sums",' in prepare_text
+
+
+# ---------------------------------------------------------------------------
+# multiple_choice(cot=True) — the chain-of-thought render (OME-1269, onet_m6)
+# ---------------------------------------------------------------------------
+
+
+def _cot_mcq_task(**solver_kwargs: Any) -> Any:
+    def task_fn() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=multiple_choice(**solver_kwargs),
+            scorer=choice(),
+        )
+
+    return task_fn
+
+
+def test_introspect_points_a_cot_mcq_at_inspects_own_cot_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cot=True swaps inspect's prompt for its "Think step by step" variant; before
+    OME-1269 the importer ignored the flag, so the bake silently rendered the
+    plain template — a different exam wording (onet_m6 hit this)."""
+
+    from inspect_ai.solver._multiple_choice import SINGLE_ANSWER_TEMPLATE_COT
+
+    from screamingface_engine_inspect.prepare import _resolve
+
+    _install_fake_eval(monkeypatch, cot_mcq=_cot_mcq_task(cot=True))
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:cot_mcq")
+
+    assert facts.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+    assert _resolve(facts.choice_template) == SINGLE_ANSWER_TEMPLATE_COT
+    assert facts.custom_solvers == ()
+
+
+def test_introspect_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The bake has no multi-answer render — flag it rather than guess a template."""
+
+    _install_fake_eval(monkeypatch, cot_multi=_cot_mcq_task(cot=True, multiple_correct=True))
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:cot_multi")
+
+    assert facts.choice_template is None
+    assert any("cot" in flag for flag in facts.custom_solvers)
