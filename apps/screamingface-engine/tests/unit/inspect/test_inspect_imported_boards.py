@@ -130,6 +130,9 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
         references.append(snapshot.choice_template)
     if snapshot.system_message is not None:
         references.append(snapshot.system_message)
+    if snapshot.task is not None:
+        # The task-route pointer (OME-1269): the bake CALLS it at image build.
+        references.append(snapshot.task)
     for reference in references:
         module_name, _, attribute = reference.partition(":")
         assert hasattr(import_module(module_name), attribute), reference
@@ -326,12 +329,14 @@ def test_system_message_pointer_rides_exam_identity() -> None:
     assert not any(p.startswith("system_message=") for p in _revision_pins(SNAPSHOTS["musr"]))
 
 
-def test_onet_m6_bakes_through_its_task_with_the_named_exclusion() -> None:
+def test_onet_m6_routes_through_its_task_with_the_named_exclusion() -> None:
     """OME-1269's first task-route board. Its questions are whatever the eval's own
     filter keeps, minus the owner-approved named deviation (6 questions inspect keeps
     whose answer letter lies past their choices), and it renders inspect's own
     chain-of-thought template because the eval passes multiple_choice(cot=True).
-    All three change the exam, so all three must ride its revision."""
+    The route and the exclusion change which questions are served, so both ride its
+    revision; the template pointer does not (template pointers predate revision-pin
+    coverage — see boards._revision_pins)."""
 
     from inspect_evals.onet.onet import ONET_DATASET_REVISION as UPSTREAM
 

@@ -849,8 +849,10 @@ def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]
                   ignored: the order is already pinned), then call the task with
                   ``spec.task_args``. A raise refuses by name — e.g. inspect's
                   "dataset is empty" when the filter kept nothing.
-        Stage 3 — refuse unless the loader ran exactly once: a second load (a
-                  fewshot pool) would have been handed the exam's samples too.
+        Stage 3 — refuse unless the loader ran exactly once (a second load, a
+                  fewshot pool, would have been handed the exam's samples too), and
+                  asked for the dataset, config and split this row pins (the swap
+                  ignores them, so a mismatched row would bake another load's exam).
         Stage 4 — refuse unless the Task's samples are an in-order subset of ours,
                   compared by identity: the route may only DROP questions. An
                   added, duplicated or reordered sample is an exam we never pinned.
@@ -878,10 +880,10 @@ def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]
     # Stage 2 — swap the load for our samples, then build the eval's Task.
     from inspect_ai.dataset import MemoryDataset
 
-    loads: list[str] = []
+    loads: list[dict[str, Any]] = []
 
     def pinned_loader(*args: Any, **kwargs: Any) -> Any:
-        loads.append(str(kwargs.get("path", args[0] if args else "?")))
+        loads.append(_load_arguments(args, kwargs))
         return MemoryDataset(list(samples))
 
     original_loader: Any = module.hf_dataset
@@ -897,17 +899,65 @@ def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]
     finally:
         module.hf_dataset = original_loader
 
-    # Stage 3 — exactly one load, so the exam is the only thing we fed.
+    # Stage 3 — exactly one load, of the dataset this row pins.
     if len(loads) != 1:
+        paths: str = ", ".join(str(load.get("path", "?")) for load in loads) or "none"
         raise PrepareError(
-            f"task {task_ref}: loaded {len(loads)} datasets ({', '.join(loads) or 'none'}) — "
+            f"task {task_ref}: loaded {len(loads)} datasets ({paths}) — "
             "the task route hands the pinned questions to exactly one load"
         )
+    _require_the_pinned_load(task_ref, spec, loads[0])
 
     # Stage 4 — the kept samples are ours, each once, in our order.
     kept: list[Sample] = list(task.dataset)
     _require_in_order_subset(task_ref, samples, kept)
     return kept
+
+
+def _load_arguments(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    """One swapped-out hf_dataset call as ``{parameter: value}``, bound like the real one.
+
+    WHY bind: evals pass ``path`` (and sometimes ``split``) positionally; reading only
+    kwargs would miss them. An unbindable call records nothing checkable, so the
+    pinned-load check below refuses it.
+    """
+
+    import inspect as _inspect
+
+    from inspect_ai.dataset import hf_dataset
+
+    try:
+        return dict(_inspect.signature(hf_dataset).bind_partial(*args, **kwargs).arguments)
+    except TypeError:
+        return {}
+
+
+def _require_the_pinned_load(task_ref: str, spec: SnapshotSpec, arguments: dict[str, Any]) -> None:
+    """Stage 3 of the task route — the eval must ask for the load this row pins.
+
+    WHY: the swap hands the task our pinned samples whatever it asks for, so a row
+    whose dataset/config/split drifted from the task's own call would bake one
+    load's questions through another load's filter, with every count agreeing.
+    Worked example: onet_m6 asks ``path="matichon/thai-onet-m6-exam",
+    name="default", split="test"`` and its row pins exactly those.
+    """
+
+    asked: dict[str, Any] = {
+        "dataset": arguments.get("path"),
+        "config": arguments.get("name") or "",
+        "split": arguments.get("split"),
+    }
+    pinned: dict[str, str] = {"dataset": spec.dataset, "config": spec.config, "split": spec.split}
+    mismatched: list[str] = [
+        f"{field} {asked[field]!r} (the row pins {pinned[field]!r})"
+        for field in pinned
+        if asked[field] != pinned[field]
+    ]
+    if mismatched:
+        raise PrepareError(
+            f"task {task_ref}: the eval asks for a different load than its row — "
+            + "; ".join(mismatched)
+        )
 
 
 def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sample]) -> None:

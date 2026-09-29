@@ -2193,3 +2193,56 @@ def test_introspect_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPa
 
     assert facts.choice_template is None
     assert any("cot" in flag for flag in facts.custom_solvers)
+
+
+def _dedupe_then_filter_task() -> Task:
+    """Drops duplicates, THEN keeps a subset — the subset filter is the exam's."""
+
+    from inspect_evals.utils.deps_utils import filter_duplicate_ids
+
+    module = sys.modules[_FAKE_MODULE]
+    dataset = module.hf_dataset(
+        path="acme/sums", split="test", sample_fields=module.record_to_sample
+    )
+    deduped = filter_duplicate_ids(dataset)
+    return Task(
+        dataset=deduped.filter(lambda sample: sample.target != "A"),
+        solver=generate(),
+        scorer=match(),
+    )
+
+
+def test_introspect_routes_a_task_that_filters_after_dropping_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dedupe exemption covers the duplicate remover ONLY: an eval that dedupes and
+    then keeps one subject (mmlu_0_shot with subjects) must still take the route, or
+    the bake would ship every row while inspect runs the subset (review on PR #1110)."""
+
+    _install_fake_eval(monkeypatch, sums=_dedupe_then_filter_task)
+
+    assert introspect_task(f"{_FAKE_MODULE}:sums").task_route is True
+
+
+def test_introspect_refuses_a_filtering_task_that_numbers_rows_with_auto_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """inspect numbers auto_id rows 1..N at load; the bake's swapped loader does not,
+    so a filter that reads ids would keep different questions (review on PR #1110)."""
+
+    def numbered() -> Task:
+        return _filtering_task(auto_id=True)
+
+    _install_fake_eval(monkeypatch, sums=numbered)
+
+    with pytest.raises(ImporterError, match="auto_id"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> None:
+    """mmlu_0_shot(subjects=[...]) is not an injection attempt; the refusal must say
+    the row has no place for a list (review on PR #1110)."""
+
+    with pytest.raises(ImporterError, match="is a list") as refusal:
+        _generate(engine_src_copy, task_route=True, task_args={"subjects": ["anatomy"]})
+    assert "injection" not in str(refusal.value)

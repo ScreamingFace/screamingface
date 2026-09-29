@@ -13,7 +13,8 @@ finished: 2026-09-29
 Three inspect evals (onet_m6, pubmedqa, xstest) drop questions after loading. Today the
 importer crashes on them with "dataset is empty", and the bake has no way to run their
 filter. This unit (PR 1 of 3 for OME-1269) adds the task route: the bake hands the eval's own
-task function our pinned questions and keeps exactly what it keeps. No board is added here.
+task function our pinned questions and keeps exactly what it keeps. It also ships the first
+route board, `onet_m6` (owner widened the scope; see Deviations).
 
 ## Planned changes
 
