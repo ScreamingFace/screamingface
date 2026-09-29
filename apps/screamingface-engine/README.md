@@ -139,6 +139,15 @@ installed by the wheel, so in a checkout local mode falls back to the checkout's
 `URL4_RUNNER_CONFIG` to override. Tuning: `URL4_CLOUD_LOCAL_MAX_CONCURRENT_RUNS`,
 `URL4_CLOUD_LOCAL_STREAM_MAX_FRAMES`, `URL4_CLOUD_LOCAL_MAX_RUN_HISTORY`.
 
+## CORS
+
+Both modes grant CORS on the REST surface to the Studio frontend's origins only:
+`http://localhost:3000` (its dev server) and the Tauri 2 webview origins `tauri://localhost`,
+`http://tauri.localhost` and `https://tauri.localhost`. Credentials are not allowed, because
+the Engine authenticates with headers, not cookies. Set `URL4_CLOUD_CORS_ALLOWED_ORIGINS` to a
+JSON list (for example `'["https://studio.example"]'`) to replace that list; `[]` grants no
+origin. WebSocket upgrades are not subject to CORS.
+
 ## Sync surface — `GET /<mount>?q=(context)!intent`
 
 The sync surface calls one handler one time. It does not mint a token, open a WebSocket, or wait

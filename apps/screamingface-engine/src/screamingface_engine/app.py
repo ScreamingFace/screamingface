@@ -39,6 +39,7 @@ if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotat
 
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
+from screamingface_engine.cors import install_cors
 from screamingface_engine.metrics import (
     MetricsMiddleware,
     build_metrics,
@@ -146,7 +147,7 @@ def create_app(
     # (uniform executor, PRD 01 §4 Observability). A stream that can refresh its own usage
     # (the JetStream adapter; not the in-memory local one) also gets a periodic poller.
     _install_events_store_monitor(app, stream)
-    app.add_middleware(MetricsMiddleware)
+    _install_middleware(app, settings)
     app.state.registry = ConnectionRegistry()
     register_sync_metrics(app.state.metrics, lambda: app.state.registry)
     app.state.interest = interest if interest is not None else app.state.registry
@@ -167,6 +168,14 @@ def create_app(
         app.state.clock = clock
     _install_surfaces(app)
     return app
+
+
+def _install_middleware(app: FastAPI, settings: Settings) -> None:
+    """Add the App's ASGI middleware; the last one added is the outermost."""
+    app.add_middleware(MetricsMiddleware)
+    # WHY CORS last (outermost): a preflight is answered before routing, and a handled error
+    # (the problem+json 4xx/5xx) carries the grant too, so the browser can read its body.
+    install_cors(app, settings.cors_allowed_origins)
 
 
 def _install_surfaces(app: FastAPI) -> None:
