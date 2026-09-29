@@ -13,7 +13,7 @@ async def test_imported_scorer_emits_real_grading_outcome(monkeypatch):
 
     from screamingface_engine.benchmarks.spine.payloads import TextPayload
     from screamingface_engine.benchmarks.spine.scored import GradeRequest
-    from screamingface_engine_inspect.shim import inspect_grade_case
+    from screamingface_engine_inspect.scorer_adapter import inspect_grade_case
 
     records = []
     monkeypatch.setattr(

@@ -1,7 +1,7 @@
 """The plugin's board table — every imported benchmark is a ROW here, never a file.
 
-A board is two data rows: its :class:`~screamingface_engine_inspect.prepare.SnapshotSpec`
-(dataset pins, in ``prepare.SNAPSHOTS``) and its :class:`BoardSpec` below (catalogue
+A board is two data rows: its :class:`~screamingface_engine_inspect.prepare.CasesSpec`
+(dataset pins, in ``prepare.BENCHMARK_CASES``) and its :class:`BoardSpec` below (catalogue
 metadata + a dotted reference to the eval's own scorer). One generic assembler turns
 the pair into a registered board, so importing benchmark #13 adds two rows and zero
 functions (owner decision 2026-09-16; OME-1115's per-file boards #955/#956 were closed
@@ -29,9 +29,9 @@ from typing import Any
 from screamingface_engine.benchmarks.definition import DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine_inspect.prepare import (
-    SNAPSHOTS,
-    SnapshotSpec,
-    prepare_snapshot,
+    BENCHMARK_CASES,
+    CasesSpec,
+    prepare_cases,
     require_commit_sha,
 )
 from screamingface_engine_inspect.single_shot import (
@@ -45,10 +45,10 @@ from url4.peer.server import Url4Node
 
 @dataclass(frozen=True)
 class BoardSpec:
-    """One imported board's catalogue row — pure data, paired with its SnapshotSpec.
+    """One imported board's catalogue row — pure data, paired with its CasesSpec.
 
     ``scorer`` is a dotted ``"module:attr"`` reference to the eval's own scorer
-    constructor (the same convention SnapshotSpec uses for ``record_to_sample``),
+    constructor (the same convention CasesSpec uses for ``record_to_sample``),
     called with ``scorer_kwargs`` — provenance lives in the row, resolution is lazy.
     """
 
@@ -67,13 +67,13 @@ class BoardSpec:
     with_check_surface: bool = False
     multiple_correct: bool = False
     #: The board's judge declaration (OME-1240): required exactly when the scorer
-    #: dials a gateway judge (a ``screamingface/<id>`` kwarg) — assembly refuses a
+    #: calls a gateway judge (a ``screamingface/<id>`` kwarg) — assembly refuses a
     #: mismatch either way, so a judged board can never ship with an unpinned judge.
     judge: JudgeSpec | None = None
 
 
 #: Every imported board, in catalogue order. Importing another eval = one row here
-#: plus its SnapshotSpec row — never a new module.
+#: plus its CasesSpec row — never a new module.
 BOARDS: tuple[BoardSpec, ...] = (
     BoardSpec(
         key="gsm8k",
@@ -651,7 +651,7 @@ BOARDS: tuple[BoardSpec, ...] = (
             # NAMED DEVIATION: the original FrontierScience paper uses GPT-5 at
             # HIGH reasoning effort as the model judge
             # (https://openai.com/index/frontierscience/). This board pins the
-            # house judge HealthBench's judge also dials, for judge consistency
+            # house judge HealthBench's judge also calls, for judge consistency
             # across our judged boards — so its scores are NOT comparable to the
             # paper's published numbers.
             model="openrouter/openai/gpt-5.4",
@@ -784,7 +784,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         },
         judge=JudgeSpec(
             # NAMED DEVIATION: the eval's default judge is openai/gpt-4o. This board
-            # pins the house judge FrontierScience and HealthBench also dial, for
+            # pins the house judge FrontierScience and HealthBench also call, for
             # judge consistency across our judged boards (owner decision
             # 2026-09-29) — so its scores are NOT directly comparable to an inspect
             # run with the default judge.
@@ -821,8 +821,8 @@ def _assemble(spec: BoardSpec) -> ImportedBoard:
     """Row pair in, registered board out — the whole per-board 'code' path."""
 
     _check_judge_declaration(spec)
-    snapshot: SnapshotSpec = SNAPSHOTS[spec.key]
-    _check_answer_key_opt_in(spec, snapshot)
+    cases_spec: CasesSpec = BENCHMARK_CASES[spec.key]
+    _check_answer_key_opt_in(spec, cases_spec)
     return single_shot_board(
         board_key=spec.key,
         title=spec.title,
@@ -830,10 +830,10 @@ def _assemble(spec: BoardSpec) -> ImportedBoard:
         focus=spec.focus,
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
-        case_count=snapshot.case_count,
-        revision_pins=_revision_pins(snapshot) + _judge_prompt_pins(spec),
+        case_count=cases_spec.case_count,
+        revision_pins=_revision_pins(cases_spec) + _judge_prompt_pins(spec),
         scorer_factory=_scorer_factory(spec),
-        prepare=partial(prepare_snapshot, snapshot),
+        prepare=partial(prepare_cases, cases_spec),
         install=_installer(f"inspect-{spec.key}"),
         with_check_surface=spec.with_check_surface,
         multiple_correct=spec.multiple_correct,
@@ -842,7 +842,7 @@ def _assemble(spec: BoardSpec) -> ImportedBoard:
 
 
 #: The gateway judge spelling a scorer kwarg uses — its presence IS the "this
-#: scorer dials a judge" signal the declaration cross-check reads.
+#: scorer calls a judge" signal the declaration cross-check reads.
 _GATEWAY_MODEL_PREFIX = "screamingface/"
 
 
@@ -867,14 +867,14 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
     The contract has two sides: a row whose scorer takes a judge (a judge-model
     kwarg, a gateway-spelled value, or a ``model_graded_*`` name) must declare a
     :class:`JudgeSpec` (or it would grade with a judge outside exam identity),
-    and a declared judge must be the exact gateway model the scorer dials (or
+    and a declared judge must be the exact gateway model the scorer calls (or
     the pinned judge and the called judge drift apart — and any OTHER provider's
-    model would dial that provider directly, unmetered). A judge that fills a model role
-    (``JudgeSpec.model_role``) is the exception to "the scorer dials it": the scorer
+    model would call that provider directly, unmetered). A judge that fills a model role
+    (``JudgeSpec.model_role``) is the exception to "the scorer calls it": the scorer
     names no judge, so :func:`_check_model_role_judge` checks that instead.
     """
 
-    dialed: list[str] = [
+    called: list[str] = [
         value
         for value in spec.scorer_kwargs.values()
         if isinstance(value, str) and value.startswith(_GATEWAY_MODEL_PREFIX)
@@ -890,15 +890,15 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
     if foreign:
         raise ValueError(
             f"{spec.key}: judge-model kwarg names another provider's model "
-            f"({foreign[0]!r}) — that call would dial the provider directly, "
+            f"({foreign[0]!r}) — that call would reach the provider directly, "
             f"unmetered and outside the gateway; spell it "
             f"{_GATEWAY_MODEL_PREFIX}<gateway-model-id> (OME-1240)"
         )
     scorer_name: str = spec.scorer.rpartition(":")[2]
     if spec.judge is None:
-        if dialed:
+        if called:
             raise ValueError(
-                f"{spec.key}: scorer kwargs dial a gateway judge ({dialed[0]!r}) but the "
+                f"{spec.key}: scorer kwargs call a gateway judge ({called[0]!r}) but the "
                 "row declares no judge — add judge=JudgeSpec(...) so the judge joins "
                 "exam identity (OME-1240)"
             )
@@ -916,11 +916,11 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
                 "grader role binds to the pinned judge (OME-1370)"
             )
         return
-    _check_declared_judge(spec, spec.judge, dialed, judge_kwargs)
+    _check_declared_judge(spec, spec.judge, called, judge_kwargs)
 
 
 def _check_declared_judge(
-    spec: BoardSpec, judge: JudgeSpec, dialed: list[str], judge_kwargs: dict[str, Any]
+    spec: BoardSpec, judge: JudgeSpec, called: list[str], judge_kwargs: dict[str, Any]
 ) -> None:
     """The declared side of the contract: the pinned judge is the one the scorer calls."""
 
@@ -933,10 +933,10 @@ def _check_declared_judge(
         _check_model_role_judge(spec, judge.model_role, judge_kwargs)
         return
     expected: str = _GATEWAY_MODEL_PREFIX + judge.model
-    if expected not in dialed:
+    if expected not in called:
         raise ValueError(
             f"{spec.key}: the declared judge {judge.model!r} does not match the "
-            f"scorer kwargs — expected a kwarg value {expected!r}, found {dialed!r}"
+            f"scorer kwargs — expected a kwarg value {expected!r}, found {called!r}"
         )
 
 
@@ -996,7 +996,7 @@ def _reads_answer_key(template: str) -> bool:
     )
 
 
-def _check_answer_key_opt_in(spec: BoardSpec, snapshot: SnapshotSpec) -> None:
+def _check_answer_key_opt_in(spec: BoardSpec, cases_spec: CasesSpec) -> None:
     """Refuse a board without an answer key unless a judge grades it without one.
 
     WHY at assembly (CI): with no key, only a judge can grade — a string-match board
@@ -1007,7 +1007,7 @@ def _check_answer_key_opt_in(spec: BoardSpec, snapshot: SnapshotSpec) -> None:
     call, like every other judged row (OME-1269, OME-1371).
     """
 
-    if snapshot.has_answer_key:
+    if cases_spec.has_answer_key:
         return
     if spec.judge is None:
         raise ValueError(
@@ -1046,60 +1046,60 @@ def _judge_prompt_pins(spec: BoardSpec) -> tuple[str, ...]:
     return (f"judge_scorer={spec.scorer}", f"judge_kwargs={canonical_kwargs}")
 
 
-def _revision_pins(snapshot: SnapshotSpec) -> tuple[str, ...]:
+def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
     """Exam-identity pins derived from the board's snapshot row — never duplicated."""
 
     pins: list[str] = [
-        snapshot.dataset,
-        snapshot.config,
-        snapshot.split,
+        cases_spec.dataset,
+        cases_spec.config,
+        cases_spec.split,
         # Assembly-time backstop: a mutable ref must never become exam identity.
-        require_commit_sha(snapshot.dataset_revision),
+        require_commit_sha(cases_spec.dataset_revision),
     ]
-    if snapshot.shuffle_seed is not None:
-        pins.append(f"shuffle_seed={snapshot.shuffle_seed}")
-    if snapshot.choice_shuffle_seed is not None:
+    if cases_spec.shuffle_seed is not None:
+        pins.append(f"shuffle_seed={cases_spec.shuffle_seed}")
+    if cases_spec.choice_shuffle_seed is not None:
         # WHY: the pinned per-case choice order changes the exam a candidate
         # sits (and the letter that grades correct), so the seed rides exam
         # identity exactly like the row-shuffle seed (OME-1264).
-        pins.append(f"choice_shuffle_seed={snapshot.choice_shuffle_seed}")
-    if snapshot.keep_sample_metadata:
+        pins.append(f"choice_shuffle_seed={cases_spec.choice_shuffle_seed}")
+    if cases_spec.keep_sample_metadata:
         # Flipping the opt-in changes what the bake ships — exam identity moves.
         pins.append("keep_sample_metadata=1")
-    if snapshot.system_message is not None:
+    if cases_spec.system_message is not None:
         # WHY: adding or dropping the leading instruction changes the exam a
         # candidate sits, so the pointer rides exam identity. (The template
         # pointers predate revision-pin coverage and cannot join without
         # moving every published board's revision.)
-        pins.append(f"system_message={snapshot.system_message}")
-    if snapshot.data_files is not None:
+        pins.append(f"system_message={cases_spec.system_message}")
+    if cases_spec.data_files is not None:
         # WHY: data_files selects WHICH files of the pinned revision load —
         # a different selection is a different exam (OME-1264 extension 2).
         # json.dumps(sort_keys=True) keeps the pin deterministic across bakes.
-        pins.append(f"data_files={json.dumps(snapshot.data_files, sort_keys=True)}")
-    if snapshot.features is not None:
+        pins.append(f"data_files={json.dumps(cases_spec.data_files, sort_keys=True)}")
+    if cases_spec.features is not None:
         # WHY: the schema fixes how the selected files parse into rows, so the
         # pointer rides exam identity like system_message's does.
-        pins.append(f"features={snapshot.features}")
-    pins.extend(_dropped_question_pins(snapshot))
+        pins.append(f"features={cases_spec.features}")
+    pins.extend(_dropped_question_pins(cases_spec))
     return tuple(pins)
 
 
-def _dropped_question_pins(snapshot: SnapshotSpec) -> list[str]:
+def _dropped_question_pins(cases_spec: CasesSpec) -> list[str]:
     """Pins for the two ways a row drops questions after loading (OME-1269) — none
     for a row that drops nothing, so published revisions stay put."""
 
     pins: list[str] = []
-    if snapshot.question_filter_task is not None:
+    if cases_spec.question_filter_task is not None:
         # WHY: a question-filter board's questions are whatever the eval's task keeps,
         # and its args can change that (xstest's subset) — both are exam identity.
         # json.dumps(sort_keys=True) keeps the args pin deterministic.
-        pins.append(f"question_filter_task={snapshot.question_filter_task}")
-        task_args: str = json.dumps(snapshot.question_filter_task_args or {}, sort_keys=True)
+        pins.append(f"question_filter_task={cases_spec.question_filter_task}")
+        task_args: str = json.dumps(cases_spec.question_filter_task_args or {}, sort_keys=True)
         pins.append(f"question_filter_task_args={task_args}")
-    if snapshot.excluded_sample_ids is not None:
+    if cases_spec.excluded_sample_ids is not None:
         # WHY: the named deviation removes questions from the exam.
-        pins.append(f"excluded_sample_ids={','.join(sorted(snapshot.excluded_sample_ids))}")
+        pins.append(f"excluded_sample_ids={','.join(sorted(cases_spec.excluded_sample_ids))}")
     return pins
 
 

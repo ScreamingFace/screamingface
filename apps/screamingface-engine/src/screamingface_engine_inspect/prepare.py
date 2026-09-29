@@ -13,10 +13,10 @@ Emits, per board::
 
     <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees
     <out>/targets/<id>.json  {"target": ..., "choices": [...]?} — private; read by the
-                             aggregate (the shim's grading material) and the check surface
+                             aggregate (the scorer adapter's grading material) and the check surface
 
 ONE generic pipeline serves every imported single-shot board; a board is a
-:class:`SnapshotSpec` DATA entry in :data:`SNAPSHOTS` — dataset pins plus two dotted
+:class:`CasesSpec` DATA entry in :data:`BENCHMARK_CASES` — dataset pins plus two dotted
 references into the eval's own code (its ``record_to_sample`` row rule, its prompt
 template). Row conversion and prompt formatting are inspect's own functions, CALLED,
 never reimplemented, so an imported exam's content is exactly what the eval publishes.
@@ -215,7 +215,7 @@ class PrepareError(BenchmarkAssetPreparationError):
 
 
 @dataclass(frozen=True)
-class SnapshotSpec:
+class CasesSpec:
     """One imported board's bake, as pure data — pins plus pointers into the eval.
 
     ``record_to_sample`` and ``prompt_template`` are dotted ``"module:attr"``
@@ -306,8 +306,8 @@ SKIPPED_MARKER = "SKIPPED"
 
 #: Every imported board's bake. Importing another eval = one more entry here
 #: (plus its pins) — never a new function.
-SNAPSHOTS: dict[str, SnapshotSpec] = {
-    "gsm8k": SnapshotSpec(
+BENCHMARK_CASES: dict[str, CasesSpec] = {
+    "gsm8k": CasesSpec(
         dataset=GSM8K_DATASET,
         config=GSM8K_DATA_DIR,
         split=GSM8K_SPLIT,
@@ -318,7 +318,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         record_to_sample="inspect_evals.gsm8k.gsm8k:record_to_sample",
         prompt_template="inspect_evals.gsm8k.gsm8k:MATH_PROMPT_TEMPLATE",
     ),
-    "mmlu": SnapshotSpec(
+    "mmlu": CasesSpec(
         dataset=MMLU_DATASET,
         config=MMLU_CONFIG,
         split=MMLU_SPLIT,
@@ -331,7 +331,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # raw order would examine one subject; the seed rides the revision hash.
         shuffle_seed=MMLU_SHUFFLE_SEED,
     ),
-    "arc_easy": SnapshotSpec(
+    "arc_easy": CasesSpec(
         dataset=ARC_EASY_DATASET,
         config=ARC_EASY_CONFIG,
         split=ARC_EASY_SPLIT,
@@ -342,7 +342,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # Verified by a full offline bake, 2026-09-17.
         record_to_sample="inspect_evals.arc.arc:record_to_sample",
     ),
-    "arc_challenge": SnapshotSpec(
+    "arc_challenge": CasesSpec(
         dataset=ARC_CHALLENGE_DATASET,
         config=ARC_CHALLENGE_CONFIG,
         split=ARC_CHALLENGE_SPLIT,
@@ -352,7 +352,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # Verified by a full offline bake, 2026-09-17.
         record_to_sample="inspect_evals.arc.arc:record_to_sample",
     ),
-    "commonsense_qa": SnapshotSpec(
+    "commonsense_qa": CasesSpec(
         dataset=COMMONSENSE_QA_DATASET,
         config=COMMONSENSE_QA_CONFIG,
         split=COMMONSENSE_QA_SPLIT,
@@ -367,7 +367,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # exam identity (review round 2026-09-17).
         shuffle_seed=COMMONSENSE_QA_SHUFFLE_SEED,
     ),
-    "paws": SnapshotSpec(
+    "paws": CasesSpec(
         dataset=PAWS_DATASET,
         config=PAWS_CONFIG,
         split=PAWS_SPLIT,
@@ -382,7 +382,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # exam identity (review round 2026-09-17).
         shuffle_seed=PAWS_SHUFFLE_SEED,
     ),
-    "boolq": SnapshotSpec(
+    "boolq": CasesSpec(
         dataset=BOOLQ_DATASET,
         config=BOOLQ_CONFIG,
         split=BOOLQ_SPLIT,
@@ -397,7 +397,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # exam identity (review round 2026-09-17).
         shuffle_seed=BOOLQ_SHUFFLE_SEED,
     ),
-    "mmlu_pro": SnapshotSpec(
+    "mmlu_pro": CasesSpec(
         dataset=MMLU_PRO_DATASET,
         config=MMLU_PRO_CONFIG,
         split=MMLU_PRO_SPLIT,
@@ -413,7 +413,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # discipline; the seed rides the revision hash.
         shuffle_seed=MMLU_PRO_SHUFFLE_SEED,
     ),
-    "winogrande": SnapshotSpec(
+    "winogrande": CasesSpec(
         dataset=WINOGRANDE_DATASET,
         config=WINOGRANDE_CONFIG,
         split=WINOGRANDE_SPLIT,
@@ -425,7 +425,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         record_to_sample="inspect_evals.winogrande.winogrande:record_to_sample",
         choice_template="inspect_evals.winogrande.winogrande:USER_PROMPT_TEMPLATE",
     ),
-    "race_h": SnapshotSpec(
+    "race_h": CasesSpec(
         dataset=RACE_H_DATASET,
         config=RACE_H_CONFIG,
         split=RACE_H_SPLIT,
@@ -440,7 +440,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # limit=N run would see few passages; the seed rides the revision hash.
         shuffle_seed=RACE_H_SHUFFLE_SEED,
     ),
-    "aime24": SnapshotSpec(
+    "aime24": CasesSpec(
         dataset=AIME24_DATASET,
         config=AIME24_CONFIG,
         split=AIME24_SPLIT,
@@ -453,7 +453,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
         shuffle_seed=AIME24_SHUFFLE_SEED,
     ),
-    "aime25": SnapshotSpec(
+    "aime25": CasesSpec(
         dataset=AIME25_DATASET,
         config=AIME25_CONFIG,
         split=AIME25_SPLIT,
@@ -466,7 +466,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         prompt_template="inspect_evals.utils.aime_common:USER_PROMPT_TEMPLATE",
         shuffle_seed=AIME25_SHUFFLE_SEED,
     ),
-    "musr": SnapshotSpec(
+    "musr": CasesSpec(
         dataset=MUSR_DATASET,
         config=MUSR_CONFIG,
         split=MUSR_SPLIT,
@@ -485,7 +485,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # the baked choice_template, so the baked prompt matches the eval's
         # rendered user turn.
     ),
-    "wmdp_bio": SnapshotSpec(
+    "wmdp_bio": CasesSpec(
         dataset=WMDP_BIO_DATASET,
         config=WMDP_BIO_CONFIG,
         split=WMDP_BIO_SPLIT,
@@ -499,7 +499,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # bake's unfiltered rows are the same exam.
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
-    "wmdp_chem": SnapshotSpec(
+    "wmdp_chem": CasesSpec(
         dataset=WMDP_CHEM_DATASET,
         config=WMDP_CHEM_CONFIG,
         split=WMDP_CHEM_SPLIT,
@@ -513,7 +513,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # bake's unfiltered rows are the same exam.
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
-    "wmdp_cyber": SnapshotSpec(
+    "wmdp_cyber": CasesSpec(
         dataset=WMDP_CYBER_DATASET,
         config=WMDP_CYBER_CONFIG,
         split=WMDP_CYBER_SPLIT,
@@ -527,7 +527,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # bake's unfiltered rows are the same exam.
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
     ),
-    "hellaswag": SnapshotSpec(
+    "hellaswag": CasesSpec(
         dataset=HELLASWAG_DATASET,
         config=HELLASWAG_CONFIG,
         split=HELLASWAG_SPLIT,
@@ -545,7 +545,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # WikiHow) — see the pin's comment; OURS by policy.
         shuffle_seed=HELLASWAG_SHUFFLE_SEED,
     ),
-    "lab_bench_litqa": SnapshotSpec(
+    "lab_bench_litqa": CasesSpec(
         dataset=LAB_BENCH_LITQA_DATASET,
         config=LAB_BENCH_LITQA_CONFIG,
         split=LAB_BENCH_LITQA_SPLIT,
@@ -559,7 +559,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=LAB_BENCH_LITQA_SHUFFLE_SEED,
         choice_shuffle_seed=LAB_BENCH_LITQA_CHOICE_SHUFFLE_SEED,
     ),
-    "lab_bench_suppqa": SnapshotSpec(
+    "lab_bench_suppqa": CasesSpec(
         dataset=LAB_BENCH_SUPPQA_DATASET,
         config=LAB_BENCH_SUPPQA_CONFIG,
         split=LAB_BENCH_SUPPQA_SPLIT,
@@ -573,7 +573,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=LAB_BENCH_SUPPQA_SHUFFLE_SEED,
         choice_shuffle_seed=LAB_BENCH_SUPPQA_CHOICE_SHUFFLE_SEED,
     ),
-    "lab_bench_dbqa": SnapshotSpec(
+    "lab_bench_dbqa": CasesSpec(
         dataset=LAB_BENCH_DBQA_DATASET,
         config=LAB_BENCH_DBQA_CONFIG,
         split=LAB_BENCH_DBQA_SPLIT,
@@ -587,7 +587,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=LAB_BENCH_DBQA_SHUFFLE_SEED,
         choice_shuffle_seed=LAB_BENCH_DBQA_CHOICE_SHUFFLE_SEED,
     ),
-    "lab_bench_protocolqa": SnapshotSpec(
+    "lab_bench_protocolqa": CasesSpec(
         dataset=LAB_BENCH_PROTOCOLQA_DATASET,
         config=LAB_BENCH_PROTOCOLQA_CONFIG,
         split=LAB_BENCH_PROTOCOLQA_SPLIT,
@@ -601,7 +601,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=LAB_BENCH_PROTOCOLQA_SHUFFLE_SEED,
         choice_shuffle_seed=LAB_BENCH_PROTOCOLQA_CHOICE_SHUFFLE_SEED,
     ),
-    "lab_bench_seqqa": SnapshotSpec(
+    "lab_bench_seqqa": CasesSpec(
         dataset=LAB_BENCH_SEQQA_DATASET,
         config=LAB_BENCH_SEQQA_CONFIG,
         split=LAB_BENCH_SEQQA_SPLIT,
@@ -615,7 +615,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=LAB_BENCH_SEQQA_SHUFFLE_SEED,
         choice_shuffle_seed=LAB_BENCH_SEQQA_CHOICE_SHUFFLE_SEED,
     ),
-    "lab_bench_cloning_scenarios": SnapshotSpec(
+    "lab_bench_cloning_scenarios": CasesSpec(
         dataset=LAB_BENCH_CLONING_SCENARIOS_DATASET,
         config=LAB_BENCH_CLONING_SCENARIOS_CONFIG,
         split=LAB_BENCH_CLONING_SCENARIOS_SPLIT,
@@ -629,7 +629,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_SHUFFLE_SEED,
         choice_shuffle_seed=LAB_BENCH_CLONING_SCENARIOS_CHOICE_SHUFFLE_SEED,
     ),
-    "frontierscience": SnapshotSpec(
+    "frontierscience": CasesSpec(
         dataset=FRONTIERSCIENCE_DATASET,
         config=FRONTIERSCIENCE_CONFIG,
         split=FRONTIERSCIENCE_SPLIT,
@@ -644,7 +644,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         keep_sample_metadata=True,
         shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
     ),
-    "onet_m6": SnapshotSpec(
+    "onet_m6": CasesSpec(
         dataset=ONET_M6_DATASET,
         config=ONET_M6_CONFIG,
         split=ONET_M6_SPLIT,
@@ -666,7 +666,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # Named deviation: six malformed questions inspect keeps (see the pin).
         excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
     ),
-    "pubmedqa": SnapshotSpec(
+    "pubmedqa": CasesSpec(
         dataset=PUBMEDQA_DATASET,
         config=PUBMEDQA_CONFIG,
         split=PUBMEDQA_SPLIT,
@@ -681,7 +681,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # the pinned questions and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
     ),
-    "xstest_safe": SnapshotSpec(
+    "xstest_safe": CasesSpec(
         dataset=XSTEST_SAFE_DATASET,
         config=XSTEST_SAFE_CONFIG,
         split=XSTEST_SAFE_SPLIT,
@@ -705,7 +705,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         # system message is the generic "You are a helpful assistant." — no exam
         # content, and the grading prompt never sees it.
     ),
-    # --- importer: generated SnapshotSpec rows land above this line ---
+    # --- importer: generated CasesSpec rows land above this line ---
 }
 
 
@@ -764,8 +764,8 @@ def mcq_prompt(question: str, choices: Sequence[str], template: str | None = Non
     )
 
 
-def emit_snapshot(
-    spec: SnapshotSpec,
+def emit_cases(
+    spec: CasesSpec,
     rows: list[dict[str, Any]],
     out: Path,
     *,
@@ -801,7 +801,7 @@ def emit_snapshot(
         rows: raw dataset rows, one per Case.
         out: the empty directory to bake into.
         expected_cases: the pinned case count to enforce; None skips the check (unit
-            tests bake tiny row lists; :func:`prepare_snapshot` always enforces).
+            tests bake tiny row lists; :func:`prepare_cases` always enforces).
 
     Returns:
         The bake summary: case count, dataset revision, output directory.
@@ -845,7 +845,7 @@ def emit_snapshot(
 
 
 def _pinned_samples(
-    spec: SnapshotSpec, rows: list[dict[str, Any]], expected_cases: int | None
+    spec: CasesSpec, rows: list[dict[str, Any]], expected_cases: int | None
 ) -> list[Sample]:
     """Stages 1 (size), 2, 3 and 3b — the raw rows become the exam's Samples, in the
     pinned order. A board that drops questions (a question filter, or a named exclusion)
@@ -902,7 +902,7 @@ def _converted_samples(ordered: list[dict[str, Any]], record_to_sample: Any) -> 
     return samples
 
 
-def task_kept_samples(spec: SnapshotSpec, samples: list[Sample]) -> list[Sample]:
+def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
     """Stage 3b — let the eval's own task pick which pinned questions stay (OME-1269).
 
     Think of it as handing the eval's examiner our printed question stack instead
@@ -1004,7 +1004,7 @@ def _load_arguments(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, 
         return {}
 
 
-def _require_the_pinned_load(task_ref: str, spec: SnapshotSpec, arguments: dict[str, Any]) -> None:
+def _require_the_pinned_load(task_ref: str, spec: CasesSpec, arguments: dict[str, Any]) -> None:
     """Stage 3 of the question-filter step — the eval must ask for the load this row pins.
 
     WHY: the swap hands the task our pinned samples whatever it asks for, so a row
@@ -1053,7 +1053,7 @@ def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sa
         last_position = position
 
 
-def count_kept_cases(spec: SnapshotSpec) -> int:
+def count_kept_cases(spec: CasesSpec) -> int:
     """How many questions a question-filter board keeps at its pinned revision.
 
     The importer's case count for a question-filter row (import time only; this
@@ -1088,7 +1088,7 @@ def _shuffle_choices(samples: list[Sample], seed: int) -> None:
         ) from exc
 
 
-def _resolved_system_text(spec: SnapshotSpec) -> str | None:
+def _resolved_system_text(spec: CasesSpec) -> str | None:
     """The eval's system instruction as leading input text, or None without one.
 
     WHY stripped once here: eval constants often carry framing newlines
@@ -1109,7 +1109,7 @@ def _resolved_system_text(spec: SnapshotSpec) -> str | None:
     return resolved_message.strip()
 
 
-def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:
+def prepare_cases(spec: CasesSpec, out: Path) -> dict[str, Any]:
     """Snapshot one board's pinned HF split and bake its assets (build time only).
 
     A gated dataset needs a Hugging Face token (``HF_TOKEN``, or a cached login).
@@ -1136,7 +1136,7 @@ def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:
         (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
         return {"cases": 0, "skipped": reason, "out": str(out)}
     rows: list[dict[str, Any]] = _load_rows(spec)
-    return emit_snapshot(spec, rows, out, expected_cases=spec.case_count)
+    return emit_cases(spec, rows, out, expected_cases=spec.case_count)
 
 
 def _prompt(
@@ -1249,7 +1249,7 @@ def _available_hf_token() -> str | None:
     return get_token()
 
 
-def _load_rows(spec: SnapshotSpec) -> list[dict[str, Any]]:
+def _load_rows(spec: CasesSpec) -> list[dict[str, Any]]:
     """Load one pinned HF split — ``datasets`` is a build-environment dependency only."""
 
     try:
@@ -1281,12 +1281,12 @@ def _load_rows(spec: SnapshotSpec) -> list[dict[str, Any]]:
 
 __all__ = [
     "PrepareError",
-    "SNAPSHOTS",
-    "SnapshotSpec",
+    "BENCHMARK_CASES",
+    "CasesSpec",
     "count_kept_cases",
-    "emit_snapshot",
+    "emit_cases",
     "mcq_prompt",
-    "prepare_snapshot",
+    "prepare_cases",
     "task_kept_samples",
     "templated_prompt",
 ]

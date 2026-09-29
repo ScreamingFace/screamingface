@@ -115,22 +115,22 @@ class AggregateError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class JudgeSpec:
-    """A judged board's declaration: its scorer dials a gateway judge.
+    """A judged board's declaration: its scorer calls a gateway judge.
 
     The declaration is half of a two-sided contract the assembly cross-checks, and
     the scorer reaches the judge one of two ways:
 
     - **by name** (``model_role`` is None): ``model`` must reappear as
       ``screamingface/<model>`` among the scorer's own kwargs (the string the
-      scorer actually dials), so the pinned judge and the called judge can never
+      scorer actually calls), so the pinned judge and the called judge can never
       drift apart.
     - **by role** (``model_role="grader"``): the scorer names no model and asks inspect
       for its grader role; the judged aggregate binds that role to
       ``screamingface/<model>`` for the grading pass, and the scorer kwargs must
-      dial no judge of their own (OME-1370).
+      call no judge of their own (OME-1370).
 
     Attributes:
-        model: the gateway model id the judge call dials (the node route is
+        model: the gateway model id the judge call goes to (the node route is
             ``/<model>``) — exam identity, hashed into the board revision.
         params: protocol params pinned onto every judge call (e.g.
             ``(("temperature", "0"),)``) — exam identity too.
@@ -162,12 +162,12 @@ class ImportedBoard:
     def scored_path(self) -> ScoredPath:
         """This board's spine binding — built on demand so the scorer stays lazy."""
 
-        # WHY lazy: the shim imports inspect_ai (which drags in a web stack and the
+        # WHY lazy: the scorer adapter imports inspect_ai (which drags in a web stack and the
         # OTel SDK). Board REGISTRATION happens at engine import in every mode; the
-        # shim is needed only when a Runner world actually grades, so the run entry
+        # adapter is needed only when a Runner world actually grades, so the run entry
         # point's cold-start import budget stays untouched (test_cli /
         # test_span_export_wiring pin this).
-        from screamingface_engine_inspect.shim import inspect_grade_case
+        from screamingface_engine_inspect.scorer_adapter import inspect_grade_case
 
         return ScoredPath(
             reader=RowReader(
@@ -210,7 +210,7 @@ def single_shot_board(
               the protocol constants, 16 hex chars.
     Stage 2 — protocol: the canonical one-invocation expression (ifeval's shape) —
               candidate answers ``$item.input``, the check route records the attempt,
-              the aggregate grades everything engine-side through the shim.
+              the aggregate grades everything engine-side through the scorer adapter.
     Stage 3 — runtime: an installer registering cases/check/case-evaluation/aggregate,
               plus the check-surface port iff declared.
     Stage 4 — registration: benchmark + asset bundle, ready for the entry point.
@@ -228,7 +228,7 @@ def single_shot_board(
             ``ASSET_BUNDLE_ID`` constant, per the deployment conformance rule), which
             delegates to :func:`install_imported_board`.
         with_check_surface: §4 dual registration; False for MCQ boards (OME-796).
-        multiple_correct: inspect's MCQ multi-answer flag, passed to the shim.
+        multiple_correct: inspect's MCQ multi-answer flag, passed to the scorer adapter.
         judge: the board's judge declaration (OME-1240) — the aggregate binds the
             judge transport from it, and its model + params are hashed into the
             revision below. None for every string-match board.
@@ -489,7 +489,7 @@ def _cases(root: Path) -> Callable[[], str]:
 def _check(root: Path) -> Callable[[Request], str]:
     """Record the Candidate's attempt verbatim — grading waits for the aggregate.
 
-    WHY no grading here: the scorer is the aggregate's job (through the shim), so a
+    WHY no grading here: the scorer is the aggregate's job (through the scorer adapter), so a
     scorer bug can never poison the collected row — the Candidate's answer is always
     preserved for re-grading.
     """
@@ -498,7 +498,7 @@ def _check(root: Path) -> Callable[[Request], str]:
     def check(request: Request) -> str:
         try:
             case_id: int = positive_case_id(request.intent)
-            if _target(root, case_id) is None:
+            if _grading_material(root, case_id) is None:
                 # Refuse early: an attempt recorded against an unusable target
                 # could never be graded — fail the call, not the aggregate later.
                 raise ValueError(f"the private target record for case {case_id} is unusable")
@@ -596,10 +596,10 @@ def check_surface_verdict(
     """
 
     case_id: int = _case_by_input(root, input_text)
-    material: Mapping[str, Any] | None = _target(root, case_id)
+    material: Mapping[str, Any] | None = _grading_material(root, case_id)
     if material is None:
         # INVARIANT: failure wording is this plugin's published voice — refuse
-        # here, or the shim's internal TypeError vocabulary reaches the candidate.
+        # here, or the scorer adapter's internal TypeError vocabulary reaches the candidate.
         raise ValueError(_FAILURE_MESSAGES["missing_target_asset"])
     answer: str = candidate_answer(invocation).text
     outcome: CaseGradeOutcome = _run_sync(
@@ -614,7 +614,7 @@ def check_surface_verdict(
         )
     )
     if outcome.failure_code is not None:
-        # .get(code, code): an unknown future shim code stays a clean refusal,
+        # .get(code, code): an unknown future scorer-adapter code stays a clean refusal,
         # never a KeyError swallowing the real cause.
         raise ValueError(_FAILURE_MESSAGES.get(outcome.failure_code, outcome.failure_code))
     assert outcome.score is not None
@@ -659,7 +659,7 @@ async def board_aggregate_async(
             benchmark_label=board.benchmark.title,
             error_type=AggregateError,
         ),
-        grading_material=lambda case_id: _target(root, case_id),
+        grading_material=lambda case_id: _grading_material(root, case_id),
         scorer=_accuracy,
     )
 
@@ -681,7 +681,7 @@ def _judged_aggregate(
     async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         # WHY the lazy import: judge_provider drags in inspect_ai; board
         # registration happens at engine import in every mode, and only a judged
-        # board's GRADING needs the provider (the shim's own lazy-import rule).
+        # board's GRADING needs the provider (the scorer adapter's own lazy-import rule).
         from screamingface_engine_inspect.judge_provider import (
             JudgeTransport,
             bound_judge_transport,
@@ -737,7 +737,7 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
     }
 
 
-def _target(root: Path, case_id: int) -> Mapping[str, Any] | None:
+def _grading_material(root: Path, case_id: int) -> Mapping[str, Any] | None:
     """Read one Case's private target record; ``None`` when the asset is unusable."""
 
     try:
@@ -788,7 +788,7 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
 
 
 def _run_sync[T](coroutine: Awaitable[T]) -> T:
-    """Drive the async shim from a sync route handler (the spine's own pattern).
+    """Drive the async scorer adapter from a sync route handler (the spine's own pattern).
 
     WHY a verbatim copy of spine ``scored._run_sync`` instead of an import: it is
     private there, and acceptance §8.2 demands ZERO spine edits in this ticket —

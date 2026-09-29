@@ -6,7 +6,7 @@
 """The gateway-backed judge provider — an imported eval's judge is one of OUR calls.
 
 Think of the provider as a switchboard plug: an imported scorer asks inspect for a
-model named ``screamingface/<gateway-model-id>``, and instead of dialing a provider
+model named ``screamingface/<gateway-model-id>``, and instead of calling a provider
 directly, the call comes out of OUR wall socket — the node route the aigateway
 connector serves, where it is routed, metered, and identity-stamped like every other
 model call in the run (OME-1240).
@@ -40,7 +40,7 @@ from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     JudgeTransport,
     bound_judge_transport,
 )
-from screamingface_engine_inspect.shim import inspect_grade_case  # noqa: E402
+from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 from url4.wire.subrequest import (  # noqa: E402
     decode_subrequest_http,
     extract_expression_params,
@@ -137,7 +137,7 @@ async def test_an_incorrect_grade_scores_zero_through_the_same_seam() -> None:
 @pytest.mark.asyncio
 async def test_a_missing_transport_fails_the_case_by_name() -> None:
     """INVARIANT: no transport bound means NO call leaves the engine — the Case
-    fails as scorer_error naming the gateway seam, never a direct provider dial."""
+    fails as scorer_error naming the gateway seam, never a direct provider call."""
 
     scorer = model_graded_qa(model="screamingface/judge-4")
     outcome = await inspect_grade_case(scorer)(_request())
@@ -187,8 +187,8 @@ async def test_the_transport_binding_is_scoped() -> None:
 
 
 def test_the_fabricated_task_state_satisfies_the_qa_template() -> None:
-    """model_graded_qa formats question/answer/criterion from the TaskState the shim
-    builds — pin that the shim's minimal state carries what the template reads."""
+    """model_graded_qa formats question/answer/criterion from the TaskState the scorer adapter
+    builds — pin that the scorer adapter's minimal state carries what the template reads."""
 
     state = TaskState(
         model="screamingface/candidate",  # type: ignore[arg-type]

@@ -53,7 +53,7 @@
         <mxCell id="con1" value="enclave judge&#xa;(privacy boundary)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="180" y="540" width="180" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="con2" value="inspect_evals&#xa;scorer shim" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="con2" value="inspect_evals&#xa;scorer adapter" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="480" y="540" width="180" height="50" as="geometry" />
         </mxCell>
         <mxCell id="con3" value="agentic boards&#xa;(Later)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">

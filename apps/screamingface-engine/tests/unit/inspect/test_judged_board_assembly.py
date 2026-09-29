@@ -154,7 +154,7 @@ def test_a_string_match_boards_kwargs_stay_outside_the_hash(
 def test_an_undeclared_gateway_judge_kwarg_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A row whose scorer dials the gateway without a JudgeSpec would grade with an
+    """A row whose scorer calls the gateway without a JudgeSpec would grade with an
     unpinned judge — silently outside exam identity. Refuse at assembly (CI)."""
 
     spec = _judged_spec(judge=None)
@@ -176,7 +176,7 @@ def test_a_model_graded_scorer_without_a_judge_is_refused(
 def test_a_judge_model_missing_from_the_scorer_kwargs_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The declaration and the scorer must dial the SAME judge — a typo between the
+    """The declaration and the scorer must call the SAME judge — a typo between the
     two would pin one model and call another."""
 
     spec = _judged_spec(scorer_kwargs={"model": "screamingface/judge-5"})
@@ -269,7 +269,7 @@ async def test_the_aggregate_binds_the_judge_transport_end_to_end(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The whole seam under one roof: a judged board's aggregate grades a Case by
-    dialing the node's own judge route — pinned params on the wire, score in the
+    calling the node's own judge route — pinned params on the wire, score in the
     result, and the judge's words in the evidence."""
 
     board = _assembled(_judged_spec(), monkeypatch)
@@ -353,7 +353,7 @@ def test_a_judge_model_kwarg_without_a_declaration_is_refused(
 def test_a_non_gateway_judge_model_value_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A judge-model kwarg naming another provider would dial OpenAI directly —
+    """A judge-model kwarg naming another provider would call OpenAI directly —
     unmetered, outside the gateway, outside exam identity. Refused by name."""
 
     spec = _judged_spec(
@@ -421,9 +421,11 @@ def test_the_run_sync_twins_stay_verbatim_identical() -> None:
 
 
 def _no_key_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
-    from screamingface_engine_inspect.prepare import SNAPSHOTS
+    from screamingface_engine_inspect.prepare import BENCHMARK_CASES
 
-    monkeypatch.setitem(SNAPSHOTS, "gsm8k", replace(SNAPSHOTS["gsm8k"], has_answer_key=False))
+    monkeypatch.setitem(
+        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], has_answer_key=False)
+    )
 
 
 def test_a_board_without_an_answer_key_must_be_judged(monkeypatch: pytest.MonkeyPatch) -> None:

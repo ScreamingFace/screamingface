@@ -6,7 +6,7 @@
 """The gateway-backed judge provider — an imported eval's judge is one of OUR calls.
 
 Think of it as a switchboard plug: an imported scorer asks inspect for a model named
-``screamingface/<gateway-model-id>`` and, instead of dialing OpenAI or Anthropic
+``screamingface/<gateway-model-id>`` and, instead of calling OpenAI or Anthropic
 directly, the call comes out of the engine's own wall socket — the node route the
 aigateway connector serves. There it is routed, metered into the run's usage sink
 (and so into ``cost_usd``), and identity-stamped like every other model call in the
@@ -27,9 +27,9 @@ Stages, in execution order (see :meth:`_GatewayJudgeModelAPI.generate`):
     Stage 3 — encode the sub-request URL (``/<model>?[params&]q=(envelope)``,
               the wire codec's own encoder) and fetch it through the transport.
               The route is the model name's tail verbatim: ``screamingface/x/y``
-              dials route ``/x/y`` — no second mapping to drift.
+              calls route ``/x/y`` — no second mapping to drift.
     Stage 4 — return the completion text as inspect's ``ModelOutput``. Errors
-              propagate: the shim's Stage-3 catch turns them into the Case's
+              propagate: the scorer adapter's Stage-3 catch turns them into the Case's
               named ``scorer_error``, never an aborted aggregate.
 
 INVARIANT: this module never talks HTTP and holds no credentials — the transport's
@@ -140,7 +140,7 @@ def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
 
 
 @modelapi(name=PROVIDER_NAME)
-def screamingface() -> type[ModelAPI]:
+def gateway_judge_provider() -> type[ModelAPI]:
     """Register the provider under inspect's registry key (their factory idiom)."""
 
     return _GatewayJudgeModelAPI
@@ -185,7 +185,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
                 "silently different exam (OME-1240)"
             )
         _refuse_config_overrides(config)
-        # Stage 2-3 — envelope the messages, dial the route.
+        # Stage 2-3 — envelope the messages, call the route.
         context: str = json.dumps(
             {
                 "schema": CANDIDATE_INPUT_SCHEMA,
@@ -259,7 +259,7 @@ def _register_against_the_case(transport: JudgeTransport, path: str, context: st
     The identity must be byte-identical to what the connector records
     (``operation_call_identity`` on the decoded Request): the path, the decoded
     params, the envelope context, and the empty intent the wire carries when
-    ``encode_subrequest`` is given none. The owner names the shim's fixed
+    ``encode_subrequest`` is given none. The owner names the scorer adapter's fixed
     evidence shape (one check "1", sequence 1). A no-op outside a run's capture
     or when the transport carries no board — tests and the check surface stay
     join-free.

@@ -5,7 +5,7 @@
 
 INVARIANT the suite defends: the importer never invents exam facts. Everything it
 writes is either read from the eval's own task (dataset args, conversion/template/
-scorer references) or captured as a named observation (revision sha, row count,
+scorer references) or captured as a named Hub dataset fact (revision sha, row count,
 license) — and it lands ONLY between the three files' anchor comments, as a diff a
 human reviews before anything merges (import time is the only trust window).
 
@@ -37,13 +37,13 @@ from inspect_ai.solver import generate, multiple_choice, prompt_template  # noqa
 from screamingface_engine_inspect import importer as importer_module  # noqa: E402
 from screamingface_engine_inspect.importer import (  # noqa: E402
     CLEARED_DATASET_LICENSES,
+    HubDatasetFacts,
     ImporterError,
-    Observations,
-    TaskFacts,
-    capture_observations,
-    generate_rows,
-    introspect_task,
-    render_fragments,
+    InspectTaskFacts,
+    read_hub_dataset_facts,
+    read_inspect_task,
+    render_generated_rows,
+    write_generated_rows,
 )
 
 _SRC_DIR: Path = Path(importer_module.__file__).resolve().parent
@@ -126,16 +126,16 @@ def _fewshot_task() -> Task:
 
 
 # ---------------------------------------------------------------------------
-# introspect_task
+# read_inspect_task
 # ---------------------------------------------------------------------------
 
 
-def test_introspect_reads_the_free_text_task_without_network(
+def test_read_inspect_task_reads_the_free_text_task_without_network(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_fake_eval(monkeypatch, sums=_free_text_task)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:sums")
 
     assert facts.dataset == "acme/sums"
     assert facts.config == "main"
@@ -148,10 +148,10 @@ def test_introspect_reads_the_free_text_task_without_network(
     assert facts.scorer_kwargs == {"numeric": True}
 
 
-def test_introspect_reads_the_mcq_task(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_reads_the_mcq_task(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_eval(monkeypatch, quiz=_mcq_task)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:quiz")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:quiz")
 
     assert facts.mcq is True
     assert facts.prompt_template is None
@@ -160,20 +160,22 @@ def test_introspect_reads_the_mcq_task(monkeypatch: pytest.MonkeyPatch) -> None:
     assert facts.scorer == "inspect_ai.scorer:choice"
     assert facts.scorer_kwargs == {}
     # The DEFAULT choice template is fully baked — no review flag.
-    assert facts.custom_solvers == ()
+    assert facts.unreproduced_solvers == ()
 
 
-def test_introspect_picks_the_dataset_the_task_holds(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_picks_the_dataset_the_task_holds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A fewshot eval calls hf_dataset twice; the exam is the Task's dataset."""
 
     _install_fake_eval(monkeypatch, sums=_fewshot_task)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:sums")
 
     assert facts.split == "test"
 
 
-def test_introspect_flags_a_system_message_the_bake_would_drop(
+def test_read_inspect_task_flags_a_system_message_the_bake_would_drop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """System instructions have no bake channel — vanishing silently would change
@@ -193,12 +195,12 @@ def test_introspect_flags_a_system_message_the_bake_would_drop(
 
     _install_fake_eval(monkeypatch, instructed=instructed)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:instructed")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:instructed")
 
-    assert any("system_message" in flag for flag in facts.custom_solvers)
+    assert any("system_message" in flag for flag in facts.unreproduced_solvers)
 
 
-def test_introspect_flags_a_custom_choice_template(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_flags_a_custom_choice_template(monkeypatch: pytest.MonkeyPatch) -> None:
     """The bake renders MCQ with the default SINGLE_ANSWER template; a custom one
     must surface for review, not silently change the exam (review finding on PR 965)."""
 
@@ -214,28 +216,30 @@ def test_introspect_flags_a_custom_choice_template(monkeypatch: pytest.MonkeyPat
 
     _install_fake_eval(monkeypatch, custom_mcq=custom_mcq)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:custom_mcq")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:custom_mcq")
 
-    assert any("custom choice template" in flag for flag in facts.custom_solvers)
+    assert any("custom choice template" in flag for flag in facts.unreproduced_solvers)
     # The default-template MCQ task stays unflagged — see the mcq test above.
 
 
-def test_introspect_refuses_a_task_that_never_loads_hf(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_refuses_a_task_that_never_loads_hf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def local_task() -> Task:
         return Task(dataset=[Sample(input="q", target="1")], solver=generate(), scorer=match())
 
     _install_fake_eval(monkeypatch, local=local_task)
 
     with pytest.raises(ImporterError, match="hf_dataset"):
-        introspect_task(f"{_FAKE_MODULE}:local")
+        read_inspect_task(f"{_FAKE_MODULE}:local")
 
 
-def test_introspect_binds_through_the_vendored_hf_dataset_shim(
+def test_read_inspect_task_binds_through_the_vendored_hf_dataset_shim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """inspect_evals ≥0.20 routes hf_dataset through its ``(*args, **kwargs)`` retry
     shim; binding against the shim buries every real kwarg in the VAR_KEYWORD
-    bucket, and the conserved-kwargs guard then refuses the ENTIRE hf family as
+    bucket, and the kwarg-reproduction guard then refuses the ENTIRE hf family as
     "kwarg(s) kwargs" (OME-1238). The recorder must bind the caller's arguments
     against the real hf_dataset signature — including a positionally passed path.
     Bound through the REAL vendored shim, not a hand-written stand-in, so a shim
@@ -260,7 +264,7 @@ def test_introspect_binds_through_the_vendored_hf_dataset_shim(
     module = _install_fake_eval(monkeypatch, sums=wrapped_task)
     module.hf_dataset = vendored_shim  # type: ignore[attr-defined]
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:sums")
 
     assert facts.dataset == "acme/sums"
     assert facts.config == "main"
@@ -269,11 +273,11 @@ def test_introspect_binds_through_the_vendored_hf_dataset_shim(
     assert facts.record_to_sample == f"{_FAKE_MODULE}:record_to_sample"
 
 
-def test_introspect_refuses_an_unknown_variadic_wrapper(
+def test_read_inspect_task_refuses_an_unknown_variadic_wrapper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Only the vendored shim is verified pass-through — identity, not shape. A
-    wrapper that mutated kwargs before forwarding would make the conserved-kwargs
+    wrapper that mutated kwargs before forwarding would make the reproduced-kwargs
     guard reason about arguments the real load never sees, so any other fully
     variadic wrapper refuses."""
 
@@ -296,7 +300,7 @@ def test_introspect_refuses_an_unknown_variadic_wrapper(
     module.hf_dataset = homegrown_wrapper  # type: ignore[attr-defined]
 
     with pytest.raises(ImporterError, match="variadic wrapper"):
-        introspect_task(f"{_FAKE_MODULE}:sums")
+        read_inspect_task(f"{_FAKE_MODULE}:sums")
 
 
 def test_shim_call_with_an_extra_kwarg_refuses_under_its_own_name(
@@ -325,7 +329,7 @@ def test_shim_call_with_an_extra_kwarg_refuses_under_its_own_name(
     module.hf_dataset = vendored_shim  # type: ignore[attr-defined]
 
     with pytest.raises(ImporterError, match="data_files"):
-        introspect_task(f"{_FAKE_MODULE}:sums")
+        read_inspect_task(f"{_FAKE_MODULE}:sums")
 
 
 def test_an_unbindable_hf_dataset_call_refuses_as_importer_error(
@@ -353,10 +357,10 @@ def test_an_unbindable_hf_dataset_call_refuses_as_importer_error(
     module.hf_dataset = vendored_shim  # type: ignore[attr-defined]
 
     with pytest.raises(ImporterError, match="does not bind"):
-        introspect_task(f"{_FAKE_MODULE}:sums")
+        read_inspect_task(f"{_FAKE_MODULE}:sums")
 
 
-def test_introspect_resolves_a_prompt_template_from_a_sibling_module(
+def test_read_inspect_task_resolves_a_prompt_template_from_a_sibling_module(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AIME keeps its prompt template in a shared helper (utils.aime_common), not
@@ -379,12 +383,12 @@ def test_introspect_resolves_a_prompt_template_from_a_sibling_module(
 
     _install_fake_eval(monkeypatch, shared=shared_task)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:shared")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:shared")
 
     assert facts.prompt_template == f"{sibling_name}:SHARED_TEMPLATE"
 
 
-def test_introspect_refuses_an_ambiguous_sibling_template(
+def test_read_inspect_task_refuses_an_ambiguous_sibling_template(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two sibling modules holding the same template object cannot yield ONE
@@ -410,15 +414,15 @@ def test_introspect_refuses_an_ambiguous_sibling_template(
     _install_fake_eval(monkeypatch, ambiguous=ambiguous_task)
 
     with pytest.raises(ImporterError, match="exactly one module"):
-        introspect_task(f"{_FAKE_MODULE}:ambiguous")
+        read_inspect_task(f"{_FAKE_MODULE}:ambiguous")
 
 
 # ---------------------------------------------------------------------------
-# capture_observations
+# read_hub_dataset_facts
 # ---------------------------------------------------------------------------
 
 
-def _facts(**overrides: Any) -> TaskFacts:
+def _facts(**overrides: Any) -> InspectTaskFacts:
     base: dict[str, Any] = {
         "task_ref": f"{_FAKE_MODULE}:sums",
         "dataset": "acme/sums",
@@ -430,10 +434,10 @@ def _facts(**overrides: Any) -> TaskFacts:
         "mcq": False,
         "scorer": "inspect_ai.scorer:match",
         "scorer_kwargs": {"numeric": True},
-        "custom_solvers": (),
+        "unreproduced_solvers": (),
     }
     base.update(overrides)
-    return TaskFacts(**base)
+    return InspectTaskFacts(**base)
 
 
 def _fake_info(sha: str, license_id: str | None) -> Any:
@@ -441,7 +445,7 @@ def _fake_info(sha: str, license_id: str | None) -> Any:
 
 
 def test_capture_records_head_sha_when_upstream_does_not_pin() -> None:
-    obs: Observations = capture_observations(
+    obs: HubDatasetFacts = read_hub_dataset_facts(
         _facts(),
         dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
         count_rows=lambda facts, revision: 321,
@@ -462,7 +466,7 @@ def test_capture_resolves_a_mutable_upstream_pin_to_its_commit_sha() -> None:
         seen.append(revision)
         return _fake_info("a" * 40, "mit")
 
-    obs: Observations = capture_observations(
+    obs: HubDatasetFacts = read_hub_dataset_facts(
         _facts(pinned_revision="main"),
         dataset_info=info_of,
         count_rows=lambda facts, revision: 321,
@@ -475,7 +479,7 @@ def test_capture_resolves_a_mutable_upstream_pin_to_its_commit_sha() -> None:
 
 
 def test_capture_keeps_an_upstream_sha_pin() -> None:
-    obs: Observations = capture_observations(
+    obs: HubDatasetFacts = read_hub_dataset_facts(
         _facts(pinned_revision="b" * 40),
         dataset_info=lambda dataset, revision: _fake_info(revision or "", "mit"),
         count_rows=lambda facts, revision: 321,
@@ -485,43 +489,43 @@ def test_capture_keeps_an_upstream_sha_pin() -> None:
 
 
 # ---------------------------------------------------------------------------
-# render_fragments
+# render_generated_rows
 # ---------------------------------------------------------------------------
 
 
-def test_rendered_fragments_are_valid_python_and_carry_the_facts() -> None:
-    fragments = render_fragments(
-        "sums", _facts(), Observations(revision="c" * 40, case_count=42, license="mit")
+def test_rendered_rows_are_valid_python_and_carry_the_facts() -> None:
+    rows = render_generated_rows(
+        "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=42, license="mit")
     )
 
-    ast.parse(fragments.pins)
-    ast.parse(f"SNAPSHOTS = {{\n{fragments.snapshot}}}")
-    ast.parse(f"BOARDS = (\n{fragments.board})")
-    assert 'SUMS_DATASET = "acme/sums"' in fragments.pins
-    assert f'SUMS_DATASET_REVISION = "{"c" * 40}"' in fragments.pins
-    assert "SUMS_CASE_COUNT = 42" in fragments.pins
-    assert "license: mit" in fragments.pins
-    assert f'record_to_sample="{_FAKE_MODULE}:record_to_sample"' in fragments.snapshot
-    assert f'prompt_template="{_FAKE_MODULE}:TEMPLATE"' in fragments.snapshot
+    ast.parse(rows.pins)
+    ast.parse(f"BENCHMARK_CASES = {{\n{rows.cases}}}")
+    ast.parse(f"BOARDS = (\n{rows.board})")
+    assert 'SUMS_DATASET = "acme/sums"' in rows.pins
+    assert f'SUMS_DATASET_REVISION = "{"c" * 40}"' in rows.pins
+    assert "SUMS_CASE_COUNT = 42" in rows.pins
+    assert "license: mit" in rows.pins
+    assert f'record_to_sample="{_FAKE_MODULE}:record_to_sample"' in rows.cases
+    assert f'prompt_template="{_FAKE_MODULE}:TEMPLATE"' in rows.cases
     # Free text ⇒ the check surface is legitimate and declared.
-    assert "with_check_surface=True" in fragments.board
-    assert 'scorer="inspect_ai.scorer:match"' in fragments.board
-    assert 'scorer_kwargs={"numeric": True}' in fragments.board
+    assert "with_check_surface=True" in rows.board
+    assert 'scorer="inspect_ai.scorer:match"' in rows.board
+    assert 'scorer_kwargs={"numeric": True}' in rows.board
     # Catalogue prose is the dev's, never invented by the tool.
-    assert "TODO" in fragments.board
+    assert "TODO" in rows.board
 
 
-def test_mcq_fragments_refuse_the_check_surface() -> None:
+def test_mcq_rows_refuse_the_check_surface() -> None:
     """OME-796: pass/fail feedback over a handful of options is an elimination attack."""
 
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "quiz",
         _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert "with_check_surface" not in fragments.board
-    assert "prompt_template" not in fragments.snapshot
+    assert "with_check_surface" not in rows.board
+    assert "prompt_template" not in rows.cases
 
 
 def test_mcq_detection_follows_the_solver_not_the_scorer_name(
@@ -556,7 +560,7 @@ def test_mcq_detection_follows_the_solver_not_the_scorer_name(
     # The eval exports its own scorer constructor — the row must resolve it there.
     module.house_grader = house_grader  # type: ignore[attr-defined]
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:custom_graded_mcq")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:custom_graded_mcq")
 
     assert facts.mcq is True
     assert facts.scorer.endswith(":house_grader")
@@ -594,7 +598,7 @@ def test_mcq_detection_sees_through_a_custom_solver_wrapper(
 
     _install_fake_eval(monkeypatch, wrapper_graded_mcq=wrapper_graded_mcq)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:wrapper_graded_mcq")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:wrapper_graded_mcq")
 
     assert facts.mcq is True
 
@@ -603,7 +607,7 @@ def test_board_row_renders_str_scorer_kwargs_format_safe() -> None:
     """The first str scorer kwarg (lab_bench's no_answer) must emit DOUBLE-quoted
     — repr's single quotes would fail the ruff-format gate on the emitted file."""
 
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "quiz",
         _facts(
             mcq=True,
@@ -611,28 +615,28 @@ def test_board_row_renders_str_scorer_kwargs_format_safe() -> None:
             scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
             scorer_kwargs={"no_answer": "Insufficient information."},
         ),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert '"no_answer": "Insufficient information."' in fragments.board
-    ast.parse(f"BOARDS = (\n{fragments.board})")
+    assert '"no_answer": "Insufficient information."' in rows.board
+    ast.parse(f"BOARDS = (\n{rows.board})")
 
 
 def test_custom_solver_gets_a_review_flag() -> None:
     """A solver the importer cannot classify must be pointed out, not papered over."""
 
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "quiz",
-        _facts(custom_solvers=("inspect_evals/mmlu_multiple_choice",)),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        _facts(unreproduced_solvers=("inspect_evals/mmlu_multiple_choice",)),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert "TODO(review)" in fragments.snapshot
-    assert "mmlu_multiple_choice" in fragments.snapshot
+    assert "TODO(review)" in rows.cases
+    assert "mmlu_multiple_choice" in rows.cases
 
 
 # ---------------------------------------------------------------------------
-# generate_rows — in-place insertion at the anchors
+# write_generated_rows — in-place insertion at the anchors
 # ---------------------------------------------------------------------------
 
 
@@ -646,10 +650,10 @@ def engine_src_copy(tmp_path: Path) -> Path:
 
 
 def _generate(engine_src: Path, key: str = "sums", **fact_overrides: Any) -> None:
-    generate_rows(
+    write_generated_rows(
         key,
         _facts(**fact_overrides),
-        Observations(revision="c" * 40, case_count=42, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=42, license="mit"),
         engine_src=engine_src,
     )
 
@@ -663,9 +667,9 @@ def test_generate_rows_lands_all_three_rows_in_parseable_files(engine_src_copy: 
     for text, name in ((pins, "pins.py"), (prepare, "prepare.py"), (boards, "boards.py")):
         ast.parse(text, filename=name)
     assert 'SUMS_DATASET = "acme/sums"' in pins
-    assert '"sums": SnapshotSpec(' in prepare
+    assert '"sums": CasesSpec(' in prepare
     assert 'key="sums"' in boards
-    # The SnapshotSpec entry reads the pins constants; the import block must carry them.
+    # The CasesSpec entry reads the pins constants; the import block must carry them.
     assert "SUMS_CASE_COUNT," in prepare
 
 
@@ -677,7 +681,7 @@ def test_generate_rows_refuses_a_key_that_already_exists(engine_src_copy: Path) 
 def test_generated_snapshot_row_resolves_against_the_real_spec(
     engine_src_copy: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The inserted entry must construct a real SnapshotSpec when the file executes."""
+    """The inserted entry must construct a real CasesSpec when the file executes."""
 
     _generate(engine_src_copy)
 
@@ -693,10 +697,10 @@ def test_unlisted_license_warns_but_emits(
     """Owner decision 2026-09-16: the human review of the diff is the gate."""
 
     assert "proprietary" not in CLEARED_DATASET_LICENSES
-    generate_rows(
+    write_generated_rows(
         "sums",
         _facts(),
-        Observations(revision="c" * 40, case_count=42, license="proprietary"),
+        HubDatasetFacts(revision="c" * 40, case_count=42, license="proprietary"),
         engine_src=engine_src_copy,
     )
 
@@ -712,7 +716,7 @@ def test_unlisted_license_warns_but_emits(
 # ---------------------------------------------------------------------------
 
 
-def test_main_wires_introspection_capture_and_insertion(
+def test_main_wires_reading_capture_and_insertion(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _install_fake_eval(monkeypatch, sums=_free_text_task)
@@ -730,7 +734,7 @@ def test_main_wires_introspection_capture_and_insertion(
     )
 
     assert exit_code == 0
-    assert '"sums": SnapshotSpec(' in (engine_src_copy / "prepare.py").read_text()
+    assert '"sums": CasesSpec(' in (engine_src_copy / "prepare.py").read_text()
     assert "review the diff" in capsys.readouterr().out.lower()
 
 
@@ -762,7 +766,7 @@ def test_main_passes_task_args_through(
 
 
 # ---------------------------------------------------------------------------
-# generate_rows hardening (review round 2 on PR 966)
+# write_generated_rows hardening (review round 2 on PR 966)
 # ---------------------------------------------------------------------------
 
 
@@ -797,7 +801,7 @@ def test_generate_rows_writes_nothing_when_an_anchor_is_missing(engine_src_copy:
     # Restoring the anchor makes the SAME import succeed — no stale half-state.
     boards_path.write_text(intact)
     _generate(engine_src_copy)
-    assert '"sums": SnapshotSpec(' in (engine_src_copy / "prepare.py").read_text()
+    assert '"sums": CasesSpec(' in (engine_src_copy / "prepare.py").read_text()
 
 
 def test_generate_rows_refuses_a_key_that_is_not_an_identifier_stem(
@@ -818,7 +822,7 @@ def test_generate_rows_refuses_a_key_that_is_not_an_identifier_stem(
 # ---------------------------------------------------------------------------
 
 
-def test_introspect_captures_a_resolvable_custom_choice_template(
+def test_read_inspect_task_captures_a_resolvable_custom_choice_template(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A custom multiple_choice template that IS a module attribute is a fact the
@@ -837,14 +841,14 @@ def test_introspect_captures_a_resolvable_custom_choice_template(
     module = _install_fake_eval(monkeypatch, custom_mcq=custom_mcq)
     module.CHOICE_TEMPLATE = "Pick one of {letters}.\n{question}\n{choices}"  # type: ignore[attr-defined]
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:custom_mcq")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:custom_mcq")
 
     assert facts.choice_template == f"{_FAKE_MODULE}:CHOICE_TEMPLATE"
-    assert facts.custom_solvers == ()
+    assert facts.unreproduced_solvers == ()
 
 
 def test_captured_choice_template_lands_in_the_snapshot_row() -> None:
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "quiz",
         _facts(
             mcq=True,
@@ -853,14 +857,14 @@ def test_captured_choice_template_lands_in_the_snapshot_row() -> None:
             scorer_kwargs={},
             choice_template=f"{_FAKE_MODULE}:CHOICE_TEMPLATE",
         ),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert f'choice_template="{_FAKE_MODULE}:CHOICE_TEMPLATE"' in fragments.snapshot
-    ast.parse(f"SNAPSHOTS = {{\n{fragments.snapshot}}}")
+    assert f'choice_template="{_FAKE_MODULE}:CHOICE_TEMPLATE"' in rows.cases
+    ast.parse(f"BENCHMARK_CASES = {{\n{rows.cases}}}")
 
 
-def test_introspect_refuses_a_task_local_record_to_sample(
+def test_read_inspect_task_refuses_a_task_local_record_to_sample(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A row rule defined INSIDE the task function (truthfulqa's closure) can never
@@ -885,22 +889,22 @@ def test_introspect_refuses_a_task_local_record_to_sample(
     _install_fake_eval(monkeypatch, closured=closure_task)
 
     with pytest.raises(ImporterError, match="task-local"):
-        introspect_task(f"{_FAKE_MODULE}:closured")
+        read_inspect_task(f"{_FAKE_MODULE}:closured")
 
 
-def test_rendered_fragment_lines_fit_the_lint_gate() -> None:
+def test_rendered_row_lines_fit_the_lint_gate() -> None:
     """A long task_ref must never emit a line the 100-column lint gate rejects."""
 
     long_ref = "inspect_evals.some_very_long_package_name.some_very_long_package_name:the_task"
-    fragments = render_fragments(
-        "long", _facts(task_ref=long_ref), Observations("c" * 40, 42, "cc-by-sa-4.0")
+    rows = render_generated_rows(
+        "long", _facts(task_ref=long_ref), HubDatasetFacts("c" * 40, 42, "cc-by-sa-4.0")
     )
-    for fragment in (fragments.pins, fragments.snapshot, fragments.board):
-        assert all(len(line) <= 100 for line in fragment.splitlines())
+    for row_text in (rows.pins, rows.cases, rows.board):
+        assert all(len(line) <= 100 for line in row_text.splitlines())
 
 
 # ---------------------------------------------------------------------------
-# dataset-kwarg conservation (review round 2026-09-17 on this branch: every
+# dataset-kwarg reproduction (review round 2026-09-17 on this branch: every
 # fact the importer reads but does not reproduce must refuse or flag — never
 # silently drop exam identity)
 # ---------------------------------------------------------------------------
@@ -923,7 +927,7 @@ def _task_with_dataset_kwargs(**dataset_kwargs: Any) -> Any:
     return task_fn
 
 
-def test_introspect_refuses_a_limit_the_bake_would_ignore(
+def test_read_inspect_task_refuses_a_limit_the_bake_would_ignore(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An eval with limit=N examines N cases; baking the full split would publish
@@ -932,14 +936,14 @@ def test_introspect_refuses_a_limit_the_bake_would_ignore(
     _install_fake_eval(monkeypatch, limited=_task_with_dataset_kwargs(limit=500))
 
     with pytest.raises(ImporterError, match="limit"):
-        introspect_task(f"{_FAKE_MODULE}:limited")
+        read_inspect_task(f"{_FAKE_MODULE}:limited")
 
 
-def test_introspect_records_an_unseeded_choice_shuffle_as_a_fact(
+def test_read_inspect_task_records_an_unseeded_choice_shuffle_as_a_fact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """OME-1264 replaces the former refusal: shuffle_choices is now CONSERVED —
-    introspection records the fact, and main() demands a pinned seed before any
+    """OME-1264 replaces the former refusal: shuffle_choices is now REPRODUCED —
+    reading the task records the fact, and main() demands a pinned seed before any
     row is emitted (the unseeded refusal moved there, next to shuffle's).
 
     WHY True must not become a seed: bool is an int subtype — reading
@@ -948,60 +952,60 @@ def test_introspect_records_an_unseeded_choice_shuffle_as_a_fact(
 
     _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:shuffled")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:shuffled")
 
     assert facts.upstream_shuffle_choices is True
     assert facts.upstream_choice_shuffle_seed is None
 
 
-def test_introspect_records_a_seeded_choice_shuffle_as_a_fact(
+def test_read_inspect_task_records_a_seeded_choice_shuffle_as_a_fact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An int shuffle_choices is inspect's seeded form — the seed is a fact."""
 
     _install_fake_eval(monkeypatch, seeded=_task_with_dataset_kwargs(shuffle_choices=9))
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:seeded")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:seeded")
 
     assert facts.upstream_shuffle_choices is True
     assert facts.upstream_choice_shuffle_seed == 9
 
 
-def test_introspect_refuses_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_refuses_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     """data_dir is a different load_dataset parameter than config — aliasing them
     loads the wrong data whenever they differ (gsm8k's 'main' was a coincidence)."""
 
     _install_fake_eval(monkeypatch, dirred=_task_with_dataset_kwargs(data_dir="data"))
 
     with pytest.raises(ImporterError, match="data_dir"):
-        introspect_task(f"{_FAKE_MODULE}:dirred")
+        read_inspect_task(f"{_FAKE_MODULE}:dirred")
 
 
-def test_introspect_records_an_upstream_shuffle_as_a_fact(
+def test_read_inspect_task_records_an_upstream_shuffle_as_a_fact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_fake_eval(monkeypatch, mixed=_task_with_dataset_kwargs(shuffle=True, seed=42))
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:mixed")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:mixed")
 
     assert facts.upstream_shuffle is True
     assert facts.upstream_shuffle_seed == 42
 
 
-def test_introspect_ignores_benign_dataset_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_ignores_benign_dataset_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     """auto_id / trust / cached change how loading happens, never what the exam is."""
 
     _install_fake_eval(
         monkeypatch, benign=_task_with_dataset_kwargs(auto_id=True, trust=True, cached=False)
     )
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:benign")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:benign")
 
     assert facts.dataset == "acme/sums"
     assert facts.upstream_shuffle is False
 
 
-def test_introspect_binds_positional_hf_dataset_arguments(
+def test_read_inspect_task_binds_positional_hf_dataset_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """17 of 80 real call sites pass path positionally — a kwargs-only recorder
@@ -1017,7 +1021,7 @@ def test_introspect_binds_positional_hf_dataset_arguments(
 
     _install_fake_eval(monkeypatch, positional=positional)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:positional")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:positional")
 
     assert facts.dataset == "acme/sums"
     assert facts.split == "test"
@@ -1041,7 +1045,7 @@ def test_single_call_fallback_requires_the_task_to_hold_the_recorded_exam(
     _install_fake_eval(monkeypatch, json_exam=json_exam)
 
     with pytest.raises(ImporterError, match="dataset"):
-        introspect_task(f"{_FAKE_MODULE}:json_exam")
+        read_inspect_task(f"{_FAKE_MODULE}:json_exam")
 
 
 def test_shuffling_eval_requires_a_pinned_seed(
@@ -1090,7 +1094,7 @@ def test_choice_shuffling_eval_requires_a_pinned_seed(
 ) -> None:
     """shuffle_choices=True with no seed means each case's choice order is random
     per run upstream; an import must pin ONE order (--choice-shuffle-seed) or
-    refuse — conserved, never dropped (OME-1264)."""
+    refuse — reproduced, never dropped (OME-1264)."""
 
     _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
 
@@ -1200,7 +1204,7 @@ def test_a_policy_choice_shuffle_seed_is_reproduced_in_the_rows(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:
     """--choice-shuffle-seed pins one choice order as exam identity: the pin row
-    and the SnapshotSpec field both land in the generated files."""
+    and the CasesSpec field both land in the generated files."""
 
     _install_fake_eval(monkeypatch, shuffled=_task_with_dataset_kwargs(shuffle_choices=True))
 
@@ -1298,7 +1302,7 @@ def test_choice_shuffle_seed_flag_without_an_upstream_choice_shuffle_is_refused(
     assert "plain" not in (engine_src_copy / "pins.py").read_text()
 
 
-def test_introspect_records_data_files_and_a_features_pointer_as_facts(
+def test_read_inspect_task_records_data_files_and_a_features_pointer_as_facts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OME-1264 extension 2: data_files is a literal fact; features is a
@@ -1313,13 +1317,13 @@ def test_introspect_records_data_files_and_a_features_pointer_as_facts(
     )
     module.FEATURES = schema  # type: ignore[attr-defined]
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:filed")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:filed")
 
     assert facts.data_files == {"test": "test.jsonl"}
     assert facts.features == f"{_FAKE_MODULE}:FEATURES"
 
 
-def test_introspect_refuses_a_features_value_with_no_module_attribute(
+def test_read_inspect_task_refuses_a_features_value_with_no_module_attribute(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An inline Features(...) has no attribute the row could point at — refuse
@@ -1328,19 +1332,19 @@ def test_introspect_refuses_a_features_value_with_no_module_attribute(
     _install_fake_eval(monkeypatch, inlined=_task_with_dataset_kwargs(features=object()))
 
     with pytest.raises(ImporterError, match="features"):
-        introspect_task(f"{_FAKE_MODULE}:inlined")
+        read_inspect_task(f"{_FAKE_MODULE}:inlined")
 
 
-def test_introspect_refuses_an_exotic_data_files_shape(
+def test_read_inspect_task_refuses_an_exotic_data_files_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only the shape the bake reproduces (dict[str, str]) is conserved;
+    """Only the shape the bake reproduces (dict[str, str]) is reproduced;
     anything else — even a bare str — refuses by name, never dropped."""
 
     _install_fake_eval(monkeypatch, exotic=_task_with_dataset_kwargs(data_files=123))
 
     with pytest.raises(ImporterError, match="data_files"):
-        introspect_task(f"{_FAKE_MODULE}:exotic")
+        read_inspect_task(f"{_FAKE_MODULE}:exotic")
 
 
 def test_data_files_and_features_are_reproduced_in_the_rows(
@@ -1376,20 +1380,20 @@ def test_data_files_and_features_are_reproduced_in_the_rows(
 def test_generate_refuses_a_hostile_license_string(engine_src_copy: Path) -> None:
     hostile = 'mit"\nimport os  # pwned\nX = "'
     with pytest.raises(ImporterError, match="license"):
-        generate_rows(
+        write_generated_rows(
             "sums",
             _facts(),
-            Observations(revision="c" * 40, case_count=42, license=hostile),
+            HubDatasetFacts(revision="c" * 40, case_count=42, license=hostile),
             engine_src=engine_src_copy,
         )
 
 
 def test_generate_refuses_a_hostile_dataset_name(engine_src_copy: Path) -> None:
     with pytest.raises(ImporterError, match="dataset"):
-        generate_rows(
+        write_generated_rows(
             "sums",
             _facts(dataset='acme/sums"\nimport os\nY = "'),
-            Observations(revision="c" * 40, case_count=42, license="mit"),
+            HubDatasetFacts(revision="c" * 40, case_count=42, license="mit"),
             engine_src=engine_src_copy,
         )
 
@@ -1399,19 +1403,19 @@ def test_generate_refuses_a_hostile_data_files_entry(engine_src_copy: Path) -> N
     sink, same charset guard (OME-1264 extension 2)."""
 
     hostile_facts = _facts(data_files={"test": 'x"\nimport os\nZ = "'})
-    hostile_observations = Observations(revision="d" * 40, case_count=7, license="apache-2.0")
+    hostile_hub_facts = HubDatasetFacts(revision="d" * 40, case_count=7, license="apache-2.0")
     with pytest.raises(ImporterError, match="data_files"):
-        generate_rows("quiz", hostile_facts, hostile_observations, engine_src=engine_src_copy)
+        write_generated_rows("quiz", hostile_facts, hostile_hub_facts, engine_src=engine_src_copy)
 
 
 def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: Path) -> None:
     """The capture stage must never record 'None' or a short ref as exam identity."""
 
     with pytest.raises(ImporterError, match="revision"):
-        generate_rows(
+        write_generated_rows(
             "sums",
             _facts(),
-            Observations(revision="None", case_count=42, license="mit"),
+            HubDatasetFacts(revision="None", case_count=42, license="mit"),
             engine_src=engine_src_copy,
         )
 
@@ -1424,7 +1428,7 @@ def test_generate_refuses_a_revision_that_is_not_a_commit_sha(engine_src_copy: P
 
 
 def test_emitted_snapshot_row_constructs_the_real_snapshot_spec(engine_src_copy: Path) -> None:
-    """An emitted prepare.py row must construct the real SnapshotSpec, so a spec
+    """An emitted prepare.py row must construct the real CasesSpec, so a spec
     change breaks here — in the spec-changer's own PR — not as a TypeError inside
     a generated file at the next import session.
 
@@ -1432,49 +1436,49 @@ def test_emitted_snapshot_row_constructs_the_real_snapshot_spec(engine_src_copy:
     constructing the real spec, never against a parallel copy that could drift.
     """
 
-    from screamingface_engine_inspect.prepare import SnapshotSpec
+    from screamingface_engine_inspect.prepare import CasesSpec
 
     # The maximal row: every optional kwarg the template can emit is emitted.
-    fragments = generate_rows(
+    rows = write_generated_rows(
         "sums",
         _facts(choice_template=f"{_FAKE_MODULE}:CHOICE_TEMPLATE"),
-        Observations(revision="c" * 40, case_count=42, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=42, license="mit"),
         engine_src=engine_src_copy,
         shuffle_seed=7,
     )
 
     # The row reads pin constants — take them from the written copy, exactly as
     # prepare.py resolves them at import time.
-    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    namespace: dict[str, Any] = {"CasesSpec": CasesSpec}
     exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
-    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+    exec(f"BENCHMARK_CASES = {{\n{rows.cases}}}", namespace)
 
-    snapshot: Any = namespace["SNAPSHOTS"]["sums"]
-    assert isinstance(snapshot, SnapshotSpec)
-    assert snapshot.dataset == "acme/sums"
-    assert snapshot.config == "main"
-    assert snapshot.split == "test"
-    assert snapshot.dataset_revision == "c" * 40
-    assert snapshot.case_count == 42
-    assert snapshot.record_to_sample == f"{_FAKE_MODULE}:record_to_sample"
-    assert snapshot.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
-    assert snapshot.choice_template == f"{_FAKE_MODULE}:CHOICE_TEMPLATE"
-    assert snapshot.shuffle_seed == 7
+    cases: Any = namespace["BENCHMARK_CASES"]["sums"]
+    assert isinstance(cases, CasesSpec)
+    assert cases.dataset == "acme/sums"
+    assert cases.config == "main"
+    assert cases.split == "test"
+    assert cases.dataset_revision == "c" * 40
+    assert cases.case_count == 42
+    assert cases.record_to_sample == f"{_FAKE_MODULE}:record_to_sample"
+    assert cases.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
+    assert cases.choice_template == f"{_FAKE_MODULE}:CHOICE_TEMPLATE"
+    assert cases.shuffle_seed == 7
 
     # The exec above resolves pin constants from ALL of pins.py, but the written
-    # prepare.py resolves them through its import block — a constant the fragment
+    # prepare.py resolves them through its import block — a constant the generated row
     # references that import_names forgot would NameError only at the next import
     # session (importer.py keeps the two lists independently; review finding on
     # this PR). Pin both directions, through the maximal row — the only one that
     # exercises the conditional shuffle_seed arm of both lists.
-    referenced: set[str] = set(re.findall(r"\bSUMS_[A-Z_]+\b", fragments.snapshot))
-    assert referenced == set(fragments.import_names)
+    referenced: set[str] = set(re.findall(r"\bSUMS_[A-Z_]+\b", rows.cases))
+    assert referenced == set(rows.import_names)
     # Slice the pins import block by its own header — the first ")" in the file
     # sits inside the module docstring, far above the import.
     prepare_text: str = (engine_src_copy / "prepare.py").read_text()
     start: int = prepare_text.index(importer_module._PINS_IMPORT_HEADER)
     import_block: str = prepare_text[start : prepare_text.index(")", start)]
-    assert all(name in import_block for name in fragments.import_names)
+    assert all(name in import_block for name in rows.import_names)
 
 
 def test_emitted_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
@@ -1487,15 +1491,15 @@ def test_emitted_board_row_constructs_the_real_board_spec(engine_src_copy: Path)
 
     from screamingface_engine_inspect.boards import BoardSpec
 
-    fragments = generate_rows(
+    rows = write_generated_rows(
         "sums",
         _facts(),
-        Observations(revision="c" * 40, case_count=42, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=42, license="mit"),
         engine_src=engine_src_copy,
     )
 
     namespace: dict[str, Any] = {"BoardSpec": BoardSpec}
-    exec(f"BOARDS = (\n{fragments.board})", namespace)
+    exec(f"BOARDS = (\n{rows.board})", namespace)
 
     (board,) = namespace["BOARDS"]
     assert isinstance(board, BoardSpec)
@@ -1515,89 +1519,89 @@ def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
     """The template's OTHER branch: a row with no prompt_template, no
     choice_template and no shuffle_seed must also construct the real spec.
 
-    WHY a separate minimal variant: making an optional SnapshotSpec field
+    WHY a separate minimal variant: making an optional CasesSpec field
     required (dropping its default) keeps the maximal-row test green — only a
     row that OMITS the kwarg catches it (review finding on this PR).
     """
 
-    from screamingface_engine_inspect.prepare import SnapshotSpec
+    from screamingface_engine_inspect.prepare import CasesSpec
 
-    fragments = generate_rows(
+    rows = write_generated_rows(
         "quiz",
         _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
         engine_src=engine_src_copy,
     )
 
-    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    namespace: dict[str, Any] = {"CasesSpec": CasesSpec}
     exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
-    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+    exec(f"BENCHMARK_CASES = {{\n{rows.cases}}}", namespace)
 
-    snapshot: Any = namespace["SNAPSHOTS"]["quiz"]
-    assert isinstance(snapshot, SnapshotSpec)
-    assert snapshot.dataset == "acme/sums"
-    assert snapshot.case_count == 7
+    cases: Any = namespace["BENCHMARK_CASES"]["quiz"]
+    assert isinstance(cases, CasesSpec)
+    assert cases.dataset == "acme/sums"
+    assert cases.case_count == 7
     # The omitted kwargs resolve through the spec's own defaults.
-    assert snapshot.prompt_template is None
-    assert snapshot.choice_template is None
-    assert snapshot.shuffle_seed is None
-    assert snapshot.choice_shuffle_seed is None
+    assert cases.prompt_template is None
+    assert cases.choice_template is None
+    assert cases.shuffle_seed is None
+    assert cases.choice_shuffle_seed is None
 
 
 def test_emitted_choice_shuffled_snapshot_row_constructs_the_real_snapshot_spec(
     engine_src_copy: Path,
 ) -> None:
     """The choice_shuffle_seed arm of the template: its pin must be emitted, be in
-    import_names, and construct the real SnapshotSpec (OME-1264)."""
+    import_names, and construct the real CasesSpec (OME-1264)."""
 
-    from screamingface_engine_inspect.prepare import SnapshotSpec
+    from screamingface_engine_inspect.prepare import CasesSpec
 
-    fragments = generate_rows(
+    rows = write_generated_rows(
         "quiz",
         _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
         engine_src=engine_src_copy,
         choice_shuffle_seed=7,
     )
 
-    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    namespace: dict[str, Any] = {"CasesSpec": CasesSpec}
     exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
-    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+    exec(f"BENCHMARK_CASES = {{\n{rows.cases}}}", namespace)
 
-    snapshot: Any = namespace["SNAPSHOTS"]["quiz"]
-    assert isinstance(snapshot, SnapshotSpec)
-    assert snapshot.choice_shuffle_seed == 7
-    assert snapshot.shuffle_seed is None
+    cases: Any = namespace["BENCHMARK_CASES"]["quiz"]
+    assert isinstance(cases, CasesSpec)
+    assert cases.choice_shuffle_seed == 7
+    assert cases.shuffle_seed is None
     # Both directions of the pin-name contract (same check as the maximal row).
-    referenced: set[str] = set(re.findall(r"\bQUIZ_[A-Z_]+\b", fragments.snapshot))
-    assert referenced == set(fragments.import_names)
+    referenced: set[str] = set(re.findall(r"\bQUIZ_[A-Z_]+\b", rows.cases))
+    assert referenced == set(rows.import_names)
 
 
 def test_emitted_data_files_snapshot_row_constructs_the_real_snapshot_spec(
     engine_src_copy: Path,
 ) -> None:
     """The data_files/features arm of the template: the pin plus the pointer
-    must construct the real SnapshotSpec (OME-1264 extension 2)."""
+    must construct the real CasesSpec (OME-1264 extension 2)."""
 
-    from screamingface_engine_inspect.prepare import SnapshotSpec
+    from screamingface_engine_inspect.prepare import CasesSpec
 
-    fragments = generate_rows(
+    rows = write_generated_rows(
         "filed",
         _facts(data_files={"test": "test.jsonl"}, features=f"{_FAKE_MODULE}:FEATURES"),
-        Observations(revision="c" * 40, case_count=42, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=42, license="mit"),
         engine_src=engine_src_copy,
     )
 
-    namespace: dict[str, Any] = {"SnapshotSpec": SnapshotSpec}
+    namespace: dict[str, Any] = {"CasesSpec": CasesSpec}
     exec(compile((engine_src_copy / "pins.py").read_text(), "pins.py", "exec"), namespace)
-    exec(f"SNAPSHOTS = {{\n{fragments.snapshot}}}", namespace)
+    exec(f"BENCHMARK_CASES = {{\n{rows.cases}}}", namespace)
 
-    snapshot: Any = namespace["SNAPSHOTS"]["filed"]
-    assert isinstance(snapshot, SnapshotSpec)
-    assert snapshot.data_files == {"test": "test.jsonl"}
-    assert snapshot.features == f"{_FAKE_MODULE}:FEATURES"
-    referenced: set[str] = set(re.findall(r"\bFILED_[A-Z_]+\b", fragments.snapshot))
-    assert referenced == set(fragments.import_names)
+    cases: Any = namespace["BENCHMARK_CASES"]["filed"]
+    assert isinstance(cases, CasesSpec)
+    assert cases.data_files == {"test": "test.jsonl"}
+    assert cases.features == f"{_FAKE_MODULE}:FEATURES"
+    referenced: set[str] = set(re.findall(r"\bFILED_[A-Z_]+\b", rows.cases))
+    assert referenced == set(rows.import_names)
 
 
 def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
@@ -1611,15 +1615,15 @@ def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: P
 
     from screamingface_engine_inspect.boards import BoardSpec
 
-    fragments = generate_rows(
+    rows = write_generated_rows(
         "quiz",
         _facts(mcq=True, prompt_template=None, scorer="inspect_ai.scorer:choice", scorer_kwargs={}),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
         engine_src=engine_src_copy,
     )
 
     namespace: dict[str, Any] = {"BoardSpec": BoardSpec}
-    exec(f"BOARDS = (\n{fragments.board})", namespace)
+    exec(f"BOARDS = (\n{rows.board})", namespace)
 
     (board,) = namespace["BOARDS"]
     assert isinstance(board, BoardSpec)
@@ -1636,15 +1640,15 @@ def test_injection_charsets_refuse_a_trailing_newline(engine_src_copy: Path) -> 
     newline can never open a second line in generated code."""
 
     with pytest.raises(ImporterError, match="license"):
-        generate_rows(
+        write_generated_rows(
             "sums",
             _facts(),
-            Observations(revision="c" * 40, case_count=42, license="mit\n"),
+            HubDatasetFacts(revision="c" * 40, case_count=42, license="mit\n"),
             engine_src=engine_src_copy,
         )
 
 
-def test_introspect_binds_a_module_level_system_message_as_a_fact(
+def test_read_inspect_task_binds_a_module_level_system_message_as_a_fact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OME-1253 (owner-approved): an eval's system instruction kept in a module
@@ -1668,16 +1672,16 @@ def test_introspect_binds_a_module_level_system_message_as_a_fact(
     module = _install_fake_eval(monkeypatch, storyteller=storyteller)
     module.INSTRUCTIONS = "Choose the most plausible continuation for the story."  # type: ignore[attr-defined]
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:storyteller")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:storyteller")
 
     assert facts.system_message == f"{_FAKE_MODULE}:INSTRUCTIONS"
-    assert facts.custom_solvers == ()
+    assert facts.unreproduced_solvers == ()
 
 
-def _introspect_module_system_message(
+def _read_inspect_task_with_module_system_message(
     monkeypatch: pytest.MonkeyPatch, instructions: str, **params: Any
-) -> TaskFacts:
-    """Introspect an eval whose system_message points at module.INSTRUCTIONS."""
+) -> InspectTaskFacts:
+    """Read an eval whose system_message points at module.INSTRUCTIONS."""
 
     from inspect_ai.solver import system_message
 
@@ -1693,22 +1697,24 @@ def _introspect_module_system_message(
 
     module = _install_fake_eval(monkeypatch, storyteller=storyteller)
     module.INSTRUCTIONS = instructions  # type: ignore[attr-defined]
-    return introspect_task(f"{_FAKE_MODULE}:storyteller")
+    return read_inspect_task(f"{_FAKE_MODULE}:storyteller")
 
 
-def test_introspect_flags_a_system_message_that_fills_params(
+def test_read_inspect_task_flags_a_system_message_that_fills_params(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OME-1272: system_message(template, **params) sends the template AFTER
     str.format fills the params in. Binding the bare constant would bake text
     the eval never sends — so the row gets no fact and the flag names the param."""
 
-    facts: TaskFacts = _introspect_module_system_message(
+    facts: InspectTaskFacts = _read_inspect_task_with_module_system_message(
         monkeypatch, "Answer as {persona}.", persona="a patient tutor"
     )
 
     assert facts.system_message is None
-    assert any("system_message" in flag and "persona" in flag for flag in facts.custom_solvers)
+    assert any(
+        "system_message" in flag and "persona" in flag for flag in facts.unreproduced_solvers
+    )
 
 
 @pytest.mark.parametrize(
@@ -1720,20 +1726,22 @@ def test_introspect_flags_a_system_message_that_fills_params(
         "Reply in {{json}}.",
     ],
 )
-def test_introspect_flags_a_system_message_whose_text_str_format_rewrites(
+def test_read_inspect_task_flags_a_system_message_whose_text_str_format_rewrites(
     monkeypatch: pytest.MonkeyPatch, instructions: str
 ) -> None:
     """OME-1272: inspect runs every system message through str.format with the
     sample's metadata and store. Any brace in the text means the sent message can
     differ from the constant — per case, invisibly — so it flags instead of binding."""
 
-    facts: TaskFacts = _introspect_module_system_message(monkeypatch, instructions)
+    facts: InspectTaskFacts = _read_inspect_task_with_module_system_message(
+        monkeypatch, instructions
+    )
 
     assert facts.system_message is None
-    assert any("system_message" in flag for flag in facts.custom_solvers)
+    assert any("system_message" in flag for flag in facts.unreproduced_solvers)
 
 
-def test_introspect_flags_a_system_message_read_from_a_file(
+def test_read_inspect_task_flags_a_system_message_read_from_a_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """OME-1272: a template that is a path to an existing file is READ by inspect
@@ -1743,13 +1751,15 @@ def test_introspect_flags_a_system_message_read_from_a_file(
     prompt_file: Path = tmp_path / "system.txt"
     prompt_file.write_text("You are a careful accountant.")
 
-    facts: TaskFacts = _introspect_module_system_message(monkeypatch, str(prompt_file))
+    facts: InspectTaskFacts = _read_inspect_task_with_module_system_message(
+        monkeypatch, str(prompt_file)
+    )
 
     assert facts.system_message is None
-    assert any("system_message" in flag for flag in facts.custom_solvers)
+    assert any("system_message" in flag for flag in facts.unreproduced_solvers)
 
 
-def test_introspect_refuses_a_prompt_template_read_from_a_file(
+def test_read_inspect_task_refuses_a_prompt_template_read_from_a_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """OME-1272 (PR #1064 review): prompt_template() also READS a path through
@@ -1774,10 +1784,10 @@ def test_introspect_refuses_a_prompt_template_read_from_a_file(
     module.TEMPLATE_PATH = str(template_file)  # type: ignore[attr-defined]
 
     with pytest.raises(ImporterError, match="reads its template from a file"):
-        introspect_task(f"{_FAKE_MODULE}:from_file")
+        read_inspect_task(f"{_FAKE_MODULE}:from_file")
 
 
-def test_introspect_flags_a_chain_with_two_system_messages(
+def test_read_inspect_task_flags_a_chain_with_two_system_messages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OME-1272 (PR #1064 review): inspect sends EVERY system message in the
@@ -1805,16 +1815,16 @@ def test_introspect_flags_a_chain_with_two_system_messages(
     module.PERSONA = "You are a careful accountant."  # type: ignore[attr-defined]
     module.INSTRUCTIONS = "Show your working."  # type: ignore[attr-defined]
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:twice_instructed")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:twice_instructed")
 
     assert facts.system_message is None
-    assert any("2 system messages" in flag for flag in facts.custom_solvers)
+    assert any("2 system messages" in flag for flag in facts.unreproduced_solvers)
 
 
-def _introspect_setup_system_message(
+def _read_inspect_task_with_setup_system_message(
     monkeypatch: pytest.MonkeyPatch, instructions: str
-) -> TaskFacts:
-    """Introspect an eval whose system message lives in Task(setup=...)."""
+) -> InspectTaskFacts:
+    """Read an eval whose system message lives in Task(setup=...)."""
 
     from inspect_ai.solver import system_message
 
@@ -1831,10 +1841,10 @@ def _introspect_setup_system_message(
 
     module = _install_fake_eval(monkeypatch, set_up=set_up)
     module.INSTRUCTIONS = instructions  # type: ignore[attr-defined]
-    return introspect_task(f"{_FAKE_MODULE}:set_up")
+    return read_inspect_task(f"{_FAKE_MODULE}:set_up")
 
 
-def test_introspect_sees_a_system_message_in_task_setup(
+def test_read_inspect_task_sees_a_system_message_in_task_setup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OME-1272 (PR #1064 review): inspect runs Task(setup=...) before the
@@ -1842,27 +1852,29 @@ def test_introspect_sees_a_system_message_in_task_setup(
     one in the chain. The walk used to skip setup, so the instruction vanished
     with no flag; a plain constant there now binds like any other."""
 
-    facts: TaskFacts = _introspect_setup_system_message(
+    facts: InspectTaskFacts = _read_inspect_task_with_setup_system_message(
         monkeypatch, "Choose the most plausible continuation for the story."
     )
 
     assert facts.system_message == f"{_FAKE_MODULE}:INSTRUCTIONS"
-    assert facts.custom_solvers == ()
+    assert facts.unreproduced_solvers == ()
 
 
-def test_introspect_flags_a_rewritten_system_message_in_task_setup(
+def test_read_inspect_task_flags_a_rewritten_system_message_in_task_setup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The setup walk runs the same guard: a placeholder there flags, never binds."""
 
-    facts: TaskFacts = _introspect_setup_system_message(monkeypatch, "Answer as {persona}.")
+    facts: InspectTaskFacts = _read_inspect_task_with_setup_system_message(
+        monkeypatch, "Answer as {persona}."
+    )
 
     assert facts.system_message is None
-    assert any("system_message" in flag for flag in facts.custom_solvers)
+    assert any("system_message" in flag for flag in facts.unreproduced_solvers)
 
 
 @pytest.mark.parametrize("where", ["chain", "setup_and_chain"])
-def test_introspect_refuses_a_task_with_two_prompt_templates(
+def test_read_inspect_task_refuses_a_task_with_two_prompt_templates(
     monkeypatch: pytest.MonkeyPatch, where: str
 ) -> None:
     """OME-1272 (PR #1064 second review): inspect applies EVERY prompt_template in
@@ -1889,7 +1901,7 @@ def test_introspect_refuses_a_task_with_two_prompt_templates(
     module.OUTER = "Think carefully.\n\n{prompt}"  # type: ignore[attr-defined]
 
     with pytest.raises(ImporterError, match="2 prompt templates"):
-        introspect_task(f"{_FAKE_MODULE}:double_templated")
+        read_inspect_task(f"{_FAKE_MODULE}:double_templated")
 
 
 # ---------------------------------------------------------------------------
@@ -1898,30 +1910,30 @@ def test_introspect_refuses_a_task_with_two_prompt_templates(
 
 
 def test_a_model_graded_scorer_emits_the_judge_declaration_todo() -> None:
-    """A judged eval must never emit a silently-failing row: the fragment carries a
+    """A judged eval must never emit a silently-failing row: the generated row carries a
     judge=JudgeSpec placeholder whose TODO model is refused at assembly by name."""
 
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "judged",
         _facts(
             scorer="inspect_ai.scorer:model_graded_qa",
             scorer_kwargs={"model": "openai/gpt-4o", "template": "grade {answer}"},
         ),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert "TODO(review)" in fragments.board
-    assert 'judge=JudgeSpec(model="TODO")' in fragments.board
+    assert "TODO(review)" in rows.board
+    assert 'judge=JudgeSpec(model="TODO")' in rows.board
     # The eval's own judge value is kept visible for the reviewer to replace.
-    assert "openai/gpt-4o" in fragments.board
-    ast.parse(f"BOARDS = (\n{fragments.board})")
+    assert "openai/gpt-4o" in rows.board
+    ast.parse(f"BOARDS = (\n{rows.board})")
 
 
 def test_a_string_match_scorer_emits_no_judge_lines() -> None:
-    fragments = render_fragments(
-        "sums", _facts(), Observations(revision="c" * 40, case_count=42, license="mit")
+    rows = render_generated_rows(
+        "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=42, license="mit")
     )
-    assert "JudgeSpec" not in fragments.board
+    assert "JudgeSpec" not in rows.board
 
 
 def test_a_custom_scorer_with_a_judge_model_kwarg_gets_the_judge_flag() -> None:
@@ -1929,16 +1941,16 @@ def test_a_custom_scorer_with_a_judge_model_kwarg_gets_the_judge_flag() -> None:
     scorer carries its judge under `model` and matched no model_graded_* name, so
     the importer emitted a silently-unjudged row (review finding, 2026-09-24)."""
 
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "judged",
         _facts(
             scorer=f"{_FAKE_MODULE}:custom_scorer",
             scorer_kwargs={"model": None},
         ),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
-    assert 'judge=JudgeSpec(model="TODO")' in fragments.board
-    assert "TODO(review)" in fragments.board
+    assert 'judge=JudgeSpec(model="TODO")' in rows.board
+    assert "TODO(review)" in rows.board
 
 
 def test_a_judged_row_never_advertises_a_check_surface() -> None:
@@ -1946,16 +1958,16 @@ def test_a_judged_row_never_advertises_a_check_surface() -> None:
     the importer emitting both would strand the next import on a red gate it was
     told is already correct (review finding, 2026-09-24)."""
 
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "judged",
         _facts(
             scorer="inspect_ai.scorer:model_graded_qa",
             scorer_kwargs={"model": "openai/gpt-4o"},
         ),
-        Observations(revision="c" * 40, case_count=7, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
-    assert "with_check_surface" not in fragments.board
-    assert "keep_sample_metadata" in fragments.board  # the reviewer reminder rides the flag
+    assert "with_check_surface" not in rows.board
+    assert "keep_sample_metadata" in rows.board  # the reviewer reminder rides the flag
 
 
 # ---------------------------------------------------------------------------
@@ -2018,7 +2030,7 @@ def _filtering_two_loads_task() -> Task:
     return _filtering_task()
 
 
-def test_introspect_reads_a_filtering_task_as_filtering_after_load(
+def test_read_inspect_task_reads_a_filtering_task_as_filtering_after_load(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Acceptance 2: the probe's dummy question used to fail the eval's keep-test,
@@ -2027,7 +2039,7 @@ def test_introspect_reads_a_filtering_task_as_filtering_after_load(
 
     _install_fake_eval(monkeypatch, sums=_filtering_task)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums", {"subset": "kept"})
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:sums", {"subset": "kept"})
 
     assert facts.filters_after_load is True
     assert facts.task_args == {"subset": "kept"}
@@ -2035,7 +2047,7 @@ def test_introspect_reads_a_filtering_task_as_filtering_after_load(
     assert facts.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
 
 
-def test_introspect_keeps_a_dedupe_only_task_on_todays_path(
+def test_read_inspect_task_keeps_a_dedupe_only_task_on_todays_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Six live boards (wmdp x3, mmlu, race_h, winogrande) run only the duplicate-id
@@ -2043,18 +2055,20 @@ def test_introspect_keeps_a_dedupe_only_task_on_todays_path(
 
     _install_fake_eval(monkeypatch, sums=_dedupe_only_task)
 
-    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
+    assert read_inspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
 
 
-def test_introspect_ignores_a_filter_on_a_non_exam_load(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_ignores_a_filter_on_a_non_exam_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Only the exam's questions matter — trimming a fewshot pool changes no exam."""
 
     _install_fake_eval(monkeypatch, sums=_fewshot_filter_task)
 
-    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
+    assert read_inspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
 
 
-def test_introspect_refuses_a_filtering_task_that_loads_two_datasets(
+def test_read_inspect_task_refuses_a_filtering_task_that_loads_two_datasets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The bake hands the pinned questions to every load the task makes, so a second
@@ -2063,10 +2077,10 @@ def test_introspect_refuses_a_filtering_task_that_loads_two_datasets(
     _install_fake_eval(monkeypatch, sums=_filtering_two_loads_task)
 
     with pytest.raises(ImporterError, match="loads 2 datasets"):
-        introspect_task(f"{_FAKE_MODULE}:sums")
+        read_inspect_task(f"{_FAKE_MODULE}:sums")
 
 
-def test_introspect_refuses_a_filtering_task_with_a_seeded_choice_shuffle(
+def test_read_inspect_task_refuses_a_filtering_task_with_a_seeded_choice_shuffle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Upstream draws each case's choice order over ALL rows, before its filter; the
@@ -2078,30 +2092,30 @@ def test_introspect_refuses_a_filtering_task_with_a_seeded_choice_shuffle(
     _install_fake_eval(monkeypatch, sums=seeded)
 
     with pytest.raises(ImporterError, match="choice-shuffle seed"):
-        introspect_task(f"{_FAKE_MODULE}:sums")
+        read_inspect_task(f"{_FAKE_MODULE}:sums")
 
 
 def test_a_question_filter_row_names_the_task_and_its_args() -> None:
-    fragments = render_fragments(
+    rows = render_generated_rows(
         "sums",
         _facts(filters_after_load=True, task_args={"subset": "kept", "limit_to": 2}),
-        Observations(revision="c" * 40, case_count=2, license="mit"),
+        HubDatasetFacts(revision="c" * 40, case_count=2, license="mit"),
     )
 
-    assert f'question_filter_task="{_FAKE_MODULE}:sums",' in fragments.snapshot
-    assert 'question_filter_task_args={"limit_to": 2, "subset": "kept"},' in fragments.snapshot
-    ast.parse("x = {\n" + fragments.snapshot + "}")
+    assert f'question_filter_task="{_FAKE_MODULE}:sums",' in rows.cases
+    assert 'question_filter_task_args={"limit_to": 2, "subset": "kept"},' in rows.cases
+    ast.parse("x = {\n" + rows.cases + "}")
 
 
 def test_a_row_without_a_question_filter_carries_no_task_field() -> None:
     """Every board before OME-1269 must render exactly as it did."""
 
-    fragments = render_fragments(
-        "sums", _facts(), Observations(revision="c" * 40, case_count=2, license="mit")
+    rows = render_generated_rows(
+        "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=2, license="mit")
     )
 
-    assert "question_filter_task=" not in fragments.snapshot
-    assert "question_filter_task_args=" not in fragments.snapshot
+    assert "question_filter_task=" not in rows.cases
+    assert "question_filter_task_args=" not in rows.cases
 
 
 def test_task_args_that_could_escape_the_row_are_refused(engine_src_copy: Path) -> None:
@@ -2124,7 +2138,7 @@ def test_a_question_filter_board_counts_the_questions_the_eval_keeps(
         {"q": "2+2", "a": "4"},
     ]
     monkeypatch.setattr(prepare_module, "_load_rows", lambda spec: rows)
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:sums")
 
     assert importer_module._hub_count_rows(facts, "c" * 40) == 2
 
@@ -2164,7 +2178,7 @@ def _cot_mcq_task(**solver_kwargs: Any) -> Any:
     return task_fn
 
 
-def test_introspect_points_a_cot_mcq_at_inspects_own_cot_template(
+def test_read_inspect_task_points_a_cot_mcq_at_inspects_own_cot_template(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """cot=True swaps inspect's prompt for its "Think step by step" variant; before
@@ -2177,22 +2191,22 @@ def test_introspect_points_a_cot_mcq_at_inspects_own_cot_template(
 
     _install_fake_eval(monkeypatch, cot_mcq=_cot_mcq_task(cot=True))
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:cot_mcq")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:cot_mcq")
 
     assert facts.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
     assert _resolve(facts.choice_template) == SINGLE_ANSWER_TEMPLATE_COT
-    assert facts.custom_solvers == ()
+    assert facts.unreproduced_solvers == ()
 
 
-def test_introspect_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPatch) -> None:
     """The bake has no multi-answer render — flag it rather than guess a template."""
 
     _install_fake_eval(monkeypatch, cot_multi=_cot_mcq_task(cot=True, multiple_correct=True))
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:cot_multi")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:cot_multi")
 
     assert facts.choice_template is None
-    assert any("cot" in flag for flag in facts.custom_solvers)
+    assert any("cot" in flag for flag in facts.unreproduced_solvers)
 
 
 # ---------------------------------------------------------------------------
@@ -2211,25 +2225,25 @@ def test_capture_records_whether_the_dataset_needs_an_hf_token(
 
     info = types.SimpleNamespace(sha="c" * 40, card_data={"license": "cc-by-4.0"}, gated=hub_gated)
 
-    observations = capture_observations(
+    hub_facts = read_hub_dataset_facts(
         _facts(), dataset_info=lambda dataset, revision: info, count_rows=lambda f, r: 3
     )
 
-    assert observations.needs_hf_token is expected
+    assert hub_facts.needs_hf_token is expected
 
 
 def test_a_row_needing_an_hf_token_says_so_and_a_public_row_does_not() -> None:
-    token_row = render_fragments(
+    token_row = render_generated_rows(
         "sums",
         _facts(),
-        Observations(revision="c" * 40, case_count=3, license="mit", needs_hf_token=True),
+        HubDatasetFacts(revision="c" * 40, case_count=3, license="mit", needs_hf_token=True),
     )
-    public = render_fragments(
-        "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+    public = render_generated_rows(
+        "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=3, license="mit")
     )
 
-    assert "        needs_hf_token=True," in token_row.snapshot
-    assert "needs_hf_token=" not in public.snapshot
+    assert "        needs_hf_token=True," in token_row.cases
+    assert "needs_hf_token=" not in public.cases
 
 
 def _dedupe_then_filter_task() -> Task:
@@ -2249,7 +2263,7 @@ def _dedupe_then_filter_task() -> Task:
     )
 
 
-def test_introspect_flags_a_task_that_filters_after_dropping_duplicates(
+def test_read_inspect_task_flags_a_task_that_filters_after_dropping_duplicates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The dedupe exemption covers the duplicate remover ONLY: an eval that dedupes and
@@ -2258,10 +2272,10 @@ def test_introspect_flags_a_task_that_filters_after_dropping_duplicates(
 
     _install_fake_eval(monkeypatch, sums=_dedupe_then_filter_task)
 
-    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is True
+    assert read_inspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is True
 
 
-def test_introspect_refuses_a_filtering_task_that_numbers_rows_with_auto_id(
+def test_read_inspect_task_refuses_a_filtering_task_that_numbers_rows_with_auto_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """inspect numbers auto_id rows 1..N at load; the bake's swapped loader does not,
@@ -2273,7 +2287,7 @@ def test_introspect_refuses_a_filtering_task_that_numbers_rows_with_auto_id(
     _install_fake_eval(monkeypatch, sums=numbered)
 
     with pytest.raises(ImporterError, match="auto_id"):
-        introspect_task(f"{_FAKE_MODULE}:sums")
+        read_inspect_task(f"{_FAKE_MODULE}:sums")
 
 
 def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> None:
@@ -2285,7 +2299,9 @@ def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> Non
     assert "injection" not in str(refusal.value)
 
 
-def test_introspect_flags_an_evals_own_metrics_for_review(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_inspect_task_flags_an_evals_own_metrics_for_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A board reports the mean per-case score. xstest reports refusal_rate instead,
     and the importer never looked, so the deviation went unnamed (review on PR #1112):
     a task's own metrics= must surface as a review item on the generated board row."""
@@ -2298,16 +2314,16 @@ def test_introspect_flags_an_evals_own_metrics_for_review(monkeypatch: pytest.Mo
 
     _install_fake_eval(monkeypatch, sums=with_metrics)
 
-    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
-    fragments = render_fragments(
-        "sums", facts, Observations(revision="c" * 40, case_count=3, license="mit")
+    facts: InspectTaskFacts = read_inspect_task(f"{_FAKE_MODULE}:sums")
+    rows = render_generated_rows(
+        "sums", facts, HubDatasetFacts(revision="c" * 40, case_count=3, license="mit")
     )
 
     assert facts.custom_metrics == ("inspect_ai/accuracy",)
-    assert "TODO(review): the eval reports its own metric inspect_ai/accuracy" in fragments.board
+    assert "TODO(review): the eval reports its own metric inspect_ai/accuracy" in rows.board
     assert (
         "own metric"
-        not in render_fragments(
-            "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+        not in render_generated_rows(
+            "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=3, license="mit")
         ).board
     )

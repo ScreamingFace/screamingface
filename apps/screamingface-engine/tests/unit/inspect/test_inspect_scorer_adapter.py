@@ -3,7 +3,7 @@
 # default (extra-less) install the typecheck gate runs against. Only unresolved-import
 # reporting is relaxed; every other diagnostic stays on, and with the extra installed
 # these imports type-check normally.
-"""The inspect scorer shim — their marking scheme, our marking room (spec §3.2).
+"""The inspect scorer adapter — their marking scheme, our marking room (spec §3.2).
 
 INVARIANT the suite defends: ONE translator with zero per-scorer branches wraps any
 inspect scorer as a board's `grade_case` hook. Verdicts and failures are complete
@@ -31,7 +31,7 @@ from screamingface_engine.benchmarks.spine.scored import (  # noqa: E402
     CaseGradeOutcome,
     GradeRequest,
 )
-from screamingface_engine_inspect.shim import inspect_grade_case  # noqa: E402
+from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 
 
 def _request(
@@ -81,7 +81,7 @@ async def test_score_values_map_to_floats(value: Any, expected: float) -> None:
 
 @pytest.mark.asyncio
 async def test_real_match_scorer_grades_correct_and_incorrect() -> None:
-    """The honesty proof: a REAL inspect scorer passes through the shim untouched."""
+    """The honesty proof: a REAL inspect scorer passes through the scorer adapter untouched."""
 
     scorer = match(numeric=True)
     right = await _graded(scorer, _request(answer="The answer is...\n\nANSWER: 42"))
@@ -181,7 +181,7 @@ async def test_choices_material_replays_inspects_answer_marking() -> None:
     """MCQ path: inspect's own parse/mark step runs when the material declares choices.
 
     Uses the REAL `choice()` scorer, which reads marks the multiple_choice SOLVER would
-    have left on state.choices — the shim replays that step from the material.
+    have left on state.choices — the scorer adapter replays that step from the material.
     """
 
     from inspect_ai.scorer import choice
@@ -236,13 +236,13 @@ async def test_non_mapping_material_metadata_is_rejected() -> None:
 
 
 # ── the judge's reasoning reaches the report (OME-1339) ─────────────────────
-# FEATURE: the notebook report shows evidence.explanation under each verdict; the shim
+# FEATURE: the notebook report shows evidence.explanation under each verdict; the scorer adapter
 # kept a judge's words only in raw_output, so imported boards showed a bare FAIL.
 # STORY: as a researcher reading an imported judged case, I see why it scored what it did.
 
 
 def _evidence(outcome: CaseGradeOutcome) -> dict[str, Any]:
-    """The single evidence item the shim writes for a graded Case."""
+    """The single evidence item the scorer adapter writes for a graded Case."""
 
     return outcome.checks[0]["evidence"][0]
 

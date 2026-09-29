@@ -6,7 +6,7 @@
 """Wrap one inspect scorer as a board's ``grade_case`` hook — the hourglass waist proof.
 
 Think of an inspect scorer as an external examiner who only reads their own exam-office
-forms. This shim is the clerk who copies our sealed grade request onto their forms
+forms. This adapter is the clerk who copies our sealed grade request onto their forms
 (``TaskState`` + ``Target``), hands them over, and copies their mark (``Score``) back
 onto ours (``CaseGradeOutcome``) — one clerk for ALL scorers, with ZERO per-scorer
 branches (spec ``docs/spec/2026-09-09-OME-1113-inspect-evals-import.md`` §3.2). If any
@@ -33,7 +33,7 @@ Stages, in execution order (see :func:`inspect_grade_case`):
               an unknown string) → ``invalid_score_value``; answer/explanation/metadata
               → the checks evidence block, preserving the judge's own words.
 
-INVARIANT: everything crosses as plain data — the shim reads only the ``GradeRequest``
+INVARIANT: everything crosses as plain data — the scorer adapter reads only the ``GradeRequest``
 and returns a complete ``CaseGradeOutcome``; it never reaches around the hook.
 
 INVARIANT: no silent coercion. inspect's own ``value_to_float`` maps unknown values to
@@ -67,7 +67,7 @@ from screamingface_engine.grading_call_scope import grading_call_scope
 
 #: Score string verdicts → floats, per inspect's own vocabulary: CORRECT / INCORRECT /
 #: PARTIAL / NOANSWER. Closed on purpose (see the module invariant).
-_STRING_VALUES: Mapping[str, float] = {"C": 1.0, "I": 0.0, "P": 0.5, "N": 0.0}
+_INSPECT_LETTER_SCORE_VALUES: Mapping[str, float] = {"C": 1.0, "I": 0.0, "P": 0.5, "N": 0.0}
 
 #: The scorer's model identity inside the fabricated TaskState. Display-only — no
 #: model is resolved from it; the candidate already answered upstream.
@@ -145,7 +145,7 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
         output=ModelOutput.from_content(model=_CANDIDATE_MODEL, content=completion),
         # WHY: metadata-dispatching scorers (frontierscience's format field) read
         # the Sample's metadata off the state; the bake delivers it in the target
-        # record behind SnapshotSpec.keep_sample_metadata (OME-1240).
+        # record behind CasesSpec.keep_sample_metadata (OME-1240).
         metadata=_sample_metadata(material),
     )
     if choices:
@@ -207,7 +207,7 @@ def _score_as_float(value: object) -> float | None:
         # every candidate call is already paid for (review finding, 2026-09-24).
         mapped = float(value) if math.isfinite(value) else None
     elif isinstance(value, str):
-        mapped = _STRING_VALUES.get(value)
+        mapped = _INSPECT_LETTER_SCORE_VALUES.get(value)
     else:
         mapped = None
     return mapped

@@ -1,7 +1,7 @@
 """The imported `inspect-mmlu` proof board — the MCQ declaration shape (OME-1115).
 
 INVARIANT the suite defends: an MCQ board bakes their SINGLE_ANSWER prompt as data,
-grades through their real `choice()` scorer via the shim's choices replay, and is
+grades through their real `choice()` scorer via the scorer adapter's choices replay, and is
 REFUSED a check surface — pass/fail feedback over a handful of options is an
 elimination attack (OME-796), so the client preflight's refusal of a loop recipe is
 correct behavior this board must preserve. Together with gsm8k this covers both
@@ -31,7 +31,7 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
 )
-from screamingface_engine_inspect.prepare import SNAPSHOTS, emit_snapshot  # noqa: E402
+from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
 GSM8K_BOARD = imported_board("gsm8k")
 MMLU_BOARD = imported_board("mmlu")
@@ -108,7 +108,7 @@ def _bake(root: Path) -> tuple[Path, dict[int, str]]:
     """Bake the snapshot; return the root and each case's correct letter."""
 
     out = root / MMLU_BOARD.benchmark.id
-    emit_snapshot(SNAPSHOTS["mmlu"], _ROWS, out)
+    emit_cases(BENCHMARK_CASES["mmlu"], _ROWS, out)
     cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
     letters = {
         case["id"]: json.loads(

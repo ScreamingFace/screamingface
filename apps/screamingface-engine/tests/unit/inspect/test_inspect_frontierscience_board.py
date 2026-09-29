@@ -5,7 +5,7 @@
 
 The first LLM-judged import: 160 frontier science problems whose grading is the
 eval's OWN judge — olympiad answers against the official grading prompt, research
-answers against a per-case rubric — dialed through OUR gateway route. This suite
+answers against a per-case rubric — called through OUR gateway route. This suite
 pins the board's identity (judge in the revision), its declaration (no check
 surface until the check-cost knob), and one aggregate where BOTH formats grade
 end-to-end through a fake judge endpoint on the node.
@@ -32,14 +32,14 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
 )
-from screamingface_engine_inspect.prepare import SNAPSHOTS  # noqa: E402
+from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
 from screamingface_engine_inspect.single_shot import JudgeSpec  # noqa: E402
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
 
 BOARD = imported_board("frontierscience")
 
-#: The pinned gateway judge — HealthBench's judge model, dialed as a node route.
+#: The pinned gateway judge — HealthBench's judge model, called as a node route.
 _JUDGE_ROUTE = "/openrouter/openai/gpt-5.4"
 
 
@@ -56,7 +56,7 @@ def test_board_identity_and_declaration() -> None:
 
 
 def test_the_judge_is_declared_and_pinned() -> None:
-    """The board dials the SAME judge it declares, and the snapshot bakes the
+    """The board calls the SAME judge it declares, and the snapshot bakes the
     metadata its scorer dispatches on."""
 
     spec = next(spec for spec in BOARDS if spec.key == "frontierscience")
@@ -65,8 +65,8 @@ def test_the_judge_is_declared_and_pinned() -> None:
         params=(("web_search", "false"), ("max_tokens", "4096")),
     )
     assert spec.scorer_kwargs["model"] == "screamingface/openrouter/openai/gpt-5.4"
-    assert SNAPSHOTS["frontierscience"].keep_sample_metadata is True
-    assert SNAPSHOTS["frontierscience"].shuffle_seed is not None
+    assert BENCHMARK_CASES["frontierscience"].keep_sample_metadata is True
+    assert BENCHMARK_CASES["frontierscience"].shuffle_seed is not None
 
 
 def test_no_check_surface_until_the_check_cost_knob() -> None:

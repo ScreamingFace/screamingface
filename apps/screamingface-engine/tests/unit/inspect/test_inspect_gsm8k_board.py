@@ -2,7 +2,7 @@
 
 FEATURE: the first stranger-authored benchmark on the shared spine with zero spine
 edits (OME-1115). This suite drives the board's definition, asset snapshot, runtime
-routes, the shared spine aggregate through the scorer shim, and the §4 check surface
+routes, the shared spine aggregate through the scorer adapter, and the §4 check surface
 (the SAME wrapped scorer serving mid-run feedback).
 
 Runs only with the `inspect` extra installed (`uv run --extra inspect pytest …`);
@@ -28,7 +28,7 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
 )
-from screamingface_engine_inspect.prepare import SNAPSHOTS, emit_snapshot  # noqa: E402
+from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
 GSM8K_BOARD = imported_board("gsm8k")
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
@@ -43,7 +43,7 @@ _ROWS: list[dict[str, Any]] = [
 def _bake(root: Path) -> Path:
     """Bake a two-case snapshot in the board's asset layout (assets/<benchmark id>/)."""
 
-    emit_snapshot(SNAPSHOTS["gsm8k"], _ROWS, root / GSM8K_BOARD.benchmark.id)
+    emit_cases(BENCHMARK_CASES["gsm8k"], _ROWS, root / GSM8K_BOARD.benchmark.id)
     return root
 
 
@@ -241,7 +241,7 @@ async def test_check_surface_refuses_an_unusable_target_in_the_plugins_voice(
     tmp_path: Path,
 ) -> None:
     """INVARIANT: failure wording is this plugin's published voice — a missing key
-    refuses with the named missing_target_asset message, never the shim's internal
+    refuses with the named missing_target_asset message, never the scorer adapter's internal
     TypeError vocabulary reaching the candidate mid-run."""
 
     node = _node(tmp_path)

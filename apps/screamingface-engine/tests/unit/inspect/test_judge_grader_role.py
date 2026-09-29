@@ -9,7 +9,7 @@ role, so a board row declares ``JudgeSpec(model=..., model_role="grader")`` and 
 aggregate binds the role to our metered ``screamingface/<model>`` provider for the
 grading pass — the same wall socket FrontierScience's named judge plugs into.
 
-INVARIANT the suite defends: an unbound role never dials anyone. The binding is scoped
+INVARIANT the suite defends: an unbound role never calls anyone. The binding is scoped
 to one grading pass, a role-based scorer without a declared judge refuses at assembly,
 and a judge that fills a model role is exam identity exactly like a named one.
 
@@ -57,7 +57,7 @@ from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     bound_judge_transport,
     judge_filling_model_role,
 )
-from screamingface_engine_inspect.shim import inspect_grade_case  # noqa: E402
+from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 from screamingface_engine_inspect.single_shot import JudgeSpec  # noqa: E402
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
@@ -134,7 +134,7 @@ async def test_a_role_based_scorer_grades_through_the_provider_when_the_role_is_
 
 
 @pytest.mark.asyncio
-async def test_the_real_simpleqa_scorer_dials_the_bound_role() -> None:
+async def test_the_real_simpleqa_scorer_calls_the_bound_role() -> None:
     """The ticket's first board: SimpleQA's paper scorer asks for the grader role
     by name — its judge call must leave through the declared route."""
 
@@ -195,12 +195,12 @@ async def test_concurrent_role_bindings_stay_per_task() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_unbound_grader_role_never_dials_anyone(
+async def test_an_unbound_grader_role_never_calls_anyone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """INVARIANT (no unmetered judge call): with the role unbound, the scorer's
     judge lookup fails the Case by name — our socket stays silent and no vendor
-    is dialed in its place."""
+    is called in its place."""
 
     monkeypatch.delenv("INSPECT_EVAL_MODEL", raising=False)
     fetch = _RecordingFetch()
@@ -245,10 +245,10 @@ def test_an_unsupported_role_is_refused_by_name(monkeypatch: pytest.MonkeyPatch)
         _assembled(_role_spec(judge=JudgeSpec(model="judge-4", model_role="critic")), monkeypatch)
 
 
-def test_a_model_role_judge_plus_a_dialed_kwarg_is_refused(
+def test_a_model_role_judge_plus_a_called_kwarg_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One judge, one path: a scorer that also dials a gateway judge by kwarg would
+    """One judge, one path: a scorer that also calls a gateway judge by kwarg would
     grade with that one, leaving the role binding pinned but never called."""
 
     spec = _role_spec(scorer_kwargs={"model": "screamingface/judge-4"})

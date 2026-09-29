@@ -28,7 +28,7 @@ from screamingface_engine_inspect.boards import (  # noqa: E402
     board_registrations,
     imported_board,
 )
-from screamingface_engine_inspect.prepare import SNAPSHOTS  # noqa: E402
+from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
 
 #: Every imported board key and its family: "mcq" (choice scorer, check surface
 #: refused per OME-796), "free_text" (check surface ON, spec §4), or "judged"
@@ -77,7 +77,7 @@ def test_catalogue_holds_every_imported_board() -> None:
     """OME-1116 acceptance: ≥10 imported boards; the row table IS the catalogue."""
 
     assert {spec.key for spec in BOARDS} == set(_EXPECTED_FAMILIES)
-    assert set(SNAPSHOTS) == set(_EXPECTED_FAMILIES)
+    assert set(BENCHMARK_CASES) == set(_EXPECTED_FAMILIES)
     ids = [registration.benchmark.id for registration in board_registrations()]
     assert len(ids) == len(set(ids)) == len(_EXPECTED_FAMILIES)
     assert all(board_id.startswith("inspect-") for board_id in ids)
@@ -114,11 +114,11 @@ def test_board_revisions_are_distinct() -> None:
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
 def test_snapshot_row_pins_exam_identity(key: str) -> None:
-    snapshot = SNAPSHOTS[key]
-    assert len(snapshot.dataset_revision) == 40
-    int(snapshot.dataset_revision, 16)
-    assert snapshot.case_count > 0
-    assert snapshot.dataset and snapshot.split
+    cases_spec = BENCHMARK_CASES[key]
+    assert len(cases_spec.dataset_revision) == 40
+    int(cases_spec.dataset_revision, 16)
+    assert cases_spec.case_count > 0
+    assert cases_spec.dataset and cases_spec.split
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
@@ -126,17 +126,17 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
     """The rows POINT at the eval's own code; a dangling reference must fail CI,
     not the image build."""
 
-    snapshot = SNAPSHOTS[key]
-    references: list[str] = [snapshot.record_to_sample]
-    if snapshot.prompt_template is not None:
-        references.append(snapshot.prompt_template)
-    if snapshot.choice_template is not None:
-        references.append(snapshot.choice_template)
-    if snapshot.system_message is not None:
-        references.append(snapshot.system_message)
-    if snapshot.question_filter_task is not None:
+    cases_spec = BENCHMARK_CASES[key]
+    references: list[str] = [cases_spec.record_to_sample]
+    if cases_spec.prompt_template is not None:
+        references.append(cases_spec.prompt_template)
+    if cases_spec.choice_template is not None:
+        references.append(cases_spec.choice_template)
+    if cases_spec.system_message is not None:
+        references.append(cases_spec.system_message)
+    if cases_spec.question_filter_task is not None:
         # The question-filter pointer (OME-1269): the bake CALLS it at image build.
-        references.append(snapshot.question_filter_task)
+        references.append(cases_spec.question_filter_task)
     for reference in references:
         module_name, _, attribute = reference.partition(":")
         assert hasattr(import_module(module_name), attribute), reference
@@ -179,7 +179,9 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     (hf_dataset shuffle=True); an import must pin one order — a dropped shuffle
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
-    seeded: set[str] = {key for key, spec in SNAPSHOTS.items() if spec.shuffle_seed is not None}
+    seeded: set[str] = {
+        key for key, spec in BENCHMARK_CASES.items() if spec.shuffle_seed is not None
+    }
     # aime24/aime25: OURS policy seed (owner-approved 2026-09-22) — upstream serves
     # dataset order (AIME I then II, roughly ascending difficulty within each), so an
     # unseeded import would give a limited run only the easier AIME I half.
@@ -224,7 +226,7 @@ def test_lab_bench_boards_pin_a_choice_order() -> None:
 
     from screamingface_engine_inspect.boards import _revision_pins
 
-    lab_bench_keys = {key for key in SNAPSHOTS if key.startswith("lab_bench_")}
+    lab_bench_keys = {key for key in BENCHMARK_CASES if key.startswith("lab_bench_")}
     assert lab_bench_keys == {
         "lab_bench_litqa",
         "lab_bench_suppqa",
@@ -234,9 +236,9 @@ def test_lab_bench_boards_pin_a_choice_order() -> None:
         "lab_bench_cloning_scenarios",
     }
     for key in sorted(lab_bench_keys):
-        assert SNAPSHOTS[key].choice_shuffle_seed is not None, key
-        assert f"choice_shuffle_seed={SNAPSHOTS[key].choice_shuffle_seed}" in _revision_pins(
-            SNAPSHOTS[key]
+        assert BENCHMARK_CASES[key].choice_shuffle_seed is not None, key
+        assert f"choice_shuffle_seed={BENCHMARK_CASES[key].choice_shuffle_seed}" in _revision_pins(
+            BENCHMARK_CASES[key]
         )
 
 
@@ -247,8 +249,8 @@ def test_lab_bench_pins_track_upstreams_own_revision_constant() -> None:
 
     from inspect_evals.lab_bench.lab_bench import LAB_BENCH_DATASET_REVISION as UPSTREAM
 
-    for key in (k for k in SNAPSHOTS if k.startswith("lab_bench_")):
-        assert SNAPSHOTS[key].dataset_revision == UPSTREAM, key
+    for key in (k for k in BENCHMARK_CASES if k.startswith("lab_bench_")):
+        assert BENCHMARK_CASES[key].dataset_revision == UPSTREAM, key
 
 
 def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
@@ -295,10 +297,12 @@ def test_choice_shuffle_seed_rides_exam_identity() -> None:
 
     from screamingface_engine_inspect.boards import _revision_pins
 
-    pins = _revision_pins(replace(SNAPSHOTS["mmlu"], choice_shuffle_seed=7))
+    pins = _revision_pins(replace(BENCHMARK_CASES["mmlu"], choice_shuffle_seed=7))
     assert "choice_shuffle_seed=7" in pins
     # And a board without one carries no such pin (the field is conditional).
-    assert not any(p.startswith("choice_shuffle_seed=") for p in _revision_pins(SNAPSHOTS["mmlu"]))
+    assert not any(
+        p.startswith("choice_shuffle_seed=") for p in _revision_pins(BENCHMARK_CASES["mmlu"])
+    )
 
 
 def test_data_files_and_features_ride_exam_identity() -> None:
@@ -310,13 +314,13 @@ def test_data_files_and_features_ride_exam_identity() -> None:
 
     from screamingface_engine_inspect.boards import _revision_pins
 
-    spec = replace(SNAPSHOTS["mmlu"], data_files={"t": "t.jsonl"}, features="fake_mod:FT")
+    spec = replace(BENCHMARK_CASES["mmlu"], data_files={"t": "t.jsonl"}, features="fake_mod:FT")
     pins = _revision_pins(spec)
     assert 'data_files={"t": "t.jsonl"}' in pins
     assert "features=fake_mod:FT" in pins
     # And a board without them carries neither pin (the fields are conditional).
     assert not any(
-        p.startswith(("data_files=", "features=")) for p in _revision_pins(SNAPSHOTS["mmlu"])
+        p.startswith(("data_files=", "features=")) for p in _revision_pins(BENCHMARK_CASES["mmlu"])
     )
 
 
@@ -327,10 +331,10 @@ def test_system_message_pointer_rides_exam_identity() -> None:
 
     from screamingface_engine_inspect.boards import _revision_pins
 
-    pins = _revision_pins(SNAPSHOTS["hellaswag"])
+    pins = _revision_pins(BENCHMARK_CASES["hellaswag"])
     assert "system_message=inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE" in pins
     # And a board without one carries no such pin (the field is conditional).
-    assert not any(p.startswith("system_message=") for p in _revision_pins(SNAPSHOTS["musr"]))
+    assert not any(p.startswith("system_message=") for p in _revision_pins(BENCHMARK_CASES["musr"]))
 
 
 def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
@@ -346,7 +350,7 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
 
     from screamingface_engine_inspect.boards import _revision_pins
 
-    row = SNAPSHOTS["onet_m6"]
+    row = BENCHMARK_CASES["onet_m6"]
     assert row.dataset_revision == UPSTREAM
     assert row.question_filter_task == "inspect_evals.onet.onet:onet_m6"
     assert row.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
@@ -366,7 +370,7 @@ def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
 
     from screamingface_engine_inspect.boards import _revision_pins
 
-    row = SNAPSHOTS["pubmedqa"]
+    row = BENCHMARK_CASES["pubmedqa"]
     assert row.dataset_revision == UPSTREAM
     assert row.question_filter_task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
     assert row.choice_template == "inspect_evals.pubmedqa.pubmedqa:TEMPLATE"
@@ -386,7 +390,7 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
 
     from screamingface_engine_inspect.boards import BOARDS, _revision_pins
 
-    row = SNAPSHOTS["xstest_safe"]
+    row = BENCHMARK_CASES["xstest_safe"]
     assert row.dataset_revision == UPSTREAM
     assert row.question_filter_task == "inspect_evals.xstest.xstest:xstest"
     assert row.question_filter_task_args == {"subset": "safe"}
