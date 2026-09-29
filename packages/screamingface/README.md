@@ -426,14 +426,18 @@ breakdown = report.candidates[0].accounting
 breakdown.by_stage  # generation, synthesis, grading
 breakdown.by_operation  # (stage, operation/check id)
 breakdown.by_member  # direct model-member operation ids
-breakdown.by_model  # request model; None when unknown
+breakdown.by_model  # request model or reliable declared identity; None when unknown
 breakdown.by_case  # original Case ids
 breakdown.unattributed_cost_usd
 ```
 
 Each group has `usage`, `calls`, `cache`, `provider_latency_ms`, and `provider_attempts`.
 These summarize retained observations; they do not replace the authoritative run total.
-Missing observations remain unknown. Calls count consumed responses, not provider retries.
+Missing observations remain unknown. A missing record stays in its declared model group
+when that identity is unambiguous and agrees with retained requests. If any row's model
+cannot be identified, all named `by_model` summaries are unknown: the unidentified work
+could belong to any of them. The `None` bucket summarizes only its anonymous observations.
+Calls count consumed responses, not provider retries.
 Provider time sums attempt latencies and is not wall time. Unknown or unpriced costs prevent
 an exact remainder; inconsistent records disable the breakdown (`consistent=False`).
 Loop internals and composite-member ownership remain unattributed where the retained contract

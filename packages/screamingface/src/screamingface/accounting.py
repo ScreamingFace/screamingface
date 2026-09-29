@@ -64,7 +64,15 @@ class AccountingBreakdown:
 
     @property
     def by_model(self) -> Mapping[str | None, AccountingSummary]:
-        return _group(self.rows, lambda row: row.model)
+        groups = _group(self.rows, lambda row: row.model)
+        if None not in groups:
+            return groups
+        # INVARIANT: an anonymous call could belong to any named model. Its own
+        # bucket remains a strict observation summary, never a named model total.
+        unknown = summarize([None])
+        return MappingProxyType(
+            {model: summary if model is None else unknown for model, summary in groups.items()}
+        )
 
     @property
     def by_member(self) -> Mapping[str, AccountingSummary]:
@@ -143,7 +151,42 @@ def member_usage(cases: Sequence[CaseResult], operation_id: str) -> Usage | None
     return _usage_sum([v.usage for v in records]) if records else None
 
 
-def _candidate_rows(candidate: CandidateResult, case: CaseResult) -> list[AccountingRow]:
+def _declared_operation_models(candidate: CandidateResult) -> dict[str, str]:
+    declarations: dict[str, list[str]] = {}
+    for member in candidate.members:
+        if member.kind == "model":
+            declarations.setdefault(member.operation_id, []).extend(member.models)
+    if candidate.kind == "model" and len(candidate.operations) == 1:
+        declarations[candidate.operations[0].id] = list(candidate.models)
+    models = {key: values[0] for key, values in declarations.items() if len(values) == 1}
+    for case in candidate.cases:
+        for op in case.operations or ():
+            if op.accounting is not None and op.accounting.request_model != models.get(
+                op.operation_id
+            ):
+                models.pop(op.operation_id, None)
+    return models
+
+
+def _declared_judge_models(candidate: CandidateResult) -> dict[str, str]:
+    evidence = [
+        item
+        for case in candidate.cases
+        if case.grade is not None
+        for check in case.grade.checks
+        for item in check.evidence
+        if item.producer.type == "model"
+    ]
+    models = {item.producer.id: item.producer.id for item in evidence}
+    for item in evidence:
+        if item.accounting is not None and item.accounting.request_model != item.producer.id:
+            models.pop(item.producer.id, None)
+    return models
+
+
+def _candidate_rows(
+    candidate: CandidateResult, case: CaseResult, models: Mapping[str, str]
+) -> list[AccountingRow]:
     operations = {op.id: op for op in candidate.operations}
     retained = {op.operation_id: op for op in case.operations or ()}
     if len(retained) != len(case.operations or ()):
@@ -164,14 +207,14 @@ def _candidate_rows(candidate: CandidateResult, case: CaseResult) -> list[Accoun
                 op.id,
                 op.label,
                 op.id if op.id in members else None,
-                value.request_model if value else None,
+                value.request_model if value else models.get(op.id),
                 value,
             )
         )
     return rows
 
 
-def _grading_rows(case: CaseResult) -> list[AccountingRow]:
+def _grading_rows(case: CaseResult, models: Mapping[str, str]) -> list[AccountingRow]:
     rows = []
     if case.grade is None:
         return rows
@@ -189,7 +232,7 @@ def _grading_rows(case: CaseResult) -> list[AccountingRow]:
                     check.id,
                     check.label,
                     None,
-                    value.request_model if value else evidence.producer.id,
+                    value.request_model if value else models.get(evidence.producer.id),
                     value,
                 )
             )
@@ -197,12 +240,16 @@ def _grading_rows(case: CaseResult) -> list[AccountingRow]:
 
 
 def _rows(candidate: CandidateResult) -> tuple[AccountingRow, ...]:
+    # WHY: declarations may name a different route than retained requests. Resolve
+    # across all Cases first so a missing record cannot split into an alias bucket.
+    operation_models = _declared_operation_models(candidate)
+    judge_models = _declared_judge_models(candidate)
     rows = []
     for case in candidate.cases:
         # INVARIANT: loop internals are not attributable by this retained contract.
         if candidate.kind not in {"corrective_loop", "self_corrective"}:
-            rows.extend(_candidate_rows(candidate, case))
-        rows.extend(_grading_rows(case))
+            rows.extend(_candidate_rows(candidate, case, operation_models))
+        rows.extend(_grading_rows(case, judge_models))
     return tuple(rows)
 
 

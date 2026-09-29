@@ -115,3 +115,13 @@ Owner approved removing the grey rule above the first cost block; retain inter-o
 
 Review fixes approved: render nonzero costs below USD 0.0001 with exact decimal precision,
 including run remainders. Type AccountingRow.stage as generation | synthesis | grading.
+
+## Approved review correction — 2026-09-29
+
+1. Add regression tests for incomplete per-model totals, declared model attribution,
+   ambiguous synthesis, and judge IDs differing from request model names.
+2. Resolve missing identities from unambiguous declarations with no conflicting retained
+   request identity. Unknown identity invalidates every named model summary; preserve the
+   strict anonymous bucket and all other grouping behavior.
+3. Run the full Client gates against the pre-follow-up PR head for append-only protection,
+   record the result, commit and push to the existing PR branch.
