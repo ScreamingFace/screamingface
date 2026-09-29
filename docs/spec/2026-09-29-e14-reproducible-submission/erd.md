@@ -24,7 +24,7 @@ erDiagram
     Score ||--|{ ReportedResult : "has reported results"
     Score ||--o{ ScoreMetadataEvent : "edit history"
     ReportedResult ||--o| CacheVersionPublication : "publish state"
-    ReportedResult }o--o| ReportedResult : "replayed_from / pinned_baseline"
+    ReportedResult }o--o| ReportedResult : "replayed_from_result / pinned_baseline_result"
 
     CacheCaptureEntry }o--|| RequestCachePrompt : "prompt by key_hash"
     CacheCaptureEntry }o--|| CacheVersion : "frozen into (by account+trace_id)"
@@ -90,23 +90,23 @@ one recipe, one cache version" `[stated prompt]` maps to one `ReportedResult` an
 | Column | Type | Rule |
 |---|---|---|
 | `id` | `UUID PK` | |
-| `score_id` | `UUID NOT NULL` FK → `Score.id` | The head. |
-| `is_original` | `BOOL NOT NULL` | Exactly one `true` per `score_id` (partial unique index). |
+| `head_id` | `UUID NOT NULL` FK → `Score.id`, `ON DELETE CASCADE` | The head. The FK attribute is `head`; the column has the Tortoise native name `head_id` (D8, `ans:Q25`). |
+| `is_original` | `BOOL NOT NULL` | Exactly one `true` per `head_id` (partial unique index `uidx_reported_result_one_original` on `("head_id") WHERE "is_original"`). |
 | `reporter` | `VARCHAR(255) NULL` | Verified submitter of this run. Same source as `Score.submitted_by` `[existing apps/scoreboard/src/scoreboard/routes/scores.py:87]`: in production, the `X-User-Email` identity of `cloudflare_headers` mode (`ans:Q22`). NULL only in the `disabled` dev and local fallback. |
 | `run_id` | `VARCHAR(128) NULL UNIQUE` | From `Idempotency-Key` `[existing packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:106]`. Unique, so a resend never makes a second row. |
 | `trace_id` | `CHAR(32) NULL` | From the report `[existing packages/screamingface/src/screamingface/report.py:189]`. |
 | `score`, `total_questions`, `correct_questions` | as `Score` | This run's numbers. |
 | `run_cost_usd`, `run_cost_status`, `cache_saved_cost_usd` | as `Score` | This run's cost. |
 | `models`, `ran_with_providers`, `answer_seed`, `client_name`, `client_version`, `client_platform` | as `Score` / report | |
-| `submitted_at` | `TIMESTAMPTZ NOT NULL` | Server time. |
+| `submitted_at` | `TIMESTAMPTZ NOT NULL` | Server time. Index `(head_id, submitted_at)` for the results list. |
 | `cache_version_id` | `UUID NULL` | By value. Set only from a valid receipt (C3). |
 | `cache_version_sha256` | `CHAR(64) NULL` | The archive digest from the receipt. |
 | `cache_entry_count` | `INT NULL` | From the receipt. |
 | `cache_call_count` | `INT NULL` | From the receipt: all gateway calls seen for the trace. |
 | `cache_coverage_status` | `VARCHAR(16) NULL` | `complete` or `partial` (from the receipt). |
-| `replayed_from_result_id` | `UUID NULL` FK → `ReportedResult.id` | Set when the run was pinned to a version `[proposed]`. |
+| `replayed_from_result_id` | `UUID NULL` FK → `ReportedResult.id`, `ON DELETE NO ACTION` | Set when the run was pinned to a version `[proposed]`. FK attribute `replayed_from_result` (D8). |
 | `replay_hits`, `replay_misses` | `INT NULL` | Version hits and misses during the run `[stated ans:Q13]`. |
-| `pinned_baseline_result_id` | `UUID NULL` FK → `ReportedResult.id` | The result that a pin-by-date resolved to `[stated ans:Q7]`. |
+| `pinned_baseline_result_id` | `UUID NULL` FK → `ReportedResult.id`, `ON DELETE NO ACTION` | The result that a pin-by-date resolved to `[stated ans:Q7]`. FK attribute `pinned_baseline_result` (D8). |
 
 **Invariants.**
 - I-R1 `[implied]`: `cache_version_id`, `cache_version_sha256`, `cache_entry_count`,
@@ -116,6 +116,14 @@ one recipe, one cache version" `[stated prompt]` maps to one `ReportedResult` an
 - I-R3 `[proposed]`: A `ReportedResult` row is immutable after insert, except for the publish
   state, which lives in `CacheVersionPublication`.
 - I-R4 `[implied]`: `cache_version_id` is unique across rows. One version binds to one result.
+- I-R5 `[proposed]` (D8, `ans:Q25`): the two replay FKs use `ON DELETE NO ACTION`, not
+  `RESTRICT`. The database checks NO ACTION at the end of the statement, on SQLite and on
+  PostgreSQL. So when a head is deleted, the CASCADE can remove a replay and its original in the
+  same cluster together. A replay in a **different** cluster still blocks the delete of its
+  original, so the provenance stays and I-R2 stays true. (SQLite checks RESTRICT row by row,
+  inside the CASCADE, so RESTRICT blocks the in-cluster delete.)
+- Column names `[proposed]` (D8): every FK column has the Tortoise native name `<attr>_id`.
+  No FK sets a custom `source_field`, and no migration renames a column.
 
 **Size.** One row per submission. It grows at the submission rate (see §5).
 
@@ -180,9 +188,19 @@ def system_fingerprint(
 - **Caller.** The scoreboard calls
   `system_fingerprint(linked, binding="candidate", exclude_bindings=frozenset({"_sf_recipe"}))`
   `[stated ans:Q20]`. The SDK, when it computes a fingerprint, uses the same arguments.
-- **`exclude_bindings`.** The function removes each top-level source of the candidate
-  expression whose binding name is in the set, then renders. The `_sf_recipe` binding holds the
-  recipe display name (`name`, `named`)
+- **`exclude_bindings`** `[existing packages/url4/src/url4/fingerprint.py:92-133]` (as built,
+  D3 amendment, `ans:Q25`). The function removes a top-level source of the candidate
+  expression whose binding name is in the set **only when the source is inert**, then renders.
+  A source is inert when all three rules are true:
+  1. its value is text (a `Text` node);
+  2. its weight is the explicit scalar `0.0` (an absent weight is **not** inert);
+  3. no `$name` reference to it stays in the rest of the system.
+  When a named source is not inert, the function raises
+  `url4.fingerprint.ExcludedBindingError` (a `url4.Url4Error`, code `malformed_source`). It
+  never hides a working part of a system. WHY: the scoreboard takes client text, and a client
+  can name a working member `_sf_recipe`; if the function hid it, a different system would get
+  the fingerprint of an existing system. The scoreboard maps the error to `422 invalid_url4`
+  (SR-D5). The `_sf_recipe` binding holds the recipe display name (`name`, `named`)
   `[existing packages/screamingface/src/screamingface/_evaluation/topology.py:14]`, so a rename
   does not make a new system. The `url4` package never names `_sf_recipe`: the caller passes
   it. The default (an empty set) removes nothing.
@@ -323,7 +341,7 @@ inline bodies of uncached calls. See the tripwire in §5.
 | `owner_account_id` | `VARCHAR(64) NOT NULL` | The account that froze it. |
 | `trace_id` | `CHAR(32) NOT NULL` | Unique with `owner_account_id`, so a freeze is idempotent. |
 | `status` | `VARCHAR(16)` | `frozen`, then `archived` (after the bucket export). |
-| `entry_count` | `INT` | Distinct `(key_hash, blob_sha256)` pairs. |
+| `entry_count` | `INT` | Distinct `(key_hash, blob_id)` pairs. |
 | `call_count` | `INT` | Ledger rows seen for the trace. |
 | `missing_count` | `INT` | Calls with no recoverable response (live row pruned, or `error`). |
 | `coverage_status` | `VARCHAR(16)` | `complete` if `missing_count = 0`, else `partial`. |
@@ -338,8 +356,11 @@ request plus response), `request_json`, `response_json`, `metadata_json` (the
 `aigw.cache-entry-metadata.v1` block
 `[existing apps/aigateway/src/aigateway/core/request_cache/entry_metadata.py:29]`), `size_bytes`.
 
-`CacheVersionEntry`: `(version_id, key_hash, blob_sha256, first_ordinal)`, primary key
-`(version_id, key_hash, blob_sha256)`.
+`CacheVersionEntry`: `(version_id, key_hash, blob_id, first_ordinal)`, primary key
+`(version_id, key_hash, blob_id)`. `blob_id` holds `CacheVersionBlob.sha256`. The columns
+`version_id` and `blob_id` have the Tortoise native FK names (D8, `ans:Q25`). As built, the key is
+a UUID surrogate `id` plus a unique index on these three columns, because Tortoise 1.1.8 has no
+composite primary key (GW-capture §5).
 
 A rerun of the same recipe sends mostly the same calls, so blobs are shared across the
 versions of one cluster. That keeps storage near the size of one run per cluster.

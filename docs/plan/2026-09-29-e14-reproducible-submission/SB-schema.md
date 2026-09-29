@@ -40,6 +40,7 @@ test; no behavior". No PRD TDD table owns these rows, so this plan names its own
 | SCH-11 | `test_sch11_score_schema_output_is_unchanged_for_a_legacy_row` | `ScoreSchema` JSON and the private-export bytes of a legacy row do not change |
 | SCH-12 | `test_sch12_migrations_apply_on_postgres` | the same chain applies on PostgreSQL, the PostgreSQL-only foreign key exists, the partial indexes exist |
 | SCH-13 | `test_sch13_partial_index_fixture_creates_the_indexes` | the new test fixture adds the two partial indexes to a `generate_schemas` database |
+| SCH-14 | `test_sch14_replay_fks_are_no_action` (SQLite) and `test_sch14_replay_fks_are_no_action_on_postgres` | the delete of a head whose cluster holds a self-replay succeeds; the delete of an original that a result in another cluster replayed fails (OD-S2, D8) |
 
 CHAR (must stay green, do not edit):
 `tests/unit/test_leaderboard_routes.py::test_every_score_field_reaches_at_least_one_read_dto`.
@@ -63,8 +64,9 @@ CHAR (must stay green, do not edit):
 - Later units that build on this unit: SB-meta, SB-registry, SB-submit, SB-grants, SB-publish.
   Tell them: new Score columns are `paper_url`, `metadata_revision`, `metadata_updated_at`,
   `system_revision_id` (a plain UUID column with no index of its own, see §4.2 and OD-S1).
-  `ReportedResult` attributes are `head_id`, `replayed_from_id`, `pinned_baseline_id`; their
-  columns are `score_id`, `replayed_from_result_id`, `pinned_baseline_result_id` (erd.md §2.2).
+  `ReportedResult` FK fields are `head`, `replayed_from_result`, `pinned_baseline_result`. Their
+  key attributes and their columns have the same names: `head_id`, `replayed_from_result_id`,
+  `pinned_baseline_result_id` (erd.md §2.2, D8). No FK in E14 sets `source_field`.
 
 ## 3. Files
 
@@ -85,8 +87,8 @@ CHAR (must stay green, do not edit):
 | `apps/scoreboard/src/scoreboard/scores/store.py` | change: project the four fields in `_score_to_schema` | `store.py:96-136` |
 | `apps/scoreboard/tests/conftest.py` | change: **append** one new fixture function at the end (do not touch existing bodies) | `tests/conftest.py:73-84` |
 | `apps/scoreboard/tests/unit/test_migration_e14_schema.py` | create: SCH-1 to SCH-7, SCH-9 | `tests/unit/test_migration_0009_idempotency_namespaces.py:1-77` |
-| `apps/scoreboard/tests/unit/scores/test_e14_models.py` | create: SCH-8, SCH-10, SCH-11, SCH-13 | `tests/unit/scores/test_models.py` |
-| `apps/scoreboard/tests/unit/test_migration_e14_postgres.py` | create: SCH-12 | `tests/unit/test_delete_scores_postgres.py:1-80`, `tests/conftest.py:42-70` |
+| `apps/scoreboard/tests/unit/scores/test_e14_models.py` | create: SCH-8, SCH-10, SCH-11, SCH-13, SCH-14 | `tests/unit/scores/test_models.py` |
+| `apps/scoreboard/tests/unit/test_migration_e14_postgres.py` | create: SCH-12, SCH-14 (PostgreSQL case) | `tests/unit/test_delete_scores_postgres.py:1-80`, `tests/conftest.py:42-70` |
 | `.github/workflows/scoreboard-tests.yml` | change: name `tests/unit/test_migration_e14_postgres.py` in the `postgres` job | `scoreboard-tests.yml:166-174` |
 | `apps/scoreboard/DEPLOYMENT.md` | change: one paragraph under "Breaking migrations and multi-replica rollouts" that says 0017-0019 are expand-only and safe for a rolling rollout | `DEPLOYMENT.md:276-283` |
 
@@ -167,7 +169,11 @@ class SystemRevision(BaseSystemRevision):
 ### 4.5 `ReportedResult` (table `reported_result`)
 
 The FK to `Score` cannot be named `score`: erd.md §2.2 also names the result number `score`.
-Name the FK attribute `head` and pin its column with `source_field="score_id"`.
+Name the FK attribute `head`. Its column is the Tortoise native name `head_id` (D8). Do **not**
+set `source_field` on any FK. WHY: Tortoise 1.1.8 overwrites the `source_field` of an FK with
+`<attr>_id` at init (`tortoise/apps.py:205`). So a custom FK column does not go through the
+migration state, `makemigrations` proposes a change, and a `RunSQL` column rename makes the state
+and the database different.
 
 ```python
 class BaseReportedResult(BaseScoreboardModel):
@@ -203,16 +209,15 @@ class ReportedResult(BaseReportedResult):
         table = "reported_result"
         indexes = (("head_id", "submitted_at"),)
     head = fields.ForeignKeyField(
-        "models.Score", source_field="score_id", related_name=False,
-        on_delete=fields.OnDelete.CASCADE,
+        "models.Score", related_name=False, on_delete=fields.OnDelete.CASCADE,
     )
-    replayed_from = fields.ForeignKeyField(
-        "models.ReportedResult", source_field="replayed_from_result_id", related_name=False,
-        null=True, on_delete=fields.OnDelete.RESTRICT,
+    replayed_from_result = fields.ForeignKeyField(
+        "models.ReportedResult", related_name=False,
+        null=True, on_delete=fields.OnDelete.NO_ACTION,
     )
-    pinned_baseline = fields.ForeignKeyField(
-        "models.ReportedResult", source_field="pinned_baseline_result_id", related_name=False,
-        null=True, on_delete=fields.OnDelete.RESTRICT,
+    pinned_baseline_result = fields.ForeignKeyField(
+        "models.ReportedResult", related_name=False,
+        null=True, on_delete=fields.OnDelete.NO_ACTION,
     )
 ```
 
@@ -220,17 +225,15 @@ class ReportedResult(BaseReportedResult):
   delete `Score` rows with the ORM (`delete_scores.py:150`, `purge_private_benchmark.py:120`),
   and 0019 gives every score a child row. RESTRICT would break all three tools on deploy.
   This matches `IdempotencyKey.score` (`idempotency_key.py:30-34`).
-- `replayed_from` / `pinned_baseline` RESTRICT: see OD-S2.
-- Column names follow erd.md §2.2 exactly: `score_id`, `replayed_from_result_id`,
-  `pinned_baseline_result_id`. The Python attributes stay `head_id`, `replayed_from_id` and
-  `pinned_baseline_id` (Tortoise names the key attribute `<field>_id` and uses `source_field`
-  only as the column, `tortoise/apps.py:190-205`). SB-submit uses these attribute names.
+- `replayed_from_result` / `pinned_baseline_result` NO ACTION: see OD-S2.
+- Column names follow erd.md §2.2 exactly: `head_id`, `replayed_from_result_id`,
+  `pinned_baseline_result_id`. They are the Tortoise native names (`<field>_id`,
+  `tortoise/apps.py:190-205`), so the key attribute and the column have the same name (D8).
+  SB-submit, SB-grants and SB-publish use these names.
 - Write the index as `indexes = (("head_id", "submitted_at"),)`, with the key attribute
-  `head_id`, **not** `head`. WHY: the index resolver uses `field.source_field or name`
-  (`tortoise/migrations/schema_editor/base.py:412-417`); for the key attribute `head_id` the
-  source field is the column `score_id`, but for the relation `head` Tortoise overwrites
-  `source_field` with the attribute name `head_id` (`tortoise/apps.py:205`), which is not a
-  column. SCH-8 asserts that an index on the **column** `score_id` exists.
+  `head_id`. The index resolver uses `field.source_field or name`
+  (`tortoise/migrations/schema_editor/base.py:412-417`), and for `head_id` that is the column
+  `head_id`. SCH-8 asserts that an index on the **column** `head_id` exists.
 - The I-R1 and I-R2 "all set or all null" rules are not database constraints in this unit.
   SB-submit enforces them in code.
 
@@ -309,7 +312,7 @@ from tortoise import BaseDBAsyncClient
 
 ONE_ORIGINAL_PER_SCORE_SQL = (
     'CREATE UNIQUE INDEX IF NOT EXISTS "uidx_reported_result_one_original" '
-    'ON "reported_result" ("score_id") WHERE "is_original"'
+    'ON "reported_result" ("head_id") WHERE "is_original"'
 )
 ONE_PUBLIC_HEAD_PER_SYSTEM_REVISION_SQL = (
     'CREATE UNIQUE INDEX IF NOT EXISTS "uidx_scores_public_head" '
@@ -410,7 +413,9 @@ a gate.
   2. `RunSQL(ONE_ORIGINAL_PER_SCORE_SQL-text, reverse_sql='DROP INDEX IF EXISTS "uidx_reported_result_one_original"')`
   3. `RunSQL(ONE_PUBLIC_HEAD_PER_SYSTEM_REVISION_SQL-text, reverse_sql='DROP INDEX IF EXISTS "uidx_scores_public_head"')`
   4. `RunPython(_add_postgres_system_revision_fk, reverse_code=_drop_postgres_system_revision_fk)`.
-- Write the SQL text **inline** as string literals in the migration. Do not import
+- No other operation. In particular, no `RunSQL` that renames a column (`ALTER TABLE … RENAME`):
+  the `CreateModel` columns already have the native names (D8). If `makemigrations` writes a
+  custom column name for an FK, fix the model (remove `source_field`), not the migration.- Write the SQL text **inline** as string literals in the migration. Do not import
   `partial_indexes.py`: a migration is frozen history and must not change when app code
   changes. SCH-7 holds the two copies equal.
 - `_add_postgres_system_revision_fk(apps, schema_editor)`: when
@@ -430,7 +435,7 @@ a gate.
 
      ```sql
      INSERT INTO "reported_result" (
-       "id", "score_id", "is_original", "reporter", "run_id", "trace_id",
+       "id", "head_id", "is_original", "reporter", "run_id", "trace_id",
        "score", "total_questions", "correct_questions",
        "run_cost_usd", "run_cost_status", "cache_saved_cost_usd",
        "models", "ran_with_providers", "answer_seed",
@@ -442,7 +447,7 @@ a gate.
        s."client_name", s."client_version", s."client_platform", s."submitted_at"
      FROM "scores" s
      WHERE NOT EXISTS (
-       SELECT 1 FROM "reported_result" r WHERE r."score_id" = s."id" AND r."is_original")
+       SELECT 1 FROM "reported_result" r WHERE r."head_id" = s."id" AND r."is_original")
      ```
 
      WHY `id = score id`: the backfill must be deterministic and must need no UUID function
@@ -485,7 +490,7 @@ fails on an assertion, not on an import error.
    the five new tables exist (`sqlite_master`), and every legacy score has
    `metadata_revision = 1` and `paper_url IS NULL`. RED: the tables do not exist.
 3. **SCH-2** — `test_sch2_backfill_creates_one_original_result_per_score`: same seed. Assert
-   one `reported_result` row per score, `id == score_id`, `is_original = 1`,
+   one `reported_result` row per score, `id == head_id`, `is_original = 1`,
    `reporter == submitted_by`, and `score`, `total_questions`, `run_cost_usd`,
    `submitted_at` equal the score's. RED: no rows (0019 is empty).
 4. **SCH-3** — `test_sch3_backfill_is_idempotent_and_skips_a_head_with_an_original`: migrate
@@ -514,7 +519,8 @@ fails on an assertion, not on an import error.
    `IntegrityError` for a duplicate `System.name`, a duplicate `SystemRevision.fingerprint`, a
    duplicate `(system, revision)`, a duplicate `ReportedResult.run_id` and a duplicate
    `ReportedResult.cache_version_id`. Also assert that the `reported_result` table has an index
-   on `score_id` (read the index list from the connection). RED: the fields do not exist yet.
+   on the column `head_id` (read the index list from the connection). RED: the fields do not
+   exist yet. (The D8 round trip, "`makemigrations` writes no file", is the §8 check.)
 10. **SCH-13** — `test_sch13_partial_index_fixture_creates_the_indexes`: request the new
     `partial_unique_indexes` fixture; assert a second original for one score raises
     `IntegrityError`. Append the fixture of §4.10 to `tests/conftest.py` in the pre-RED stub
@@ -530,6 +536,17 @@ fails on an assertion, not on an import error.
     expected=1, confirmed=True, expected_sha256=reviewed.sha256())` (the `_confirm` helper at
     `tests/unit/test_delete_scores.py:70-88`), and assert the score and its child rows are gone. RED: with RESTRICT, the delete
     raises.
+11b. **SCH-14** — `test_sch14_replay_fks_are_no_action`. Enable the partial indexes fixture.
+    (a) In-cluster self-replay: create head H, its original O, and a second result R of H with
+    `replayed_from_result_id = O.id` and `pinned_baseline_result_id = O.id`. `await
+    Score.filter(id=H.id).delete()` succeeds, and `reported_result` has no row of H. (b) Replay
+    from another cluster: create head H1 with original O1, and head H2 with a result R2 whose
+    `replayed_from_result_id = O1.id`. `await Score.filter(id=H1.id).delete()` raises
+    `IntegrityError`, and H1, O1 and R2 stay. Run the same two cases on PostgreSQL in SCH-12's
+    module (`test_sch14_replay_fks_are_no_action_on_postgres`): migrate to head with `_migrate`,
+    insert the rows with `asyncpg`, and run `DELETE FROM "scores" WHERE "id" = $1`; case (b)
+    raises `asyncpg.ForeignKeyViolationError`. RED: with `RESTRICT`, case (a)
+    raises on SQLite, because SQLite checks RESTRICT row by row inside the CASCADE.
 12. **SCH-11** — `test_sch11_score_schema_output_is_unchanged_for_a_legacy_row`: store a
     score through `ScoreStore.submit`; assert `ScoreSchema.model_dump(mode="json")` has none
     of the keys `paper_url`, `metadata_updated_at`, `system_revision_id`; assert that the
@@ -575,6 +592,7 @@ fails on an assertion, not on an import error.
 ### 7.2 What not to do
 
 - Do not rename or drop any column. Do not change `content_hash`.
+- Do not set `source_field` on any FK. Do not write a `RunSQL` that renames a column (D8).
 - Do not add a `ForeignKeyField` for `Score.system_revision` (OD-S1).
 - Do not give any FK that points to `Score` a reverse relation (§4.1).
 - Do not edit an existing test function, fixture body or module-level assignment. Append only.
@@ -615,7 +633,7 @@ cd ../.. && uv run .claude/scripts/run_gates.py scoreboard --base "$(git merge-b
 
 Done when:
 
-- SCH-1 to SCH-13 are green. SCH-12 is green against the local PostgreSQL of §8 (there is
+- SCH-1 to SCH-14 are green. SCH-12 is green against the local PostgreSQL of §8 (there is
   no per-unit CI gate, D1; the `postgres` job entry is for the integrator and for later CI).
 - The CHAR guard is green and unchanged.
 - The whole scoreboard suite is green, coverage ≥ 80%, append-only check green.
@@ -634,9 +652,16 @@ No open decision is left in this unit.
   `Score._meta.fields_map`, and the append-only CHAR guard at
   `tests/unit/test_leaderboard_routes.py:504-530` then fails. PostgreSQL gets a real FK
   constraint (migration 0018 RunPython); SQLite gets none. Do not edit the guard.
-- **OD-S2 — decided (default).** `ReportedResult.replayed_from` and `pinned_baseline` use
-  RESTRICT (it keeps I-R2). `delete_scores` then fails loudly for a score whose result another
-  run replayed. Record this limit in the ledger.
+- **OD-S2 — decided (D8).** `ReportedResult.replayed_from_result` and
+  `pinned_baseline_result` use `ON DELETE NO ACTION` (`fields.OnDelete.NO_ACTION`), not
+  RESTRICT. WHY: SQLite checks RESTRICT at once, row by row, also inside the CASCADE from the
+  head. So the delete of a head whose own cluster holds a replay of its own original fails.
+  SQLite and PostgreSQL check NO ACTION at the end of the statement, so the in-cluster CASCADE
+  works. A replay in **another** cluster still blocks the delete of its original: the provenance
+  stays and I-R2 stays true. `delete_scores` then fails loudly only for a score whose result a
+  run in another cluster replayed. Record this limit in the ledger. SCH-14 proves both cases.
+  `SystemRevision.system` keeps RESTRICT: no CASCADE deletes a `System` or a `SystemRevision`
+  (the `Score` link is a plain column, OD-S1), so the in-cascade problem does not occur there.
 - **OD-S3 — Decided: D5.** `ScoreMetadataEvent.actor` is nullable. In production the
   scoreboard runs `SCOREBOARD_AUTH_MODE=cloudflare_headers`, and every event stores the
   verified `X-User-Email` identity (SB-meta). `NULL` occurs only in the `disabled` dev/local

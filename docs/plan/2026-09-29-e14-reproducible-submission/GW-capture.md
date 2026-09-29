@@ -334,13 +334,16 @@ Tables (column order = model field order):
 | `cache_capture_entry` / `CacheCaptureEntry` | `ordinal BIGINT` (generated), `account_id VARCHAR(64)`, `trace_id VARCHAR(32)`, `key_hash VARCHAR(64) NULL`, `outcome VARCHAR(16)`, `response_json TEXT NULL`, `created_at` | PK `ordinal` (`fields.BigIntField(primary_key=True)`); index `("account_id", "trace_id", "ordinal")`; index `("key_hash",)` (for the prune anti-join) |
 | `cache_version` / `CacheVersion` | `id UUID`, `owner_account_id VARCHAR(64)`, `trace_id VARCHAR(32)`, `status VARCHAR(16) default "frozen"`, `entry_count INT`, `call_count INT`, `missing_count INT`, `coverage_status VARCHAR(16)`, `archive_sha256 VARCHAR(64)`, `archive_key VARCHAR(256)`, `created_at` | PK `id`; `unique_together (("owner_account_id", "trace_id"),)`; index `("status", "created_at")` (exporter outbox) |
 | `cache_version_blob` / `CacheVersionBlob` | `sha256 VARCHAR(64)`, `request_json TEXT`, `response_json TEXT`, `metadata_json TEXT NULL`, `size_bytes INT` | PK `sha256` |
-| `cache_version_entry` / `CacheVersionEntry` | `id UUID`, `version_id UUID` FK → `cache_version.id` (`on_delete=RESTRICT`), `key_hash VARCHAR(64)`, `blob_sha256 VARCHAR(64)` FK → `cache_version_blob.sha256` (`on_delete=RESTRICT`), `first_ordinal BIGINT` | PK `id`; `unique_together (("version_id", "key_hash", "blob_sha256"),)` (this index also serves the replay lookup by `(version_id, key_hash)`) |
+| `cache_version_entry` / `CacheVersionEntry` | `id UUID`, `version_id UUID` FK → `cache_version.id` (`on_delete=RESTRICT`), `key_hash VARCHAR(64)`, `blob_id VARCHAR(64)` FK → `cache_version_blob.sha256` (`on_delete=RESTRICT`), `first_ordinal BIGINT` | PK `id`; `unique_together (("version_id", "key_hash", "blob_id"),)` (the key attributes, which are also the native columns, D8) (this index also serves the replay lookup by `(version_id, key_hash)`) |
 
-Model names in code: `version = fields.ForeignKeyField("models.CacheVersion", source_field="version_id", related_name="entries", on_delete=fields.RESTRICT)`,
-`blob = fields.ForeignKeyField("models.CacheVersionBlob", source_field="blob_sha256", to_field="sha256", related_name="entries", on_delete=fields.RESTRICT)`.
-Attribute names (Tortoise names an FK attribute `<field>_id`; `source_field` sets only the DB column): the
-Python attributes are `version_id` and `blob_id`; the DB columns are `version_id` and `blob_sha256`. Create an
-entry with `CacheVersionEntry(version_id=…, blob_id=<sha>, …)` and order or filter by `blob_id` in Python code.
+Model names in code: `version = fields.ForeignKeyField("models.CacheVersion", related_name="entries", on_delete=fields.RESTRICT)`,
+`blob = fields.ForeignKeyField("models.CacheVersionBlob", to_field="sha256", related_name="entries", on_delete=fields.RESTRICT)`.
+Column names (D8, `00-index.md` §decisions): every FK column has the Tortoise native name `<attr>_id`.
+Do not set `source_field` on an FK. WHY: Tortoise 1.1.8 overwrites the `source_field` of an FK with
+`<attr>_id` at init (`tortoise/apps.py:205`), so a custom FK column does not go through the migration
+state, and the autodetector then proposes a change. So the Python attributes and the DB columns are the
+same: `version_id` and `blob_id` (`blob_id` holds the `CacheVersionBlob.sha256` value). Create an entry
+with `CacheVersionEntry(version_id=…, blob_id=<sha>, …)` and order or filter by `blob_id`.
 Deviations from `erd.md` §3 (each is a decided default in §9, and the migration docstring states it):
 TEXT instead of JSONB (OD-3); `CacheCaptureEntry` has a BIGINT `ordinal` PK instead of a UUID `id`
 plus `ordinal` (OD-4); `key_hash` is NULL for an unkeyable call (OD-2); `CacheVersionEntry` has a UUID
@@ -371,7 +374,7 @@ never call an ORM coroutine directly from a sync test.
 |---|---|---|---|---|
 | 0 | CV-1 | `tests/unit/test_global_cache_key.py::test_the_mvp_has_no_variant_dimension` | CHAR: it passes now and must pass after every step. | none |
 | 1 | CV-2 | `test_capture_char.py::test_cache_hit_returns_before_credential_resolution` | CHAR: passes now. Arrange: account with an Anthropic connection; traced miss fills the row; then a traced identical request with `ORMStore.read` recorded (`huggingface/test_huggingface_route_global_cache.py:171-200` pattern). Assert: `X-AIGW-Cache: hit`, dispatch count 1, no `aigateway:anthropic:*` read on the hit, and a control that the miss did read one. | none; it must stay green after step 6 |
-| 2 | support | `tests/unit/test_migration_0013_cache_versions.py` (tests: `test_0013_creates_the_five_tables_on_a_populated_database`, `test_0013_capture_key_hash_is_nullable`, `test_0013_version_is_unique_per_owner_and_trace`, `test_0013_downgrade_drops_only_the_five_tables`, `test_autodetector_proposes_no_cache_version_change`) | Before the migration file is final, the table/column/nullable/unique assertions fail. | finish 0013 |
+| 2 | support | `tests/unit/test_migration_0013_cache_versions.py` (tests: `test_0013_creates_the_five_tables_on_a_populated_database`, `test_0013_capture_key_hash_is_nullable`, `test_0013_version_is_unique_per_owner_and_trace`, `test_0013_downgrade_drops_only_the_five_tables`, `test_autodetector_proposes_no_cache_version_change`; imitate `test_autodetector_proposes_no_marker_change` in `test_migration_0012_provider_credential_slots.py`. This test can pass now because no FK has a custom `source_field`, D8) | Before the migration file is final, the table/column/nullable/unique assertions fail. | finish 0013 |
 | 3 | CV-3 | `test_capture_route.py::test_capture_failure_does_not_change_chat_response` | Set `capture_client.app.state.capture_sink = _RaisingSink()` (its `record` raises `RuntimeError`). One traced miss with `_DispatchCounter` patched at `_PATCH_TARGET`. Assert: status 200; `body["choices"][0]["message"]["content"] == "PLAINTEXT-ANSWER-42"` (the dispatched answer); headers `X-AIGW-Cache: miss` and `X-AIGW-Cache-Write: stored` (the same as without capture); `app.state.capture_stats.failures == 1`; zero `CacheCaptureEntry` rows. Fails on `failures == 1` (0: the route calls no sink yet). | §4.8 `record_capture` try/except + §4.9 step 5 |
 | 4 | CV-6 | `test_capture_route.py::test_untraced_call_writes_no_capture_row` (parametrize: header absent, `"garbage"`, all-zero trace id, uppercase hex, version `01`) | Positive control inside the test: the same request with a VALID traceparent makes `CacheCaptureEntry.filter(trace_id=T).count() == 1`. Fails on the control (0 rows). The negative cases must give 0 rows. | §4.8 `begin_capture` |
 | 5 | CV-5 | `test_capture_record.py::test_capture_index_row_is_thin_body_inline_only_for_unstored_and_bypass` (parametrize over the six outcomes × key present/absent) | `capture_record` raises `NotImplementedError`. Parametrize over the FIVE outcomes `hit`, `stored`, `unstored`, `bypass`, `error` (do NOT include `version_hit`: it is in `INLINE_OUTCOMES` by OD-7, and GW-replay asserts it). Oracle: body only for `unstored` and `bypass` with a key; no field ever holds prompt text except `request_material`; `response_json` is compact JSON. Also `test_capture_record_rejects_an_unknown_outcome`. | §4.4 |
@@ -412,6 +415,13 @@ never call an ORM coroutine directly from a sync test.
 - Do not change `request_cache_entries`, `GlobalCacheKeyResult`, `build_global_cache_plan`,
   `global_keys.py` or the reason vocabulary. The key has no version dimension (DR-1, CV-1).
 - Do not edit any existing test file (the append-only gate fails). Only add new test files.
+  One approved exception (orchestrator, 2026-09-29): in
+  `tests/unit/test_migration_0012_provider_credential_slots.py::test_0012_downgrade_drops_only_the_marker_table`,
+  change the one line `_tortoise(url, "migrate")` to `_tortoise(url, "migrate", "models", _MIGRATION)`.
+  WHY: the test migrates to head, so 0013 (or any later migration) is in `with_marker`, and the
+  downgrade to `0011` then drops the 0013 tables too, and the assertion fails. The edit pins the test to
+  its own migration and keeps its intent. Change no other line. Record the exception in the ledger and in
+  the commit body, so the append-only gate finding is expected.
 - Do not import `aigateway.core.cache_versions` from any file under `plugins/`. The core never imports
   plugins; `core/cache_versions/` imports nothing from `aigateway.plugins`.
 - Do not log a prompt, a response, the key material or a full key hash. A 12-char prefix only.
@@ -442,7 +452,7 @@ this unit's change.
 
 Done means all of these are true:
 1. Every row of §1.1 is green; CV-1 and CV-2 were never red.
-2. The append-only check passes (no existing test file changed).
+2. The append-only check passes, except for the one approved line in `test_migration_0012_provider_credential_slots.py` (§7.2).
 3. `AIGW_TEST_PG=1 uv run pytest -m needs_postgres` is green, and it includes the 0013 upgrade and
    downgrade on Postgres (add `test_0013_upgrades_and_downgrades_on_postgres` to
    `tests/integration/test_cache_capture_postgres.py`, imitating

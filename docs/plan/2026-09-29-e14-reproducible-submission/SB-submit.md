@@ -41,16 +41,16 @@ Supporting tests (not PRD rows, but you need them to prove the GREEN of an owned
 - **Merged first:** SB-registry (and so SB-schema and URL4-fp) and SB-meta. Both are in wave 2 (D2), so both are merged into the e14 branch before this wave starts. This unit uses SB-meta's `ScoreSubmission.paper_url` (SB-meta plan §4.2, stored by `_submission_to_kwargs`) and its `ScoreSchema.paper_url` / `metadata_revision`. If SB-meta is not merged when you start, STOP and ask.
 - **Contracts implemented:** C3 (the receipt verifier, scoreboard side), C4 (submit), C10 (the `GET /v1/scores/{score_id}/results` part only).
 - **Contracts consumed:** C3 claims as the gateway signs them (unit GW-freeze). C4 request fields as the SDK sends them (unit SDK-submit). The `RegistryService` of SB-registry (`resolve_for_submit` and `identify`; the `SystemRegistry` protocol has no `identify`, SB-registry §4.6-§4.7).
-- **Consumed from SB-schema (erd §2.1, §2.2, §2.6, §6):** models `ReportedResult`, `System`, `SystemRevision`, `CacheVersionPublication`; the new `Score` columns `paper_url`, `system_revision_id`, `metadata_revision`, `metadata_updated_at`; the partial unique index I-S1 on `scores (benchmark_id, benchmark_revision, system_revision_id) WHERE system_revision_id IS NOT NULL`; unique `reported_result.run_id`; unique `reported_result.cache_version_id`; partial unique `reported_result (score_id) WHERE is_original`.
+- **Consumed from SB-schema (erd §2.1, §2.2, §2.6, §6):** models `ReportedResult`, `System`, `SystemRevision`, `CacheVersionPublication`; the new `Score` columns `paper_url`, `system_revision_id`, `metadata_revision`, `metadata_updated_at`; the partial unique index I-S1 on `scores (benchmark_id, benchmark_revision, system_revision_id) WHERE system_revision_id IS NOT NULL`; unique `reported_result.run_id`; unique `reported_result.cache_version_id`; partial unique `reported_result (head_id) WHERE is_original`.
 
-**Names from the SB-schema plan** (`SB-schema.md` §4.5-§4.8): the `ReportedResult` FK to the head is the field `head` (column `score_id`, attribute `head_id`); the replay FKs are `replayed_from` and `pinned_baseline` (attributes `replayed_from_id`, `pinned_baseline_id`); `CacheVersionPublication` has the one-to-one PK `result` (column `result_id`). The partial unique indexes are plain SQL in `scores/models/partial_indexes.py`; a test that builds its schema with `generate_schemas` (the `tortoise_db` fixture) must call `create_partial_unique_indexes(connection)` to get I-S1. SB-schema adds the fixture `partial_unique_indexes` to `tests/conftest.py` (`SB-schema.md` §4.10). Request that fixture in every `tests/unit/submissions/` app fixture.
+**Names from the SB-schema plan** (`SB-schema.md` §4.5-§4.8): the `ReportedResult` FK to the head is the field `head` (attribute and column `head_id`); the replay FKs are `replayed_from_result` and `pinned_baseline_result` (attributes and columns `replayed_from_result_id`, `pinned_baseline_result_id`; D8: every FK column has the native Tortoise name, no `source_field`); `CacheVersionPublication` has the one-to-one PK `result` (column `result_id`). The partial unique indexes are plain SQL in `scores/models/partial_indexes.py`; a test that builds its schema with `generate_schemas` (the `tortoise_db` fixture) must call `create_partial_unique_indexes(connection)` to get I-S1. SB-schema adds the fixture `partial_unique_indexes` to `tests/conftest.py` (`SB-schema.md` §4.10). Request that fixture in every `tests/unit/submissions/` app fixture.
 
 **Before RED, do this check (10 minutes):** open the merged SB-schema models and migration `0018` and the merged SB-registry module. Write down in the ledger the real import paths and names. This plan uses the names below. If a merged name differs, use the merged name and change nothing else.
 
 | This plan says | Expected source |
 |---|---|
 | `from scoreboard.scores.models import ReportedResult, System, SystemRevision, CacheVersionPublication` | SB-schema §4.4-§4.7 |
-| `ReportedResult` FK attributes `head_id` (column `score_id`), `replayed_from_id`, `pinned_baseline_id`; filter and create with these names (for example `ReportedResult.filter(head_id=...)`, `ReportedResult.create(head_id=..., replayed_from_id=...)`). Never pass `score_id=` to the ORM. | SB-schema §4.5 |
+| `ReportedResult` FK attributes `head_id`, `replayed_from_result_id`, `pinned_baseline_result_id` (each is also the column name, D8); filter and create with these names (for example `ReportedResult.filter(head_id=...)`, `ReportedResult.create(head_id=..., replayed_from_result_id=...)`). Never pass `score_id=` to the ORM: `reported_result` has no `score_id` column. | SB-schema §4.5 |
 | `from scoreboard.core.registry import Resolution, RevisionRef, SystemRef, SystemAlreadyNamed` and the errors `InvalidSystemName` (`.rule`, `.message`), `SystemNameTaken` (`.suggestion`), `NotSystemOwner`, `SystemNotFound`, `InvalidUrl4`, `Url4TooLarge`, `RegistryConflict` | SB-registry §4.2-§4.3 |
 | `app.state.system_registry` is a `RegistryService` (SB-registry wires it in `main.py`) | SB-registry §3 |
 | `await registry.resolve_for_submit(linked_url4, requested_name, revision_of, submitter, board_visibility, *, connection=conn)` (positional in the PRD §3.1 order, keyword-only `connection: object | None`) returns `Resolution(outcome, identity, system, revision, notice)`; `resolution.system.name` (equal to `revision.system.name`), `revision.id`; `notice` is `SystemAlreadyNamed(name, owner)` or None | SB-registry §4.2, §4.7 |
@@ -197,7 +197,7 @@ class ReportedResultsPage(BaseModel):
     next_cursor: str | None
 ```
 
-Build a `ReportedResultSchema` in ONE place, `scores/cluster_rules.py::result_schema(rr: ReportedResult, publication_state: str | None) -> ReportedResultSchema` (the submit response and the results list both call it): `score_id=rr.head_id`; `cache_version=CacheVersionSummary(id=rr.cache_version_id, sha256=rr.cache_version_sha256, entry_count=rr.cache_entry_count, call_count=rr.cache_call_count, coverage_status=rr.cache_coverage_status)` when `rr.cache_version_id is not None`, else `None`; `replay=ReplayProvenance(replayed_from_result_id=rr.replayed_from_id, hits=rr.replay_hits, misses=rr.replay_misses, pinned_baseline_result_id=rr.pinned_baseline_id)` when `rr.replayed_from_id is not None`, else `None`; `labels=result_labels(...)` from the same columns.
+Build a `ReportedResultSchema` in ONE place, `scores/cluster_rules.py::result_schema(rr: ReportedResult, publication_state: str | None) -> ReportedResultSchema` (the submit response and the results list both call it): `score_id=rr.head_id`; `cache_version=CacheVersionSummary(id=rr.cache_version_id, sha256=rr.cache_version_sha256, entry_count=rr.cache_entry_count, call_count=rr.cache_call_count, coverage_status=rr.cache_coverage_status)` when `rr.cache_version_id is not None`, else `None`; `replay=ReplayProvenance(replayed_from_result_id=rr.replayed_from_result_id, hits=rr.replay_hits, misses=rr.replay_misses, pinned_baseline_result_id=rr.pinned_baseline_result_id)` when `rr.replayed_from_result_id is not None`, else `None`; `labels=result_labels(...)` from the same columns.
 
 Add to `ScoreSchema` (all `default=None`, all `exclude_if=lambda v: v is None`, so `GET /v1/scores/{id}` and the private JSONL export stay byte-identical — the `OME-1181` Q2 trap, `schemas.py:686-702`):
 
@@ -290,7 +290,7 @@ def cluster_revision(submission: ScoreSubmission) -> str | None:
     raw metadata value when a typed value exists."""
 
 @dataclass(frozen=True, slots=True)
-class ResultFields:        # every ReportedResult column except id, score_id, is_original
+class ResultFields:        # every ReportedResult column except id, head_id, is_original
     reporter: str | None
     run_id: str | None
     trace_id: str | None
@@ -322,7 +322,7 @@ def named_notice(notice: SystemAlreadyNamed) -> SubmitNotice   # name=notice.nam
 
 `cluster_revision` returns `_resolve_benchmark_revision(submission)` (`store.py:139-153`). Import it; do not copy it.
 
-`replay_columns` returns Tortoise keyword names, not erd column names: `replayed_from_id`, `replay_hits`, `replay_misses`, `pinned_baseline_id`, `replay_repeated_key_collapses` (all set from the claim, or all `None`).
+`replay_columns` returns Tortoise keyword names (with D8 they equal the erd column names): `replayed_from_result_id`, `replay_hits`, `replay_misses`, `pinned_baseline_result_id`, `replay_repeated_key_collapses` (all set from the claim, or all `None`).
 
 `core/replay_access.py` (§4.6).
 
@@ -461,7 +461,7 @@ GET /v1/scores/{score_id}/results?cursor=<opaque>&limit=<1..200, default 50>
 
 - Read identity with `ReadIdentity` (`routes/dependencies.py:40`).
 - Privacy: copy the exact `get_score` rules (`routes/scores.py:295-351`): 404 for a missing head; on a private board, `PRIVATE_CACHE_HEADERS` and 404 unless `identity == head.submitted_by`; the `turned_private` re-check before a public answer (SC-D9).
-- Order `(submitted_at DESC, id DESC)`. Cursor = urlsafe base64 (no padding) of `json.dumps({"t": <submitted_at isoformat>, "i": <id str>}, separators=(",", ":"))`. The page query is `score_id = X AND (submitted_at < t OR (submitted_at = t AND id < i))`, `LIMIT limit + 1`. `next_cursor` is set only when there are `limit + 1` rows.
+- Order `(submitted_at DESC, id DESC)`. Cursor = urlsafe base64 (no padding) of `json.dumps({"t": <submitted_at isoformat>, "i": <id str>}, separators=(",", ":"))`. The page query is `head_id = X AND (submitted_at < t OR (submitted_at = t AND id < i))`, `LIMIT limit + 1`. `next_cursor` is set only when there are `limit + 1` rows.
 - A cursor that does not decode, or has other keys → 422 `invalid_cursor`.
 - `publication_state` comes from one `CacheVersionPublication.filter(result_id__in=...)` read per page.
 
@@ -499,7 +499,7 @@ def build_metrics() -> Metrics: ...
 - Current highest on `main`: `0016_score_enriched_at.py`. SB-schema adds `0017`, `0018`, `0019` (erd §6).
 - This unit adds NO migration. The column `reported_result.replay_repeated_key_collapses` is in SB-schema 0018 (cross-plan fix). If the merged 0018 does not have it, STOP and ask.
 - Background: C4 sends `repeated_key_collapses` and RP-D5 needs it stored, but erd §2.2 has no column for it (spec gap G3). The cross-plan check moved the column into SB-schema, so only the schema-foundation unit adds migrations.
-- The index for SC-17: SB-schema adds `reported_result (score_id, submitted_at)` (`SB-schema.md` §4.5). That is enough for the `(submitted_at DESC, id DESC)` page (the `id` tie-break is on few rows). Do not add another index.
+- The index for SC-17: SB-schema adds `reported_result (head_id, submitted_at)` (`SB-schema.md` §4.5). That is enough for the `(submitted_at DESC, id DESC)` page (the `id` tie-break is on few rows). Do not add another index.
 - Expand-only: a nullable column. No data change. Apply it by hand on a fresh SQLite (`uv run python -m tortoise -c scoreboard.db.TORTOISE_CONFIG migrate`) and record the output in the ledger (CI runs migrations only in `test_migration_*` tests; see the OME-1325 plan, Step 3).
 
 ## 6. TDD order (RED first, risk order)
@@ -608,6 +608,6 @@ Gates: from the repo root, `uv run .claude/scripts/run_gates.py scoreboard --bas
 - **G3 — resolved (cross-plan fix 2).** SB-schema 0018 has `replay_repeated_key_collapses`.
 - **G5 — decided (default).** `ReportedResult.answer_seed` is stored as NULL.
 - **G6 — decided (default).** The partial label shows `n of c` (entries of calls).
-- **G7 — resolved by SB-schema §4.5.** The head FK is CASCADE, so the delete, purge and retire CLIs keep working. RESTRICT on the replay FKs is SB-schema OD-S2.
+- **G7 — resolved by SB-schema §4.5.** The head FK is CASCADE, so the delete, purge and retire CLIs keep working. NO ACTION on the replay FKs is SB-schema OD-S2 (D8): the delete of a head removes its in-cluster replays, and a replay in another cluster blocks the delete of its original.
 - **G8 — Decided: D7 X-3.** PyJWT EdDSA behind the `ReceiptVerifier` port. No shared package.
 - **Size cap — Decided: D7 X-22.** The 32,000-char cap with 422; `Url4TooLarge` maps to 422.

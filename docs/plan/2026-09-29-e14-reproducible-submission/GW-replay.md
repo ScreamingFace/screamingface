@@ -189,9 +189,9 @@ class TortoiseCacheVersionLookup:
     async def find(self, version_id: UUID, key_hash: str) -> VersionHit | None
 ```
 `find`: `CacheVersionEntry.filter(version_id=version_id, key_hash=key_hash).order_by("first_ordinal", "blob_id").select_related("blob").first()`
-(`blob_id` is the Python attribute of the FK whose DB column is `blob_sha256`; GW-capture §5).
+(`blob_id` is the attribute and the DB column of the FK `blob`, D8; GW-capture §5).
 `None` → `None`. `json.loads(entry.blob.response_json)`; not a `dict` → log (key prefix) and `None`.
-The unique index `(version_id, key_hash, blob_sha256)` from 0013 serves the query (≤ 30 ms NFR).
+The unique index `(version_id, key_hash, blob_id)` from 0013 serves the query (≤ 30 ms NFR).
 Replay rule (`erd.md` §3.4, CV-D6, RP-D5): the lowest `first_ordinal` wins. The blob body is model output:
 return it as data; never parse or act on its text (CV-D10).
 

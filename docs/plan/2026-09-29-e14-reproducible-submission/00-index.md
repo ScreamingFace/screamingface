@@ -3,8 +3,8 @@
 Spec (the rubric): `docs/spec/2026-09-29-e14-reproducible-submission/` (approved).
 Plans: this directory, one file for each unit: `docs/plan/2026-09-29-e14-reproducible-submission/<ID>.md`.
 Language: ASD-STE100. A Sonnet implementer builds each unit with the `sdlc-python` loop (the
-stack card of the unit's component). The user decisions D1 to D7 (2026-09-29) are binding. They
-override older plan text and spec text (§7).
+stack card of the unit's component). The user decisions D1 to D7 (2026-09-29) and the wave 1
+review decision D8 (2026-09-29) are binding. They override older plan text and spec text (§7).
 
 ## 1. Delivery model (D1)
 
@@ -111,6 +111,9 @@ Plan-local ids (they own no PRD row):
 No other unit adds a migration. Each consumer plan has a STOP rule: if `makemigrations` writes a
 file, or a column is missing, stop and ask. All migrations are expand-only (safe for a rolling
 rollout). The engine, the SDK and `packages/url4` have no database.
+D8: every FK column has the Tortoise native name `<attr>_id`. No FK sets `source_field`, and no
+migration has a `RunSQL` that renames a column. After each migration set, `makemigrations` (and the
+aigateway autodetector test) must propose no change.
 
 ## 6. Integration notes (shared files and merge order)
 
@@ -186,7 +189,7 @@ Older cross-plan fixes (still in the plans): the SB-submit ↔ SB-registry call 
 the derived receipt kid and raw base64 keys in SDK-replay and E2E; the `key="<prefix>"` member on a
 GW-replay version hit.
 
-## 7. Decisions record (D1 to D7, 2026-09-29)
+## 7. Decisions record (D1 to D8, 2026-09-29)
 
 | Decision | What | Closes |
 |---|---|---|
@@ -197,6 +200,7 @@ GW-replay version hit.
 | D5 | Production identity is the existing `cloudflare_headers` mode (peer check, then `X-User-Email`) for scoreboard and gateway; `disabled` is dev/local only and keeps today's behaviour | X-11 (SB-submit OD-2, OD-5; SB-grants OD-2; SB-publish OD-2, OD-4; SB-registry OD-R10; SB-meta OD-M3; SB-schema OD-S3); X-24 parts (E2E OD-2, OD-6) |
 | D6 | New WIRING unit (W5): admin `redistributable` route, both charts and Secrets, `charts.yml` / `verify_chart_wiring.py`, key helper, `screamingface up` flags and archive dir; ingress routing is an ops precondition | X-12, X-13, X-14 (GW OD-F6), E2E OD-3, OD-9 |
 | D7 | Engineering defaults | X-3, X-4, X-5, X-6, X-7, X-8, X-15, X-16, X-18, X-19, X-20, X-21, X-22, X-23, X-25 |
+| D8 | Wave 1 review (orchestrator, 2026-09-29; spec `00-overview.md` §4.2 Q25). (a) Every FK column uses the Tortoise native name `<attr>_id`; no custom FK `source_field` and no rename `RunSQL` anywhere in E14. `reported_result.head_id` (was `score_id`); FK attributes `replayed_from_result` / `pinned_baseline_result` with the columns `replayed_from_result_id` / `pinned_baseline_result_id`; `cache_version_entry.blob_id` (was `blob_sha256`). (b) The two replay FKs are `ON DELETE NO ACTION` (`fields.OnDelete.NO_ACTION`), not `RESTRICT`. (c) The url4 `exclude_bindings` removes only an inert source, else `ExcludedBindingError` → `422 invalid_url4` (as built in `packages/url4`). (d) One approved line edit in the aigateway 0012 migration test (GW-capture §7.2) | the root cause: Tortoise 1.1.8 overwrites an FK `source_field` with `<attr>_id` at init (`tortoise/apps.py:205`), so a custom FK column does not go through the migration state; SQLite checks `RESTRICT` row by row inside a `CASCADE`. Changes SB-schema §4.5, §5, §6, OD-S2; SB-submit; SB-grants; SB-registry; GW-capture §5, §6, §7.2; GW-freeze; GW-replay; URL4-fp; D3 |
 
 D7 in detail: X-3/X-23 no new shared package (PyJWT EdDSA behind service-local ports; SigV4
 copied); X-4 raw base64 keys, JSON `{kid: b64}` maps, receipt kid `sha256(raw public key)[:16]`,
@@ -207,12 +211,14 @@ X-8 coded error body `{"detail": {"code", "message", ...}}`; X-15 counters stay 
 still extends `check_layering.py`); X-19 editing `.claude/sdlc.local.md` is allowed; X-20
 `httpx.MockTransport` in the SDK; X-21 the pin grammar is mirrored, and a time with no UTC offset is
 refused on both sides; X-22 one url4 cap, 32,000 chars with 422; X-25 the engine `uv.lock` line
-rides with URL4-fp. Unit-local open decisions take the plan default and are marked
+rides with URL4-fp. D3 amendment (D8 (c)): `exclude_bindings` removes a named source only when it
+has a text value, the explicit weight `0.0`, and no `$name` reference in the rest of the system;
+else `ExcludedBindingError` (a `Url4Error`, code `malformed_source`). Unit-local open decisions take the plan default and are marked
 "decided (default)" in each plan.
 
 ## 8. Still open
 
-Only these items are still open after D1 to D7. None blocks the start of W1. Each has the default
+Only these items are still open after D1 to D8. None blocks the start of W1. Each has the default
 that the implementer uses if nobody answers.
 
 | Item | Where | Question | Default if nobody answers |

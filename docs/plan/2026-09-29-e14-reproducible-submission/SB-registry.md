@@ -68,7 +68,10 @@ Plus, with plan-local ids:
 - **URL4-fp** (wave 1, in the e14 branch HEAD):
   `url4.fingerprint.system_fingerprint(linked, binding="candidate", *, exclude_bindings=frozenset()) -> str`
   and `url4.fingerprint.canonical_system_url4(linked, binding="candidate", *, exclude_bindings=frozenset()) -> str`,
-  which raise `url4.Url4Error` unchanged (URL4-fp plan §4.1-§4.2); and
+  which raise `url4.Url4Error` unchanged (URL4-fp plan §4.1-§4.2). As built (D8 (c)), they also
+  raise `url4.fingerprint.ExcludedBindingError`, a `url4.Url4Error` subclass with the code
+  `malformed_source`, when a source named in `exclude_bindings` is not inert (not a text value,
+  not the explicit weight `0.0`, or referenced by a `$name` in the rest of the system); and
   `packages/url4/tests/fixtures/fingerprint_vectors.json` with the top-level keys `binding`
   (`"candidate"`) and `exclude_bindings` (`["_sf_recipe"]`) (URL4-fp plan §4.3).
 - **SB-meta** (wave 2, same wave): no code dependency. Merge order only (§2.3).
@@ -508,6 +511,11 @@ guarantees `sha256(candidate_url4) == system_fingerprint(linked, ...)` for equal
 
 Rules:
 
+- Error mapping: `except url4.Url4Error` also catches `ExcludedBindingError` (a subclass). So a
+  `_sf_recipe` source that is not inert gives `InvalidUrl4` and `422 invalid_url4` (SR-E6), and
+  the `backfill-systems` row `invalid_url4`. Do not add a separate `except` and do not add a
+  new error code. WHY: a client that names a working member `_sf_recipe` sends a url4 that the
+  scoreboard cannot fingerprint safely; that is a bad url4, not a server fault.
 - Pass `exclude_bindings=SDK_METADATA_BINDINGS` on every call. Never call a url4 fingerprint
   function with the default empty set in the scoreboard: the recipe display name would then
   change the fingerprint, and SR-H3 would never fire for SDK recipes (a rename would dodge
@@ -704,6 +712,7 @@ Test oracles come from the PRD scenarios (test-plan §1 rule 6): names `kevins-b
 | 19 | SR-5-SB | `test_url4_fingerprinter.py::test_sr5_url4_fingerprinter_matches_golden_vectors` | `NotImplementedError` in the adapter stub. Read `Path(__file__).resolve().parents[5] / "packages/url4/tests/fixtures/fingerprint_vectors.json"` (a module-level helper `_vectors()`; rows 19a and 19b reuse it). Assert `schema == "url4.fingerprint.vectors.v1"`, 50 vectors, `binding == "candidate"`, and `frozenset(data["exclude_bindings"]) == SDK_METADATA_BINDINGS` (D3: one call shape on both sides). For each vector (parametrize, `ids=` from `id`): `Url4Fingerprinter().identify(v["linked_url4"])` gives `fingerprint` and `candidate_url4` equal to the file, and `url4.fingerprint.system_fingerprint(v["linked_url4"], binding="candidate", exclude_bindings=frozenset({"_sf_recipe"})) == v["fingerprint"]` (the D3 formula, called directly). A second RED, after the stub: an adapter that omits `exclude_bindings` fails on the 10 vectors `c08-*` and `c09-*` (assertion: the recipe blob is in the hash). |
 | 19a | SR-H3-SB (adapter) | `test_url4_fingerprinter.py::test_sr_h3_sdk_recipe_rename_is_one_identity` | `NotImplementedError` in the adapter stub. From `_vectors()`, take `c08-b1` and `c09-b1` (the SDK-shaped twin: they differ only in the `_sf_recipe` `name`/`named` keys; URL4-fp §4.3). Assert their `linked_url4` values differ, `identify` gives one `SystemIdentity` for both, and `"_sf_recipe" not in identity.candidate_url4`. Also `c08-b1` and `c09-b3` (twin on another benchmark) → the same identity. |
 | 19b | SR-H3-SB (service) | `test_service.py::test_sr8_h3_sdk_recipe_rename_returns_notice` | `NotImplementedError`. A `RegistryService(TortoiseSystemRepository(), Url4Fingerprinter())` (the real adapter, not the fake; build it in the test, not in the `registry` fixture). Ana (`ana@x.org`) resolves `c08-b1` `linked_url4` with `requested_name="opus-5.5"`, public board → outcome `new`. Bruno (`bruno@y.org`) resolves `c09-b3` `linked_url4` (same system, other recipe name, other benchmark) with `requested_name="bruno-opus"` → outcome `renamed_notice`, `notice == SystemAlreadyNamed("opus-5.5", "ana@x.org")`, `revision.revision == 1`, `System` count 1, `SystemRevision` count 1 (PRD SR-H3). A second RED, after the stub: an adapter with no exclude set gives outcome `new` for Bruno (assertion). |
+| 19c | SR-E6 (adapter) | `test_url4_fingerprinter.py::test_sr_e6_non_inert_sf_recipe_maps_to_invalid_url4` (parametrize: `_sf_recipe` with no weight, with weight `1.0`, with a non-text value, and a system that references `$_sf_recipe`) | `NotImplementedError` in the adapter stub. Assert `identify` raises `InvalidUrl4`, and `exc.__cause__` is a `url4.fingerprint.ExcludedBindingError` with `code == "malformed_source"`. Control: the SDK form (text value, weight `0.0`, no reference) gives a `SystemIdentity`. |
 | 20 | BF-1 | `test_backfill_systems.py::test_bf1_dry_run_writes_nothing` | `NotImplementedError`. Seed 3 public legacy heads; dry run → rows `claim`/`link`, and `System`, `SystemRevision` counts are 0, every `system_revision_id` NULL. |
 | 21 | BF-2 | `test_bf2_earliest_head_claims_its_spec_id` | Two heads, same fingerprint, boards B1 and B2, same `spec_id`, earlier on B1 → one `System(name=spec_id, owner=<earlier submitter>)`, both heads linked. |
 | 22 | BF-3 | `test_bf3_name_clash_is_reported_not_applied` | Two heads, different fingerprints, same `spec_id` → first `claim`, second `clash`; only one `System`; the second head stays unlinked. |

@@ -113,6 +113,16 @@ the expression is longer than 32,000 characters, the submit fails with `422` bef
 (the existing `ScoreSubmission` cap
 `[existing apps/scoreboard/src/scoreboard/scores/schemas.py:378]`; D7, X-22).
 
+**SR-E6** `[proposed D8]` — a `_sf_recipe` source that is not inert.
+Given a linked url4 whose system has a top-level `_sf_recipe` source that is not inert (its
+value is not text, or its weight is not the explicit scalar `0.0`, or a `$_sf_recipe`
+reference stays in the rest of the system),
+when the scoreboard computes the fingerprint,
+then `url4.fingerprint` raises `ExcludedBindingError` (a `url4.Url4Error`, code
+`malformed_source`), and the submit fails with `422 invalid_url4`. No row is written.
+Why: if the function hid a working source, two systems that behave differently would get one
+fingerprint (`erd.md` §2.3.2).
+
 ### 3.3 Derived scenarios (risk order)
 
 **SR-D1 — the client lies about the fingerprint** `[proposed — gap §security]` · H×M
@@ -148,6 +158,10 @@ Given two SDK candidates that differ only in the recipe display name (the JSON `
 when the scoreboard calls
 `system_fingerprint(linked, binding="candidate", exclude_bindings=frozenset({"_sf_recipe"}))`,
 then both produce the same fingerprint. A rename is not a new system.
+The function removes the `_sf_recipe` source only when it is inert: a text value, the explicit
+scalar weight `0.0`, and no `$_sf_recipe` reference in the rest of the system
+`[existing packages/url4/src/url4/fingerprint.py:92-133]`. The SDK writes `_sf_recipe` in that
+form. Any other `_sf_recipe` source is an error (SR-E6).
 Given two candidates that differ only in a `seed` parameter that the Candidate itself declares
 (`sf.Model(..., params={"seed": 7})`, which is in the url4 text),
 then they produce **different** fingerprints. A declared seed is part of the system.
@@ -224,6 +238,7 @@ create the empty module first.
 | SR-17 | `non_ascii_name_rejected` | unit | [proposed] SR-D9 | L×M | same regex |
 | SR-18 | `revision_of_unknown_404` | unit | [proposed] SR-E4 | M×L | lookup |
 | SR-19 | `unparseable_url4_422_and_oversize_422` | unit | [proposed] SR-E5 (X-22) | M×L | size check (32,000 chars) before parse |
+| SR-19b | `non_inert_excluded_binding_422_invalid_url4` (weight absent, weight `1.0`, a non-text value, a `$_sf_recipe` reference) | unit | [proposed D8] SR-E6 | H×L | map `ExcludedBindingError` like any `Url4Error` to `422 invalid_url4` |
 | SR-20 | `resolve_pin_forms` (`name`, `name@r1`, `name@<date>`) | unit | [stated ans:Q7] SR-H5 | M×M | pin parser |
 
 **Refactor notes.** Keep the registry behind a `SystemRegistry` port in the scoreboard core,

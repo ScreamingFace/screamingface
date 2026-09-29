@@ -8,6 +8,11 @@
   Candidate declares stays in the hash; no candidate binding hashes the whole canonical url4),
   D7 X-18 (C11 is enforced by unit tests), D7 X-25 (the one-line engine `uv.lock` change rides
   with this unit).
+- **Status (2026-09-29): built and merged (wave 1).** The as-built exclude rule is stricter than
+  the first draft in §4.1: `exclude_bindings` removes a source only when it is inert, else it
+  raises `ExcludedBindingError` (D8 (c), spec `00-overview.md` Q25). §4.1 "As-built rule" states
+  it. The code is `packages/url4/src/url4/fingerprint.py:37-133`; the README section is
+  `packages/url4/README.md` "System fingerprint".
 - **Component:** `packages/url4` (one package). A lock-only refresh of
   `apps/screamingface-engine/uv.lock` is also necessary (D7 X-25). See step T0.
 - **Branch / worktree (D1):** build in a temporary worktree on branch `unit/URL4-fp`, made from
@@ -211,6 +216,31 @@ def _without_bindings(system: Node, exclude_bindings: frozenset[str]) -> Node:
 __all__ = ["CANDIDATE_BINDING", "canonical_system_url4", "system_fingerprint"]
 ```
 
+**As-built rule (D8 (c), approved and merged; it replaces the `_without_bindings` sketch above).**
+`_without_bindings` removes a root-level `Source` of the system whose name is in
+`exclude_bindings` **only when it is inert**. A source is inert when all three rules are true:
+
+1. its value is a `Text` node;
+2. its weight is the explicit scalar `0.0` (an `int` or `float`, not a `bool`, equal to `0.0`).
+   An absent weight is **not** inert (`_is_inert_metadata`, `fingerprint.py:125-133`);
+3. no `$name` reference to it stays in the rendered rest of the system (the regex
+   `\$\$|\$([a-zA-Z_]\w*|[0-9]+)`, `fingerprint.py:34`; `$$` is an escape, not a reference).
+
+When a named source is not inert, the function raises `ExcludedBindingError`
+(`fingerprint.py:37-45`), a `url4.Url4Error` with `code = ErrorCode.MALFORMED_SOURCE`
+(`"malformed_source"`). The function never hides a working part of a system. WHY: the
+scoreboard takes client text; a client can name a working member `_sf_recipe`, and if the
+function hid it, a different system would get the fingerprint of an existing system. The
+consumer maps it like any `Url4Error` to `422 invalid_url4` (SB-registry §4.8, SR-E6). `__all__`
+also exports `ExcludedBindingError`. The SDK writes `_sf_recipe` as an inert source
+(`src(Text(...), name="_sf_recipe", weight=0.0)`, `topology.py:167`), so SR-H3 still holds.
+As-built tests (`packages/url4/tests/unit/test_fingerprint.py`):
+`test_fingerprint_exclude_refuses_a_referenced_member_named_like_metadata`,
+`test_fingerprint_exclude_refuses_a_source_that_is_not_inert`,
+`test_fingerprint_exclude_refuses_a_source_that_something_references`,
+`test_fingerprint_exclude_ignores_text_that_is_not_a_reference`,
+`test_excluded_binding_error_is_a_url4_error_with_a_stable_code`.
+
 Rules for the implementer:
 
 - Both public functions have exactly three parameters: `linked`, `binding`, and the
@@ -221,13 +251,16 @@ Rules for the implementer:
   Do not check the weight.
 - The exclude rule applies to the root of the **system** only (the embedded Candidate, or the
   whole url4 when there is no candidate binding). It does not walk into nested expressions and
-  it does not touch the linked root. Match on `Source.name` only (any value type). The SDK puts
+  it does not touch the linked root. Match on `Source.name` first. The SDK puts
   `_sf_recipe` at the Candidate root (`packages/screamingface/src/screamingface/_evaluation/topology.py:14`).
+  As built, the match is on `Source.name`, and then the inert check applies (see "As-built
+  rule" above): a named source that is not inert raises `ExcludedBindingError`.
 - An empty `exclude_bindings` returns the system unchanged, so the default call gives the ERD
   value `sha256(render(build(candidate)))`.
 - `Expression` is a frozen dataclass with the fields `sources`, `intent`, `broadcast`, `params`
   (checked on 2026-09-29). `dataclasses.replace` keeps the other three fields.
-- Do not catch or wrap url4 errors. The consumer maps `url4.Url4Error` to `422 invalid_url4`.
+- Do not catch or wrap url4 errors. The consumer maps `url4.Url4Error` (and so its subclass
+  `ExcludedBindingError`) to `422 invalid_url4`.
   Checked facts: an unbalanced text raises `ParseError`; an empty string parses and then
   `render` raises `RenderError` (both are `Url4Error`).
 - Put `__all__` at the end of `fingerprint.py`, as shown. No `__all__` change elsewhere.
@@ -247,7 +280,7 @@ fingerprint: str = system_fingerprint(
 candidate_url4: str = canonical_system_url4(
     score_submission.url4_expression, exclude_bindings=SDK_METADATA_BINDINGS
 )                                                    # SystemRevision.candidate_url4
-# except url4.Url4Error -> 422 invalid_url4
+# except url4.Url4Error -> 422 invalid_url4 (this also catches ExcludedBindingError, D8 (c))
 ```
 
 For equal arguments, `sha256(candidate_url4.encode("utf-8")).hexdigest() == fingerprint`
@@ -599,7 +632,9 @@ Test:
 
 - `test_fingerprint_module_imports_only_core_and_stdlib`: AST-walk `src/url4/fingerprint.py`
   (all `ast.Import` and `ast.ImportFrom`, level 0). Allowed set:
-  `{"__future__", "dataclasses", "hashlib", "url4.core.nodes", "url4.core.parser", "url4.core.render"}`.
+  `{"__future__", "dataclasses", "hashlib", "re", "url4.core.errors", "url4.core.nodes", "url4.core.parser", "url4.core.render"}`.
+  As built, `re` (the `$name` reference scan) and `url4.core.errors` (`Url4Error`, `ErrorCode`
+  for `ExcludedBindingError`) are in the set (`tests/unit/test_fingerprint_purity.py:21-30`).
   Assert the found set is a subset. Put the scan in a helper `_imports_of(source: str) -> set[str]`.
 - `test_the_import_scan_sees_a_forbidden_import`: `_imports_of("import screamingface\nfrom scoreboard.x import y\n")`
   returns both names (teeth check, like `test_import_isolation.py:64-67`).
@@ -656,6 +691,10 @@ Edge cases (each has a test in §6):
 - The exclude is root-level on the system only: a `_sf_recipe` on the linked root or nested
   inside the Candidate is not removed.
 - Every root source excluded → `()!intent` renders and is hashed; no error.
+- A source named in `exclude_bindings` that is not inert (no weight, a weight other than `0.0`, a
+  non-text value, or a `$name` reference to it in the rest of the system) →
+  `ExcludedBindingError` (as built, D8 (c)). A `$$` escape or a text that only looks like a name
+  is not a reference.
 - A seed that the Candidate declares (`?seed=7`) stays in the hash; two seeds give two
   fingerprints (D3, OD-2 default). The answer seed is not in the text (SR-3).
 

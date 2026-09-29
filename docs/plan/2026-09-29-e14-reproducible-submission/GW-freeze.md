@@ -187,7 +187,7 @@ class NewBlob:
 
 @dataclass(frozen=True, slots=True)
 class NewEntry:
-    key_hash: str; blob_sha256: str; first_ordinal: int
+    key_hash: str; blob_sha256: str; first_ordinal: int   # a value field; the DB column is blob_id (D8)
 
 class FreezeStore(Protocol):
     async def find_version(self, owner_account_id: str, trace_id: str) -> StoredVersion | None: ...
@@ -346,7 +346,7 @@ Late ledger rows (CV-D4): a version never changes after insert. Nothing reads ca
 - `load_blob_metadata`: `CacheVersionBlob.filter(sha256__in=chunk).values_list("sha256", "metadata_json")`,
   chunks of 500.
 - Entries: create with `CacheVersionEntry(version_id=vid, key_hash=e.key_hash, blob_id=e.blob_sha256,
-  first_ordinal=e.first_ordinal)` (the attribute is `blob_id`, the column is `blob_sha256`; GW-capture §5).
+  first_ordinal=e.first_ordinal)` (the attribute and the column are both `blob_id`, D8; GW-capture §5).
 - `mark_archived`: `CacheVersion.filter(id=vid, status="frozen").update(status="archived")`.
 
 ### 4.7 Route (`routes/cache_versions.py`) — C2b

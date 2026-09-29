@@ -46,7 +46,7 @@ Supporting tests have a letter suffix (RP-4a …), listed in §6.
 | `await app.state.system_registry.resolve_pin(raw)`: `NamePin` → the latest `RevisionRef`; `RevisionPin` → that `RevisionRef` or `PinNotFound`; `DatePin` → `list[RevisionRef]` (all revisions, ascending); unknown name → `PinNotFound` | SB-registry §4.7 |
 | `replay_access(...)`, `is_owner(...)` in `scoreboard/core/replay_access.py` | SB-submit §4.6 |
 | `ClusterStore.load_replay_target(result_id) -> ReplayTarget \| None` (`result`, `head`, `benchmark`, `publication_state`) | SB-submit §4.5, §4.6 |
-| `ReportedResult` attributes `head_id` (column `score_id`); filter across the FK with `head__benchmark_id`, `head__system_revision_id` | SB-schema §4.5 |
+| `ReportedResult` attribute and column `head_id` (D8); filter across the FK with `head__benchmark_id`, `head__system_revision_id` | SB-schema §4.5 |
 | `coded_error(status, code, message, **extra)` in `scoreboard/routes/errors.py` | SB-submit §4.7 |
 | `Metrics` dataclass in `scoreboard/metrics.py` | SB-submit §4.9 |
 
@@ -262,7 +262,7 @@ Metric labels: `result ∈ {issued, not_found, withdrawn, mismatch, invalid, una
 
 ## 5. Migrations
 
-None. This unit reads `ReportedResult`, `Score`, `Benchmark.redistributable`, `CacheVersionPublication` and the registry tables that SB-schema made. Performance: the candidate scans use `reported_result (score_id, submitted_at)` (SB-schema 0018; `id` is the tie-break in memory) and, for the head join, the partial unique index `uidx_scores_public_head` on `scores (benchmark_id, benchmark_revision, system_revision_id) WHERE system_revision_id IS NOT NULL` (SB-schema 0018, I-S1; the filters always carry `head__benchmark_id`). SB-schema gives `scores.system_revision_id` no index of its own on purpose (SB-schema §4.2). Do not add a migration here.
+None. This unit reads `ReportedResult`, `Score`, `Benchmark.redistributable`, `CacheVersionPublication` and the registry tables that SB-schema made. Performance: the candidate scans use `reported_result (head_id, submitted_at)` (SB-schema 0018; `id` is the tie-break in memory) and, for the head join, the partial unique index `uidx_scores_public_head` on `scores (benchmark_id, benchmark_revision, system_revision_id) WHERE system_revision_id IS NOT NULL` (SB-schema 0018, I-S1; the filters always carry `head__benchmark_id`). SB-schema gives `scores.system_revision_id` no index of its own on purpose (SB-schema §4.2). Do not add a migration here.
 
 ## 6. TDD order (RED first, risk order)
 

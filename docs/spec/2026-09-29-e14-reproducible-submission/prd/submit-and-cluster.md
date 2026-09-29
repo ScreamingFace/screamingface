@@ -230,7 +230,7 @@ the route.
 | SC-14 | `replay_run_stores_provenance_and_label` | integration | [stated prompt] SC-D7 | H×M | report fields → columns |
 | SC-15 | `partial_receipt_stored_as_partial` | unit | [stated ans:Q13] SC-D5 | M×M | |
 | SC-16 | `new_versioned_result_gets_private_publication_row` | unit | [implied] SC-D8 | M×M | |
-| SC-17 | `results_list_cursor_paged_newest_first` | integration | [proposed] SC-D10 | M×M | index `(score_id, submitted_at, id)` |
+| SC-17 | `results_list_cursor_paged_newest_first` | integration | [proposed] SC-D10 | M×M | index `reported_result (head_id, submitted_at, id)` |
 | SC-18 | `sdk_submit_freezes_then_submits_with_receipt` | unit (`httpx.MockTransport`) | [stated prompt] SC-H1 | H×H | the SDK orchestration |
 | SC-19 | `sdk_freeze_failure_submits_without_version_and_warns` (table: timeout, 404, 413, 5xx, no trace) | unit | [proposed] SC-E1 SC-D6 | H×M | catch, warn, continue |
 | SC-20 | `sdk_keeps_receipt_for_resubmit_after_name_error` | unit | [proposed] SC-E5 | M×M | cache the receipt on the result object |
