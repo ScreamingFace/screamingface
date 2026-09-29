@@ -1,8 +1,8 @@
 ---
 status: approved 2026-09-29
-ticket: unfiled (leaf under epic OME-1308)
+ticket: OME-1415 (leaf under epic OME-1308)
 spec: docs/spec/2026-09-29-studio-models-unmock.md (approved 2026-09-29)
-base: origin/OME-1403-engine-cors-studio (PR #1120)
+base: origin/main (PR #1120 merged)
 ---
 
 # Plan — Studio Models page on the local Engine

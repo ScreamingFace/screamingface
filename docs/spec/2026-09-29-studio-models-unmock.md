@@ -1,8 +1,8 @@
 ---
 status: approved 2026-09-29
-ticket: unfiled (leaf under epic OME-1308)
+ticket: OME-1415 (leaf under epic OME-1308)
 date: 2026-09-29
-depends_on: OME-1403 (PR #1120, Engine CORS for Studio origins)
+depends_on: OME-1403 (PR #1120, merged)
 ---
 
 # Studio Models page — replace the mock with the local Engine

@@ -23,7 +23,7 @@ Status key: **real** = backed by the Engine or Scoreboard · **mocked** = a Stud
 |---|---|---|---|---|---|---|
 | 1 | Endpoints | Point at an Engine and a Scoreboard, local or hosted (`sf.configure`, `sf.Client`, env vars) | `02_connection` | — | none | missing |
 | 2 | Auth | Cloudflare Access login and logout for a hosted Engine (`login`, `logout`, `.authenticated`) | `01`, `02` | `/cdn-cgi/access/*` | sidebar "Connect OpenMined" (unrelated mock) | missing |
-| 3 | Connections | List and get provider connections | `01` | `GET /v1/connections` | Models | in progress (`studio-models-unmock`) |
+| 3 | Connections | List and get provider connections | `01` | `GET /v1/connections` | Models | in progress (`OME-1415`) |
 | 4 | Connections | BYOK API key (`sf.connect(p, api_key=)`) | `02`, `01` | `PUT /v1/connections/{p}` | Models | in progress |
 | 5 | Connections | OAuth: authorize URL, wait, cancel (`sf.connect(p, method="oauth")`) | `01` | `POST …/oauth` + poll | Models | in progress |
 | 6 | Connections | Disconnect (`sf.disconnect`) | `01` | `DELETE /v1/connections/{p}` | Models | in progress |
