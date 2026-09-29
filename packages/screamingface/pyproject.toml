@@ -44,7 +44,7 @@ notebook = [
 # exporter and the importer must speak the same dialect. FEATURE: OME-1117 one-way
 # report export in inspect's log format.
 inspect = [
-    "inspect-ai==0.3.269",
+    "inspect-ai==0.3.270",
 ]
 runtime = [
     "aiosqlite==0.22.1",
