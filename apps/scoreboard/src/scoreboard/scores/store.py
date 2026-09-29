@@ -967,8 +967,11 @@ class ScoreStore:
         content_hash: str,
         per_submitter: bool,
         identity_verified: bool,
-    ) -> Score:
+    ) -> Score | None:
         """Re-check both boards before a replay leaves: the request's, and the ROW's.
+
+        Returns None when the matched row was deleted while the replay waited on it: nothing
+        stored matches any more, and the caller treats the submission as new.
 
         INVARIANT: these are not the same benchmark. A global public key resolves by key alone, so
         it can return a row belonging to a DIFFERENT board — and revalidating only
@@ -1005,6 +1008,26 @@ class ScoreStore:
         # NOT decide what gets written. `existing` was read before the lock, so every value it
         # carries may be stale by the time the write lands — see the recompute below.
         if not (_replay_updates(submission, existing) if same_candidate_owner else {}):
+            # INVARIANT (review of PR #1079, round 3): a replay that writes nothing still waits
+            # for an in-flight delete of its row. Answering from the unlocked read told the
+            # submitter "already stored" while `delete_scores` was committing that row's removal
+            # (reproduced on PostgreSQL). If the row is gone once the wait ends, `submit` stores
+            # the submission as new instead, so what the submitter is told is true.
+            if not await self._replayed_row_survives(existing.id):
+                return None
+            # INVARIANT (review of PR #1079, round 4): the wait can be long, and it locks only
+            # the Score row, so the board may turn private while it waits. The decision that
+            # releases the stored row is therefore taken again AFTER the wait, on fresh state:
+            # the request's board and the row's own board, as above. Reproduced on PostgreSQL:
+            # without this a replay returned the full score, url4 included, under stale rules.
+            await self._revalidate_visibility(submission.benchmark_id, per_submitter)
+            readable = await self._readable_by(
+                existing,
+                submitted_by=submission.submitted_by,
+                identity_verified=identity_verified,
+            )
+            if readable is None:
+                raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
             return readable
 
         async with in_transaction() as connection:
@@ -1026,6 +1049,27 @@ class ScoreStore:
         for name, value in settled.items():
             setattr(readable, name, value)
         return readable
+
+    async def _replayed_row_survives(self, score_id: Any) -> bool:
+        """Wait out any in-flight delete of ``score_id``, then say whether the row still exists.
+
+        A short transaction takes `FOR NO KEY UPDATE` on the row: it conflicts with the
+        `FOR UPDATE` a delete holds, so it blocks until that delete commits or rolls back, and
+        costs nothing when no delete is running. Released as soon as it returns.
+
+        INVARIANT: a MODEL projection (`.only("id").first()`), never `exists()` or `values()`,
+        which build a fresh query and silently drop the lock (the trap the benchmark-lock query's
+        docstring records).
+        """
+        async with in_transaction() as connection:
+            row = await (
+                Score.filter(id=score_id)
+                .using_db(connection)
+                .select_for_update(no_key=True)
+                .only("id")
+                .first()
+            )
+        return row is not None
 
     async def _apply_replay_updates(
         self,
@@ -1235,7 +1279,10 @@ class ScoreStore:
                 per_submitter=per_submitter,
                 identity_verified=identity_verified,
             )
-            return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
+            # None: the matched row was deleted while this replay waited on it. Nothing stored
+            # matches any more, so the submission is new and is stored below.
+            if confirmed is not None:
+                return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
@@ -1290,7 +1337,10 @@ class ScoreStore:
                     per_submitter=per_submitter,
                     identity_verified=identity_verified,
                 )
-                return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
+                # None: the row this insert collided with was deleted meanwhile. Fall through to
+                # the same refusal as when nothing resolved, never a false "already stored".
+                if confirmed is not None:
+                    return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
             await self._revalidate_visibility(submission.benchmark_id, per_submitter)
             raise
 
