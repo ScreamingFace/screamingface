@@ -10,7 +10,7 @@ from tortoise import BaseDBAsyncClient
 
 ONE_ORIGINAL_PER_SCORE_SQL = (
     'CREATE UNIQUE INDEX IF NOT EXISTS "uidx_reported_result_one_original" '
-    'ON "reported_result" ("score_id") WHERE "is_original"'
+    'ON "reported_result" ("head_id") WHERE "is_original"'
 )
 ONE_PUBLIC_HEAD_PER_SYSTEM_REVISION_SQL = (
     'CREATE UNIQUE INDEX IF NOT EXISTS "uidx_scores_public_head" '

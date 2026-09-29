@@ -142,8 +142,8 @@ async def test_sch8_new_models_round_trip_and_enforce_unique_columns(tortoise_db
         await _result(score_id, cache_version_id=fetched.cache_version_id)
 
     # WHY leading column: `Meta.indexes = (("head_id", "submitted_at"),)` must resolve to the
-    # COLUMN `score_id`, not the attribute name (plan 4.5).
-    assert "score_id" in await _leading_index_columns("reported_result")
+    # COLUMN `head_id` (plan 4.5, D8).
+    assert "head_id" in await _leading_index_columns("reported_result")
 
 
 async def test_sch13_partial_index_fixture_creates_the_indexes(
@@ -205,3 +205,32 @@ async def test_sch11_score_schema_output_is_unchanged_for_a_legacy_row(tortoise_
         & exported.keys()
     )
     assert datetime.now(UTC) >= row.submitted_at
+
+
+async def test_sch14_replay_fks_are_no_action(partial_unique_indexes: None) -> None:
+    # INVARIANT (OD-S2, D8): the replay FKs are ON DELETE NO ACTION. SQLite checks RESTRICT row by
+    # row inside the CASCADE from the head, so RESTRICT would block the delete of a head whose own
+    # cluster holds a replay of its own original. NO ACTION checks at the end of the statement.
+    head = await _score("in-cluster")
+    original = await _result(head, is_original=True)
+    await _result(
+        head,
+        replayed_from_result_id=original.id,
+        pinned_baseline_result_id=original.id,
+    )
+
+    await Score.filter(id=head).delete()
+    assert await Score.filter(id=head).count() == 0
+    assert await ReportedResult.filter(head_id=head).count() == 0
+
+    # A replay in ANOTHER cluster still blocks the delete of its original: the provenance stays.
+    first = await _score("first-cluster")
+    second = await _score("second-cluster")
+    first_original = await _result(first, is_original=True)
+    replay = await _result(second, replayed_from_result_id=first_original.id)
+
+    with pytest.raises(IntegrityError):
+        await Score.filter(id=first).delete()
+    assert await Score.filter(id=first).count() == 1
+    assert await ReportedResult.filter(id=first_original.id).count() == 1
+    assert await ReportedResult.filter(id=replay.id).count() == 1

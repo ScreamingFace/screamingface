@@ -180,11 +180,11 @@ def test_sch1_migrations_apply_to_a_populated_sqlite_database(tmp_path: Path) ->
 
     assert NEW_TABLES <= tables
     assert legacy == [(1, None)] * 3
-    # INVARIANT: the columns carry the erd.md section 2.2 names, and the `(score, submitted_at)`
-    # index sits on the real column, not on the attribute name `head_id`.
-    assert {"score_id", "replayed_from_result_id", "pinned_baseline_result_id"} <= result_columns
-    assert not {"head_id", "replayed_from_id", "pinned_baseline_id"} & result_columns
-    assert "score_id" in leading
+    # INVARIANT (D8): the columns carry the Tortoise native names `<attr>_id`, which are also the
+    # erd.md section 2.2 names, and the `(head_id, submitted_at)` index sits on the real column.
+    assert {"head_id", "replayed_from_result_id", "pinned_baseline_result_id"} <= result_columns
+    assert not {"score_id", "replayed_from_id", "pinned_baseline_id"} & result_columns
+    assert "head_id" in leading
 
 
 def test_sch2_backfill_creates_one_original_result_per_score(tmp_path: Path) -> None:
@@ -201,8 +201,8 @@ def test_sch2_backfill_creates_one_original_result_per_score(tmp_path: Path) -> 
 
     assert len(results) == len(score_ids) == 3
     for result in results:
-        head = scores[result["score_id"]]
-        assert result["id"] == result["score_id"]
+        head = scores[result["head_id"]]
+        assert result["id"] == result["head_id"]
         assert result["is_original"] == 1
         assert result["reporter"] == head["submitted_by"]
         assert result["score"] == head["score"]
@@ -221,7 +221,7 @@ def test_sch3_backfill_is_idempotent_and_skips_a_head_with_an_original(tmp_path:
     connection = sqlite3.connect(database)
     connection.execute(
         """INSERT INTO reported_result
-           (id, score_id, is_original, score, total_questions, submitted_at)
+           (id, head_id, is_original, score, total_questions, submitted_at)
            VALUES (?, ?, 1, 0.25, 10, '2026-02-01 00:00:00')""",
         (existing, score_a),
     )
@@ -233,7 +233,7 @@ def test_sch3_backfill_is_idempotent_and_skips_a_head_with_an_original(tmp_path:
 
     def _originals() -> dict[str, list[str]]:
         conn = sqlite3.connect(database)
-        rows = conn.execute("SELECT score_id, id FROM reported_result WHERE is_original").fetchall()
+        rows = conn.execute("SELECT head_id, id FROM reported_result WHERE is_original").fetchall()
         conn.close()
         grouped: dict[str, list[str]] = {}
         for score_id, result_id in rows:
@@ -283,7 +283,7 @@ def test_sch4_backfill_run_id_rules(tmp_path: Path) -> None:
     _migrated(database)
 
     connection = sqlite3.connect(database)
-    run_ids = dict(connection.execute("SELECT score_id, run_id FROM reported_result"))
+    run_ids = dict(connection.execute("SELECT head_id, run_id FROM reported_result"))
     connection.close()
 
     # INVARIANT: run_id is UNIQUE, so only the first score per value may carry it.
@@ -302,7 +302,7 @@ def test_sch5_one_original_result_per_score_is_enforced(tmp_path: Path) -> None:
     def _result(is_original: int) -> None:
         connection.execute(
             """INSERT INTO reported_result
-               (id, score_id, is_original, score, total_questions, submitted_at)
+               (id, head_id, is_original, score, total_questions, submitted_at)
                VALUES (?, ?, ?, 0.5, 10, '2026-02-01 00:00:00')""",
             (str(uuid.uuid4()), score_id, is_original),
         )
@@ -350,7 +350,6 @@ def test_sch6_one_public_head_per_system_revision_is_enforced(tmp_path: Path) ->
 
 def test_sch7_partial_index_ddl_matches_the_migration() -> None:
     migration = importlib.import_module(f"scoreboard.scores.migrations.{TO_0018}")
-    # WHY only the single-statement ops: the column renames ride in a RunSQL tuple of their own.
     statements = [
         operation.sql
         for operation in migration.Migration.operations

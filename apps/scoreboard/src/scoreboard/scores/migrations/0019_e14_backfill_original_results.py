@@ -12,7 +12,7 @@ _MAX_RUN_ID_LENGTH = 128
 # original result is skipped, so a rerun (or a back-and-forward migration) adds nothing.
 _INSERT_ORIGINALS_SQL = """
 INSERT INTO "reported_result" (
-  "id", "score_id", "is_original", "reporter", "run_id", "trace_id",
+  "id", "head_id", "is_original", "reporter", "run_id", "trace_id",
   "score", "total_questions", "correct_questions",
   "run_cost_usd", "run_cost_status", "cache_saved_cost_usd",
   "models", "ran_with_providers", "answer_seed",
@@ -24,7 +24,7 @@ SELECT s."id", s."id", TRUE, s."submitted_by", NULL, NULL,
   s."client_name", s."client_version", s."client_platform", s."submitted_at"
 FROM "scores" s
 WHERE NOT EXISTS (
-  SELECT 1 FROM "reported_result" r WHERE r."score_id" = s."id" AND r."is_original")
+  SELECT 1 FROM "reported_result" r WHERE r."head_id" = s."id" AND r."is_original")
 """
 
 

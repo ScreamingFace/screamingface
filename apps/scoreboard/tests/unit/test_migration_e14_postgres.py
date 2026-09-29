@@ -114,7 +114,7 @@ async def _inspect(database_url: str) -> _Inspection:
                 )
             },
             results=await connection.fetch(
-                'SELECT "id", "score_id", "is_original", "run_id" FROM reported_result'
+                'SELECT "id", "head_id", "is_original", "run_id" FROM reported_result'
             ),
         )
     finally:
@@ -138,9 +138,92 @@ def test_sch12_migrations_apply_on_postgres(postgres_schema_database_url: str) -
     assert {"uidx_reported_result_one_original", "uidx_scores_public_head"} <= state.indexes
     assert len(state.results) == 1
     result = state.results[0]
-    assert (result["id"], result["score_id"], result["is_original"], result["run_id"]) == (
+    assert (result["id"], result["head_id"], result["is_original"], result["run_id"]) == (
         score_id,
         score_id,
         True,
         "pg-run-1",
     )
+
+
+async def _insert_head(connection: asyncpg.Connection, board: str) -> uuid.UUID:
+    score_id = uuid.uuid4()
+    await connection.execute(
+        """INSERT INTO scores
+           (id, version, spec_id, url4_expression, submitted_by, submitted_at,
+            total_questions, ran_with_providers, benchmark_id, verified_by_screamingface, score)
+           VALUES ($1, 1, 'spec', 'url4://x', 'owner@example.test', $2, 10, '[]'::jsonb,
+                   $3, false, 0.5)""",
+        score_id,
+        datetime(2026, 2, 1, tzinfo=UTC),
+        board,
+    )
+    return score_id
+
+
+async def _insert_result(
+    connection: asyncpg.Connection,
+    head: uuid.UUID,
+    *,
+    is_original: bool,
+    replayed_from: uuid.UUID | None = None,
+    pinned_baseline: uuid.UUID | None = None,
+) -> uuid.UUID:
+    result_id = uuid.uuid4()
+    await connection.execute(
+        """INSERT INTO reported_result
+           (id, head_id, is_original, score, total_questions, submitted_at,
+            replayed_from_result_id, pinned_baseline_result_id)
+           VALUES ($1, $2, $3, 0.5, 10, $4, $5, $6)""",
+        result_id,
+        head,
+        is_original,
+        datetime(2026, 2, 1, tzinfo=UTC),
+        replayed_from,
+        pinned_baseline,
+    )
+    return result_id
+
+
+async def _replay_fk_delete_rules(database_url: str) -> None:
+    connection = await _connect(database_url)
+    try:
+        await connection.execute(
+            """INSERT INTO benchmarks (id, display_name, visibility, created_at)
+               VALUES ('pg-board', 'PG board', 'public', $1)""",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        # (a) a head whose own cluster holds a replay of its own original: the delete succeeds.
+        head = await _insert_head(connection, "pg-board")
+        original = await _insert_result(connection, head, is_original=True)
+        await _insert_result(
+            connection,
+            head,
+            is_original=False,
+            replayed_from=original,
+            pinned_baseline=original,
+        )
+        await connection.execute('DELETE FROM "scores" WHERE "id" = $1', head)
+        assert await connection.fetchval("SELECT COUNT(*) FROM reported_result") == 0
+
+        # (b) an original that a result in ANOTHER cluster replayed: the delete fails.
+        first = await _insert_head(connection, "pg-board")
+        first_original = await _insert_result(connection, first, is_original=True)
+        second = await _insert_head(connection, "pg-board")
+        await _insert_result(connection, second, is_original=False, replayed_from=first_original)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute('DELETE FROM "scores" WHERE "id" = $1', first)
+        assert await connection.fetchval("SELECT COUNT(*) FROM scores") == 2
+        assert await connection.fetchval("SELECT COUNT(*) FROM reported_result") == 2
+    finally:
+        await connection.close()
+
+
+@pytest.mark.skipif(not DATABASE_URL.startswith("postgres"), reason="requires PostgreSQL")
+def test_sch14_replay_fks_are_no_action_on_postgres(postgres_schema_database_url: str) -> None:
+    # INVARIANT (OD-S2, D8): the replay FKs are ON DELETE NO ACTION, checked at the end of the
+    # statement, so the CASCADE from a head may delete a replay together with the original it
+    # replays; a replay in another cluster still blocks the delete of its original.
+    _migrated(postgres_schema_database_url)
+
+    asyncio.run(_replay_fk_delete_rules(postgres_schema_database_url))

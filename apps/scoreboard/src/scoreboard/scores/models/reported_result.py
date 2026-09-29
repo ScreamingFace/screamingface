@@ -49,13 +49,15 @@ class BaseReportedResult(BaseScoreboardModel):
 class ReportedResult(BaseReportedResult):
     class Meta:
         table = "reported_result"
-        # WHY the key attribute `head_id` and not `head`: the index resolver uses
-        # `field.source_field or name`; for the relation `head` Tortoise overwrites `source_field`
-        # with the attribute name `head_id`, which is not a column. `head_id` resolves to the
-        # column `score_id`.
+        # WHY the key attribute `head_id`: the index resolver uses `field.source_field or name`, and
+        # for the relation `head` Tortoise sets `source_field` to `head_id`, the real column (D8).
         indexes = (("head_id", "submitted_at"),)
 
     # WHY named `head` and not `score`: the result number is already `score` (erd.md §2.2).
+    # WHY no `source_field` on any FK here (D8): Tortoise 1.1.8 overwrites an FK `source_field` with
+    # `<attr>_id` at init (`tortoise/apps.py:205`), so a custom column would split the migration
+    # state from the database. The native columns are `head_id`, `replayed_from_result_id` and
+    # `pinned_baseline_result_id`, the erd.md §2.2 names.
     # WHY related_name=False on every FK to Score: a reverse relation adds a key to
     # `Score._meta.fields_map`, and the append-only CHAR guard
     # `test_every_score_field_reaches_at_least_one_read_dto` then fails.
@@ -63,23 +65,24 @@ class ReportedResult(BaseReportedResult):
     # rows with the ORM, and every score has a child row; RESTRICT would break all three tools.
     head = fields.ForeignKeyField(
         "models.Score",
-        source_field="score_id",
         related_name=False,
         on_delete=fields.OnDelete.CASCADE,
     )
-    # WHY RESTRICT (OD-S2): it keeps I-R2; `delete_scores` fails loudly for a score whose result
-    # another run replayed.
-    replayed_from = fields.ForeignKeyField(
+    # WHY NO_ACTION and not RESTRICT (OD-S2, D8): SQLite checks RESTRICT at once, row by row, also
+    # inside the CASCADE from the head, so the delete of a head whose own cluster holds a replay of
+    # its own original would fail. NO_ACTION is checked at the end of the statement on both
+    # engines. INVARIANT: a replay in ANOTHER cluster still blocks the delete of its original, so
+    # I-R2 holds; `delete_scores` fails loudly only for a score whose result another cluster's run
+    # replayed.
+    replayed_from_result = fields.ForeignKeyField(
         "models.ReportedResult",
-        source_field="replayed_from_result_id",
         related_name=False,
         null=True,
-        on_delete=fields.OnDelete.RESTRICT,
+        on_delete=fields.OnDelete.NO_ACTION,
     )
-    pinned_baseline = fields.ForeignKeyField(
+    pinned_baseline_result = fields.ForeignKeyField(
         "models.ReportedResult",
-        source_field="pinned_baseline_result_id",
         related_name=False,
         null=True,
-        on_delete=fields.OnDelete.RESTRICT,
+        on_delete=fields.OnDelete.NO_ACTION,
     )

@@ -12,32 +12,12 @@ from tortoise.migrations import operations as ops
 # `test_sch7_partial_index_ddl_matches_the_migration` holds them equal.
 _ONE_ORIGINAL_PER_SCORE_SQL = (
     'CREATE UNIQUE INDEX IF NOT EXISTS "uidx_reported_result_one_original" '
-    'ON "reported_result" ("score_id") WHERE "is_original"'
+    'ON "reported_result" ("head_id") WHERE "is_original"'
 )
 _ONE_PUBLIC_HEAD_PER_SYSTEM_REVISION_SQL = (
     'CREATE UNIQUE INDEX IF NOT EXISTS "uidx_scores_public_head" '
     'ON "scores" ("benchmark_id", "benchmark_revision", "system_revision_id") '
     'WHERE "system_revision_id" IS NOT NULL'
-)
-# WHY the columns are renamed after `CreateModel`, and NOT declared with `source_field="score_id"`:
-# Tortoise 1.1.8 rewrites `ReportedResult.head.source_field` to the attribute name `head_id` when it
-# initializes the model, so its migration state can never equal a hand-written `source_field`, and
-# `makemigrations` would propose an `AlterField` for each of the three keys on every run. The
-# state below is therefore exactly what the models declare (`head_id`, `replayed_from_id`,
-# `pinned_baseline_id`), and the renames give the columns the names erd.md section 2.2 gives
-# (`score_id`, `replayed_from_result_id`, `pinned_baseline_result_id`), which the models pin with
-# `source_field`. Both engines update indexes and foreign keys on `RENAME COLUMN`.
-_RENAME_RESULT_FK_COLUMNS_SQL = (
-    'ALTER TABLE "reported_result" RENAME COLUMN "head_id" TO "score_id"',
-    'ALTER TABLE "reported_result" RENAME COLUMN "replayed_from_id" TO "replayed_from_result_id"',
-    'ALTER TABLE "reported_result" '
-    'RENAME COLUMN "pinned_baseline_id" TO "pinned_baseline_result_id"',
-)
-_UNDO_RENAME_RESULT_FK_COLUMNS_SQL = (
-    'ALTER TABLE "reported_result" RENAME COLUMN "score_id" TO "head_id"',
-    'ALTER TABLE "reported_result" RENAME COLUMN "replayed_from_result_id" TO "replayed_from_id"',
-    'ALTER TABLE "reported_result" '
-    'RENAME COLUMN "pinned_baseline_result_id" TO "pinned_baseline_id"',
 )
 _ADD_SYSTEM_REVISION_FK_SQL = (
     'ALTER TABLE "scores" ADD CONSTRAINT "fk_scores_system_revision" '
@@ -71,8 +51,9 @@ class Migration(migrations.Migration):
     # cache-version publication state, plus the two partial unique indexes Tortoise cannot declare.
     #
     # AIDEV-NOTE: SAFE for a rolling multi-replica rollout — only new tables and indexes. The
-    # `reported_result` FK columns are named as erd.md section 2.2 names them (`score_id`,
-    # `replayed_from_result_id`, `pinned_baseline_result_id`).
+    # `reported_result` FK columns have the Tortoise native names `head_id`,
+    # `replayed_from_result_id` and `pinned_baseline_result_id` (D8); no `RunSQL` renames a column,
+    # and no FK sets a custom `source_field`, so the migration state equals the models.
     operations = [
         ops.CreateModel(
             name="System",
@@ -181,27 +162,27 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "replayed_from",
+                    "replayed_from_result",
                     fields.ForeignKeyField(
                         "models.ReportedResult",
-                        source_field="replayed_from_id",
+                        source_field="replayed_from_result_id",
                         null=True,
                         db_constraint=True,
                         to_field="id",
                         related_name=False,
-                        on_delete=OnDelete.RESTRICT,
+                        on_delete=OnDelete.NO_ACTION,
                     ),
                 ),
                 (
-                    "pinned_baseline",
+                    "pinned_baseline_result",
                     fields.ForeignKeyField(
                         "models.ReportedResult",
-                        source_field="pinned_baseline_id",
+                        source_field="pinned_baseline_result_id",
                         null=True,
                         db_constraint=True,
                         to_field="id",
                         related_name=False,
-                        on_delete=OnDelete.RESTRICT,
+                        on_delete=OnDelete.NO_ACTION,
                     ),
                 ),
             ],
@@ -310,10 +291,6 @@ class Migration(migrations.Migration):
                 "pk_attr": "id",
             },
             bases=["BaseCacheVersionPublication"],
-        ),
-        ops.RunSQL(
-            _RENAME_RESULT_FK_COLUMNS_SQL,
-            reverse_sql=_UNDO_RENAME_RESULT_FK_COLUMNS_SQL,
         ),
         ops.RunSQL(
             _ONE_ORIGINAL_PER_SCORE_SQL,
