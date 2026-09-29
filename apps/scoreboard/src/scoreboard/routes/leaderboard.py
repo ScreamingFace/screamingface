@@ -5,7 +5,7 @@ from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
@@ -73,10 +73,24 @@ class RankedLeaderboardEntry(BaseModel):
     # runtime rather than at import — a 500 on the read path, not a type error.
     # Keep the two in step.
     #
+    # EXCEPTION: `paper_url` (below) is on this class and on HistorySubmission only, never on
+    # LeaderboardEntry — OD-M7, decided (b) — so a field of the mirrored pair can be missing here
+    # without a 500.
+    #
     # RunCostUsd, not a bare Decimal | None: the shared type carries the
     # fixed-6dp JSON serializer, so the wire form cannot drift between the DTOs
     # (spec 2.4).
     run_cost_usd: RunCostUsd
+    # FEATURE: OME-1307 (E14a) — the submission's paper link, filled by `get_leaderboard` from one
+    # extra read of the ranked ids (`ScoreStore.paper_urls_for_score_ids`).
+    #
+    # WHY not on LeaderboardEntry (OD-M7, decided (b)): two append-only guards
+    # (`test_multiple_authors.py`, `test_store.py`) iterate `LeaderboardEntry.model_fields`, and a
+    # nullable field left at its default fails the first one.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT. Existing tests pin the exact key set of a board entry, and a
+    # row with no paper URL must keep it, so `"paper_url": null` never appears.
+    paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     # FEATURE: OME-923 part B — this row is on the Pareto frontier: no other row on the
     # board is both at least as good and at least as cheap, and strictly better on one.
@@ -132,6 +146,8 @@ class HistorySubmission(BaseModel):
     authors: Authors = None
     verified_by_screamingface: bool
     run_cost_usd: RunCostUsd
+    # FEATURE: OME-1307 (E14a) — EXCLUDED WHEN ABSENT, for the reason on RankedLeaderboardEntry.
+    paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class HistoryResponse(BaseModel):
@@ -165,10 +181,17 @@ async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
 
 
 def _ranked_entry(
-    rank: int, entry: LeaderboardEntry, *, on_pareto_frontier: bool
+    rank: int,
+    entry: LeaderboardEntry,
+    *,
+    on_pareto_frontier: bool,
+    paper_url: str | None = None,
 ) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(
-        rank=rank, on_pareto_frontier=on_pareto_frontier, **entry.model_dump()
+        rank=rank,
+        on_pareto_frontier=on_pareto_frontier,
+        paper_url=paper_url,
+        **entry.model_dump(),
     )
 
 
@@ -184,6 +207,7 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
         authors=score.authors,
         verified_by_screamingface=score.verified_by_screamingface,
         run_cost_usd=score.run_cost_usd,
+        paper_url=score.paper_url,
     )
 
 
@@ -313,6 +337,11 @@ async def get_leaderboard(
             registered_case_count=case_count,
             connection=snapshot,
         )
+        # FEATURE: OME-1307 (E14a) — the paper links of exactly the rows ranked above, read in the
+        # same snapshot so a link never belongs to a different row than the score beside it.
+        paper_urls = await store.paper_urls_for_score_ids(
+            [row.source_id for row in rows], connection=snapshot
+        )
         frontier_inputs = (
             await store.leaderboard_pareto_inputs(
                 benchmark_id,
@@ -353,6 +382,7 @@ async def get_leaderboard(
                 # exact stored-row identity prevents a concurrent replacement for this spec
                 # from transferring its mark onto the older row rendered here.
                 on_pareto_frontier=row.source_id in frontier_ids,
+                paper_url=paper_urls.get(row.source_id),
             )
             for index, row in enumerate(rows, start=1)
         ],
