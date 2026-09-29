@@ -176,7 +176,7 @@ async def _observed_round_trip(
         resp, outcome = await _fetch_completion(
             http_client, headers=headers, body=body, cache=cache
         )
-        _report_version(outcome)
+        _report_version(outcome, grant_sent=_CACHE_REPLAY_HEADER in headers)
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
         operation_accounting.append(
@@ -570,13 +570,22 @@ def _hit_cost(call: CallAccounting | None) -> Decimal:
     return call.cost_usd if call is not None and call.cost_usd is not None else Decimal(0)
 
 
-def _report_version(outcome: CacheOutcome | None) -> None:
-    """Tell the run's sink what the gateway said about the cache version, when it said anything.
+def _report_version(outcome: CacheOutcome | None, *, grant_sent: bool) -> None:
+    """Tell the run's sink what the gateway said about the cache version.
 
     `None` is accepted for the same reason `_report_usage` accepts it: a caller with no reading
-    of the response (a stubbed fetch) has nothing to report."""
+    of the response (a stubbed fetch) has nothing to report.
+
+    INVARIANT (E14, RP-E6, RP-H5, C12): a 2xx call that SENT the grant and got no readable
+    version answer is a version MISS. A gateway that does not honour the grant (an old or mixed
+    replica, a path that drops the header) served that call from the live provider, and counting
+    nothing would let a partly live replay read as complete. A call that sent no grant reports
+    nothing when it has no answer, so a plain run stays byte-identical.
+    """
     if outcome is not None and outcome.version is not None:
         report_version_outcome(outcome.version, outcome.key)
+    elif grant_sent:
+        report_version_outcome("miss", None)
 
 
 def _report_usage(

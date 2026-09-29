@@ -320,7 +320,17 @@ PUT  /v1/admin/benchmarks/{benchmark_id}/redistributable {"redistributable": tru
 | `cache.version.repeated_key_collapses` | int ≥ 0 | Version hits on a `key` that already had a hit in this run (from the `Cache-Status` `key` parameter). It is an **upper bound**: the engine sees a key prefix, not the full call. |
 
 - **When present.** Only on a run that carried a replay grant (C1). A run with no grant has none
-  of the three attributes. A run with a grant has all three, also when they are `0`.
+  of the three attributes. A run with a grant that made at least one gateway chat call has all
+  three, also when one or two are `0`. (Resolved in ENG-replay review: the frame is the run's
+  cache summary, which the engine publishes only when a cache outcome was seen. A grant run that
+  made no chat call publishes no frame, and the consumer rule below then applies: the SDK does
+  not submit it as a replay.)
+- **A call with no version answer.** A chat call that sent the grant and got a 2xx answer with
+  no readable `X-AIGW-Cache-Version` counts as a **version miss**. The gateway did not serve it
+  from the version, so it fell through to the live provider (an old or mixed gateway replica, or
+  a path that dropped the header). The alternative, a typed permanent failure, was rejected: the
+  run still finishes and the misses show, so the SDK can state that the replay was not complete
+  (RP-E6, RP-H5). A call with no grant and no answer counts nothing.
 - **Revalidation.** A version hit is exempt from the engine max-age revalidation. The engine
   does not re-ask the gateway for a hit that came from a version.
 - **Consumer rule.** The SDK builds the replay report (RP-H1) and the C4 `replay` block from
