@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1411
 stack: screamingface-engine
 status: done
 started: 2026-09-29
@@ -16,7 +16,7 @@ into its revision, so all 18 published revisions moved: gsm8k, mmlu, FrontierSci
 rest are now, by our own rule, different exams. The inspect CI lane reported "18 failed, 478
 passed", but the job stayed green: the step pipes `pytest | tee` without `pipefail`, so it takes
 `tee`'s exit code. This unit reverts only the two inspect pins, and holds both packages in
-Dependabot until bumps can be verified (the bump-verification ticket, filed with this PR).
+Dependabot until bumps can be verified (OME-1410).
 
 ## Planned changes
 
@@ -43,5 +43,5 @@ Dependabot until bumps can be verified (the bump-verification ticket, filed with
 - **Commits:** `revert(screamingface-engine): pin inspect back to the versions the published exams use`.
 - **Gates:** `tests/unit/inspect` 496 passed (main: 18 failed, 478 passed); the pre-push gate
   runs the full engine suite. `dependabot.yml` parses.
-- **Deviations:** none. The CI `pipefail` gap is left for the bump-verification ticket, because
+- **Deviations:** none. The CI `pipefail` gap is left for OME-1410, because
   it's CI tooling (an owner decision).
