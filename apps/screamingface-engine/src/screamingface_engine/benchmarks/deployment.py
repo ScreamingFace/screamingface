@@ -131,7 +131,7 @@ class BenchmarkDeployment:
         while the I/O decision stays with the caller and out of this orchestrator.
 
         WHY `only`: preparing cannot be picked up where it stopped. Some preparers (the
-        imported boards') refuse to write into a directory that already holds files, so a
+        imported benchmarks') refuse to write into a directory that already holds files, so a
         second attempt raises on the first bundle that already finished — and an interrupted
         run could only be recovered by deleting every completed directory and downloading
         everything again. Naming just the bundles still missing is what makes a retry cheap.

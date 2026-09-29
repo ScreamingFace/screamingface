@@ -175,7 +175,7 @@ async def test_a_tool_bearing_judge_prompt_is_refused() -> None:
 
 @pytest.mark.asyncio
 async def test_the_transport_binding_is_scoped() -> None:
-    """The binding must not leak past its context — the next board's grade starts clean."""
+    """The binding must not leak past its context — the next benchmark's grade starts clean."""
 
     fetch = _RecordingFetch()
     model = get_model("screamingface/judge-4", memoize=False)

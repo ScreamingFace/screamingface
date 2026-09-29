@@ -64,12 +64,12 @@ async def test_cases_validate_selected_collection_before_any_model_calls(raw):
         await node.aclose()
 
 
-def test_every_shipped_board_installs_cases_as_validated_processor(tmp_path):
+def test_every_shipped_benchmark_installs_cases_as_validated_processor(tmp_path):
     from screamingface_engine.benchmarks.draco.definition import DRACO_3PASS
     from screamingface_engine.benchmarks.gdpval.definition import GDPVAL_TEXT
     from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 
-    for board in (DRACO_3PASS, GDPVAL_TEXT, HEALTHBENCH_WORST30):
+    for benchmark in (DRACO_3PASS, GDPVAL_TEXT, HEALTHBENCH_WORST30):
         node = Url4Node()
-        board.install(node, tmp_path)
-        assert f"/benchmarks/{board.id}/{board.revision}/cases" in node.processor_routes()
+        benchmark.install(node, tmp_path)
+        assert f"/benchmarks/{benchmark.id}/{benchmark.revision}/cases" in node.processor_routes()

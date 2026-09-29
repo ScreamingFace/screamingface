@@ -1,6 +1,6 @@
-"""What the ContractEval board pins — dataset, preparer, protocol, and sampling.
+"""What the ContractEval benchmark pins — dataset, preparer, protocol, and sampling.
 
-INVARIANT: the IDENTITY pins below participate in the board's revision hash — dataset, split,
+INVARIANT: the IDENTITY pins below participate in the benchmark's revision hash — dataset, split,
 dataset revision, preparer revision, protocol revision. Changing one changes every route
 address, which is the point: an expression addressed to an old revision must never resolve
 against a changed exam.
@@ -8,7 +8,7 @@ against a changed exam.
 AIDEV-NOTE (review, PR #984): this header used to claim EVERY value here is hashed. It is not,
 and the lockfile's own header must not overclaim. `MAX_TOKENS`, `TEMPERATURE` and
 `MAX_CONTEXT_TOKENS` are OUTSIDE `compute_revision`. That is safe for each of them, but for
-different reasons worth knowing: the first two are advisory (never applied by this board —
+different reasons worth knowing: the first two are advisory (never applied by this benchmark —
 see their note below), and `MAX_CONTEXT_TOKENS` is fail-closed at `prepare._CHARS_PER_TOKEN`,
 so it can refuse a build but can never change a byte that was served.
 
@@ -43,7 +43,7 @@ PREPARER_REVISION = "cuad-test-v1"
 # WHY: the exchange itself — single-shot verbatim extraction with an explicit abstain string.
 PROTOCOL_REVISION = "single-shot-extract-v1"
 
-# AIDEV-NOTE: the two constants below are ADVISORY — they are not applied by this board and are
+# AIDEV-NOTE: the two constants below are ADVISORY — they are not applied by this benchmark and are
 # not in `compute_revision`. Sampling parameters reach a model from the SDK caller's
 # `sf.Model(params=...)`, so these record what the reference used, for whoever writes a notebook
 # or a run script. (MedXpertQA carries them the same way.) Do not "wire them up" without deciding

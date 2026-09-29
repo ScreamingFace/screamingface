@@ -1,15 +1,15 @@
-"""The one judge-verdict parser every rubric board configures. No model calls here.
+"""The one judge-verdict parser every rubric benchmark configures. No model calls here.
 
 FEATURE: one grading spine per benchmark (OME-1024; this module lands OME-1099 and
 delivers the typed record OME-1025 asked for).
-STORY: as the next rubric board, I declare my verdict dialect and get parsing for free —
+STORY: as the next rubric benchmark, I declare my verdict dialect and get parsing for free —
 I cannot drift a copy, and I cannot drop an audit field.
 
 Mental model: a judge replies in text that *should* be JSON, and can never be trusted to
 say WHICH criterion it was grading. Turning that reply into evidence is the same work on
-every board — recover the JSON from however the judge presented it, demand the board's
+every benchmark — recover the JSON from however the judge presented it, demand the benchmark's
 verdict field, stamp the Engine-known identity on, keep the raw reply for audit. Only the
-paperwork differs per board, so the work lives here once and each board supplies a
+paperwork differs per benchmark, so the work lives here once and each benchmark supplies a
 ``VerdictShape``: its schema string, its verdict field (an enum status or a strict JSON
 boolean), and its reason vocabulary — merged parsers, unchanged wire records.
 
@@ -34,7 +34,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-# Canonical failure codes, in detection order. Each board's shape maps every code it can
+# Canonical failure codes, in detection order. Each benchmark's shape maps every code it can
 # hit onto its own wire ``reason`` string, so merging the parsers changed no records.
 _FAILURE_CODES = (
     "empty",
@@ -48,17 +48,17 @@ _FAILURE_CODES = (
 
 @dataclass(frozen=True, slots=True)
 class VerdictShape:
-    """One board's verdict dialect — arguments, not code.
+    """One benchmark's verdict dialect — arguments, not code.
 
     Args (as fields):
-        schema: the board's wire schema string, stamped on every record.
+        schema: the benchmark's wire schema string, stamped on every record.
         status_field: the reply field carrying the verdict (``criterion_status``,
             ``criteria_met``).
         statuses: the accepted enum values (``("MET", "UNMET")``), or ``None`` for a
             strict JSON boolean — ``"true"``/``1`` never count (simple-evals parity).
         explanation_required: whether a reply without a text ``explanation`` is invalid
-            (draco) or tolerated as empty text (the rubric boards).
-        reasons: canonical failure code → this board's wire ``reason`` string.
+            (draco) or tolerated as empty text (the rubric benchmarks).
+        reasons: canonical failure code → this benchmark's wire ``reason`` string.
     """
 
     schema: str
@@ -92,7 +92,7 @@ class Verdict:
     #: exactly what the audit trail exists to expose.
     raw_output: str
     valid: bool
-    #: The board-dialect verdict fields when valid (status + explanation); empty otherwise.
+    #: The benchmark-dialect verdict fields when valid (status + explanation); empty otherwise.
     payload: tuple[tuple[str, object], ...]
     reason: str | None
 
@@ -130,9 +130,9 @@ def parse_verdict(
     Stages, in execution order:
 
     1. Recover the JSON from however the judge presented it (fenced, prose-prefixed, bare).
-    2. Walk the failure checks in canonical order; the first hit becomes the board's
+    2. Walk the failure checks in canonical order; the first hit becomes the benchmark's
        ``reason`` string via the shape's vocabulary.
-    3. A clean reply yields the board-dialect payload; either way the ORIGINAL bytes ride
+    3. A clean reply yields the benchmark-dialect payload; either way the ORIGINAL bytes ride
        along as ``raw_output``.
 
     INVARIANT: this RETURNS failures instead of raising. The caller (a runtime's verdict
@@ -195,7 +195,7 @@ def _failure_code(shape: VerdictShape, raw: object, decoded: object) -> str | No
 
 
 def _payload(shape: VerdictShape, decoded: Mapping[str, Any]) -> tuple[tuple[str, object], ...]:
-    """The board-dialect verdict fields off a reply `_failure_code` already accepted."""
+    """The benchmark-dialect verdict fields off a reply `_failure_code` already accepted."""
 
     status: object = decoded[shape.status_field]
     explanation = decoded.get("explanation")

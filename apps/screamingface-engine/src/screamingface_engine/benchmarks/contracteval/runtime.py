@@ -4,10 +4,10 @@ If `definition.py` writes the recipe, this module now only declares what makes t
 exam different: how its booklet rows look, how a reply is graded against the private
 gold spans, and which reducer rolls the verdicts into the paper's confusion-matrix F1.
 The routes, memoized preflight, case serving and aggregate wiring live in
-`spine/serving.py` — one kitchen for every hand-built deterministic board.
+`spine/serving.py` — one kitchen for every hand-built deterministic benchmark.
 
 INVARIANT: everything here is deterministic and spends no tokens. The model calls live
-in the expression, not in these handlers — which is the whole reason this board's
+in the expression, not in these handlers — which is the whole reason this benchmark's
 grading is free.
 """
 
@@ -36,10 +36,10 @@ from screamingface_engine.benchmarks.evaluation import (
 )
 from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.spine.serving import (
-    ServedBoard,
-    board_preflight,
+    ServedBenchmark,
+    benchmark_preflight,
     candidate_record,
-    install_board,
+    install_benchmark,
     serve_cases,
 )
 from screamingface_engine.benchmarks.stages import observe_stage
@@ -47,28 +47,28 @@ from url4.peer.server import Request, Url4Node
 
 
 def install(node: Url4Node, root: Path) -> None:
-    """Register every route this board's expression references."""
+    """Register every route this benchmark's expression references."""
 
-    install_board(node, root, BOARD)
+    install_benchmark(node, root, BENCHMARK)
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
     """Fail before the FIRST paid call when the baked assets cannot serve this exam."""
 
-    board_preflight(root, case_ids, label="ContractEval", load_answer=reducing.load_answer)
+    benchmark_preflight(root, case_ids, label="ContractEval", load_answer=reducing.load_answer)
 
 
 def _cases(root: Path):
-    """The public booklet, served by the spine with this board's declaration."""
+    """The public booklet, served by the spine with this benchmark's declaration."""
 
-    return serve_cases(root, BOARD)
+    return serve_cases(root, BENCHMARK)
 
 
 def _build_rows(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
     """Project the baked rows into the sealed public booklet — never the gold spans.
 
     WHY the whole instruction text is baked rather than assembled here: prompt bytes
-    are exam identity on a judge-free board, and an expression that composed them
+    are exam identity on a judge-free benchmark, and an expression that composed them
     would put that identity outside the revision hash.
     """
 
@@ -116,7 +116,7 @@ def _check(root: Path):
     return check
 
 
-BOARD = ServedBoard(
+BENCHMARK = ServedBenchmark(
     benchmark_id=BENCHMARK_ID,
     label="ContractEval",
     revision=REVISION,
@@ -132,4 +132,4 @@ BOARD = ServedBoard(
     reduce=reducing.aggregate,
 )
 
-__all__ = ["BOARD", "install", "preflight"]
+__all__ = ["BENCHMARK", "install", "preflight"]

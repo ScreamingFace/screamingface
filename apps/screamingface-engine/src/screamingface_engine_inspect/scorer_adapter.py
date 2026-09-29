@@ -3,7 +3,7 @@
 # default (extra-less) install the typecheck gate runs against. Only unresolved-import
 # reporting is relaxed; every other diagnostic stays on, and with the extra installed
 # these imports type-check normally.
-"""Wrap one inspect scorer as a board's ``grade_case`` hook — the hourglass waist proof.
+"""Wrap one inspect scorer as a benchmark's ``grade_case`` hook — the hourglass waist proof.
 
 Think of an inspect scorer as an external examiner who only reads their own exam-office
 forms. This adapter is the clerk who copies our sealed grade request onto their forms
@@ -18,7 +18,7 @@ Stages, in execution order (see :func:`inspect_grade_case`):
               today, §7 scope); a missing answer grades as "" — inspect's own
               empty-prediction path.
     Stage 2 — build the minimal TaskState + Target from the request's grading material
-              (the imported Sample's target, plus its choices for MCQ boards). When the
+              (the imported Sample's target, plus its choices for MCQ benchmarks). When the
               material declares choices, replay inspect's OWN answer-marking step
               (``parse_answers`` + ``set_choices_based_on_generated_response``) — their
               ``choice()`` scorer reads marks the ``multiple_choice`` solver would have
@@ -75,13 +75,13 @@ _CANDIDATE_MODEL = "screamingface/candidate"
 
 
 def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> GradeCase:
-    """Wrap one inspect scorer as this board's ``grade_case`` hook.
+    """Wrap one inspect scorer as this benchmark's ``grade_case`` hook.
 
     Args:
         scorer: the imported eval's scorer — any standalone async callable obeying
             inspect's ``(state, target) -> Score`` protocol.
-        multiple_correct: whether an MCQ board admits multiple correct letters
-            (inspect's ``parse_answers`` flag); single-answer boards leave the default.
+        multiple_correct: whether an MCQ benchmark admits multiple correct letters
+            (inspect's ``parse_answers`` flag); single-answer benchmarks leave the default.
 
     Returns:
         The async hook the spine calls once per gradeable Case.
@@ -97,7 +97,7 @@ def inspect_grade_case(scorer: Scorer, *, multiple_correct: bool = False) -> Gra
             with grading_call_scope(request.case_id):
                 score: Score | None = await scorer(state, target)
         except Exception as exc:  # noqa: BLE001 — WHY broad: the scorer is stranger
-            # code from any of ~94 community evals; ANY raise must become this board's
+            # code from any of ~94 community evals; ANY raise must become this benchmark's
             # named failure, not an aborted aggregate for the other 49 Cases.
             return _failure("scorer_error", f"{type(exc).__name__}: {exc}")
         # Stage 4 — copy their mark back onto our form.

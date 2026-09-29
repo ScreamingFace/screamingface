@@ -1,4 +1,4 @@
-"""Both HealthBench boards share one answer key without sharing an identity."""
+"""Both HealthBench benchmarks share one answer key without sharing an identity."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ _ANSWER = "STOPDAPT-2 studied 1-month DAPT after PCI; which variant do you mean?
 
 
 def _write_full_assets(root: Path, points: tuple[int, ...] = (8,)) -> None:
-    """The whole baked answer key — all 525 Cases, the superset both boards select from.
+    """The whole baked answer key — all 525 Cases, the superset both benchmarks select from.
 
     ``points`` is the rubric every Case carries. A positive item is a win a good answer
     earns; a negative one is a penalty. INVARIANT (prepare.py): at least one item must be
@@ -58,12 +58,12 @@ def _write_full_assets(root: Path, points: tuple[int, ...] = (8,)) -> None:
 
 
 @pytest.mark.asyncio
-async def test_both_boards_serve_one_answer_key_from_separate_addresses(tmp_path: Path) -> None:
+async def test_both_benchmarks_serve_one_answer_key_from_separate_addresses(tmp_path: Path) -> None:
     """INVARIANT (OME-903): two exams, ONE baked asset root, zero route collisions.
 
-    The professional board is a second SELECTION over the same `cases.json` — never a
+    The professional benchmark is a second SELECTION over the same `cases.json` — never a
     second bake and never a renumbering. Installing both into one Runner world must
-    therefore work, and each board must serve exactly its own case list.
+    therefore work, and each benchmark must serve exactly its own case list.
     """
 
     _write_full_assets(tmp_path)
@@ -82,7 +82,7 @@ async def test_both_boards_serve_one_answer_key_from_separate_addresses(tmp_path
     assert [case["id"] for case in professional_cases] == list(range(1, 526))
     # The hard subset is a strict subset of the full exam — same ids, same answer key.
     assert set(WORST30_CASE_IDS) <= {case["id"] for case in professional_cases}
-    # INVARIANT: the answer key stays private on BOTH boards — a Candidate sees chat
+    # INVARIANT: the answer key stays private on BOTH benchmarks — a Candidate sees chat
     # envelopes and nothing of the rubric, whichever exam it is sitting.
     served = json.dumps(professional_cases)
     assert "rubric" not in served
@@ -93,10 +93,10 @@ async def test_both_boards_serve_one_answer_key_from_separate_addresses(tmp_path
 async def test_the_official_clip_reaches_the_score_through_the_real_expression(
     tmp_path: Path,
 ) -> None:
-    """The professional board's whole point, end to end: a negative run reports 0.0.
+    """The professional benchmark's whole point, end to end: a negative run reports 0.0.
 
     Unit-testing ``clipped_mean`` proves the arithmetic; only resolving the BUILT
-    expression proves the board actually wired that arithmetic into its aggregate route.
+    expression proves the benchmark actually wired that arithmetic into its aggregate route.
     The rubric here is a +2 win and a -8 penalty, both judged MET, so the one graded Case
     scores (2 - 8) / 2 = -3.0 — the challenge metric would publish -3.0, the official
     metric publishes 0.0.

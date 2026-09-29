@@ -1,8 +1,8 @@
-"""The imported boards' LOCKFILE — treat this module exactly like ``uv.lock``.
+"""The imported benchmarks' LOCKFILE — treat this module exactly like ``uv.lock``.
 
 Like a lockfile, this is frozen, reviewable DATA, not logic: one small set of rows
-per imported board, and the diff to these rows IS the exam changing. Every value
-participates in the board's revision hash (spec §6: revision = sha over the pinned
+per imported benchmark, and the diff to these rows IS the exam changing. Every value
+participates in the benchmark's revision hash (spec §6: revision = sha over the pinned
 package identity + the imported case subset's identity), so changing one changes
 every route address — an expression addressed to an old revision never resolves
 against a changed exam.
@@ -334,7 +334,7 @@ ONET_M6_CONFIG = "default"
 ONET_M6_SPLIT = "test"
 ONET_M6_DATASET_REVISION = "93ffb5e3f3ec630b73e501937805984dd24f2365"
 # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397 questions,
-# the board serves 391. Six of inspect's 397 cannot be graded as published: upstream
+# the benchmark serves 391. Six of inspect's 397 cannot be graded as published: upstream
 # split their numbered choices wrongly, so the answer letter points past the last
 # choice (2021_4_b447: answer E, 4 choices) and every candidate scores wrong there.
 # The importer counted 397; the pinned count is what is left after the exclusion.

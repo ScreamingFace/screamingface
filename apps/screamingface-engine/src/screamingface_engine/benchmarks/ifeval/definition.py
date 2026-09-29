@@ -130,7 +130,7 @@ IFEVAL = Benchmark(
     # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
     revision=REVISION,
     case_count=CASE_COUNT,
-    # INVARIANT: the declared policy matches the code — this board reduces through the
+    # INVARIANT: the declared policy matches the code — this benchmark reduces through the
     # shared finalize_candidate_result, which scores exactly the gradeable subset and
     # publishes coverage (coverage_declare). Declare `withhold` only if the aggregate
     # actually withholds (OME-1039).

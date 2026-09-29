@@ -1,7 +1,7 @@
-"""The imported `inspect-gsm8k` proof board — spec §3 end to end, minus the paid run.
+"""The imported `inspect-gsm8k` proof benchmark — spec §3 end to end, minus the paid run.
 
 FEATURE: the first stranger-authored benchmark on the shared spine with zero spine
-edits (OME-1115). This suite drives the board's definition, asset snapshot, runtime
+edits (OME-1115). This suite drives the benchmark's definition, asset snapshot, runtime
 routes, the shared spine aggregate through the scorer adapter, and the §4 check surface
 (the SAME wrapped scorer serving mid-run feedback).
 
@@ -23,14 +23,14 @@ pytest.importorskip("inspect_evals")
 from screamingface_engine.benchmarks.case_execution import case_execution_payload  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA  # noqa: E402
-from screamingface_engine_inspect.boards import imported_board  # noqa: E402
+from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
 )
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
-GSM8K_BOARD = imported_board("gsm8k")
+GSM8K_BENCHMARK = imported_benchmark("gsm8k")
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Url4Node  # noqa: E402
 
@@ -41,47 +41,47 @@ _ROWS: list[dict[str, Any]] = [
 
 
 def _bake(root: Path) -> Path:
-    """Bake a two-case snapshot in the board's asset layout (assets/<benchmark id>/)."""
+    """Bake a two-case snapshot in the benchmark's asset layout (assets/<benchmark id>/)."""
 
-    emit_cases(BENCHMARK_CASES["gsm8k"], _ROWS, root / GSM8K_BOARD.benchmark.id)
+    emit_cases(BENCHMARK_CASES["gsm8k"], _ROWS, root / GSM8K_BENCHMARK.benchmark.id)
     return root
 
 
 # ── definition ───────────────────────────────────────────────────────────────
 
 
-def test_board_identity_and_declaration() -> None:
-    board = GSM8K_BOARD.benchmark
-    assert board.id == "inspect-gsm8k"
-    assert len(board.revision) == 16 and int(board.revision, 16) >= 0
-    assert board.declaration.as_block() == {
+def test_benchmark_identity_and_declaration() -> None:
+    benchmark = GSM8K_BENCHMARK.benchmark
+    assert benchmark.id == "inspect-gsm8k"
+    assert len(benchmark.revision) == 16 and int(benchmark.revision, 16) >= 0
+    assert benchmark.declaration.as_block() == {
         "failure_policy": "coverage_declare",
         "interaction": "single_shot",
         # OME-1257: grade-school material frontier models saturate.
         "difficulty": "easy",
     }
-    assert board.case_count == 1319
-    assert board.dataset_url is not None and "gsm8k" in board.dataset_url
+    assert benchmark.case_count == 1319
+    assert benchmark.dataset_url is not None and "gsm8k" in benchmark.dataset_url
 
 
 def test_check_surface_is_declared_and_free() -> None:
     """§4 — the wrapped scorer is ALSO the advertised mid-run check, at zero cost."""
 
-    surface = GSM8K_BOARD.benchmark.check_surface
+    surface = GSM8K_BENCHMARK.benchmark.check_surface
     assert surface is not None
     assert surface.expected_check_cost == "free"
-    assert GSM8K_BOARD.benchmark.revision in surface.check_route
+    assert GSM8K_BENCHMARK.benchmark.revision in surface.check_route
 
 
-def test_registration_carries_the_board_and_its_bundle() -> None:
-    assert GSM8K_BOARD.registration.benchmark is GSM8K_BOARD.benchmark
-    assert GSM8K_BOARD.registration.asset_bundle.id == GSM8K_BOARD.benchmark.id
+def test_registration_carries_the_benchmark_and_its_bundle() -> None:
+    assert GSM8K_BENCHMARK.registration.benchmark is GSM8K_BENCHMARK.benchmark
+    assert GSM8K_BENCHMARK.registration.asset_bundle.id == GSM8K_BENCHMARK.benchmark.id
 
 
 def test_resource_renders_a_protocol_for_a_selection() -> None:
-    resource = GSM8K_BOARD.benchmark.resource(limit=5)
+    resource = GSM8K_BENCHMARK.benchmark.resource(limit=5)
     assert resource["selected_case_count"] == 5
-    assert GSM8K_BOARD.benchmark.revision in str(resource["url4"])
+    assert GSM8K_BENCHMARK.benchmark.revision in str(resource["url4"])
 
 
 # ── runtime + spine aggregate ────────────────────────────────────────────────
@@ -89,7 +89,7 @@ def test_resource_renders_a_protocol_for_a_selection() -> None:
 
 def _node(tmp_path: Path) -> Url4Node:
     node = Url4Node("test")
-    GSM8K_BOARD.benchmark.install(node, _bake(tmp_path))
+    GSM8K_BENCHMARK.benchmark.install(node, _bake(tmp_path))
     return node
 
 
@@ -110,7 +110,7 @@ async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
 async def test_check_route_records_the_candidate_answer_verbatim(tmp_path: Path) -> None:
     node = _node(tmp_path)
     invocation = encode_candidate_invocation("ANSWER: 42", "stop", None)
-    reply = json.loads(await _call(node, GSM8K_BOARD.check_route, invocation, "1"))
+    reply = json.loads(await _call(node, GSM8K_BENCHMARK.check_route, invocation, "1"))
     assert reply["schema"] == CHECK_SCHEMA
     assert reply["case_id"] == 1
     assert reply["answer"] == "ANSWER: 42"
@@ -123,10 +123,10 @@ async def test_check_route_refuses_a_case_with_an_unusable_target(tmp_path: Path
     it must never record an ungradeable attempt for the aggregate to trip on later."""
 
     node = _node(tmp_path)
-    (tmp_path / GSM8K_BOARD.benchmark.id / "targets" / "1.json").unlink()
+    (tmp_path / GSM8K_BENCHMARK.benchmark.id / "targets" / "1.json").unlink()
     invocation = encode_candidate_invocation("ANSWER: 42", "stop", None)
     with pytest.raises(Exception, match="target record"):
-        await _call(node, GSM8K_BOARD.check_route, invocation, "1")
+        await _call(node, GSM8K_BENCHMARK.check_route, invocation, "1")
 
 
 def _row(case_id: int, answer: str) -> dict[str, object]:
@@ -153,7 +153,7 @@ async def test_aggregate_scores_through_the_shared_spine(tmp_path: Path) -> None
 
     node = _node(tmp_path)
     rows = json.dumps([_row(1, "The sum is small.\nANSWER: 42"), _row(2, "ANSWER: 59")])
-    result = json.loads(await _call(node, GSM8K_BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
     assert result["benchmark_id"] == "inspect-gsm8k"
     assert result["score"] == 0.5
     assert result["metrics"]["scored_cases"] == 2
@@ -168,7 +168,7 @@ async def test_aggregate_scores_through_the_shared_spine(tmp_path: Path) -> None
 async def test_a_missing_row_is_a_named_failure_not_a_zero(tmp_path: Path) -> None:
     node = _node(tmp_path)
     rows = json.dumps([_row(1, "ANSWER: 42")])
-    result = json.loads(await _call(node, GSM8K_BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
     failed = result["cases"][1]
     assert failed["grade"]["score"] is None
     assert failed["failures"][0]["code"] == "missing_case_row"
@@ -178,9 +178,9 @@ async def test_a_missing_row_is_a_named_failure_not_a_zero(tmp_path: Path) -> No
 @pytest.mark.asyncio
 async def test_a_missing_target_asset_fails_by_its_own_name(tmp_path: Path) -> None:
     node = _node(tmp_path)
-    (tmp_path / GSM8K_BOARD.benchmark.id / "targets" / "2.json").unlink()
+    (tmp_path / GSM8K_BENCHMARK.benchmark.id / "targets" / "2.json").unlink()
     rows = json.dumps([_row(1, "ANSWER: 42"), _row(2, "ANSWER: 60")])
-    result = json.loads(await _call(node, GSM8K_BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
     assert result["cases"][1]["failures"][0]["code"] == "missing_target_asset"
 
 
@@ -188,7 +188,7 @@ async def test_a_missing_target_asset_fails_by_its_own_name(tmp_path: Path) -> N
 
 
 def _prompt(tmp_path: Path) -> str:
-    booklet = tmp_path / GSM8K_BOARD.benchmark.id / "cases.json"
+    booklet = tmp_path / GSM8K_BENCHMARK.benchmark.id / "cases.json"
     return json.loads(booklet.read_text(encoding="utf-8"))[0]["input"]
 
 
@@ -199,7 +199,7 @@ async def _surface_check(node: Url4Node, tmp_path: Path, answer: str) -> dict[st
             "invocation": encode_candidate_invocation(answer, "stop", None),
         }
     )
-    reply = await _call(node, GSM8K_BOARD.check_surface_route, payload, "check")
+    reply = await _call(node, GSM8K_BENCHMARK.check_surface_route, payload, "check")
     return json.loads(reply)
 
 
@@ -232,7 +232,7 @@ async def test_check_surface_feedback_intent_extracts_the_feedback(
 ) -> None:
     node = _node(tmp_path)
     record = await _surface_check(node, tmp_path, "ANSWER: 59")
-    reply = await _call(node, GSM8K_BOARD.check_surface_route, json.dumps(record), "feedback")
+    reply = await _call(node, GSM8K_BENCHMARK.check_surface_route, json.dumps(record), "feedback")
     assert reply == record["feedback"]
 
 
@@ -245,13 +245,13 @@ async def test_check_surface_refuses_an_unusable_target_in_the_plugins_voice(
     TypeError vocabulary reaching the candidate mid-run."""
 
     node = _node(tmp_path)
-    (tmp_path / GSM8K_BOARD.benchmark.id / "targets" / "1.json").unlink()
+    (tmp_path / GSM8K_BENCHMARK.benchmark.id / "targets" / "1.json").unlink()
     with pytest.raises(Exception, match="baked target record"):
         await _surface_check(node, tmp_path, "ANSWER: 42")
 
 
 @pytest.mark.asyncio
-async def test_imported_board_emits_model_activity_with_case_identity(tmp_path: Path) -> None:
+async def test_imported_benchmark_emits_model_activity_with_case_identity(tmp_path: Path) -> None:
     from screamingface_engine.activity.observer import ActivityObserver
     from screamingface_engine.observations import ModelCall, RunObservations
     from screamingface_engine.world.candidate_adapter import install_candidate_invocation
@@ -271,7 +271,7 @@ async def test_imported_board_emits_model_activity_with_case_identity(tmp_path: 
     run = RunObservations((ActivityObserver,))
     with run.bind():
         await node.evaluate(
-            str(GSM8K_BOARD.benchmark.resource(limit=1)["url4"]), env={"candidate": recipe}
+            str(GSM8K_BENCHMARK.benchmark.resource(limit=1)["url4"]), env={"candidate": recipe}
         )
     await run.aclose()
     await node.aclose()

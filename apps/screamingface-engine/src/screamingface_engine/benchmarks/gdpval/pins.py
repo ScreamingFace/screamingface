@@ -1,6 +1,6 @@
-"""What the GDPval text-subset board pins — dataset, preparer, and the judge.
+"""What the GDPval text-subset benchmark pins — dataset, preparer, and the judge.
 
-INVARIANT: every value here participates in the board's revision hash. Changing one changes
+INVARIANT: every value here participates in the benchmark's revision hash. Changing one changes
 every route address, which is the point: an expression addressed to the old revision must never
 resolve against a changed exam.
 
@@ -17,8 +17,8 @@ DATASET = "openai/gdpval"
 # build rather than silently bake a smaller exam.
 #
 # WHY THIS revision specifically: it is "Release GDPval v2 (rubrics + deliverables)" (2026-02-10),
-# the commit that ADDED `rubric_json`. This board grades those rubrics, so any earlier revision is
-# unusable to it.
+# the commit that ADDED `rubric_json`. This benchmark grades those rubrics, so any earlier revision
+# is unusable to it.
 #
 # AIDEV-NOTE: do NOT copy the pin from UKGovernmentBEIS/inspect_evals
 # (`a3848a2a812d5d4d0f08003fac3c8eac40805962`, 2025-09-25). That reference implementation never
@@ -35,8 +35,8 @@ PREPARER_REVISION = "text-subset-v1"
 # WHY this judge: GDPval's official grading is blinded expert PAIRWISE comparison against a human
 # professional's deliverable — unreachable here — and OpenAI's automated stand-in is a hosted
 # service, not a model we can call. So the judge is OUR choice. It is currently the same model
-# DRACO pins, but pinned INDEPENDENTLY (owner decision): this board may move to another judge
-# later without touching DRACO. Named as a deviation in the board description.
+# DRACO pins, but pinned INDEPENDENTLY (owner decision): this benchmark may move to another judge
+# later without touching DRACO. Named as a deviation in the benchmark description.
 JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 JUDGE_PARAMS = (
     # INVARIANT: grading is retrieval-free. The same model may serve as a Candidate elsewhere;

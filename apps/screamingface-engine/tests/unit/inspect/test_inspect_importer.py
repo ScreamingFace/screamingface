@@ -500,7 +500,7 @@ def test_rendered_rows_are_valid_python_and_carry_the_facts() -> None:
 
     ast.parse(rows.pins)
     ast.parse(f"BENCHMARK_CASES = {{\n{rows.cases}}}")
-    ast.parse(f"BOARDS = (\n{rows.board})")
+    ast.parse(f"BENCHMARKS = (\n{rows.benchmark})")
     assert 'SUMS_DATASET = "acme/sums"' in rows.pins
     assert f'SUMS_DATASET_REVISION = "{"c" * 40}"' in rows.pins
     assert "SUMS_CASE_COUNT = 42" in rows.pins
@@ -508,11 +508,11 @@ def test_rendered_rows_are_valid_python_and_carry_the_facts() -> None:
     assert f'record_to_sample="{_FAKE_MODULE}:record_to_sample"' in rows.cases
     assert f'prompt_template="{_FAKE_MODULE}:TEMPLATE"' in rows.cases
     # Free text ⇒ the check surface is legitimate and declared.
-    assert "with_check_surface=True" in rows.board
-    assert 'scorer="inspect_ai.scorer:match"' in rows.board
-    assert 'scorer_kwargs={"numeric": True}' in rows.board
+    assert "with_check_surface=True" in rows.benchmark
+    assert 'scorer="inspect_ai.scorer:match"' in rows.benchmark
+    assert 'scorer_kwargs={"numeric": True}' in rows.benchmark
     # Catalogue prose is the dev's, never invented by the tool.
-    assert "TODO" in rows.board
+    assert "TODO" in rows.benchmark
 
 
 def test_mcq_rows_refuse_the_check_surface() -> None:
@@ -524,7 +524,7 @@ def test_mcq_rows_refuse_the_check_surface() -> None:
         HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert "with_check_surface" not in rows.board
+    assert "with_check_surface" not in rows.benchmark
     assert "prompt_template" not in rows.cases
 
 
@@ -532,7 +532,7 @@ def test_mcq_detection_follows_the_solver_not_the_scorer_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """lab_bench grades its MCQ exams with its OWN scorer (precision_choice), so
-    keying mcq on the scorer name reads them as free-text and hands an MCQ board
+    keying mcq on the scorer name reads them as free-text and hands an MCQ benchmark
     the check surface — an elimination attack (OME-796). MCQ-ness is the exam's
     SHAPE, declared by the multiple_choice solver, and is detected there."""
 
@@ -573,7 +573,7 @@ def test_mcq_detection_sees_through_a_custom_solver_wrapper(
     choice scorer proves the shape (the mmlu family case, OME-796 guard): mmlu's
     mmlu_multiple_choice calls multiple_choice() INSIDE its own @solver, so the
     registry walk never meets it — reading such an exam as free-text would hand
-    an MCQ board the check surface (the elimination attack)."""
+    an MCQ benchmark the check surface (the elimination attack)."""
 
     from inspect_ai.solver import Generate, TaskState, solver
 
@@ -603,7 +603,7 @@ def test_mcq_detection_sees_through_a_custom_solver_wrapper(
     assert facts.mcq is True
 
 
-def test_board_row_renders_str_scorer_kwargs_format_safe() -> None:
+def test_benchmark_row_renders_str_scorer_kwargs_format_safe() -> None:
     """The first str scorer kwarg (lab_bench's no_answer) must emit DOUBLE-quoted
     — repr's single quotes would fail the ruff-format gate on the emitted file."""
 
@@ -618,8 +618,8 @@ def test_board_row_renders_str_scorer_kwargs_format_safe() -> None:
         HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert '"no_answer": "Insufficient information."' in rows.board
-    ast.parse(f"BOARDS = (\n{rows.board})")
+    assert '"no_answer": "Insufficient information."' in rows.benchmark
+    ast.parse(f"BENCHMARKS = (\n{rows.benchmark})")
 
 
 def test_custom_solver_gets_a_review_flag() -> None:
@@ -644,7 +644,7 @@ def test_custom_solver_gets_a_review_flag() -> None:
 def engine_src_copy(tmp_path: Path) -> Path:
     """A working copy of the real three files — the insertion contract's ground truth."""
 
-    for name in ("pins.py", "prepare.py", "boards.py"):
+    for name in ("pins.py", "prepare.py", "benchmarks.py"):
         shutil.copy(_SRC_DIR / name, tmp_path / name)
     return tmp_path
 
@@ -663,12 +663,12 @@ def test_generate_rows_lands_all_three_rows_in_parseable_files(engine_src_copy: 
 
     pins = (engine_src_copy / "pins.py").read_text()
     prepare = (engine_src_copy / "prepare.py").read_text()
-    boards = (engine_src_copy / "boards.py").read_text()
-    for text, name in ((pins, "pins.py"), (prepare, "prepare.py"), (boards, "boards.py")):
+    benchmarks = (engine_src_copy / "benchmarks.py").read_text()
+    for text, name in ((pins, "pins.py"), (prepare, "prepare.py"), (benchmarks, "benchmarks.py")):
         ast.parse(text, filename=name)
     assert 'SUMS_DATASET = "acme/sums"' in pins
     assert '"sums": CasesSpec(' in prepare
-    assert 'key="sums"' in boards
+    assert 'key="sums"' in benchmarks
     # The CasesSpec entry reads the pins constants; the import block must carry them.
     assert "SUMS_CASE_COUNT," in prepare
 
@@ -772,7 +772,7 @@ def test_main_passes_task_args_through(
 
 def test_generate_rows_refuses_a_colliding_pin_prefix(engine_src_copy: Path) -> None:
     """ "foo-bar" and "foo_bar" both derive FOO_BAR_* constants — the second import
-    would silently shadow the first board's dataset/revision/count."""
+    would silently shadow the first benchmark's dataset/revision/count."""
 
     _generate(engine_src_copy, key="foo-bar")
     with pytest.raises(ImporterError, match="FOO_BAR"):
@@ -780,26 +780,26 @@ def test_generate_rows_refuses_a_colliding_pin_prefix(engine_src_copy: Path) -> 
 
 
 def test_generate_rows_writes_nothing_when_an_anchor_is_missing(engine_src_copy: Path) -> None:
-    """All insertion points are validated BEFORE any write: a broken boards.py anchor
+    """All insertion points are validated BEFORE any write: a broken benchmarks.py anchor
     must not leave pins/prepare half-imported (a retry would then hit 'already
     exists' with no clean way back)."""
 
-    boards_path = engine_src_copy / "boards.py"
-    intact = boards_path.read_text()
+    benchmarks_path = engine_src_copy / "benchmarks.py"
+    intact = benchmarks_path.read_text()
     anchor_line = next(
-        line for line in intact.splitlines() if importer_module._BOARDS_ANCHOR in line
+        line for line in intact.splitlines() if importer_module._BENCHMARKS_ANCHOR in line
     )
-    boards_path.write_text(intact.replace(anchor_line + "\n", ""))
+    benchmarks_path.write_text(intact.replace(anchor_line + "\n", ""))
     pins_before = (engine_src_copy / "pins.py").read_text()
     prepare_before = (engine_src_copy / "prepare.py").read_text()
 
-    with pytest.raises(ImporterError, match="boards.py"):
+    with pytest.raises(ImporterError, match="benchmarks.py"):
         _generate(engine_src_copy)
 
     assert (engine_src_copy / "pins.py").read_text() == pins_before
     assert (engine_src_copy / "prepare.py").read_text() == prepare_before
     # Restoring the anchor makes the SAME import succeed — no stale half-state.
-    boards_path.write_text(intact)
+    benchmarks_path.write_text(intact)
     _generate(engine_src_copy)
     assert '"sums": CasesSpec(' in (engine_src_copy / "prepare.py").read_text()
 
@@ -818,7 +818,7 @@ def test_generate_rows_refuses_a_key_that_is_not_an_identifier_stem(
 
 # ---------------------------------------------------------------------------
 # custom choice template capture (the family renderer OME-1116 milestone C's
-# boards force: mmlu_pro / winogrande / race_h)
+# benchmarks force: mmlu_pro / winogrande / race_h)
 # ---------------------------------------------------------------------------
 
 
@@ -899,7 +899,7 @@ def test_rendered_row_lines_fit_the_lint_gate() -> None:
     rows = render_generated_rows(
         "long", _facts(task_ref=long_ref), HubDatasetFacts("c" * 40, 42, "cc-by-sa-4.0")
     )
-    for row_text in (rows.pins, rows.cases, rows.board):
+    for row_text in (rows.pins, rows.cases, rows.benchmark):
         assert all(len(line) <= 100 for line in row_text.splitlines())
 
 
@@ -1481,15 +1481,15 @@ def test_emitted_snapshot_row_constructs_the_real_snapshot_spec(engine_src_copy:
     assert all(name in import_block for name in rows.import_names)
 
 
-def test_emitted_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
-    """An emitted boards.py row must construct the real BoardSpec, so a spec
+def test_emitted_benchmark_row_constructs_the_real_benchmark_spec(engine_src_copy: Path) -> None:
+    """An emitted benchmarks.py row must construct the real BenchmarkSpec, so a spec
     change breaks here — in the spec-changer's own PR — not at the next import.
 
     INVARIANT: same as the snapshot round-trip — construction against the real
     dataclass is the schema check; no parallel copy.
     """
 
-    from screamingface_engine_inspect.boards import BoardSpec
+    from screamingface_engine_inspect.benchmarks import BenchmarkSpec
 
     rows = write_generated_rows(
         "sums",
@@ -1498,19 +1498,19 @@ def test_emitted_board_row_constructs_the_real_board_spec(engine_src_copy: Path)
         engine_src=engine_src_copy,
     )
 
-    namespace: dict[str, Any] = {"BoardSpec": BoardSpec}
-    exec(f"BOARDS = (\n{rows.board})", namespace)
+    namespace: dict[str, Any] = {"BenchmarkSpec": BenchmarkSpec}
+    exec(f"BENCHMARKS = (\n{rows.benchmark})", namespace)
 
-    (board,) = namespace["BOARDS"]
-    assert isinstance(board, BoardSpec)
-    assert board.key == "sums"
-    assert board.dataset_url == "https://huggingface.co/datasets/acme/sums"
-    assert board.scorer == "inspect_ai.scorer:match"
-    assert dict(board.scorer_kwargs) == {"numeric": True}
+    (benchmark,) = namespace["BENCHMARKS"]
+    assert isinstance(benchmark, BenchmarkSpec)
+    assert benchmark.key == "sums"
+    assert benchmark.dataset_url == "https://huggingface.co/datasets/acme/sums"
+    assert benchmark.scorer == "inspect_ai.scorer:match"
+    assert dict(benchmark.scorer_kwargs) == {"numeric": True}
     # Free text ⇒ the check surface is legitimate and declared (OME-796).
-    assert board.with_check_surface is True
+    assert benchmark.with_check_surface is True
     # Catalogue prose stays the importing agent's job — the tool emits TODOs.
-    assert board.title == "TODO"
+    assert benchmark.title == "TODO"
 
 
 def test_emitted_minimal_snapshot_row_constructs_the_real_snapshot_spec(
@@ -1604,16 +1604,18 @@ def test_emitted_data_files_snapshot_row_constructs_the_real_snapshot_spec(
     assert referenced == set(rows.import_names)
 
 
-def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: Path) -> None:
-    """The board template's OTHER branch: an MCQ row omits scorer_kwargs AND
-    with_check_surface — it must still construct the real BoardSpec.
+def test_emitted_mcq_benchmark_row_constructs_the_real_benchmark_spec(
+    engine_src_copy: Path,
+) -> None:
+    """The benchmark template's OTHER branch: an MCQ row omits scorer_kwargs AND
+    with_check_surface — it must still construct the real BenchmarkSpec.
 
     WHY a separate MCQ variant: dropping the default of either omitted field
     keeps the free-text-row test green — only this row catches it (review
     finding on this PR).
     """
 
-    from screamingface_engine_inspect.boards import BoardSpec
+    from screamingface_engine_inspect.benchmarks import BenchmarkSpec
 
     rows = write_generated_rows(
         "quiz",
@@ -1622,17 +1624,17 @@ def test_emitted_mcq_board_row_constructs_the_real_board_spec(engine_src_copy: P
         engine_src=engine_src_copy,
     )
 
-    namespace: dict[str, Any] = {"BoardSpec": BoardSpec}
-    exec(f"BOARDS = (\n{rows.board})", namespace)
+    namespace: dict[str, Any] = {"BenchmarkSpec": BenchmarkSpec}
+    exec(f"BENCHMARKS = (\n{rows.benchmark})", namespace)
 
-    (board,) = namespace["BOARDS"]
-    assert isinstance(board, BoardSpec)
-    assert board.key == "quiz"
-    assert board.scorer == "inspect_ai.scorer:choice"
+    (benchmark,) = namespace["BENCHMARKS"]
+    assert isinstance(benchmark, BenchmarkSpec)
+    assert benchmark.key == "quiz"
+    assert benchmark.scorer == "inspect_ai.scorer:choice"
     # The omitted kwargs resolve through the spec's own defaults (OME-796: MCQ
-    # boards never declare the check surface).
-    assert dict(board.scorer_kwargs) == {}
-    assert board.with_check_surface is False
+    # benchmarks never declare the check surface).
+    assert dict(benchmark.scorer_kwargs) == {}
+    assert benchmark.with_check_surface is False
 
 
 def test_injection_charsets_refuse_a_trailing_newline(engine_src_copy: Path) -> None:
@@ -1922,18 +1924,18 @@ def test_a_model_graded_scorer_emits_the_judge_declaration_todo() -> None:
         HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
 
-    assert "TODO(review)" in rows.board
-    assert 'judge=JudgeSpec(model="TODO")' in rows.board
+    assert "TODO(review)" in rows.benchmark
+    assert 'judge=JudgeSpec(model="TODO")' in rows.benchmark
     # The eval's own judge value is kept visible for the reviewer to replace.
-    assert "openai/gpt-4o" in rows.board
-    ast.parse(f"BOARDS = (\n{rows.board})")
+    assert "openai/gpt-4o" in rows.benchmark
+    ast.parse(f"BENCHMARKS = (\n{rows.benchmark})")
 
 
 def test_a_string_match_scorer_emits_no_judge_lines() -> None:
     rows = render_generated_rows(
         "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=42, license="mit")
     )
-    assert "JudgeSpec" not in rows.board
+    assert "JudgeSpec" not in rows.benchmark
 
 
 def test_a_custom_scorer_with_a_judge_model_kwarg_gets_the_judge_flag() -> None:
@@ -1949,8 +1951,8 @@ def test_a_custom_scorer_with_a_judge_model_kwarg_gets_the_judge_flag() -> None:
         ),
         HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
-    assert 'judge=JudgeSpec(model="TODO")' in rows.board
-    assert "TODO(review)" in rows.board
+    assert 'judge=JudgeSpec(model="TODO")' in rows.benchmark
+    assert "TODO(review)" in rows.benchmark
 
 
 def test_a_judged_row_never_advertises_a_check_surface() -> None:
@@ -1966,8 +1968,8 @@ def test_a_judged_row_never_advertises_a_check_surface() -> None:
         ),
         HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
-    assert "with_check_surface" not in rows.board
-    assert "keep_sample_metadata" in rows.board  # the reviewer reminder rides the flag
+    assert "with_check_surface" not in rows.benchmark
+    assert "keep_sample_metadata" in rows.benchmark  # the reviewer reminder rides the flag
 
 
 # ---------------------------------------------------------------------------
@@ -2050,7 +2052,7 @@ def test_read_inspect_task_reads_a_filtering_task_as_filtering_after_load(
 def test_read_inspect_task_keeps_a_dedupe_only_task_on_todays_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Six live boards (wmdp x3, mmlu, race_h, winogrande) run only the duplicate-id
+    """Six live benchmarks (wmdp x3, mmlu, race_h, winogrande) run only the duplicate-id
     remover; sending them through their task would move their published revisions."""
 
     _install_fake_eval(monkeypatch, sums=_dedupe_only_task)
@@ -2108,7 +2110,7 @@ def test_a_question_filter_row_names_the_task_and_its_args() -> None:
 
 
 def test_a_row_without_a_question_filter_carries_no_task_field() -> None:
-    """Every board before OME-1269 must render exactly as it did."""
+    """Every benchmark before OME-1269 must render exactly as it did."""
 
     rows = render_generated_rows(
         "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=2, license="mit")
@@ -2123,7 +2125,7 @@ def test_task_args_that_could_escape_the_row_are_refused(engine_src_copy: Path) 
         _generate(engine_src_copy, filters_after_load=True, task_args={"subset": 'x"\nimport os'})
 
 
-def test_a_question_filter_board_counts_the_questions_the_eval_keeps(
+def test_a_question_filter_benchmark_counts_the_questions_the_eval_keeps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The row's case count is the KEPT count (pubmedqa's 500, not 1,000 rows): the
@@ -2302,9 +2304,9 @@ def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> Non
 def test_read_inspect_task_flags_an_evals_own_metrics_for_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A board reports the mean per-case score. xstest reports refusal_rate instead,
+    """A benchmark reports the mean per-case score. xstest reports refusal_rate instead,
     and the importer never looked, so the deviation went unnamed (review on PR #1112):
-    a task's own metrics= must surface as a review item on the generated board row."""
+    a task's own metrics= must surface as a review item on the generated benchmark row."""
 
     from inspect_ai.scorer import accuracy
 
@@ -2320,10 +2322,10 @@ def test_read_inspect_task_flags_an_evals_own_metrics_for_review(
     )
 
     assert facts.custom_metrics == ("inspect_ai/accuracy",)
-    assert "TODO(review): the eval reports its own metric inspect_ai/accuracy" in rows.board
+    assert "TODO(review): the eval reports its own metric inspect_ai/accuracy" in rows.benchmark
     assert (
         "own metric"
         not in render_generated_rows(
             "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=3, license="mit")
-        ).board
+        ).benchmark
     )

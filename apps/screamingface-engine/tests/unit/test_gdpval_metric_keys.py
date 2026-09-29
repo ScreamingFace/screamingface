@@ -1,7 +1,7 @@
 """OME-1097: pin gdpval's published metric vocabulary byte-identical.
 
 gdpval-text has NO e2e golden yet (OME-1098), so this pin is the only net proving the
-shared scored path did not move the board's published surface. The keys are the class
+shared scored path did not move the benchmark's published surface. The keys are the class
 results a leaderboard reader parses; renaming one silently breaks every consumer.
 
 INVARIANT: the metric key set — and the exam-payload keys around it — stay exactly as
@@ -92,7 +92,7 @@ def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
     )
 
 
-def test_gdpval_metric_keys_are_byte_identical_to_the_pre_extraction_board(
+def test_gdpval_metric_keys_are_byte_identical_to_the_pre_extraction_benchmark(
     tmp_path: Path,
 ) -> None:
     _bake(tmp_path, 1, [5, 3, -3])

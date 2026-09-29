@@ -37,7 +37,7 @@ def _call(context: str, intent: str = "1") -> Any:
 
 
 def test_route_accepts_the_attempt_struct_the_expression_renders() -> None:
-    """REGRESSION: the Board renders `{attempt_1: ...}`, an object — never a JSON array."""
+    """REGRESSION: the Benchmark renders `{attempt_1: ...}`, an object — never a JSON array."""
 
     result = _call(json.dumps({"attempt_1": json.dumps(_check_record())}))
 

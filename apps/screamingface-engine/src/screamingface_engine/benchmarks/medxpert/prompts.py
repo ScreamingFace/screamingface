@@ -1,6 +1,6 @@
 """The two-turn exchange, byte-frozen.
 
-INVARIANT: these templates are hashed into the board's revision. A stray space is a different
+INVARIANT: these templates are hashed into the benchmark's revision. A stray space is a different
 exam, because judge-free grading makes the prompt the ONLY thing standing between a model and its
 score.
 
@@ -12,7 +12,7 @@ protocol.
 from __future__ import annotations
 
 # Official system role (prompt_templates.py).
-# AIDEV-NOTE: the wording is medical because MedXpertQA is. A future non-medical MCQ board must
+# AIDEV-NOTE: the wording is medical because MedXpertQA is. A future non-medical MCQ benchmark must
 # not import this constant — it needs its own, or the system prompt lies to the model.
 ANSWER_SYSTEM = "You are a helpful medical assistant."
 

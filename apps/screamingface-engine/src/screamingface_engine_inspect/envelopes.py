@@ -1,8 +1,8 @@
-"""Schema-validated evaluation envelopes shared by every imported board.
+"""Schema-validated evaluation envelopes shared by every imported benchmark.
 
 One check record per Candidate attempt, one case-evaluation bundle per Case — the same
-lossless per-Case artifact shape the home-grown boards use, under this plugin's own
-schema identifiers. Grading does NOT happen at check time on imported boards (the
+lossless per-Case artifact shape the home-grown benchmarks use, under this plugin's own
+schema identifiers. Grading does NOT happen at check time on imported benchmarks (the
 scorer runs engine-side in the aggregate, through the scorer adapter), so the check record
 carries only the Candidate's half of the exchange.
 """

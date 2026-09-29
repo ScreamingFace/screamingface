@@ -28,7 +28,7 @@ def _failure(code: str) -> Failure:
 def test_an_undeclared_code_is_refused_loudly() -> None:
     # INVARIANT: the Failure model is the one place every published failure
     # passes through — refusing here means an undeclared code can never reach
-    # a report, whichever board produced it.
+    # a report, whichever benchmark produced it.
     with pytest.raises(ValidationError, match="undeclared failure code"):
         _failure("a_code_nobody_declared")
 

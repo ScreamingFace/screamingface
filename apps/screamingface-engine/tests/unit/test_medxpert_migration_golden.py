@@ -2,7 +2,7 @@
 
 INVARIANT: an expression addressed to the current revision must resolve to
 byte-identical protocol before and after the extraction. Every literal below was
-captured from the pre-migration board at the head of this branch's base; if any
+captured from the pre-migration benchmark at the head of this branch's base; if any
 assertion here fails, the migration changed the exam, not just its plumbing.
 """
 
@@ -27,7 +27,7 @@ from screamingface_engine.benchmarks.medxpert.runtime import _cases, _check, pre
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
-# Captured 2026-09-21 from the pre-migration board (base of this branch).
+# Captured 2026-09-21 from the pre-migration benchmark (base of this branch).
 _GOLDEN_REVISION = "791a7d5b2e961f1c"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
@@ -90,7 +90,7 @@ def test_served_rows_are_byte_identical(tmp_path: Path) -> None:
 
 
 def test_a_missing_answer_record_is_a_definition_error(tmp_path: Path) -> None:
-    """Pin medxpert's per-board deviation: a broken bundle is a DEFINITION error.
+    """Pin medxpert's per-benchmark deviation: a broken bundle is a DEFINITION error.
 
     WHY the direct `preflight` call (review of this PR): through `serve_cases`,
     a missing answer record trips `_build_rows`' own raise before the preflight

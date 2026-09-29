@@ -65,9 +65,9 @@ from url4.peer.server import Request, Url4Node
 
 
 def install(node: Url4Node, root: Path, exam: Exam) -> None:
-    """Register every route this board's expressions reference.
+    """Register every route this benchmark's expressions reference.
 
-    INVARIANT: routes are namespaced by board id AND revision, so several boards can install
+    INVARIANT: routes are namespaced by benchmark id AND revision, so several benchmarks can install
     into ONE Runner world over ONE ``root`` without colliding.
     """
 
@@ -204,7 +204,7 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                         "rubric_id": str(item["rubric_id"]),
                         # INVARIANT: the judge prompt is fully rendered HERE, Engine-side.
                         # Nothing about it is assembled inside the expression, so its bytes are
-                        # fixed by the board's revision.
+                        # fixed by the benchmark's revision.
                         "grader_prompt": grader_prompt,
                         # Dedup: the full Case record rides the FIRST task only; the rest carry
                         # "{}" and `case_evaluation` hoists it back to one record per Case.

@@ -3,7 +3,7 @@
 Think of it as the mailroom: the run fanned out over the selected Cases, one row came
 back per Case, and this step sorts the pile by student number before any marking starts.
 
-INVARIANT: the row is an OPAQUE board-owned envelope. The reader files it under its Case
+INVARIANT: the row is an OPAQUE benchmark-owned envelope. The reader files it under its Case
 id and never looks inside, so nothing here can freeze "a candidate's answer is text" —
 the kind taxonomy is OME-1103's decision and the seam that opens the envelope is
 OME-1097's `grade_case`. The stub decoder below returns a bare marker dict precisely to
@@ -13,7 +13,7 @@ INVARIANT: an ``on_error=collect`` row loses its Case identity, so it cannot be 
 It is RETAINED as an orphan and attached to whichever Case ends up with no row — dropping
 it would name the symptom (a missing row) and hide the cause.
 
-The board-varying bits are injected, so each board keeps its own error class and its own
+The benchmark-varying bits are injected, so each benchmark keeps its own error class and its own
 wording after the extraction.
 """
 
@@ -29,23 +29,23 @@ from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.spine.rows import RowReader
 
 
-class BoardError(ValueError):
-    """Stands in for a board's own ``AggregateError``."""
+class BenchmarkError(ValueError):
+    """Stands in for a benchmark's own ``AggregateError``."""
 
 
-class OtherBoardError(ValueError):
-    """A second board's error class — proves the reader raises the injected one."""
+class OtherBenchmarkError(ValueError):
+    """A second benchmark's error class — proves the reader raises the injected one."""
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Stub board decoder: marks the row without reading anything out of it."""
+    """Stub benchmark decoder: marks the row without reading anything out of it."""
 
     if grading == "reject-me":
         raise ValueError("stub decoder rejected this envelope")
     return {"decoded_for": expected_case_id, "grading": grading}
 
 
-def _reader(label: str = "TestBoard", error: type[Exception] = BoardError) -> RowReader:
+def _reader(label: str = "TestBoard", error: type[Exception] = BenchmarkError) -> RowReader:
     return RowReader(
         benchmark_label=label,
         error_type=error,
@@ -93,17 +93,17 @@ def test_no_rows_indexes_nothing_rather_than_failing() -> None:
 
 
 def test_a_non_json_payload_names_the_benchmark() -> None:
-    with pytest.raises(BoardError, match="TestBoard rows are not JSON"):
+    with pytest.raises(BenchmarkError, match="TestBoard rows are not JSON"):
         _reader().index("not json", (1,))
 
 
 def test_an_empty_payload_names_the_benchmark() -> None:
-    with pytest.raises(BoardError, match="TestBoard rows are not JSON"):
+    with pytest.raises(BenchmarkError, match="TestBoard rows are not JSON"):
         _reader().index("", (1,))
 
 
 def test_a_json_object_payload_is_refused_as_not_an_array() -> None:
-    with pytest.raises(BoardError, match="TestBoard rows must be a JSON array"):
+    with pytest.raises(BenchmarkError, match="TestBoard rows must be a JSON array"):
         _reader().index("{}", (1,))
 
 
@@ -112,7 +112,7 @@ def test_more_rows_than_selected_cases_abort_before_indexing() -> None:
     # fan-out disagrees with the selection, so no row can be trusted to its position.
     payload = json.dumps([_envelope(1), _envelope(2)])
 
-    with pytest.raises(BoardError, match="received 2 rows for 1 selected Cases"):
+    with pytest.raises(BenchmarkError, match="received 2 rows for 1 selected Cases"):
         _reader().index(payload, (1,))
 
 
@@ -126,12 +126,12 @@ def test_a_double_encoded_row_is_parsed() -> None:
 
 
 def test_a_row_that_is_not_an_object_aborts_with_its_position() -> None:
-    with pytest.raises(BoardError, match="Case result at position 0 must be an object"):
+    with pytest.raises(BenchmarkError, match="Case result at position 0 must be an object"):
         _reader().index(json.dumps([[1, 2, 3]]), (1,))
 
 
 def test_a_malformed_row_string_aborts_with_its_position() -> None:
-    with pytest.raises(BoardError, match="Case result at position 0 is not JSON"):
+    with pytest.raises(BenchmarkError, match="Case result at position 0 is not JSON"):
         _reader().index(json.dumps(["{not json"]), (1,))
 
 
@@ -170,12 +170,12 @@ def test_an_error_row_claiming_another_case_aborts() -> None:
     # trusted to its position; scoring the wrong Case is worse than failing the run.
     payload = json.dumps([_collected_error("wrong case", case_id=99)])
 
-    with pytest.raises(BoardError, match="claims case_id 99"):
+    with pytest.raises(BenchmarkError, match="claims case_id 99"):
         _reader().index(payload, (1,))
 
 
 def test_an_error_that_is_not_an_object_aborts() -> None:
-    with pytest.raises(BoardError, match="position 0 has an invalid error"):
+    with pytest.raises(BenchmarkError, match="position 0 has an invalid error"):
         _reader().index(json.dumps([{"error": "boom"}]), (1,))
 
 
@@ -191,34 +191,34 @@ def test_a_grading_error_lands_in_grading_failures_not_rows() -> None:
 def test_an_envelope_claiming_another_case_aborts() -> None:
     payload = json.dumps([_envelope(99)])
 
-    with pytest.raises(BoardError, match="claims case_id"):
+    with pytest.raises(BenchmarkError, match="claims case_id"):
         _reader().index(payload, (1,))
 
 
 def test_a_decoder_rejection_aborts_with_its_position() -> None:
-    # INVARIANT: the board's decoder is the only authority on its envelope shape; its
-    # rejection must surface as the board's own error, not leak a bare ValueError.
+    # INVARIANT: the benchmark's decoder is the only authority on its envelope shape; its
+    # rejection must surface as the benchmark's own error, not leak a bare ValueError.
     payload = json.dumps([_envelope(1, "reject-me")])
 
-    with pytest.raises(BoardError, match="position 0 is invalid: stub decoder rejected"):
+    with pytest.raises(BenchmarkError, match="position 0 is invalid: stub decoder rejected"):
         _reader().index(payload, (1,))
 
 
 def test_a_malformed_envelope_aborts_with_its_position() -> None:
     payload = json.dumps([{"schema": "wrong", "case_id": 1}])
 
-    with pytest.raises(BoardError, match="Case result at position 0 is invalid"):
+    with pytest.raises(BenchmarkError, match="Case result at position 0 is invalid"):
         _reader().index(payload, (1,))
 
 
 def test_each_reader_raises_its_own_error_class_with_its_own_wording() -> None:
-    # INVARIANT: extraction must not merge the boards' error identities — a test that
+    # INVARIANT: extraction must not merge the benchmarks' error identities — a test that
     # asserts gdpval raised must keep failing when healthbench raises.
-    other = _reader(label="OtherBoard", error=OtherBoardError)
+    other = _reader(label="OtherBoard", error=OtherBenchmarkError)
 
-    with pytest.raises(OtherBoardError, match="OtherBoard rows are not JSON"):
+    with pytest.raises(OtherBenchmarkError, match="OtherBoard rows are not JSON"):
         other.index("not json", (1,))
-    with pytest.raises(BoardError, match="TestBoard rows are not JSON"):
+    with pytest.raises(BenchmarkError, match="TestBoard rows are not JSON"):
         _reader().index("not json", (1,))
 
 
@@ -238,7 +238,7 @@ def test_a_claiming_reader_files_an_anonymous_error_as_the_cases_row() -> None:
     # claiming reader adopts the orphan instead of retaining it as a mere cause.
     reader = RowReader(
         benchmark_label="TestBoard",
-        error_type=BoardError,
+        error_type=BenchmarkError,
         decode_case_evaluation=_decode,
         claim_anonymous_errors=True,
     )

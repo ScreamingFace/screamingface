@@ -32,7 +32,7 @@
         <mxCell id="of1" value="score: float | None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
           <mxGeometry x="20" y="60" width="290" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="of2" value="metrics — board vocabulary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
+        <mxCell id="of2" value="metrics — benchmark vocabulary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
           <mxGeometry x="20" y="100" width="290" height="30" as="geometry" />
         </mxCell>
         <mxCell id="of3" value="checks[] — Check/Evidence shapes&#xa;(the judge&#39;s auditable work)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=8;" vertex="1" parent="out">
@@ -56,7 +56,7 @@
         <mxCell id="con2" value="inspect_evals&#xa;scorer adapter" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="480" y="540" width="180" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="con3" value="agentic boards&#xa;(Later)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="con3" value="agentic benchmarks&#xa;(Later)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#8b98ab;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="780" y="540" width="180" height="50" as="geometry" />
         </mxCell>
         <mxCell id="eW0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;strokeColor=#d7b357;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="waist" target="hook">

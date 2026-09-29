@@ -41,7 +41,7 @@ def _call(context: str, intent: str = "1") -> Any:
 
 
 def test_the_route_accepts_the_attempt_struct_the_expression_renders() -> None:
-    """REGRESSION (OME-1126): the board renders `{attempt_1: ...}`, an object. The array-shaped
+    """REGRESSION (OME-1126): the benchmark renders `{attempt_1: ...}`, an object. The array-shaped
     `case_evaluation_endpoint` is for rubric `iterate` fan-outs and fails on this shape."""
 
     result = _call(json.dumps({"attempt_1": json.dumps(_record())}))
@@ -98,7 +98,7 @@ def test_decode_rejects_an_envelope_for_another_case() -> None:
 class TestVerdictFieldsAreValidated:
     """The envelope promises "no inference" — a record missing its verdict must FAIL here.
 
-    WHY this matters more on this board than on a scored-mean one: `aggregate` reads `correct`
+    WHY this matters more on this benchmark than on a scored-mean one: `aggregate` reads `correct`
     and `abstained` to place the Case in the confusion matrix. A missing field read as `False`
     is not a missing score — it silently becomes a FALSE NEGATIVE on a positive row, or a FALSE
     POSITIVE on a negative one, and depresses precision/recall with no failure anywhere.

@@ -1,4 +1,4 @@
-"""OME-1039/OME-1097: the ordered failure checks every rubric board grades through.
+"""OME-1039/OME-1097: the ordered failure checks every rubric benchmark grades through.
 
 INVARIANT: every unusable state becomes a VISIBLE failed Case with a named failure code —
 never a silently missing one. The checks, most-broken first:
@@ -6,7 +6,7 @@ never a silently missing one. The checks, most-broken first:
     missing_rubric_asset → missing_case_row → case_error → incomplete_verdicts
     → no_positive_points
 
-Message texts come from the BOARD's injected mapping so extraction keeps each board's
+Message texts come from the BENCHMARK's injected mapping so extraction keeps each benchmark's
 failure output byte-identical (gdpval says "criterion" where healthbench says "rubric
 item"). The spine itself owns no message text.
 
@@ -44,8 +44,8 @@ MESSAGES = {
 }
 
 
-class BoardError(ValueError):
-    """Stands in for a board's own ``AggregateError``."""
+class BenchmarkError(ValueError):
+    """Stands in for a benchmark's own ``AggregateError``."""
 
 
 def _case_score(points: list[int], verdicts: Mapping[int, bool]) -> float | None:
@@ -57,7 +57,7 @@ def _case_score(points: list[int], verdicts: Mapping[int, bool]) -> float | None
 
 
 async def _hook(request: GradeRequest) -> CaseGradeOutcome:
-    """A stub board hook — the fused marking the old per-board callables performed."""
+    """A stub benchmark hook — the fused marking the old per-benchmark callables performed."""
 
     row = request.row
     verdicts = {int(key): value for key, value in dict(row.get("verdicts", {})).items()}
@@ -88,7 +88,7 @@ async def _hook(request: GradeRequest) -> CaseGradeOutcome:
 PATH = ScoredPath(
     reader=RowReader(
         benchmark_label="TestBoard",
-        error_type=BoardError,
+        error_type=BenchmarkError,
         decode_case_evaluation=lambda grading, case_id: dict(grading),  # type: ignore[arg-type]
     ),
     grade_case=_hook,
@@ -121,7 +121,7 @@ def _case_result(
             )
     result = PATH.aggregate(
         json.dumps(rows),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=[CASE],
         grading_material=lambda case_id: points,
@@ -157,7 +157,7 @@ def test_missing_case_row_surfaces_the_collected_orphan_error() -> None:
     assert "collected_errors" not in failure["metadata"]
 
 
-def test_missing_case_row_without_orphans_keeps_the_board_message() -> None:
+def test_missing_case_row_without_orphans_keeps_the_benchmark_message() -> None:
     case = _case_result(None, [5, -3])
     failure = _sole_failure(case)
     assert failure["code"] == "missing_case_row"
@@ -229,7 +229,7 @@ def test_a_fully_judged_case_scores_without_failures() -> None:
 
 
 def test_a_graded_refusal_is_scored_and_still_carries_its_numeric_grade() -> None:
-    # INVARIANT (OME-1037): a refusal the board graded is an ordinary scored Case.
+    # INVARIANT (OME-1037): a refusal the benchmark graded is an ordinary scored Case.
     row = {
         "verdicts": {1: False, 2: False},
         "case": {

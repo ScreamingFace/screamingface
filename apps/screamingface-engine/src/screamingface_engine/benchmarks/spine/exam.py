@@ -14,7 +14,7 @@ the benchmark.
 Worked example — 3 Cases, scores [0.8, 0.5, 0.2], each rubric 5 items, all judged,
 one MET count of 9 across the run:
 
-    score             = mean([0.8, 0.5, 0.2])       → 0.5    (the board's formula)
+    score             = mean([0.8, 0.5, 0.2])       → 0.5    (the benchmark's formula)
     pass_rate         = 9 met / 15 judged           → 0.6    (rubric items, not Cases)
     scored_cases      = 3
     score_sd          = sample stdev (n−1) of [0.8, 0.5, 0.2] → 0.3
@@ -40,11 +40,11 @@ from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult
 def exam_scorer(
     mean: Callable[[Sequence[float]], float | None],
 ) -> Callable[[Sequence[CaseResult]], CandidateScore]:
-    """Bind one board's exam-level mean into the shared penalty-bearing reduction.
+    """Bind one benchmark's exam-level mean into the shared penalty-bearing reduction.
 
-    The metric vocabulary is fixed spine vocabulary — every rubric board publishes
+    The metric vocabulary is fixed spine vocabulary — every rubric benchmark publishes
     exactly ``pass_rate``, ``scored_cases``, ``score_sd``, ``verdict_coverage``,
-    ``judge_invalid_replies``; the ``mean`` is the only board choice.
+    ``judge_invalid_replies``; the ``mean`` is the only benchmark choice.
     """
 
     def score(cases: Sequence[CaseResult]) -> CandidateScore:

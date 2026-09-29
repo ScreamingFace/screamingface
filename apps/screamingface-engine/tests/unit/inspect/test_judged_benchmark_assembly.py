@@ -1,17 +1,17 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this suite imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""Judged-board assembly — the judge is exam identity, and its only exit is the node.
+"""Judged-benchmark assembly — the judge is exam identity, and its only exit is the node.
 
-A judged board's exam is not just its dataset: swap the judge model, its prompt, or
+A judged benchmark's exam is not just its dataset: swap the judge model, its prompt, or
 its pinned params and a candidate sits a DIFFERENT exam. This suite pins that the
 judge declaration (``JudgeSpec``) rides the revision hash, that every misdeclaration
 refuses at assembly (CI), never at grade time, and that the aggregate binds the
 judge transport so the scorer's judge call leaves through the node's model route.
 
-INVARIANT: the 10 published string-match boards' revisions must NOT move — judge
+INVARIANT: the 10 published string-match benchmarks' revisions must NOT move — judge
 pins exist only when a judge is declared, and scorer kwargs stay outside the hash
-for undeclared boards exactly as they were before OME-1240.
+for undeclared benchmarks exactly as they were before OME-1240.
 
 Runs only with the `inspect` extra installed.
 """
@@ -31,8 +31,8 @@ from screamingface_engine.benchmarks.case_execution import case_execution_payloa
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
-from screamingface_engine_inspect import boards, single_shot  # noqa: E402
-from screamingface_engine_inspect.boards import BoardSpec  # noqa: E402
+from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
+from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -42,12 +42,12 @@ from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
 
 
-def _judged_spec(**overrides: Any) -> BoardSpec:
-    """One minimal judged row — a model_graded_qa board pinned to gateway judge-4."""
+def _judged_spec(**overrides: Any) -> BenchmarkSpec:
+    """One minimal judged row — a model_graded_qa benchmark pinned to gateway judge-4."""
 
     values: dict[str, Any] = {
-        "key": "gsm8k",  # reuses the real snapshot row; the board caches are patched
-        "title": "Judged Test Board",
+        "key": "gsm8k",  # reuses the real snapshot row; the benchmark caches are patched
+        "title": "Judged Test Benchmark",
         "description": "test",
         "focus": "test",
         "dataset_url": "https://example.test/ds",
@@ -58,26 +58,26 @@ def _judged_spec(**overrides: Any) -> BoardSpec:
         "with_check_surface": False,
     }
     values.update(overrides)
-    return BoardSpec(**values)
+    return BenchmarkSpec(**values)
 
 
-def _assembled(spec: BoardSpec, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Assemble one row through the REAL catalogue path, on fresh board caches."""
+def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Assemble one row through the REAL catalogue path, on fresh benchmark caches."""
 
-    monkeypatch.setattr(boards, "BOARDS", (spec,))
-    monkeypatch.setattr(boards, "_ASSEMBLED", {})
-    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
-    return boards.imported_board(spec.key)
+    monkeypatch.setattr(benchmarks, "BENCHMARKS", (spec,))
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+    return benchmarks.imported_benchmark(spec.key)
 
 
-def _revision(spec: BoardSpec, monkeypatch: pytest.MonkeyPatch) -> str:
+def _revision(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> str:
     return str(_assembled(spec, monkeypatch).benchmark.revision)
 
 
 # ── the judge is exam identity ───────────────────────────────────────────────
 
 
-def test_a_judged_boards_revision_moves_with_the_judge_model(
+def test_a_judged_benchmarks_revision_moves_with_the_judge_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """INVARIANT: swapping the judge is a different exam — the revision must move."""
@@ -93,7 +93,7 @@ def test_a_judged_boards_revision_moves_with_the_judge_model(
     assert base != other
 
 
-def test_a_judged_boards_revision_moves_with_the_judge_prompt(
+def test_a_judged_benchmarks_revision_moves_with_the_judge_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The judge's grading prompt (template/instructions kwargs) is exam identity."""
@@ -111,7 +111,7 @@ def test_a_judged_boards_revision_moves_with_the_judge_prompt(
     assert base != other
 
 
-def test_a_judged_boards_revision_moves_with_the_judge_params(
+def test_a_judged_benchmarks_revision_moves_with_the_judge_params(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     base = _revision(_judged_spec(), monkeypatch)
@@ -128,12 +128,12 @@ def test_the_same_judged_spec_assembles_to_the_same_revision(
     assert _revision(_judged_spec(), monkeypatch) == _revision(_judged_spec(), monkeypatch)
 
 
-def test_a_string_match_boards_kwargs_stay_outside_the_hash(
+def test_a_string_match_benchmarks_kwargs_stay_outside_the_hash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """INVARIANT (frozen published revisions): for an UNDECLARED board, scorer kwargs
+    """INVARIANT (frozen published revisions): for an UNDECLARED benchmark, scorer kwargs
     were never exam identity before OME-1240 and must not become it now — the 10
-    published boards keep their revisions byte-identical."""
+    published benchmarks keep their revisions byte-identical."""
 
     plain = _judged_spec(
         scorer="inspect_ai.scorer:match",
@@ -195,11 +195,11 @@ def test_an_unresolved_todo_judge_is_refused(monkeypatch: pytest.MonkeyPatch) ->
         _assembled(spec, monkeypatch)
 
 
-def test_a_judged_board_with_a_check_surface_is_refused(
+def test_a_judged_benchmark_with_a_check_surface_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A judged mid-run check spends judge tokens per attempt; until the check-cost
-    knob exists (OME-1116) a judged board must not advertise a check surface."""
+    knob exists (OME-1116) a judged benchmark must not advertise a check surface."""
 
     spec = _judged_spec(with_check_surface=True)
     with pytest.raises(ValueError, match="check"):
@@ -222,13 +222,13 @@ class _JudgeEndpoint:
 
 
 def _bake_by_hand(root: Path, benchmark_id: str) -> None:
-    board_root = root / benchmark_id
-    (board_root / "targets").mkdir(parents=True)
-    (board_root / "cases.json").write_text(
+    benchmark_root = root / benchmark_id
+    (benchmark_root / "targets").mkdir(parents=True)
+    (benchmark_root / "cases.json").write_text(
         json.dumps([{"id": 1, "input": "What is the capital of France?"}]),
         encoding="utf-8",
     )
-    (board_root / "targets" / "1.json").write_text(
+    (benchmark_root / "targets" / "1.json").write_text(
         json.dumps({"target": "Paris"}), encoding="utf-8"
     )
 
@@ -268,19 +268,19 @@ async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
 async def test_the_aggregate_binds_the_judge_transport_end_to_end(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The whole seam under one roof: a judged board's aggregate grades a Case by
+    """The whole seam under one roof: a judged benchmark's aggregate grades a Case by
     calling the node's own judge route — pinned params on the wire, score in the
     result, and the judge's words in the evidence."""
 
-    board = _assembled(_judged_spec(), monkeypatch)
+    benchmark = _assembled(_judged_spec(), monkeypatch)
     judge = _JudgeEndpoint()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _bake_by_hand(tmp_path, board.benchmark.id)
-    board.benchmark.install(node, tmp_path)
+    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
-    result = json.loads(await _call(node, board.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
 
     assert result["score"] == 1.0
     assert result["cases"][0]["grade"]["score"] == 1.0
@@ -300,31 +300,31 @@ async def test_a_judge_route_failure_fails_the_case_by_name(
 ) -> None:
     """A gateway refusal is ONE Case's named failure, never an aborted aggregate."""
 
-    board = _assembled(_judged_spec(), monkeypatch)
+    benchmark = _assembled(_judged_spec(), monkeypatch)
 
     async def refusing(request: Request) -> str:
         raise RuntimeError("the gateway refused: judge overloaded")
 
     node = Url4Node("test")
     node.endpoint("/judge-4")(refusing)
-    _bake_by_hand(tmp_path, board.benchmark.id)
-    board.benchmark.install(node, tmp_path)
+    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris.")])
-    result = json.loads(await _call(node, board.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
 
     case = result["cases"][0]
     assert case["grade"]["score"] is None
     assert case["failures"][0]["code"] == "scorer_error"
 
 
-def test_the_judge_declaration_rides_the_assembled_board(
+def test_the_judge_declaration_rides_the_assembled_benchmark(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The binding seam: install-time wiring reads the judge off the ImportedBoard."""
+    """The binding seam: install-time wiring reads the judge off the ImportedBenchmark."""
 
-    board = _assembled(_judged_spec(), monkeypatch)
-    assert board.judge == JudgeSpec(model="judge-4", params=(("temperature", "0"),))
+    benchmark = _assembled(_judged_spec(), monkeypatch)
+    assert benchmark.judge == JudgeSpec(model="judge-4", params=(("temperature", "0"),))
     unjudged = _assembled(
         replace(_judged_spec(), judge=None, scorer="inspect_ai.scorer:match", scorer_kwargs={}),
         monkeypatch,
@@ -380,16 +380,16 @@ async def test_the_judged_aggregate_runs_its_judge_fetch_on_the_runs_loop(
             seen_loops.append(asyncio.get_running_loop())
             return await super().__call__(request)
 
-    board = _assembled(_judged_spec(), monkeypatch)
+    benchmark = _assembled(_judged_spec(), monkeypatch)
     judge = _LoopRecordingJudge()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _bake_by_hand(tmp_path, board.benchmark.id)
-    board.benchmark.install(node, tmp_path)
+    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    benchmark.benchmark.install(node, tmp_path)
 
     outer = asyncio.get_running_loop()
     rows = json.dumps([_row(1, "Paris.")])
-    result = json.loads(await _call(node, board.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert seen_loops == [outer]
 
@@ -417,7 +417,7 @@ def test_the_run_sync_twins_stay_verbatim_identical() -> None:
     assert body_dump(single_shot._run_sync) == body_dump(spine_scored._run_sync)
 
 
-# ── no answer key: judged boards only, and only when the judge never reads one ──
+# ── no answer key: judged benchmarks only, and only when the judge never reads one ──
 
 
 def _no_key_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -428,8 +428,8 @@ def _no_key_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_a_board_without_an_answer_key_must_be_judged(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With no key, nothing but a judge can grade — a string-match board would mark
+def test_a_benchmark_without_an_answer_key_must_be_judged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no key, nothing but a judge can grade — a string-match benchmark would mark
     every reply wrong against an empty string, silently."""
 
     _no_key_snapshot(monkeypatch)
@@ -441,7 +441,7 @@ def test_a_board_without_an_answer_key_must_be_judged(monkeypatch: pytest.Monkey
         _assembled(spec, monkeypatch)
 
 
-def test_a_judge_that_reads_the_key_refuses_a_board_without_one(
+def test_a_judge_that_reads_the_key_refuses_a_benchmark_without_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """model_graded_qa's default prompt compares against {criterion} (the key); with

@@ -1,17 +1,17 @@
-"""The plugin's board table — every imported benchmark is a ROW here, never a file.
+"""The plugin's benchmark table — every imported benchmark is a ROW here, never a file.
 
-A board is two data rows: its :class:`~screamingface_engine_inspect.prepare.CasesSpec`
-(dataset pins, in ``prepare.BENCHMARK_CASES``) and its :class:`BoardSpec` below (catalogue
+A benchmark is two data rows: its :class:`~screamingface_engine_inspect.prepare.CasesSpec`
+(dataset pins, in ``prepare.BENCHMARK_CASES``) and its :class:`BenchmarkSpec` below (catalogue
 metadata + a dotted reference to the eval's own scorer). One generic assembler turns
-the pair into a registered board, so importing benchmark #13 adds two rows and zero
-functions (owner decision 2026-09-16; OME-1115's per-file boards #955/#956 were closed
+the pair into a registered benchmark, so importing benchmark #13 adds two rows and zero
+functions (owner decision 2026-09-16; OME-1115's per-file benchmarks #955/#956 were closed
 unmerged in favor of this).
 
 Imported ONLY behind :func:`screamingface_engine_inspect.deployment.inspect_available`,
 and every inspect import below is lazy, so the module itself stays extra-free.
 
 STORY: as a researcher, I run a fusion (or a corrective_loop) against a benchmark we
-never hand-built, from the same notebook as any home-grown board.
+never hand-built, from the same notebook as any home-grown benchmark.
 """
 
 from __future__ import annotations
@@ -35,17 +35,17 @@ from screamingface_engine_inspect.prepare import (
     require_commit_sha,
 )
 from screamingface_engine_inspect.single_shot import (
-    ImportedBoard,
+    ImportedBenchmark,
     JudgeSpec,
-    install_imported_board,
-    single_shot_board,
+    install_imported_benchmark,
+    single_shot_benchmark,
 )
 from url4.peer.server import Url4Node
 
 
 @dataclass(frozen=True)
-class BoardSpec:
-    """One imported board's catalogue row — pure data, paired with its CasesSpec.
+class BenchmarkSpec:
+    """One imported benchmark's catalogue row — pure data, paired with its CasesSpec.
 
     ``scorer`` is a dotted ``"module:attr"`` reference to the eval's own scorer
     constructor (the same convention CasesSpec uses for ``record_to_sample``),
@@ -58,24 +58,24 @@ class BoardSpec:
     focus: str
     dataset_url: str
     #: The catalogue's hand-assigned easy→hard tier (OME-1257) — authored here because
-    #: this row IS the imported board's authoring site; reviewed in the PR that lands it.
+    #: this row IS the imported benchmark's authoring site; reviewed in the PR that lands it.
     difficulty: DifficultyTier
     scorer: str
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
-    #: §4 dual registration; False for MCQ boards — pass/fail feedback over a
+    #: §4 dual registration; False for MCQ benchmarks — pass/fail feedback over a
     #: handful of options is an elimination attack (OME-796).
     with_check_surface: bool = False
     multiple_correct: bool = False
-    #: The board's judge declaration (OME-1240): required exactly when the scorer
+    #: The benchmark's judge declaration (OME-1240): required exactly when the scorer
     #: calls a gateway judge (a ``screamingface/<id>`` kwarg) — assembly refuses a
-    #: mismatch either way, so a judged board can never ship with an unpinned judge.
+    #: mismatch either way, so a judged benchmark can never ship with an unpinned judge.
     judge: JudgeSpec | None = None
 
 
-#: Every imported board, in catalogue order. Importing another eval = one row here
+#: Every imported benchmark, in catalogue order. Importing another eval = one row here
 #: plus its CasesSpec row — never a new module.
-BOARDS: tuple[BoardSpec, ...] = (
-    BoardSpec(
+BENCHMARKS: tuple[BenchmarkSpec, ...] = (
+    BenchmarkSpec(
         key="gsm8k",
         title="GSM8K",
         description=(
@@ -96,7 +96,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # the corrective loop (spec §4; owner decision on OME-1115, 2026-09-15).
         with_check_surface=True,
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="mmlu",
         title="MMLU",
         description=(
@@ -116,7 +116,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="arc_easy",
         title="ARC-Easy",
         description=(
@@ -136,7 +136,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.arc.arc:arc_easy. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="arc_challenge",
         title="ARC-Challenge",
         description=(
@@ -157,7 +157,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.arc.arc:arc_challenge. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="commonsense_qa",
         title="CommonsenseQA",
         description=(
@@ -178,7 +178,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa. License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="paws",
         title="PAWS",
         description=(
@@ -200,10 +200,10 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.paws.paws:paws. License: other.
         scorer="inspect_ai.scorer:includes",
         # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ boards must NOT set this (OME-796).
+        # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="boolq",
         title="BoolQ",
         description=(
@@ -225,10 +225,10 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_ai.scorer:pattern",
         scorer_kwargs={"pattern": "(Yes|No).?\\Z"},
         # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ boards must NOT set this (OME-796).
+        # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="mmlu_pro",
         title="MMLU-Pro",
         description=(
@@ -249,7 +249,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro. License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="winogrande",
         title="WinoGrande",
         description=(
@@ -270,7 +270,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.winogrande.winogrande:winogrande. License: UNKNOWN.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="race_h",
         title="RACE-H",
         description=(
@@ -291,7 +291,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         #   inspect_evals.race_h.race_h:race_h. License: other.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="aime24",
         title="AIME 2024",
         description=(
@@ -317,10 +317,10 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: mit.
         scorer="inspect_evals.aime2024.aime2024:aime_scorer",
         # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ boards must NOT set this (OME-796).
+        # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="aime25",
         title="AIME 2025",
         description=(
@@ -344,10 +344,10 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: apache-2.0.
         scorer="inspect_evals.aime2025.aime2025:aime_scorer",
         # Free-form answers make mid-run feedback legitimate (spec §4);
-        # MCQ boards must NOT set this (OME-796).
+        # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="musr",
         title="MuSR",
         description=(
@@ -372,7 +372,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: cc-by-4.0.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="wmdp_bio",
         title="WMDP-Bio",
         description=(
@@ -395,7 +395,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="wmdp_chem",
         title="WMDP-Chem",
         description=(
@@ -417,7 +417,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="wmdp_cyber",
         title="WMDP-Cyber",
         description=(
@@ -439,7 +439,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="hellaswag",
         title="HellaSwag",
         description=(
@@ -469,7 +469,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # (owner-approved 2026-09-22 — see pins.py).
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="lab_bench_litqa",
         title="LAB-Bench LitQA2",
         description=(
@@ -494,7 +494,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="lab_bench_suppqa",
         title="LAB-Bench SuppQA",
         description=(
@@ -519,7 +519,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="lab_bench_dbqa",
         title="LAB-Bench DbQA",
         description=(
@@ -544,7 +544,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="lab_bench_protocolqa",
         title="LAB-Bench ProtocolQA",
         description=(
@@ -569,7 +569,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="lab_bench_seqqa",
         title="LAB-Bench SeqQA",
         description=(
@@ -595,7 +595,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="lab_bench_cloning_scenarios",
         title="LAB-Bench CloningScenarios",
         description=(
@@ -621,7 +621,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="frontierscience",
         title="FrontierScience",
         description=(
@@ -650,9 +650,9 @@ BOARDS: tuple[BoardSpec, ...] = (
         judge=JudgeSpec(
             # NAMED DEVIATION: the original FrontierScience paper uses GPT-5 at
             # HIGH reasoning effort as the model judge
-            # (https://openai.com/index/frontierscience/). This board pins the
+            # (https://openai.com/index/frontierscience/). This benchmark pins the
             # house judge HealthBench's judge also calls, for judge consistency
-            # across our judged boards — so its scores are NOT comparable to the
+            # across our judged benchmarks — so its scores are NOT comparable to the
             # paper's published numbers.
             model="openrouter/openai/gpt-5.4",
             # HealthBench's judge-params precedent: grading is retrieval-free, the
@@ -660,11 +660,11 @@ BOARDS: tuple[BoardSpec, ...] = (
             # deliberately unpinned — a retry must be able to draw a fresh sample.
             params=(("web_search", "false"), ("max_tokens", "4096")),
         ),
-        # Judged board: no check surface until the check-cost knob (OME-1116) —
+        # Judged benchmark: no check surface until the check-cost knob (OME-1116) —
         # a judged mid-run check would spend judge tokens while advertising free.
         with_check_surface=False,
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="onet_m6",
         title="O-NET M6",
         description=(
@@ -691,7 +691,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: apache-2.0.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="pubmedqa",
         title="PubMedQA",
         description=(
@@ -715,7 +715,7 @@ BOARDS: tuple[BoardSpec, ...] = (
         # License: mit.
         scorer="inspect_ai.scorer:choice",
     ),
-    BoardSpec(
+    BenchmarkSpec(
         key="xstest_safe",
         title="XSTest (safe prompts)",
         description=(
@@ -736,16 +736,16 @@ BOARDS: tuple[BoardSpec, ...] = (
         ),
         focus="Over-refusal of harmless prompts (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/walledai/XSTest",
-        # Frontier chat models comply with nearly all of these prompts; the board
+        # Frontier chat models comply with nearly all of these prompts; the benchmark
         # separates the few that over-refuse (OME-1257).
         difficulty="easy",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.xstest.xstest:xstest.
         # License: cc-by-4.0.
         # NAMED DEVIATION (review on PR #1112): the eval reports metrics=[refusal_rate()]
-        # = 100 x (P + I) / N; every imported board reports the mean grade instead
-        # (C=1, P=0.5, I=0). Example: 200 C, 40 P, 10 I -> inspect 20.0, this board
-        # 0.88. The description gives the conversion from the board's own metrics.
+        # = 100 x (P + I) / N; every imported benchmark reports the mean grade instead
+        # (C=1, P=0.5, I=0). Example: 200 C, 40 P, 10 I -> inspect 20.0, this benchmark
+        # 0.88. The description gives the conversion from the benchmark's own metrics.
         scorer="inspect_ai.scorer:model_graded_qa",
         scorer_kwargs={
             # Judge prompt copied verbatim from the eval (scorer_template and
@@ -783,9 +783,9 @@ BOARDS: tuple[BoardSpec, ...] = (
             ),
         },
         judge=JudgeSpec(
-            # NAMED DEVIATION: the eval's default judge is openai/gpt-4o. This board
+            # NAMED DEVIATION: the eval's default judge is openai/gpt-4o. This benchmark
             # pins the house judge FrontierScience and HealthBench also call, for
-            # judge consistency across our judged boards (owner decision
+            # judge consistency across our judged benchmarks (owner decision
             # 2026-09-29) — so its scores are NOT directly comparable to an inspect
             # run with the default judge.
             model="openrouter/openai/gpt-5.4",
@@ -793,38 +793,38 @@ BOARDS: tuple[BoardSpec, ...] = (
             # the token cap is an engine-side safety bound.
             params=(("web_search", "false"), ("max_tokens", "4096")),
         ),
-        # Judged board: no check surface until the check-cost knob (OME-1116).
+        # Judged benchmark: no check surface until the check-cost knob (OME-1116).
         with_check_surface=False,
     ),
-    # --- importer: generated BoardSpec rows land above this line ---
+    # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
 
-def imported_board(key: str) -> ImportedBoard:
-    """The assembled board for one table row — assembled once, then cached."""
+def imported_benchmark(key: str) -> ImportedBenchmark:
+    """The assembled benchmark for one table row — assembled once, then cached."""
 
     if key not in _ASSEMBLED:
-        specs: dict[str, BoardSpec] = {spec.key: spec for spec in BOARDS}
+        specs: dict[str, BenchmarkSpec] = {spec.key: spec for spec in BENCHMARKS}
         if key not in specs:
-            raise KeyError(f"no imported board row with key {key!r}")
+            raise KeyError(f"no imported benchmark row with key {key!r}")
         _ASSEMBLED[key] = _assemble(specs[key])
     return _ASSEMBLED[key]
 
 
-def board_registrations() -> tuple[BenchmarkRegistration, ...]:
-    """Every imported board, in catalogue order — the plugin's entry-point payload."""
+def benchmark_registrations() -> tuple[BenchmarkRegistration, ...]:
+    """Every imported benchmark, in catalogue order — the plugin's entry-point payload."""
 
-    return tuple(imported_board(spec.key).registration for spec in BOARDS)
+    return tuple(imported_benchmark(spec.key).registration for spec in BENCHMARKS)
 
 
-def _assemble(spec: BoardSpec) -> ImportedBoard:
-    """Row pair in, registered board out — the whole per-board 'code' path."""
+def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
+    """Row pair in, registered benchmark out — the whole per-benchmark 'code' path."""
 
     _check_judge_declaration(spec)
     cases_spec: CasesSpec = BENCHMARK_CASES[spec.key]
     _check_answer_key_opt_in(spec, cases_spec)
-    return single_shot_board(
-        board_key=spec.key,
+    return single_shot_benchmark(
+        benchmark_key=spec.key,
         title=spec.title,
         description=spec.description,
         focus=spec.focus,
@@ -861,7 +861,7 @@ _SUPPORTED_MODEL_ROLES = frozenset({"grader"})
 _MODEL_ROLE_KWARG = "model_role"
 
 
-def _check_judge_declaration(spec: BoardSpec) -> None:
+def _check_judge_declaration(spec: BenchmarkSpec) -> None:
     """Refuse every judge misdeclaration at ASSEMBLY (CI), never at grade time.
 
     The contract has two sides: a row whose scorer takes a judge (a judge-model
@@ -920,7 +920,7 @@ def _check_judge_declaration(spec: BoardSpec) -> None:
 
 
 def _check_declared_judge(
-    spec: BoardSpec, judge: JudgeSpec, called: list[str], judge_kwargs: dict[str, Any]
+    spec: BenchmarkSpec, judge: JudgeSpec, called: list[str], judge_kwargs: dict[str, Any]
 ) -> None:
     """The declared side of the contract: the pinned judge is the one the scorer calls."""
 
@@ -940,7 +940,7 @@ def _check_declared_judge(
         )
 
 
-def _check_model_role_judge(spec: BoardSpec, role: str, judge_kwargs: dict[str, Any]) -> None:
+def _check_model_role_judge(spec: BenchmarkSpec, role: str, judge_kwargs: dict[str, Any]) -> None:
     """Refuse a judge that fills a model role the scorer never asks for (OME-1370).
 
     The aggregate binds ``role`` to the pinned judge, so the row is honest only if
@@ -996,10 +996,10 @@ def _reads_answer_key(template: str) -> bool:
     )
 
 
-def _check_answer_key_opt_in(spec: BoardSpec, cases_spec: CasesSpec) -> None:
-    """Refuse a board without an answer key unless a judge grades it without one.
+def _check_answer_key_opt_in(spec: BenchmarkSpec, cases_spec: CasesSpec) -> None:
+    """Refuse a benchmark without an answer key unless a judge grades it without one.
 
-    WHY at assembly (CI): with no key, only a judge can grade — a string-match board
+    WHY at assembly (CI): with no key, only a judge can grade — a string-match benchmark
     would mark every reply wrong against an empty string, and a judge whose prompt
     reads ``{criterion}`` would grade against nothing. inspect's ``model_graded_*``
     default prompts read it, so such a row must pass its own ``template`` without it
@@ -1011,7 +1011,7 @@ def _check_answer_key_opt_in(spec: BoardSpec, cases_spec: CasesSpec) -> None:
         return
     if spec.judge is None:
         raise ValueError(
-            f"{spec.key}: has_answer_key=False but the board has no judge — without an "
+            f"{spec.key}: has_answer_key=False but the benchmark has no judge — without an "
             "answer key only a judge can grade"
         )
     template: Any = spec.scorer_kwargs.get("template")
@@ -1028,12 +1028,12 @@ def _check_answer_key_opt_in(spec: BoardSpec, cases_spec: CasesSpec) -> None:
         )
 
 
-def _judge_prompt_pins(spec: BoardSpec) -> tuple[str, ...]:
+def _judge_prompt_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """The judge's PROMPT identity — scorer + kwargs (template/instructions) — for
-    judged boards only.
+    judged benchmarks only.
 
     WHY judged-only: scorer kwargs were never exam identity before OME-1240, and
-    hashing them for every board would move all published string-match revisions.
+    hashing them for every benchmark would move all published string-match revisions.
     ``json.dumps`` escapes newlines inside kwarg strings, so a multiline judge
     template survives the factory's no-newline pin rule.
     """
@@ -1047,7 +1047,7 @@ def _judge_prompt_pins(spec: BoardSpec) -> tuple[str, ...]:
 
 
 def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
-    """Exam-identity pins derived from the board's snapshot row — never duplicated."""
+    """Exam-identity pins derived from the benchmark's snapshot row — never duplicated."""
 
     pins: list[str] = [
         cases_spec.dataset,
@@ -1070,7 +1070,7 @@ def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
         # WHY: adding or dropping the leading instruction changes the exam a
         # candidate sits, so the pointer rides exam identity. (The template
         # pointers predate revision-pin coverage and cannot join without
-        # moving every published board's revision.)
+        # moving every published benchmark's revision.)
         pins.append(f"system_message={cases_spec.system_message}")
     if cases_spec.data_files is not None:
         # WHY: data_files selects WHICH files of the pinned revision load —
@@ -1091,7 +1091,7 @@ def _dropped_question_pins(cases_spec: CasesSpec) -> list[str]:
 
     pins: list[str] = []
     if cases_spec.question_filter_task is not None:
-        # WHY: a question-filter board's questions are whatever the eval's task keeps,
+        # WHY: a question-filter benchmark's questions are whatever the eval's task keeps,
         # and its args can change that (xstest's subset) — both are exam identity.
         # json.dumps(sort_keys=True) keeps the args pin deterministic.
         pins.append(f"question_filter_task={cases_spec.question_filter_task}")
@@ -1103,7 +1103,7 @@ def _dropped_question_pins(cases_spec: CasesSpec) -> list[str]:
     return pins
 
 
-def _scorer_factory(spec: BoardSpec) -> Callable[[], Any]:
+def _scorer_factory(spec: BenchmarkSpec) -> Callable[[], Any]:
     """Resolve the eval's own scorer from the row's dotted reference, lazily."""
 
     def factory() -> Any:
@@ -1115,23 +1115,23 @@ def _scorer_factory(spec: BoardSpec) -> Callable[[], Any]:
 
 
 def _installer(benchmark_id: str) -> Callable[[Url4Node, Path], None]:
-    """One installer per board, carrying the bundle id ON the function.
+    """One installer per benchmark, carrying the bundle id ON the function.
 
     WHY the attribute: the deployment conformance check reads the asset directory a
-    board's installer actually opens from the installer itself; with boards as rows
+    benchmark's installer actually opens from the installer itself; with benchmarks as rows
     in ONE module, a per-module ``ASSET_BUNDLE_ID`` constant cannot work, so the
     installer function carries it (owner-approved conformance-rule amendment,
     2026-09-16).
     """
 
     def install(node: Url4Node, assets: Path) -> None:
-        install_imported_board(node, assets, benchmark_id)
+        install_imported_benchmark(node, assets, benchmark_id)
 
     install.ASSET_BUNDLE_ID = benchmark_id  # type: ignore[attr-defined]
     return install
 
 
-_ASSEMBLED: dict[str, ImportedBoard] = {}
+_ASSEMBLED: dict[str, ImportedBenchmark] = {}
 
 
-__all__ = ["BOARDS", "BoardSpec", "board_registrations", "imported_board"]
+__all__ = ["BENCHMARKS", "BenchmarkSpec", "benchmark_registrations", "imported_benchmark"]

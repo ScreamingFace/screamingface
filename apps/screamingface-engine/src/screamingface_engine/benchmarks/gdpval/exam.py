@@ -1,22 +1,23 @@
-"""How any GDPval board is built — identity, addresses, and the one expression tree.
+"""How any GDPval benchmark is built — identity, addresses, and the one expression tree.
 
-The template is fixed: one dataset, one baked answer key, one judge, one grading chain. A board
+The template is fixed: one dataset, one baked answer key, one judge, one grading chain. A benchmark
 varies only which Cases it serves, how it totals them, and what it calls itself — and ``id``
 decides every route address.
 
 ``exam_revision`` fingerprints the whole identity into 16 hex characters; ``Routes`` hangs the
 six protocol routes plus the check surface under ``/benchmarks/<id>/<revision>/``;
-``build_exam_protocol`` writes the url4 tree. ``gdpval_benchmark`` is the one call a board makes.
+``build_exam_protocol`` writes the url4 tree. ``gdpval_benchmark`` is the one call a benchmark
+makes.
 
-INVARIANT: a board's revision changes if ANY hashed input changes — dataset pin, preparer,
+INVARIANT: a benchmark's revision changes if ANY hashed input changes — dataset pin, preparer,
 container filter, judge pinning, grader template, selection, scoring rule. An expression
 addressed to an old revision physically cannot resolve against a new exam.
 
 WHY this mirrors ``healthbench/exam.py`` rather than importing it: that module's tree is bound to
-simple-evals parity and its worst30 board's revision is FROZEN at a published value. Parameterising
-it to serve a second benchmark would put a live, frozen identity at risk for the sake of removing
-a structural resemblance. The two trees agree today because the rubric shapes agree, not because
-they answer to the same authority.
+simple-evals parity and its worst30 benchmark's revision is FROZEN at a published value.
+Parameterising it to serve a second benchmark would put a live, frozen identity at risk for the sake
+of removing a structural resemblance. The two trees agree today because the rubric shapes agree, not
+because they answer to the same authority.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ from screamingface_engine.benchmarks.protocol import (
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.peer.server import Url4Node
 
-#: The one physical asset directory every GDPval board reads — one immutable bake.
+#: The one physical asset directory every GDPval benchmark reads — one immutable bake.
 ASSET_BUNDLE_ID = "gdpval"
 
 #: The pass criterion of the mid-run check surface.
@@ -64,7 +65,7 @@ ExamMean = Callable[[Sequence[float | None]], float | None]
 
 @dataclass(frozen=True, slots=True)
 class Routes:
-    """The seven addresses one board answers on, all under its own revision prefix."""
+    """The seven addresses one benchmark answers on, all under its own revision prefix."""
 
     prefix: str
     cases: str
@@ -130,7 +131,7 @@ def exam_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -
 
 
 def case_ids_sha(case_ids: Sequence[int]) -> str:
-    """The revision-participating fingerprint of a board's Engine Case-id selection."""
+    """The revision-participating fingerprint of a benchmark's Engine Case-id selection."""
 
     return hashlib.sha256("\n".join(str(case_id) for case_id in case_ids).encode()).hexdigest()
 
@@ -152,7 +153,7 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
     4. Roll up: criterion rows → ``routes.rubric_evaluation`` → per-Case score at
        ``routes.case_evaluation`` → every Case row into ``routes.aggregate``.
 
-    AIDEV-NOTE: stage 3 is where this board's cost lives. One judge call per criterion over 102
+    AIDEV-NOTE: stage 3 is where this benchmark's cost lives. One judge call per criterion over 102
     Cases is ~4,498 calls per candidate. That is deliberate — judging a criterion in isolation
     stops a long rubric crowding out its own tail — but it is the number to check before
     scheduling a full run.
@@ -255,7 +256,7 @@ def gdpval_benchmark(
     focus: str | None = None,
     dataset_url: str | None = None,
 ) -> tuple[Exam, Benchmark]:
-    """Wire one GDPval board: identity → addresses → expression → private routes."""
+    """Wire one GDPval benchmark: identity → addresses → expression → private routes."""
 
     revision = exam_revision(
         protocol_revision=protocol_revision,
@@ -286,7 +287,7 @@ def gdpval_benchmark(
         description=description,
         revision=revision,
         case_count=len(case_ids),
-        # INVARIANT: the declared policy matches the code — every board reduces through
+        # INVARIANT: the declared policy matches the code — every benchmark reduces through
         # the shared finalize_candidate_result, which scores exactly the gradeable subset
         # and publishes coverage (coverage_declare). Declare `withhold` only if the
         # aggregate actually withholds (OME-1039).

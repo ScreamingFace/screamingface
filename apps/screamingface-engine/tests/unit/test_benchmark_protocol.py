@@ -38,19 +38,19 @@ def _protocol_node(name: str) -> Url4Node:
 
 
 @pytest.mark.asyncio
-async def test_the_public_catalogue_publishes_exactly_the_registered_boards() -> None:
-    """Every board this deployment registers is discoverable on the wire, and nothing else is.
+async def test_the_public_catalogue_publishes_exactly_the_registered_benchmarks() -> None:
+    """Every benchmark this deployment registers is discoverable on the wire, and nothing else is.
 
     WHY derived rather than a hand-typed tuple of ids (OME-1095): the deployment is the ONE
-    place a board is declared, and a second list here had to be edited by hand for every new
-    board — the exact cost this epic removes. What is load bearing is the relationship: what
+    place a benchmark is declared, and a second list here had to be edited by hand for every new
+    benchmark — the exact cost this epic removes. What is load bearing is the relationship: what
     an operator registered is what a client can discover, under the ids it was registered
     with.
 
     WHAT THIS DOES NOT COVER: membership. Both sides derive from the same registrations, so
-    deleting a board from `builtins.py` makes it vanish from both and passes here. That a
-    given board is public is pinned in the board's own definition test — see
-    `test_both_draco_boards_are_registered_under_their_own_ids` and its siblings.
+    deleting a benchmark from `builtins.py` makes it vanish from both and passes here. That a
+    given benchmark is public is pinned in the benchmark's own definition test — see
+    `test_both_draco_benchmarks_are_registered_under_their_own_ids` and its siblings.
     """
 
     registered = sorted(

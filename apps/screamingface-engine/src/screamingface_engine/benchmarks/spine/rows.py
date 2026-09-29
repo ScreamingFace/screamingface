@@ -20,7 +20,7 @@ task per rubric item"). This module reads the OUTERMOST one and only that:
                         inside the row as `rubric_evaluations`
 
 So by the time a row reaches this module the marking has happened and is stapled inside
-the script. `rubric_evaluations` is never read here; the board's `grade_case` reads it.
+the script. `rubric_evaluations` is never read here; the benchmark's `grade_case` reads it.
 
 FEATURE: one grading spine per benchmark (OME-1024); this module is the second extraction
 (OME-1039 took the failure ladder) — the row reader gdpval and healthbench duplicated
@@ -33,7 +33,7 @@ The stages, in execution order:
     Stage 3  per position, unwrap the row value    → a row may arrive double-encoded
     Stage 4  outer error?  identified → it IS that Case's row
                            anonymous  → retained as an orphan against that position
-    Stage 5  otherwise decode the envelope         → grading error, or the board-decoded row
+    Stage 5  otherwise decode the envelope         → grading error, or the benchmark-decoded row
 
 Worked example — three Cases selected, `case_ids = (1, 2, 3)`:
 
@@ -44,10 +44,10 @@ Worked example — three Cases selected, `case_ids = (1, 2, 3)`:
 Case 2 ends with no row at all, so the grader reports it as missing — and the orphan error
 retained above it is what tells the reader *why*. On the spine's default missing-row step, the
 orphan's code (say `model_token_cap`) becomes the Case's failure code; a Case with no orphan,
-or an orphan naming no code, reads as `missing_case_row`. Boards that own their missing-row
+or an orphan naming no code, reads as `missing_case_row`. Benchmarks that own their missing-row
 step (IFEval, DRACO) spell it their own way.
 
-INVARIANT: the row is an OPAQUE board-owned envelope. This module files it and never looks
+INVARIANT: the row is an OPAQUE benchmark-owned envelope. This module files it and never looks
 inside, so nothing here can freeze "a candidate's answer is text". The kind taxonomy is
 OME-1103's decision; the seam that opens the envelope is OME-1097's `grade_case`.
 
@@ -60,8 +60,8 @@ identity, so it cannot be indexed; it is retained as an orphan and attached to t
 it arrived at, so the report names the cause and not just the symptom (exactly what was
 missing in the first live smoke run).
 
-INVARIANT: failure wording stays board-owned. `benchmark_label` and `error_type` are
-injected so each board raises its own class with its own text — the extraction moves logic,
+INVARIANT: failure wording stays benchmark-owned. `benchmark_label` and `error_type` are
+injected so each benchmark raises its own class with its own text — the extraction moves logic,
 never messages.
 """
 
@@ -86,7 +86,7 @@ class RowIndex:
     """One per-Case fan-out's rows, split by what each position turned out to be.
 
     Attributes:
-        rows: Case id → the board-decoded evaluation envelope, opaque to the spine. Also
+        rows: Case id → the benchmark-decoded evaluation envelope, opaque to the spine. Also
             holds an identified error row, which IS that Case's row.
         collected_errors: Case id → the anonymous `on_error=collect` payloads that arrived
             at that position, retained so a missing row can name its cause.
@@ -101,26 +101,26 @@ class RowIndex:
 
 @dataclass(frozen=True, slots=True)
 class RowReader:
-    """One board's row reader — the shared reading steps bound to the board's own names.
+    """One benchmark's row reader — the shared reading steps bound to the benchmark's own names.
 
-    Each board constructs one module-level instance. Only three things differ between the
-    boards, and all three are here:
+    Each benchmark constructs one module-level instance. Only three things differ between the
+    benchmarks, and all three are here:
 
     Attributes:
-        benchmark_label: the board's display name as it appears in this module's two
+        benchmark_label: the benchmark's display name as it appears in this module's two
             decode error messages ("GDPval rows are not JSON"). Display text, NOT an
             identity — two Benchmarks (`healthbench-worst30`, `healthbench-professional`)
             share the one label "HealthBench", so this is deliberately not `benchmark_id`.
-        error_type: the board's own `AggregateError`. Injected rather than shared so a
-            test asserting one board raised keeps failing when the other one does.
-        decode_case_evaluation: the board's envelope validator, the only authority on its
+        error_type: the benchmark's own `AggregateError`. Injected rather than shared so a
+            test asserting one benchmark raised keeps failing when the other one does.
+        decode_case_evaluation: the benchmark's envelope validator, the only authority on its
             own schema. Called as `(grading, expected_case_id) -> decoded row`; it raises
             `ValueError`/`TypeError`, which this module wraps with the row's position.
         claim_anonymous_errors: when True an anonymous `on_error=collect` row is ADOPTED
             as the row of the Case selected at its position, instead of being retained
             as an orphan cause. WHY (OME-1100): draco's fan-out emits anonymous error
             rows and its pinned results report them as candidate-stage failures OF that
-            Case — position is identity, so the adoption is sound for any board that
+            Case — position is identity, so the adoption is sound for any benchmark that
             opts in.
     """
 
@@ -250,9 +250,9 @@ def read_selected_cases(
 ) -> list[SelectedCase]:
     """Read the roll call from the baked ``cases.json``, in selected order.
 
-    The same board-varying bits as `RowReader` are injected — the label for error
-    wording and the board's own error class (OME-1097 moved this reader in from the
-    per-board aggregates).
+    The same benchmark-varying bits as `RowReader` are injected — the label for error
+    wording and the benchmark's own error class (OME-1097 moved this reader in from the
+    per-benchmark aggregates).
     """
 
     try:

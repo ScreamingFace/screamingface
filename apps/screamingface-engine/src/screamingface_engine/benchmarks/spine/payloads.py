@@ -1,7 +1,7 @@
 """Kind-tagged Case payloads — the envelope a case input or candidate answer travels in.
 
 Think of a payload as a labelled envelope: the ``kind`` tag on the front says what shape
-is inside, and only the board's ``grade_case`` hook opens it. The spine carries the
+is inside, and only the benchmark's ``grade_case`` hook opens it. The spine carries the
 envelope from row decode to the hook without looking inside, so "a candidate's answer is
 text" is a fact about ONE kind, never about the pipeline.
 
@@ -11,7 +11,7 @@ land.
 
 INVARIANT: the hook's input and answer fields are payload-typed, never bare ``str`` — the
 constraint the epic's three consumers force (enclave judge, inspect_evals shim, agentic
-boards whose answer is a patch + action log).
+benchmarks whose answer is a patch + action log).
 """
 
 from __future__ import annotations

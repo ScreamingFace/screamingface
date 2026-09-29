@@ -25,7 +25,7 @@ from url4.peer.server import Request
 JsonObject = dict[str, Any]
 CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
 AggregateAdapter = Callable[[str, int], JsonObject]
-#: The async face (OME-1240): a judged board's adapter awaits model calls, so its
+#: The async face (OME-1240): a judged benchmark's adapter awaits model calls, so its
 #: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
 AsyncAggregateAdapter = Callable[[str, int], Awaitable[JsonObject]]
 
@@ -106,7 +106,7 @@ def attempt_records_endpoint(
     """Adapt an ``attempt_1..attempt_N`` struct of evaluator records into a Case envelope.
 
     WHY (OME-1126): the sibling ``case_evaluation_endpoint`` takes a JSON *array*,
-    which is what a rubric fan-out (``iterate``) naturally yields. A Board whose Case
+    which is what a rubric fan-out (``iterate``) naturally yields. A Benchmark whose Case
     holds a FIXED, named set of attempts renders ``struct({"attempt_1": ...})`` instead
     — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
     """
@@ -134,7 +134,7 @@ def attempt_records_endpoint(
             raise benchmark_contract_error(detail) from exc
         return compact_json(result)
 
-    # WHY: imported boards only package attempts here; their scorer runs later.
+    # WHY: imported benchmarks only package attempts here; their scorer runs later.
     return observe_stage(ActivityKind.GRADING)(endpoint) if observe_grading else endpoint
 
 
@@ -168,7 +168,7 @@ def async_aggregate_endpoint(
 ) -> Callable[[Request], Awaitable[str]]:
     """:func:`aggregate_endpoint`'s async face — awaited by the node on the run's loop.
 
-    WHY (OME-1240): a judged board's aggregate awaits model calls through the run's
+    WHY (OME-1240): a judged benchmark's aggregate awaits model calls through the run's
     shared HTTP client; that client's pooled connections are bound to the run's own
     event loop, so the handler must be awaited there — never driven on a worker
     thread's second loop. url4 awaits async endpoint handlers natively.

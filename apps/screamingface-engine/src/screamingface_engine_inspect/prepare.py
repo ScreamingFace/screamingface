@@ -3,19 +3,19 @@
 # default (extra-less) install the typecheck gate runs against. Only unresolved-import
 # reporting is relaxed; every other diagnostic stays on, and with the extra installed
 # these imports type-check normally.
-"""Bake the imported boards' assets: public prompts and private targets.
+"""Bake the imported benchmarks' assets: public prompts and private targets.
 
 Run at IMAGE BUILD time, never at run time (OME-925): a Job's rootfs is read-only and
 holds no HuggingFace credential, so every artifact exists before a run starts. HF
-downloads happen here once; upstream gating or drift cannot change a published board.
+downloads happen here once; upstream gating or drift cannot change a published benchmark.
 
-Emits, per board::
+Emits, per benchmark::
 
     <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees
     <out>/targets/<id>.json  {"target": ..., "choices": [...]?} — private; read by the
                              aggregate (the scorer adapter's grading material) and the check surface
 
-ONE generic pipeline serves every imported single-shot board; a board is a
+ONE generic pipeline serves every imported single-shot benchmark; a benchmark is a
 :class:`CasesSpec` DATA entry in :data:`BENCHMARK_CASES` — dataset pins plus two dotted
 references into the eval's own code (its ``record_to_sample`` row rule, its prompt
 template). Row conversion and prompt formatting are inspect's own functions, CALLED,
@@ -216,7 +216,7 @@ class PrepareError(BenchmarkAssetPreparationError):
 
 @dataclass(frozen=True)
 class CasesSpec:
-    """One imported board's bake, as pure data — pins plus pointers into the eval.
+    """One imported benchmark's bake, as pure data — pins plus pointers into the eval.
 
     ``record_to_sample`` and ``prompt_template`` are dotted ``"module:attr"``
     references into the eval's own package, resolved lazily at bake time (the
@@ -244,7 +244,7 @@ class CasesSpec:
     #: Pins one per-case CHOICE order for an eval whose hf_dataset call shuffles
     #: choices (shuffle_choices) — applied via inspect's own
     #: ``MemoryDataset.shuffle_choices`` over THIS BAKE'S pinned row order. The
-    #: pinned order is exam identity (it rides the board's revision pins); it is
+    #: pinned order is exam identity (it rides the benchmark's revision pins); it is
     #: NOT the order inspect would produce for the same seeds when a row shuffle
     #: is also active, because the bake's row shuffle is not HF's algorithm —
     #: the importer refuses that combination whenever upstream seeded either
@@ -253,25 +253,25 @@ class CasesSpec:
     #: hf_dataset's data_files selection (a dict of str to str, infinite_bench's
     #: {"passkey": "passkey.jsonl"}), forwarded verbatim to
     #: ``datasets.load_dataset`` — it selects WHICH files load, so it rides the
-    #: board's revision pins. OME-1264 extension 2.
+    #: benchmark's revision pins. OME-1264 extension 2.
     data_files: dict[str, str] | None = None
     #: The eval's Features schema as a dotted POINTER at its own module constant
     #: (infinite_bench's ``constants:ft``) — same convention as
     #: ``record_to_sample``; resolved at bake time and required to be a
-    #: ``datasets.Features``. Rides the board's revision pins too.
+    #: ``datasets.Features``. Rides the benchmark's revision pins too.
     features: str | None = None
     #: OME-1240 opt-in: bake each Sample's metadata into its private target record —
     #: needed by metadata-dispatching scorers (frontierscience's format field).
-    #: Default False keeps every published board's baked assets byte-identical
+    #: Default False keeps every published benchmark's baked assets byte-identical
     #: (snapshots are immutable at their revision); flipping it moves the revision.
     keep_sample_metadata: bool = False
     #: OME-1269 question filter: the eval's own task function (same dotted-reference
     #: convention), for an eval that DROPS questions after loading — a
     #: ``.filter()`` inside the task (pubmedqa keeps its 500 test ids of 1,000
-    #: rows). The bake hands that function this board's pinned samples in place
+    #: rows). The bake hands that function this benchmark's pinned samples in place
     #: of its hf_dataset load and keeps exactly what its Task holds, so the
     #: eval's filter runs and is never copied. ``case_count`` is then the KEPT
-    #: count. None (every board before OME-1269) skips the step entirely.
+    #: count. None (every benchmark before OME-1269) skips the step entirely.
     question_filter_task: str | None = None
     #: Arguments forwarded to ``task`` (xstest's {"subset": "safe"}) — they can
     #: change which questions the filter keeps, so they ride exam identity too.
@@ -283,28 +283,28 @@ class CasesSpec:
     #: deviation); ``case_count`` is the count left after the exclusion. The row
     #: says why beside the ids, and the ids ride exam identity (OME-1269).
     excluded_sample_ids: tuple[str, ...] | None = None
-    #: False for a judged board whose judge grades from the question and the reply
+    #: False for a judged benchmark whose judge grades from the question and the reply
     #: alone (xstest: complied / refused), so the dataset has no answer key to store.
-    #: The bake then accepts an empty target; every other board keeps refusing one,
+    #: The bake then accepts an empty target; every other benchmark keeps refusing one,
     #: because there an empty key is a broken row. Assembly refuses the opt-in on a
-    #: board without a judge, or whose judge prompt reads the key (OME-1269, OME-1371).
+    #: benchmark without a judge, or whose judge prompt reads the key (OME-1269, OME-1371).
     has_answer_key: bool = True
     #: The dataset sits behind a Hugging Face gate, so downloading it needs a token
     #: from an account that accepted its terms (xstest). Without one the bake stops by
     #: name, unless SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1 (PR builds, which get no
-    #: secret) skips the board with a warning. Access, not exam identity: no pin.
+    #: secret) skips the benchmark with a warning. Access, not exam identity: no pin.
     needs_hf_token: bool = False
 
 
-#: The build-time switch that lets a PR build skip gated boards instead of failing.
+#: The build-time switch that lets a PR build skip gated benchmarks instead of failing.
 SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV = "SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN"
 
-#: Written into a skipped gated bundle, so the runtime can say WHY the board has no
+#: Written into a skipped gated bundle, so the runtime can say WHY the benchmark has no
 #: questions instead of a bare "cases are unavailable" (review on PR #1112).
 SKIPPED_MARKER = "SKIPPED"
 
 
-#: Every imported board's bake. Importing another eval = one more entry here
+#: Every imported benchmark's bake. Importing another eval = one more entry here
 #: (plus its pins) — never a new function.
 BENCHMARK_CASES: dict[str, CasesSpec] = {
     "gsm8k": CasesSpec(
@@ -713,7 +713,7 @@ def require_commit_sha(revision: str) -> str:
     """Refuse a mutable revision ref — only a 40-hex commit sha is exam identity.
 
     WHY: a branch/tag ref like ``main`` resolves to different data over time while
-    the board's revision hash — built from the unchanging ref STRING — stays the
+    the benchmark's revision hash — built from the unchanging ref STRING — stays the
     same: two builds could carry different exams under one revision. The importer
     resolves refs to shas at import time; this is the mechanical backstop for a
     hand-written row (review round 2026-09-17).
@@ -745,7 +745,7 @@ def mcq_prompt(question: str, choices: Sequence[str], template: str | None = Non
 
     One function for every MCQ eval graded via the ``multiple_choice`` solver +
     ``choice()`` scorer (36 of the 131 inspect_evals packages). ``template`` is the
-    eval's own override when it passes one to ``multiple_choice`` (the board's
+    eval's own override when it passes one to ``multiple_choice`` (the benchmark's
     ``choice_template`` reference, resolved by the caller); None renders inspect's
     default SINGLE_ANSWER template — a custom template must render VERBATIM, or the
     baked exam would silently differ from the eval's (OME-1116 milestone C).
@@ -771,7 +771,7 @@ def emit_cases(
     *,
     expected_cases: int | None = None,
 ) -> dict[str, Any]:
-    """Bake any imported single-shot board from the eval's own conversion functions.
+    """Bake any imported single-shot benchmark from the eval's own conversion functions.
 
     Think of it as one print shop for every imported exam: the spec points at the
     eval's own row-to-Sample rule and prompt template, and the shop prints the public
@@ -779,11 +779,11 @@ def emit_cases(
 
         Stage 1 — refuse a mutable revision ref (only a 40-hex sha is exam identity)
                   and a wrong-sized dataset (the pinned case count is, too). A
-                  question-filter board checks its count after Stage 3b instead.
+                  question-filter benchmark checks its count after Stage 3b instead.
         Stage 2 — shuffle when the spec pins a seed (the baked order is exam identity).
         Stage 3 — per row: the eval's ``record_to_sample`` builds the Sample; any raise
                   fails the bake by case number.
-        Stage 3b — question-filter boards only: the eval's own task function drops the
+        Stage 3b — question-filter benchmarks only: the eval's own task function drops the
                   questions it would drop in inspect (:func:`task_kept_samples`); the
                   pinned case count is enforced on what it keeps.
         Stage 4 — shuffle each Sample's CHOICE order when the spec pins a choice seed,
@@ -791,13 +791,13 @@ def emit_cases(
                   dataset at once — upstream draws every case's permutation from one
                   random stream, so a per-case shuffle would pin a different exam.
         Stage 5 — per Sample: cross the one validated boundary (non-empty input/target,
-                  target letter within the choices for MCQ boards), then render the
+                  target letter within the choices for MCQ benchmarks), then render the
                   prompt from the Sample's own shape: choices → the MCQ formatter; a
                   template reference → its substitution; neither → the raw input.
         Stage 6 — write the booklet (prompts only) and the private targets.
 
     Args:
-        spec: the board's bake declaration.
+        spec: the benchmark's bake declaration.
         rows: raw dataset rows, one per Case.
         out: the empty directory to bake into.
         expected_cases: the pinned case count to enforce; None skips the check (unit
@@ -825,7 +825,7 @@ def emit_cases(
             # Named deviation (contracteval pattern): the eval's SYSTEM
             # instruction becomes the input's leading text, render untouched.
             input_text = f"{system_text}\n\n{input_text}"
-        # WHY "case_id" beside "id": the board's url4 protocol template reads
+        # WHY "case_id" beside "id": the benchmark's url4 protocol template reads
         # $item.case_id per Case (the transport contract's string spelling);
         # "id" is the integer the engine's row/target files key on.
         cases.append(
@@ -848,7 +848,7 @@ def _pinned_samples(
     spec: CasesSpec, rows: list[dict[str, Any]], expected_cases: int | None
 ) -> list[Sample]:
     """Stages 1 (size), 2, 3 and 3b — the raw rows become the exam's Samples, in the
-    pinned order. A board that drops questions (a question filter, or a named exclusion)
+    pinned order. A benchmark that drops questions (a question filter, or a named exclusion)
     checks its size on what is left instead of on the raw rows."""
 
     drops_questions: bool = (
@@ -909,7 +909,7 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
     of letting them fetch their own: they throw out the questions their rules
     exclude, and we freeze whatever they hand back. Worked example: pubmedqa's
     task loads 1,000 rows and keeps the 500 whose ids are on its bundled test
-    list — we give it our 1,000 pinned samples, it hands back 500, and the board
+    list — we give it our 1,000 pinned samples, it hands back 500, and the benchmark
     holds exactly those 500, in our pinned order.
 
     Stages, in execution order:
@@ -930,9 +930,9 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
                   added, duplicated or reordered sample is an exam we never pinned.
 
     Args:
-        spec: the board's bake declaration; ``spec.question_filter_task`` must be set.
+        spec: the benchmark's bake declaration; ``spec.question_filter_task`` must be set.
         samples: our pinned samples — converted by the eval's ``record_to_sample``
-            and already in the board's seeded order.
+            and already in the benchmark's seeded order.
 
     Returns:
         The samples the eval keeps, in our pinned order.
@@ -1054,7 +1054,7 @@ def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sa
 
 
 def count_kept_cases(spec: CasesSpec) -> int:
-    """How many questions a question-filter board keeps at its pinned revision.
+    """How many questions a question-filter benchmark keeps at its pinned revision.
 
     The importer's case count for a question-filter row (import time only; this
     downloads the pinned split). Order cannot change the count, so no shuffle.
@@ -1110,12 +1110,12 @@ def _resolved_system_text(spec: CasesSpec) -> str | None:
 
 
 def prepare_cases(spec: CasesSpec, out: Path) -> dict[str, Any]:
-    """Snapshot one board's pinned HF split and bake its assets (build time only).
+    """Snapshot one benchmark's pinned HF split and bake its assets (build time only).
 
     A gated dataset needs a Hugging Face token (``HF_TOKEN``, or a cached login).
     Without one the bake refuses by name, so a main or release image can never ship
-    missing a board; a PR build that sets ``SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1``
-    skips the board instead, writes nothing, and says so loudly in the build log.
+    missing a benchmark; a PR build that sets ``SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1``
+    skips the benchmark instead, writes nothing, and says so loudly in the build log.
     """
 
     if spec.needs_hf_token and _available_hf_token() is None:
@@ -1145,7 +1145,7 @@ def _prompt(
     template: str | None,
     choice_template: str | None,
 ) -> str:
-    """Stage 4 — the render is derived from the Sample's own shape, never per board."""
+    """Stage 4 — the render is derived from the Sample's own shape, never per benchmark."""
 
     question: str = str(sample.input)
     if choices is not None:
@@ -1167,7 +1167,7 @@ def _validated_target(
 ) -> tuple[str, list[str] | None]:
     """The one trust boundary on eval-produced Samples — never bake an unkeyed Case.
 
-    ``has_answer_key=False`` (a judged board whose judge never reads a key) is the
+    ``has_answer_key=False`` (a judged benchmark whose judge never reads a key) is the
     one place an empty target is accepted; the question itself is still required.
     """
 

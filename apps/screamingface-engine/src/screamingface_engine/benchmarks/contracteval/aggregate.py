@@ -1,18 +1,18 @@
-"""ContractEval's grading hooks — everything this board still writes to be graded.
+"""ContractEval's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
+The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
 contribution: its containment ``grade_case`` (every gold sentence quoted verbatim, or a
 correct abstention), its confusion-matrix scorer, and its own failure wording.
 
 INVARIANT — the headline score is F1 from a DATASET-level confusion matrix, not a mean of
-case scores. Every other board binds ``exam_scorer(mean)``; this one cannot, because a mean
+case scores. Every other benchmark binds ``exam_scorer(mean)``; this one cannot, because a mean
 destroys the fact that distinguishes the two ways of being wrong:
 
     positive row (a clause exists)  → TP if the reply contains every gold span, else FN
     negative row (no clause exists) → TN if the reply abstains,                  else FP
 
 A case score of 0.0 is a false negative on a positive row and a false positive on a negative
-one. ``ScoredPath.aggregate`` takes the board's whole ``CandidateScore`` builder, which is
+one. ``ScoredPath.aggregate`` takes the benchmark's whole ``CandidateScore`` builder, which is
 exactly the generality this needs.
 
 AIDEV-NOTE: read that table before changing anything here. Positive rows can never be TN/FP
@@ -45,7 +45,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     ScoredPath,
 )
 
-# INVARIANT: failure wording is this board's published voice — no rubric-flavored code
+# INVARIANT: failure wording is this benchmark's published voice — no rubric-flavored code
 # ("missing_rubric_asset") may leak into a result whose grading material is an answer key.
 _FAILURE_MESSAGES = {
     "missing_answer_asset": "the baked answer record for this Case is missing or invalid",
@@ -260,7 +260,7 @@ def _confusion_matrix_score(cases: Sequence[CaseResult]) -> CandidateScore:
 
 
 # WHY bound at module bottom: the scored path lives in the spine; the hooks and the failure
-# wording stay board-owned, so per-Case output keeps this board's voice.
+# wording stay benchmark-owned, so per-Case output keeps this benchmark's voice.
 _PATH = ScoredPath(
     reader=RowReader(
         benchmark_label="ContractEval",

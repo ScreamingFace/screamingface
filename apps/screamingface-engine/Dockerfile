@@ -36,9 +36,9 @@ COPY packages/url4 ./packages/url4
 COPY apps/screamingface-engine/pyproject.toml apps/screamingface-engine/uv.lock ./apps/screamingface-engine/
 WORKDIR /app/apps/screamingface-engine
 # Deps first (cache-friendly): busts only when pyproject/lock change.
-# WHY --extra inspect: the imported inspect_evals boards call the upstream eval's OWN scorer and
+# WHY --extra inspect: the imported inspect_evals benchmarks call the upstream eval's OWN scorer and
 # prompt code, so a deployment without it registers none of them (`inspect_available()` answers
-# the empty contribution) and the catalogue silently loses ten boards. The benchmark image builds
+# the empty contribution) and the catalogue silently loses ten benchmarks. The benchmark image builds
 # FROM this one, so this is also what lets its preparer bake their dataset snapshots. Safe to
 # carry here, unlike in `packages/screamingface`, whose runtime extra pins litellm — the conflict
 # is declared between THOSE two, and this app depends on neither.

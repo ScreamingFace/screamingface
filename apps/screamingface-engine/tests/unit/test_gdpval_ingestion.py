@@ -1,6 +1,6 @@
 """Reference-file extraction policy — what counts as a usable reference, and what fails the build.
 
-FEATURE: GDPval tasks hand the worker the files a professional would have been given. This board
+FEATURE: GDPval tasks hand the worker the files a professional would have been given. This benchmark
 serves text, so those files are flattened to text ONCE at image build time — a Runner Job is
 offline with a read-only disk and cannot parse anything.
 

@@ -1,6 +1,6 @@
-"""The benchmark spine — grading machinery shared by every board (OME-1024).
+"""The benchmark spine — grading machinery shared by every benchmark (OME-1024).
 
-Modules here are extracted one ticket at a time from the per-board aggregate files.
+Modules here are extracted one ticket at a time from the per-benchmark aggregate files.
 AIDEV-NOTE: never edit `benchmarks/aggregation.py` or `benchmarks/contract.py` from a
 spine extraction — the live-progress branches (OME-932, OME-934) own those files; the
 spine grows beside them as new modules only.
@@ -17,18 +17,18 @@ from screamingface_engine.benchmarks.spine.scored import (
     ScoredPath,
 )
 from screamingface_engine.benchmarks.spine.serving import (
-    BoardRoutes,
-    ServedBoard,
-    board_preflight,
-    board_routes,
+    BenchmarkRoutes,
+    ServedBenchmark,
+    benchmark_preflight,
+    benchmark_routes,
     candidate_record,
-    compute_board_revision,
-    install_board,
+    compute_benchmark_revision,
+    install_benchmark,
 )
 from screamingface_engine.benchmarks.spine.verdict import Verdict, VerdictShape, parse_verdict
 
 __all__ = [
-    "BoardRoutes",
+    "BenchmarkRoutes",
     "CaseGradeOutcome",
     "CasePayload",
     "exam_scorer",
@@ -37,15 +37,15 @@ __all__ = [
     "RowIndex",
     "RowReader",
     "ScoredPath",
-    "ServedBoard",
+    "ServedBenchmark",
     "TextPayload",
     "Verdict",
     "VerdictShape",
-    "board_preflight",
-    "board_routes",
+    "benchmark_preflight",
+    "benchmark_routes",
     "candidate_record",
-    "compute_board_revision",
-    "install_board",
+    "compute_benchmark_revision",
+    "install_benchmark",
     "parse_verdict",
     "read_selected_cases",
     "rubric_grade_case",

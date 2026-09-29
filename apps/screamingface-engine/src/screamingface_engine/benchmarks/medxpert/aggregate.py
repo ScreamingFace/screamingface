@@ -1,9 +1,9 @@
-"""MedXpertQA's grading hooks — everything this board still writes to be graded.
+"""MedXpertQA's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
+The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
 contribution: its exact-match ``grade_case`` (committed letter vs the private key),
 its plain-accuracy scorer, its slice tags, and its own failure wording. The engine
-ships mechanisms; a benchmark ships semantics (folded in OME-1149 — this board was
+ships mechanisms; a benchmark ships semantics (folded in OME-1149 — this benchmark was
 the "second non-rubric data point" its pre-fold docstring asked for).
 
 INVARIANT — an unparseable answer scores 0.0; it is NOT excluded. This is the official
@@ -11,10 +11,10 @@ harness's empty-prediction verdict, and it is what keeps two systems comparable:
 experimental run scored a model answering 77% of rows over that smaller, easier denominator,
 so its accuracy was not the same measurement as a model that answered all of them.
 
-AIDEV-NOTE: that is deliberately NOT the board's `failure_policy`. That axis governs a Case
+AIDEV-NOTE: that is deliberately NOT the benchmark's `failure_policy`. That axis governs a Case
 which never got a valid grade — an infrastructure failure — and those go through the spine's
 failure ladder into the shared `finalize_candidate_result`, which scores the gradeable subset
-and publishes coverage. Hence the board declares `coverage_declare`. An empty answer DOES get
+and publishes coverage. Hence the benchmark declares `coverage_declare`. An empty answer DOES get
 a grade here, of 0.0.
 
 INVARIANT — a failure to COMMIT and a failure to RUN are different facts. A model that replies
@@ -41,7 +41,7 @@ from screamingface_engine.benchmarks.spine.scored import (
     ScoredPath,
 )
 
-# INVARIANT: failure wording is this board's published voice — no rubric-flavored
+# INVARIANT: failure wording is this benchmark's published voice — no rubric-flavored
 # codes ("missing_rubric_asset") may leak into an MCQ result.
 _FAILURE_MESSAGES = {
     "missing_answer_asset": "the baked answer record for this Case is missing or invalid",
@@ -183,7 +183,7 @@ def _slice_metadata(answer: Mapping[str, Any] | None) -> dict[str, Any]:
 def _match_evidence(committed: str, label: str, correct: bool) -> dict[str, Any]:
     """The exact-match verdict, as the report schema's Evidence record.
 
-    WHY it exists at all for a one-check MCQ Board: `Check.evidence` is required, and a
+    WHY it exists at all for a one-check MCQ Benchmark: `Check.evidence` is required, and a
     reader must be able to see WHAT was compared without re-deriving it from the score.
     `raw_output` carries the committed letter — "" when the reply named no choice.
     """
@@ -226,7 +226,7 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
 
 
 # WHY bound at module bottom: the scored path lives in the spine; the hooks and the
-# failure-message wording stay board-owned so per-case output is byte-identical to the
+# failure-message wording stay benchmark-owned so per-case output is byte-identical to the
 # pre-fold copy (the medxpert unit suite pins every rung — no golden exists yet).
 _PATH = ScoredPath(
     reader=RowReader(

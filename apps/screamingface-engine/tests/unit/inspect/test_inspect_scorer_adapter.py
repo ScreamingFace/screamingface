@@ -6,7 +6,7 @@
 """The inspect scorer adapter — their marking scheme, our marking room (spec §3.2).
 
 INVARIANT the suite defends: ONE translator with zero per-scorer branches wraps any
-inspect scorer as a board's `grade_case` hook. Verdicts and failures are complete
+inspect scorer as a benchmark's `grade_case` hook. Verdicts and failures are complete
 values; a scorer that raises or returns an unmappable Score becomes a NAMED failure
 code, never a silent drop; the judge's own words (answer/explanation/metadata) survive
 into the checks evidence verbatim.
@@ -237,7 +237,7 @@ async def test_non_mapping_material_metadata_is_rejected() -> None:
 
 # ── the judge's reasoning reaches the report (OME-1339) ─────────────────────
 # FEATURE: the notebook report shows evidence.explanation under each verdict; the scorer adapter
-# kept a judge's words only in raw_output, so imported boards showed a bare FAIL.
+# kept a judge's words only in raw_output, so imported benchmarks showed a bare FAIL.
 # STORY: as a researcher reading an imported judged case, I see why it scored what it did.
 
 

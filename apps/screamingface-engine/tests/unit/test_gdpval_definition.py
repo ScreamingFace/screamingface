@@ -1,4 +1,4 @@
-"""The GDPval text board — identity, revision inputs, and the expression contract.
+"""The GDPval text benchmark — identity, revision inputs, and the expression contract.
 
 INVARIANT under test: everything a Candidate's score depends on is folded into the revision, and
 every route carries it. An exam that changed what it asks, how it filters, or who judges — while
@@ -26,24 +26,24 @@ _BASE = {
 }
 
 
-def test_the_text_board_is_registered_under_its_id() -> None:
-    """INVARIANT: this board is PUBLIC — dropping it is a leaderboard regression.
+def test_the_text_benchmark_is_registered_under_its_id() -> None:
+    """INVARIANT: this benchmark is PUBLIC — dropping it is a leaderboard regression.
 
-    The shared cross-benchmark tests iterate the registry, so a board deleted from
+    The shared cross-benchmark tests iterate the registry, so a benchmark deleted from
     `builtins.py` stops being iterated and they all still pass (OME-1095). Membership is
-    pinned here, in the board's own module, where a new board costs one line.
+    pinned here, in the benchmark's own module, where a new benchmark costs one line.
     """
 
     assert BUILTIN_BENCHMARKS.get("gdpval-text") is GDPVAL_TEXT
 
 
-def test_the_text_board_links_the_openai_gdpval_dataset() -> None:
+def test_the_text_benchmark_links_the_openai_gdpval_dataset() -> None:
     # WHY the literal: the leaderboard renders this as a clickable target for the public, and
-    # the shared suite can only check that boards sharing a bundle agree on it.
+    # the shared suite can only check that benchmarks sharing a bundle agree on it.
     assert GDPVAL_TEXT.dataset_url == "https://huggingface.co/datasets/openai/gdpval"
 
 
-def test_the_board_serves_the_frozen_selection() -> None:
+def test_the_benchmark_serves_the_frozen_selection() -> None:
     assert TEXT_CASE_COUNT == len(TEXT_SUBSET_TASK_IDS) == 102
     assert GDPVAL_TEXT.case_count == 102
     assert TEXT_EXAM.case_ids == tuple(range(1, 103))
@@ -74,8 +74,8 @@ def test_changing_the_selection_changes_the_revision() -> None:
 
 
 def test_changing_the_scoring_rule_changes_the_revision() -> None:
-    # INVARIANT: the metric's identity is part of the exam's. Two boards over one answer key that
-    # total it differently must not share an address.
+    # INVARIANT: the metric's identity is part of the exam's. Two benchmarks over one answer key
+    # that total it differently must not share an address.
     assert exam_revision(**{**_BASE, "scoring": "other-mean-v1"}) != TEXT_EXAM.revision
 
 

@@ -1,12 +1,12 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this suite imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""FrontierScience — the judged proof board (OME-1240 acceptance, board half).
+"""FrontierScience — the judged proof benchmark (OME-1240 acceptance, benchmark half).
 
 The first LLM-judged import: 160 frontier science problems whose grading is the
 eval's OWN judge — olympiad answers against the official grading prompt, research
 answers against a per-case rubric — called through OUR gateway route. This suite
-pins the board's identity (judge in the revision), its declaration (no check
+pins the benchmark's identity (judge in the revision), its declaration (no check
 surface until the check-cost knob), and one aggregate where BOTH formats grade
 end-to-end through a fake judge endpoint on the node.
 
@@ -27,7 +27,7 @@ from screamingface_engine.benchmarks.case_execution import case_execution_payloa
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
-from screamingface_engine_inspect.boards import BOARDS, imported_board  # noqa: E402
+from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -37,7 +37,7 @@ from screamingface_engine_inspect.single_shot import JudgeSpec  # noqa: E402
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
 
-BOARD = imported_board("frontierscience")
+BENCHMARK = imported_benchmark("frontierscience")
 
 #: The pinned gateway judge — HealthBench's judge model, called as a node route.
 _JUDGE_ROUTE = "/openrouter/openai/gpt-5.4"
@@ -46,20 +46,20 @@ _JUDGE_ROUTE = "/openrouter/openai/gpt-5.4"
 # ── definition ───────────────────────────────────────────────────────────────
 
 
-def test_board_identity_and_declaration() -> None:
-    board = BOARD.benchmark
-    assert board.id == "inspect-frontierscience"
-    assert len(board.revision) == 16 and int(board.revision, 16) >= 0
-    assert board.case_count == 160
-    assert board.declaration.as_block()["difficulty"] == "hard"
-    assert board.origin == "inspect_evals"
+def test_benchmark_identity_and_declaration() -> None:
+    benchmark = BENCHMARK.benchmark
+    assert benchmark.id == "inspect-frontierscience"
+    assert len(benchmark.revision) == 16 and int(benchmark.revision, 16) >= 0
+    assert benchmark.case_count == 160
+    assert benchmark.declaration.as_block()["difficulty"] == "hard"
+    assert benchmark.origin == "inspect_evals"
 
 
 def test_the_judge_is_declared_and_pinned() -> None:
-    """The board calls the SAME judge it declares, and the snapshot bakes the
+    """The benchmark calls the SAME judge it declares, and the snapshot bakes the
     metadata its scorer dispatches on."""
 
-    spec = next(spec for spec in BOARDS if spec.key == "frontierscience")
+    spec = next(spec for spec in BENCHMARKS if spec.key == "frontierscience")
     assert spec.judge == JudgeSpec(
         model="openrouter/openai/gpt-5.4",
         params=(("web_search", "false"), ("max_tokens", "4096")),
@@ -73,7 +73,7 @@ def test_no_check_surface_until_the_check_cost_knob() -> None:
     """A judged mid-run check would spend judge tokens while advertising free —
     refused until OME-1116 lands the cost knob."""
 
-    assert BOARD.benchmark.check_surface is None
+    assert BENCHMARK.benchmark.check_surface is None
 
 
 # ── aggregate: both judge formats grade through the node route ───────────────
@@ -95,9 +95,9 @@ class _FormatAwareJudge:
 
 
 def _bake_by_hand(root: Path) -> None:
-    board_root = root / BOARD.benchmark.id
-    (board_root / "targets").mkdir(parents=True)
-    (board_root / "cases.json").write_text(
+    benchmark_root = root / BENCHMARK.benchmark.id
+    (benchmark_root / "targets").mkdir(parents=True)
+    (benchmark_root / "cases.json").write_text(
         json.dumps(
             [
                 {"id": 1, "input": "Compute the muon lifetime."},
@@ -106,11 +106,11 @@ def _bake_by_hand(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (board_root / "targets" / "1.json").write_text(
+    (benchmark_root / "targets" / "1.json").write_text(
         json.dumps({"target": "2.2 microseconds", "metadata": {"format": "olympic"}}),
         encoding="utf-8",
     )
-    (board_root / "targets" / "2.json").write_text(
+    (benchmark_root / "targets" / "2.json").write_text(
         json.dumps(
             {
                 "target": "Rubric: +5 names a ligand; +5 controls.",
@@ -162,10 +162,10 @@ async def test_both_judge_formats_grade_through_the_gateway_route(tmp_path: Path
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
     _bake_by_hand(tmp_path)
-    BOARD.benchmark.install(node, tmp_path)
+    BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
 
     grades = [case["grade"]["score"] for case in result["cases"]]
     assert grades == [1.0, 0.75]
@@ -179,11 +179,11 @@ async def test_both_judge_formats_grade_through_the_gateway_route(tmp_path: Path
     assert "Matches the reference answer." in rendered
 
 
-def test_the_boards_revision_is_pinned() -> None:
-    """The judged board's exam identity, frozen — the published-revisions test
-    covers the string-match boards; this literal is FrontierScience's."""
+def test_the_benchmarks_revision_is_pinned() -> None:
+    """The judged benchmark's exam identity, frozen — the published-revisions test
+    covers the string-match benchmarks; this literal is FrontierScience's."""
 
-    assert BOARD.benchmark.revision == "34155c32aec9841b"
+    assert BENCHMARK.benchmark.revision == "34155c32aec9841b"
 
 
 @pytest.mark.asyncio
@@ -203,10 +203,10 @@ async def test_a_gradeless_judge_reply_fails_one_case_not_the_run(tmp_path: Path
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
     _bake_by_hand(tmp_path)
-    BOARD.benchmark.install(node, tmp_path)
+    BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
 
     olympic, research = result["cases"]
     assert olympic["grade"]["score"] is None
@@ -228,10 +228,10 @@ async def test_the_olympic_judge_prompt_is_upstreams_template_verbatim(
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
     _bake_by_hand(tmp_path)
-    BOARD.benchmark.install(node, tmp_path)
+    BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds")])
-    await _call(node, BOARD.aggregate_route, rows, "aggregate:1")
+    await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:1")
 
     prompt = json.loads(str(judge.requests[0].context))["messages"][-1]["content"]
     # Split the template on its {placeholders}; each static chunk must appear in
@@ -268,10 +268,10 @@ async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(judge)
     _bake_by_hand(tmp_path)
-    BOARD.benchmark.install(node, tmp_path)
+    BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
 
     research = result["cases"][1]
     # Faithful to upstream: 0.0 is a published score, not a failure...
@@ -287,17 +287,17 @@ async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
 async def test_the_judges_reasoning_reaches_the_explanation_end_to_end(
     tmp_path: Path,
 ) -> None:
-    """Through the board's aggregate route, a judged imported Case carries its judge's
+    """Through the benchmark's aggregate route, a judged imported Case carries its judge's
     words in the evidence's explanation — the field the notebook report shows under the
     verdict — and the wire model accepts it (OME-1339)."""
 
     node = Url4Node("test")
     node.endpoint(_JUDGE_ROUTE)(_FormatAwareJudge())
     _bake_by_hand(tmp_path)
-    BOARD.benchmark.install(node, tmp_path)
+    BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
 
     research = result["cases"][1]["grade"]["checks"][0]["evidence"][0]
     assert "VERDICT: 7.5" in research["explanation"]

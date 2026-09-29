@@ -1,8 +1,8 @@
 """Flatten a GDPval reference file to text, or fail the build saying which one could not be.
 
 FEATURE: GDPval hands the worker the files a professional would have been given — a population
-spreadsheet, a prior report, an intake form. This board serves TEXT, so those files are flattened
-once at image build time and baked into the Case input.
+spreadsheet, a prior report, an intake form. This benchmark serves TEXT, so those files are
+flattened once at image build time and baked into the Case input.
 
 INVARIANT: extraction happens at BUILD time only. A Runner Job is offline with a read-only disk;
 nothing here may run while a Candidate is being evaluated.

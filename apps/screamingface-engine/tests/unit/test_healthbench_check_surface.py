@@ -39,7 +39,7 @@ from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
-# The board under test here is worst30; its check route is read off its Exam.
+# The benchmark under test here is worst30; its check route is read off its Exam.
 _CHECK_ROUTE = WORST30_EXAM.routes.check_surface
 
 _TURN = "I have had a headache for three days. What should I do?"

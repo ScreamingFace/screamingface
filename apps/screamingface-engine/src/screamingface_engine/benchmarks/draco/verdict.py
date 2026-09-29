@@ -6,7 +6,7 @@ bindings; the Judge supplies only the verdict payload and cannot relabel its Evi
 The parsing work lives once in ``spine.verdict`` (OME-1099); this module keeps what is
 DRACO's to own: its ``MET``/``UNMET`` enum dialect with a required explanation, its
 reason vocabulary, and its own ``call``/``binding_key`` — DRACO's binding carries a
-``sequence`` and an opaque criterion id, unlike the rubric boards' integer pair.
+``sequence`` and an opaque criterion id, unlike the rubric benchmarks' integer pair.
 """
 
 from __future__ import annotations

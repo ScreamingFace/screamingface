@@ -1,18 +1,18 @@
 """OME-1097: the shared scored path behind the `grade_case` hook.
 
 The scored path is the marking room: one row per Case comes back from the fan-out,
-each script is marked against the board's rubric, and the marks fold into the exam
+each script is marked against the benchmark's rubric, and the marks fold into the exam
 result. This module proves the marking room lives ONCE in the spine and that the
-only per-board seam is `grade_case` — an async, data-in/data-out callable.
+only per-benchmark seam is `grade_case` — an async, data-in/data-out callable.
 
 INVARIANT (the hourglass waist): a `GradeRequest` carries ONLY plain, serializable
-data — kind-tagged payloads, the decoded row mapping, the board's grading material.
+data — kind-tagged payloads, the decoded row mapping, the benchmark's grading material.
 No `Path`, no engine objects, no callbacks. Three consumers force this: an enclave
 judge across a privacy boundary, the inspect_evals scorer shim, and future agentic
-boards whose answer is not a string.
+benchmarks whose answer is not a string.
 
 INVARIANT: every unusable state stays a VISIBLE failed Case with a named code, and
-message wording stays board-owned — the spine moves logic, never words.
+message wording stays benchmark-owned — the spine moves logic, never words.
 """
 
 from __future__ import annotations
@@ -53,12 +53,12 @@ MESSAGES = {
 }
 
 
-class BoardError(ValueError):
-    """Stands in for a board's own ``AggregateError``."""
+class BenchmarkError(ValueError):
+    """Stands in for a benchmark's own ``AggregateError``."""
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Stub board decoder: hand the grading envelope through untouched."""
+    """Stub benchmark decoder: hand the grading envelope through untouched."""
 
     assert isinstance(grading, Mapping)
     return dict(grading)
@@ -101,7 +101,7 @@ def _selected(*case_ids: int) -> list[SelectedCase]:
 
 
 class _Hook:
-    """A recording stub `grade_case` — the board hook the spine must treat as opaque."""
+    """A recording stub `grade_case` — the benchmark hook the spine must treat as opaque."""
 
     def __init__(self, outcome: CaseGradeOutcome | None = None) -> None:
         self.requests: list[GradeRequest] = []
@@ -123,7 +123,7 @@ def _path(hook: _Hook, **overrides: Any) -> ScoredPath:
     values: dict[str, Any] = {
         "reader": RowReader(
             benchmark_label="TestBoard",
-            error_type=BoardError,
+            error_type=BenchmarkError,
             decode_case_evaluation=_decode,
         ),
         "grade_case": hook,
@@ -144,7 +144,7 @@ def _aggregate(
 ) -> dict[str, Any]:
     return path.aggregate(
         json.dumps(rows),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=selected,
         grading_material=lambda case_id: material,
@@ -177,7 +177,7 @@ def test_the_hook_receives_plain_kind_tagged_data() -> None:
     assert request.case_id == 1
     assert request.input == TextPayload(text="input-1")
     assert request.answer == TextPayload(text="output-1")
-    # The board's grading material and decoded row pass through untouched…
+    # The benchmark's grading material and decoded row pass through untouched…
     assert request.material is material
     assert request.row["case"]["status"] == "completed"
     # …and the whole request is plain data: nothing here can hold a Path or an
@@ -188,7 +188,7 @@ def test_the_hook_receives_plain_kind_tagged_data() -> None:
 
 
 def test_a_refusal_answer_stays_a_payload_and_a_scored_refusal() -> None:
-    # INVARIANT (OME-1037): a refusal the board graded is an ordinary scored Case.
+    # INVARIANT (OME-1037): a refusal the benchmark graded is an ordinary scored Case.
     hook = _Hook()
     grading = _grading(1, status="refused", refusal="I cannot help with that.")
     result = _aggregate(_path(hook), [_envelope(1, grading)], _selected(1))
@@ -227,7 +227,7 @@ def test_the_hook_grade_lands_in_the_case_result_verbatim() -> None:
     assert [check["id"] for check in grade["checks"]] == ["1"]
 
 
-def test_a_hook_failure_code_takes_the_board_wording_and_counts() -> None:
+def test_a_hook_failure_code_takes_the_benchmark_wording_and_counts() -> None:
     hook = _Hook(
         CaseGradeOutcome(
             score=None,
@@ -282,7 +282,7 @@ def test_an_identified_error_row_becomes_case_error_without_the_hook() -> None:
     assert failure["message"] == "judge exploded"
 
 
-def test_a_grading_failure_row_keeps_the_board_code_and_the_answer() -> None:
+def test_a_grading_failure_row_keeps_the_benchmark_code_and_the_answer() -> None:
     hook = _Hook()
     grading_error = {"error": {"kind": "api_error", "message": "grading step failed"}}
     row = case_execution_payload(
@@ -311,7 +311,7 @@ def test_every_selected_case_stays_on_the_roll_call() -> None:
 # ── the shared exam scorer: mean is the parameter, vocabulary is fixed ──────
 
 
-def test_exam_metric_vocabulary_is_pinned_and_the_mean_is_the_boards() -> None:
+def test_exam_metric_vocabulary_is_pinned_and_the_mean_is_the_benchmarks() -> None:
     graded = CaseGradeOutcome(
         score=1.0,
         metrics={"judged": 2, "expected": 2, "invalid_replies": 1},
@@ -356,11 +356,11 @@ def test_exam_metric_vocabulary_is_pinned_and_the_mean_is_the_boards() -> None:
     assert result["metrics"]["score_sd"] == 0.0
 
 
-# ── the scorer is a board parameter: metric vocabulary is the board's ───────
+# ── the scorer is a benchmark parameter: metric vocabulary is the benchmark's ───────
 
 
 def test_a_non_rubric_scorer_publishes_its_own_metric_vocabulary() -> None:
-    """OME-1101: the deterministic board's metrics are not rubric vocabulary —
+    """OME-1101: the deterministic benchmark's metrics are not rubric vocabulary —
     the whole CandidateScore builder is the parameter, not just the mean."""
 
     def deterministic_scorer(cases: Sequence[CaseResult]) -> CandidateScore:
@@ -377,7 +377,7 @@ def test_a_non_rubric_scorer_publishes_its_own_metric_vocabulary() -> None:
     hook = _Hook(CaseGradeOutcome(score=1.0, metrics={}, checks=[]))
     result = _path(hook).aggregate(
         json.dumps([_envelope(1, _grading(1))]),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: (5,),
@@ -388,16 +388,16 @@ def test_a_non_rubric_scorer_publishes_its_own_metric_vocabulary() -> None:
     assert set(result["metrics"]) == {"prompt_level_strict_accuracy"}
 
 
-# ── the board-owned missing-row hook: wording stays the board's ─────────────
+# ── the benchmark-owned missing-row hook: wording stays the benchmark's ─────────────
 
 
-def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
+def test_a_benchmark_owned_missing_row_hook_replaces_the_default_result() -> None:
     """OME-1101: ifeval's collected-row failure wording is pinned by its golden —
-    a board may supply the whole missing-row CaseResult; the spine only files it."""
+    a benchmark may supply the whole missing-row CaseResult; the spine only files it."""
 
     calls: list[tuple[int, int, list[dict[str, Any]] | None]] = []
 
-    def board_missing_row(
+    def benchmark_missing_row(
         selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
     ) -> CaseResult:
         calls.append((int(selected.case_id), index, orphans))
@@ -408,16 +408,16 @@ def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
             output=None,
             finish_reason=None,
             refusal=None,
-            grade=None,  # INVARIANT: the board's shape, not the spine's grade envelope
+            grade=None,  # INVARIANT: the benchmark's shape, not the spine's grade envelope
             failures=[
                 Failure(
                     stage="grading",
-                    # WHY case_error (OME-1234): boards now pick from the DECLARED
+                    # WHY case_error (OME-1234): benchmarks now pick from the DECLARED
                     # vocabulary — the former free-spelling hatch is closed, and an
                     # undeclared code refuses at the Failure model (see the sibling
-                    # test below). The board still owns the CaseResult shape.
+                    # test below). The benchmark still owns the CaseResult shape.
                     code="case_error",
-                    message="the board's own wording",
+                    message="the benchmark's own wording",
                     retryable=False,
                     case_id=selected.case_id,
                     metadata={"row_index": index},
@@ -428,9 +428,9 @@ def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
 
     hook = _Hook()
     orphan = {"error": {"kind": "transport", "message": "boom"}}
-    result = _path(hook, missing_row_result=board_missing_row).aggregate(
+    result = _path(hook, missing_row_result=benchmark_missing_row).aggregate(
         json.dumps([orphan]),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: (5,),
@@ -443,18 +443,18 @@ def test_a_board_owned_missing_row_hook_replaces_the_default_result() -> None:
     assert case["grade"] is None
     failure = case["failures"][0]
     assert (failure["stage"], failure["code"]) == ("grading", "case_error")
-    assert failure["message"] == "the board's own wording"
+    assert failure["message"] == "the benchmark's own wording"
 
 
-def test_a_board_cannot_mint_an_undeclared_failure_code() -> None:
-    # INVARIANT (OME-1234): the board-owned escape hatch is closed — a board
+def test_a_benchmark_cannot_mint_an_undeclared_failure_code() -> None:
+    # INVARIANT (OME-1234): the benchmark-owned escape hatch is closed — a benchmark
     # supplying a code outside DECLARED_FAILURE_CODES fails loudly at the
     # Failure model instead of publishing a spelling nobody declared.
     with pytest.raises(ValidationError, match="undeclared failure code"):
         Failure(
             stage="grading",
             code="board_owned_code",
-            message="the board's own wording",
+            message="the benchmark's own wording",
             retryable=False,
             case_id=1,
             metadata={},
@@ -463,10 +463,10 @@ def test_a_board_cannot_mint_an_undeclared_failure_code() -> None:
 
 def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
     # A rows array shorter than the roll call: the tail Case has no row AND no
-    # collected cause — the board hook must be able to tell the two apart.
+    # collected cause — the benchmark hook must be able to tell the two apart.
     seen: list[list[dict[str, Any]] | None] = []
 
-    def board_missing_row(
+    def benchmark_missing_row(
         selected: SelectedCase, index: int, orphans: list[dict[str, Any]] | None
     ) -> CaseResult:
         seen.append(orphans)
@@ -492,9 +492,9 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
         )
 
     hook = _Hook()
-    _path(hook, missing_row_result=board_missing_row).aggregate(
+    _path(hook, missing_row_result=benchmark_missing_row).aggregate(
         json.dumps([]),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: (5,),
@@ -504,7 +504,7 @@ def test_the_missing_row_hook_sees_none_when_no_orphan_arrived() -> None:
     assert seen == [None]
 
 
-# ── the board-owned failure hooks (OME-1100): draco's shapes as seams ───────
+# ── the benchmark-owned failure hooks (OME-1100): draco's shapes as seams ───────
 
 
 def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
@@ -514,7 +514,7 @@ def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
     hook = _Hook()
     result = _path(hook, missing_row_result=lambda selected, index, orphans: None).aggregate(
         json.dumps([_envelope(1, _grading(1))]),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1, 2),
         grading_material=lambda case_id: (5,),
@@ -527,7 +527,7 @@ def test_a_missing_row_hook_may_omit_the_case_for_the_finalizer() -> None:
     assert result["coverage"] == 0.5
 
 
-def _board_error_row(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
+def _benchmark_error_row(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
     """The draco shape: the upstream error's own code, no grade envelope at all."""
 
     error: Any = row["error"]
@@ -553,15 +553,15 @@ def _board_error_row(selected: SelectedCase, index: int, row: Mapping[str, Any])
     )
 
 
-def test_a_board_owned_error_row_hook_replaces_the_case_error_result() -> None:
+def test_a_benchmark_owned_error_row_hook_replaces_the_case_error_result() -> None:
     # draco's e2e tapes pin the UPSTREAM code ("rate_limited") on an error row,
-    # not the spine's fixed `case_error` — the board supplies the whole result.
+    # not the spine's fixed `case_error` — the benchmark supplies the whole result.
     hook = _Hook()
     row = {
         "case_id": 1,
         "error": {"kind": "GatewayError", "code": "rate_limited", "message": "provider limit"},
     }
-    result = _aggregate(_path(hook, error_row_result=_board_error_row), [row], _selected(1))
+    result = _aggregate(_path(hook, error_row_result=_benchmark_error_row), [row], _selected(1))
 
     assert hook.requests == []
     case = result["cases"][0]
@@ -570,23 +570,23 @@ def test_a_board_owned_error_row_hook_replaces_the_case_error_result() -> None:
     assert case["failures"][0]["metadata"] == {"row_index": 0, "error_kind": "GatewayError"}
 
 
-def test_a_board_owned_error_row_outranks_missing_material() -> None:
-    # draco's ladder order: a broken row is reported before the board's own missing
-    # asset — a board that owns its error rows owns their rank too.
+def test_a_benchmark_owned_error_row_outranks_missing_material() -> None:
+    # draco's ladder order: a broken row is reported before the benchmark's own missing
+    # asset — a benchmark that owns its error rows owns their rank too.
     hook = _Hook()
     row = {"case_id": 1, "error": {"kind": "E", "code": "provider_error", "message": "x"}}
     result = _aggregate(
-        _path(hook, error_row_result=_board_error_row), [row], _selected(1), material=None
+        _path(hook, error_row_result=_benchmark_error_row), [row], _selected(1), material=None
     )
 
     assert result["cases"][0]["failures"][0]["code"] == "provider_error"
 
 
-def test_a_board_owned_missing_material_hook_replaces_the_default_result() -> None:
+def test_a_benchmark_owned_missing_material_hook_replaces_the_default_result() -> None:
     # draco's missing-rubric Case pins its own code ("missing_case_rubric"), a
     # row_index, and NO grade envelope — with the Candidate's answer retained
-    # off the row the board hook receives.
-    def board_missing_material(
+    # off the row the benchmark hook receives.
+    def benchmark_missing_material(
         selected: SelectedCase, index: int, row: Mapping[str, Any] | None
     ) -> CaseResult:
         assert row is not None
@@ -613,7 +613,7 @@ def test_a_board_owned_missing_material_hook_replaces_the_default_result() -> No
 
     hook = _Hook()
     result = _aggregate(
-        _path(hook, missing_material_result=board_missing_material),
+        _path(hook, missing_material_result=benchmark_missing_material),
         [_envelope(1, _grading(1))],
         _selected(1),
         material=None,
@@ -628,7 +628,7 @@ def test_a_board_owned_missing_material_hook_replaces_the_default_result() -> No
     assert failure["metadata"] == {"row_index": 0}
 
 
-def test_a_board_owned_hook_failure_result_replaces_the_failed_assembly() -> None:
+def test_a_benchmark_owned_hook_failure_result_replaces_the_failed_assembly() -> None:
     # draco's incomplete Case keeps its FULL zeroed metric block and its checks in
     # the grade (audit material) plus a row_index — shapes the default assembly
     # (empty metrics, judged/expected metadata) must not touch.
@@ -642,7 +642,7 @@ def test_a_board_owned_hook_failure_result_replaces_the_failed_assembly() -> Non
         )
     )
 
-    def board_hook_failure(
+    def benchmark_hook_failure(
         selected: SelectedCase, index: int, row: Mapping[str, Any], outcome: CaseGradeOutcome
     ) -> CaseResult:
         assert outcome.failure_code == "judge_reply_invalid"
@@ -665,7 +665,7 @@ def test_a_board_owned_hook_failure_result_replaces_the_failed_assembly() -> Non
                 Failure(
                     stage="grading",
                     code=str(outcome.failure_code),
-                    message="board wording",
+                    message="benchmark wording",
                     retryable=None,
                     case_id=selected.case_id,
                     metadata={"row_index": index},
@@ -675,7 +675,7 @@ def test_a_board_owned_hook_failure_result_replaces_the_failed_assembly() -> Non
         )
 
     result = _aggregate(
-        _path(hook, hook_failure_result=board_hook_failure),
+        _path(hook, hook_failure_result=benchmark_hook_failure),
         [_envelope(1, _grading(1))],
         _selected(1),
     )
@@ -700,7 +700,7 @@ def test_a_scored_outcome_never_reaches_the_hook_failure_result() -> None:
     assert result["cases"][0]["status"] == "scored"
 
 
-# ── OME-1149: the two seams a fixed-answer board needs ──────────────────────
+# ── OME-1149: the two seams a fixed-answer benchmark needs ──────────────────────
 
 
 def test_case_metadata_rides_scored_and_failed_results() -> None:
@@ -711,7 +711,7 @@ def test_case_metadata_rides_scored_and_failed_results() -> None:
     hook = _Hook()
     result = _path(hook).aggregate(
         json.dumps([_envelope(1, _grading(1))]),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1, 2),
         grading_material=lambda case_id: (5,),
@@ -733,9 +733,9 @@ def test_omitting_case_metadata_changes_nothing() -> None:
     assert result["cases"][0]["metadata"] == {}
 
 
-def test_the_material_missing_code_is_board_named() -> None:
-    """OME-1149: an MCQ board publishing `missing_rubric_asset` would contradict its
-    own message — the rung's published code is the board's, not spine vocabulary."""
+def test_the_material_missing_code_is_benchmark_named() -> None:
+    """OME-1149: an MCQ benchmark publishing `missing_rubric_asset` would contradict its
+    own message — the rung's published code is the benchmark's, not spine vocabulary."""
 
     hook = _Hook()
     messages = dict(MESSAGES) | {"missing_answer_asset": "test: answer key gone"}
@@ -745,7 +745,7 @@ def test_the_material_missing_code_is_board_named() -> None:
         missing_material_code="missing_answer_asset",
     ).aggregate(
         json.dumps([_envelope(1, _grading(1))]),
-        benchmark_id="test-board",
+        benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1),
         grading_material=lambda case_id: None,
@@ -758,14 +758,14 @@ def test_the_material_missing_code_is_board_named() -> None:
     assert failure["message"] == "test: answer key gone"
 
 
-# ── the shared rubric hook factory: both boards' marking, written once ──────
+# ── the shared rubric hook factory: both benchmarks' marking, written once ──────
 
 
 def _evidence(rubric_id: int, met: bool | None) -> dict[str, Any]:
     """met=None models an invalid judge reply."""
 
     valid = met is not None
-    # WHY no producer_id: proves the factory stamps the board's judge identity onto
+    # WHY no producer_id: proves the factory stamps the benchmark's judge identity onto
     # replies that arrive without one — even a malformed reply has a known producer.
     evidence: dict[str, Any] = {
         "rubric_id": rubric_id,
@@ -823,7 +823,7 @@ def _grade(verdicts: Mapping[int, bool | None], points: Sequence[int] | None) ->
     return _run_hook(_request(verdicts, points))
 
 
-def test_rubric_hook_scores_complete_verdicts_with_the_board_formula() -> None:
+def test_rubric_hook_scores_complete_verdicts_with_the_benchmark_formula() -> None:
     outcome = _grade({1: True, 2: False, 3: True}, [5, 3, -3])
 
     assert outcome.failure_code is None
@@ -891,18 +891,18 @@ def test_selected_cases_reader_returns_the_roll_call_in_order(tmp_path: Path) ->
         json.dumps([{"id": 2, "input": "two"}, {"id": 1, "input": "one"}]), encoding="utf-8"
     )
     selected = read_selected_cases(
-        tmp_path, (1, 2), benchmark_label="TestBoard", error_type=BoardError
+        tmp_path, (1, 2), benchmark_label="TestBoard", error_type=BenchmarkError
     )
     assert [(case.case_id, case.input) for case in selected] == [(1, "one"), (2, "two")]
 
 
-def test_selected_cases_reader_names_the_board_in_its_errors(tmp_path: Path) -> None:
-    with pytest.raises(BoardError, match="TestBoard cases are unavailable"):
-        read_selected_cases(tmp_path, (1,), benchmark_label="TestBoard", error_type=BoardError)
+def test_selected_cases_reader_names_the_benchmark_in_its_errors(tmp_path: Path) -> None:
+    with pytest.raises(BenchmarkError, match="TestBoard cases are unavailable"):
+        read_selected_cases(tmp_path, (1,), benchmark_label="TestBoard", error_type=BenchmarkError)
 
     (tmp_path / "cases.json").write_text(json.dumps([{"id": 1, "input": " "}]), encoding="utf-8")
-    with pytest.raises(BoardError, match="TestBoard Case 1 has no public input"):
-        read_selected_cases(tmp_path, (1,), benchmark_label="TestBoard", error_type=BoardError)
+    with pytest.raises(BenchmarkError, match="TestBoard Case 1 has no public input"):
+        read_selected_cases(tmp_path, (1,), benchmark_label="TestBoard", error_type=BenchmarkError)
 
 
 # ── the hook's execution context ────────────────────────────────────────────
@@ -913,7 +913,7 @@ def test_the_hook_sees_the_callers_context_under_a_running_loop() -> None:
     running-loop path, where the hook chain is driven on a worker thread.
 
     WHY it matters: the url4 executor binds the run's usage sink as a ContextVar
-    around the aggregate; a judge-calling hook (a model-graded imported board)
+    around the aggregate; a judge-calling hook (a model-graded imported benchmark)
     reports its tokens through that sink. A worker thread that starts from an
     empty context silently drops the judge's cost from the run — a judged score
     that omits judge cost is wrong by construction.
@@ -947,7 +947,7 @@ def test_the_hook_sees_the_callers_context_under_a_running_loop() -> None:
 
 def test_the_async_aggregate_face_runs_hooks_on_the_callers_loop() -> None:
     """INVARIANT (OME-1240): `aggregate_async` never spawns a second loop — a
-    judged board's hook awaits model calls through the run's shared HTTP client,
+    judged benchmark's hook awaits model calls through the run's shared HTTP client,
     whose pooled connections are bound to the run's OWN loop; httpx raises
     "bound to a different event loop" on any other (reproduced, 2026-09-24).
     """
@@ -966,7 +966,7 @@ def test_the_async_aggregate_face_runs_hooks_on_the_callers_loop() -> None:
         outer = asyncio.get_running_loop()
         result = await path.aggregate_async(
             json.dumps([_envelope(1, _grading(1))]),
-            benchmark_id="test-board",
+            benchmark_id="test-benchmark",
             benchmark_revision="rev",
             selected_cases=_selected(1),
             grading_material=lambda case_id: (5, -3),

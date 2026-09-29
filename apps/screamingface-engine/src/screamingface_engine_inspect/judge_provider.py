@@ -88,7 +88,7 @@ class JudgeTransport:
 
     fetch: JudgeFetch
     params: Sequence[tuple[str, str]] = ()
-    #: The board the judge grades for (OME-1240 observability): with it set, every
+    #: The benchmark the judge grades for (OME-1240 observability): with it set, every
     #: judge call registers against its Case's evidence, so the run's payload-free
     #: grading join attributes the judge's tokens/cost/latency per Case.
     benchmark_id: str | None = None
@@ -103,8 +103,8 @@ _transport: contextvars.ContextVar[JudgeTransport | None] = contextvars.ContextV
 def bound_judge_transport(transport: JudgeTransport) -> Iterator[None]:
     """Bind the judge wall socket for the duration of one grading pass.
 
-    INVARIANT: the binding never leaks past its context — the next board's grade
-    starts unplugged, so a board that pins no judge cannot ride another's socket.
+    INVARIANT: the binding never leaks past its context — the next benchmark's grade
+    starts unplugged, so a benchmark that pins no judge cannot ride another's socket.
     """
 
     token: contextvars.Token[JudgeTransport | None] = _transport.set(transport)
@@ -128,7 +128,7 @@ def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
     its ``model_roles`` ContextVar, so the previous mapping is put back by value.
     INVARIANT: the binding never leaks past its context — an unbound role falls
     back to inspect's own resolution, which outside an eval raises (verified
-    against inspect 0.3.263 and 0.3.266), so the next board cannot ride this board's judge.
+    against inspect 0.3.263 and 0.3.266), so the next benchmark cannot ride this benchmark's judge.
     """
 
     previous: dict[str, Any] = dict(model_roles())
@@ -261,7 +261,7 @@ def _register_against_the_case(transport: JudgeTransport, path: str, context: st
     params, the envelope context, and the empty intent the wire carries when
     ``encode_subrequest`` is given none. The owner names the scorer adapter's fixed
     evidence shape (one check "1", sequence 1). A no-op outside a run's capture
-    or when the transport carries no board — tests and the check surface stay
+    or when the transport carries no benchmark — tests and the check surface stay
     join-free.
     """
 

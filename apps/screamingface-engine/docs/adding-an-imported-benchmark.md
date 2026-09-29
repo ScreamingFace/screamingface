@@ -1,8 +1,8 @@
 # Adding an imported benchmark (inspect_evals)
 
 **TLDR: an imported benchmark is someone else's exam, and onboarding it is a customs
-operation, not an authoring project. A board is two data rows — a `CasesSpec` (how to
-bake the frozen dataset) and a `BoardSpec` (the catalogue entry) — and one command
+operation, not an authoring project. A benchmark is two data rows — a `CasesSpec` (how to
+bake the frozen dataset) and a `BenchmarkSpec` (the catalogue entry) — and one command
 generates both by reading the eval's own code. You never write grading code, prompt
 code, or a module: the eval's own `record_to_sample`, prompt template, and scorer are
 CALLED, never reimplemented.** If you find yourself writing a `grade_case` or a new
@@ -84,20 +84,20 @@ uv run python -m screamingface_engine_inspect.importer \
   `features` as a dotted pointer at the eval's own `Features` constant, resolved
   and type-checked at bake. Both ride the revision hash.
 
-The command edits `pins.py`, `prepare.py`, and `boards.py` in place at their anchor
+The command edits `pins.py`, `prepare.py`, and `benchmarks.py` in place at their anchor
 comments, all-or-nothing, and `git diff` is the artifact everything downstream
 reviews. It **refuses loudly** rather than guessing — see the refusal table below.
 
 ## Step 2 — fill what the tool cannot know
 
-The generated `BoardSpec` row carries `TODO` placeholders and possibly `TODO(review)`
+The generated `BenchmarkSpec` row carries `TODO` placeholders and possibly `TODO(review)`
 flags. The importing agent (not a human) resolves all of them:
 
 - **`title` / `description` / `focus`** — catalogue prose, written from the eval's own
   README/docstring and the dataset card, in the voice of the existing rows (open the
-  gsm8k/mmlu rows in `boards.py`; state case count, split, what the model does, how
-  grading works, and how the score is computed — string-match boards say that no judge
-  tokens are spent, judged boards say judge calls are routed and metered through our
+  gsm8k/mmlu rows in `benchmarks.py`; state case count, split, what the model does, how
+  grading works, and how the score is computed — string-match benchmarks say that no judge
+  tokens are spent, judged benchmarks say judge calls are routed and metered through our
   gateway).
 - **`TODO(review)` flags** — each names a setting the bake does not reproduce (a
   custom solver, a system message, an unreproduced dataset option). For each one:
@@ -107,10 +107,10 @@ flags. The importing agent (not a human) resolves all of them:
 
 ## Step 3 — decide the check surface
 
-`with_check_surface=True` **only for string-match free-text boards** (spec §4): the
+`with_check_surface=True` **only for string-match free-text benchmarks** (spec §4): the
 eval's own scorer then also answers the corrective loop's mid-run checks with sealed
-pass/fail-only feedback. **MCQ boards never get one** — pass/fail feedback over a
-handful of options is an elimination attack (OME-796). **Judged boards never get one
+pass/fail-only feedback. **MCQ benchmarks never get one** — pass/fail feedback over a
+handful of options is an elimination attack (OME-796). **Judged benchmarks never get one
 either (yet)** — a judged mid-run check spends judge tokens per attempt while the
 surface still advertises `free`; assembly refuses the combination until the check-cost
 knob lands (OME-1116). The generated row defaults correctly from the scorer family —
@@ -119,7 +119,7 @@ decision.
 
 ### Live activity comes from the shared adapter
 
-Boards created through `single_shot_board` inherit loading, answering, grading and
+Benchmarks created through `single_shot_benchmark` inherit loading, answering, grading and
 aggregation observations. The shared Inspect scorer emits case-grading start and
 terminal facts around actual scoring, including judge-backed scoring; merely recording
 an answer emits an answering operation with `action=recording` (displayed as
@@ -128,7 +128,7 @@ carry the explicit `role=judge` and grading Case ID; the Client joins that ID to
 the selected position from answering. Candidate-internal corrective checks do not emit
 benchmark case-grading facts.
 
-No per-board logging decorator or custom stage name is needed. Keep the installed async
+No per-benchmark logging decorator or custom stage name is needed. Keep the installed async
 aggregation route: it awaits scoring in the owning observation context. Do not replace
 it with a synchronous wrapper or worker-thread hop that loses that context. The adapter
 also supplies Case ID and selected-case numbering outside model input.
@@ -145,8 +145,8 @@ uv run .claude/scripts/run_gates.py screamingface-engine   # from the repo root
 ```
 
 The row machinery's shared tests already cover registration, revision identity, and
-the extra-less catalogue; add the per-board definition assertions to the imported
-boards' test module (follow the existing boards' entries). Sanity-check the bake on a
+the extra-less catalogue; add the per-benchmark definition assertions to the imported
+benchmarks' test module (follow the existing benchmarks' entries). Sanity-check the bake on a
 handful of rows if the eval's `record_to_sample` has any unusual shape.
 
 The shared activity integration tests live in
@@ -208,7 +208,7 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 
 | Refusal | Meaning | What to do |
 |---|---|---|
-| not a 40-hex commit sha | the revision resolved to a mutable ref | let the tool resolve it; never hand-write a branch/tag (the bake and board assembly refuse it too) |
+| not a 40-hex commit sha | the revision resolved to a mutable ref | let the tool resolve it; never hand-write a branch/tag (the bake and benchmark assembly refuse it too) |
 | hf_dataset kwarg(s) … not reproduced | the eval uses a dataset option the bake doesn't carry (`limit`, `trust`, …) | decide per kwarg: neutralize via `--task-arg`, or the eval isn't row-importable |
 | shuffles with no seed | upstream order is random per run; an import must pin ONE order | pass `--shuffle-seed` |
 | shuffles each case's choice order with no seed | `shuffle_choices=True` randomizes the answer options per run; an import must pin ONE choice order | pass `--choice-shuffle-seed` |
@@ -217,7 +217,7 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 | data_files has a shape the importer does not reproduce | only a dict of str to str round-trips through the generated literal | extend the importer for this family |
 | features does not resolve to one module attribute | an inline `Features(...)` has nothing the row can point at | extend the importer or add the row by hand |
 | fewshot/extra load is not the exam | the Task's dataset isn't the HF load the tool saw | pass task args that disable the extras |
-| key already exists / colliding stem | board imported, or two keys derive the same `PREFIX_*` | pick a distinct key |
+| key already exists / colliding stem | benchmark imported, or two keys derive the same `PREFIX_*` | pick a distinct key |
 | stem is not a valid identifier | e.g. a leading digit | rename the key (`wiki2` not `2wiki`) |
 | characters that cannot be written | a Hub-sourced string would break the generated Python | inspect the dataset card — this is a red flag, not an inconvenience |
 | anchor line missing | someone edited the anchor comments | restore them; nothing was written |
@@ -233,8 +233,8 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 ## Related docs
 
 - [`adding-a-benchmark-manually.md`](adding-a-benchmark-manually.md) — authoring a
-  board from scratch (novel dataset or grading); also the deep dive on the spine
-  seam that imported boards ride for free.
+  benchmark from scratch (novel dataset or grading); also the deep dive on the spine
+  seam that imported benchmarks ride for free.
 - `src/screamingface_engine_inspect/pins.py` — the lockfile docstring: the three row
   kinds and WHY frozen data is the security property.
 - `docs/spec/2026-09-09-OME-1113-inspect-evals-import.md` — the import spec (§4 dual

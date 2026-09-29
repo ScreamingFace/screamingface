@@ -10,7 +10,7 @@ Two positions worth reviewing, both named so they can be bumped deliberately:
 — rubrics carry penalties down to -85 — while a check's ``satisfaction`` must live in [0, 1], so
 the component clamps and a negative total lands at 0.0, which can never pass. The bar sits at
 half the winnable points. It is PROVISIONAL: unlike DRACO's 0.7, which was set against known
-baselines, no candidate has yet been measured on this board, so the first real runs should
+baselines, no candidate has yet been measured on this benchmark, so the first real runs should
 confirm the bar separates drafts worth iterating from drafts worth stopping. A bar set too high
 turns ``max_rounds`` from a cost cap into a fixed price.
 

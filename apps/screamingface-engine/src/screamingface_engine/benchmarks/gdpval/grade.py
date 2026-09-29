@@ -1,6 +1,6 @@
-"""GDPval's grading hooks — everything this board still writes to be graded.
+"""GDPval's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
+The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
 contribution: its failure wording, its judge's identity, its private rubric reader, and
 its official per-Case formula bound into the shared rubric ``grade_case``. The engine
 ships mechanisms; a benchmark ships semantics.
@@ -10,7 +10,7 @@ has passed through a model. The judge decides whether a criterion was met; it ne
 decides what it is worth.
 
 INVARIANT: failure codes and message texts are byte-identical to the pre-extraction
-``gdpval/aggregate.py`` — the wording is this board's published voice.
+``gdpval/aggregate.py`` — the wording is this benchmark's published voice.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def aggregate(
     case_ids: tuple[int, ...],
     mean: Callable[[Sequence[float]], float | None],
 ) -> dict[str, Any]:
-    """Score every selected Case on the shared scored path, with this board's hooks.
+    """Score every selected Case on the shared scored path, with this benchmark's hooks.
 
     ``case_ids`` is authoritative: a Case that produced no row stays visible without a
     grade rather than vanishing from the roll call. ``mean`` is GDPval's plain
@@ -104,7 +104,7 @@ def aggregate(
 
 
 # WHY bound at module bottom: the scored path lives in the spine (OME-1097); the hooks
-# and the failure-message wording stay board-owned so per-case failure output is
+# and the failure-message wording stay benchmark-owned so per-case failure output is
 # byte-identical to the pre-extraction copies (the goldens pin every failure code).
 _PATH = ScoredPath(
     reader=RowReader(

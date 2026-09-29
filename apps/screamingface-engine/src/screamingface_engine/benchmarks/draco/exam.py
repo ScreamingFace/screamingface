@@ -1,23 +1,23 @@
-"""How ANY DRACO board is built — identity, addresses, and the one expression tree.
+"""How ANY DRACO benchmark is built — identity, addresses, and the one expression tree.
 
 Think of it as printing an exam paper from a template. The template is fixed: the same
 100-case dataset (``perplexity-ai/draco``), the same criteria, the same Judge
-(Gemini-3.1-Pro Preview), the same grading chain. What the printer varies per board is
+(Gemini-3.1-Pro Preview), the same grading chain. What the printer varies per benchmark is
 exactly two things:
 
     how many times the Judge grades each criterion   (``judge_passes``)
     what it calls itself                             (``id`` — which decides every route address)
 
-Everything else is derived. ``draco_revision`` fingerprints the whole board identity
+Everything else is derived. ``draco_revision`` fingerprints the whole benchmark identity
 into a 16-hex revision; ``Routes`` hangs the seven protocol routes plus the check
 surface under ``/benchmarks/<id>/<revision>/``; ``build_draco_protocol`` writes the
-url4 expression tree. ``draco_benchmark`` is the one call a board module makes.
+url4 expression tree. ``draco_benchmark`` is the one call a benchmark module makes.
 
-INVARIANT: two boards built here share the baked assets and differ ONLY where the
-knobs above differ. A board's revision changes if ANY hashed input changes, so an
+INVARIANT: two benchmarks built here share the baked assets and differ ONLY where the
+knobs above differ. A benchmark's revision changes if ANY hashed input changes, so an
 expression addressed to an old revision physically cannot resolve against a new exam.
 
-INVARIANT (frozen canonical): the canonical board keeps the pre-factory revision —
+INVARIANT (frozen canonical): the canonical benchmark keeps the pre-factory revision —
 ``draco_revision`` reproduces the original hash tuple byte-for-byte, so ``draco``'s
 routes, scoreboard seeds, and every published submission stay exactly where they are.
 """
@@ -56,8 +56,8 @@ DATASET = "perplexity-ai/draco"
 DATASET_REVISION = "ce076749809027649ebd331bcb70f42bf720d387"
 DATASET_PREPARER_REVISION = "datasets-5.0.0"
 CASE_COUNT = 100
-# The one physical asset directory every DRACO board reads — one immutable case/rubric
-# bake, never a per-board one. The deployment names this id when it prepares the bundle
+# The one physical asset directory every DRACO benchmark reads — one immutable case/rubric
+# bake, never a per-benchmark one. The deployment names this id when it prepares the bundle
 # (OME-875); definition.py re-exports it for the image build.
 ASSET_BUNDLE_ID = "draco"
 # The paper pins Gemini-3-Pro Preview, which Google shut down on 2026-03-09. Google designated
@@ -86,7 +86,7 @@ JUDGE_PARAMS = (
     # parameter. max_tokens stays at the paper's 4096 — owner decision: reproduce the
     # DRACO parametrization exactly, even if occasional token-cap errors remain (they
     # now surface honestly and retry as designed). Both values are hashed into the
-    # board revision and the judge cache key — changing either moves every route and
+    # benchmark revision and the judge cache key — changing either moves every route and
     # re-records the judge cache seeds, so change them together, rarely.
     ("reasoning_effort", "low"),
     ("max_tokens", "4096"),
@@ -98,7 +98,7 @@ CHECK_CRITERION = "draco-pass.v1"
 
 @dataclass(frozen=True, slots=True)
 class Routes:
-    """The seven addresses one board answers on, all under its own revision prefix."""
+    """The seven addresses one benchmark answers on, all under its own revision prefix."""
 
     prefix: str
     cases: str
@@ -126,9 +126,9 @@ class Routes:
 
 @dataclass(frozen=True, slots=True)
 class DracoExam:
-    """One DRACO board identity: how many judge passes, at which addresses.
+    """One DRACO benchmark identity: how many judge passes, at which addresses.
 
-    This is what the runtime needs to serve a board — it carries no metadata a human
+    This is what the runtime needs to serve a benchmark — it carries no metadata a human
     reads (that lives on the ``Benchmark``), only what the protocol handlers consume.
     """
 
@@ -139,17 +139,17 @@ class DracoExam:
 
 
 def draco_revision(*, protocol_revision: str, judge_passes: int) -> str:
-    """Fingerprint one board identity into the 16 hex characters its routes carry.
+    """Fingerprint one benchmark identity into the 16 hex characters its routes carry.
 
     Everything a Candidate's score depends on goes in: the dataset pin, the preparer
     that turned it into assets, the shared evaluation protocol, the Candidate result
     schema, the retrieval policy, the judge pinning, the judge-instruction bytes — plus
-    the two per-board inputs (protocol revision and pass count, which also decides the
+    the two per-benchmark inputs (protocol revision and pass count, which also decides the
     pass seeds). Change any of them and every route address moves, which is the only
     safe way to change an exam.
 
     INVARIANT (frozen): the tuple below reproduces the original canonical hash
-    byte-for-byte — same order, same repr() shapes — so the canonical board's revision
+    byte-for-byte — same order, same repr() shapes — so the canonical benchmark's revision
     survives the factory refactor untouched (pinned by test_draco_3pass_definition.py).
     """
 
@@ -309,25 +309,25 @@ def draco_benchmark(
     focus: str | None = None,
     dataset_url: str | None = None,
 ) -> tuple[DracoExam, Benchmark]:
-    """Wire one DRACO board: identity → addresses → expression → private routes.
+    """Wire one DRACO benchmark: identity → addresses → expression → private routes.
 
     Args:
         id: the public benchmark id; it becomes the first path segment of every route.
         title: the human name shown in the catalogue.
         description: the catalogue description — it must say how many judge passes this
-            board runs, because that is the difference a reader cannot see anywhere else.
+            benchmark runs, because that is the difference a reader cannot see anywhere else.
         judge_passes: how many times the Judge grades each answer (the pass seeds
             derive from it).
-        protocol_revision: this board's own protocol version string (hashed).
+        protocol_revision: this benchmark's own protocol version string (hashed).
         difficulty: the catalogue's hand-assigned easy→hard tier (OME-1257); threaded
-            per board because sibling boards may sit different slices of one dataset.
+            per benchmark because sibling benchmarks may sit different slices of one dataset.
         focus: the short editorial line the leaderboard shows in its "Focus" column. It has
-            to separate this board from its siblings at a glance, since they share a dataset.
+            to separate this benchmark from its siblings at a glance, since they share a dataset.
         dataset_url: where a reader can go and look at the source data.
 
     Returns:
         ``(exam, benchmark)`` — the ``DracoExam`` for the runtime's private routes, and
-        the public ``Benchmark`` the registry publishes. The board module exports both:
+        the public ``Benchmark`` the registry publishes. The benchmark module exports both:
         the runtime needs the first, the catalogue the second.
     """
 
@@ -350,8 +350,8 @@ def draco_benchmark(
         # runtime code (healthbench precedent).
         from screamingface_engine.benchmarks.draco.runtime import install as install_runtime
 
-        # INVARIANT: every board reads the SAME baked asset directory — one immutable
-        # case/rubric set, never a per-board bake.
+        # INVARIANT: every benchmark reads the SAME baked asset directory — one immutable
+        # case/rubric set, never a per-benchmark bake.
         install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
 
     benchmark = Benchmark(
@@ -360,7 +360,7 @@ def draco_benchmark(
         description=description,
         revision=revision,
         case_count=CASE_COUNT,
-        # INVARIANT: the declared policy matches the code — every board reduces through
+        # INVARIANT: the declared policy matches the code — every benchmark reduces through
         # the shared finalize_candidate_result, which scores exactly the gradeable subset
         # and publishes coverage (coverage_declare). Declare `withhold` only if the
         # aggregate actually withholds (OME-1039).
@@ -372,7 +372,7 @@ def draco_benchmark(
         build=build,
         install=install,
         # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the
-        # only place the board's text is written; it is seeded from the catalogue at deploy.
+        # only place the benchmark's text is written; it is seeded from the catalogue at deploy.
         focus=focus,
         dataset_url=dataset_url,
         # The mid-run check is a real Judge call over the case rubric, so a corrective

@@ -115,14 +115,14 @@ async def test_real_url4_candidate_stage_is_node_attached_and_output_unchanged()
 
 
 @pytest.mark.asyncio
-async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp_path):
+async def test_imported_benchmark_stages_use_the_same_optional_port(monkeypatch, tmp_path):
     from screamingface_engine_inspect import single_shot
 
-    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
     # WHY: installation is lazy; this test needs no optional scorer packages or paid calls.
     monkeypatch.setattr(single_shot, "pinned_inspect_packages", lambda: ("test",))
-    board = single_shot.single_shot_board(
-        board_key="stage-probe",
+    benchmark = single_shot.single_shot_benchmark(
+        benchmark_key="stage-probe",
         title="Stage probe",
         description="Test stages",
         focus="Tests",
@@ -136,7 +136,7 @@ async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp
         difficulty="easy",
     )
     node = Url4Node("imported")
-    single_shot.install_imported_board(node, tmp_path, board.benchmark.id)
+    single_shot.install_imported_benchmark(node, tmp_path, benchmark.benchmark.id)
     records = []
     monkeypatch.setattr(
         "screamingface_engine.benchmarks.stages.current_log_sink",
@@ -145,10 +145,10 @@ async def test_imported_board_stages_use_the_same_optional_port(monkeypatch, tmp
     run = RunObservations((ActivityObserver,))
     with run.bind():
         for route, kind in (
-            (board.check_route, "answering"),
-            (board.check_surface_route, "grading"),
-            (board.case_evaluation_route, None),
-            (board.aggregate_route, "aggregation"),
+            (benchmark.check_route, "answering"),
+            (benchmark.check_surface_route, "grading"),
+            (benchmark.case_evaluation_route, None),
+            (benchmark.aggregate_route, "aggregation"),
         ):
             records.clear()
             with pytest.raises(ResolutionError):

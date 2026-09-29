@@ -1,12 +1,12 @@
-"""What every HealthBench board pins identically — dataset, preparer, judge, check.
+"""What every HealthBench benchmark pins identically — dataset, preparer, judge, check.
 
-Two boards ship from this package: the worst-30% challenge (`definition.py`) and the full
+Two benchmarks ship from this package: the worst-30% challenge (`definition.py`) and the full
 525-case professional exam (`professional.py`). They differ in which Cases they select and
 in the exam-level mean — and in NOTHING else. These constants are that "nothing else",
-kept in one place so the two boards cannot drift apart by accident.
+kept in one place so the two benchmarks cannot drift apart by accident.
 
-INVARIANT: every value here participates in both boards' revision hashes. Changing one
-changes every route address on both boards — which is the point: an old expression must
+INVARIANT: every value here participates in both benchmarks' revision hashes. Changing one
+changes every route address on both benchmarks — which is the point: an old expression must
 never resolve against a changed exam.
 
 References:
@@ -40,7 +40,7 @@ JUDGE_PARAMS = (
     ("max_tokens", "4096"),
 )
 JUDGE_RETRIES = 2
-# The pass criterion of the mid-run check surface (OME-830), shared by both boards so a
+# The pass criterion of the mid-run check surface (OME-830), shared by both benchmarks so a
 # corrective-loop recipe means the same thing whichever one it runs against.
 CHECK_CRITERION = "healthbench-pass.v1"
 

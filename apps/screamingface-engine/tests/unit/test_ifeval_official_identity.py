@@ -33,22 +33,22 @@ from screamingface_engine.benchmarks.ifeval.prepare import (
 )
 
 
-def test_the_ifeval_board_is_registered_under_its_id() -> None:
-    """INVARIANT: this board is PUBLIC — dropping it is a leaderboard regression.
+def test_the_ifeval_benchmark_is_registered_under_its_id() -> None:
+    """INVARIANT: this benchmark is PUBLIC — dropping it is a leaderboard regression.
 
-    The shared cross-benchmark tests iterate the registry, so a board deleted from
+    The shared cross-benchmark tests iterate the registry, so a benchmark deleted from
     `builtins.py` stops being iterated and they all still pass (OME-1095). Membership is
-    pinned here, in the board's own module, where a new board costs one line.
+    pinned here, in the benchmark's own module, where a new benchmark costs one line.
     """
 
     assert BUILTIN_BENCHMARKS.get("ifeval") is IFEVAL
 
 
-def test_the_ifeval_board_publishes_no_dataset_link() -> None:
+def test_the_ifeval_benchmark_publishes_no_dataset_link() -> None:
     # WHY none: the dataset is vendored inside the Engine
     # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is
-    # authoritative. The shared suite cannot express this — "which boards have a link" is a
-    # per-board editorial fact, so it is pinned beside the board that decides it.
+    # authoritative. The shared suite cannot express this — "which benchmarks have a link" is a
+    # per-benchmark editorial fact, so it is pinned beside the benchmark that decides it.
     assert IFEVAL.dataset_url is None
     assert IFEVAL.focus
 

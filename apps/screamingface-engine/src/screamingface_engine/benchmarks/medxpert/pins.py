@@ -1,8 +1,8 @@
-"""What the MedXpertQA board pins — dataset, preparer, protocol, and sampling.
+"""What the MedXpertQA benchmark pins — dataset, preparer, protocol, and sampling.
 
-INVARIANT: every value here participates in the board's revision hash. Changing one changes every
-route address, which is the point: an expression addressed to an old revision must never resolve
-against a changed exam.
+INVARIANT: every value here participates in the benchmark's revision hash. Changing one changes
+every route address, which is the point: an expression addressed to an old revision must never
+resolve against a changed exam.
 
 References:
     - Paper: https://arxiv.org/abs/2501.18362 (MedXpertQA)

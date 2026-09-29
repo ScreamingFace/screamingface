@@ -1,11 +1,11 @@
-"""The GDPval board this Engine serves, and what its number does and does not mean.
+"""The GDPval benchmark this Engine serves, and what its number does and does not mean.
 
 FEATURE: a fourth benchmark family, and the first drawn from work that professionals actually do
 — 44 occupations across the nine largest sectors of US GDP, tasks written by practitioners
 averaging 14 years of experience. GDPval appears in frontier-model launch tables, so a
-fusion-beats-solo result here carries weight our other boards cannot buy.
+fusion-beats-solo result here carries weight our other benchmarks cannot buy.
 
-INVARIANT — this board's score is NOT GDPval's published metric, and the description says so.
+INVARIANT — this benchmark's score is NOT GDPval's published metric, and the description says so.
 GDPval grading has three layers, and only the third is reachable from this Engine:
 
 1. The official metric: humans, pairwise, blinded. For each task, OpenAI hired experienced
@@ -23,14 +23,14 @@ GDPval grading has three layers, and only the third is reachable from this Engin
    gateway. Unreachable too (the ``pins.py`` line about "a hosted service, not a model we can
    call").
 
-3. The rubrics (what THIS board uses). The v2 dataset release added per-task rubrics written
+3. The rubrics (what THIS benchmark uses). The v2 dataset release added per-task rubrics written
    by those same professionals — e.g. "cites at least 3 competitors with delivery cost data,
    +2 points; recommends a timeline, +1; fabricates a statistic, -3". That's checklist
    material, and checklists are exactly what an LLM judge can apply one criterion at a time.
 
 Layers 1 and 3 answer different questions — "would an expert prefer this over the human's
 work?" versus "how many expert-written checklist items did this satisfy?" — so the valid claim
-is fusion versus solo ON THIS BOARD; parity with a published GDPval number is not.
+is fusion versus solo ON THIS BENCHMARK; parity with a published GDPval number is not.
 
 References:
     - Paper: https://arxiv.org/abs/2510.04374 (GDPval, Patwardhan et al., OpenAI, 2025)
@@ -46,7 +46,7 @@ from screamingface_engine.benchmarks.gdpval.subset import TEXT_SUBSET_TASK_IDS, 
 GDPVAL_DATASET_URL = "https://huggingface.co/datasets/openai/gdpval"
 
 # WHY a contiguous range: Engine Case ids ARE the 1-based positions `prepare.py` numbers by, and
-# this board serves every baked Case. A gap here would silently make it a subset of a subset.
+# this benchmark serves every baked Case. A gap here would silently make it a subset of a subset.
 TEXT_CASE_COUNT = len(TEXT_SUBSET_TASK_IDS)
 TEXT_CASE_IDS = tuple(range(1, TEXT_CASE_COUNT + 1))
 
@@ -70,16 +70,16 @@ TEXT_EXAM, GDPVAL_TEXT = gdpval_benchmark(
     protocol_revision="text-per-item-v1",
     scoring="rubric-mean-v1",
     mean=mean,
-    # WHY the GDPval task ids rather than the Engine Case ids: this board's identity IS a
+    # WHY the GDPval task ids rather than the Engine Case ids: this benchmark's identity IS a
     # selection out of the 220, so the dataset's own stable ids are the honest fingerprint.
     selection_sha=subset_sha(),
-    # Real professional deliverables graded on expert rubrics — the board that appears
+    # Real professional deliverables graded on expert rubrics — the benchmark that appears
     # in frontier-model launch tables (OME-1257).
     difficulty="hard",
     focus="Real professional work, prose deliverables",
     dataset_url=GDPVAL_DATASET_URL,
 )
 
-# AIDEV-NOTE: a board exposes exactly two names — the `Exam` (what the runtime installs) and the
+# AIDEV-NOTE: a benchmark exposes exactly two names — the `Exam` (what the runtime installs) and the
 # `Benchmark` (what the catalogue publishes). Reach a route through `TEXT_EXAM.routes.*`.
 __all__ = ["GDPVAL_TEXT", "TEXT_CASE_COUNT", "TEXT_CASE_IDS", "TEXT_EXAM"]

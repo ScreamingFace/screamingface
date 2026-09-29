@@ -72,7 +72,7 @@ def test_mean_of_no_graded_cases_is_none() -> None:
 
 
 def test_mean_is_not_clipped() -> None:
-    # INVARIANT: no floor at zero. HealthBench's professional board clips because the official
+    # INVARIANT: no floor at zero. HealthBench's professional benchmark clips because the official
     # HealthBench metric does; GDPval has no such published convention.
     assert mean([-0.4, -0.2]) == pytest.approx(-0.3)
 

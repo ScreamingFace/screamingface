@@ -1,7 +1,7 @@
 """MedXpertQA (Text) as one Engine-owned, judge-free Benchmark.
 
 FEATURE: expert-level medical multiple choice — 2,450 questions, one letter each, graded by
-string comparison. The first board whose grading spends NO judge tokens.
+string comparison. The first benchmark whose grading spends NO judge tokens.
 
 INVARIANT — the exchange is TWO candidate invocations. Turn 1 reasons freely; turn 2 sends only
 the trigger, so the model completes "…the answer is ___" and its commitment comes FIRST. That
@@ -11,10 +11,10 @@ misreads: measured at 35.5% against a true 70.2%.
 
 NAMED DEVIATION — the two-turn exchange is imposed at the CANDIDATE BOUNDARY. The Engine invokes
 `$candidate` as an opaque recipe (`ensemble/policy.py`: the client compiles the whole candidate
-expression, the Engine "contributes generic invocation"), so a board cannot reach inside a
+expression, the Engine "contributes generic invocation"), so a benchmark cannot reach inside a
 Fusion. For a solo model this reproduces the official protocol exactly. For a Fusion it does not:
 a per-member implementation runs two-turn inside each member and shows the synthesiser their full
-analyses, which is not expressible here. Fusion numbers from this board are therefore not
+analyses, which is not expressible here. Fusion numbers from this benchmark are therefore not
 comparable to a per-member implementation, and the description says so.
 
 References:
@@ -51,7 +51,10 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from screamingface_engine.benchmarks.spine.serving import board_routes, compute_board_revision
+from screamingface_engine.benchmarks.spine.serving import (
+    benchmark_routes,
+    compute_benchmark_revision,
+)
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -72,12 +75,12 @@ def compute_revision(
 ) -> str:
     """Fingerprint this exam into the 16 hex characters its routes carry.
 
-    WHY the prompt templates are hashed: this board has no judge, so the prompt is the only thing
-    between a model and its score. A changed template is a changed exam and must re-address every
-    route — otherwise already-recorded submissions would silently become incomparable.
+    WHY the prompt templates are hashed: this benchmark has no judge, so the prompt is the only
+    thing between a model and its score. A changed template is a changed exam and must re-address
+    every route — otherwise already-recorded submissions would silently become incomparable.
     """
 
-    return compute_board_revision(
+    return compute_benchmark_revision(
         DATASET,
         DATASET_CONFIG,
         DATASET_SPLIT,
@@ -93,7 +96,7 @@ def compute_revision(
 
 REVISION = compute_revision()
 
-_ROUTES = board_routes(BENCHMARK_ID, REVISION)
+_ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
 CASES_ROUTE = _ROUTES.cases
 CHECK_ROUTE = _ROUTES.check
@@ -140,7 +143,7 @@ def _build(case_count: int) -> Node:
             RelExpr(
                 path=CHECK_ROUTE,
                 # D8: the shared candidate envelope has no field for auxiliary text, so the
-                # reasoning reaches the report through THIS board's own check envelope.
+                # reasoning reaches the report through THIS benchmark's own check envelope.
                 context=render(
                     struct({"reasoning": "$reasoning", "commit": "$candidate_invocation"})
                 ),
@@ -207,15 +210,15 @@ MEDXPERT = Benchmark(
     dataset_url=DATASET_URL,
     declaration=BenchmarkDeclaration(
         # WHY "coverage_declare" and NOT "withhold": this axis governs a Case that never got a
-        # valid grade, and those are infrastructure failures, which this board hands to the
+        # valid grade, and those are infrastructure failures, which this benchmark hands to the
         # shared `finalize_candidate_result` — it scores the gradeable subset and publishes
         # coverage. An empty ANSWER is a different thing: it does get a grade, of 0.0, per the
         # official empty-prediction verdict. That behaviour lives in `aggregate._scored`, not
         # here, and declaring `withhold` for it would misdescribe what the reducer does.
         failure_policy="coverage_declare",
-        # WHY "multi_turn": the board invokes the Candidate twice per Case — reason, then commit.
-        # Declared because it doubles the invocation cost and changes what a Fusion entrant is
-        # asked to do (the exchange wraps the ensemble, not each member).
+        # WHY "multi_turn": the benchmark invokes the Candidate twice per Case — reason, then
+        # commit. Declared because it doubles the invocation cost and changes what a Fusion entrant
+        # is asked to do (the exchange wraps the ensemble, not each member).
         interaction="multi_turn",
         # Expert-level medical questions frontier models still visibly fail (OME-1257).
         difficulty="hard",

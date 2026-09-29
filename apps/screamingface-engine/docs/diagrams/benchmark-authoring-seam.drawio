@@ -86,7 +86,7 @@
         <mxCell id="lg1" value="" style="rounded=0;html=1;fillColor=#0a2b1e;strokeColor=#34d399;" vertex="1" parent="legend">
           <mxGeometry x="10" y="30" width="30" height="16" as="geometry" />
         </mxCell>
-        <mxCell id="lg1t" value="you write (the board)" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
+        <mxCell id="lg1t" value="you write (the benchmark)" style="text;html=1;align=left;verticalAlign=middle;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=11;" vertex="1" parent="legend">
           <mxGeometry x="50" y="28" width="270" height="20" as="geometry" />
         </mxCell>
         <mxCell id="lg2" value="" style="rounded=0;html=1;fillColor=#1a2233;strokeColor=#8b98ab;" vertex="1" parent="legend">

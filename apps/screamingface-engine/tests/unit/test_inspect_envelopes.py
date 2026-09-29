@@ -1,4 +1,4 @@
-"""The imported boards' evaluation envelopes — strict validators, no inference.
+"""The imported benchmarks' evaluation envelopes — strict validators, no inference.
 
 INVARIANT the suite defends: the aggregate reads ONLY envelopes these validators
 accepted, so a malformed or misattributed row fails loudly here instead of becoming a

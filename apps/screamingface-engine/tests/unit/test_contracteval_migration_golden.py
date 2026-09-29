@@ -2,7 +2,7 @@
 
 INVARIANT: an expression addressed to the current revision must resolve to
 byte-identical protocol before and after the extraction. Every literal below was
-captured from the pre-migration board at the head of this branch's base; if any
+captured from the pre-migration benchmark at the head of this branch's base; if any
 assertion here fails, the migration changed the exam, not just its plumbing.
 """
 
@@ -24,7 +24,7 @@ from screamingface_engine.benchmarks.contracteval.prepare import emit
 from screamingface_engine.benchmarks.contracteval.runtime import _cases, _check
 from url4.peer.server import Request
 
-# Captured 2026-09-21 from the pre-migration board (base of this branch).
+# Captured 2026-09-21 from the pre-migration benchmark (base of this branch).
 _GOLDEN_REVISION = "f9a076a10a6ae4c6"
 
 _GOLD_SPAN = "This Agreement is governed by Delaware law."

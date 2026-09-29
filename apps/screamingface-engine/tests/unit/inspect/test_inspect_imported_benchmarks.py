@@ -1,12 +1,12 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this suite imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""The generated board rows — every imported board's catalogue contract, in one place.
+"""The generated benchmark rows — every imported benchmark's catalogue contract, in one place.
 
-INVARIANT the suite defends: a board is two data rows the importer generated and a
+INVARIANT the suite defends: a benchmark is two data rows the importer generated and a
 human reviewed — so each row pair must (1) register under its `inspect-<key>` id,
 (2) pin a 40-hex dataset revision and a positive case count (exam identity), (3)
-declare the check surface by family — free-text boards carry it, MCQ boards are
+declare the check surface by family — free-text benchmarks carry it, MCQ benchmarks are
 refused it (OME-796) — and (4) point at a scorer and templates that actually
 resolve inside the pinned eval package. Catalogue prose is filled (never TODO):
 onboarding is AI-first, and unreviewed placeholder prose must fail CI, not ship.
@@ -23,14 +23,14 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from screamingface_engine_inspect.boards import (  # noqa: E402
-    BOARDS,
-    board_registrations,
-    imported_board,
+from screamingface_engine_inspect.benchmarks import (  # noqa: E402
+    BENCHMARKS,
+    benchmark_registrations,
+    imported_benchmark,
 )
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
 
-#: Every imported board key and its family: "mcq" (choice scorer, check surface
+#: Every imported benchmark key and its family: "mcq" (choice scorer, check surface
 #: refused per OME-796), "free_text" (check surface ON, spec §4), or "judged"
 #: (LLM-judged — check surface refused until the check-cost knob, OME-1116/OME-1240).
 _EXPECTED_FAMILIES: dict[str, str] = {
@@ -61,7 +61,7 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "lab_bench_seqqa": "mcq",
     "lab_bench_cloning_scenarios": "mcq",
     "frontierscience": "judged",
-    # OME-1269: the first question-filter board — the eval's own filter picks the
+    # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no check surface.
     "onet_m6": "mcq",
     # OME-1269: the question filter keeps the eval's 500-question test list of 1,000 rows.
@@ -73,42 +73,42 @@ _EXPECTED_FAMILIES: dict[str, str] = {
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
 
 
-def test_catalogue_holds_every_imported_board() -> None:
-    """OME-1116 acceptance: ≥10 imported boards; the row table IS the catalogue."""
+def test_catalogue_holds_every_imported_benchmark() -> None:
+    """OME-1116 acceptance: ≥10 imported benchmarks; the row table IS the catalogue."""
 
-    assert {spec.key for spec in BOARDS} == set(_EXPECTED_FAMILIES)
+    assert {spec.key for spec in BENCHMARKS} == set(_EXPECTED_FAMILIES)
     assert set(BENCHMARK_CASES) == set(_EXPECTED_FAMILIES)
-    ids = [registration.benchmark.id for registration in board_registrations()]
+    ids = [registration.benchmark.id for registration in benchmark_registrations()]
     assert len(ids) == len(set(ids)) == len(_EXPECTED_FAMILIES)
-    assert all(board_id.startswith("inspect-") for board_id in ids)
+    assert all(benchmark_id.startswith("inspect-") for benchmark_id in ids)
 
 
-def test_every_board_from_this_plugin_names_inspect_evals_as_its_source() -> None:
-    """The catalogue must name the collection each board came FROM, not this repo.
+def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() -> None:
+    """The catalogue must name the collection each benchmark came FROM, not this repo.
 
-    INVARIANT: `origin` defaults to "screamingface" (a true fact for boards authored
+    INVARIANT: `origin` defaults to "screamingface" (a true fact for benchmarks authored
     here), so an import lane has to pass its own collection explicitly — the default is
-    silently wrong for any board we merely brought in. The listing groups by this field,
+    silently wrong for any benchmark we merely brought in. The listing groups by this field,
     so a defaulted row makes the imported shelf disappear into our own group.
 
     Scope: `inspect_evals` is *this plugin's* source, not what "imported" means in
     general — a future collection arrives as its own plugin stamping its own origin,
     and would carry its own copy of this assertion. Asserted over the REAL
     registrations: a synthetic benchmark constructed with the origin passed by hand
-    proves the wire format, never the board factory.
+    proves the wire format, never the benchmark factory.
     """
 
     origins = {
         registration.benchmark.id: registration.benchmark.origin
-        for registration in board_registrations()
+        for registration in benchmark_registrations()
     }
     assert set(origins.values()) == {"inspect_evals"}, origins
 
 
-def test_board_revisions_are_distinct() -> None:
-    """Two boards must never share a revision — the revision addresses the exam."""
+def test_benchmark_revisions_are_distinct() -> None:
+    """Two benchmarks must never share a revision — the revision addresses the exam."""
 
-    revisions = {imported_board(key).benchmark.revision for key in _EXPECTED_FAMILIES}
+    revisions = {imported_benchmark(key).benchmark.revision for key in _EXPECTED_FAMILIES}
     assert len(revisions) == len(_EXPECTED_FAMILIES)
 
 
@@ -143,39 +143,39 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
-def test_board_row_declares_its_family_check_surface(key: str) -> None:
+def test_benchmark_row_declares_its_family_check_surface(key: str) -> None:
     """OME-796: pass/fail feedback over a handful of options is an elimination
-    attack — MCQ boards are refused the surface, free-text boards carry it."""
+    attack — MCQ benchmarks are refused the surface, free-text benchmarks carry it."""
 
-    board = imported_board(key).benchmark
+    benchmark = imported_benchmark(key).benchmark
     if _EXPECTED_FAMILIES[key] == "free_text":
-        assert board.check_surface is not None
+        assert benchmark.check_surface is not None
     else:
         # "mcq" (elimination attack) and "judged" (no check-cost knob yet) alike.
-        assert board.check_surface is None
+        assert benchmark.check_surface is None
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
-def test_board_row_scorer_resolves_and_constructs(key: str) -> None:
-    spec = next(spec for spec in BOARDS if spec.key == key)
+def test_benchmark_row_scorer_resolves_and_constructs(key: str) -> None:
+    spec = next(spec for spec in BENCHMARKS if spec.key == key)
     module_name, _, attribute = spec.scorer.partition(":")
     constructor = getattr(import_module(module_name), attribute)
     assert constructor(**dict(spec.scorer_kwargs)) is not None
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
-def test_board_row_prose_is_filled_not_todo(key: str) -> None:
+def test_benchmark_row_prose_is_filled_not_todo(key: str) -> None:
     """AI-first onboarding: the importing agent writes the catalogue prose; a
     leftover TODO placeholder means the diff was never finished."""
 
-    spec = next(spec for spec in BOARDS if spec.key == key)
+    spec = next(spec for spec in BENCHMARKS if spec.key == key)
     for prose in (spec.title, spec.description, spec.focus, spec.dataset_url):
         assert prose and "TODO" not in prose
     assert spec.dataset_url.startswith("https://huggingface.co/datasets/")
 
 
-def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
-    """The upstream evals of these boards randomize exam order per run
+def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
+    """The upstream evals of these benchmarks randomize exam order per run
     (hf_dataset shuffle=True); an import must pin one order — a dropped shuffle
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
@@ -186,7 +186,7 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     # dataset order (AIME I then II, roughly ascending difficulty within each), so an
     # unseeded import would give a limited run only the easier AIME I half.
     # musr: upstream shuffles per run (hf_dataset shuffle=True, no seed), so the
-    # import pins one order. wmdp boards serve upstream order — no seed.
+    # import pins one order. wmdp benchmarks serve upstream order — no seed.
     # hellaswag: OURS policy seed (review finding on PR #1018) — the pinned
     # validation split is domain-grouped (3,243 ActivityNet rows then 6,799
     # WikiHow), so an unshuffled limit ≤ 3243 run would examine zero WikiHow.
@@ -218,13 +218,13 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     }
 
 
-def test_lab_bench_boards_pin_a_choice_order() -> None:
+def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
     """LAB-Bench builds every case with the correct answer FIRST and shuffles
     choices per run (shuffle_choices=True, unseeded) — without a pinned choice
-    order every baked answer would be 'A'. The six text boards must carry the
+    order every baked answer would be 'A'. The six text benchmarks must carry the
     policy choice-shuffle seed, and it must ride exam identity."""
 
-    from screamingface_engine_inspect.boards import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _revision_pins
 
     lab_bench_keys = {key for key in BENCHMARK_CASES if key.startswith("lab_bench_")}
     assert lab_bench_keys == {
@@ -291,15 +291,15 @@ def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
 def test_choice_shuffle_seed_rides_exam_identity() -> None:
     """OME-1264: the pinned choice order is part of the exam a candidate sits —
     a re-import that gains or loses the choice-shuffle seed cannot keep the
-    board's revision identity."""
+    benchmark's revision identity."""
 
     from dataclasses import replace
 
-    from screamingface_engine_inspect.boards import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _revision_pins
 
     pins = _revision_pins(replace(BENCHMARK_CASES["mmlu"], choice_shuffle_seed=7))
     assert "choice_shuffle_seed=7" in pins
-    # And a board without one carries no such pin (the field is conditional).
+    # And a benchmark without one carries no such pin (the field is conditional).
     assert not any(
         p.startswith("choice_shuffle_seed=") for p in _revision_pins(BENCHMARK_CASES["mmlu"])
     )
@@ -307,18 +307,18 @@ def test_choice_shuffle_seed_rides_exam_identity() -> None:
 
 def test_data_files_and_features_ride_exam_identity() -> None:
     """OME-1264 extension 2: data_files selects WHICH files load and features
-    fixes their schema — both change the exam, so both ride the board's
+    fixes their schema — both change the exam, so both ride the benchmark's
     revision identity."""
 
     from dataclasses import replace
 
-    from screamingface_engine_inspect.boards import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _revision_pins
 
     spec = replace(BENCHMARK_CASES["mmlu"], data_files={"t": "t.jsonl"}, features="fake_mod:FT")
     pins = _revision_pins(spec)
     assert 'data_files={"t": "t.jsonl"}' in pins
     assert "features=fake_mod:FT" in pins
-    # And a board without them carries neither pin (the fields are conditional).
+    # And a benchmark without them carries neither pin (the fields are conditional).
     assert not any(
         p.startswith(("data_files=", "features=")) for p in _revision_pins(BENCHMARK_CASES["mmlu"])
     )
@@ -326,29 +326,29 @@ def test_data_files_and_features_ride_exam_identity() -> None:
 
 def test_system_message_pointer_rides_exam_identity() -> None:
     """Review finding on PR #1018: adding or dropping the leading instruction
-    changes the exam a candidate sits, so the pointer must move the board's
+    changes the exam a candidate sits, so the pointer must move the benchmark's
     revision identity — a re-import that lost it cannot keep the revision."""
 
-    from screamingface_engine_inspect.boards import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _revision_pins
 
     pins = _revision_pins(BENCHMARK_CASES["hellaswag"])
     assert "system_message=inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE" in pins
-    # And a board without one carries no such pin (the field is conditional).
+    # And a benchmark without one carries no such pin (the field is conditional).
     assert not any(p.startswith("system_message=") for p in _revision_pins(BENCHMARK_CASES["musr"]))
 
 
 def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
-    """OME-1269's first question-filter board. Its questions are whatever the eval's own
+    """OME-1269's first question-filter benchmark. Its questions are whatever the eval's own
     filter keeps, minus the owner-approved named deviation (6 questions inspect keeps
     whose answer letter lies past their choices), and it renders inspect's own
     chain-of-thought template because the eval passes multiple_choice(cot=True).
     The question filter and the exclusion change which questions are served, so both ride its
     revision; the template pointer does not (template pointers predate revision-pin
-    coverage — see boards._revision_pins)."""
+    coverage — see benchmarks._revision_pins)."""
 
     from inspect_evals.onet.onet import ONET_DATASET_REVISION as UPSTREAM
 
-    from screamingface_engine_inspect.boards import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _revision_pins
 
     row = BENCHMARK_CASES["onet_m6"]
     assert row.dataset_revision == UPSTREAM
@@ -363,12 +363,12 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
 
 def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
     """pubmedqa loads all 1,000 labelled questions and keeps the 500 on its bundled
-    test list; the board runs the eval's task so its own filter keeps
+    test list; the benchmark runs the eval's task so its own filter keeps
     them, the count pins the KEPT 500, and the eval's template renders them."""
 
     from inspect_evals.pubmedqa.pubmedqa import PUBMEDQA_DATASET_REVISION as UPSTREAM
 
-    from screamingface_engine_inspect.boards import _revision_pins
+    from screamingface_engine_inspect.benchmarks import _revision_pins
 
     row = BENCHMARK_CASES["pubmedqa"]
     assert row.dataset_revision == UPSTREAM
@@ -388,7 +388,7 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
     from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as UPSTREAM
     from inspect_evals.xstest.xstest import scorer_instructions, scorer_template
 
-    from screamingface_engine_inspect.boards import BOARDS, _revision_pins
+    from screamingface_engine_inspect.benchmarks import BENCHMARKS, _revision_pins
 
     row = BENCHMARK_CASES["xstest_safe"]
     assert row.dataset_revision == UPSTREAM
@@ -398,26 +398,26 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
     assert row.has_answer_key is False
     assert row.needs_hf_token is True
     assert 'question_filter_task_args={"subset": "safe"}' in _revision_pins(row)
-    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
-    assert board.scorer_kwargs["template"] == scorer_template
-    assert board.scorer_kwargs["instructions"] == scorer_instructions
+    benchmark = next(spec for spec in BENCHMARKS if spec.key == "xstest_safe")
+    assert benchmark.scorer_kwargs["template"] == scorer_template
+    assert benchmark.scorer_kwargs["instructions"] == scorer_instructions
     assert "{criterion}" not in scorer_template
 
 
 def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The board reports the mean grade (C=1, P=0.5, I=0); upstream reports
+    """The benchmark reports the mean grade (C=1, P=0.5, I=0); upstream reports
     refusal_rate and runs at temperature 0 with 256 max tokens. Both deviations are
-    named on the board — if a dependency bump changes either upstream fact, this
-    fails and the board's notes must be revisited (review on PR #1112)."""
+    named on the benchmark — if a dependency bump changes either upstream fact, this
+    fails and the benchmark's notes must be revisited (review on PR #1112)."""
 
     from importlib import import_module
 
     from inspect_ai._util.registry import registry_info
     from inspect_ai.dataset import MemoryDataset, Sample
 
-    from screamingface_engine_inspect.boards import BOARDS
+    from screamingface_engine_inspect.benchmarks import BENCHMARKS
 
     module = import_module("inspect_evals.xstest.xstest")
     monkeypatch.setattr(
@@ -429,5 +429,5 @@ def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
 
     assert [registry_info(metric).name for metric in task.metrics] == ["inspect_evals/refusal_rate"]
     assert (task.config.temperature, task.config.max_tokens) == (0.0, 256)
-    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
-    assert "refusal rate = 100 x (1 - correct / scored cases)" in board.description
+    benchmark = next(spec for spec in BENCHMARKS if spec.key == "xstest_safe")
+    assert "refusal rate = 100 x (1 - correct / scored cases)" in benchmark.description

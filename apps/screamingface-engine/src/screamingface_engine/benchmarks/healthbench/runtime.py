@@ -2,7 +2,7 @@
 
 If ``exam.py`` writes the recipe (the expression tree that names six routes),
 this module is the kitchen: it registers a handler behind each of those routes so the
-recipe can actually resolve. Every board installs its own copy of them under its own
+recipe can actually resolve. Every benchmark installs its own copy of them under its own
 revision prefix, all reading one baked answer key. Data flows through them in exam order:
 
     /cases             → serve the selected question booklet (from the baked assets)
@@ -69,21 +69,21 @@ from url4.peer.server import Request, Url4Node
 
 
 def install(node: Url4Node, root: Path, exam: Exam) -> None:
-    """Register every route one HealthBench board's expressions reference.
+    """Register every route one HealthBench benchmark's expressions reference.
 
     Providers read lazily so a general-purpose Runner can carry the installed
     definition without HealthBench's private image assets — until an expression
     actually selects HealthBench, which is when the preflight below runs.
 
-    INVARIANT: every board is namespaced by its own id AND revision, so several boards
+    INVARIANT: every benchmark is namespaced by its own id AND revision, so several benchmarks
     install into ONE Runner world over ONE ``root`` without colliding — which is exactly
     how the worst-30% challenge and the full professional exam coexist over a single
     baked answer key.
 
     Args:
         node: the Runner world to register the routes in.
-        root: the baked HealthBench asset directory (shared by every board).
-        exam: which Cases this board serves, at which addresses, under which final mean.
+        root: the baked HealthBench asset directory (shared by every benchmark).
+        exam: which Cases this benchmark serves, at which addresses, under which final mean.
     """
     # Install the six routes that implement the exam's protocol.
     _install_protocol_once(
@@ -184,7 +184,7 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 def _cases(root: Path, case_ids: tuple[int, ...]):
     # Reference counterpart: the example selection at the top of the reference's
     # eval loop (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py)
-    # — here the selection is this board's case list, served from the baked assets.
+    # — here the selection is this benchmark's case list, served from the baked assets.
     @observe_stage(ActivityKind.CASE_LOADING)
     def cases() -> str:
         preflight(root, case_ids)

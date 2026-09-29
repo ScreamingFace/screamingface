@@ -32,7 +32,7 @@
         <mxCell id="prep" value="prepare.py — CasesSpec row&#xa;how to bake the frozen dataset&#xa;snapshot (+ sorted pins import)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="1500" y="220" width="300" height="100" as="geometry" />
         </mxCell>
-        <mxCell id="brd" value="boards.py — BoardSpec row&#xa;scorer(+kwargs) · dataset_url ·&#xa;check surface iff free text&#xa;title/description = TODO(review)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <mxCell id="brd" value="benchmarks.py — BenchmarkSpec row&#xa;scorer(+kwargs) · dataset_url ·&#xa;check surface iff free text&#xa;title/description = TODO(review)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="1500" y="360" width="300" height="100" as="geometry" />
         </mxCell>
         <mxCell id="review" value="AGENT WRITES, HUMAN VERIFIES&#xa;&#xa;git diff IS the review artifact:&#xa;agent fills TODO(review) prose,&#xa;human verifies pins · license ·&#xa;flags — import time is the&#xa;ONLY trust window" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">

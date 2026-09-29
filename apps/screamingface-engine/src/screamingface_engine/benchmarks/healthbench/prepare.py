@@ -180,7 +180,7 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
     so the build refuses to bake a silently different answer key.
     """
 
-    # The professional board declares exactly this many Cases, so the file must hold
+    # The professional benchmark declares exactly this many Cases, so the file must hold
     # exactly this many rows. WHY its own check: the frozen-position assertion below only
     # proves the worst-30% rows did not MOVE — a row appended at the END passes it, and the
     # image would bake a 526-Case exam under a 525-Case identity.
@@ -240,7 +240,7 @@ def _prepare(out: Path) -> dict[str, Any]:
     cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
     return {
         "professional_cases": len(cases),
-        # The worst-30% board is a serve-time SELECTION over frozen ids (see the module
+        # The worst-30% benchmark is a serve-time SELECTION over frozen ids (see the module
         # docstring), never its own bake. Named `declared_` so an operator reading the build
         # log cannot mistake a compile-time constant for something this run produced.
         "declared_worst30_cases": len(WORST30_CASE_IDS),
@@ -249,7 +249,7 @@ def _prepare(out: Path) -> dict[str, Any]:
 
 
 def prepare(out: Path) -> dict[str, Any]:
-    """Prepare the complete HealthBench assets shared by both registered boards."""
+    """Prepare the complete HealthBench assets shared by both registered benchmarks."""
 
     return _prepare(out)
 

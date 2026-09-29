@@ -5,7 +5,7 @@
 
 Most inspect judges never name a model: they call ``get_model(role="grader")`` and let
 the eval runner decide who grades. Outside inspect's own eval loop nobody fills that
-role, so a board row declares ``JudgeSpec(model=..., model_role="grader")`` and the judged
+role, so a benchmark row declares ``JudgeSpec(model=..., model_role="grader")`` and the judged
 aggregate binds the role to our metered ``screamingface/<model>`` provider for the
 grading pass — the same wall socket FrontierScience's named judge plugs into.
 
@@ -46,8 +46,8 @@ from screamingface_engine.operation_calls import (  # noqa: E402
     operation_call_identity,
     record_operation_call,
 )
-from screamingface_engine_inspect import boards, single_shot  # noqa: E402
-from screamingface_engine_inspect.boards import BoardSpec  # noqa: E402
+from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
+from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -85,13 +85,13 @@ def _request() -> GradeRequest:
     )
 
 
-def _role_spec(**overrides: Any) -> BoardSpec:
+def _role_spec(**overrides: Any) -> BenchmarkSpec:
     """One minimal model-role row — model_graded_qa naming NO model, so inspect asks
     for its grader role, which the declaration binds to gateway judge-4."""
 
     values: dict[str, Any] = {
-        "key": "gsm8k",  # reuses the real snapshot row; the board caches are patched
-        "title": "Role Judged Test Board",
+        "key": "gsm8k",  # reuses the real snapshot row; the benchmark caches are patched
+        "title": "Role Judged Test Benchmark",
         "description": "test",
         "focus": "test",
         "dataset_url": "https://example.test/ds",
@@ -102,16 +102,16 @@ def _role_spec(**overrides: Any) -> BoardSpec:
         "with_check_surface": False,
     }
     values.update(overrides)
-    return BoardSpec(**values)
+    return BenchmarkSpec(**values)
 
 
-def _assembled(spec: BoardSpec, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Assemble one row through the REAL catalogue path, on fresh board caches."""
+def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Assemble one row through the REAL catalogue path, on fresh benchmark caches."""
 
-    monkeypatch.setattr(boards, "BOARDS", (spec,))
-    monkeypatch.setattr(boards, "_ASSEMBLED", {})
-    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
-    return boards.imported_board(spec.key)
+    monkeypatch.setattr(benchmarks, "BENCHMARKS", (spec,))
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+    return benchmarks.imported_benchmark(spec.key)
 
 
 # ── the provider face: the role resolves to our wall socket, and only in scope ─
@@ -135,7 +135,7 @@ async def test_a_role_based_scorer_grades_through_the_provider_when_the_role_is_
 
 @pytest.mark.asyncio
 async def test_the_real_simpleqa_scorer_calls_the_bound_role() -> None:
-    """The ticket's first board: SimpleQA's paper scorer asks for the grader role
+    """The ticket's first benchmark: SimpleQA's paper scorer asks for the grader role
     by name — its judge call must leave through the declared route."""
 
     from inspect_evals.simpleqa.scorer import simpleqa_scorer
@@ -151,8 +151,8 @@ async def test_the_real_simpleqa_scorer_calls_the_bound_role() -> None:
 
 @pytest.mark.asyncio
 async def test_the_role_binding_is_scoped_to_its_block() -> None:
-    """INVARIANT: the next board's grade starts with no grader — a board that
-    declares no model-role judge can never ride another board's binding."""
+    """INVARIANT: the next benchmark's grade starts with no grader — a benchmark that
+    declares no model-role judge can never ride another benchmark's binding."""
 
     before: dict[str, Any] = dict(model_roles())
     with judge_filling_model_role("grader", "judge-4"):
@@ -163,10 +163,10 @@ async def test_the_role_binding_is_scoped_to_its_block() -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_role_bindings_stay_per_task() -> None:
-    """INVARIANT: two boards grading at once each see their OWN judge. The
+    """INVARIANT: two benchmarks grading at once each see their OWN judge. The
     save-and-restore in judge_filling_model_role is only safe because inspect keeps roles
-    per task (a ContextVar); were they process-wide, board A would silently grade
-    with board B's judge, and A's restore would wipe B's binding mid-grade
+    per task (a ContextVar); were they process-wide, benchmark A would silently grade
+    with benchmark B's judge, and A's restore would wipe B's binding mid-grade
     (review finding, 2026-09-29)."""
 
     import asyncio
@@ -177,20 +177,20 @@ async def test_concurrent_role_bindings_stay_per_task() -> None:
     b_bound = asyncio.Event()
     seen: dict[str, str] = {}
 
-    async def board_a() -> None:
+    async def benchmark_a() -> None:
         with judge_filling_model_role("grader", "judge-4"):
             a_bound.set()
             await b_bound.wait()
             seen["a"] = str(get_model(role="grader"))
 
-    async def board_b() -> None:
+    async def benchmark_b() -> None:
         await a_bound.wait()
         with judge_filling_model_role("grader", "judge-5"):
             b_bound.set()
             await asyncio.sleep(0)
             seen["b"] = str(get_model(role="grader"))
 
-    await asyncio.gather(board_a(), board_b())
+    await asyncio.gather(benchmark_a(), benchmark_b())
     assert seen == {"a": "screamingface/judge-4", "b": "screamingface/judge-5"}
 
 
@@ -214,16 +214,16 @@ async def test_an_unbound_grader_role_never_calls_anyone(
 # ── assembly: the model-role judge is declared, pinned, and cross-checked ────
 
 
-def test_a_model_role_judge_assembles_and_rides_the_board(
+def test_a_model_role_judge_assembles_and_rides_the_benchmark(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    board = _assembled(_role_spec(), monkeypatch)
-    assert board.judge == JudgeSpec(
+    benchmark = _assembled(_role_spec(), monkeypatch)
+    assert benchmark.judge == JudgeSpec(
         model="judge-4", params=(("temperature", "0"),), model_role="grader"
     )
 
 
-def test_a_model_role_boards_revision_moves_with_the_judge_model(
+def test_a_model_role_benchmarks_revision_moves_with_the_judge_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """INVARIANT: a judge that fills a model role is exam identity — swap it, the exam moves."""
@@ -259,7 +259,7 @@ def test_a_model_role_judge_plus_a_called_kwarg_is_refused(
 def test_a_scorer_asking_for_a_different_role_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """model_graded_qa(model_role="judge") asks for a role the board never binds —
+    """model_graded_qa(model_role="judge") asks for a role the benchmark never binds —
     the pinned judge and the called one would drift apart."""
 
     spec = _role_spec(scorer_kwargs={"model_role": "judge"})
@@ -280,7 +280,7 @@ def test_a_scorer_told_to_skip_the_role_is_refused(monkeypatch: pytest.MonkeyPat
 def test_a_model_graded_scorer_without_a_judge_points_at_the_role_declaration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The refusal stays for undeclared role-based boards, and now names the fix."""
+    """The refusal stays for undeclared role-based benchmarks, and now names the fix."""
 
     with pytest.raises(ValueError, match='model_role="grader"'):
         _assembled(_role_spec(judge=None), monkeypatch)
@@ -325,13 +325,13 @@ class _ConnectorFaithfulJudge:
 
 
 def _prepare_by_hand(root: Path, benchmark_id: str) -> None:
-    board_root = root / benchmark_id
-    (board_root / "targets").mkdir(parents=True)
-    (board_root / "cases.json").write_text(
+    benchmark_root = root / benchmark_id
+    (benchmark_root / "targets").mkdir(parents=True)
+    (benchmark_root / "cases.json").write_text(
         json.dumps([{"id": 1, "input": "What is the capital of France?"}]),
         encoding="utf-8",
     )
-    (board_root / "targets" / "1.json").write_text(
+    (benchmark_root / "targets" / "1.json").write_text(
         json.dumps({"target": "Paris"}), encoding="utf-8"
     )
 
@@ -368,23 +368,23 @@ async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
 
 
 @pytest.mark.asyncio
-async def test_a_model_role_boards_judge_is_routed_and_accounted_end_to_end(
+async def test_a_model_role_benchmarks_judge_is_routed_and_accounted_end_to_end(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The ticket's acceptance under one roof: a role-based scorer's judge call
     leaves through the node's judge route with the pinned params, and its tokens
     and cost land in the Case's evidence accounting (the run's usage sink)."""
 
-    board = _assembled(_role_spec(), monkeypatch)
+    benchmark = _assembled(_role_spec(), monkeypatch)
     judge = _ConnectorFaithfulJudge()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _prepare_by_hand(tmp_path, board.benchmark.id)
-    board.benchmark.install(node, tmp_path)
+    _prepare_by_hand(tmp_path, benchmark.benchmark.id)
+    benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, board.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
 
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert len(judge.requests) == 1

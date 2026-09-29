@@ -40,7 +40,10 @@ from screamingface_engine.benchmarks.protocol import (
     build_evaluation_protocol,
     preserve_candidate_outcome,
 )
-from screamingface_engine.benchmarks.spine.serving import board_routes, compute_board_revision
+from screamingface_engine.benchmarks.spine.serving import (
+    benchmark_routes,
+    compute_benchmark_revision,
+)
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Url4Node
 
@@ -64,13 +67,13 @@ def compute_revision(
 ) -> str:
     """Fingerprint this exam into the 16 hex characters its routes carry.
 
-    WHY the prompts are hashed: this board has no judge, so the prompt is the only thing between
+    WHY the prompts are hashed: this benchmark has no judge, so the prompt is the only thing between
     a model and its score — and here it is unusually load-bearing, because "Do not rephrase or
     summarize" is what makes verbatim containment a fair test at all. A changed prompt is a
     changed exam and must re-address every route.
     """
 
-    return compute_board_revision(
+    return compute_benchmark_revision(
         DATASET,
         DATASET_SPLIT,
         dataset_revision,
@@ -85,7 +88,7 @@ def compute_revision(
 
 REVISION = compute_revision()
 
-_ROUTES = board_routes(BENCHMARK_ID, REVISION)
+_ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
 CASES_ROUTE = _ROUTES.cases
 CHECK_ROUTE = _ROUTES.check

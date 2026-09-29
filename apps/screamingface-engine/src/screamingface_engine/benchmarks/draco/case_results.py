@@ -4,7 +4,7 @@ Since OME-1100 the shared spine (``spine/scored.py``) assembles draco's typed Ca
 Results; this module supplies what stays draco's: the multi-pass verdict handling
 (``group_runs`` / ``valid_verdicts``), the per-Case grade blocks the ``grade_case``
 hook returns (``scored_grade`` / ``incomplete_grade``), the check/evidence audit
-projection, and the one typed-result builder draco's board-owned failure hooks
+projection, and the one typed-result builder draco's benchmark-owned failure hooks
 still need (``_case_result`` / ``ungraded_case_result``).
 """
 

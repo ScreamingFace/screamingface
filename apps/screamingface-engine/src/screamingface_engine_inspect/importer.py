@@ -8,7 +8,7 @@
 Think of it as a customs officer for imported exams: the eval declares what it is
 (the importer READS the task — never re-types it), the officer stamps what it
 observed (revision sha, row count, license — facts no eval file carries), and the
-paperwork lands as an in-place edit to pins.py / prepare.py / boards.py so that
+paperwork lands as an in-place edit to pins.py / prepare.py / benchmarks.py so that
 ``git diff`` IS the review artifact. Import time is the ONLY trust window (see
 pins.py's lockfile docstring), so a human reviews that diff before anything merges.
 
@@ -72,7 +72,7 @@ _FULLY_BAKED_SOLVERS: frozenset[str] = frozenset({"prompt_template", "generate",
 # file's anchor comment. The anchors live in the three files themselves.
 _PINS_ANCHOR = "# --- importer: generated pin rows land above this line ---"
 _BENCHMARK_CASES_ANCHOR = "# --- importer: generated CasesSpec rows land above this line ---"
-_BOARDS_ANCHOR = "# --- importer: generated BoardSpec rows land above this line ---"
+_BENCHMARKS_ANCHOR = "# --- importer: generated BenchmarkSpec rows land above this line ---"
 
 _PINS_IMPORT_HEADER = "from screamingface_engine_inspect.pins import ("
 
@@ -134,8 +134,8 @@ class InspectTaskFacts:
     #: bake time because they can change what the filter keeps (xstest's subset).
     task_args: Mapping[str, Any] = field(default_factory=dict)
     #: The eval's own ``Task(metrics=...)`` by registry name (xstest's
-    #: refusal_rate). An imported board always reports the MEAN per-case score, so a
-    #: custom metric is a deviation the board must name (review on PR #1112).
+    #: refusal_rate). An imported benchmark always reports the MEAN per-case score, so a
+    #: custom metric is a deviation the benchmark must name (review on PR #1112).
     custom_metrics: tuple[str, ...] = ()
 
 
@@ -157,7 +157,7 @@ class GeneratedRows:
 
     pins: str
     cases: str
-    board: str
+    benchmark: str
     import_names: tuple[str, ...]
 
 
@@ -297,9 +297,9 @@ def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
 
 
 #: inspect_evals' duplicate-id remover, by module + qualname. It is the one post-load
-#: filter the bake does NOT send through its task: six live boards run it (wmdp x3, mmlu, race_h,
-#: winogrande), and sending them through their task would move their published revisions. The wmdp
-#: rows carry a hand-verified note that it is a no-op at their pins.
+#: filter the bake does NOT send through its task: six live benchmarks run it (wmdp x3, mmlu,
+#: race_h, winogrande), and sending them through their task would move their published revisions.
+#: The wmdp rows carry a hand-verified note that it is a no-op at their pins.
 _DEDUPE_FILTER = "inspect_evals.utils.deps_utils:filter_duplicate_ids.<locals>.is_unique_id"
 
 
@@ -988,13 +988,13 @@ def _hub_count_rows(facts: InspectTaskFacts, revision: str) -> int:
 
 
 def _pin_prefix(key: str) -> str:
-    """The board key's constant stem (``foo-bar`` → ``FOO_BAR``) — refused unless it
+    """The benchmark key's constant stem (``foo-bar`` → ``FOO_BAR``) — refused unless it
     is a valid Python identifier, so the generated pins always load."""
 
     prefix: str = "".join(ch if ch.isalnum() else "_" for ch in key).upper()
     if not prefix.isidentifier():
         raise ImporterError(
-            f"board key {key!r} derives the constant stem {prefix!r}, which is not a "
+            f"benchmark key {key!r} derives the constant stem {prefix!r}, which is not a "
             "valid Python identifier — start the key with a letter (e.g. "
             f"'wiki_{key}' instead of a leading digit)"
         )
@@ -1081,7 +1081,7 @@ def render_generated_rows(
     return GeneratedRows(
         pins="\n".join(pin_lines) + "\n",
         cases="\n".join(cases_lines) + "\n",
-        board="\n".join(_board_lines(key, facts, license_note)) + "\n",
+        benchmark="\n".join(_benchmark_lines(key, facts, license_note)) + "\n",
         import_names=tuple(import_names),
     )
 
@@ -1148,7 +1148,7 @@ def _hf_token_lines(hub_facts: HubDatasetFacts) -> list[str]:
 
 
 def _question_filter_lines(facts: InspectTaskFacts) -> list[str]:
-    """The CasesSpec kwarg lines that run a board's questions through its task (OME-1269).
+    """The CasesSpec kwarg lines that run a benchmark's questions through its task (OME-1269).
 
     Empty for every other row, so rows imported before the question filter render unchanged.
     """
@@ -1169,11 +1169,11 @@ def _question_filter_lines(facts: InspectTaskFacts) -> list[str]:
     return lines
 
 
-def _board_lines(key: str, facts: InspectTaskFacts, license_note: str) -> list[str]:
-    """The BoardSpec row — prose as TODOs, provenance as wrapped comments."""
+def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> list[str]:
+    """The BenchmarkSpec row — prose as TODOs, provenance as wrapped comments."""
 
-    board_lines: list[str] = [
-        "    BoardSpec(",
+    benchmark_lines: list[str] = [
+        "    BenchmarkSpec(",
         f'        key="{key}",',
         "        # TODO(review): title/description/focus are catalogue prose — the",
         "        # importing agent writes them from the eval's own docs; the human",
@@ -1202,42 +1202,46 @@ def _board_lines(key: str, facts: InspectTaskFacts, license_note: str) -> list[s
             f"{json.dumps(name)}: {_python_literal_source(value)}"
             for name, value in sorted(facts.scorer_kwargs.items())
         )
-        board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+        benchmark_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
     for metric_name in facts.custom_metrics:
-        board_lines.append(
+        benchmark_lines.append(
             f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
         )
-        board_lines.append(
-            "        # board reports the mean per-case score — name that deviation (and how"
+        benchmark_lines.append(
+            "        # benchmark reports the mean per-case score — name that deviation (and how"
         )
-        board_lines.append("        # to convert between the two) in the board's description.")
+        benchmark_lines.append(
+            "        # to convert between the two) in the benchmark's description."
+        )
     judged: bool = _is_judged(facts)
     if judged:
         # OME-1240: a judged row must never land silently — the TODO model is
         # refused at assembly by name, so an unreviewed judge cannot ship.
-        board_lines.append(
+        benchmark_lines.append(
             "        # TODO(review): this scorer grades with an LLM judge. Pin the judge"
         )
-        board_lines.append("        # through our gateway: replace the judge-model kwarg with")
-        board_lines.append(
+        benchmark_lines.append("        # through our gateway: replace the judge-model kwarg with")
+        benchmark_lines.append(
             '        # "screamingface/<gateway-model-id>" and declare the SAME id (plus'
         )
-        board_lines.append("        # pinned params) here — both join the board's exam identity.")
-        board_lines.append("        # If the scorer dispatches on sample metadata, also set")
-        board_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
-        board_lines.append('        judge=JudgeSpec(model="TODO"),')
+        benchmark_lines.append(
+            "        # pinned params) here — both join the benchmark's exam identity."
+        )
+        benchmark_lines.append("        # If the scorer dispatches on sample metadata, also set")
+        benchmark_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
+        benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
     if not facts.mcq and not judged:
-        board_lines.append(
+        benchmark_lines.append(
             "        # Free-form answers make mid-run feedback legitimate (spec §4);"
         )
-        board_lines.append("        # MCQ boards must NOT set this (OME-796).")
-        board_lines.append("        with_check_surface=True,")
-    board_lines.append("    ),")
-    return board_lines
+        benchmark_lines.append("        # MCQ benchmarks must NOT set this (OME-796).")
+        benchmark_lines.append("        with_check_surface=True,")
+    benchmark_lines.append("    ),")
+    return benchmark_lines
 
 
 #: Kwarg names evals use to take their judge model — mirrored by the assembly
-#: guard's _JUDGE_MODEL_KWARGS in boards.py; the two lists move together.
+#: guard's _JUDGE_MODEL_KWARGS in benchmarks.py; the two lists move together.
 _JUDGE_MODEL_KWARG_NAMES = frozenset({"model", "grader_model", "judge_model", "scorer_model"})
 
 
@@ -1271,17 +1275,17 @@ def write_generated_rows(
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
 ) -> GeneratedRows:
-    """Insert one board's generated rows into the three files, in place.
+    """Insert one benchmark's generated rows into the three files, in place.
 
     Refuses an already-imported key; warns (but emits) on an uncleared license.
-    ``engine_src`` is the directory holding pins.py / prepare.py / boards.py.
+    ``engine_src`` is the directory holding pins.py / prepare.py / benchmarks.py.
     """
 
     pins_path: Path = engine_src / "pins.py"
     prepare_path: Path = engine_src / "prepare.py"
-    boards_path: Path = engine_src / "boards.py"
+    benchmarks_path: Path = engine_src / "benchmarks.py"
     texts: dict[Path, str] = {
-        path: path.read_text() for path in (pins_path, prepare_path, boards_path)
+        path: path.read_text() for path in (pins_path, prepare_path, benchmarks_path)
     }
     _refuse_existing_rows(key, _pin_prefix(key), texts)
     _refuse_injectable_text(facts, hub_facts)
@@ -1307,8 +1311,8 @@ def write_generated_rows(
             rows.cases,
             "prepare.py",
         ),
-        boards_path: _with_generated_row(
-            texts[boards_path], _BOARDS_ANCHOR, rows.board, "boards.py"
+        benchmarks_path: _with_generated_row(
+            texts[benchmarks_path], _BENCHMARKS_ANCHOR, rows.benchmark, "benchmarks.py"
         ),
     }
     for path, text in new_texts.items():
@@ -1398,20 +1402,20 @@ def _refuse_injectable_task_args(facts: InspectTaskFacts) -> None:
 
 
 def _refuse_existing_rows(key: str, prefix: str, texts: Mapping[Path, str]) -> None:
-    """Never double a board — by key, OR by the constant stem two keys can share.
+    """Never double a benchmark — by key, OR by the constant stem two keys can share.
 
     WHY the prefix check: ``foo-bar`` and ``foo_bar`` are different keys but derive
     the same ``FOO_BAR_*`` constants; the second import would silently shadow the
-    first board's dataset/revision/count (review finding on PR 966).
+    first benchmark's dataset/revision/count (review finding on PR 966).
     """
 
     needles: tuple[str, ...] = (f'"{key}": CasesSpec(', f'key="{key}"')
     for path, text in texts.items():
         if any(needle in text for needle in needles):
-            raise ImporterError(f"board key {key!r} already exists in {path.name}")
+            raise ImporterError(f"benchmark key {key!r} already exists in {path.name}")
         if path.name == "pins.py" and f"{prefix}_DATASET" in text:
             raise ImporterError(
-                f"pin constants {prefix}_* already exist in pins.py — another board key "
+                f"pin constants {prefix}_* already exist in pins.py — another benchmark key "
                 f"derives the same constant stem as {key!r}; pick a distinct key"
             )
 
@@ -1479,10 +1483,10 @@ def main(
 
     parser = argparse.ArgumentParser(
         prog="python -m screamingface_engine_inspect.importer",
-        description="Generate one imported board's row diffs from an inspect task.",
+        description="Generate one imported benchmark's row diffs from an inspect task.",
     )
     parser.add_argument("task_ref", help="dotted task reference, e.g. inspect_evals.mod.mod:task")
-    parser.add_argument("--key", required=True, help="the board key (catalogue id suffix)")
+    parser.add_argument("--key", required=True, help="the benchmark key (catalogue id suffix)")
     parser.add_argument(
         "--task-arg",
         action="append",
@@ -1507,7 +1511,7 @@ def main(
         "--engine-src",
         type=Path,
         default=Path(__file__).resolve().parent,
-        help="directory holding pins.py/prepare.py/boards.py (default: this package)",
+        help="directory holding pins.py/prepare.py/benchmarks.py (default: this package)",
     )
     args = parser.parse_args(argv)
 

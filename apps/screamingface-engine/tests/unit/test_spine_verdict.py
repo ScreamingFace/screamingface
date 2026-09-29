@@ -1,11 +1,11 @@
 """The one shared verdict parser — and the typed record that cannot drop its audit trail.
 
 INVARIANT under test (OME-1099, born from OME-1023): every audit field on a verdict record
-is a REQUIRED constructor argument. The regression this prevents: a new board's parser
+is a REQUIRED constructor argument. The regression this prevents: a new benchmark's parser
 silently omitting ``raw_output`` on valid verdicts, leaving a scored criterion with nothing
 to re-read when a grade is disputed.
 
-INVARIANT under test: merging the parsers changed no board's wire records. Each board's
+INVARIANT under test: merging the parsers changed no benchmark's wire records. Each benchmark's
 schema string, reason vocabulary, and payload fields are byte-identical to the drifted
 copies this module replaced — the shape declaration carries the differences, the parser
 carries the work.
@@ -27,7 +27,7 @@ from screamingface_engine.benchmarks.spine.verdict import (
     rubric_binding_key,
 )
 
-# The two real payload dialects, spelled the way the boards declare them.
+# The two real payload dialects, spelled the way the benchmarks declare them.
 ENUM_SHAPE = VerdictShape(
     schema="test.enum-verdict.v1",
     status_field="criterion_status",
@@ -117,7 +117,7 @@ def test_a_verdict_is_either_valid_or_carries_a_reason_never_both() -> None:
         )
 
 
-# --- one parser, each board's exact wire record ------------------------------------------
+# --- one parser, each benchmark's exact wire record ------------------------------------------
 
 
 def test_the_enum_dialect_produces_dracos_exact_valid_record() -> None:
@@ -142,7 +142,7 @@ def test_the_enum_dialect_produces_dracos_exact_valid_record() -> None:
     }
 
 
-def test_the_bool_dialect_produces_the_rubric_boards_exact_valid_record() -> None:
+def test_the_bool_dialect_produces_the_rubric_benchmarks_exact_valid_record() -> None:
     raw = json.dumps({"explanation": "because", "criteria_met": False})
     assert _bool_bind(raw) == {
         "schema": "test.bool-verdict.v1",

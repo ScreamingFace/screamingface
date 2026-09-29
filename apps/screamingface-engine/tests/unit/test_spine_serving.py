@@ -1,9 +1,9 @@
-"""The serving spine — the plumbing every deterministic board used to re-type by hand.
+"""The serving spine — the plumbing every deterministic benchmark used to re-type by hand.
 
 WHY this file exists (OME-1236): contracteval's and medxpert's `runtime.py` carried the
 same seven top-level functions name-for-name, and a hand-wired slot missed in one copy
 ("preflight defined, exported, invoked from nowhere" — PR #865 review) surfaces only
-after paid inference. These tests pin the shared core's contract so a board declaration
+after paid inference. These tests pin the shared core's contract so a benchmark declaration
 is structurally served: routes built from identity, preflight that cannot be forgotten,
 case serving memoized only on success, and a byte-stable check-record envelope.
 """
@@ -24,21 +24,21 @@ from screamingface_engine.benchmarks.evaluation import (
     compact_json,
 )
 from screamingface_engine.benchmarks.spine.serving import (
-    ServedBoard,
-    board_aggregate,
-    board_case_count,
-    board_preflight,
-    board_routes,
+    ServedBenchmark,
+    benchmark_aggregate,
+    benchmark_case_count,
+    benchmark_preflight,
+    benchmark_routes,
     candidate_record,
-    compute_board_revision,
-    install_board,
+    compute_benchmark_revision,
+    install_benchmark,
     read_asset,
     serve_cases,
 )
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
-# --- toy board -------------------------------------------------------------------
+# --- toy benchmark -------------------------------------------------------------------
 
 _REVISION = "0123456789abcdef"
 
@@ -89,7 +89,7 @@ def _bind(case_id: int, attempts: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class _Reduce:
-    """Records what the aggregate adapter forwards, like each board's `reducing.aggregate`."""
+    """Records what the aggregate adapter forwards, like each benchmark's `reducing.aggregate`."""
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -116,11 +116,11 @@ class _Reduce:
 
 
 def _preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    board_preflight(root, case_ids, label="Toy", load_answer=_load_answer)
+    benchmark_preflight(root, case_ids, label="Toy", load_answer=_load_answer)
 
 
-def _toy_board(*, reduce: _Reduce | None = None, declared: int = 2) -> ServedBoard:
-    return ServedBoard(
+def _toy_benchmark(*, reduce: _Reduce | None = None, declared: int = 2) -> ServedBenchmark:
+    return ServedBenchmark(
         benchmark_id="toy",
         label="Toy",
         revision=_REVISION,
@@ -136,11 +136,11 @@ def _toy_board(*, reduce: _Reduce | None = None, declared: int = 2) -> ServedBoa
 # --- routes + revision -----------------------------------------------------------
 
 
-class TestBoardRoutes:
+class TestBenchmarkRoutes:
     def test_routes_carry_id_and_revision(self) -> None:
-        # INVARIANT: the route layout is exam identity — every migrated board must keep
+        # INVARIANT: the route layout is exam identity — every migrated benchmark must keep
         # resolving at exactly these addresses, so the layout is pinned byte-for-byte.
-        routes = board_routes("toy", _REVISION)
+        routes = benchmark_routes("toy", _REVISION)
 
         assert routes.prefix == f"/benchmarks/toy/{_REVISION}"
         assert routes.cases == f"/benchmarks/toy/{_REVISION}/cases"
@@ -149,21 +149,21 @@ class TestBoardRoutes:
         assert routes.aggregate == f"/benchmarks/toy/{_REVISION}/aggregate"
 
 
-class TestComputeBoardRevision:
+class TestComputeBenchmarkRevision:
     def test_sixteen_hex_characters(self) -> None:
-        revision = compute_board_revision("a", "b", "c")
+        revision = compute_benchmark_revision("a", "b", "c")
 
         assert len(revision) == 16
         assert set(revision) <= set("0123456789abcdef")
 
     def test_any_changed_part_changes_the_revision(self) -> None:
         # WHY: a changed prompt or pin is a changed exam and must re-address every route.
-        assert compute_board_revision("a", "b") != compute_board_revision("a", "c")
+        assert compute_benchmark_revision("a", "b") != compute_benchmark_revision("a", "c")
 
     def test_parts_are_joined_not_concatenated(self) -> None:
         # WHY newline joining is pinned: ("ab","c") and ("a","bc") must not collide,
-        # and the join rule participates in every existing board's baked revision.
-        assert compute_board_revision("ab", "c") != compute_board_revision("a", "bc")
+        # and the join rule participates in every existing benchmark's baked revision.
+        assert compute_benchmark_revision("ab", "c") != compute_benchmark_revision("a", "bc")
 
 
 # --- the check-record envelope ---------------------------------------------------
@@ -172,7 +172,7 @@ class TestComputeBoardRevision:
 class TestCandidateRecord:
     def test_field_order_is_byte_stable(self) -> None:
         # INVARIANT: the record's field ORDER is part of the served bytes — migrated
-        # boards must produce byte-identical check records through this helper.
+        # benchmarks must produce byte-identical check records through this helper.
         reply = candidate_answer(encode_candidate_invocation("hello", "stop", None))
 
         record = candidate_record(
@@ -252,24 +252,24 @@ class TestCandidateRecord:
 # --- preflight -------------------------------------------------------------------
 
 
-class TestBoardPreflight:
+class TestBenchmarkPreflight:
     def test_passes_on_a_complete_bundle(self, tmp_path: Path) -> None:
         root = _emit_bundle(tmp_path / "toy")
 
-        board_preflight(root, (1, 2), label="Toy", load_answer=_load_answer)
+        benchmark_preflight(root, (1, 2), label="Toy", load_answer=_load_answer)
 
     def test_missing_cases_file_fails(self, tmp_path: Path) -> None:
         root = tmp_path / "toy"
         root.mkdir()
 
         with pytest.raises(ResolutionError, match="cases.json missing"):
-            board_preflight(root, (), label="Toy", load_answer=_load_answer)
+            benchmark_preflight(root, (), label="Toy", load_answer=_load_answer)
 
     def test_missing_answer_record_fails_before_any_paid_call(self, tmp_path: Path) -> None:
         root = _emit_bundle(tmp_path / "toy", case_ids=(1,))
 
         with pytest.raises(ResolutionError, match="answer record for case 9"):
-            board_preflight(root, (9,), label="Toy", load_answer=_load_answer)
+            benchmark_preflight(root, (9,), label="Toy", load_answer=_load_answer)
 
     def test_problem_list_is_capped_at_eight(self, tmp_path: Path) -> None:
         # WHY the cap: the message travels in a public failure row; an exam with
@@ -277,13 +277,13 @@ class TestBoardPreflight:
         root = _emit_bundle(tmp_path / "toy", case_ids=(1,))
 
         with pytest.raises(ResolutionError) as caught:
-            board_preflight(root, tuple(range(10, 30)), label="Toy", load_answer=_load_answer)
+            benchmark_preflight(root, tuple(range(10, 30)), label="Toy", load_answer=_load_answer)
 
         assert str(caught.value).count("answer record") == 8
 
-    def test_board_error_class_is_used(self, tmp_path: Path) -> None:
-        # Per-board deviation preserved: medxpert raises benchmark_definition_error,
-        # contracteval benchmark_unavailable — the core takes the board's factory.
+    def test_benchmark_error_class_is_used(self, tmp_path: Path) -> None:
+        # Per-benchmark deviation preserved: medxpert raises benchmark_definition_error,
+        # contracteval benchmark_unavailable — the core takes the benchmark's factory.
         def custom(detail: str) -> ResolutionError:
             return ResolutionError(detail, code="custom_code", permanent=True)
 
@@ -291,7 +291,7 @@ class TestBoardPreflight:
         root.mkdir()
 
         with pytest.raises(ResolutionError) as caught:
-            board_preflight(root, (), label="Toy", load_answer=_load_answer, error=custom)
+            benchmark_preflight(root, (), label="Toy", load_answer=_load_answer, error=custom)
 
         assert caught.value.code == "custom_code"
 
@@ -300,9 +300,9 @@ class TestBoardPreflight:
 
 
 class TestServeCases:
-    def test_serves_compact_rows_from_the_board_builder(self, tmp_path: Path) -> None:
+    def test_serves_compact_rows_from_the_benchmark_builder(self, tmp_path: Path) -> None:
         root = _emit_bundle(tmp_path / "toy")
-        cases = serve_cases(root, _toy_board())
+        cases = serve_cases(root, _toy_benchmark())
 
         served = json.loads(cases())
 
@@ -319,7 +319,7 @@ class TestServeCases:
         # first call must not be served from a cache primed before the failure.
         root = _emit_bundle(tmp_path / "toy")
         (root / "answers.json").unlink()
-        cases = serve_cases(root, _toy_board())
+        cases = serve_cases(root, _toy_benchmark())
 
         with pytest.raises(ResolutionError):
             cases()
@@ -335,9 +335,9 @@ class TestServeCases:
             return _load_answer(bundle_root, case_id)
 
         def counting_preflight(bundle_root: Path, case_ids: tuple[int, ...]) -> None:
-            board_preflight(bundle_root, case_ids, label="Toy", load_answer=counting_load)
+            benchmark_preflight(bundle_root, case_ids, label="Toy", load_answer=counting_load)
 
-        board = ServedBoard(
+        benchmark = ServedBenchmark(
             benchmark_id="toy",
             label="Toy",
             revision=_REVISION,
@@ -348,7 +348,7 @@ class TestServeCases:
             bind_case_evaluation=_bind,
             reduce=_Reduce(),
         )
-        cases = serve_cases(root, board)
+        cases = serve_cases(root, benchmark)
 
         cases()
         first_round = len(calls)
@@ -360,7 +360,7 @@ class TestServeCases:
     def test_missing_cases_file_is_a_bounded_failure(self, tmp_path: Path) -> None:
         root = tmp_path / "toy"
         root.mkdir()
-        cases = serve_cases(root, _toy_board())
+        cases = serve_cases(root, _toy_benchmark())
 
         with pytest.raises(ResolutionError, match="Toy cases"):
             cases()
@@ -369,16 +369,16 @@ class TestServeCases:
 # --- case count + asset reads ----------------------------------------------------
 
 
-class TestBoardCaseCount:
+class TestBenchmarkCaseCount:
     def test_counts_the_baked_booklet(self, tmp_path: Path) -> None:
         root = _emit_bundle(tmp_path / "toy", case_ids=(1, 2, 3))
 
-        assert board_case_count(root, declared=99) == 3
+        assert benchmark_case_count(root, declared=99) == 3
 
     def test_declared_count_stands_in_when_assets_are_absent(self, tmp_path: Path) -> None:
         # WHY: install happens on a resource-only control plane where assets may be
         # absent; preflight — not this count — is what refuses a run it cannot serve.
-        assert board_case_count(tmp_path / "missing", declared=99) == 99
+        assert benchmark_case_count(tmp_path / "missing", declared=99) == 99
 
 
 class TestReadAsset:
@@ -395,13 +395,13 @@ class TestReadAsset:
 # --- aggregate adapter -----------------------------------------------------------
 
 
-class TestBoardAggregate:
+class TestBenchmarkAggregate:
     def test_forwards_identity_and_the_selected_case_ids(self, tmp_path: Path) -> None:
         # INVARIANT: case_ids are 1..selected — the reducer scores exactly the exam
         # that was selected, and identity (id + revision) rides into the report.
         reduce = _Reduce()
         root = _emit_bundle(tmp_path / "toy")
-        handler = board_aggregate(root, _toy_board(reduce=reduce))
+        handler = benchmark_aggregate(root, _toy_benchmark(reduce=reduce))
 
         result = handler("[]", 2)
 
@@ -420,17 +420,17 @@ class TestBoardAggregate:
 # --- install ---------------------------------------------------------------------
 
 
-class TestInstallBoard:
+class TestInstallBenchmark:
     def test_registers_every_route_the_expression_references(self, tmp_path: Path) -> None:
         # INVARIANT: a registered declaration is structurally served — no hand-wired
         # slot can be forgotten, which is the bug class this module deletes.
         root = _emit_bundle(tmp_path / "toy")
         node = Url4Node("test")
-        board = _toy_board()
+        benchmark = _toy_benchmark()
 
-        install_board(node, root, board)
+        install_benchmark(node, root, benchmark)
 
-        routes = board_routes("toy", _REVISION)
+        routes = benchmark_routes("toy", _REVISION)
         installed = frozenset(node.processor_routes())
         # INVARIANT: cases validate the requested count before native iteration runs.
         assert routes.cases in installed
@@ -441,12 +441,12 @@ class TestInstallBoard:
     def test_reinstall_is_idempotent(self, tmp_path: Path) -> None:
         root = _emit_bundle(tmp_path / "toy")
         node = Url4Node("test")
-        board = _toy_board()
+        benchmark = _toy_benchmark()
 
-        install_board(node, root, board)
-        install_board(node, root, board)
+        install_benchmark(node, root, benchmark)
+        install_benchmark(node, root, benchmark)
 
         assert frozenset(node.processor_routes()) >= {
-            board_routes("toy", _REVISION).check,
-            board_routes("toy", _REVISION).aggregate,
+            benchmark_routes("toy", _REVISION).check,
+            benchmark_routes("toy", _REVISION).aggregate,
         }

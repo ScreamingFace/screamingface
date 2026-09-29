@@ -35,17 +35,17 @@ type FailurePolicy = Literal["withhold", "coverage_declare"]
 # How the Candidate is exercised.
 #   "single_shot" — one prompt in, one reply out, graded. No follow-up turns, no tool
 #                   environment.
-#   "multi_turn"  — the BOARD invokes the Candidate more than once per Case, feeding an earlier
+#   "multi_turn"  — the BENCHMARK invokes the Candidate more than once per Case, feeding an earlier
 #                   reply into a later prompt. Declared because it changes both the cost shape
 #                   (N invocations per Case) and what a Fusion entrant is actually being asked
 #                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
 # Agentic/tool-environment interactions arrive later as further declared values.
 type InteractionType = Literal["single_shot", "multi_turn"]
 # How hard the exam is — the catalogue's easy→hard axis (OME-1257). Hand-assigned by the
-# board's author/importer and reviewed in the PR that lands it; NOT measured from score
+# benchmark's author/importer and reviewed in the PR that lands it; NOT measured from score
 # distributions (a measured tier would be a separate, later mechanism).
 #   "easy" — largely saturated material (grade-school sets, binary choices):
-#                    frontier models pass ~90%+, so the board gives quick, cheap signal.
+#                    frontier models pass ~90%+, so the benchmark gives quick, cheap signal.
 #   "medium" — real headroom without expert stakes: broad knowledge exams,
 #                    instruction following, specialized extraction.
 #   "hard"     — expert-written material today's best models visibly fail (clinical
@@ -68,13 +68,13 @@ _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_eva
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
-# scheme a browser will not follow (or a bare host that resolves relative to the board) is a
+# scheme a browser will not follow (or a bare host that resolves relative to the benchmark) is a
 # broken link published under the Engine's name.
 _WEB_URL = re.compile(r"https?://\S+")
 # WHY the Engine enforces the leaderboard's column widths: this definition is the ONE place a
-# benchmark's text is written (OME-904), which means an author here never runs the board's
+# benchmark's text is written (OME-904), which means an author here never runs the benchmark's
 # validation. Without a cap, over-long text passes every Engine test and is only discovered at
-# the next deploy, where the board can do no better than skip that benchmark and keep its old
+# the next deploy, where the benchmark can do no better than skip that benchmark and keep its old
 # text. Fail where the text is written instead.
 _DISPLAY_LIMITS = {"title": 255, "revision": 64, "focus": 120}
 
@@ -131,8 +131,8 @@ class BenchmarkDeclaration:
     today; any other value is refused by name before any paid request.
 
     ``difficulty`` — how hard the exam is, the catalogue's easy→hard axis (OME-1257).
-    A hand-assigned tier from the closed set above, so the listing can group boards
-    into a map a newcomer reads without knowing each board by name.
+    A hand-assigned tier from the closed set above, so the listing can group benchmarks
+    into a map a newcomer reads without knowing each benchmark by name.
 
     INVARIANT: every field is REQUIRED with no defaults. A defaulted policy is a policy
     nobody can see from the manifest, and a policy nobody can see is a policy nobody can
@@ -193,8 +193,8 @@ class Benchmark:
     install: BenchmarkInstaller = _no_routes
     check_surface: CheckSurface | None = None
     # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
-    # `focus` and `dataset_url` are the four fields the public board displays, and this
-    # definition is their ONLY authoring site — the board seeds them from the catalogue rather
+    # `focus` and `dataset_url` are the four fields the public Leaderboard displays, and this
+    # definition is their ONLY authoring site — the Scoreboard seeds them from the catalogue rather
     # than from hand-copied deployment configuration.
     # INVARIANT: neither field enters `revision`, which is computed from dataset and protocol
     # constants alone. Editing editorial text must never make a recorded submission look
@@ -204,7 +204,7 @@ class Benchmark:
     # FEATURE: benchmark provenance in the public catalogue (OME-1112).
     # WHY a default, unlike `declaration`: OME-1039's no-defaults rule guards
     # score-changing declarations; provenance defaulting to "screamingface" states a
-    # true fact for every board authored in this repo, and the import lane must pass
+    # true fact for every benchmark authored in this repo, and the import lane must pass
     # origin="inspect_evals" explicitly at registration.
     origin: BenchmarkOrigin = "screamingface"
 

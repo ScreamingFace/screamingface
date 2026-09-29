@@ -1,7 +1,7 @@
-"""Install one DRACO board's private assets and functions into a Runner world.
+"""Install one DRACO benchmark's private assets and functions into a Runner world.
 
-The board's routes and judge-pass count come from the :class:`DracoExam` the board
-module passes in — the same dataset assets serve every board, and only the
+The benchmark's routes and judge-pass count come from the :class:`DracoExam` the benchmark
+module passes in — the same dataset assets serve every benchmark, and only the
 addresses and the evidence cardinality differ.
 """
 
@@ -57,12 +57,12 @@ from url4.peer.server import Request, Url4Node
 
 
 def install(node: Url4Node, root: Path, exam: DracoExam) -> None:
-    """Register the routes referenced by one DRACO board.
+    """Register the routes referenced by one DRACO benchmark.
 
     INVARIANT (OME-999): install registers LAZY providers and reads no asset. A Runner world
-    carries every registered board, so an eager read here would make every other board's run
+    carries every registered benchmark, so an eager read here would make every other benchmark's run
     require DRACO's assets — the shared lazy-install contract HealthBench's install documents.
-    Assets load on the first resolution of one of THIS board's routes; only successes are
+    Assets load on the first resolution of one of THIS benchmark's routes; only successes are
     memoized, so a missing asset fails identically — and loudly — on every resolution.
     """
     assets = _lazy_protocol_assets(root)
@@ -105,7 +105,7 @@ ProtocolAssets = tuple[str, list[dict[str, object]], dict[int, dict[str, Any]]]
 
 
 def _lazy_protocol_assets(root: Path) -> Callable[[], ProtocolAssets]:
-    """A memoized accessor for the board's shared assets — loaded on first use, never at install.
+    """A memoized accessor for the shared assets — loaded on first use, never at install.
 
     Baked assets are immutable for the process lifetime, so one successful load serves every
     later resolution. A FAILED load is never cached: the next resolution re-reads and re-fails
@@ -257,11 +257,11 @@ def _criterion_verdict(benchmark_id: str):
 
 
 def _criterion_evaluation(judge_passes: int):
-    """One criterion-evaluation handler bound to its board's judge-pass count.
+    """One criterion-evaluation handler bound to its benchmark's judge-pass count.
 
     The protocol posts exactly ``judge_passes`` evidence records per criterion, so the
     handler demands exactly those field names — a five-pass expression cannot resolve
-    against a three-pass board's route and vice versa (every route is revision-pinned).
+    against a three-pass benchmark's route and vice versa (every route is revision-pinned).
     """
 
     @observe_stage(ActivityKind.GRADING)

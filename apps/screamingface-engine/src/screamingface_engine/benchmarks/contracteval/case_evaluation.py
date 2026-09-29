@@ -11,10 +11,10 @@ CASE_EVALUATION_SCHEMA = "screamingface.contracteval-case-evaluation.v1"
 _CASE_EVALUATION_FIELDS = frozenset({"schema", "case_id", "attempts"})
 
 # INVARIANT: every field the reducer reads to place a Case in the confusion matrix is validated
-# HERE, on the way in. On a board whose score is a mean, a missing field costs one score. On this
-# board `bool(None)` is False, which is not "no score" — it silently becomes a FALSE NEGATIVE on a
-# positive row or a FALSE POSITIVE on a negative one, depressing precision and recall with no
-# failure reported anywhere. That is exactly the "no inference" promise this module makes.
+# HERE, on the way in. On a benchmark whose score is a mean, a missing field costs one score. On
+# this benchmark `bool(None)` is False, which is not "no score" — it silently becomes a FALSE
+# NEGATIVE on a positive row or a FALSE POSITIVE on a negative one, depressing precision and recall
+# with no failure reported anywhere. That is exactly the "no inference" promise this module makes.
 _VERDICT_BOOLS = ("correct", "is_positive", "abstained")
 
 
@@ -44,7 +44,7 @@ def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, An
     """Validate one exact aggregate input envelope without shape inference.
 
     INVARIANT: no inference. The aggregate reads only envelopes this accepted, so a malformed row
-    fails here rather than becoming a silently missing score — or, on this board, a silently
+    fails here rather than becoming a silently missing score — or, on this benchmark, a silently
     missing cell in the confusion matrix.
     """
 

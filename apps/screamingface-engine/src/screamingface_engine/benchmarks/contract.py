@@ -222,7 +222,7 @@ class Failure(_StrictWireModel):
     @classmethod
     def _validate_code(cls, value: str) -> str:
         # INVARIANT (OME-1234): every published failure passes through this model,
-        # whichever board produced it — refusing an undeclared code HERE means it can
+        # whichever benchmark produced it — refusing an undeclared code HERE means it can
         # never reach a report, so the vocabulary cannot drift one typo at a time.
         # Unknown UPSTREAM codes never hit this: public_error maps them to
         # upstream_error before a Failure is built.

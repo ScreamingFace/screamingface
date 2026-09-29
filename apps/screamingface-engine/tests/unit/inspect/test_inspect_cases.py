@@ -3,12 +3,12 @@
 # default (extra-less) install the typecheck gate runs against. Only unresolved-import
 # reporting is relaxed; every other diagnostic stays on, and with the extra installed
 # these imports type-check normally.
-"""The imported boards' asset snapshots — their formatting baked as data (spec §5.3).
+"""The imported benchmarks' asset snapshots — their formatting baked as data (spec §5.3).
 
 INVARIANT the suite defends: prompt formatting reproduces the eval's own solver-chain
 templates at bake time; the public booklet (``cases.json``) never carries a target;
 the private ``targets/`` records hold exactly what the scorer adapter needs (the target,
-plus the choice texts for MCQ boards); and the mmlu shuffle is seeded — the baked
+plus the choice texts for MCQ benchmarks); and the mmlu shuffle is seeded — the baked
 order is exam identity.
 
 Runs only with the `inspect` extra installed.
@@ -322,8 +322,8 @@ def test_load_rows_refuses_a_features_pointer_that_is_not_a_schema(
 
 
 def test_without_a_choice_shuffle_seed_the_choice_order_is_upstreams(tmp_path: Path) -> None:
-    """The new field defaults to None — boards without it keep baking the
-    dataset's own choice order (append-only behavior for every existing board)."""
+    """The new field defaults to None — benchmarks without it keep baking the
+    dataset's own choice order (append-only behavior for every existing benchmark)."""
 
     emit_cases(BENCHMARK_CASES["mmlu"], _MMLU_ROWS, tmp_path)
     baked_choices = {
@@ -356,17 +356,17 @@ def test_mmlu_snapshot_refuses_an_out_of_range_answer(tmp_path: Path) -> None:
         emit_cases(BENCHMARK_CASES["mmlu"], [row], tmp_path)
 
 
-# ── exam-size and re-bake guards (shared by both boards) ─────────────────────
+# ── exam-size and re-bake guards (shared by both benchmarks) ─────────────────────
 
 
-@pytest.mark.parametrize(("board", "rows"), [("gsm8k", _GSM8K_ROWS), ("mmlu", _MMLU_ROWS)])
-def test_wrong_sized_dataset_refuses_the_bake(board: str, rows: Any, tmp_path: Path) -> None:
+@pytest.mark.parametrize(("benchmark", "rows"), [("gsm8k", _GSM8K_ROWS), ("mmlu", _MMLU_ROWS)])
+def test_wrong_sized_dataset_refuses_the_bake(benchmark: str, rows: Any, tmp_path: Path) -> None:
     """INVARIANT: the pinned case count is exam identity — a config/revision typo that
     yields the wrong number of rows (0 included) must fail loudly, never bake a
     smaller exam with a green build."""
 
     with pytest.raises(PrepareError, match="pinned case count"):
-        emit_cases(BENCHMARK_CASES[board], rows, tmp_path, expected_cases=len(rows) + 1)
+        emit_cases(BENCHMARK_CASES[benchmark], rows, tmp_path, expected_cases=len(rows) + 1)
 
 
 def test_rebake_into_a_used_directory_is_refused(tmp_path: Path) -> None:
@@ -390,25 +390,25 @@ def _spec_with_revision(revision: str) -> Any:
 @pytest.mark.parametrize("mutable_ref", ["main", "refs/tags/v1.0", "HEAD", ""])
 def test_bake_refuses_a_mutable_revision_ref(mutable_ref: str, tmp_path: Path) -> None:
     """INVARIANT: only a 40-hex commit sha is exam identity. A branch/tag ref would
-    let upstream silently change a published board while its revision hash — built
+    let upstream silently change a published benchmark while its revision hash — built
     from the unchanging ref STRING — stayed the same."""
 
     with pytest.raises(PrepareError, match="commit sha"):
         emit_cases(_spec_with_revision(mutable_ref), _GSM8K_ROWS, tmp_path)
 
 
-def test_board_assembly_refuses_a_mutable_revision_ref(
+def test_benchmark_assembly_refuses_a_mutable_revision_ref(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The same refusal fires at board-assembly time (CI), not only at image build —
+    """The same refusal fires at benchmark-assembly time (CI), not only at image build —
     a mutable pin lands in a red test suite, never in a published catalogue."""
 
-    from screamingface_engine_inspect import boards
+    from screamingface_engine_inspect import benchmarks
 
     monkeypatch.setitem(BENCHMARK_CASES, "gsm8k", _spec_with_revision("main"))
-    monkeypatch.setattr(boards, "_ASSEMBLED", {})
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
     with pytest.raises(PrepareError, match="commit sha"):
-        boards.imported_board("gsm8k")
+        benchmarks.imported_benchmark("gsm8k")
 
 
 # ── custom choice template (the family renderer mmlu_pro / winogrande / race_h
@@ -416,7 +416,7 @@ def test_board_assembly_refuses_a_mutable_revision_ref(
 
 
 def test_mcq_prompt_accepts_the_evals_own_template() -> None:
-    """INVARIANT: a board whose eval passes a custom template to multiple_choice
+    """INVARIANT: a benchmark whose eval passes a custom template to multiple_choice
     must render THAT template — the default SINGLE_ANSWER render would silently
     change the imported exam."""
 
@@ -639,7 +639,7 @@ _HELLASWAG_ROWS: list[dict[str, Any]] = [
 
 def test_hellaswag_snapshot_leads_with_their_instruction(tmp_path: Path) -> None:
     """OME-1253 (owner-approved): hellaswag's task instruction lives in a SYSTEM
-    message upstream; the board delivers it as the input's leading text (named
+    message upstream; the benchmark delivers it as the input's leading text (named
     deviation — a benchmark cannot address a candidate's system role), ahead of
     the untouched MCQ render, with the key private."""
 
@@ -706,18 +706,18 @@ def test_the_metadata_opt_in_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -
 
     from dataclasses import replace
 
-    from screamingface_engine_inspect import boards, single_shot
+    from screamingface_engine_inspect import benchmarks, single_shot
 
-    monkeypatch.setattr(boards, "_ASSEMBLED", {})
-    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
-    base = boards.imported_board("gsm8k").benchmark.revision
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+    base = benchmarks.imported_benchmark("gsm8k").benchmark.revision
 
     monkeypatch.setitem(
         BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], keep_sample_metadata=True)
     )
-    monkeypatch.setattr(boards, "_ASSEMBLED", {})
-    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
-    assert boards.imported_board("gsm8k").benchmark.revision != base
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+    assert benchmarks.imported_benchmark("gsm8k").benchmark.revision != base
 
 
 def test_non_json_sample_metadata_refuses_the_bake(tmp_path: Path) -> None:
@@ -822,7 +822,7 @@ def _baked_inputs(out: Path) -> list[str]:
 def test_question_filter_bakes_exactly_the_questions_the_eval_keeps(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """INVARIANT (OME-1269): a board holds exactly the questions inspect would run —
+    """INVARIANT (OME-1269): a benchmark holds exactly the questions inspect would run —
     the eval's own filter decides, so 6 rows become the 3 even-numbered cases."""
 
     _install_filtering_eval(monkeypatch)
@@ -953,17 +953,17 @@ def test_question_filter_refuses_a_module_without_hf_dataset(
 
 
 def test_the_question_filter_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sending a board through its task's filter, or changing the task args, changes which
+    """Sending a benchmark through its task's filter, or changing the task args, changes which
     questions the bake keeps — the revision must move both times."""
 
     from dataclasses import replace
 
-    from screamingface_engine_inspect import boards, single_shot
+    from screamingface_engine_inspect import benchmarks, single_shot
 
     def revision() -> str:
-        monkeypatch.setattr(boards, "_ASSEMBLED", {})
-        monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
-        return boards.imported_board("gsm8k").benchmark.revision
+        monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+        monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+        return benchmarks.imported_benchmark("gsm8k").benchmark.revision
 
     base: str = revision()
     filtered = replace(
@@ -986,7 +986,7 @@ def test_excluded_sample_ids_drop_exactly_those_questions(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """onet_m6's precedent: inspect keeps 6 questions whose answer letter lies past
-    their choices; the board drops them BY ID, and the pinned count is what is left."""
+    their choices; the benchmark drops them BY ID, and the pinned count is what is left."""
 
     _install_filtering_eval(monkeypatch)
 
@@ -1003,7 +1003,7 @@ def test_excluded_sample_ids_drop_exactly_those_questions(
 def test_excluded_sample_ids_count_after_the_exclusion_without_a_question_filter(
     tmp_path: Path,
 ) -> None:
-    """The deviation works on a plain board too: the size check moves to what is left."""
+    """The deviation works on a plain benchmark too: the size check moves to what is left."""
 
     from inspect_evals.wmdp.wmdp import record_to_sample
 
@@ -1038,12 +1038,12 @@ def test_a_stale_excluded_sample_id_refuses_the_bake(
 def test_excluded_sample_ids_are_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     from dataclasses import replace
 
-    from screamingface_engine_inspect import boards, single_shot
+    from screamingface_engine_inspect import benchmarks, single_shot
 
     def revision() -> str:
-        monkeypatch.setattr(boards, "_ASSEMBLED", {})
-        monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
-        return boards.imported_board("gsm8k").benchmark.revision
+        monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+        monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+        return benchmarks.imported_benchmark("gsm8k").benchmark.revision
 
     base: str = revision()
     monkeypatch.setitem(
@@ -1053,7 +1053,7 @@ def test_excluded_sample_ids_are_exam_identity(monkeypatch: pytest.MonkeyPatch) 
     assert revision() != base
 
 
-# ── judged boards with no answer key (OME-1269 xstest, OME-1371) ─────────────
+# ── judged benchmarks with no answer key (OME-1269 xstest, OME-1371) ─────────────
 
 _XSTEST_ROWS: list[dict[str, Any]] = [
     {
@@ -1088,7 +1088,7 @@ def _no_key_spec(**overrides: Any) -> CasesSpec:
 
 
 def test_a_row_without_the_opt_in_still_refuses_an_empty_answer_key(tmp_path: Path) -> None:
-    """INVARIANT: on every board that grades against a key, an empty key is a broken
+    """INVARIANT: on every benchmark that grades against a key, an empty key is a broken
     row (a gsm8k answer that failed to parse) — the bake must keep refusing it."""
 
     with pytest.raises(PrepareError, match="target is empty"):
@@ -1134,7 +1134,7 @@ def test_a_dataset_needing_an_hf_token_refuses_the_bake_without_one(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Main and release builds must fail loudly, naming the missing token — never an
-    anonymous 401 deep inside `datasets`, and never an image missing a board."""
+    anonymous 401 deep inside `datasets`, and never an image missing a benchmark."""
 
     from screamingface_engine_inspect.prepare import prepare_cases
 
@@ -1149,7 +1149,7 @@ def test_a_pr_build_skips_a_dataset_needing_an_hf_token_loudly(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """PR builds from forks and Dependabot get no Actions secrets; they opt in to
-    skipping the gated board with a warning in the build log, and bake nothing."""
+    skipping the gated benchmark with a warning in the build log, and bake nothing."""
 
     from screamingface_engine_inspect.prepare import prepare_cases
 
@@ -1167,7 +1167,7 @@ def test_a_pr_build_skips_a_dataset_needing_an_hf_token_loudly(
 def test_the_skip_switch_never_skips_a_public_dataset(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The switch covers gated boards only — a public board still bakes."""
+    """The switch covers gated benchmarks only — a public benchmark still bakes."""
 
     from screamingface_engine_inspect import prepare as prepare_module
     from screamingface_engine_inspect.prepare import prepare_cases
@@ -1225,7 +1225,7 @@ def test_question_filter_refuses_a_row_pinning_another_load(
 def test_a_dataset_needing_an_hf_token_bakes_with_one_even_with_the_skip_switch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The main-branch case: with a token the gated board downloads and bakes. The
+    """The main-branch case: with a token the gated benchmark downloads and bakes. The
     skip switch only ever fires when NO token is available, so a change like "skip
     whenever the switch is set" must fail here (review on PR #1112)."""
 
@@ -1244,10 +1244,10 @@ def test_a_dataset_needing_an_hf_token_bakes_with_one_even_with_the_skip_switch(
         assert not (out / "SKIPPED").exists()
 
 
-def test_a_board_skipped_for_its_hf_token_names_the_skip_at_runtime(
+def test_a_benchmark_skipped_for_its_hf_token_names_the_skip_at_runtime(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A preview image built without the token still lists the board; running it must
+    """A preview image built without the token still lists the benchmark; running it must
     say WHY it has no questions, not a bare "cases are unavailable" (review on PR #1112)."""
 
     from screamingface_engine_inspect.prepare import prepare_cases

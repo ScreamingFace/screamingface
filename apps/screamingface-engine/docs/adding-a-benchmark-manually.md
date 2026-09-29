@@ -3,14 +3,14 @@
 > **Importing an existing inspect_evals benchmark instead?** That is a data
 > operation, not an authoring project — see
 > [`adding-an-imported-benchmark.md`](adding-an-imported-benchmark.md). This guide
-> is for boards we author ourselves (novel datasets, novel grading).
+> is for benchmarks we author ourselves (novel datasets, novel grading).
 
 **TLDR: a benchmark is an exam, and you only author the exam-specific parts. You bring
 the question paper (dataset mapping), the rule for grading one answer (`grade_case`),
 and the cover sheet stating how the exam is run and scored (declaration). Everything
 every exam does the same way — seating the candidate, collecting the answers, filing
 results, totalling the score — is the exam hall, run by shared code called the spine
-(`benchmarks/spine/`).** You never edit another board or a shared spine file — if you
+(`benchmarks/spine/`).** You never edit another benchmark or a shared spine file — if you
 have to, the spine failed its deletion test and that is a bug to file, not a pattern to
 copy.
 
@@ -19,16 +19,16 @@ there:
 
 <img src="diagrams/benchmark-onboarding-steps.png" width="1550">
 
-And the seam that journey stays inside — what a board author owns vs what the spine
+And the seam that journey stays inside — what a benchmark author owns vs what the spine
 runs:
 
 <img src="diagrams/benchmark-authoring-seam.png" width="1350">
 
-Realistic size, from the boards in production: a rubric board on the shared factories is
+Realistic size, from the benchmarks in production: a rubric benchmark on the shared factories is
 ~122 lines of grading code (`gdpval/grade.py`, `healthbench/grade.py` — both exactly
 122); a novel grading mode is larger (`medxpert/aggregate.py` 245, `ifeval/grade.py` 401)
 plus its protocol/runtime modules. Everything below is walked against MedXpertQA
-(`benchmarks/medxpert/`), the newest board — when a step says "copy the shape", that is
+(`benchmarks/medxpert/`), the newest benchmark — when a step says "copy the shape", that is
 the module to open.
 
 ## Step 0 — pick your cell on the two axes
@@ -42,21 +42,21 @@ manifest so reviewers approve it by reading the manifest, never engine source. T
 grading `method` is the informal third axis: a free string on `ScoredPath`, published as
 `CaseGrade.method` — reuse an existing value unless your grading genuinely is a new kind.
 
-## Step 1 — the board module
+## Step 1 — the benchmark module
 
-One directory: `src/screamingface_engine/benchmarks/<board>/`. MedXpertQA's layout:
+One directory: `src/screamingface_engine/benchmarks/<benchmark>/`. MedXpertQA's layout:
 
 | File | Role (exam terms) |
 |---|---|
 | `pins.py` | which printing of the question paper — dataset id, config, revision, split, `PREPARER_REVISION` / `PROTOCOL_REVISION` |
 | `prepare.py` | prints the paper — dataset → baked assets, at image build time |
 | `definition.py` | the exam's public listing — the `Benchmark` record, `compute_revision()`, the url4 protocol template, the declaration |
-| `runtime.py` | the exam hall's doors — the board's FastAPI routes |
+| `runtime.py` | the exam hall's doors — the benchmark's FastAPI routes |
 | `aggregate.py` | the marking room — `grade_case`, the `ScoredPath` wiring, the scorer |
-| `case_evaluation.py` | the board's answer-sheet format — schema-validated per-Case evaluation envelopes |
-| `grading.py` / `answering.py` / `prompts.py` | board-private marking and prompting helpers |
+| `case_evaluation.py` | the benchmark's answer-sheet format — schema-validated per-Case evaluation envelopes |
+| `grading.py` / `answering.py` / `prompts.py` | benchmark-private marking and prompting helpers |
 
-Unit tests go to `tests/unit/test_<board>_*.py` (medxpert ships seven). Spine tests
+Unit tests go to `tests/unit/test_<benchmark>_*.py` (medxpert ships seven). Spine tests
 (`test_spine_*.py`) are not yours to touch.
 
 ## Step 2 — prepare the assets
@@ -81,16 +81,16 @@ uv run --with datasets python -m screamingface_engine.benchmarks.medxpert.prepar
 - Pin everything in `pins.py`, fold it into `compute_revision()` — the revision is in
   every route path, so a re-print of the paper is a new, distinguishable exam.
 - Assets land under `$URL4_BENCHMARK_ASSETS` (default `/opt/benchmarks`), one directory
-  per bundle id; two boards may share one bundle (draco/draco-3pass do).
+  per bundle id; two benchmarks may share one bundle (draco/draco-3pass do).
 
 ## Step 3 — the case-row shapes
 
-Two row shapes, one public, one board-owned:
+Two row shapes, one public, one benchmark-owned:
 
 - **The baked dataset row** (`cases.json`): a JSON array of objects with an `int` `id`
   and a non-blank `str` `input`; every other key rides through as Case metadata. The
   spine decodes it into `SelectedCase` (`benchmarks/aggregation.py`).
-- **The evaluation row** your `grade_case` receives: an **opaque, board-owned envelope**
+- **The evaluation row** your `grade_case` receives: an **opaque, benchmark-owned envelope**
   (`benchmarks/spine/rows.py` files it and never looks inside). Your
   `RowReader.decode_case_evaluation` shapes it; the one sub-key the spine reads is
   `row["case"]` — the candidate fields (`status`, `output`, `finish_reason`, `refusal`,
@@ -138,19 +138,19 @@ async def _grade_case(request: GradeRequest) -> CaseGradeOutcome:
     )
 ```
 
-Read the example's grammar: `material` is the answer key your board baked in Step 2;
+Read the example's grammar: `material` is the answer key your benchmark baked in Step 2;
 `row` is your own envelope from Step 3; the returned `checks` are
 `Check`/`Evidence`-shaped dicts (`benchmarks/contract.py`) so the judge's work is
 auditable per Case.
 
-**Rubric boards don't write this at all.** The shared factory gives you the judged
+**Rubric benchmarks don't write this at all.** The shared factory gives you the judged
 marking rule in one line (`benchmarks/spine/rubric.py`):
 
 ```python
 grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="gdpval/judge")
 ```
 
-where `case_score: (points, verdicts) -> float | None` is your board's official scoring
+where `case_score: (points, verdicts) -> float | None` is your benchmark's official scoring
 formula. The factory owns the two rubric failure codes (`"incomplete_verdicts"`,
 `"no_positive_points"`) and judge replies are parsed by the one shared parser
 (`benchmarks/spine/verdict.py`) — never write your own.
@@ -160,14 +160,14 @@ formula. The factory owns the two rubric failure codes (`"incomplete_verdicts"`,
 ```python
 declaration = BenchmarkDeclaration(
     failure_policy="coverage_declare",
-    interaction="multi_turn",  # medxpert; single_shot for most boards
+    interaction="multi_turn",  # medxpert; single_shot for most benchmarks
 )
 ```
 
 <img src="diagrams/failure-ladder-and-policy.png" width="1300">
 
-The invariant every board factory repeats: **declare `withhold` only if your aggregate
-actually withholds** — every current board reduces through the shared path, which scores
+The invariant every benchmark factory repeats: **declare `withhold` only if your aggregate
+actually withholds** — every current benchmark reduces through the shared path, which scores
 exactly the gradeable subset and publishes coverage, i.e. `coverage_declare`.
 
 Bundle the hooks into a `ScoredPath` (`benchmarks/spine/scored.py`) — MedXpertQA's is the smallest
@@ -177,7 +177,7 @@ complete registration of the whole surface (`medxpert/aggregate.py`):
 _PATH = ScoredPath(
     reader=RowReader(...),  # your decode from Step 3
     grade_case=_grade_case,  # your marking rule from Step 4
-    failure_messages=...,  # your board's wording per failure code
+    failure_messages=...,  # your benchmark's wording per failure code
     method="exact_match",
     grading_failure_code=...,
     grading_failure_message=...,
@@ -187,10 +187,10 @@ _PATH = ScoredPath(
 
 then call `_PATH.aggregate(raw_rows, benchmark_id=..., benchmark_revision=...,
 selected_cases=..., grading_material=..., scorer=..., case_metadata=...)`. Four optional
-hooks let a board reshape a ladder rung's result — `ifeval` sets `missing_row_result`,
+hooks let a benchmark reshape a ladder rung's result — `ifeval` sets `missing_row_result`,
 `draco` sets all four; don't set any until a golden or a spec forces you to. For the
-scorer: rubric boards use the shared `exam_scorer(mean)` (`benchmarks/spine/exam.py`, fixed metric
-vocabulary); other boards pass their own function (medxpert's `_accuracy`, ifeval's
+scorer: rubric benchmarks use the shared `exam_scorer(mean)` (`benchmarks/spine/exam.py`, fixed metric
+vocabulary); other benchmarks pass their own function (medxpert's `_accuracy`, ifeval's
 `_ifeval_score`).
 
 The protocol surface — the url4 template in `definition.py` (`build`) plus the FastAPI
@@ -210,9 +210,9 @@ to the existing one-based activity position. Do not add synthetic fields to data
 
 ### Live activity: what the benchmark owns
 
-Use the same four stages for every board: `ActivityKind.CASE_LOADING`, `ANSWERING`,
+Use the same four stages for every benchmark: `ActivityKind.CASE_LOADING`, `ANSWERING`,
 `GRADING` and `AGGREGATION`. `MODEL_CALL` is call detail, not another benchmark stage.
-Do not introduce board-specific stage names or infer activity from endpoint names.
+Do not introduce benchmark-specific stage names or infer activity from endpoint names.
 
 Shared implementations already observe their work:
 
@@ -223,7 +223,7 @@ Shared implementations already observe their work:
 | `benchmarks/evaluation.py` case/attempt reduction factories and `benchmarks/rubric_check.py` | Grading |
 | `benchmarks/evaluation.py` sync and async aggregation factories | Aggregating |
 
-Do not decorate these handlers again at registration. For a board-owned loader, checker
+Do not decorate these handlers again at registration. For a benchmark-owned loader, checker
 or task preparer, decorate the function that actually performs the work:
 
 ```python
@@ -236,7 +236,7 @@ async def check(request):
     return await check_answer(request)
 ```
 
-Here `check_answer` represents your board's implementation. Use `def` for synchronous
+Here `check_answer` represents your benchmark's implementation. Use `def` for synchronous
 work or `async def` for awaited work; a synchronous function returning an awaitable is
 not supported by this decorator. Async stages include heartbeats and cleanup. The
 optional observer owns log formatting and delivery; benchmark code uses these ports,
@@ -245,10 +245,10 @@ not the concrete activity plugin. With observation disabled, results must be unc
 ### One grading line per case
 
 A handler's stage completion does not mean the entire case has been graded. For native
-boards, call `grading_activity(case_id, "started")` from
+benchmarks, call `grading_activity(case_id, "started")` from
 `benchmarks/grading_activity.py` after decoding the authoritative Case ID at the first
 benchmark grading handoff (checker or task preparer). Follow `medxpert/runtime.py` for
-a direct checker, or the rubric boards for task preparation. Keep the shared
+a direct checker, or the rubric benchmarks for task preparation. Keep the shared
 `preserve_candidate_outcome` / case-execution path: its outcome handler reports
 `"completed"` or `"failed"`. Do not emit completion at every intermediate checker.
 
@@ -286,7 +286,7 @@ A flat, hand-edited list — no entry points, no discovery. Three edits in
 3. One line in `BUILTIN_DEPLOYMENT`:
    `BenchmarkRegistration(benchmark=MEDXPERT, asset_bundle=MEDXPERT_ASSETS)`.
 
-And one edit outside the engine: add the board id to `_BENCHMARKS` in
+And one edit outside the engine: add the benchmark id to `_BENCHMARKS` in
 `packages/screamingface/src/screamingface/_runtime/cli.py`, which backs
 `screamingface prepare <benchmark>` on the client.
 
@@ -296,7 +296,7 @@ Unit tests first: the marking rule's happy path, boundaries, and every failure c
 can produce. Then the e2e replay lane — the recorded tape that locks your published score
 against refactors:
 [`packages/screamingface/tests/e2e/README.md`](../../../packages/screamingface/tests/e2e/README.md).
-Short shape: wire the board into the lane (it SKIPs loudly until fixtures exist), the
+Short shape: wire the benchmark into the lane (it SKIPs loudly until fixtures exist), the
 owner pays for exactly one recorded run, a dev blesses it with `just e2e-bless`, and CI
 thereafter replays with zero API keys, going red on any of five locks — expression sha,
 case statuses, failure codes, coverage, score.
@@ -316,7 +316,7 @@ checked it against two external shapes.
 
 **Shape 1 — the MedXpertQA row mapping** (now merged): needed no sibling handler and no
 spine edit. It exercised the seam's least-used corners — a non-rubric method, `multi_turn`
-interaction, a board-named `missing_material_code`, `case_metadata` — all through
+interaction, a benchmark-named `missing_material_code`, `case_metadata` — all through
 declared extension points. Pass.
 
 **Shape 2 — an in-enclave refusal judge (Crucible-shaped): pass, with one recorded
@@ -327,9 +327,9 @@ caveat.** The checks:
 - Judge configuration rides in `material` (opaque to the spine) — no signature change
   needed to point a Case at an external judge.
 - A refusal's text does **not** ride on `GradeRequest.answer` (that is `None` when no
-  usable answer exists); it is reachable through the board-owned `row` envelope, whose
+  usable answer exists); it is reachable through the benchmark-owned `row` envelope, whose
   `row["case"]` mapping carries `refusal`. A refusal judge therefore grades from the
-  envelope, which the board controls end-to-end. No sibling handler needed.
+  envelope, which the benchmark controls end-to-end. No sibling handler needed.
 - The judge's own words come back inside `checks[].evidence[]`
   (`Evidence.explanation` / `raw_output`), so an external judge's audit trail fits the
   existing result shape.
@@ -342,17 +342,17 @@ serializable data in and `CaseGradeOutcome` out, that is a new ticket against
 
 ## Gotchas — the steps people miss
 
-- **`asset_bundle` has no default** on `BenchmarkRegistration` — a board with no assets
+- **`asset_bundle` has no default** on `BenchmarkRegistration` — a benchmark with no assets
   still decides that explicitly.
 - **Case statuses are two:** `scored` | `failed`. A graded refusal is an ordinary scored
   Case carrying `refusal` text; an ungradeable one is a failed Case with the
   `provider_refusal` failure code (OME-1037).
 - The five-stage marking-room narrative at the top of `benchmarks/spine/scored.py` is the best
-  30-line orientation in the codebase — read it before your first board.
+  30-line orientation in the codebase — read it before your first benchmark.
 
 ## Related docs
 
-- [`execution-flow-diagrams.md`](execution-flow-diagrams.md) — where your board's
+- [`execution-flow-diagrams.md`](execution-flow-diagrams.md) — where your benchmark's
   aggregate gets called from.
 - [`request-workflow.md`](request-workflow.md) — the k8s request trace.
 - [`packages/screamingface/tests/e2e/README.md`](../../../packages/screamingface/tests/e2e/README.md)

@@ -1,6 +1,6 @@
-"""IFEval's grading hooks — everything this board still writes to be graded.
+"""IFEval's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
+The spine owns the marking room (``spine/scored.py``); this module is the benchmark's
 contribution: its deterministic ``grade_case`` (the vendored checkers' verdict vectors
 turned into one grade), its published accuracy scorer, its selection order, and its
 failure wording. The engine ships mechanisms; a benchmark ships semantics.
@@ -47,7 +47,7 @@ SCHEMA = CHECK_SCHEMA
 
 # WHY the rubric-vocabulary keys: the ladder rungs are spine-fixed names. Neither can
 # fire for IFEval — selection aborts on a missing spec before any grading, and this
-# board's collected rows are anonymous (the missing-row hook owns them) — but the
+# benchmark's collected rows are anonymous (the missing-row hook owns them) — but the
 # table must answer for every rung the spine could look up.
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the installed instruction spec for this Case is missing",
@@ -120,7 +120,7 @@ def aggregate(
     *,
     selected_case_count: int,
 ) -> dict[str, Any]:
-    """Score every selected Case on the shared scored path, with this board's hooks.
+    """Score every selected Case on the shared scored path, with this benchmark's hooks.
 
     ``case_order`` is the installed selection order (``load_case_order``): case ids
     are official IFEval keys, which are NOT sorted in case order, so the mapping from
@@ -148,7 +148,7 @@ def aggregate(
         benchmark_revision=IFEVAL_REVISION,
         selected_cases=selected,
         # The spec is verified present for every selected Case before any grading,
-        # so the spine's missing-material rung is unreachable on this board.
+        # so the spine's missing-material rung is unreachable on this benchmark.
         grading_material=lambda case_id: specs.get(case_id),
         scorer=_ifeval_score,
     )
@@ -186,17 +186,17 @@ def _selected_cases(
 
 
 def _decode(specs: Mapping[int, Mapping[str, Any]]) -> Callable[[object, int], dict[str, Any]]:
-    """Bind the private specs into the board's row decoder for the spine's RowReader.
+    """Bind the private specs into the benchmark's row decoder for the spine's RowReader.
 
     Returns the row the spine files: the authentic verifier record under ``record``
     plus a hoisted ``case`` mapping (the spine reads the candidate's half of the row
     there). Raises ``ValueError`` on any untrustworthy envelope — the RowReader turns
-    that into this board's abort with the row position attached.
+    that into this benchmark's abort with the row position attached.
     """
 
     def decode(grading: object, expected_case_id: int) -> dict[str, Any]:
         record = graded_record(grading, expected_case_id, _instruction_ids(specs[expected_case_id]))
-        # The verifier record IS the candidate outcome for this board (one row spans
+        # The verifier record IS the candidate outcome for this benchmark (one row spans
         # invocation and checking); hoist it into the spine's candidate-field shape.
         return {
             "case": {
@@ -262,7 +262,7 @@ def _missing_row_result(
     selected_index: int,
     orphan_errors: list[dict[str, Any]] | None,
 ) -> CaseResult:
-    """This board's shape for a selected Case with no usable row — wording pinned.
+    """This benchmark's shape for a selected Case with no usable row — wording pinned.
 
     A collected error row retains the diagnostic and row index, attributing known
     Gateway-call failures to Candidate execution (OME-981); a Case

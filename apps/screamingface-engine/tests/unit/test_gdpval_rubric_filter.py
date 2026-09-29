@@ -113,6 +113,6 @@ def test_strip_on_an_all_content_rubric_is_a_no_op() -> None:
 
 
 def test_filter_revision_is_a_nonempty_identifier() -> None:
-    # INVARIANT: hashed into the board revision — an unnamed filter could change scores without
+    # INVARIANT: hashed into the benchmark revision — an unnamed filter could change scores without
     # re-addressing the routes.
     assert FILTER_REVISION.strip()

@@ -11,7 +11,7 @@ The judging already happened before code in this module runs.
 An LLM judge already read the answer and, for each checklist item, said "hit" or "miss."
 Those decisions (verdicts) are sitting inside the data row. This function's job is
 to take the verdicts, check they're complete, and turn them into a number.
-This factory builds the ``grade_case`` hook both rubric boards share; the board supplies
+This factory builds the ``grade_case`` hook both rubric benchmarks share; the benchmark supplies
 only its official per-Case scoring formula and its judge's producer id.
 
 The 4 stages (one answer being graded)
@@ -21,7 +21,7 @@ The 4 stages (one answer being graded)
     later ask "why did Case 7 lose points?"
 3. Completeness gate. Did the judge rule on every item, with zero invalid replies? If
     not — stop, don't score.
-4. Score, or fail loudly. Complete → apply the board's formula. Incomplete → the
+4. Score, or fail loudly. Complete → apply the benchmark's formula. Incomplete → the
     Case fails as incomplete_verdicts. Complete but the rubric has no positive points to
     earn → no_positive_points (the asset itself is broken).
 
@@ -45,17 +45,17 @@ from screamingface_engine.benchmarks.spine.scored import (
     GradeRequest,
 )
 
-#: The board's official per-Case scoring formula: ``(points, verdicts) -> score``,
+#: The benchmark's official per-Case scoring formula: ``(points, verdicts) -> score``,
 #: ``None`` for a fully judged Case with nothing worth points.
 type CaseScore = Callable[[Sequence[int], Mapping[int, bool]], float | None]
 
 
 def rubric_grade_case(*, case_score: CaseScore, judge_producer_id: str) -> GradeCase:
-    """Build one board's rubric hook from its formula and its judge's identity.
+    """Build one benchmark's rubric hook from its formula and its judge's identity.
 
     Args:
-        case_score: the board's per-Case scoring math — deliberately NOT shared
-            (each board's formula answers to its own reference; see the boards'
+        case_score: the benchmark's per-Case scoring math — deliberately NOT shared
+            (each benchmark's formula answers to its own reference; see the benchmarks'
             ``scoring`` modules).
         judge_producer_id: the producer stamped on evidence whose judge reply had
             no usable producer ("gdpval/judge", "healthbench/judge") — even a
@@ -75,7 +75,7 @@ def rubric_grade_case(*, case_score: CaseScore, judge_producer_id: str) -> Grade
             "expected": len(points),
             "invalid_replies": invalid,
         }
-        # Stage 3-4 — the completeness gate, then the board's formula.
+        # Stage 3-4 — the completeness gate, then the benchmark's formula.
         complete: bool = len(verdicts) == len(points) and not invalid
         score: float | None = case_score(points, verdicts) if complete else None
         if score is None:

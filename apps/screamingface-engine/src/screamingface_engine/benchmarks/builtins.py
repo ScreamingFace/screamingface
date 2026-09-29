@@ -91,9 +91,9 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 )
 
 # WHY: this composition is the single source for both runtime discovery and image construction.
-# Boards that read one physical asset set intentionally share a bundle and the deployment
-# prepares it once: the two HealthBench boards are independent identities over one baked
-# answer key, and the two DRACO boards re-run the same archived case/rubric assets with
+# Benchmarks that read one physical asset set intentionally share a bundle and the deployment
+# prepares it once: the two HealthBench benchmarks are independent identities over one baked
+# answer key, and the two DRACO benchmarks re-run the same archived case/rubric assets with
 # different judge-pass counts.
 BUILTIN_REGISTRATIONS = (
     BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),

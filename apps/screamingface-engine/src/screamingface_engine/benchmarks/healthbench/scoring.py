@@ -2,13 +2,13 @@
 
 Mirrors the reference ``calculate_score`` (simple-evals ``healthbench_eval.py``): a Case
 score is achieved points over the sum of POSITIVE points, negatives subtract, and the
-per-Case value is UNCLAMPED. That half is shared by every HealthBench board.
+per-Case value is UNCLAMPED. That half is shared by every HealthBench benchmark.
 
-The exam-level reduction is where the two boards part, and each picks its own here:
+The exam-level reduction is where the two benchmarks part, and each picks its own here:
 
 - ``clipped_mean`` — the OFFICIAL metric (``np.clip(mean, 0, 1)``), used by the full
-  525-case professional board so its number is comparable to published figures.
-- ``unclipped_mean`` — the challenge metric, used by the worst-30% board. It DIVERGES
+  525-case professional benchmark so its number is comparable to published figures.
+- ``unclipped_mean`` — the challenge metric, used by the worst-30% benchmark. It DIVERGES
   from the reference deliberately: on that subset every serious baseline mean is
   negative, so the official clip would flatten the whole leaderboard to 0.00. Never
   present an unclipped score as an official HealthBench score.

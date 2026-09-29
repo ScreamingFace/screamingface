@@ -1,20 +1,20 @@
-"""How ANY HealthBench board is built — identity, addresses, and the one expression tree.
+"""How ANY HealthBench benchmark is built — identity, addresses, and the one expression tree.
 
 Think of it as printing an exam paper from a template. The template is fixed: the same
 dataset, the same physician rubric, the same AI judge, the same grading chain. What the
-printer varies per board is only three things:
+printer varies per benchmark is only three things:
 
-    which Cases this board asks    (``case_ids``)
+    which Cases this benchmark asks    (``case_ids``)
     how it totals the papers       (``mean`` — the challenge metric, or the official clip)
     what it calls itself           (``id`` — which decides every route address)
 
 Everything else is derived. ``exam_revision`` fingerprints the whole exam identity into a
 16-hex revision; ``Routes`` hangs the six protocol routes plus the check surface under
 ``/benchmarks/<id>/<revision>/``; ``build_exam_protocol`` writes the url4 expression tree.
-``healthbench_benchmark`` is the one call a board module makes.
+``healthbench_benchmark`` is the one call a benchmark module makes.
 
-INVARIANT: two boards built here share the baked assets and differ ONLY where the three
-knobs above differ. A board's revision changes if ANY hashed input changes, so an
+INVARIANT: two benchmarks built here share the baked assets and differ ONLY where the three
+knobs above differ. A benchmark's revision changes if ANY hashed input changes, so an
 expression addressed to an old revision physically cannot resolve against a new exam.
 """
 
@@ -59,7 +59,7 @@ ASSET_BUNDLE_ID = "healthbench"
 
 @dataclass(frozen=True, slots=True)
 class Routes:
-    """The seven addresses one board answers on, all under its own revision prefix."""
+    """The seven addresses one benchmark answers on, all under its own revision prefix."""
 
     prefix: str
     cases: str
@@ -89,7 +89,7 @@ class Routes:
 class Exam:
     """One HealthBench identity: which Cases, which final mean, at which addresses.
 
-    This is what the runtime needs to serve a board — it carries no metadata a human
+    This is what the runtime needs to serve a benchmark — it carries no metadata a human
     reads (that lives on the ``Benchmark``), only what the protocol handlers consume.
     """
 
@@ -105,7 +105,7 @@ def exam_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -
 
     Everything a Candidate's score depends on goes in: the dataset pin, the preparer that
     turned it into assets, the shared evaluation protocol, the Candidate result schema,
-    the judge pinning, the grader-template bytes — plus the three per-board inputs. Change
+    the judge pinning, the grader-template bytes — plus the three per-benchmark inputs. Change
     any of them and every route address moves, which is the only safe way to change an
     exam.
     """
@@ -131,7 +131,7 @@ def exam_revision(*, protocol_revision: str, selection_sha: str, scoring: str) -
 
 
 def case_ids_sha(case_ids: Sequence[int]) -> str:
-    """The revision-participating fingerprint of a board's Engine Case-id selection."""
+    """The revision-participating fingerprint of a benchmark's Engine Case-id selection."""
 
     return hashlib.sha256("\n".join(str(case_id) for case_id in case_ids).encode()).hexdigest()
 
@@ -155,16 +155,16 @@ def build_exam_protocol(routes: Routes, case_count: int, available_case_count: i
        as a sibling, a malformed-but-successful model call would never be retried.
     4. Roll verdicts up: rubric rows → ``routes.rubric_evaluation`` → per-Case score
        at ``routes.case_evaluation`` → all Case rows into ``routes.aggregate``, which
-       computes this board's exam-level mean. Rows travel as context, not argv, so
+       computes this benchmark's exam-level mean. Rows travel as context, not argv, so
        no OS argument-length limit can truncate them.
 
     ``case_count`` < ``available_case_count`` slices to a partial run (the SDK's
     ``limit=N``); equality means the full set. Every route is revision-pinned.
 
     Args:
-        routes: this board's revision-pinned addresses.
+        routes: this benchmark's revision-pinned addresses.
         case_count: how many Cases this run executes (the SDK's ``limit``).
-        available_case_count: how many Cases the board holds in total.
+        available_case_count: how many Cases the benchmark holds in total.
 
     Returns:
         The unresolved DAG — the Engine executes it at submission time.
@@ -285,25 +285,25 @@ def healthbench_benchmark(
     focus: str | None = None,
     dataset_url: str | None = None,
 ) -> tuple[Exam, Benchmark]:
-    """Wire one HealthBench board: identity → addresses → expression → private routes.
+    """Wire one HealthBench benchmark: identity → addresses → expression → private routes.
 
     Args:
         id: the public benchmark id; it becomes the first path segment of every route.
         title: the human name shown in the catalogue.
-        description: the catalogue description — it must say which metric this board
+        description: the catalogue description — it must say which metric this benchmark
             reports, because that is the difference a reader cannot see anywhere else.
-        case_ids: the Engine Case ids this board serves, in serve order.
-        protocol_revision: this board's own protocol version string (hashed).
-        scoring: this board's scoring-rule name (hashed) — the metric's identity.
+        case_ids: the Engine Case ids this benchmark serves, in serve order.
+        protocol_revision: this benchmark's own protocol version string (hashed).
+        scoring: this benchmark's scoring-rule name (hashed) — the metric's identity.
         mean: the exam-level reduction over per-Case scores.
         selection_sha: the fingerprint of the case selection (hashed).
         focus: the short editorial line the leaderboard shows in its "Focus" column. It has
-            to separate this board from its siblings at a glance, since they share a dataset.
+            to separate this benchmark from its siblings at a glance, since they share a dataset.
         dataset_url: where a reader can go and look at the source data.
 
     Returns:
         ``(exam, benchmark)`` — the ``Exam`` for the runtime's private routes, and the
-        public ``Benchmark`` the registry publishes. The board module exports both: the
+        public ``Benchmark`` the registry publishes. The benchmark module exports both: the
         runtime needs the first, the catalogue the second.
     """
 
@@ -328,8 +328,8 @@ def healthbench_benchmark(
         # runtime code (draco precedent).
         from screamingface_engine.benchmarks.healthbench.runtime import install as install_runtime
 
-        # INVARIANT: every board reads the SAME baked asset directory — one immutable
-        # answer key, selected from at serve time, never a per-board bake.
+        # INVARIANT: every benchmark reads the SAME baked asset directory — one immutable
+        # answer key, selected from at serve time, never a per-benchmark bake.
         install_runtime(node, assets / ASSET_BUNDLE_ID, exam)
 
     benchmark = Benchmark(
@@ -338,7 +338,7 @@ def healthbench_benchmark(
         description=description,
         revision=revision,
         case_count=len(case_ids),
-        # INVARIANT: the declared policy matches the code — every board reduces through
+        # INVARIANT: the declared policy matches the code — every benchmark reduces through
         # the shared finalize_candidate_result, which scores exactly the gradeable subset
         # and publishes coverage (coverage_declare). Declare `withhold` only if the
         # aggregate actually withholds (OME-1039).
@@ -350,7 +350,7 @@ def healthbench_benchmark(
         build=build,
         install=install,
         # FEATURE: benchmark descriptions on the leaderboard (OME-904). This definition is the
-        # only place the board's text is written; it is seeded from the catalogue at deploy.
+        # only place the benchmark's text is written; it is seeded from the catalogue at deploy.
         focus=focus,
         dataset_url=dataset_url,
         # Every check is a Judge call over the case rubric, so the loop's cost is real.

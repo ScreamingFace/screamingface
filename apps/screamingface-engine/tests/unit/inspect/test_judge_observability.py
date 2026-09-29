@@ -6,7 +6,7 @@
 The paid live run is read through the report: per-case evidence must say what the
 judge cost (tokens, USD, latency, attempts — via the run's existing payload-free
 grading join), and the engine log must say which Case a judge round trip belonged
-to. This suite pins both, plus the join's absence on string-match boards.
+to. This suite pins both, plus the join's absence on string-match benchmarks.
 
 Runs only with the `inspect` extra installed.
 """
@@ -36,8 +36,8 @@ from screamingface_engine.operation_calls import (  # noqa: E402
     operation_call_identity,
     record_operation_call,
 )
-from screamingface_engine_inspect import boards, single_shot  # noqa: E402
-from screamingface_engine_inspect.boards import BoardSpec  # noqa: E402
+from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
+from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
     bind_case_evaluation,
@@ -47,10 +47,10 @@ from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
 
 
-def _judged_spec(**overrides: Any) -> BoardSpec:
+def _judged_spec(**overrides: Any) -> BenchmarkSpec:
     values: dict[str, Any] = {
-        "key": "gsm8k",  # reuses the real snapshot row; the board caches are patched
-        "title": "Judged Observability Board",
+        "key": "gsm8k",  # reuses the real snapshot row; the benchmark caches are patched
+        "title": "Judged Observability Benchmark",
         "description": "test",
         "focus": "test",
         "dataset_url": "https://example.test/ds",
@@ -61,14 +61,14 @@ def _judged_spec(**overrides: Any) -> BoardSpec:
         "with_check_surface": False,
     }
     values.update(overrides)
-    return BoardSpec(**values)
+    return BenchmarkSpec(**values)
 
 
-def _assembled(spec: BoardSpec, monkeypatch: pytest.MonkeyPatch) -> Any:
-    monkeypatch.setattr(boards, "BOARDS", (spec,))
-    monkeypatch.setattr(boards, "_ASSEMBLED", {})
-    monkeypatch.setattr(single_shot, "_BOARDS_BY_ID", {})
-    return boards.imported_board(spec.key)
+def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(benchmarks, "BENCHMARKS", (spec,))
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+    return benchmarks.imported_benchmark(spec.key)
 
 
 def _judge_accounting() -> OperationAccounting:
@@ -107,13 +107,13 @@ class _ConnectorFaithfulJudge:
 
 
 def _bake_by_hand(root: Path, benchmark_id: str) -> None:
-    board_root = root / benchmark_id
-    (board_root / "targets").mkdir(parents=True)
-    (board_root / "cases.json").write_text(
+    benchmark_root = root / benchmark_id
+    (benchmark_root / "targets").mkdir(parents=True)
+    (benchmark_root / "cases.json").write_text(
         json.dumps([{"id": 1, "input": "What is the capital of France?"}]),
         encoding="utf-8",
     )
-    (board_root / "targets" / "1.json").write_text(
+    (benchmark_root / "targets" / "1.json").write_text(
         json.dumps({"target": "Paris"}), encoding="utf-8"
     )
 
@@ -157,16 +157,16 @@ async def test_judge_cost_lands_in_the_cases_evidence_accounting(
     Case's evidence, the run's payload-free ledger records the call, and the
     shared finalizer writes tokens/USD/latency into that evidence's accounting."""
 
-    board = _assembled(_judged_spec(), monkeypatch)
+    benchmark = _assembled(_judged_spec(), monkeypatch)
     judge = _ConnectorFaithfulJudge()
     node = Url4Node("test")
     node.endpoint("/judge-4")(judge)
-    _bake_by_hand(tmp_path, board.benchmark.id)
-    board.benchmark.install(node, tmp_path)
+    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, board.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
 
     evidence = result["cases"][0]["grade"]["checks"][0]["evidence"][0]
     accounting = evidence["accounting"]
@@ -178,22 +178,22 @@ async def test_judge_cost_lands_in_the_cases_evidence_accounting(
 
 
 @pytest.mark.asyncio
-async def test_a_string_match_boards_evidence_accounting_stays_none(
+async def test_a_string_match_benchmarks_evidence_accounting_stays_none(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """No judge call, no accounting — the join must not invent one."""
 
-    board = _assembled(
+    benchmark = _assembled(
         _judged_spec(judge=None, scorer="inspect_ai.scorer:match", scorer_kwargs={}),
         monkeypatch,
     )
     node = Url4Node("test")
-    _bake_by_hand(tmp_path, board.benchmark.id)
-    board.benchmark.install(node, tmp_path)
+    _bake_by_hand(tmp_path, benchmark.benchmark.id)
+    benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "ANSWER: Paris")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, board.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
 
     evidence = result["cases"][0]["grade"]["checks"][0]["evidence"][0]
     assert evidence["accounting"] is None

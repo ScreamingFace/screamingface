@@ -235,13 +235,13 @@ def test_asset_bundle_ids_are_safe_directory_names(bundle_id: str) -> None:
 
 
 def _installer_bundle_id(registration: BenchmarkRegistration) -> str | None:
-    """The bundle directory the board's OWN installer reads, or None when it declares none.
+    """The bundle directory the benchmark's OWN installer reads, or None when it declares none.
 
     Two declaration protocols, closest-to-the-installer first (owner-approved
-    amendment, 2026-09-16): a table-registered board (boards-as-rows plugins) stamps
+    amendment, 2026-09-16): a table-registered benchmark (benchmarks-as-rows plugins) stamps
     ``ASSET_BUNDLE_ID`` on the installer FUNCTION itself; a home-grown family module
     exports it as a module constant beside the installer — see
-    ``benchmarks/gdpval/exam.py``. Either way the value is read from the board itself
+    ``benchmarks/gdpval/exam.py``. Either way the value is read from the benchmark itself
     rather than from a second list, and it is the directory the installer actually
     opens at runtime.
     """
@@ -254,7 +254,7 @@ def _installer_bundle_id(registration: BenchmarkRegistration) -> str | None:
 
 
 def _family_package(registration: BenchmarkRegistration) -> str:
-    """The family package a board's installer lives in — ``...benchmarks.<family>.<module>``."""
+    """The family package a benchmark's installer lives in — ``...benchmarks.<family>.<module>``."""
 
     return registration.benchmark.install.__module__.split(".")[-2]
 
@@ -264,16 +264,16 @@ def _family_package(registration: BenchmarkRegistration) -> str:
     BUILTIN_DEPLOYMENT.registrations,
     ids=lambda registration: registration.benchmark.id,
 )
-def test_every_board_is_registered_against_the_bundle_its_installer_reads(
+def test_every_benchmark_is_registered_against_the_bundle_its_installer_reads(
     registration: BenchmarkRegistration,
 ) -> None:
-    """INVARIANT: the deployment bakes the directory the board goes on to open.
+    """INVARIANT: the deployment bakes the directory the benchmark goes on to open.
 
-    WHY derived rather than a hand-written board->bundle map (OME-1095): the map had to be
-    edited for every new board, and it could only ever restate what the registration already
-    says. Registering a board against another family's bundle bakes one directory and reads
-    another — the board's assets are simply absent at runtime — and that is what this catches
-    for a board nobody has written yet.
+    WHY derived rather than a hand-written benchmark->bundle map (OME-1095): the map had to be
+    edited for every new benchmark, and it could only ever restate what the registration already
+    says. Registering a benchmark against another family's bundle bakes one directory and reads
+    another — the benchmark's assets are simply absent at runtime — and that is what this catches
+    for a benchmark nobody has written yet.
     """
 
     declared = _installer_bundle_id(registration)
@@ -281,7 +281,7 @@ def test_every_board_is_registered_against_the_bundle_its_installer_reads(
     assert declared is not None, (
         f"{registration.benchmark.id} installs from "
         f"{registration.benchmark.install.__module__}, which exports no ASSET_BUNDLE_ID; "
-        "a board must name the asset directory it reads next to the installer that reads it"
+        "a benchmark must name the asset directory it reads next to the installer that reads it"
     )
     assert declared == registration.asset_bundle.id, (
         f"{registration.benchmark.id} is registered against bundle "
@@ -289,34 +289,35 @@ def test_every_board_is_registered_against_the_bundle_its_installer_reads(
     )
 
 
-def test_the_bundle_provenance_check_covers_a_board_the_registry_has_never_seen(
+def test_the_bundle_provenance_check_covers_a_benchmark_the_registry_has_never_seen(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The check is a pure function of a registration — it holds no board ids of its own.
+    """The check is a pure function of a registration — it holds no benchmark ids of its own.
 
-    A throwaway board declared here, never added to ``BUILTIN_DEPLOYMENT``, goes through the
+    A throwaway benchmark declared here, never added to ``BUILTIN_DEPLOYMENT``, goes through the
     same helper the built-ins do, and the helper both accepts the matched bundle and rejects
     a borrowed one. That is the property this test claims and nothing more: it exercises the
-    helper, not a real board's runtime — an actual seventh board is only proven by adding one.
+    helper, not a real benchmark's runtime — an actual seventh benchmark is only proven by adding
+    one.
     """
 
     family = ModuleType("screamingface_engine.benchmarks.throwaway.exam")
     family.ASSET_BUNDLE_ID = "throwaway"  # type: ignore[attr-defined]
 
     def install(_node: Url4Node, _assets: Path) -> None:
-        """The board's installer, defined in its family module beside the constant above."""
+        """The benchmark's installer, defined in its family module beside the constant above."""
 
     install.__module__ = family.__name__
     monkeypatch.setitem(sys.modules, family.__name__, family)
     bundle = BenchmarkAssetBundle(id="throwaway", prepare=lambda _out: {})
-    board = replace(_benchmark("throwaway-text"), install=install)
+    benchmark = replace(_benchmark("throwaway-text"), install=install)
 
-    matched = BenchmarkRegistration(board, asset_bundle=bundle)
+    matched = BenchmarkRegistration(benchmark, asset_bundle=bundle)
     assert _installer_bundle_id(matched) == matched.asset_bundle.id
     assert _family_package(matched) == "throwaway"
 
     borrowed = BenchmarkRegistration(
-        board,
+        benchmark,
         asset_bundle=BenchmarkAssetBundle(id="someone-elses", prepare=lambda _out: {}),
     )
     assert _installer_bundle_id(borrowed) != borrowed.asset_bundle.id
@@ -405,14 +406,14 @@ def test_the_family_guard_covers_every_family_preparer_package() -> None:
     """WHY: a guard derived from a mistyped path would match nothing and pass in silence.
 
     Both sides are derived (OME-1095): the families found on disk must be exactly the
-    families the registered boards install from, so a preparer package nobody deploys — or a
+    families the registered benchmarks install from, so a preparer package nobody deploys — or a
     deployed family whose preparer vanished — fails here instead of going unguarded.
     """
 
     assert FAMILY_PACKAGES
     # WHY STATIC only (OME-1115): plugin-contributed registrations install from their
     # own top-level package, outside the core benchmarks/<family> geography this guard
-    # derives from; the per-board bundle-id conformance above still covers them.
+    # derives from; the per-benchmark bundle-id conformance above still covers them.
     assert set(FAMILY_PACKAGES) == {
         _family_package(registration) for registration in BUILTIN_REGISTRATIONS
     }
@@ -643,7 +644,7 @@ def test_prepare_cli_lists_bundle_ids_without_baking_anything(
 def test_every_benchmark_image_build_passes_the_hugging_face_token_secret() -> None:
     """Gated datasets (xstest_safe, OME-1269) bake only with the ``hf_token`` BuildKit
     secret, because ``docker build`` never sees a shell's variables. A builder that
-    forgets it either fails its bake by name or skips the board, and the kind lane
+    forgets it either fails its bake by name or skips the benchmark, and the kind lane
     that exercises ``deploy/kind/up.sh`` skips in CI without a cluster — so pin it
     here, for every workflow and script that builds the image (review on PR #1112)."""
 

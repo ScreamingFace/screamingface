@@ -1,10 +1,10 @@
-"""Board asset isolation — running one benchmark must not require any other board's assets.
+"""Benchmark asset isolation — running one benchmark must not require any other benchmark's assets.
 
-INVARIANT under test (OME-999): a Runner world carries EVERY registered board, so a board
-whose ``install()`` touches its assets eagerly makes every other board's run require them —
+INVARIANT under test (OME-999): a Runner world carries EVERY registered benchmark, so a benchmark
+whose ``install()`` touches its assets eagerly makes every other benchmark's run require them —
 a dev who prepared only GDPval could not evaluate it because DRACO's cases.json was missing.
-Install registers lazy providers; a board's assets are read on the first resolution of one
-of ITS routes, and a missing asset fails there, named by the board that owns it.
+Install registers lazy providers; a benchmark's assets are read on the first resolution of one
+of ITS routes, and a missing asset fails there, named by the benchmark that owns it.
 """
 
 from __future__ import annotations
@@ -30,15 +30,15 @@ async def _resolve_data(node: Url4Node, path: str) -> str:
     return (await node.evaluate(render(expression))).text
 
 
-def test_every_builtin_board_installs_into_a_world_without_any_assets(tmp_path: Path) -> None:
-    # The registry-wide pin: install must never read an asset, for ANY registered board —
+def test_every_builtin_benchmark_installs_into_a_world_without_any_assets(tmp_path: Path) -> None:
+    # The registry-wide pin: install must never read an asset, for ANY registered benchmark —
     # this is the exact call the Runner makes when creating a world, over an empty root.
     node = Url4Node("test")
     BUILTIN_DEPLOYMENT.benchmarks.install(node, assets_root=tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_an_unprepared_board_fails_at_its_own_route_with_its_own_name(
+async def test_an_unprepared_benchmark_fails_at_its_own_route_with_its_own_name(
     tmp_path: Path,
 ) -> None:
     # WHY: laziness must not soften the failure — DRACO without assets still fails loudly,
@@ -50,7 +50,7 @@ async def test_an_unprepared_board_fails_at_its_own_route_with_its_own_name(
 
 
 @pytest.mark.asyncio
-async def test_a_board_reads_its_assets_once_across_resolutions(tmp_path: Path) -> None:
+async def test_a_benchmark_reads_its_assets_once_across_resolutions(tmp_path: Path) -> None:
     # Baked assets are immutable for the process lifetime; the memo must serve every later
     # resolution without re-reading, and both resolutions must serve identical bytes.
     (tmp_path / "criteria").mkdir(parents=True)

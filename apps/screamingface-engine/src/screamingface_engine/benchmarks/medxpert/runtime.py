@@ -4,11 +4,11 @@ If `definition.py` writes the recipe, this module now only declares what makes t
 exam different: booklet rows enriched with each Case's ready-made CoT prompt and
 trigger, the two-field check that extracts the committed letter, and the accuracy
 reducer. The routes, memoized preflight, case serving and aggregate wiring live in
-`spine/serving.py` — one kitchen for every hand-built deterministic board.
+`spine/serving.py` — one kitchen for every hand-built deterministic benchmark.
 
 INVARIANT: everything here is deterministic and spends no tokens. The model calls
 live in the expression, not in these handlers — which is the whole reason this
-board's grading is free.
+benchmark's grading is free.
 """
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     REVISION,
 )
 from screamingface_engine.benchmarks.spine.serving import (
-    ServedBoard,
-    board_preflight,
+    ServedBenchmark,
+    benchmark_preflight,
     candidate_record,
-    install_board,
+    install_benchmark,
     serve_cases,
 )
 from screamingface_engine.benchmarks.stages import observe_stage
@@ -56,36 +56,36 @@ from url4.peer.server import Request, Url4Node
 
 
 def install(node: Url4Node, root: Path) -> None:
-    """Register every route this board's expression references."""
+    """Register every route this benchmark's expression references."""
 
-    install_board(node, root, BOARD)
+    install_benchmark(node, root, BENCHMARK)
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
     """Fail before the FIRST paid call when the baked assets cannot serve this exam."""
 
-    board_preflight(
+    benchmark_preflight(
         root,
         case_ids,
         label="MedXpertQA",
         load_answer=reducing.load_answer,
-        # Per-board deviation: a broken MedXpertQA bundle is a definition error,
+        # Per-benchmark deviation: a broken MedXpertQA bundle is a definition error,
         # not an unavailable asset — the class the reducer's callers key on.
         error=_definition_error,
     )
 
 
 def _cases(root: Path):
-    """The public booklet, served by the spine with this board's declaration."""
+    """The public booklet, served by the spine with this benchmark's declaration."""
 
-    return serve_cases(root, BOARD)
+    return serve_cases(root, BENCHMARK)
 
 
 def _build_rows(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
     """Enrich each row with its ready-made turn-1 prompt and turn-2 trigger.
 
     WHY the prompt and trigger are baked rather than assembled in the expression:
-    prompt bytes are exam identity on a judge-free board, and an expression that
+    prompt bytes are exam identity on a judge-free benchmark, and an expression that
     composed them would put that identity outside the revision hash.
     """
 
@@ -173,7 +173,7 @@ def _reasoning_text(value: object) -> str:
     return output if isinstance(output, str) else value
 
 
-BOARD = ServedBoard(
+BENCHMARK = ServedBenchmark(
     benchmark_id=BENCHMARK_ID,
     label="MedXpertQA",
     revision=REVISION,
@@ -188,4 +188,4 @@ BOARD = ServedBoard(
     reduce=reducing.aggregate,
 )
 
-__all__ = ["BOARD", "install", "preflight"]
+__all__ = ["BENCHMARK", "install", "preflight"]

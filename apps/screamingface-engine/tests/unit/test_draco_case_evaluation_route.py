@@ -174,8 +174,8 @@ def test_case_record_requires_explicit_execution_provenance() -> None:
 
 # WHY these two tests were REWRITTEN (OME-999, owner-approved): install used to validate
 # assets ATOMICALLY, refusing to register routes over a broken asset set. That eager read
-# meant a Runner world — which installs EVERY registered board — required DRACO's assets to
-# run any other board. Install is now lazy (the shared contract HealthBench's install
+# meant a Runner world — which installs EVERY registered benchmark — required DRACO's assets to
+# run any other benchmark. Install is now lazy (the shared contract HealthBench's install
 # documents); the protection moves to resolution: a DRACO run's first touch is its cases
 # route, so a broken asset still fails before any model spend, with the same named error —
 # on EVERY resolution, since failures are never memoized.

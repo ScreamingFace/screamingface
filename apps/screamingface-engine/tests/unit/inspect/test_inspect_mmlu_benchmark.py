@@ -1,10 +1,10 @@
-"""The imported `inspect-mmlu` proof board — the MCQ declaration shape (OME-1115).
+"""The imported `inspect-mmlu` proof benchmark — the MCQ declaration shape (OME-1115).
 
-INVARIANT the suite defends: an MCQ board bakes their SINGLE_ANSWER prompt as data,
+INVARIANT the suite defends: an MCQ benchmark bakes their SINGLE_ANSWER prompt as data,
 grades through their real `choice()` scorer via the scorer adapter's choices replay, and is
 REFUSED a check surface — pass/fail feedback over a handful of options is an
 elimination attack (OME-796), so the client preflight's refusal of a loop recipe is
-correct behavior this board must preserve. Together with gsm8k this covers both
+correct behavior this benchmark must preserve. Together with gsm8k this covers both
 declaration shapes the importer (OME-1116) can produce.
 
 Runs only with the `inspect` extra installed.
@@ -23,9 +23,9 @@ pytest.importorskip("inspect_evals")
 
 from screamingface_engine.benchmarks.case_execution import case_execution_payload  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
-from screamingface_engine_inspect.boards import (
-    board_registrations,  # noqa: E402
-    imported_board,  # noqa: E402
+from screamingface_engine_inspect.benchmarks import (
+    benchmark_registrations,  # noqa: E402
+    imported_benchmark,  # noqa: E402
 )
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
@@ -33,8 +33,8 @@ from screamingface_engine_inspect.envelopes import (  # noqa: E402
 )
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
-GSM8K_BOARD = imported_board("gsm8k")
-MMLU_BOARD = imported_board("mmlu")
+GSM8K_BENCHMARK = imported_benchmark("gsm8k")
+MMLU_BENCHMARK = imported_benchmark("mmlu")
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
 from url4.peer.server import Url4Node  # noqa: E402
 
@@ -60,19 +60,19 @@ _ROWS: list[dict[str, Any]] = [
 ]
 
 
-# ── plugin registration (both proof boards, catalogue order) ─────────────────
+# ── plugin registration (both proof benchmarks, catalogue order) ─────────────────
 
 
-def test_board_registrations_contribute_both_proof_boards() -> None:
+def test_benchmark_registrations_contribute_both_proof_benchmarks() -> None:
     # AIDEV-NOTE: amended for OME-1116 milestone C — the catalogue now holds more
-    # imported boards, so the proof boards are asserted PRESENT and in catalogue
-    # order, not the whole list (test_inspect_imported_boards.py owns the full set).
-    ids = [registration.benchmark.id for registration in board_registrations()]
+    # imported benchmarks, so the proof benchmarks are asserted PRESENT and in catalogue
+    # order, not the whole list (test_inspect_imported_benchmarks.py owns the full set).
+    ids = [registration.benchmark.id for registration in benchmark_registrations()]
     assert ids.index("inspect-gsm8k") < ids.index("inspect-mmlu")
 
 
 def test_revisions_are_sixteen_hex_and_distinct() -> None:
-    revisions = {GSM8K_BOARD.benchmark.revision, MMLU_BOARD.benchmark.revision}
+    revisions = {GSM8K_BENCHMARK.benchmark.revision, MMLU_BENCHMARK.benchmark.revision}
     assert len(revisions) == 2
     for revision in revisions:
         assert len(revision) == 16
@@ -82,23 +82,23 @@ def test_revisions_are_sixteen_hex_and_distinct() -> None:
 # ── definition ───────────────────────────────────────────────────────────────
 
 
-def test_board_identity_and_mcq_declaration() -> None:
-    board = MMLU_BOARD.benchmark
-    assert board.id == "inspect-mmlu"
-    assert board.declaration.as_block() == {
+def test_benchmark_identity_and_mcq_declaration() -> None:
+    benchmark = MMLU_BENCHMARK.benchmark
+    assert benchmark.id == "inspect-mmlu"
+    assert benchmark.declaration.as_block() == {
         "failure_policy": "coverage_declare",
         "interaction": "single_shot",
         # OME-1257: broad knowledge with headroom, no expert-frontier stakes.
         "difficulty": "medium",
     }
-    assert board.case_count == 14042
+    assert benchmark.case_count == 14042
 
 
-def test_mcq_board_is_refused_a_check_surface() -> None:
+def test_mcq_benchmark_is_refused_a_check_surface() -> None:
     """OME-796: no check surface on MCQ — its absence IS the declared contract."""
 
-    assert MMLU_BOARD.benchmark.check_surface is None
-    assert "check_surface" not in MMLU_BOARD.benchmark.catalog_entry()
+    assert MMLU_BENCHMARK.benchmark.check_surface is None
+    assert "check_surface" not in MMLU_BENCHMARK.benchmark.catalog_entry()
 
 
 # ── runtime + spine aggregate through their real choice() scorer ─────────────
@@ -107,7 +107,7 @@ def test_mcq_board_is_refused_a_check_surface() -> None:
 def _bake(root: Path) -> tuple[Path, dict[int, str]]:
     """Bake the snapshot; return the root and each case's correct letter."""
 
-    out = root / MMLU_BOARD.benchmark.id
+    out = root / MMLU_BENCHMARK.benchmark.id
     emit_cases(BENCHMARK_CASES["mmlu"], _ROWS, out)
     cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
     letters = {
@@ -121,7 +121,7 @@ def _bake(root: Path) -> tuple[Path, dict[int, str]]:
 
 def _node(root: Path) -> Url4Node:
     node = Url4Node("test")
-    MMLU_BOARD.benchmark.install(node, root)
+    MMLU_BENCHMARK.benchmark.install(node, root)
     return node
 
 
@@ -165,7 +165,7 @@ async def test_aggregate_grades_letters_through_their_choice_scorer(
     right: str = letters[1]
     wrong: str = next(letter for letter in "ABCD" if letter != letters[2])
     rows = json.dumps([_row(1, f"ANSWER: {right}"), _row(2, f"ANSWER: {wrong}")])
-    result = json.loads(await _call(node, MMLU_BOARD.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await _call(node, MMLU_BENCHMARK.aggregate_route, rows, "aggregate:2"))
     assert result["benchmark_id"] == "inspect-mmlu"
     assert result["score"] == 0.5
     assert [case["grade"]["score"] for case in result["cases"]] == [1.0, 0.0]
@@ -178,7 +178,7 @@ async def test_an_unparseable_reply_scores_zero_not_a_failure(tmp_path: Path) ->
     root, _letters = _bake(tmp_path)
     node = _node(root)
     rows = json.dumps([_row(1, "I refuse to pick a letter.")])
-    result = json.loads(await _call(node, MMLU_BOARD.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await _call(node, MMLU_BENCHMARK.aggregate_route, rows, "aggregate:1"))
     case = result["cases"][0]
     assert case["grade"]["score"] == 0.0
     assert not case.get("failures")

@@ -122,7 +122,7 @@ def test_conversations_must_carry_usable_turns() -> None:
 
 
 def test_a_dataset_that_gained_a_row_fails_the_build(tmp_path: Path) -> None:
-    """INVARIANT: the professional board declares exactly 525 Cases (OME-903).
+    """INVARIANT: the professional benchmark declares exactly 525 Cases (OME-903).
 
     The frozen-position check above only proves the worst-30% rows did not MOVE. A row
     appended at the END leaves every frozen position intact, so it sails through — and the

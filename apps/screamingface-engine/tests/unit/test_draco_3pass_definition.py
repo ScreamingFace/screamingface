@@ -1,11 +1,11 @@
-"""The draco-3pass board: same benchmark, three judge passes, its own identity.
+"""The draco-3pass benchmark: same benchmark, three judge passes, its own identity.
 
-The draco-cache-seed archive covers grading rounds 1-3 only, so this board runs exactly
+The draco-cache-seed archive covers grading rounds 1-3 only, so this benchmark runs exactly
 those three passes — re-running the archived candidates is served fully from the shared
-response cache. The canonical five-pass board stays untouched and keeps its frozen
+response cache. The canonical five-pass benchmark stays untouched and keeps its frozen
 revision.
 
-INVARIANT: the two boards differ in exactly one place — judge passes. The dataset,
+INVARIANT: the two benchmarks differ in exactly one place — judge passes. The dataset,
 criteria, Judge, prompts, and retrieval policy are shared and cannot drift; a different
 revision is a different benchmark, so three-pass scores are never compared against
 five-pass ones (OME-775).
@@ -39,12 +39,12 @@ from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 from url4 import render
 from url4.peer.server import Url4Node
 
-# INVARIANT: the canonical board's address may not move by accident. Every route it
+# INVARIANT: the canonical benchmark's address may not move by accident. Every route it
 # serves carries this hash and the scoreboard seeds it; a refactor that reshuffles the
 # revision math must land on the SAME value (healthbench-worst30 precedent).
 # OME-993 moved it DELIBERATELY (from 66a463248586b277): the judge now pins
 # reasoning_effort=low (max_tokens stays the paper's 4096), and judge params are hashed
-# into the board identity — a different exam is a different revision.
+# into the benchmark identity — a different exam is a different revision.
 #  Scoreboard seeds, cache seeds, and goldens re-record against this value.
 CANONICAL_REVISION = "62718f04ea1a980f"
 
@@ -61,13 +61,13 @@ def test_the_canonical_revision_is_frozen_against_refactors() -> None:
     assert CANONICAL_EXAM.revision == CANONICAL_REVISION
 
 
-def test_both_draco_boards_are_registered_under_their_own_ids() -> None:
-    """INVARIANT: these boards are PUBLIC — dropping one is a leaderboard regression.
+def test_both_draco_benchmarks_are_registered_under_their_own_ids() -> None:
+    """INVARIANT: these benchmarks are PUBLIC — dropping one is a leaderboard regression.
 
     WHY here and not in a shared test (OME-1095): the shared suite iterates the registry, so
-    a board deleted from `builtins.py` simply stops being iterated and every cross-benchmark
-    test still passes. Membership can only be pinned by a test that names the board, and the
-    board's own definition module is where that costs one line per new board instead of an
+    a benchmark deleted from `builtins.py` simply stops being iterated and every cross-benchmark
+    test still passes. Membership can only be pinned by a test that names the benchmark, and the
+    benchmark's own definition module is where that costs one line per new benchmark instead of an
     edit to every shared test.
     """
 
@@ -75,15 +75,15 @@ def test_both_draco_boards_are_registered_under_their_own_ids() -> None:
     assert BUILTIN_BENCHMARKS.get("draco-3pass") is DRACO_3PASS
 
 
-def test_both_draco_boards_link_the_perplexity_dataset() -> None:
-    # WHY the literal, on both boards: the leaderboard renders this as a clickable target for
-    # the public. The shared suite can only check that boards sharing a bundle agree — and
-    # both DRACO boards read one constant, so they would agree on a wrong value too.
+def test_both_draco_benchmarks_link_the_perplexity_dataset() -> None:
+    # WHY the literal, on both benchmarks: the leaderboard renders this as a clickable target for
+    # the public. The shared suite can only check that benchmarks sharing a bundle agree — and
+    # both DRACO benchmarks read one constant, so they would agree on a wrong value too.
     assert DRACO.dataset_url == "https://huggingface.co/datasets/perplexity-ai/draco"
     assert DRACO_3PASS.dataset_url == DRACO.dataset_url
 
 
-def test_the_three_pass_board_has_its_own_identity() -> None:
+def test_the_three_pass_benchmark_has_its_own_identity() -> None:
     assert DRACO_3PASS.id == "draco-3pass"
     assert DRACO_3PASS.title == "DRACO 3-Pass"
     assert DRACO_3PASS.case_count == 100
@@ -117,7 +117,7 @@ def test_the_three_pass_routes_are_revision_pinned_and_separate() -> None:
     assert not (canonical_routes & three_pass_routes)
 
 
-def test_the_catalogue_serves_both_boards() -> None:
+def test_the_catalogue_serves_both_benchmarks() -> None:
     entry = DRACO_3PASS.catalog_entry()
     assert entry["id"] == "draco-3pass"
     assert entry["case_count"] == 100
@@ -171,7 +171,7 @@ def _draco_assets(root: Path) -> None:
         (assets / "rubrics" / f"{case_id}.json").write_text(rubric, encoding="utf-8")
 
 
-def test_both_boards_install_and_validate_on_one_world(tmp_path: Path) -> None:
+def test_both_benchmarks_install_and_validate_on_one_world(tmp_path: Path) -> None:
     _draco_assets(tmp_path)
     node = Url4Node("test")
     install_benchmarks(
@@ -212,8 +212,8 @@ def test_the_three_pass_install_rejects_evidence_that_is_not_three_wide(
         benchmarks=BenchmarkRegistry((DRACO_3PASS,)),
     )
 
-    # The canonical board's expression (five evidence slots) must not resolve against
-    # the three-pass board's criterion-evaluation route: every route is revision-pinned,
+    # The canonical benchmark's expression (five evidence slots) must not resolve against
+    # the three-pass benchmark's criterion-evaluation route: every route is revision-pinned,
     # so the canonical protocol literally addresses a different path.
     assert CANONICAL_EXAM.routes.criterion_evaluation not in node.processor_routes()
 
@@ -379,7 +379,7 @@ def test_a_fourth_pass_aborts_as_protocol_corruption() -> None:
 def test_the_judge_calls_pin_low_reasoning_a_raised_budget_and_bounded_retry() -> None:
     # INVARIANT: the Judge is a reasoning model — without a reasoning throttle it can
     # burn its whole token budget thinking and return a blank `length` turn (GH #740).
-    # The board pins the official low effort (DRACO paper §4.2) over the paper's own
+    # The benchmark pins the official low effort (DRACO paper §4.2) over the paper's own
     # max_tokens=4096 (owner decision: reproduce the DRACO parametrization exactly),
     # plus a bounded retry so a transient 429/5xx does not fail the whole Case (url4
     # never retries permanent failures).

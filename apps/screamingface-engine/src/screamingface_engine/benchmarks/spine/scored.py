@@ -1,11 +1,11 @@
-"""The shared scored path — every rubric board's marking room, written once.
+"""The shared scored path — every rubric benchmark's marking room, written once.
 
 A benchmark run is an url4 expression that fans out one sub-call per Case — 100 exam
 questions → 100 parallel candidate calls. It returns one row per Case (the graded paper),
 and this module is the marking room that turns the pile into the exam result.
-The only per-board step is ``grade_case`` — the one function every benchmark writes to
+The only per-benchmark step is ``grade_case`` — the one function every benchmark writes to
 mark one script; everything around it (the roll call, the failure ladder, result
-assembly, the exam-level reduction) is spine machinery a board author never sees.
+assembly, the exam-level reduction) is spine machinery a benchmark author never sees.
 
 The goal of this module is to have a shared grading pipeline (the "spine"), and each
 benchmark only plugs in its own marking logic. Before this shared module, ``gdpval/grade.py``
@@ -44,12 +44,12 @@ The key design point: Stages 1, 2, 3, 5 are identical for every benchmark (spine
 Only Stage 4's grade_case (plus failure wording and the mean) is per-benchmark.
 
 INVARIANT (the hourglass waist): a ``GradeRequest`` carries only plain, serializable
-data — kind-tagged payloads, the decoded row mapping, the board's grading material.
+data — kind-tagged payloads, the decoded row mapping, the benchmark's grading material.
 No ``Path``, no engine objects, no callbacks. Three consumers force this: an enclave
-judge across a privacy boundary, the inspect_evals scorer shim, and agentic boards.
+judge across a privacy boundary, the inspect_evals scorer shim, and agentic benchmarks.
 
-INVARIANT: failure codes and message texts stay byte-identical per board — wording is
-board-supplied (gdpval says "criterion" where healthbench says "rubric item"); the
+INVARIANT: failure codes and message texts stay byte-identical per benchmark — wording is
+benchmark-supplied (gdpval says "criterion" where healthbench says "rubric item"); the
 extraction moves logic, never words. The e2e goldens pin every failed Case's code.
 """
 
@@ -81,15 +81,15 @@ from screamingface_engine.benchmarks.spine.rows import RowIndex, RowReader
 
 @dataclass(frozen=True, slots=True)
 class GradeRequest:
-    """Everything a board needs to mark one script — plain data, nothing else.
+    """Everything a benchmark needs to mark one script — plain data, nothing else.
 
     Attributes:
         case_id: the Case being graded.
         input: what the Candidate was asked, as a kind-tagged payload.
         answer: what it answered, or ``None`` when no usable answer text exists
             (a refusal's text rides on the assembled result, not here).
-        row: the board-decoded evaluation envelope — the judge's work is inside it.
-        material: the board's grading material for this Case (rubric points today;
+        row: the benchmark-decoded evaluation envelope — the judge's work is inside it.
+        material: the benchmark's grading material for this Case (rubric points today;
             a label or verifier command for later grading modes). Opaque to the spine.
     """
 
@@ -105,13 +105,13 @@ class CaseGradeOutcome:
     """One marked script, as a complete value — nothing else crosses back.
 
     ``failure_code`` names why an ungraded Case failed ("incomplete_verdicts",
-    "no_positive_points"); the board's message table supplies its wording. A graded
+    "no_positive_points"); the benchmark's message table supplies its wording. A graded
     Case carries ``score`` and ``failure_code=None`` — never both.
     """
 
     # WHY Any, not int (OME-1100): draco's per-Case metric block carries floats,
     # None (an unobserved axis), and nested per-axis dicts — counting claims are a
-    # board vocabulary, not a spine one.
+    # benchmark vocabulary, not a spine one.
     score: float | None
     metrics: Mapping[str, Any]
     checks: Sequence[Mapping[str, Any]]
@@ -122,7 +122,7 @@ class CaseGradeOutcome:
 #: (an enclave judge), data-only because nothing else crosses a privacy boundary.
 type GradeCase = Callable[[GradeRequest], Awaitable[CaseGradeOutcome]]
 
-#: A board-owned replacement for the whole missing-row CaseResult — called as
+#: A benchmark-owned replacement for the whole missing-row CaseResult — called as
 #: ``(selected, selected_index, orphan_errors_or_None)``. WHY the whole result and
 #: not just the failure dict: ifeval publishes a missing-row Case with ``grade: None``
 #: (no grade envelope at all), and its golden pins that shape byte-for-byte.
@@ -132,7 +132,7 @@ type MissingRowResult = Callable[
     [SelectedCase, int, list[dict[str, Any]] | None], CaseResult | None
 ]
 
-#: A board-owned replacement for the whole error-row CaseResult — called as
+#: A benchmark-owned replacement for the whole error-row CaseResult — called as
 #: ``(selected, selected_index, row)`` where ``row`` carries the ``"error"`` payload.
 #: WHY (OME-1100): draco publishes the UPSTREAM error's own code ("rate_limited",
 #: "provider_error") on a candidate-stage failure with no grade envelope, where the
@@ -140,14 +140,14 @@ type MissingRowResult = Callable[
 #: e2e failure tapes pin draco's shape byte-for-byte.
 type ErrorRowResult = Callable[[SelectedCase, int, Mapping[str, Any]], CaseResult]
 
-#: A board-owned replacement for the whole missing-material CaseResult — called as
+#: A benchmark-owned replacement for the whole missing-material CaseResult — called as
 #: ``(selected, selected_index, row_or_None)`` when ``grading_material`` returned
 #: ``None``. WHY (OME-1100): draco pins ``missing_case_rubric`` with a ``row_index``
 #: and no grade envelope, with the Candidate's answer retained off the row.
 type MissingMaterialResult = Callable[[SelectedCase, int, Mapping[str, Any] | None], CaseResult]
 
-#: A board-owned replacement for the whole hook-failure CaseResult — called as
-#: ``(selected, selected_index, row, outcome)`` when the board's ``grade_case``
+#: A benchmark-owned replacement for the whole hook-failure CaseResult — called as
+#: ``(selected, selected_index, row, outcome)`` when the benchmark's ``grade_case``
 #: returned a ``failure_code``. WHY (OME-1100): draco's incomplete Case keeps its
 #: full zeroed metric block and its judge checks in the grade (audit material) with
 #: a ``row_index`` failure, where the default assembly publishes empty metrics with
@@ -158,7 +158,7 @@ type HookFailureResult = Callable[
 
 
 class _Omitted:
-    """Sentinel: the board's missing-row hook filed nothing for this Case.
+    """Sentinel: the benchmark's missing-row hook filed nothing for this Case.
 
     Distinct from ``None`` on the ladder, which means "the Case is gradeable".
     """
@@ -169,42 +169,42 @@ _OMITTED = _Omitted()
 
 @dataclass(frozen=True, slots=True)
 class ScoredPath:
-    """One board's scored path — the shared stages bound to the board's own seam.
+    """One benchmark's scored path — the shared stages bound to the benchmark's own seam.
 
-    Each board constructs one module-level instance. What a board still owns:
+    Each benchmark constructs one module-level instance. What a benchmark still owns:
 
     Attributes:
-        reader: the board's `RowReader` (its label, error class, envelope decoder).
-        grade_case: the board's hook — the only per-board grading code.
+        reader: the benchmark's `RowReader` (its label, error class, envelope decoder).
+        grade_case: the benchmark's hook — the only per-benchmark grading code.
         failure_messages: failure code → the public message shown for it. Wording is
-            board voice; this path never invents text.
-        method: the grade's published method label ("rubric" for the rubric boards,
+            benchmark voice; this path never invents text.
+        method: the grade's published method label ("rubric" for the rubric benchmarks,
             "deterministic" for ifeval).
-        grading_failure_code: the board's code for "the grading step itself failed".
+        grading_failure_code: the benchmark's code for "the grading step itself failed".
         grading_failure_message: its default public message.
-        missing_row_result: optional board-owned builder for the WHOLE missing-row
+        missing_row_result: optional benchmark-owned builder for the WHOLE missing-row
             CaseResult (wording, codes, grade shape). ``None`` keeps the spine
             default (the orphan's own code when it names one, e.g. ``model_token_cap``,
             else ``missing_case_row``; the orphan cause attached either way). WHY
             (OME-1101): ifeval's recorded golden pins its own collected-row wording
             (stage "grading", the diagnostic's code), and OME-981 owns the
             candidate-vs-grading boundary decision — the spine must not default it.
-        error_row_result: optional board-owned builder for the WHOLE error-row
-            CaseResult. A board that sets it also owns the rung's RANK: its error
+        error_row_result: optional benchmark-owned builder for the WHOLE error-row
+            CaseResult. A benchmark that sets it also owns the rung's RANK: its error
             rows are reported before the material rung (draco reports a broken row
             over its own missing rubric). ``None`` keeps the ``case_error`` default.
-        missing_material_result: optional board-owned builder for the WHOLE
+        missing_material_result: optional benchmark-owned builder for the WHOLE
             missing-material CaseResult. ``None`` keeps the ``missing_rubric_asset``
             default.
-        hook_failure_result: optional board-owned builder for the WHOLE CaseResult
+        hook_failure_result: optional benchmark-owned builder for the WHOLE CaseResult
             of a hook-reported failure (``grade_case`` returned a ``failure_code``).
             ``None`` keeps the default assembly (empty metrics, judged/expected
             metadata).
         missing_material_code: the published failure code when a Case's grading
             material is unusable (the default missing-material rung only — a
-            ``missing_material_result`` hook owns its whole shape). WHY board-named
-            (OME-1149): the rubric boards say ``missing_rubric_asset``, but an MCQ
-            board's material is its answer key — publishing a rubric-flavored code
+            ``missing_material_result`` hook owns its whole shape). WHY benchmark-named
+            (OME-1149): the rubric benchmarks say ``missing_rubric_asset``, but an MCQ
+            benchmark's material is its answer key — publishing a rubric-flavored code
             there would contradict its own message.
     """
 
@@ -231,24 +231,24 @@ class ScoredPath:
         scorer: Callable[[Sequence[CaseResult]], CandidateScore],
         case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Mark every selected Case, then score the exam with the board's own scorer.
+        """Mark every selected Case, then score the exam with the benchmark's own scorer.
 
         Args:
             raw_rows: the collected array of Case execution rows, in selected order.
-            benchmark_id: the board publishing this result.
-            benchmark_revision: that board's revision, stamped into the result.
+            benchmark_id: the benchmark publishing this result.
+            benchmark_revision: that benchmark's revision, stamped into the result.
             selected_cases: the authoritative roll call, in selected order.
-            grading_material: per-Case loader for the board's grading material;
+            grading_material: per-Case loader for the benchmark's grading material;
                 ``None`` marks the material unusable (``missing_material_code``).
-            scorer: the exam-level reduction, the board's whole ``CandidateScore``
-                builder. Rubric boards bind ``exam_scorer(mean)`` (fixed rubric
-                vocabulary, mean the only choice); a non-rubric board (ifeval)
+            scorer: the exam-level reduction, the benchmark's whole ``CandidateScore``
+                builder. Rubric benchmarks bind ``exam_scorer(mean)`` (fixed rubric
+                vocabulary, mean the only choice); a non-rubric benchmark (ifeval)
                 supplies its published metric vocabulary here (OME-1101).
             case_metadata: optional per-Case loader for PUBLIC report metadata that
                 does not ride the row (OME-1149: MedXpertQA's slice tags live in the
                 private answer asset). Merged into the spine-assembled scored and
                 failed results, so failure-mode analysis can group by the same axes;
-                row-level grading failures and board-owned result hooks keep their
+                row-level grading failures and benchmark-owned result hooks keep their
                 own (pre-fold) shape.
 
         Returns:
@@ -256,7 +256,7 @@ class ScoredPath:
             failure, the exam score, and the run's factual coverage.
         """
 
-        # WHY the sync face stays: every existing board's aggregate handler is a
+        # WHY the sync face stays: every existing benchmark's aggregate handler is a
         # sync url4 endpoint; only the async face below changes who drives the loop.
         return _run_sync(
             self.aggregate_async(
@@ -284,7 +284,7 @@ class ScoredPath:
         """:meth:`aggregate`, awaited on the CALLER's loop — same args, same result.
 
         WHY it exists (OME-1240): a hook that makes model calls (a judged imported
-        board) must run on the loop that owns the run's HTTP client — httpx refuses
+        benchmark) must run on the loop that owns the run's HTTP client — httpx refuses
         a pooled connection created on another loop ("bound to a different event
         loop"), so the sync face's worker-thread loop cannot carry it. url4 awaits
         async endpoint handlers natively, so a judged aggregate registers an async
@@ -343,7 +343,7 @@ class ScoredPath:
             return None
         result: CaseResult | None = ladder
         if result is None:
-            # Stage 4 — the hook: the one per-board call, data in, grade out.
+            # Stage 4 — the hook: the one per-benchmark call, data in, grade out.
             assert row is not None and material is not None
             outcome: CaseGradeOutcome = await self.grade_case(
                 GradeRequest(
@@ -390,8 +390,8 @@ class ScoredPath:
                 default_message=self.grading_failure_message,
             )
         elif self.error_row_result is not None and row is not None and "error" in row:
-            # A board that owns its error rows also owns their rank: the broken row
-            # is reported before the board's own missing material (draco's order).
+            # A benchmark that owns its error rows also owns their rank: the broken row
+            # is reported before the benchmark's own missing material (draco's order).
             result = self.error_row_result(selected, selected_index, row)
         elif material is None:
             result = self._missing_material(selected, selected_index, row, extra_metadata)
@@ -411,7 +411,7 @@ class ScoredPath:
         row: Mapping[str, Any] | None,
         extra_metadata: Mapping[str, Any],
     ) -> CaseResult:
-        """The missing-material rung: board-owned shape when the hook is set."""
+        """The missing-material rung: benchmark-owned shape when the hook is set."""
 
         if self.missing_material_result is not None:
             return self.missing_material_result(selected, selected_index, row)
@@ -428,15 +428,17 @@ class ScoredPath:
         case_id: int,
         extra_metadata: Mapping[str, Any],
     ) -> CaseResult | _Omitted:
-        """The missing-row rung: board-owned shape — or omission — when the hook is set."""
+        """The missing-row rung: benchmark-owned shape — or omission — when the hook is set."""
 
         orphans: list[dict[str, Any]] | None = indexed.collected_errors.get(case_id)
         if self.missing_row_result is None:
             return self._missing_row_result(selected, orphans, extra_metadata)
-        board_result: CaseResult | None = self.missing_row_result(selected, selected_index, orphans)
-        # None from the board hook means "file nothing" — the finalizer reports
+        benchmark_result: CaseResult | None = self.missing_row_result(
+            selected, selected_index, orphans
+        )
+        # None from the benchmark hook means "file nothing" — the finalizer reports
         # the Case as case_result_missing (draco's pinned shape).
-        return board_result if board_result is not None else _OMITTED
+        return benchmark_result if benchmark_result is not None else _OMITTED
 
     def _graded_result(
         self,
@@ -448,7 +450,7 @@ class ScoredPath:
     ) -> CaseResult:
         if outcome.failure_code is not None:
             if self.hook_failure_result is not None:
-                # The board owns the whole failed shape (draco keeps its zeroed
+                # The benchmark owns the whole failed shape (draco keeps its zeroed
                 # metric block and judge checks as audit material in the grade).
                 return self.hook_failure_result(selected, selected_index, row, outcome)
             failure: dict[str, Any] = self._failure(
@@ -528,7 +530,7 @@ class ScoredPath:
         # WHY a grade with score None rather than no grade: the judge evidence for a
         # partially judged Case is audit material, and the grade's checks list is the
         # contract's slot for it. Its metrics stay {} — a failed Case publishes no
-        # counting claims (byte-identical to the pre-extraction boards).
+        # counting claims (byte-identical to the pre-extraction benchmarks).
         grade: dict[str, Any] = {
             "method": self.method,
             "score": None,
