@@ -49,6 +49,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+from screamingface_engine.replay_outcomes import VersionOutcome
 from url4.streaming.protocol import CachePolicy
 
 CacheStatus = Literal["hit", "miss", "bypass"]
@@ -65,6 +66,7 @@ _AGE_FIELD = "Age"
 _LEGACY_STATUS_FIELD = "X-AIGW-Cache"
 _LEGACY_REASON_FIELD = "X-AIGW-Cache-Reason"
 _LEGACY_KEY_FIELD = "X-AIGW-Cache-Key"
+_VERSION_FIELD = "X-AIGW-Cache-Version"
 
 _AIGATEWAY_MEMBER = "aigateway"
 """The cache identity url4 believes in a `Cache-Status` list. Every other member belongs to some
@@ -83,6 +85,10 @@ only an explicit `hit=?0` can turn it off."""
 _LEGACY_STATUSES: dict[str, CacheStatus] = {"hit": "hit", "miss": "miss", "bypass": "bypass"}
 """A LOOKUP rather than a membership test, so the closed vocabulary and the type that carries it
 cannot drift apart: a value the protocol would reject is one this mapping simply does not have."""
+
+_VERSION_OUTCOMES: dict[str, VersionOutcome] = {"hit": "hit", "miss": "miss"}
+"""The closed cache-version vocabulary (contracts C9), a lookup like `_LEGACY_STATUSES` so the
+type and the words cannot drift apart. Anything else reads as no answer."""
 
 _KEYED_STATUSES = frozenset({"hit", "miss"})
 """A bypassed request has no entry, so a key on it identifies nothing. aigateway already sets its
@@ -118,6 +124,9 @@ class CacheOutcome:
     Defaulted `False` so every existing construction site keeps its meaning: absent evidence of a
     retry is not evidence of one.
     """
+    version: VersionOutcome | None = None
+    """The gateway's cache-version answer for a replay call (contracts C9): `hit`, `miss`, or
+    None when the call carried no grant or the gateway said nothing usable."""
 
 
 def read_cache_outcome(headers: Mapping[str, str], *, retried: bool = False) -> CacheOutcome:
@@ -137,8 +146,11 @@ def read_cache_outcome(headers: Mapping[str, str], *, retried: bool = False) -> 
     """
     reported = _from_cache_status(headers) or _from_legacy_triple(headers)
     age_s = _non_negative_int(_field(headers, _AGE_FIELD))
+    version = _VERSION_OUTCOMES.get((_field(headers, _VERSION_FIELD) or "").strip().lower())
     if reported is None:
-        return CacheOutcome(status=None, reason=None, key=None, age_s=age_s, retried=retried)
+        return CacheOutcome(
+            status=None, reason=None, key=None, age_s=age_s, retried=retried, version=version
+        )
     keyed = reported.status in _KEYED_STATUSES
     return CacheOutcome(
         status=reported.status,
@@ -146,6 +158,7 @@ def read_cache_outcome(headers: Mapping[str, str], *, retried: bool = False) -> 
         key=(reported.key or None) if keyed else None,
         age_s=age_s,
         retried=retried,
+        version=version,
     )
 
 
@@ -174,7 +187,9 @@ def requires_revalidation(policy: CachePolicy, outcome: CacheOutcome) -> bool:
         against the alternative, which is silently serving an answer of unknown age out of a
         corpus that never expires to a caller who explicitly bounded it.
     """
-    if policy.max_age is None or outcome.status != "hit":
+    # WHY a version hit is exempt (E14, RP-H1): each call the version holds is served from the
+    # version. A revalidation re-issue would discard the pinned answer and go live.
+    if outcome.version == "hit" or policy.max_age is None or outcome.status != "hit":
         return False
     if outcome.age_s is None:
         return True
