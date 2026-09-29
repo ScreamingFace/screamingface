@@ -134,8 +134,19 @@ Proposed behavior:
 
 ## 6. OME-1066: retry a run start that the Engine did not admit
 
-- **Scope.** Only `503` on `GET /?q=` (run start). Other 5xx keep today's behavior (fail at
-  once). The 428 "attach a WebSocket" ladder stays as it is.
+- **Scope.** Only a `503` that the ENGINE wrote on `GET /?q=` (run start):
+  `application/problem+json` with `Retry-After`. An edge proxy's 503 (plain text, HTML) may
+  hide a start that the Engine took, so it stays fatal. Other 5xx keep today's behavior
+  (fail at once). The 428 "attach a WebSocket" ladder stays as it is.
+- **409 after a re-send.** One capability names one topic. So a `409 a run already exists`
+  on a RE-SENT start is this Run: an earlier attempt was scheduled although its answer was
+  a refusal (for example a queue-unavailable 503 after a publish whose ack was lost). The
+  SDK treats it as admitted and reads the stream (the WebSocket is already attached). A 409
+  on a first start is still an error.
+- **Keepalive.** The WebSocket stays attached during the wait (up to the budget). The
+  `websockets` keepalive sends a ping every 20 s (`_KEEPALIVE_PING_S`) on both twins, also
+  while the start loop blocks, so an edge idle timeout (Cloudflare: about 100 s) does not
+  close it. A test proves the pings flow during a wait.
 - **Wait per attempt.**
   - `Retry-After` present: obey it. Both forms are accepted — delta-seconds and HTTP-date —
     through the existing `_core/retry._retry_after_seconds` (one parser in the SDK).
@@ -149,7 +160,9 @@ Proposed behavior:
   default and for a public knob.
 - **Expiry.** `ExecutionError(code="engine_at_capacity", status=503, permanent=False)`.
   The message names Engine run capacity, the time waited, and the Engine's own detail. It
-  is not a generic transport error.
+  is not a generic transport error. When the Engine's refusal was not about capacity (a
+  run-queue outage, #1098), the code is `engine_not_admitted` and the message gives the
+  Engine's detail without a claim about capacity.
 - **Abort.** An owner abort ends the wait at once and the SDK does not send the start
   again (B3). Sync: the wait is a `threading.Event` wait that `cancel_active()` sets.
   Async: the task is cancelled, and the flag is checked before each attempt.
@@ -203,5 +216,5 @@ Proposed behavior:
 - A public `Reconnecting` or `Queued` Event (owner decision 2026-09-28: no).
 - Moving `_MAX_CANDIDATES_IN_FLIGHT` (8). With admission + retry it stops being a capacity
   decision, but a change is a separate unit.
-- A `409 a run already exists` after a retried start (an earlier attempt that the edge
-  answered with 503 but the origin scheduled). Recorded as a follow-up risk.
+- A fatal edge 503 on start that hid a start the Engine took: the Run has no reader and
+  the Engine's orphan reaper stops it (120 s). Unchanged from today; recorded as a risk.

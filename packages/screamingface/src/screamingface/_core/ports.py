@@ -63,7 +63,9 @@ class _RunOutcome:
     client_version: str | None = None
 
 
-type _ConnectionState = Literal["reconnecting", "reconnected"]
+# FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
+# (`waiting_for_capacity`, with its attempt) and the start it finally admitted (`admitted`).
+type _ConnectionState = Literal["reconnecting", "reconnected", "waiting_for_capacity", "admitted"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +81,7 @@ class _ConnectionNotice:
     """
 
     state: _ConnectionState
-    # Set for `reconnecting` (the attempt now under way); `reconnected` needs none.
+    # Set for `reconnecting` and `waiting_for_capacity` (the attempt now under way).
     attempt: int | None = None
 
 

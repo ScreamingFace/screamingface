@@ -50,7 +50,7 @@ import json
 import re
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -126,6 +126,17 @@ class TaskFacts:
     #: module constant (infinite_bench's constants:ft) — the row points, never
     #: copies; resolved and type-checked at bake time (OME-1264 ext 2).
     features: str | None = None
+    #: The eval drops questions after loading — a ``.filter()`` on the exam load
+    #: other than inspect_evals' duplicate-id remover (OME-1269). The row then
+    #: names the task function, so the bake lets the eval's own filter pick.
+    filters_after_load: bool = False
+    #: The args the import ran the task with; a question-filter row forwards them at
+    #: bake time because they can change what the filter keeps (xstest's subset).
+    task_args: Mapping[str, Any] = field(default_factory=dict)
+    #: The eval's own ``Task(metrics=...)`` by registry name (xstest's
+    #: refusal_rate). An imported board always reports the MEAN per-case score, so a
+    #: custom metric is a deviation the board must name (review on PR #1112).
+    custom_metrics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -135,6 +146,9 @@ class Observations:
     revision: str
     case_count: int
     license: str | None
+    #: The Hub's gate on the dataset (dataset_info.gated is "auto"/"manual" when set):
+    #: the bake then needs a token from an account that accepted its terms (OME-1269).
+    needs_hf_token: bool = False
 
 
 @dataclass(frozen=True)
@@ -158,10 +172,10 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     ``task_ref`` is a dotted ``"module:attr"`` reference to the task function
     (e.g. ``"inspect_evals.gsm8k.gsm8k:gsm8k"``); ``task_args`` are forwarded to
     it (e.g. ``fewshot=0``). The module's ``hf_dataset`` binding is replaced for
-    the duration of the call, so nothing is downloaded.
+    the duration of the call, so nothing is downloaded. Each stub it returns
+    records the eval's ``.filter()`` predicates instead of running them, which is
+    how a task that drops questions after loading is spotted (OME-1269).
     """
-
-    from inspect_ai.dataset import MemoryDataset, Sample
 
     module_name, _, attribute = task_ref.partition(":")
     if not module_name or not attribute:
@@ -175,12 +189,13 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         )
 
     recorded: list[tuple[dict[str, Any], Any]] = []
+    filters: list[tuple[Any, Any]] = []
     # WHY bind against the REAL signature: 17 of 80 inspect_evals call sites pass
     # path (some also split) positionally — a kwargs-only recorder would drop them.
     signature: _inspect.Signature = _binding_signature(module.hf_dataset)
 
     def recorder(*args: Any, **kwargs: Any) -> Any:
-        stub = MemoryDataset([Sample(input="stub", target="A", choices=["a", "b"])])
+        stub: Any = _filter_recording_stub(filters)
         recorded.append((_bound_call_arguments(signature, args, kwargs), stub))
         return stub
 
@@ -191,7 +206,7 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     finally:
         module.hf_dataset = original  # type: ignore[attr-defined]
 
-    kwargs: dict[str, Any] = _exam_dataset_kwargs(task, recorded, task_ref)
+    kwargs, cases_load_stub = _exam_dataset_kwargs(task, recorded, task_ref)
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
@@ -222,7 +237,110 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         upstream_choice_shuffle_seed=_choice_shuffle_seed_fact(kwargs.get("shuffle_choices")),
         data_files=_conserved_data_files(kwargs.get("data_files"), task_ref),
         features=_features_reference(module, kwargs.get("features"), task_ref),
+        filters_after_load=_drops_questions_after_load(
+            cases_load_stub, filters, len(recorded), kwargs, task_ref
+        ),
+        task_args=dict(task_args or {}),
+        custom_metrics=_custom_metrics(task),
     )
+
+
+def _custom_metrics(task: Any) -> tuple[str, ...]:
+    """The eval's own ``metrics=`` by registry name — empty when it uses the scorer's."""
+
+    from inspect_ai._util.registry import registry_info
+
+    metrics: Any = getattr(task, "metrics", None)
+    if not metrics:
+        return ()
+    # WHY the fallback: inspect also takes metric GROUPS (a dict of name → metrics),
+    # which carry no registry entry; the review flag only needs a readable name.
+    listed: list[Any] = list(metrics) if isinstance(metrics, list) else [metrics]
+    names: list[str] = []
+    for metric in listed:
+        try:
+            names.append(str(registry_info(metric).name))
+        except Exception:  # noqa: BLE001 — any unregistered shape still gets flagged
+            names.append(repr(metric))
+    return tuple(names)
+
+
+def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
+    """The probe's one-question dataset, which records ``.filter()`` calls instead
+    of running them.
+
+    WHY keep the dummy: an eval that filters after loading (pubmedqa keeps its
+    test ids; onet_m6 keeps answerable single-answer questions) rejects the
+    dummy, since it has no id and no metadata, and inspect then refuses the empty
+    Task before the importer can read it. Returning the stub itself keeps the Task
+    buildable and its identity intact; the real filter runs at bake time
+    (OME-1269). Each call is recorded as ``(dataset, predicate)`` so only filters
+    on the exam load count.
+    """
+
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    class _FilterRecordingDataset(MemoryDataset):
+        def filter(self, predicate: Any, name: str | None = None) -> Any:
+            filters.append((self, predicate))
+            return self
+
+    return _FilterRecordingDataset([Sample(input="stub", target="A", choices=["a", "b"])])
+
+
+#: inspect_evals' duplicate-id remover, by module + qualname. It is the one post-load
+#: filter the bake does NOT send through its task: six live boards run it (wmdp x3, mmlu, race_h,
+#: winogrande), and sending them through their task would move their published revisions. The wmdp
+#: rows carry a hand-verified note that it is a no-op at their pins.
+_DEDUPE_FILTER = "inspect_evals.utils.deps_utils:filter_duplicate_ids.<locals>.is_unique_id"
+
+
+def _drops_questions_after_load(
+    cases_load_stub: Any,
+    filters: list[tuple[Any, Any]],
+    load_count: int,
+    kwargs: Mapping[str, Any],
+    task_ref: str,
+) -> bool:
+    """Whether the eval drops exam questions after loading — then the bake must run
+    its task (OME-1269). Filters on other loads (a fewshot pool) change no exam.
+
+    Three combinations refuse by name, because the question filter could not reproduce them:
+    a second load (the bake hands the pinned questions to every load the task
+    makes); ``auto_id`` (inspect numbers the rows 1..N at load, the bake's swapped
+    loader does not, so a filter that reads ids would keep different questions);
+    and an upstream-seeded choice shuffle (upstream draws each case's choice order
+    over every row before its filter, the bake over the kept rows).
+    """
+
+    exam_filters: list[str] = [
+        f"{getattr(predicate, '__module__', '')}:{getattr(predicate, '__qualname__', '')}"
+        for dataset, predicate in filters
+        if dataset is cases_load_stub
+    ]
+    if all(name == _DEDUPE_FILTER for name in exam_filters):
+        return False
+    if load_count != 1:
+        raise ImporterError(
+            f"{task_ref}: the eval drops questions after loading and loads {load_count} "
+            "datasets — the bake's question-filter step hands the pinned questions to every load, "
+            "so it cannot reproduce this exam; import it by hand"
+        )
+    if kwargs.get("auto_id"):
+        raise ImporterError(
+            f"{task_ref}: the eval drops questions after loading and numbers its rows "
+            "with auto_id — the bake's question-filter step hands the task samples without those "
+            "ids, so a filter that reads them would keep different questions; import it "
+            "by hand"
+        )
+    if _choice_shuffle_seed_fact(kwargs.get("shuffle_choices")) is not None:
+        raise ImporterError(
+            f"{task_ref}: the eval drops questions after loading and pins its own "
+            "choice-shuffle seed — upstream draws each case's choice order over every "
+            "row before its filter, the bake over the kept rows, so the same seed "
+            "would bake a different exam; import it by hand"
+        )
+    return True
 
 
 def _conserved_data_files(raw: Any, task_ref: str) -> dict[str, str] | None:
@@ -369,20 +487,24 @@ def _module_level_row_rule(sample_fields: Any, task_ref: str) -> Any:
 
 def _exam_dataset_kwargs(
     task: Any, recorded: list[tuple[dict[str, Any], Any]], task_ref: str
-) -> dict[str, Any]:
-    """The hf_dataset call whose result the Task holds — fewshot loads are not the exam."""
+) -> tuple[dict[str, Any], Any]:
+    """The hf_dataset call whose result the Task holds — fewshot loads are not the exam.
+
+    Returns that call's kwargs plus the stub it returned (the exam stub, whose
+    recorded filters are the ones that drop exam questions).
+    """
 
     if not recorded:
         raise ImporterError(f"{task_ref}: the task never called hf_dataset")
     for kwargs, stub in recorded:
         if task.dataset is stub:
-            return kwargs
+            return kwargs, stub
     if len(recorded) == 1 and _dataset_holds_the_stub(task.dataset):
         # WHY the fallback: some evals wrap the loaded dataset (shuffle/slice), so
         # identity breaks — but the wrapped dataset still CONTAINS the stub sample.
         # A single HF call whose stub never reached the Task (a json exam with HF
         # fewshots) must refuse: that call is not the exam (review round 2026-09-17).
-        return recorded[0][0]
+        return recorded[0]
     raise ImporterError(
         f"{task_ref}: {len(recorded)} hf_dataset call(s) and none is the Task's dataset — "
         "cannot tell the exam load apart; pass task args that disable the extras"
@@ -476,7 +598,7 @@ def _solver_facts(
     """The template references (prompt_template / custom multiple_choice / module-level
     system message) + unknowns + whether the chain declares an MCQ exam."""
 
-    from inspect_ai._util.registry import registry_info, registry_params
+    from inspect_ai._util.registry import registry_info
 
     # WHY setup first (OME-1272): inspect always runs Task(setup=...) before the
     # solver chain, so anything there reaches the candidate too — a walk of
@@ -510,17 +632,9 @@ def _solver_facts(
             # covers an eval hiding multiple_choice inside a custom @solver
             # wrapper (mmlu's mmlu_multiple_choice), invisible to this walk.
             uses_multiple_choice = True
-            if registry_params(solver).get("template") is not None:
-                # A custom choice template the bake CAN reproduce — when it resolves
-                # to one module attribute the row points at (the family renderer,
-                # OME-1116 milestone C); an unresolvable one still earns the flag.
-                choice_template_ref = _resolved_or_flagged(
-                    module,
-                    solver,
-                    task_ref,
-                    custom,
-                    f"{registry_name} (custom choice template is not baked)",
-                )
+            choice_template_ref = _choice_template_fact(
+                module, solver, registry_name, task_ref, custom
+            )
         elif name not in _FULLY_BAKED_SOLVERS:
             custom.append(registry_name)
     template_ref: str | None = _prompt_template_fact(module, template_solvers, task_ref)
@@ -532,6 +646,45 @@ def _solver_facts(
         tuple(custom),
         uses_multiple_choice,
     )
+
+
+#: inspect's own chain-of-thought choice template — what ``multiple_choice(cot=True)``
+#: renders when the eval passes no template. AIDEV-NOTE: a private-module constant
+#: (inspect_ai.solver._multiple_choice), like prepare.mcq_prompt's formatter — safe
+#: under the exact == pin; re-verify on any pin bump.
+_COT_CHOICE_TEMPLATE = "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+
+
+def _choice_template_fact(
+    module: Any, solver: Any, registry_name: str, task_ref: str, custom: list[str]
+) -> str | None:
+    """The row's ``choice_template`` pointer for one multiple_choice solver — None
+    means inspect's default render; anything the bake cannot render earns a flag."""
+
+    from inspect_ai._util.registry import registry_params
+
+    params: dict[str, Any] = registry_params(solver)
+    if params.get("template") is not None:
+        # A custom choice template the bake CAN reproduce — when it resolves
+        # to one module attribute the row points at (the family renderer,
+        # OME-1116 milestone C); an unresolvable one still earns the flag.
+        return _resolved_or_flagged(
+            module,
+            solver,
+            task_ref,
+            custom,
+            f"{registry_name} (custom choice template is not baked)",
+        )
+    # WHY (OME-1269): cot=True swaps in inspect's "Think step by step" template;
+    # ignoring the flag baked the plain wording, a different exam (onet_m6).
+    # Answer parsing is the same for both templates, so grading is unchanged.
+    cot_template: str | None = _COT_CHOICE_TEMPLATE if params.get("cot") else None
+    if cot_template is not None and params.get("multiple_correct"):
+        # The bake renders single-answer MCQ only; guessing the multi-answer
+        # CoT wording would change the exam silently.
+        custom.append(f"{registry_name} (cot with multiple_correct is not baked)")
+        cot_template = None
+    return cot_template
 
 
 def _solver_list(solvers: Any) -> list[Any]:
@@ -766,6 +919,7 @@ def capture_observations(
         revision=revision,
         case_count=int(counter(facts, revision)),
         license=None if license_value is None else str(license_value),
+        needs_hf_token=bool(getattr(info, "gated", False)),
     )
 
 
@@ -779,7 +933,38 @@ def _hub_dataset_info(dataset: str, revision: str | None) -> Any:
 
 
 def _hub_count_rows(facts: TaskFacts, revision: str) -> int:
-    """Row count at the pinned revision — the bake's drift guard, observed once."""
+    """Row count at the pinned revision — the bake's drift guard, observed once.
+
+    A question-filter row counts the questions the eval KEEPS instead (pubmedqa: 500 of
+    1,000 rows), by running the bake's own question filter over the pinned rows (OME-1269).
+    """
+
+    if facts.filters_after_load:
+        from screamingface_engine_inspect.prepare import (
+            PrepareError,
+            SnapshotSpec,
+            count_kept_cases,
+        )
+
+        # case_count=0: unknown yet — this call is what measures it.
+        filter_spec: SnapshotSpec = SnapshotSpec(
+            dataset=facts.dataset,
+            config=facts.config,
+            split=facts.split,
+            dataset_revision=revision,
+            case_count=0,
+            record_to_sample=facts.record_to_sample,
+            data_files=facts.data_files,
+            features=facts.features,
+            question_filter_task=facts.task_ref,
+            question_filter_task_args=dict(facts.task_args),
+        )
+        try:
+            return count_kept_cases(filter_spec)
+        except PrepareError as exc:
+            raise ImporterError(
+                f"{facts.task_ref}: counting the kept questions failed ({exc})"
+            ) from exc
 
     import datasets
 
@@ -877,7 +1062,9 @@ def render_fragments(
         )
         snapshot_lines.append("        # address a candidate's system role).")
         snapshot_lines.append(f'        system_message="{facts.system_message}",')
-    snapshot_lines.extend(seed_snapshot_lines)
+    snapshot_lines.extend(
+        [*seed_snapshot_lines, *_question_filter_lines(facts), *_hf_token_lines(observations)]
+    )
     for solver_name in facts.custom_solvers:
         snapshot_lines.append(
             f"        # TODO(review): solver {solver_name} is not reproduced by "
@@ -942,6 +1129,40 @@ def _seed_fragments(
     return pin_lines, import_names, snapshot_lines
 
 
+def _hf_token_lines(observations: Observations) -> list[str]:
+    """The SnapshotSpec line marking a dataset gated on the Hub (none otherwise)."""
+
+    if not observations.needs_hf_token:
+        return []
+    return [
+        "        # Gated on the Hub: the bake needs HF_TOKEN from an account that",
+        "        # accepted the dataset's terms (OME-1269).",
+        "        needs_hf_token=True,",
+    ]
+
+
+def _question_filter_lines(facts: TaskFacts) -> list[str]:
+    """The SnapshotSpec kwarg lines that run a board's questions through its task (OME-1269).
+
+    Empty for every other row, so rows imported before the question filter render unchanged.
+    """
+
+    if not facts.filters_after_load:
+        return []
+    lines: list[str] = [
+        "        # The eval drops questions after loading; the bake runs its task over",
+        "        # the pinned questions and keeps exactly what it keeps (OME-1269).",
+        f'        question_filter_task="{facts.task_ref}",',
+    ]
+    if facts.task_args:
+        rendered_args: str = ", ".join(
+            f"{json.dumps(name)}: {_scorer_kwarg_literal(value)}"
+            for name, value in sorted(facts.task_args.items())
+        )
+        lines.append(f"        question_filter_task_args={{{rendered_args}}},")
+    return lines
+
+
 def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
     """The BoardSpec fragment — prose as TODOs, provenance as wrapped comments."""
 
@@ -976,6 +1197,14 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
             for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    for metric_name in facts.custom_metrics:
+        board_lines.append(
+            f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
+        )
+        board_lines.append(
+            "        # board reports the mean per-case score — name that deviation (and how"
+        )
+        board_lines.append("        # to convert between the two) in the board's description.")
     judged: bool = _is_judged(facts)
     if judged:
         # OME-1240: a judged row must never land silently — the TODO model is
@@ -1123,6 +1352,7 @@ def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> Non
                 f"data_files entry {text!r} contains characters that cannot be written "
                 "into generated code — refusing (injection guard)"
             )
+    _refuse_injectable_task_args(facts)
     if observations.license is not None and not _LICENSE_CHARSET.match(observations.license):
         raise ImporterError(
             f"dataset license {observations.license!r} contains characters that cannot "
@@ -1133,6 +1363,32 @@ def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> Non
             f"captured revision {observations.revision!r} is not a 40-hex commit sha — "
             "the Hub client returned a mutable ref or nothing; refusing at the tool"
         )
+
+
+def _refuse_injectable_task_args(facts: TaskFacts) -> None:
+    """A question-filter row writes its task args into a generated dict literal — same
+    sink as data_files, so names must be identifiers and values plain literals."""
+
+    if not facts.filters_after_load:
+        return
+    for name, value in facts.task_args.items():
+        if not isinstance(value, str | int | float | bool | None):
+            # WHY a separate message: a list arg (mmlu_0_shot's subjects) is not an
+            # injection attempt; the row format just has no place for it yet.
+            raise ImporterError(
+                f"task arg {name} is a {type(value).__name__} — a question-filter row only "
+                "carries str, int, float, bool or None args; import this eval by hand"
+            )
+        safe_value: bool = (
+            bool(_REFERENCE_CHARSET.match(value))
+            if isinstance(value, str)
+            else isinstance(value, int | float | bool | None) and _is_literal(value)
+        )
+        if not name.isidentifier() or not safe_value:
+            raise ImporterError(
+                f"task arg {name}={value!r} cannot be written into generated code — "
+                "refusing (injection guard)"
+            )
 
 
 def _refuse_existing_rows(key: str, prefix: str, texts: Mapping[Path, str]) -> None:

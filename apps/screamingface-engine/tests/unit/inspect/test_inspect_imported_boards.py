@@ -61,6 +61,13 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "lab_bench_seqqa": "mcq",
     "lab_bench_cloning_scenarios": "mcq",
     "frontierscience": "judged",
+    # OME-1269: the first question-filter board — the eval's own filter picks the
+    # questions; MCQ graded by the choice scorer, no check surface.
+    "onet_m6": "mcq",
+    # OME-1269: the question filter keeps the eval's 500-question test list of 1,000 rows.
+    "pubmedqa": "mcq",
+    # OME-1269: judged compliance on XSTest's safe prompts — no answer key.
+    "xstest_safe": "judged",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -127,6 +134,9 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
         references.append(snapshot.choice_template)
     if snapshot.system_message is not None:
         references.append(snapshot.system_message)
+    if snapshot.question_filter_task is not None:
+        # The question-filter pointer (OME-1269): the bake CALLS it at image build.
+        references.append(snapshot.question_filter_task)
     for reference in references:
         module_name, _, attribute = reference.partition(":")
         assert hasattr(import_module(module_name), attribute), reference
@@ -200,6 +210,9 @@ def test_boards_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         # frontierscience: mixed formats/subjects in dataset order — OURS policy
         # seed so a limited run spans both formats (sweep 2026-09-22, OME-1240).
         "frontierscience",
+        # onet_m6: upstream shuffles rows per run (shuffle=True, no seed), so the
+        # import pins one order (OURS policy seed, OME-1269).
+        "onet_m6",
     }
 
 
@@ -318,3 +331,99 @@ def test_system_message_pointer_rides_exam_identity() -> None:
     assert "system_message=inspect_evals.hellaswag.hellaswag:SYSTEM_MESSAGE" in pins
     # And a board without one carries no such pin (the field is conditional).
     assert not any(p.startswith("system_message=") for p in _revision_pins(SNAPSHOTS["musr"]))
+
+
+def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
+    """OME-1269's first question-filter board. Its questions are whatever the eval's own
+    filter keeps, minus the owner-approved named deviation (6 questions inspect keeps
+    whose answer letter lies past their choices), and it renders inspect's own
+    chain-of-thought template because the eval passes multiple_choice(cot=True).
+    The question filter and the exclusion change which questions are served, so both ride its
+    revision; the template pointer does not (template pointers predate revision-pin
+    coverage — see boards._revision_pins)."""
+
+    from inspect_evals.onet.onet import ONET_DATASET_REVISION as UPSTREAM
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    row = SNAPSHOTS["onet_m6"]
+    assert row.dataset_revision == UPSTREAM
+    assert row.question_filter_task == "inspect_evals.onet.onet:onet_m6"
+    assert row.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+    assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6
+    assert row.case_count == 397 - 6
+    pins = _revision_pins(row)
+    assert "question_filter_task=inspect_evals.onet.onet:onet_m6" in pins
+    assert any(pin.startswith("excluded_sample_ids=") for pin in pins)
+
+
+def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
+    """pubmedqa loads all 1,000 labelled questions and keeps the 500 on its bundled
+    test list; the board runs the eval's task so its own filter keeps
+    them, the count pins the KEPT 500, and the eval's template renders them."""
+
+    from inspect_evals.pubmedqa.pubmedqa import PUBMEDQA_DATASET_REVISION as UPSTREAM
+
+    from screamingface_engine_inspect.boards import _revision_pins
+
+    row = SNAPSHOTS["pubmedqa"]
+    assert row.dataset_revision == UPSTREAM
+    assert row.question_filter_task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
+    assert row.choice_template == "inspect_evals.pubmedqa.pubmedqa:TEMPLATE"
+    assert row.case_count == 500
+    assert row.excluded_sample_ids is None
+    assert "question_filter_task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)
+
+
+def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() -> None:
+    """xstest_safe keeps the 250 safe prompts through the eval's own subset filter,
+    has no answer key (the judge grades complied / refused from question and reply),
+    needs a Hugging Face token (gated dataset), and its judge prompt is a verbatim
+    copy of the eval's — a dependency bump that edits upstream's prompt fails here."""
+
+    from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as UPSTREAM
+    from inspect_evals.xstest.xstest import scorer_instructions, scorer_template
+
+    from screamingface_engine_inspect.boards import BOARDS, _revision_pins
+
+    row = SNAPSHOTS["xstest_safe"]
+    assert row.dataset_revision == UPSTREAM
+    assert row.question_filter_task == "inspect_evals.xstest.xstest:xstest"
+    assert row.question_filter_task_args == {"subset": "safe"}
+    assert row.case_count == 250
+    assert row.has_answer_key is False
+    assert row.needs_hf_token is True
+    assert 'question_filter_task_args={"subset": "safe"}' in _revision_pins(row)
+    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
+    assert board.scorer_kwargs["template"] == scorer_template
+    assert board.scorer_kwargs["instructions"] == scorer_instructions
+    assert "{criterion}" not in scorer_template
+
+
+def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The board reports the mean grade (C=1, P=0.5, I=0); upstream reports
+    refusal_rate and runs at temperature 0 with 256 max tokens. Both deviations are
+    named on the board — if a dependency bump changes either upstream fact, this
+    fails and the board's notes must be revisited (review on PR #1112)."""
+
+    from importlib import import_module
+
+    from inspect_ai._util.registry import registry_info
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    from screamingface_engine_inspect.boards import BOARDS
+
+    module = import_module("inspect_evals.xstest.xstest")
+    monkeypatch.setattr(
+        module,
+        "hf_dataset",
+        lambda *args, **kwargs: MemoryDataset([Sample(input="q", metadata={"label": "safe"})]),
+    )
+    task = module.xstest(subset="safe")
+
+    assert [registry_info(metric).name for metric in task.metrics] == ["inspect_evals/refusal_rate"]
+    assert (task.config.temperature, task.config.max_tokens) == (0.0, 256)
+    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
+    assert "refusal rate = 100 x (1 - correct / scored cases)" in board.description

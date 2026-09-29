@@ -1956,3 +1956,358 @@ def test_a_judged_row_never_advertises_a_check_surface() -> None:
     )
     assert "with_check_surface" not in fragments.board
     assert "keep_sample_metadata" in fragments.board  # the reviewer reminder rides the flag
+
+
+# ---------------------------------------------------------------------------
+# Question filter — evals that drop questions after loading (OME-1269)
+# ---------------------------------------------------------------------------
+
+
+def _filtering_task(subset: str = "kept", **dataset_kwargs: Any) -> Task:
+    """pubmedqa's shape: load the split, then keep only some questions with a lambda.
+
+    The keep-test rejects the probe's dummy question (target "A"), as every real
+    one does — that rejection is what used to crash the import with "dataset is empty".
+    """
+
+    module = sys.modules[_FAKE_MODULE]
+    dataset = module.hf_dataset(
+        path="acme/sums",
+        name="main",
+        split="test",
+        sample_fields=module.record_to_sample,
+        **dataset_kwargs,
+    )
+    return Task(
+        dataset=dataset.filter(
+            lambda sample: sample.target not in ("A", "skip") and subset == "kept"
+        ),
+        solver=[prompt_template(module.TEMPLATE), generate()],
+        scorer=match(numeric=True),
+    )
+
+
+def _dedupe_only_task() -> Task:
+    """wmdp's shape: inspect_evals' duplicate-id remover is the only post-load filter."""
+
+    from inspect_evals.utils.deps_utils import filter_duplicate_ids
+
+    module = sys.modules[_FAKE_MODULE]
+    dataset = module.hf_dataset(
+        path="acme/sums", split="test", sample_fields=module.record_to_sample
+    )
+    return Task(dataset=filter_duplicate_ids(dataset), solver=generate(), scorer=match())
+
+
+def _fewshot_filter_task() -> Task:
+    """The filter trims the fewshot pool; the exam load is untouched."""
+
+    module = sys.modules[_FAKE_MODULE]
+    fewshots = module.hf_dataset(
+        path="acme/sums", split="train", sample_fields=module.record_to_sample
+    )
+    fewshots.filter(lambda sample: sample.target != "skip")
+    return _free_text_task()
+
+
+def _filtering_two_loads_task() -> Task:
+    """A filtered exam PLUS a second load — the question filter would feed both loads."""
+
+    module = sys.modules[_FAKE_MODULE]
+    module.hf_dataset(path="acme/sums", split="train", sample_fields=module.record_to_sample)
+    return _filtering_task()
+
+
+def test_introspect_reads_a_filtering_task_as_filtering_after_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acceptance 2: the probe's dummy question used to fail the eval's keep-test,
+    and inspect crashed with "dataset is empty". Now the task builds, and the
+    import names it as filtering after load with the args it ran with."""
+
+    _install_fake_eval(monkeypatch, sums=_filtering_task)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums", {"subset": "kept"})
+
+    assert facts.filters_after_load is True
+    assert facts.task_args == {"subset": "kept"}
+    assert facts.dataset == "acme/sums"
+    assert facts.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
+
+
+def test_introspect_keeps_a_dedupe_only_task_on_todays_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Six live boards (wmdp x3, mmlu, race_h, winogrande) run only the duplicate-id
+    remover; sending them through their task would move their published revisions."""
+
+    _install_fake_eval(monkeypatch, sums=_dedupe_only_task)
+
+    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
+
+
+def test_introspect_ignores_a_filter_on_a_non_exam_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the exam's questions matter — trimming a fewshot pool changes no exam."""
+
+    _install_fake_eval(monkeypatch, sums=_fewshot_filter_task)
+
+    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
+
+
+def test_introspect_refuses_a_filtering_task_that_loads_two_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bake hands the pinned questions to every load the task makes, so a second
+    load would be fed the exam — refuse by name instead of baking a wrong exam."""
+
+    _install_fake_eval(monkeypatch, sums=_filtering_two_loads_task)
+
+    with pytest.raises(ImporterError, match="loads 2 datasets"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_introspect_refuses_a_filtering_task_with_a_seeded_choice_shuffle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upstream draws each case's choice order over ALL rows, before its filter; the
+    bake would draw over the kept rows only — a different exam for the same seed."""
+
+    def seeded() -> Task:
+        return _filtering_task(shuffle_choices=9)
+
+    _install_fake_eval(monkeypatch, sums=seeded)
+
+    with pytest.raises(ImporterError, match="choice-shuffle seed"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_a_question_filter_row_names_the_task_and_its_args() -> None:
+    fragments = render_fragments(
+        "sums",
+        _facts(filters_after_load=True, task_args={"subset": "kept", "limit_to": 2}),
+        Observations(revision="c" * 40, case_count=2, license="mit"),
+    )
+
+    assert f'question_filter_task="{_FAKE_MODULE}:sums",' in fragments.snapshot
+    assert 'question_filter_task_args={"limit_to": 2, "subset": "kept"},' in fragments.snapshot
+    ast.parse("x = {\n" + fragments.snapshot + "}")
+
+
+def test_a_row_without_a_question_filter_carries_no_task_field() -> None:
+    """Every board before OME-1269 must render exactly as it did."""
+
+    fragments = render_fragments(
+        "sums", _facts(), Observations(revision="c" * 40, case_count=2, license="mit")
+    )
+
+    assert "question_filter_task=" not in fragments.snapshot
+    assert "question_filter_task_args=" not in fragments.snapshot
+
+
+def test_task_args_that_could_escape_the_row_are_refused(engine_src_copy: Path) -> None:
+    with pytest.raises(ImporterError, match="injection guard"):
+        _generate(engine_src_copy, filters_after_load=True, task_args={"subset": 'x"\nimport os'})
+
+
+def test_a_question_filter_board_counts_the_questions_the_eval_keeps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row's case count is the KEPT count (pubmedqa's 500, not 1,000 rows): the
+    default counter runs the bake's own question filter over the pinned rows."""
+
+    from screamingface_engine_inspect import prepare as prepare_module
+
+    _install_fake_eval(monkeypatch, sums=_filtering_task)
+    rows: list[dict[str, Any]] = [
+        {"q": "1+1", "a": "2"},
+        {"q": "dropped", "a": "skip"},
+        {"q": "2+2", "a": "4"},
+    ]
+    monkeypatch.setattr(prepare_module, "_load_rows", lambda spec: rows)
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+
+    assert importer_module._hub_count_rows(facts, "c" * 40) == 2
+
+
+def test_main_imports_a_filtering_task_instead_of_crashing(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    _install_fake_eval(monkeypatch, sums=_filtering_task)
+
+    exit_code = importer_module.main(
+        [f"{_FAKE_MODULE}:sums", "--key", "sums", "--engine-src", str(engine_src_copy)],
+        dataset_info=lambda dataset, revision: _fake_info("a" * 40, "mit"),
+        count_rows=lambda facts, revision: 2,
+    )
+
+    assert exit_code == 0
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    assert f'question_filter_task="{_FAKE_MODULE}:sums",' in prepare_text
+
+
+# ---------------------------------------------------------------------------
+# multiple_choice(cot=True) — the chain-of-thought render (OME-1269, onet_m6)
+# ---------------------------------------------------------------------------
+
+
+def _cot_mcq_task(**solver_kwargs: Any) -> Any:
+    def task_fn() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/quiz", split="test", sample_fields=module.record_to_sample
+            ),
+            solver=multiple_choice(**solver_kwargs),
+            scorer=choice(),
+        )
+
+    return task_fn
+
+
+def test_introspect_points_a_cot_mcq_at_inspects_own_cot_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cot=True swaps inspect's prompt for its "Think step by step" variant; before
+    OME-1269 the importer ignored the flag, so the bake silently rendered the
+    plain template — a different exam wording (onet_m6 hit this)."""
+
+    from inspect_ai.solver._multiple_choice import SINGLE_ANSWER_TEMPLATE_COT
+
+    from screamingface_engine_inspect.prepare import _resolve
+
+    _install_fake_eval(monkeypatch, cot_mcq=_cot_mcq_task(cot=True))
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:cot_mcq")
+
+    assert facts.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+    assert _resolve(facts.choice_template) == SINGLE_ANSWER_TEMPLATE_COT
+    assert facts.custom_solvers == ()
+
+
+def test_introspect_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The bake has no multi-answer render — flag it rather than guess a template."""
+
+    _install_fake_eval(monkeypatch, cot_multi=_cot_mcq_task(cot=True, multiple_correct=True))
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:cot_multi")
+
+    assert facts.choice_template is None
+    assert any("cot" in flag for flag in facts.custom_solvers)
+
+
+# ---------------------------------------------------------------------------
+# Gated datasets — the Hub's gate is observed, never typed (OME-1269, xstest)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("hub_gated", "expected"), [("auto", True), ("manual", True), (False, False)]
+)
+def test_capture_records_whether_the_dataset_needs_an_hf_token(
+    hub_gated: Any, expected: bool
+) -> None:
+    """The bake needs a token for a gated dataset; the importer reads the gate from
+    the Hub (dataset_info.gated: False, "auto" or "manual") so the row says so."""
+
+    info = types.SimpleNamespace(sha="c" * 40, card_data={"license": "cc-by-4.0"}, gated=hub_gated)
+
+    observations = capture_observations(
+        _facts(), dataset_info=lambda dataset, revision: info, count_rows=lambda f, r: 3
+    )
+
+    assert observations.needs_hf_token is expected
+
+
+def test_a_row_needing_an_hf_token_says_so_and_a_public_row_does_not() -> None:
+    token_row = render_fragments(
+        "sums",
+        _facts(),
+        Observations(revision="c" * 40, case_count=3, license="mit", needs_hf_token=True),
+    )
+    public = render_fragments(
+        "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+    )
+
+    assert "        needs_hf_token=True," in token_row.snapshot
+    assert "needs_hf_token=" not in public.snapshot
+
+
+def _dedupe_then_filter_task() -> Task:
+    """Drops duplicates, THEN keeps a subset — the subset filter is the exam's."""
+
+    from inspect_evals.utils.deps_utils import filter_duplicate_ids
+
+    module = sys.modules[_FAKE_MODULE]
+    dataset = module.hf_dataset(
+        path="acme/sums", split="test", sample_fields=module.record_to_sample
+    )
+    deduped = filter_duplicate_ids(dataset)
+    return Task(
+        dataset=deduped.filter(lambda sample: sample.target != "A"),
+        solver=generate(),
+        scorer=match(),
+    )
+
+
+def test_introspect_flags_a_task_that_filters_after_dropping_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dedupe exemption covers the duplicate remover ONLY: an eval that dedupes and
+    then keeps one subject (mmlu_0_shot with subjects) must still take the question filter, or
+    the bake would ship every row while inspect runs the subset (review on PR #1110)."""
+
+    _install_fake_eval(monkeypatch, sums=_dedupe_then_filter_task)
+
+    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is True
+
+
+def test_introspect_refuses_a_filtering_task_that_numbers_rows_with_auto_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """inspect numbers auto_id rows 1..N at load; the bake's swapped loader does not,
+    so a filter that reads ids would keep different questions (review on PR #1110)."""
+
+    def numbered() -> Task:
+        return _filtering_task(auto_id=True)
+
+    _install_fake_eval(monkeypatch, sums=numbered)
+
+    with pytest.raises(ImporterError, match="auto_id"):
+        introspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> None:
+    """mmlu_0_shot(subjects=[...]) is not an injection attempt; the refusal must say
+    the row has no place for a list (review on PR #1110)."""
+
+    with pytest.raises(ImporterError, match="is a list") as refusal:
+        _generate(engine_src_copy, filters_after_load=True, task_args={"subjects": ["anatomy"]})
+    assert "injection" not in str(refusal.value)
+
+
+def test_introspect_flags_an_evals_own_metrics_for_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A board reports the mean per-case score. xstest reports refusal_rate instead,
+    and the importer never looked, so the deviation went unnamed (review on PR #1112):
+    a task's own metrics= must surface as a review item on the generated board row."""
+
+    from inspect_ai.scorer import accuracy
+
+    def with_metrics() -> Task:
+        task = _free_text_task()
+        return Task(dataset=task.dataset, solver=task.solver, scorer=match(), metrics=[accuracy()])
+
+    _install_fake_eval(monkeypatch, sums=with_metrics)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+    fragments = render_fragments(
+        "sums", facts, Observations(revision="c" * 40, case_count=3, license="mit")
+    )
+
+    assert facts.custom_metrics == ("inspect_ai/accuracy",)
+    assert "TODO(review): the eval reports its own metric inspect_ai/accuracy" in fragments.board
+    assert (
+        "own metric"
+        not in render_fragments(
+            "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+        ).board
+    )

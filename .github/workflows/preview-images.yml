@@ -182,7 +182,14 @@ jobs:
         with:
           context: .
           file: apps/screamingface-engine/Dockerfile.benchmark
-          build-args: BASE=${{ env.REGISTRY }}/screamingface-engine:${{ needs.plan.outputs.tag }}
+          # PR previews: Dependabot PRs get no Actions secret, so a gated board is skipped
+          # with a warning instead of failing the preview (OME-1269).
+          build-args: |
+            BASE=${{ env.REGISTRY }}/screamingface-engine:${{ needs.plan.outputs.tag }}
+            SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1
+            SCREAMINGFACE_HF_TOKEN_PRESENT=${{ secrets.HF_TOKEN_BENCHMARKS != '' }}
+          secrets: |
+            hf_token=${{ secrets.HF_TOKEN_BENCHMARKS }}
           push: true
           tags: ${{ env.REGISTRY }}/screamingface-engine-benchmark:${{ needs.plan.outputs.tag }}
           labels: |
