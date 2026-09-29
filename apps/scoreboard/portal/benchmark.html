@@ -45,7 +45,7 @@
     <div class="note">
       <span class="kicker">Read this first</span>
       The top of this board is the best submitted result: the current SOTA. Every row keeps
-      its URL4 expression, so you can rerun any claim before trusting it.
+      its URL4 expression, so you can rerun any claim, score, or cost, before trusting it.
     </div>
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
@@ -82,7 +82,6 @@
           <span class="pareto-chart-key"><span class="pareto-chart-key__leader" aria-hidden="true"></span>highest score</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__unpriced" aria-hidden="true"></span>cost n/a</span>
           <span id="pareto-chart-meta"></span>
-          <span>Costs are self-reported, not verified by re-running.</span>
           <span>Frontier membership considers the full board; this chart plots only the submissions shown on this page.</span>
         </figcaption>
       </figure>
@@ -109,15 +108,13 @@
     </div>
 
     <!-- The mark column header is deliberately empty and its per-row label is screen-reader-only,
-         so the visible legend names each mark. It also states that frontier membership uses
-         self-reported costs rather than presenting those figures as verified. -->
+         so the visible legend names each mark. -->
     <p id="leaderboard-legend" class="meta legend" hidden>
       <span id="legend-pareto" class="legend-item" hidden>
         <span class="pareto-mark" aria-hidden="true"></span>
         <span>on the Pareto frontier — no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement</span>
       </span>
       <span class="legend-item">gold row = highest score</span>
-      <span class="legend-item">costs are self-reported, not verified by re-running</span>
     </p>
 
     <div class="foot">
