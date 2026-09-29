@@ -10,6 +10,7 @@ from typing import Protocol, TextIO
 from screamingface._core.ports import _ConnectionNotice, _ConnectionState
 from screamingface._environment import ipykernel_loaded as _in_notebook
 from screamingface._evaluation.model import Candidate
+from screamingface._evaluation.outcome import failure_code
 from screamingface.events import Event, Log, Span, Started, Terminated
 from screamingface.report import Report
 
@@ -109,6 +110,19 @@ class _ProgressObserver:
         # Run at once, and N identical "reconnecting" lines would not say whose they are.
         message = _connection_message(notice)
         self._stream.write(f"ScreamingFace · {_terminal_text(candidate.name)} · {message}\n")
+        self._stream.flush()
+
+    def candidate_failed(self, candidate: Candidate, exc: Exception) -> None:
+        # FEATURE OME-1071: a failed Candidate is visible at once, while its siblings run on.
+        # WHY the code only: it is stable and safe; the message may hold Engine detail.
+        name = _terminal_text(candidate.name)
+        code = _terminal_text(failure_code(exc))
+        self._stream.write(f"ScreamingFace · {name} · run failed ({code})\n")
+        self._stream.flush()
+
+    def candidate_stopped(self, candidate: Candidate) -> None:
+        # WHY: after an owner abort or a callback error the SDK stopped this Run itself.
+        self._stream.write(f"ScreamingFace · {_terminal_text(candidate.name)} · run stopped\n")
         self._stream.flush()
 
     def reconcile(self, report: Report) -> None:

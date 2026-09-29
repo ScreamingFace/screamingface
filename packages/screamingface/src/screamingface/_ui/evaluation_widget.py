@@ -135,6 +135,20 @@ class _NotebookEvaluationView:
             self._activity.end(self._candidate_indexes[result.name])
             self._refresh()
 
+    def candidate_failed(self, candidate: Candidate, exc: BaseException) -> None:
+        with self._lock:
+            self._progress.candidate_failed(candidate, exc)
+            self._activity.end(self._candidate_indexes[candidate.name])
+            self._refresh()
+        self._dirty.set()
+
+    def candidate_stopped(self, candidate: Candidate) -> None:
+        with self._lock:
+            self._progress.candidate_stopped(candidate)
+            self._activity.end(self._candidate_indexes[candidate.name])
+            self._refresh()
+        self._dirty.set()
+
     def reconcile(self, report: Report) -> None:
         with self._lock:
             self._end_activity()
