@@ -86,5 +86,6 @@ Engine. Spec: `docs/spec/2026-09-29-studio-models-unmock.md`.
   reset the editor.
 - Known cosmetic issue: while the catalog loads, a `?recipe=` import first shows the default
   fusion for a moment.
-- Seen during verification and not fixed: `runtime/uv.lock` is stale (`No module named
-  'opentelemetry'`). It is to be filed as a bug.
+- Seen during verification: `runtime/uv.lock` was stale (`No module named 'opentelemetry'`).
+  It is fixed in this PR, in its own commit, re-locked to the OpenTelemetry and protobuf pins
+  that aigateway and the SDK use. At the owner's call, no separate issue was filed.

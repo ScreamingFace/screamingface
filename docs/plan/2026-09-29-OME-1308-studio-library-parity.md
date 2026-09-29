@@ -93,4 +93,4 @@ touching those gets its own sub-issue.
 
 Cross-cutting prerequisites, flagged but not yet filed:
 - Studio CI plus an SDLC card stack.
-- The stale `runtime/uv.lock` bug (see the Models plan, "Out of scope").
+- ~~The stale `runtime/uv.lock` bug~~: fixed with the Models page unit.

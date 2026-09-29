@@ -249,4 +249,4 @@ Screenshots go in the PR. Steps:
 - **Separate bug seen during verification.** `apps/screamingface-studio/runtime/uv.lock` is
   stale. `.venv/bin/screamingface up` fails with `ModuleNotFoundError: No module named
   'opentelemetry'`, raised from `aigateway/tracing.py`. The frozen sidecar build likely breaks
-  the same way. It is filed as a `bug` in Triage, not fixed here.
+  the same way. Update: fixed in this PR, in a separate commit, with no separate issue (owner's call).
