@@ -116,6 +116,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # Held by hand (OME-TBD). Every imported board hashes the exact inspect-ai and
+    # inspect-evals versions into its revision, so any bump — patch included — republishes
+    # every imported exam. #1026 did exactly that and merged green, because nothing checks
+    # what a bump changes in the exams. Remove these when the bump-verification ticket lands.
+    ignore:
+      - dependency-name: "inspect-ai"
+      - dependency-name: "inspect-evals"
     groups:
       screamingface-engine-python-security:
         applies-to: security-updates
