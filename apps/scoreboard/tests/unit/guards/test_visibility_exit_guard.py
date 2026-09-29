@@ -50,6 +50,10 @@ pytestmark = pytest.mark.anyio
 #
 # READS IT FRESH — consults `visibility` at call time, so it cannot hold a stale value.
 #   _readable_by, _links_to_a_private_board
+#   metadata_store.update_metadata   reads `visibility` INSIDE the write's own transaction, after
+#                                    the row lock, so the decision and the write see one state
+#   metadata_store.metadata_history  reads `visibility` in the same call it answers from, and
+#                                    returns only events of a row it has just authorized
 #
 # CONFIG-DRIVEN — reads visibility from deployment configuration, immutable within a seed pass.
 #   the seed.py functions
@@ -78,6 +82,10 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("store.py::_resolve_owned", "Return"): 3,
     ("store.py::_readable_by", "Return"): 3,
     ("store.py::_links_to_a_private_board", "Return"): 1,
+    ("metadata_store.py::update_metadata", "Raise"): 3,
+    ("metadata_store.py::update_metadata", "Return"): 2,
+    ("metadata_store.py::metadata_history", "Raise"): 2,
+    ("metadata_store.py::metadata_history", "Return"): 2,
     ("store.py::submit", "Raise"): 1,
     ("seed.py::_apply_orphan_visibility", "Return"): 1,
     ("seed.py::_classify_configured", "Return"): 1,
