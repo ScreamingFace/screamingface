@@ -6,18 +6,18 @@ import contextvars
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 
-from screamingface_engine.benchmarks.contract import CorrectiveExecution
+from screamingface_engine.benchmarks.contract import CorrectiveLoopOutcome
 from url4.core.errors import ResolutionError
 
-type ExecutionRecorder = list[CorrectiveExecution]
+type ExecutionRecorder = list[CorrectiveLoopOutcome]
 
 _recorders: contextvars.ContextVar[tuple[ExecutionRecorder, ...]] = contextvars.ContextVar(
-    "screamingface_engine_candidate_execution_recorders", default=()
+    "screamingface_engine_loop_outcome_recorders", default=()
 )
 
 
 @contextmanager
-def capture_candidate_executions(*, isolated: bool = False) -> Iterator[ExecutionRecorder]:
+def capture_loop_outcomes(*, isolated: bool = False) -> Iterator[ExecutionRecorder]:
     """Capture provenance emitted by the Recipe's terminal orchestration boundary."""
 
     recorder: ExecutionRecorder = []
@@ -29,16 +29,16 @@ def capture_candidate_executions(*, isolated: bool = False) -> Iterator[Executio
         _recorders.reset(token)
 
 
-def record_candidate_execution(execution: CorrectiveExecution) -> None:
+def record_loop_outcome(execution: CorrectiveLoopOutcome) -> None:
     """Publish one already-decided execution outcome to every active scope."""
 
     for recorder in _recorders.get():
         recorder.append(execution)
 
 
-def terminal_candidate_execution(
-    executions: Sequence[CorrectiveExecution],
-) -> CorrectiveExecution | None:
+def terminal_loop_outcome(
+    executions: Sequence[CorrectiveLoopOutcome],
+) -> CorrectiveLoopOutcome | None:
     """Return the one unambiguous execution outcome for the complete Recipe."""
 
     if not executions:
@@ -54,7 +54,7 @@ def terminal_candidate_execution(
 
 
 __all__ = [
-    "capture_candidate_executions",
-    "record_candidate_execution",
-    "terminal_candidate_execution",
+    "capture_loop_outcomes",
+    "record_loop_outcome",
+    "terminal_loop_outcome",
 ]

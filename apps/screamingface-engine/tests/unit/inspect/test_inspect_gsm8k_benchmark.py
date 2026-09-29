@@ -2,7 +2,7 @@
 
 FEATURE: the first stranger-authored benchmark on the shared grading with zero shared-grading
 edits (OME-1115). This suite drives the benchmark's definition, asset snapshot, runtime
-routes, the shared grading aggregate through the scorer adapter, and the §4 check surface
+routes, the shared grading aggregate through the scorer adapter, and the §4 draft-feedback offer
 (the SAME wrapped scorer serving mid-run feedback).
 
 Runs only with the `inspect` extra installed (`uv run --extra inspect pytest …`);
@@ -20,13 +20,13 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA  # noqa: E402
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA  # noqa: E402
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
@@ -140,10 +140,10 @@ def _row(case_id: int, answer: str) -> dict[str, object]:
         "finish_reason": "stop",
         "execution": None,
     }
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(answer, "stop", None),
-        [bind_case_evaluation(case_id, [record])],
+        [build_case_grade(case_id, [record])],
     )
 
 
@@ -184,7 +184,7 @@ async def test_a_missing_target_asset_fails_by_its_own_name(tmp_path: Path) -> N
     assert result["cases"][1]["failures"][0]["code"] == "missing_target_asset"
 
 
-# ── §4 check surface ─────────────────────────────────────────────────────────
+# ── §4 draft-feedback offer ─────────────────────────────────────────────────────────
 
 
 def _prompt(tmp_path: Path) -> str:
@@ -207,7 +207,7 @@ async def _surface_check(node: Url4Node, tmp_path: Path, answer: str) -> dict[st
 async def test_check_surface_passes_a_correct_answer(tmp_path: Path) -> None:
     node = _node(tmp_path)
     record = await _surface_check(node, tmp_path, "ANSWER: 42")
-    assert record["schema"] == CHECK_SURFACE_SCHEMA
+    assert record["schema"] == DRAFT_FEEDBACK_SCHEMA
     assert record["passed"] is True
     assert record["satisfaction"] == 1.0
     assert record["feedback"] == ""

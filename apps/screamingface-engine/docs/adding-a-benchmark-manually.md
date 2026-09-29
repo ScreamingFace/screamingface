@@ -92,7 +92,7 @@ Two row shapes, one public, one benchmark-owned:
   shared grading decodes it into `SelectedCase` (`benchmarks/aggregation.py`).
 - **The evaluation row** your `grade_case` receives: an **opaque, benchmark-owned envelope**
   (`benchmarks/shared_grading/case_grades.py` files it and never looks inside). Your
-  `CaseGradeReader.decode_case_evaluation` shapes it; the one sub-key the shared grading code reads is
+  `CaseGradeReader.decode_case_grade` shapes it; the one sub-key the shared grading code reads is
   `row["case"]` — the candidate fields (`status`, `output`, `finish_reason`, `refusal`,
   `execution`, `operations`, `metadata`) — so your decode must hoist that mapping (copy
   `medxpert/aggregate.py` or `ifeval/grade.py`).
@@ -153,7 +153,7 @@ grade_case = rubric_grade_case(case_score=case_score, judge_producer_id="gdpval/
 where `case_score: (points, verdicts) -> float | None` is your benchmark's official scoring
 formula. The factory owns the two rubric failure codes (`"incomplete_verdicts"`,
 `"no_positive_points"`) and judge replies are parsed by the one shared parser
-(`benchmarks/shared_grading/verdict.py`) — never write your own.
+(`benchmarks/shared_grading/judge_evidence.py`) — never write your own.
 
 ## Step 5 — declare the cover sheet and wire the path
 
@@ -220,8 +220,8 @@ Shared implementations already observe their work:
 | --- | --- |
 | `benchmarks/shared_grading/serving.py` cases handler | Loading cases |
 | `world/candidate_adapter.py` | Answering, within the candidate's decoded case scope |
-| `benchmarks/evaluation.py` case/attempt reduction factories and `benchmarks/rubric_check.py` | Grading |
-| `benchmarks/evaluation.py` sync and async aggregation factories | Aggregating |
+| `benchmarks/grading_endpoints.py` case/attempt reduction factories and `benchmarks/rubric_draft_feedback.py` | Grading |
+| `benchmarks/grading_endpoints.py` sync and async aggregation factories | Aggregating |
 
 Do not decorate these handlers again at registration. For a benchmark-owned loader, checker
 or task preparer, decorate the function that actually performs the work:

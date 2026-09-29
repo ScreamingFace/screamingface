@@ -76,13 +76,13 @@ async def test_shipped_grading_entries_report_explicit_case_before_work(monkeypa
 def test_case_envelope_reports_failure_without_changing_result(monkeypatch):
     import json
 
-    from screamingface_engine.benchmarks.case_execution import _case_execution
     from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+    from screamingface_engine.benchmarks.graded_answer import _graded_answer_route
     from url4.peer.server import Request
 
     signals = []
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.case_execution.report_case_grading",
+        "screamingface_engine.benchmarks.graded_answer.report_case_grading",
         lambda *args: signals.append(args),
     )
     invocation = encode_candidate_invocation("answer", "stop", None)
@@ -92,7 +92,7 @@ def test_case_envelope_reports_failure_without_changing_result(monkeypatch):
     ]:
         payload = {"case_id": "007", "candidate_invocation": invocation, "grading": grading}
         result = json.loads(
-            _case_execution(Request("/benchmarks/case-execution", json.dumps(payload), "", {}))
+            _graded_answer_route(Request("/benchmarks/case-execution", json.dumps(payload), "", {}))
         )
         assert result["grading"] == grading
         assert signals[-1] == ("007", state)

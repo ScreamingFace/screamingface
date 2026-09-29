@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.ifeval.grade import (
     SCHEMA,
     AggregateError,
@@ -114,10 +114,10 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
     result = aggregate(
         json.dumps(
             [
-                case_execution_payload(
+                graded_answer_payload(
                     1,
                     encode_candidate_invocation("", "content_filter", exact),
-                    [bind_case_evaluation(1, [record])],
+                    [build_case_grade(1, [record])],
                 )
             ]
         ),

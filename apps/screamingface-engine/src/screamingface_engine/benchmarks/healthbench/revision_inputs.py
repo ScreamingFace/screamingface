@@ -40,7 +40,7 @@ JUDGE_PARAMS = (
     ("max_tokens", "4096"),
 )
 JUDGE_RETRIES = 2
-# The pass criterion of the mid-run check surface (OME-830), shared by both benchmarks so a
+# The pass criterion of the mid-run draft-feedback offer (OME-830), shared by both benchmarks so a
 # corrective-loop recipe means the same thing whichever one it runs against.
 CHECK_CRITERION = "healthbench-pass.v1"
 

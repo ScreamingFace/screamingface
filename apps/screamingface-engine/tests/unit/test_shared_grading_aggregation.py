@@ -27,13 +27,13 @@ import pytest
 from pydantic import ValidationError
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import (
     CaseGrade,
     CaseResult,
     Failure,
     encode_candidate_invocation,
 )
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -90,7 +90,7 @@ def _grading(case_id: int, *, status: str = "completed", **extra: Any) -> dict[s
 
 
 def _envelope(case_id: int, grading: Mapping[str, Any]) -> dict[str, object]:
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(f"output-{case_id}", "stop", None),
         [dict(grading)],
@@ -127,7 +127,7 @@ def _path(hook: _Hook, **overrides: Any) -> BenchmarkAggregation:
         "reader": CaseGradeReader(
             benchmark_label="TestBoard",
             error_type=BenchmarkError,
-            decode_case_evaluation=_decode,
+            decode_case_grade=_decode,
         ),
         "grade_case": hook,
         "failure_messages": MESSAGES,
@@ -288,7 +288,7 @@ def test_an_identified_error_row_becomes_case_error_without_the_hook() -> None:
 def test_a_grading_failure_row_keeps_the_benchmark_code_and_the_answer() -> None:
     hook = _Hook()
     grading_error = {"error": {"kind": "api_error", "message": "grading step failed"}}
-    row = case_execution_payload(
+    row = graded_answer_payload(
         1, encode_candidate_invocation("output-1", "stop", None), [grading_error]
     )
     result = _aggregate(_path(hook), [row], _selected(1))

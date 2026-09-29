@@ -19,16 +19,16 @@ from typing import Any, cast
 
 import pytest
 
-from screamingface_engine.benchmarks.shared_grading.verdict import (
-    Verdict,
-    VerdictShape,
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
+    JudgeEvidence,
+    JudgeReplyFormat,
     extract_json_array,
-    parse_verdict,
-    rubric_binding_key,
+    parse_judge_evidence,
+    rubric_evidence_record_key,
 )
 
 # The two real payload dialects, spelled the way the benchmarks declare them.
-ENUM_SHAPE = VerdictShape(
+ENUM_SHAPE = JudgeReplyFormat(
     schema="test.enum-verdict.v1",
     status_field="criterion_status",
     statuses=("MET", "UNMET"),
@@ -42,7 +42,7 @@ ENUM_SHAPE = VerdictShape(
         "bad_status": "invalid_status",
     },
 )
-BOOL_SHAPE = VerdictShape(
+BOOL_SHAPE = JudgeReplyFormat(
     schema="test.bool-verdict.v1",
     status_field="criteria_met",
     statuses=None,
@@ -58,7 +58,7 @@ BOOL_SHAPE = VerdictShape(
 
 
 def _bool_bind(raw: str) -> dict[str, object]:
-    return parse_verdict(
+    return parse_judge_evidence(
         raw,
         shape=BOOL_SHAPE,
         identity=(("case_id", 1), ("rubric_id", 2)),
@@ -74,9 +74,9 @@ def test_every_audit_field_is_a_required_constructor_argument() -> None:
     # `raw_output` is exactly the OME-1023 bug re-armed: `raw_output=""` is type-valid
     # with the wrong meaning, so the only safe default is none at all — omitting the
     # field must fail pyright at every call site (and TypeError at runtime).
-    for field in fields(Verdict):
+    for field in fields(JudgeEvidence):
         assert field.default is MISSING and field.default_factory is MISSING, (
-            f"Verdict.{field.name} has a default — an audit field a caller can silently drop"
+            f"JudgeEvidence.{field.name} has a default — an audit field a caller can silently drop"
         )
 
 
@@ -84,7 +84,7 @@ def test_constructing_a_verdict_without_the_raw_reply_fails() -> None:
     # The runtime floor of the type-level rule: pyright rejects the omission statically
     # (no default on the field), and the dataclass rejects it at runtime too.
     with pytest.raises(TypeError):
-        cast(Any, Verdict)(
+        cast(Any, JudgeEvidence)(
             schema="test.enum-verdict.v1",
             identity=(("case_id", 1),),
             producer_id="judge-x",
@@ -96,7 +96,7 @@ def test_constructing_a_verdict_without_the_raw_reply_fails() -> None:
 
 def test_a_verdict_is_either_valid_or_carries_a_reason_never_both() -> None:
     with pytest.raises(ValueError):
-        Verdict(
+        JudgeEvidence(
             schema="s",
             identity=(("case_id", 1),),
             producer_id="j",
@@ -106,7 +106,7 @@ def test_a_verdict_is_either_valid_or_carries_a_reason_never_both() -> None:
             reason="empty",
         )
     with pytest.raises(ValueError):
-        Verdict(
+        JudgeEvidence(
             schema="s",
             identity=(("case_id", 1),),
             producer_id="j",
@@ -122,7 +122,7 @@ def test_a_verdict_is_either_valid_or_carries_a_reason_never_both() -> None:
 
 def test_the_enum_dialect_produces_dracos_exact_valid_record() -> None:
     raw = json.dumps({"explanation": "The requirement is present.", "criterion_status": "MET"})
-    record = parse_verdict(
+    record = parse_judge_evidence(
         raw,
         shape=ENUM_SHAPE,
         identity=(("case_id", 7), ("criterion_id", "actual-id"), ("sequence", 1)),
@@ -171,7 +171,7 @@ def test_the_bool_dialect_produces_the_rubric_benchmarks_exact_valid_record() ->
     ],
 )
 def test_the_enum_dialect_keeps_dracos_reason_vocabulary(raw: str, reason: str) -> None:
-    record = parse_verdict(
+    record = parse_judge_evidence(
         raw, shape=ENUM_SHAPE, identity=(("case_id", 1),), producer_id="j"
     ).record()
     assert record["valid"] is False
@@ -233,23 +233,23 @@ def test_a_blank_producer_id_is_refused() -> None:
     # WHY: the verdict record is evidence; evidence with no attributable producer
     # cannot be audited after the fact.
     with pytest.raises(ValueError):
-        parse_verdict("{}", shape=BOOL_SHAPE, identity=(("case_id", 1),), producer_id="  ")
+        parse_judge_evidence("{}", shape=BOOL_SHAPE, identity=(("case_id", 1),), producer_id="  ")
 
 
 # --- shared rubric wiring (healthbench and gdpval were byte-identical) -------------------
 
 
-def test_rubric_binding_key_decodes_case_and_rubric_ids() -> None:
-    assert rubric_binding_key("12:34") == (12, 34)
+def test_rubric_evidence_record_key_decodes_case_and_rubric_ids() -> None:
+    assert rubric_evidence_record_key("12:34") == (12, 34)
 
 
 @pytest.mark.parametrize("value", ["", "12", "12:", ":34", "a:b", "0:1", "1:0", "-1:2"])
-def test_rubric_binding_key_rejects_malformed_or_non_positive(value: str) -> None:
+def test_rubric_evidence_record_key_rejects_malformed_or_non_positive(value: str) -> None:
     with pytest.raises(ValueError):
-        rubric_binding_key(value)
+        rubric_evidence_record_key(value)
 
 
-# --- the check surface's array recovery shares the same JSON-recovery primitive ----------
+# --- the draft-feedback offer's array recovery shares the same JSON-recovery primitive ----------
 
 
 def test_extract_json_array_reads_a_fenced_ordinal_reply() -> None:

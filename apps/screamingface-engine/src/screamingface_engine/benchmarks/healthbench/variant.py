@@ -9,7 +9,7 @@ printer varies per benchmark is only three things:
     what it calls itself           (``id`` — which decides every route address)
 
 Everything else is derived. ``variant_revision`` fingerprints the whole benchmark identity into a
-16-hex revision; ``Routes`` hangs the six protocol routes plus the check surface under
+16-hex revision; ``Routes`` hangs the six protocol routes plus the draft-feedback offer under
 ``/benchmarks/<id>/<revision>/``; ``build_variant_protocol`` writes the url4 expression tree.
 ``healthbench_benchmark`` is the one call a benchmark module makes.
 
@@ -29,8 +29,8 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
     DifficultyTier,
+    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.healthbench import verdict
@@ -354,7 +354,7 @@ def healthbench_benchmark(
         focus=focus,
         dataset_url=dataset_url,
         # Every check is a Judge call over the case rubric, so the loop's cost is real.
-        check_surface=CheckSurface(
+        check_surface=DraftFeedbackOffer(
             check_route=variant.routes.check_surface,
             feedback_intent="feedback",
             expected_check_cost="paid",

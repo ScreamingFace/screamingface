@@ -8,15 +8,15 @@ vocabulary, which reaches the wire on rejected verdicts and must stay byte-ident
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.shared_grading.verdict import (
-    VerdictShape,
-    parse_verdict,
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
+    JudgeReplyFormat,
+    parse_judge_evidence,
     require_positive_int,
 )
-from screamingface_engine.benchmarks.shared_grading.verdict import (
-    rubric_binding_key as binding_key,
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
+    rubric_evidence_record_key as evidence_record_key,
 )
-from screamingface_engine.benchmarks.shared_grading.verdict import (
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
     rubric_verdict_call as call,
 )
 
@@ -25,7 +25,7 @@ SCHEMA = "screamingface.gdpval-rubric-verdict.v1"
 # INVARIANT: only a REAL JSON boolean counts (statuses=None) — a judge that cannot follow
 # the reply format has not demonstrably followed the grading instruction either, and a
 # lenient cast would silently convert that confusion into a scored answer.
-SHAPE = VerdictShape(
+SHAPE = JudgeReplyFormat(
     schema=SCHEMA,
     status_field="criteria_met",
     statuses=None,
@@ -40,12 +40,14 @@ SHAPE = VerdictShape(
 )
 
 
-def bind(raw: str, *, case_id: int, rubric_id: int, producer_id: str) -> dict[str, object]:
+def build_evidence_record(
+    raw: str, *, case_id: int, rubric_id: int, producer_id: str
+) -> dict[str, object]:
     """Turn one raw judge reply into GDPval's verdict record, or a documented failure."""
 
     require_positive_int(case_id, "case_id")
     require_positive_int(rubric_id, "rubric_id")
-    return parse_verdict(
+    return parse_judge_evidence(
         raw,
         shape=SHAPE,
         identity=(("case_id", case_id), ("rubric_id", rubric_id)),
@@ -53,4 +55,4 @@ def bind(raw: str, *, case_id: int, rubric_id: int, producer_id: str) -> dict[st
     ).record()
 
 
-__all__ = ["SCHEMA", "bind", "binding_key", "call"]
+__all__ = ["SCHEMA", "build_evidence_record", "evidence_record_key", "call"]

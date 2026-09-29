@@ -35,7 +35,7 @@ def test_every_route_carries_the_revision() -> None:
     for route in (
         benchmark.CASES_ROUTE,
         benchmark.CHECK_ROUTE,
-        benchmark.CASE_EVALUATION_ROUTE,
+        benchmark.CASE_GRADE_ROUTE,
         benchmark.AGGREGATE_ROUTE,
     ):
         assert route.startswith(f"/benchmarks/{benchmark.BENCHMARK_ID}/{benchmark.REVISION}/")
@@ -55,7 +55,7 @@ def test_the_expression_invokes_the_candidate_exactly_once() -> None:
 
 
 def test_the_expression_uses_the_object_shaped_case_evaluation_payload() -> None:
-    """REGRESSION (OME-1126): the array-shaped `case_evaluation_endpoint` decodes with
+    """REGRESSION (OME-1126): the array-shaped `case_grade_endpoint` decodes with
     `json_array` and rejects this payload. The failure mode was every Case dying at grading
     AFTER inference was paid for, so the shape belongs in a test and not only in a comment."""
 

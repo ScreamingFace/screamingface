@@ -10,7 +10,7 @@ from typing import Any
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.contract import (
     CandidateInvocationStatus,
-    CorrectiveExecution,
+    CorrectiveLoopOutcome,
     OperationOutput,
     decode_candidate_invocation_record,
 )
@@ -23,7 +23,7 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
-CaseEvaluationBinder = Callable[[int, list[JsonObject]], JsonObject]
+CaseGradeBuilder = Callable[[int, list[JsonObject]], JsonObject]
 AggregateAdapter = Callable[[str, int], JsonObject]
 #: The async face (OME-1240): a judged benchmark's adapter awaits model calls, so its
 #: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
@@ -39,7 +39,7 @@ class CandidateAnswer:
     output: str | None
     finish_reason: str | None
     refusal: str | None
-    execution: CorrectiveExecution | None
+    execution: CorrectiveLoopOutcome | None
     operations: tuple[OperationOutput, ...] | None = None
 
 
@@ -58,11 +58,11 @@ def candidate_answer(value: str) -> CandidateAnswer:
     )
 
 
-def case_evaluation_endpoint(
+def case_grade_endpoint(
     *,
     label: str,
     item_name: str,
-    bind: CaseEvaluationBinder,
+    bind: CaseGradeBuilder,
     error_context_head: int | None = None,
 ) -> Callable[[Request], str]:
     """Adapt one non-empty collection of evaluator records into a Case envelope route."""
@@ -99,13 +99,13 @@ def attempt_records_endpoint(
     *,
     label: str,
     item_name: str,
-    bind: CaseEvaluationBinder,
+    bind: CaseGradeBuilder,
     error_context_head: int | None = None,
     observe_grading: bool = True,
 ) -> Callable[[Request], str]:
     """Adapt an ``attempt_1..attempt_N`` struct of evaluator records into a Case envelope.
 
-    WHY (OME-1126): the sibling ``case_evaluation_endpoint`` takes a JSON *array*,
+    WHY (OME-1126): the sibling ``case_grade_endpoint`` takes a JSON *array*,
     which is what a rubric fan-out (``iterate``) naturally yields. A Benchmark whose Case
     holds a FIXED, named set of attempts renders ``struct({"attempt_1": ...})`` instead
     — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
@@ -121,7 +121,7 @@ def attempt_records_endpoint(
             items = []
             for index, field in enumerate(expected, start=1):
                 decoded = json_object(payload[field], f"{item_name} {index}")
-                # WHY (OME-993, GH #740): mirrors case_evaluation_endpoint — a one-key
+                # WHY (OME-993, GH #740): mirrors case_grade_endpoint — a one-key
                 # {"error": ...} item is url4's `on_error=collect` capture of an UPSTREAM
                 # failure; re-raise that cause instead of rejecting its shape.
                 _raise_collected_failure(decoded, f"{item_name} {index}")
@@ -307,7 +307,7 @@ __all__ = [
     "attempt_records_endpoint",
     "benchmark_unavailable",
     "candidate_answer",
-    "case_evaluation_endpoint",
+    "case_grade_endpoint",
     "compact_json",
     "json_array",
     "json_object",

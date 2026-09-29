@@ -13,16 +13,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.gdpval.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
+from screamingface_engine.benchmarks.gdpval.case_grade import (
+    CASE_GRADE_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
 )
 from screamingface_engine.benchmarks.gdpval.grade import aggregate
 from screamingface_engine.benchmarks.gdpval.records import CASE_SCHEMA, RUBRIC_SCHEMA
 from screamingface_engine.benchmarks.gdpval.scoring import mean
 from screamingface_engine.benchmarks.gdpval.verdict import SCHEMA as VERDICT_SCHEMA
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 
 
 def _bake(root: Path, case_id: int, points: list[int]) -> None:
@@ -47,7 +47,7 @@ def _bake(root: Path, case_id: int, points: list[int]) -> None:
 
 def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
     grading = {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": case_id,
         "case": {
             "schema": CASE_SCHEMA,
@@ -87,7 +87,7 @@ def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
             for rubric_id, met in verdicts.items()
         ],
     }
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id, encode_candidate_invocation(f"output-{case_id}", "stop", None), [grading]
     )
 

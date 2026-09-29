@@ -10,13 +10,13 @@ from __future__ import annotations
 import pytest
 
 from screamingface_engine.benchmarks.contract import DECLARED_FAILURE_CODES
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     UPSTREAM_FALLBACK_CODE,
     benchmark_contract_error,
     benchmark_definition_error,
     judge_failure,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable
 from url4.core.errors import ResolutionError
 
 # INVARIANT: every code a class helper can produce is on the declared list —

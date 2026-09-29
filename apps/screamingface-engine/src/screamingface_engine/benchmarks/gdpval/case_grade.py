@@ -9,13 +9,13 @@ from screamingface_engine.benchmarks.gdpval.records import CASE_SCHEMA, RUBRIC_S
 from screamingface_engine.benchmarks.gdpval.verdict import SCHEMA as VERDICT_SCHEMA
 
 RUBRIC_EVALUATION_SCHEMA = "screamingface.gdpval-rubric-evaluation.v1"
-CASE_EVALUATION_SCHEMA = "screamingface.gdpval-case-evaluation.v1"
+CASE_GRADE_SCHEMA = "screamingface.gdpval-case-evaluation.v1"
 
 _RUBRIC_EVALUATION_FIELDS = frozenset({"schema", "case_id", "rubric_id", "rubric", "evidence"})
-_CASE_EVALUATION_FIELDS = frozenset({"schema", "case_id", "case", "rubric_evaluations"})
+_CASE_GRADE_FIELDS = frozenset({"schema", "case_id", "case", "rubric_evaluations"})
 
 
-def bind_rubric_evaluation(
+def build_rubric_grade(
     case_id: int,
     case_record: Mapping[str, Any] | None,
     rubric_record: Mapping[str, Any],
@@ -29,7 +29,7 @@ def bind_rubric_evaluation(
 
     WHY the Case record may be ``None``: a Case with 44 criteria would otherwise store the
     Candidate's full submission 44 times. The full record rides the FIRST row only; the rest
-    carry ``{}`` -> ``None`` here. ``bind_case_evaluation`` reassembles it.
+    carry ``{}`` -> ``None`` here. ``build_case_grade`` reassembles it.
     """
 
     selected = _positive(case_id, "case_id")
@@ -52,7 +52,7 @@ def bind_rubric_evaluation(
     }
 
 
-def bind_case_evaluation(
+def build_case_grade(
     case_id: int,
     rubric_evaluations: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -89,14 +89,14 @@ def bind_case_evaluation(
     if case_record is None:
         raise ValueError(f"Case {selected} carries no Case record")
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": selected,
         "case": case_record,
         "rubric_evaluations": rows,
     }
 
 
-def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, Any]:
+def decode_case_grade(value: object, expected_case_id: int) -> dict[str, Any]:
     """Validate one exact aggregate input envelope without shape inference.
 
     INVARIANT: no inference. The aggregate reads only envelopes this function accepted, so a
@@ -106,9 +106,9 @@ def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, An
     selected = _positive(expected_case_id, "expected_case_id")
     if not isinstance(value, Mapping):
         raise ValueError("Case evaluation must be an object")
-    _require_schema(value, CASE_EVALUATION_SCHEMA, "Case evaluation")
+    _require_schema(value, CASE_GRADE_SCHEMA, "Case evaluation")
     _require_case(value, selected, "Case evaluation")
-    unknown = set(value) - _CASE_EVALUATION_FIELDS
+    unknown = set(value) - _CASE_GRADE_FIELDS
     if unknown:
         raise ValueError(f"Case evaluation carries unknown fields {sorted(unknown)}")
     case_record = value.get("case")
@@ -118,7 +118,7 @@ def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, An
     if not isinstance(rows, Sequence) or isinstance(rows, str) or not rows:
         raise ValueError("Case evaluation needs at least one rubric evaluation")
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": selected,
         "case": dict(case_record),
         "rubric_evaluations": _decode_rubric_evaluations(rows, selected),
@@ -187,9 +187,9 @@ def _positive(value: object, label: str) -> int:
 
 
 __all__ = [
-    "CASE_EVALUATION_SCHEMA",
+    "CASE_GRADE_SCHEMA",
     "RUBRIC_EVALUATION_SCHEMA",
-    "bind_case_evaluation",
-    "bind_rubric_evaluation",
-    "decode_case_evaluation",
+    "build_case_grade",
+    "build_rubric_grade",
+    "decode_case_grade",
 ]

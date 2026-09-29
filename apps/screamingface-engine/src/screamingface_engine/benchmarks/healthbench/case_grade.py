@@ -10,8 +10,8 @@ from screamingface_engine.benchmarks.healthbench.records import CASE_SCHEMA, RUB
 from screamingface_engine.benchmarks.healthbench.verdict import SCHEMA as VERDICT_SCHEMA
 
 RUBRIC_EVALUATION_SCHEMA = "screamingface.healthbench-rubric-evaluation.v1"
-CASE_EVALUATION_SCHEMA = "screamingface.healthbench-case-evaluation.v1"
-_CASE_EVALUATION_FIELDS = frozenset({"schema", "case_id", "case", "rubric_evaluations"})
+CASE_GRADE_SCHEMA = "screamingface.healthbench-case-evaluation.v1"
+_CASE_GRADE_FIELDS = frozenset({"schema", "case_id", "case", "rubric_evaluations"})
 _CASE_RECORD_FIELDS = frozenset(
     {
         "schema",
@@ -29,7 +29,7 @@ _CASE_RECORD_FIELDS = frozenset(
 _RUBRIC_EVALUATION_FIELDS = frozenset({"schema", "case_id", "rubric_id", "rubric", "evidence"})
 
 
-def bind_rubric_evaluation(
+def build_rubric_grade(
     case_id: int,
     case_record: Mapping[str, Any] | None,
     rubric_record: Mapping[str, Any],
@@ -45,7 +45,7 @@ def bind_rubric_evaluation(
     WHY the Case record can be ``None``: a Case with 12 rubric items would
     otherwise store the Candidate's full output 12 times. So the full record
     rides on the FIRST rubric row only; the others carry ``{}`` → ``None`` here
-    (same artifact-dedup rule as DRACO). ``bind_case_evaluation`` reassembles it.
+    (same artifact-dedup rule as DRACO). ``build_case_grade`` reassembles it.
     """
 
     selected = _positive(case_id, "case_id")
@@ -68,13 +68,13 @@ def bind_rubric_evaluation(
     }
 
 
-def bind_case_evaluation(
+def build_case_grade(
     case_id: int,
     rubric_evaluations: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Bundle one Case's rubric rows into the per-Case artifact, hoisting the Case record.
 
-    The inverse of the dedup in ``bind_rubric_evaluation``: exactly ONE incoming
+    The inverse of the dedup in ``build_rubric_grade``: exactly ONE incoming
     row must carry the embedded Case record (the first one); it gets hoisted to
     the top level and stripped from the rows. Zero carriers or two carriers both
     raise — as does a duplicated rubric_id — because either means the fan-out
@@ -107,20 +107,20 @@ def bind_case_evaluation(
     if case_record is None:
         raise ValueError(f"Case {selected} carries no Case record")
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": selected,
         "case": case_record,
         "rubric_evaluations": rows,
     }
 
 
-def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, Any]:
+def decode_case_grade(value: object, expected_case_id: int) -> dict[str, Any]:
     """Validate one exact aggregate input envelope without shape inference."""
 
     selected = _positive(expected_case_id, "expected_case_id")
-    if not isinstance(value, Mapping) or set(value) != _CASE_EVALUATION_FIELDS:
+    if not isinstance(value, Mapping) or set(value) != _CASE_GRADE_FIELDS:
         raise ValueError("invalid HealthBench Case Evaluation envelope")
-    if value.get("schema") != CASE_EVALUATION_SCHEMA or value.get("case_id") != selected:
+    if value.get("schema") != CASE_GRADE_SCHEMA or value.get("case_id") != selected:
         raise ValueError("HealthBench Case Evaluation belongs to another Case")
 
     case = value.get("case")
@@ -135,7 +135,7 @@ def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, An
         raise ValueError("HealthBench rubric evaluations must be a non-empty array")
     evaluations = _decode_rubric_evaluations(raw_evaluations, selected)
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": selected,
         "case": dict(case),
         "rubric_evaluations": evaluations,
@@ -224,9 +224,9 @@ def _positive(value: object, label: str) -> int:
 
 
 __all__ = [
-    "CASE_EVALUATION_SCHEMA",
+    "CASE_GRADE_SCHEMA",
     "RUBRIC_EVALUATION_SCHEMA",
-    "bind_case_evaluation",
-    "bind_rubric_evaluation",
-    "decode_case_evaluation",
+    "build_case_grade",
+    "build_rubric_grade",
+    "decode_case_grade",
 ]

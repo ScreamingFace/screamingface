@@ -25,8 +25,8 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -89,7 +89,7 @@ PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="TestBoard",
         error_type=BenchmarkError,
-        decode_case_evaluation=lambda grading, case_id: dict(grading),  # type: ignore[arg-type]
+        decode_case_grade=lambda grading, case_id: dict(grading),  # type: ignore[arg-type]
     ),
     grade_case=_hook,
     failure_messages=MESSAGES,
@@ -115,7 +115,7 @@ def _case_result(
             body = dict(row)
             grading = {"case": {"status": "answered", **dict(body.pop("case", {}))}, **body}
             rows.append(
-                case_execution_payload(
+                graded_answer_payload(
                     7, encode_candidate_invocation("output-7", "stop", None), [grading]
                 )
             )

@@ -14,9 +14,9 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.ifeval.grade import (
     SCHEMA,
@@ -199,15 +199,15 @@ def test_aggregate_grades_rows_in_cases_json_order_not_sorted_ids() -> None:
 
     rows = json.dumps(
         [
-            case_execution_payload(
+            graded_answer_payload(
                 30,
                 encode_candidate_invocation("Answer 30", "stop", None),
-                [bind_case_evaluation(30, [_record(30)])],
+                [build_case_grade(30, [_record(30)])],
             ),
-            case_execution_payload(
+            graded_answer_payload(
                 4,
                 encode_candidate_invocation("Answer 4", "stop", None),
-                [bind_case_evaluation(4, [_record(4)])],
+                [build_case_grade(4, [_record(4)])],
             ),
         ]
     )

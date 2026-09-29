@@ -20,12 +20,11 @@ import pytest
 from benchmark_support import install_benchmarks
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco import grade as agg
-from screamingface_engine.benchmarks.draco.case_evaluation import (
-    bind_case_evaluation,
-    bind_criterion_evaluation,
+from screamingface_engine.benchmarks.draco.case_grade import (
+    build_case_grade,
+    build_criterion_grade,
 )
 from screamingface_engine.benchmarks.draco.definition import (
     CANONICAL_VARIANT,
@@ -35,6 +34,7 @@ from screamingface_engine.benchmarks.draco.definition import (
     THREE_PASS_VARIANT,
 )
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 from url4 import render
 from url4.peer.server import Url4Node
@@ -281,7 +281,7 @@ def _three_pass_row() -> dict[str, object]:
     criteria = []
     for index, criterion_id in enumerate(("a1", "a2", "a3", "b1")):
         criteria.append(
-            bind_criterion_evaluation(
+            build_criterion_grade(
                 1,
                 case_record if index == 0 else None,
                 {
@@ -294,10 +294,10 @@ def _three_pass_row() -> dict[str, object]:
                 evidence[criterion_id],
             )
         )
-    return case_execution_payload(
+    return graded_answer_payload(
         1,
         encode_candidate_invocation("Answer 1", "stop", None),
-        [bind_case_evaluation(1, criteria)],
+        [build_case_grade(1, criteria)],
     )
 
 
@@ -342,7 +342,7 @@ def _four_pass_row() -> dict[str, object]:
     criteria = []
     for index, criterion_id in enumerate(("a1", "a2", "a3", "b1")):
         criteria.append(
-            bind_criterion_evaluation(
+            build_criterion_grade(
                 1,
                 case_record if index == 0 else None,
                 {
@@ -355,10 +355,10 @@ def _four_pass_row() -> dict[str, object]:
                 evidence[criterion_id],
             )
         )
-    return case_execution_payload(
+    return graded_answer_payload(
         1,
         encode_candidate_invocation("Answer 1", "stop", None),
-        [bind_case_evaluation(1, criteria)],
+        [build_case_grade(1, criteria)],
     )
 
 

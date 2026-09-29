@@ -1,7 +1,7 @@
-"""HealthBench's check surface — `rubric_check`'s second customer (OME-830).
+"""HealthBench's draft-feedback offer — `rubric_check`'s second customer (OME-830).
 
 FEATURE: the corrective loop on a second rubric benchmark, by CONFIGURATION.
-STORY: as the next rubric benchmark, I get a mid-run check surface by declaring
+STORY: as the next rubric benchmark, I get a mid-run draft-feedback offer by declaring
 where my criteria live and how strict I am — no adapter code of my own. The
 deletion test at the bottom is the acceptance: if HealthBench had needed new
 Python, the template failed and should not have shipped.
@@ -24,17 +24,20 @@ from screamingface_engine.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
 from screamingface_engine.benchmarks.healthbench.check_policy import (
     CHECK_THRESHOLD,
-    HEALTHBENCH_CHECK,
+    HEALTHBENCH_DRAFT_FEEDBACK,
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_WORST30,
     WORST30_VARIANT,
 )
 from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL
-from screamingface_engine.benchmarks.rubric_check import RubricCheck, check_surface
+from screamingface_engine.benchmarks.rubric_draft_feedback import (
+    RubricDraftFeedback,
+    rubric_draft_feedback_endpoint,
+)
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -71,7 +74,7 @@ def _node(
     tmp_path: Path,
     replies: list[str],
     *,
-    config: RubricCheck = HEALTHBENCH_CHECK,
+    config: RubricDraftFeedback = HEALTHBENCH_DRAFT_FEEDBACK,
 ) -> tuple[Url4Node, list[Request]]:
     _assets(tmp_path)
     node = Url4Node("test")
@@ -82,7 +85,9 @@ def _node(
         seen.append(request)
         return replies.pop(0) if replies else "[]"
 
-    node.endpoint(_CHECK_ROUTE)(check_surface(node, tmp_path / "healthbench", config))
+    node.endpoint(_CHECK_ROUTE)(
+        rubric_draft_feedback_endpoint(node, tmp_path / "healthbench", config)
+    )
     return node, seen
 
 
@@ -129,7 +134,7 @@ async def test_a_complete_safe_answer_passes(tmp_path: Path) -> None:
     record = await _check(node, "see a doctor; common causes are...")
     invocation = encode_candidate_invocation("see a doctor; common causes are...", "stop", None)
     assert record == {
-        "schema": CHECK_SURFACE_SCHEMA,
+        "schema": DRAFT_FEEDBACK_SCHEMA,
         "passed": True,
         "satisfaction": 1.0,
         "feedback": "",
@@ -197,7 +202,9 @@ async def test_a_rubric_with_nothing_to_win_is_unscorable(tmp_path: Path) -> Non
     )
     node = Url4Node("test")
     node.endpoint(_MODEL_ROUTE)(lambda request: json.dumps([{"id": 1, "status": "UNMET"}]))
-    node.endpoint(_CHECK_ROUTE)(check_surface(node, tmp_path / "healthbench", HEALTHBENCH_CHECK))
+    node.endpoint(_CHECK_ROUTE)(
+        rubric_draft_feedback_endpoint(node, tmp_path / "healthbench", HEALTHBENCH_DRAFT_FEEDBACK)
+    )
     with pytest.raises(ResolutionError, match="no positively weighted criterion"):
         await _check(node, "an answer")
 
@@ -287,8 +294,8 @@ def test_the_pass_criterion_is_named_and_pinned() -> None:
     # this is the worst-30% subset, where DRACO's 0.7 bar would never trigger and
     # max_rounds would stop being a cost cap.
     assert CHECK_THRESHOLD == 0.5
-    assert HEALTHBENCH_CHECK.criterion == "healthbench-pass.v1"
-    assert HEALTHBENCH_CHECK.threshold == CHECK_THRESHOLD
+    assert HEALTHBENCH_DRAFT_FEEDBACK.criterion == "healthbench-pass.v1"
+    assert HEALTHBENCH_DRAFT_FEEDBACK.threshold == CHECK_THRESHOLD
 
 
 # --- the deletion test ------------------------------------------------------------
@@ -313,18 +320,18 @@ def test_the_healthbench_adapter_is_configuration_only() -> None:
     # No functions, no classes, no control flow: arguments only.
     for construct in ("def ", "class ", "if ", "for ", "while ", "try:"):
         assert construct not in body, f"HealthBench check adapter grew {construct!r}"
-    assert isinstance(HEALTHBENCH_CHECK, RubricCheck)
+    assert isinstance(HEALTHBENCH_DRAFT_FEEDBACK, RubricDraftFeedback)
 
 
 def test_a_benchmark_without_areas_cannot_claim_area_feedback() -> None:
     # The declaration is validated, not merely stored: a benchmark whose rubric has no
     # area vocabulary must not be able to promise area-level feedback it cannot give.
     with pytest.raises(ValueError, match="declares no area fields"):
-        RubricCheck(
+        RubricDraftFeedback(
             label="Fake",
             criterion="fake-pass.v1",
             threshold=0.5,
-            shape=HEALTHBENCH_CHECK.shape,
+            shape=HEALTHBENCH_DRAFT_FEEDBACK.shape,
             judge_model=JUDGE_MODEL,
             feedback="areas",
         )

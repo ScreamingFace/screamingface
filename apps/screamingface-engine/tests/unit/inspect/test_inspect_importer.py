@@ -507,7 +507,7 @@ def test_rendered_rows_are_valid_python_and_carry_the_facts() -> None:
     assert "license: mit" in rows.pins
     assert f'record_to_sample="{_FAKE_MODULE}:record_to_sample"' in rows.cases
     assert f'prompt_template="{_FAKE_MODULE}:TEMPLATE"' in rows.cases
-    # Free text ⇒ the check surface is legitimate and declared.
+    # Free text ⇒ the draft-feedback offer is legitimate and declared.
     assert "with_check_surface=True" in rows.benchmark
     assert 'scorer="inspect_ai.scorer:match"' in rows.benchmark
     assert 'scorer_kwargs={"numeric": True}' in rows.benchmark
@@ -533,7 +533,7 @@ def test_mcq_detection_follows_the_solver_not_the_scorer_name(
 ) -> None:
     """lab_bench grades its MCQ benchmarks with its OWN scorer (precision_choice), so
     keying mcq on the scorer name reads them as free-text and hands an MCQ benchmark
-    the check surface — an elimination attack (OME-796). MCQ-ness is the benchmark's
+    the draft-feedback offer — an elimination attack (OME-796). MCQ-ness is the benchmark's
     SHAPE, declared by the multiple_choice solver, and is detected there."""
 
     from inspect_ai.scorer import Score, Target, accuracy, scorer
@@ -573,7 +573,7 @@ def test_mcq_detection_sees_through_a_custom_solver_wrapper(
     choice scorer proves the shape (the mmlu family case, OME-796 guard): mmlu's
     mmlu_multiple_choice calls multiple_choice() INSIDE its own @solver, so the
     registry walk never meets it — reading such a benchmark as free-text would hand
-    an MCQ benchmark the check surface (the elimination attack)."""
+    an MCQ benchmark the draft-feedback offer (the elimination attack)."""
 
     from inspect_ai.solver import Generate, TaskState, solver
 
@@ -1507,7 +1507,7 @@ def test_emitted_benchmark_row_constructs_the_real_benchmark_spec(engine_src_cop
     assert benchmark.dataset_url == "https://huggingface.co/datasets/acme/sums"
     assert benchmark.scorer == "inspect_ai.scorer:match"
     assert dict(benchmark.scorer_kwargs) == {"numeric": True}
-    # Free text ⇒ the check surface is legitimate and declared (OME-796).
+    # Free text ⇒ the draft-feedback offer is legitimate and declared (OME-796).
     assert benchmark.with_check_surface is True
     # Catalogue prose stays the importing agent's job — the tool emits TODOs.
     assert benchmark.title == "TODO"
@@ -1632,7 +1632,7 @@ def test_emitted_mcq_benchmark_row_constructs_the_real_benchmark_spec(
     assert benchmark.key == "quiz"
     assert benchmark.scorer == "inspect_ai.scorer:choice"
     # The omitted kwargs resolve through the spec's own defaults (OME-796: MCQ
-    # benchmarks never declare the check surface).
+    # benchmarks never declare the draft-feedback offer).
     assert dict(benchmark.scorer_kwargs) == {}
     assert benchmark.with_check_surface is False
 
@@ -1956,7 +1956,7 @@ def test_a_custom_scorer_with_a_judge_model_kwarg_gets_the_judge_flag() -> None:
 
 
 def test_a_judged_row_never_advertises_a_check_surface() -> None:
-    """Assembly refuses judged rows with a check surface (no check-cost knob yet) —
+    """Assembly refuses judged rows with a draft-feedback offer (no check-cost knob yet) —
     the importer emitting both would strand the next import on a red gate it was
     told is already correct (review finding, 2026-09-24)."""
 

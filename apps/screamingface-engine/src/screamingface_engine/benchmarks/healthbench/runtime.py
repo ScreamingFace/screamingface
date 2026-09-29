@@ -28,37 +28,40 @@ from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
-    candidate_answer,
-    case_evaluation_endpoint,
-    compact_json,
-    json_object,
-    positive_case_id,
-)
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import (
+    aggregate_endpoint,
+    candidate_answer,
+    case_grade_endpoint,
+    compact_json,
+    json_object,
+    positive_case_id,
+)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.healthbench import grade as reducing
 from screamingface_engine.benchmarks.healthbench import records
-from screamingface_engine.benchmarks.healthbench.case_evaluation import (
-    bind_case_evaluation,
-    bind_rubric_evaluation,
+from screamingface_engine.benchmarks.healthbench.case_grade import (
+    build_case_grade,
+    build_rubric_grade,
 )
-from screamingface_engine.benchmarks.healthbench.check_policy import HEALTHBENCH_CHECK
+from screamingface_engine.benchmarks.healthbench.check_policy import HEALTHBENCH_DRAFT_FEEDBACK
 from screamingface_engine.benchmarks.healthbench.prompts import (
     build_grader_prompt,
     render_rubric_item,
 )
 from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.healthbench.variant import HealthbenchVariant, VariantMean
-from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
+from screamingface_engine.benchmarks.healthbench.verdict import (
+    build_evidence_record,
+    evidence_record_key,
+)
 from screamingface_engine.benchmarks.phases import observe_phase
-from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -123,18 +126,21 @@ def _install_protocol_once(
     routes = frozenset(node.processor_routes())
     endpoints = (
         (judge_requests_route, _rubric_judge_requests(root, case_ids, benchmark_id)),
-        # The mid-run check surface the corrective loop consumes. It closes over `node`
+        # The mid-run draft-feedback offer the corrective loop consumes. It closes over `node`
         # so the judge route resolves per request — installation must still work in a
         # world holding no model routes.
-        (check_surface_route, check_surface(node, root, HEALTHBENCH_CHECK)),
+        (
+            check_surface_route,
+            rubric_draft_feedback_endpoint(node, root, HEALTHBENCH_DRAFT_FEEDBACK),
+        ),
         (verdict_route, _rubric_verdict(benchmark_id)),
         (rubric_evaluation_route, _rubric_evaluation),
         (
             case_evaluation_route,
-            case_evaluation_endpoint(
+            case_grade_endpoint(
                 label="HealthBench Case evaluation",
                 item_name="Rubric evaluation",
-                bind=bind_case_evaluation,
+                bind=build_case_grade,
                 error_context_head=300,
             ),
         ),
@@ -274,8 +280,8 @@ def _rubric_verdict(benchmark_id: str):
     @observe_phase(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
-            case_id, rubric_id = binding_key(request.intent)
-            record = bind(
+            case_id, rubric_id = evidence_record_key(request.intent)
+            record = build_evidence_record(
                 request.context,
                 case_id=case_id,
                 rubric_id=rubric_id,
@@ -321,7 +327,7 @@ def _rubric_evaluation(request: Request) -> str:
         if tuple(payload) != ("case", "rubric", "evidence"):
             raise ValueError("HealthBench rubric evaluation fields must be case, rubric, evidence")
         raw_case = json_object(payload["case"], "Case record")
-        result = bind_rubric_evaluation(
+        result = build_rubric_grade(
             case_id,
             raw_case or None,
             json_object(payload["rubric"], "Rubric record"),

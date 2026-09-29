@@ -1,7 +1,7 @@
 """End-to-end: a client-compiled corrective loop runs on DRACO (OME-829).
 
 FEATURE: the corrective loop's benchmark independence, cashed on a rubric
-benchmark with a PAID check surface.
+benchmark with a PAID draft-feedback offer.
 STORY: as the transport contract, `tests/unit/data/draco_corrective_loop_candidate.url4`
 was rendered by `screamingface`'s compiler against DRACO's advertised check
 route — the SAME recipe shape that runs on IFEval, with only the route changed —

@@ -101,7 +101,7 @@ _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
 CASES_ROUTE = _ROUTES.cases
 CHECK_ROUTE = _ROUTES.check
-CASE_EVALUATION_ROUTE = _ROUTES.case_evaluation
+CASE_GRADE_ROUTE = _ROUTES.case_evaluation
 AGGREGATE_ROUTE = _ROUTES.aggregate
 
 
@@ -155,7 +155,7 @@ def _build(case_count: int) -> Node:
         ),
         src(
             RelExpr(
-                path=CASE_EVALUATION_ROUTE,
+                path=CASE_GRADE_ROUTE,
                 context=render(struct({"attempt_1": "$record"})),
                 intent=Text("$item.case_id"),
             ),
@@ -237,7 +237,7 @@ __all__ = [
     "BENCHMARK_ID",
     "CASES_ROUTE",
     "CASE_COUNT",
-    "CASE_EVALUATION_ROUTE",
+    "CASE_GRADE_ROUTE",
     "CHECK_ROUTE",
     "MEDXPERT",
     "REVISION",

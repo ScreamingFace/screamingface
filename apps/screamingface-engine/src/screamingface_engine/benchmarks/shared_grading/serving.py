@@ -37,9 +37,9 @@ from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_selection import install_cases
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.grading_endpoints import (
     CandidateAnswer,
-    CaseEvaluationBinder,
+    CaseGradeBuilder,
     aggregate_endpoint,
     attempt_records_endpoint,
     benchmark_unavailable,
@@ -118,7 +118,7 @@ class ServedBenchmark:
       INVARIANT (sealed envelope): rows carry questions, never which answers grade them.
     - `check`: the benchmark's own grading gate, given the bundle root. Benchmark-specific by
       design — the shared grading code does not average over benchmarks.
-    - `bind_case_evaluation`: bundles checked attempts into the per-Case artifact.
+    - `build_case_grade`: bundles checked attempts into the per-Case artifact.
     - `reduce`: the benchmark's reducer (`aggregate.aggregate`), fed benchmark identity and the
       exact selected case_ids.
     """
@@ -130,7 +130,7 @@ class ServedBenchmark:
     preflight: PreflightCheck
     build_public_cases: PublicCaseBuilder
     check: CheckFactory
-    bind_case_evaluation: CaseEvaluationBinder
+    build_case_grade: CaseGradeBuilder
     reduce: BenchmarkReducer
 
     @property
@@ -155,7 +155,7 @@ def install_benchmark(node: Url4Node, root: Path, benchmark: ServedBenchmark) ->
             attempt_records_endpoint(
                 label=f"{benchmark.label} Case evaluation",
                 item_name="Attempt",
-                bind=benchmark.bind_case_evaluation,
+                bind=benchmark.build_case_grade,
                 error_context_head=300,
             ),
         ),

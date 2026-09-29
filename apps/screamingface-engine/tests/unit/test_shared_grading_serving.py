@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks.contract import OperationOutput, encode_candidate_invocation
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.grading_endpoints import (
     CandidateAnswer,
     candidate_answer,
     compact_json,
@@ -128,7 +128,7 @@ def _toy_benchmark(*, reduce: _Reduce | None = None, declared: int = 2) -> Serve
         preflight=_preflight,
         build_public_cases=_build_public_cases,
         check=_check,
-        bind_case_evaluation=_bind,
+        build_case_grade=_bind,
         reduce=reduce or _Reduce(),
     )
 
@@ -345,7 +345,7 @@ class TestServeCases:
             preflight=counting_preflight,
             build_public_cases=_build_public_cases,
             check=_check,
-            bind_case_evaluation=_bind,
+            build_case_grade=_bind,
             reduce=_Reduce(),
         )
         cases = serve_cases(root, benchmark)

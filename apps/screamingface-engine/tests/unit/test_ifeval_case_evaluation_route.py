@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
+from screamingface_engine.benchmarks.ifeval.case_grade import (
+    CASE_GRADE_SCHEMA,
     CHECK_SCHEMA,
 )
 from screamingface_engine.benchmarks.ifeval.definition import (
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CHECK_ROUTE,
     IFEVAL,
     ROUTE_PREFIX,
@@ -77,7 +77,7 @@ async def test_runtime_packs_ordered_attempts_into_one_case_evaluation(tmp_path:
     result = json.loads((await node.evaluate(render(expression))).text)
 
     assert result == {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": 1,
         "attempts": [record],
     }
@@ -117,7 +117,7 @@ def test_canonical_resource_packs_the_check_before_aggregation() -> None:
     url4 = IFEVAL.resource(1)["url4"]
 
     assert isinstance(url4, str)
-    assert url4.count(CASE_EVALUATION_ROUTE) == 1
+    assert url4.count(CASE_GRADE_ROUTE) == 1
 
 
 def test_canonical_ifeval_reproduces_the_paper_protocol() -> None:

@@ -20,12 +20,12 @@ from screamingface_engine.benchmarks.draco.validation import (
 from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
 
 CRITERION_EVALUATION_SCHEMA = "screamingface.draco-criterion-evaluation.v1"
-CASE_EVALUATION_SCHEMA = "screamingface.draco-case-evaluation.v1"
+CASE_GRADE_SCHEMA = "screamingface.draco-case-evaluation.v1"
 _CRITERION_FIELDS = frozenset({"schema", "case", "check", "evidence"})
 _CASE_FIELDS = frozenset({"schema", "case", "checks", "evidence"})
 
 
-def bind_criterion_evaluation(
+def build_criterion_grade(
     case_id: int,
     case_record: Mapping[str, Any] | None,
     check_record: Mapping[str, Any],
@@ -55,7 +55,7 @@ def bind_criterion_evaluation(
     }
 
 
-def bind_case_evaluation(
+def build_case_grade(
     case_id: int,
     criteria: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -86,7 +86,7 @@ def bind_case_evaluation(
     return _case_envelope(cases[0], checks, evidence)
 
 
-def decode_case_evaluation(
+def decode_case_grade(
     value: Any,
     expected_case_id: int,
     *,
@@ -98,7 +98,7 @@ def decode_case_evaluation(
     _require(
         decoded is not None
         and set(decoded) == _CASE_FIELDS
-        and decoded.get("schema") == CASE_EVALUATION_SCHEMA,
+        and decoded.get("schema") == CASE_GRADE_SCHEMA,
         "invalid DRACO Case Evaluation envelope",
     )
     assert decoded is not None
@@ -171,7 +171,7 @@ def _case_envelope(
     evidence: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case": dict(case),
         "checks": [dict(item) for item in checks],
         "evidence": [dict(item) for item in evidence],
@@ -273,9 +273,9 @@ def _root_object(value: Any) -> dict[str, Any] | None:
 
 
 __all__ = [
-    "CASE_EVALUATION_SCHEMA",
+    "CASE_GRADE_SCHEMA",
     "CRITERION_EVALUATION_SCHEMA",
-    "bind_case_evaluation",
-    "bind_criterion_evaluation",
-    "decode_case_evaluation",
+    "build_case_grade",
+    "build_criterion_grade",
+    "decode_case_grade",
 ]

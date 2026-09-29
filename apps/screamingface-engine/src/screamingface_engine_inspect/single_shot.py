@@ -6,9 +6,9 @@ url4 protocol, the runtime routes, the BenchmarkAggregation binding, and the reg
 per-benchmark modules (`gsm8k.py`, `mmlu.py`) shrink to declarations — the spec §5 "≤150
 lines per benchmark" budget made structural.
 
-The load-bearing move (spec §4): when a benchmark declares a check surface, the SAME
+The load-bearing move (spec §4): when a benchmark declares a draft-feedback offer, the SAME
 wrapped scorer serves both the grading route (after the benchmark) and the mid-run check
-(during it). MCQ benchmarks get NO check surface — pass/fail feedback over a handful of
+(during it). MCQ benchmarks get NO draft-feedback offer — pass/fail feedback over a handful of
 options is an elimination attack (OME-796), and the client preflight's refusal of a
 loop recipe there is correct behavior.
 
@@ -37,8 +37,8 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA, Ca
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
     DifficultyTier,
+    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.deployment import (
@@ -46,8 +46,11 @@ from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetPreparer,
     BenchmarkRegistration,
 )
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.grading_endpoints import (
     async_aggregate_endpoint,
     attempt_records_endpoint,
     candidate_answer,
@@ -55,10 +58,7 @@ from screamingface_engine.benchmarks.evaluation import (
     json_object,
     positive_case_id,
 )
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.failure_classes import (
-    benchmark_contract_error as _contract_error,
-)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
@@ -77,8 +77,8 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload
 from screamingface_engine_inspect.envelopes import (
     CHECK_SCHEMA,
-    bind_case_evaluation,
-    decode_case_evaluation,
+    build_case_grade,
+    decode_case_grade,
 )
 from screamingface_engine_inspect.pins import (
     PREPARER_REVISION,
@@ -176,7 +176,7 @@ class ImportedBenchmark:
             reader=CaseGradeReader(
                 benchmark_label=self.benchmark.title,
                 error_type=AggregateError,
-                decode_case_evaluation=_decode,
+                decode_case_grade=_decode,
             ),
             grade_case=inspect_grade_case(
                 self.scorer_factory(), multiple_correct=self.multiple_correct
@@ -244,7 +244,7 @@ def single_shot_benchmark(
     if judge is not None and with_check_surface:
         # WHY: a judged mid-run check spends judge tokens per attempt, and the
         # advertised check cost is still hardcoded "free" — until the check-cost
-        # knob exists (OME-1116), a judged benchmark must not advertise a check surface.
+        # knob exists (OME-1116), a judged benchmark must not advertise a draft-feedback offer.
         raise ValueError(
             f"{benchmark_id}: a judged benchmark cannot declare a check surface until "
             "the check-cost knob lands (OME-1116)"
@@ -321,7 +321,7 @@ def single_shot_benchmark(
             difficulty=difficulty,
         ),
         check_surface=(
-            CheckSurface(
+            DraftFeedbackOffer(
                 check_route=routes["check_surface"],
                 feedback_intent="feedback",
                 # Free: both proof scorers are deterministic. No cost knob exists
@@ -394,7 +394,7 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
             attempt_records_endpoint(
                 label=f"{benchmark.benchmark.title} Case evaluation",
                 item_name="Attempt",
-                bind=bind_case_evaluation,
+                bind=build_case_grade,
                 observe_grading=False,
             ),
         ),
@@ -573,9 +573,9 @@ def _check_surface(benchmark: ImportedBenchmark, root: Path) -> Callable[[Reques
 
 def _surface_feedback(record_json: object) -> str:
     record = json_object(record_json, "imported board check-surface feedback")
-    if record.get("schema") != CHECK_SURFACE_SCHEMA:
+    if record.get("schema") != DRAFT_FEEDBACK_SCHEMA:
         raise _contract_error(
-            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+            f"feedback input must be a {DRAFT_FEEDBACK_SCHEMA} check-surface record"
         )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
@@ -623,7 +623,7 @@ def check_surface_verdict(
     assert outcome.score is not None
     passed: bool = outcome.score >= 1.0
     return {
-        "schema": CHECK_SURFACE_SCHEMA,
+        "schema": DRAFT_FEEDBACK_SCHEMA,
         "passed": passed,
         "satisfaction": outcome.score,
         "feedback": "" if passed else _CHECK_FEEDBACK,
@@ -726,7 +726,7 @@ def _judged_aggregate(
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
     """Validate the envelope, then hoist attempt 1 into the shared candidate shape."""
 
-    envelope: dict[str, Any] = decode_case_evaluation(grading, expected_case_id)
+    envelope: dict[str, Any] = decode_case_grade(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
     return {
         "case": {

@@ -16,7 +16,7 @@ import pytest
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.medxpert.definition import (
     AGGREGATE_ROUTE,
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
     REVISION,
@@ -58,7 +58,7 @@ def test_routes_resolve_at_the_recorded_addresses() -> None:
     assert ROUTE_PREFIX == f"/benchmarks/medxpert/{_GOLDEN_REVISION}"
     assert CASES_ROUTE == f"{ROUTE_PREFIX}/cases"
     assert CHECK_ROUTE == f"{ROUTE_PREFIX}/check"
-    assert CASE_EVALUATION_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
+    assert CASE_GRADE_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
     assert AGGREGATE_ROUTE == f"{ROUTE_PREFIX}/aggregate"
 
 

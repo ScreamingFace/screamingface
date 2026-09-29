@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.medxpert.aggregate import (
     AggregateError,
     aggregate,
     load_answer,
     selected_cases,
 )
-from screamingface_engine.benchmarks.medxpert.case_evaluation import (
+from screamingface_engine.benchmarks.medxpert.case_grade import (
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine.benchmarks.medxpert.definition import BENCHMARK_ID, REVISION
 
@@ -65,8 +65,8 @@ def _record(case_id: int, letter: str) -> dict[str, object]:
     }
 
 
-def _case_execution(case_id: int, grading: object) -> dict[str, object]:
-    return case_execution_payload(
+def _graded_answer_route(case_id: int, grading: object) -> dict[str, object]:
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(f"the answer is {case_id}", "stop", None),
         [grading],
@@ -76,7 +76,7 @@ def _case_execution(case_id: int, grading: object) -> dict[str, object]:
 def _rows(*letters_by_case: tuple[int, str]) -> str:
     return json.dumps(
         [
-            _case_execution(case_id, bind_case_evaluation(case_id, [_record(case_id, letter)]))
+            _graded_answer_route(case_id, build_case_grade(case_id, [_record(case_id, letter)]))
             for case_id, letter in letters_by_case
         ]
     )
@@ -144,7 +144,7 @@ def test_a_case_with_no_row_becomes_a_visible_failure_not_a_zero(tmp_path: Path)
 def test_an_identified_error_row_fails_that_case_as_a_case_error(tmp_path: Path) -> None:
     rows = json.dumps(
         [
-            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
+            _graded_answer_route(1, build_case_grade(1, [_record(1, "C")])),
             {"case_id": 2, "error": {"kind": "ResolutionError", "message": "the call 429'd"}},
         ]
     )
@@ -162,7 +162,7 @@ def test_an_anonymous_collected_error_keeps_its_cause_on_the_rowless_case(tmp_pa
 
     rows = json.dumps(
         [
-            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
+            _graded_answer_route(1, build_case_grade(1, [_record(1, "C")])),
             {"error": {"kind": "ResolutionError", "message": "the call 429'd"}},
         ]
     )
@@ -228,8 +228,8 @@ def test_a_text_refusal_is_a_graded_wrong_answer_not_a_failure(tmp_path: Path) -
 
     rows = json.dumps(
         [
-            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
-            _case_execution(2, bind_case_evaluation(2, [_refused_record(2, "I cannot advise.")])),
+            _graded_answer_route(1, build_case_grade(1, [_record(1, "C")])),
+            _graded_answer_route(2, build_case_grade(2, [_refused_record(2, "I cannot advise.")])),
         ]
     )
 
@@ -250,8 +250,8 @@ def test_a_textless_refusal_is_a_provider_failure_not_a_grade(tmp_path: Path) ->
 
     rows = json.dumps(
         [
-            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
-            _case_execution(2, bind_case_evaluation(2, [_refused_record(2, None)])),
+            _graded_answer_route(1, build_case_grade(1, [_record(1, "C")])),
+            _graded_answer_route(2, build_case_grade(2, [_refused_record(2, None)])),
         ]
     )
 
@@ -281,8 +281,8 @@ def test_a_failed_case_keeps_its_reasoning_for_the_post_mortem(tmp_path: Path) -
 
     rows = json.dumps(
         [
-            _case_execution(1, bind_case_evaluation(1, [_record(1, "C")])),
-            _case_execution(2, bind_case_evaluation(2, [_refused_record(2, None)])),
+            _graded_answer_route(1, build_case_grade(1, [_record(1, "C")])),
+            _graded_answer_route(2, build_case_grade(2, [_refused_record(2, None)])),
         ]
     )
 

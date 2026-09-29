@@ -17,7 +17,7 @@ from url4.peer.server import Url4Node
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
-type CheckCost = Literal["free", "paid"]
+type DraftFeedbackCost = Literal["free", "paid"]
 # What a Case that never got a valid grade (model call errored, judge died, rubric asset
 # missing) does to the published score. Picture a benchmark of 157 questions where 33 answer
 # sheets got lost in the mail:
@@ -84,7 +84,7 @@ def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class CheckSurface:
+class DraftFeedbackOffer:
     """One benchmark's advertised mid-run checking capability (OME-796).
 
     A loop recipe compiled client-side writes `check_route` into its check
@@ -97,15 +97,15 @@ class CheckSurface:
 
     check_route: str
     feedback_intent: str
-    expected_check_cost: CheckCost
+    expected_check_cost: DraftFeedbackCost
 
     def __post_init__(self) -> None:
         if not isinstance(self.check_route, str) or not self.check_route.startswith("/"):
-            raise ValueError("CheckSurface check_route must be an absolute route path")
+            raise ValueError("DraftFeedbackOffer check_route must be an absolute route path")
         if not isinstance(self.feedback_intent, str) or not self.feedback_intent.strip():
-            raise ValueError("CheckSurface feedback_intent must be non-empty text")
+            raise ValueError("DraftFeedbackOffer feedback_intent must be non-empty text")
         if self.expected_check_cost not in {"free", "paid"}:
-            raise ValueError("CheckSurface expected_check_cost must be 'free' or 'paid'")
+            raise ValueError("DraftFeedbackOffer expected_check_cost must be 'free' or 'paid'")
 
     def as_block(self) -> dict[str, str]:
         return {
@@ -191,7 +191,7 @@ class Benchmark:
     # declared its failure policy fails registration before any paid request (OME-1039).
     declaration: BenchmarkDeclaration
     install: BenchmarkInstaller = _no_routes
-    check_surface: CheckSurface | None = None
+    check_surface: DraftFeedbackOffer | None = None
     # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
     # `focus` and `dataset_url` are the four fields the public Leaderboard displays, and this
     # definition is their ONLY authoring site — the Scoreboard seeds them from the catalogue rather
@@ -432,7 +432,7 @@ __all__ = [
     "Benchmark",
     "BenchmarkDeclaration",
     "BenchmarkInstaller",
-    "CheckSurface",
+    "DraftFeedbackOffer",
     "DifficultyTier",
     "FailurePolicy",
     "InteractionType",

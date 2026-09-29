@@ -54,7 +54,7 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.draco import case_results
-from screamingface_engine.benchmarks.draco.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.draco.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.draco.definition import JUDGE_PASSES, REVISION
 from screamingface_engine.benchmarks.draco.errors import AggregateError
 from screamingface_engine.benchmarks.draco.validation import optional_integer
@@ -115,7 +115,7 @@ def aggregate(
         reader=CaseGradeReader(
             benchmark_label="DRACO",
             error_type=AggregateError,
-            decode_case_evaluation=_decode(judge_passes),
+            decode_case_grade=_decode(judge_passes),
             # Position is identity: an anonymous error case IS that Case's row here.
             claim_anonymous_errors=True,
         ),
@@ -145,7 +145,7 @@ def _decode(judge_passes: int) -> Callable[[object, int], dict[str, Any]]:
     """Bind this benchmark's evidence cardinality into the exact envelope decoder."""
 
     def decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-        return decode_case_evaluation(grading, expected_case_id, judge_passes=judge_passes)
+        return decode_case_grade(grading, expected_case_id, judge_passes=judge_passes)
 
     return decode
 

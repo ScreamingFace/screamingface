@@ -11,14 +11,14 @@ import pytest
 
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
-from screamingface_engine.benchmarks.case_execution import (
-    CASE_EXECUTION_SCHEMA,
-    install_case_execution,
-)
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.draco.definition import DRACO, JUDGE_MODEL
+from screamingface_engine.benchmarks.graded_answer import (
+    GRADED_ANSWER_SCHEMA,
+    install_graded_answer_endpoint,
+)
 from screamingface_engine.benchmarks.healthbench.definition import HEALTHBENCH_WORST30
 from screamingface_engine.benchmarks.ifeval.definition import IFEVAL
 from screamingface_engine.benchmarks.protocol import (
@@ -240,7 +240,7 @@ async def test_case_execution_preserves_candidate_invocation_when_grading_fails(
     def grade(_request: Request) -> str:
         raise ResolutionError("checker unavailable", code="checker_failed", permanent=True)
 
-    install_case_execution(node)
+    install_graded_answer_endpoint(node)
 
     protected = preserve_candidate_outcome(
         candidate_invocation=RelExpr(path="/candidate", context="question", intent=Text("")),
@@ -255,7 +255,7 @@ async def test_case_execution_preserves_candidate_invocation_when_grading_fails(
     result = json.loads((await node.evaluate(render(protected))).text)
 
     assert result == {
-        "schema": CASE_EXECUTION_SCHEMA,
+        "schema": GRADED_ANSWER_SCHEMA,
         "case_id": "case-1",
         "candidate_invocation": encode_candidate_invocation("", "content_filter", "exact refusal"),
         "grading": [

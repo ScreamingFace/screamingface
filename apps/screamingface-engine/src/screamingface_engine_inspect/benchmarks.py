@@ -660,7 +660,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # deliberately unpinned — a retry must be able to draw a fresh sample.
             params=(("web_search", "false"), ("max_tokens", "4096")),
         ),
-        # Judged benchmark: no check surface until the check-cost knob (OME-1116) —
+        # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116) —
         # a judged mid-run check would spend judge tokens while advertising free.
         with_check_surface=False,
     ),
@@ -793,7 +793,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # the token cap is an engine-side safety bound.
             params=(("web_search", "false"), ("max_tokens", "4096")),
         ),
-        # Judged benchmark: no check surface until the check-cost knob (OME-1116).
+        # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---

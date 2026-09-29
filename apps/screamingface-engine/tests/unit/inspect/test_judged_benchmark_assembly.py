@@ -27,15 +27,15 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine_inspect.single_shot import JudgeSpec  # noqa: E402
 from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
@@ -199,7 +199,7 @@ def test_a_judged_benchmark_with_a_check_surface_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A judged mid-run check spends judge tokens per attempt; until the check-cost
-    knob exists (OME-1116) a judged benchmark must not advertise a check surface."""
+    knob exists (OME-1116) a judged benchmark must not advertise a draft-feedback offer."""
 
     spec = _judged_spec(with_check_surface=True)
     with pytest.raises(ValueError, match="check"):
@@ -244,10 +244,10 @@ def _row(case_id: int, answer: str) -> dict[str, object]:
         "finish_reason": "stop",
         "execution": None,
     }
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(answer, "stop", None),
-        [bind_case_evaluation(case_id, [record])],
+        [build_case_grade(case_id, [record])],
     )
 
 
@@ -398,7 +398,7 @@ def test_the_run_sync_twins_stay_verbatim_identical() -> None:
     """The shared grading code's `_run_sync` and single_shot's copy must not diverge — the copy
     exists only because the shared grading code's is private, and a one-sided fix (the context
     copy, the loop discipline) would silently split behavior between the aggregate
-    and the check surface."""
+    and the draft-feedback offer."""
 
     import ast
     import inspect as pyinspect

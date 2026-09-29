@@ -3,7 +3,7 @@
 FEATURE: benchmark-independent corrective loop (OME-796) — both halves meeting.
 STORY: as the transport contract, the url4 under tests/unit/data/ was rendered
 by `screamingface`'s compiler (sf.CorrectiveLoop / sf.SelfCorrective against
-IFEval's advertised check surface) and must run VERBATIM on a world holding the
+IFEval's advertised draft-feedback offer) and must run VERBATIM on a world holding the
 canonical IFEval benchmark plus the generic corrective runtime — byte-identical
 goldens are our side of the contract, and this file re-bakes when either side's
 protocol changes.

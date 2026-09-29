@@ -34,7 +34,7 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.contract import CaseResult, Failure
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
-from screamingface_engine.benchmarks.ifeval.case_evaluation import CHECK_SCHEMA, graded_record
+from screamingface_engine.benchmarks.ifeval.case_grade import CHECK_SCHEMA, graded_record
 from screamingface_engine.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
@@ -133,7 +133,7 @@ def aggregate(
         reader=CaseGradeReader(
             benchmark_label="IFEval",
             error_type=AggregateError,
-            decode_case_evaluation=_decode(specs),
+            decode_case_grade=_decode(specs),
         ),
         grade_case=_grade_case,
         failure_messages=_FAILURE_MESSAGES,

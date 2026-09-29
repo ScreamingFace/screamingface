@@ -27,15 +27,6 @@ from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
-    candidate_answer,
-    case_evaluation_endpoint,
-    compact_json,
-    json_object,
-    positive_case_id,
-)
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
@@ -44,17 +35,29 @@ from screamingface_engine.benchmarks.failure_classes import (
 )
 from screamingface_engine.benchmarks.gdpval import grade as reducing
 from screamingface_engine.benchmarks.gdpval import records
-from screamingface_engine.benchmarks.gdpval.case_evaluation import (
-    bind_case_evaluation,
-    bind_rubric_evaluation,
+from screamingface_engine.benchmarks.gdpval.case_grade import (
+    build_case_grade,
+    build_rubric_grade,
 )
-from screamingface_engine.benchmarks.gdpval.check_policy import GDPVAL_CHECK
+from screamingface_engine.benchmarks.gdpval.check_policy import GDPVAL_DRAFT_FEEDBACK
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
 from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.variant import GdpvalVariant, VariantMean
-from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
+from screamingface_engine.benchmarks.gdpval.verdict import (
+    build_evidence_record,
+    evidence_record_key,
+)
+from screamingface_engine.benchmarks.grading_endpoints import (
+    aggregate_endpoint,
+    candidate_answer,
+    case_grade_endpoint,
+    compact_json,
+    json_object,
+    positive_case_id,
+)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.phases import observe_phase
-from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -77,15 +80,18 @@ def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
         (variant.routes.judge_requests, _rubric_judge_requests(root, variant.case_ids, variant.id)),
         # Closes over `node` so the judge route resolves per request — installation must still
         # work in a world holding no model routes.
-        (variant.routes.check_surface, check_surface(node, root, GDPVAL_CHECK)),
+        (
+            variant.routes.check_surface,
+            rubric_draft_feedback_endpoint(node, root, GDPVAL_DRAFT_FEEDBACK),
+        ),
         (variant.routes.verdict, _rubric_verdict(variant.id)),
         (variant.routes.rubric_evaluation, _rubric_evaluation),
         (
             variant.routes.case_evaluation,
-            case_evaluation_endpoint(
+            case_grade_endpoint(
                 label="GDPval Case evaluation",
                 item_name="Rubric evaluation",
-                bind=bind_case_evaluation,
+                bind=build_case_grade,
                 error_context_head=300,
             ),
         ),
@@ -235,8 +241,8 @@ def _rubric_verdict(benchmark_id: str):
     @observe_phase(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
-            case_id, rubric_id = binding_key(request.intent)
-            record = bind(
+            case_id, rubric_id = evidence_record_key(request.intent)
+            record = build_evidence_record(
                 request.context,
                 case_id=case_id,
                 rubric_id=rubric_id,
@@ -280,7 +286,7 @@ def _rubric_evaluation(request: Request) -> str:
         if tuple(payload) != ("case", "rubric", "evidence"):
             raise ValueError("GDPval rubric evaluation fields must be case, rubric, evidence")
         raw_case = json_object(payload["case"], "Case record")
-        result = bind_rubric_evaluation(
+        result = build_rubric_grade(
             case_id,
             raw_case or None,
             json_object(payload["rubric"], "Rubric record"),

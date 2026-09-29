@@ -19,11 +19,11 @@ from screamingface_engine.benchmarks.draco import assets as protocol_assets
 from screamingface_engine.benchmarks.draco import grade as grading
 from screamingface_engine.benchmarks.draco import judge_requests, records
 from screamingface_engine.benchmarks.draco import scoring as rubric_scoring
-from screamingface_engine.benchmarks.draco.case_evaluation import (
-    bind_case_evaluation,
-    bind_criterion_evaluation,
+from screamingface_engine.benchmarks.draco.case_grade import (
+    build_case_grade,
+    build_criterion_grade,
 )
-from screamingface_engine.benchmarks.draco.check_policy import DRACO_CHECK
+from screamingface_engine.benchmarks.draco.check_policy import DRACO_DRAFT_FEEDBACK
 from screamingface_engine.benchmarks.draco.prompts import judge_context, judge_intent
 from screamingface_engine.benchmarks.draco.variant import (
     CASE_COUNT,
@@ -31,23 +31,23 @@ from screamingface_engine.benchmarks.draco.variant import (
     JUDGE_PARAMS,
     DracoVariant,
 )
-from screamingface_engine.benchmarks.draco.verdict import bind, binding_key
-from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
-    candidate_answer,
-    case_evaluation_endpoint,
-    compact_json,
-    json_object,
-)
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.draco.verdict import build_evidence_record, evidence_record_key
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import (
+    aggregate_endpoint,
+    candidate_answer,
+    case_grade_endpoint,
+    compact_json,
+    json_object,
+)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.phases import observe_phase
-from screamingface_engine.benchmarks.rubric_check import check_surface
+from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -68,23 +68,23 @@ def install(node: Url4Node, root: Path, variant: DracoVariant) -> None:
     assets = _lazy_protocol_assets(root)
     install_cases(node, variant.routes.cases, _cases(assets))
     node.endpoint(variant.routes.judge_requests)(_judge_request_rows(root, variant))
-    # The mid-run check surface the corrective loop consumes. It closes over `node` so the
+    # The mid-run draft-feedback offer the corrective loop consumes. It closes over `node` so the
     # judge route resolves per request — installation must still work in a world that holds
     # no model routes at all (every benchmark-only test builds one).
     node.endpoint(variant.routes.check_surface)(
-        check_surface(
+        rubric_draft_feedback_endpoint(
             node,
             root,
-            DRACO_CHECK,
+            DRACO_DRAFT_FEEDBACK,
         )
     )
     node.endpoint(variant.routes.verdict)(_criterion_verdict(variant.id))
     node.endpoint(variant.routes.criterion_evaluation)(_criterion_evaluation(variant.judge_passes))
     node.endpoint(variant.routes.case_evaluation)(
-        case_evaluation_endpoint(
+        case_grade_endpoint(
             label="DRACO Case evaluation",
             item_name="Criterion evaluation",
-            bind=bind_case_evaluation,
+            bind=build_case_grade,
         )
     )
     node.endpoint(variant.routes.aggregate)(
@@ -232,8 +232,8 @@ def _criterion_verdict(benchmark_id: str):
     @observe_phase(ActivityKind.GRADING)
     def criterion_verdict(request: Request) -> str:
         try:
-            case_id, sequence, criterion_id = binding_key(request.intent)
-            record = bind(
+            case_id, sequence, criterion_id = evidence_record_key(request.intent)
+            record = build_evidence_record(
                 request.context,
                 case_id=case_id,
                 criterion_id=criterion_id,
@@ -287,7 +287,7 @@ def _criterion_evaluation(judge_passes: int):
                 for field in expected
                 if field.startswith("evidence_")
             ]
-            result = bind_criterion_evaluation(
+            result = build_criterion_grade(
                 case_id,
                 case_record,
                 check_record,

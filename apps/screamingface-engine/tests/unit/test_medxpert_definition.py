@@ -29,7 +29,7 @@ def test_every_route_carries_the_revision() -> None:
     for route in (
         benchmark.CASES_ROUTE,
         benchmark.CHECK_ROUTE,
-        benchmark.CASE_EVALUATION_ROUTE,
+        benchmark.CASE_GRADE_ROUTE,
         benchmark.AGGREGATE_ROUTE,
     ):
         assert route.startswith(f"/benchmarks/{benchmark.BENCHMARK_ID}/{benchmark.REVISION}/")

@@ -6,15 +6,15 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco import grade as agg
-from screamingface_engine.benchmarks.draco.case_evaluation import (
-    bind_case_evaluation,
-    bind_criterion_evaluation,
+from screamingface_engine.benchmarks.draco.case_grade import (
+    build_case_grade,
+    build_criterion_grade,
 )
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 
 _RUBRIC = {
     "sections": [
@@ -58,9 +58,9 @@ def _scored_row(case_id: int) -> dict[str, object]:
             "raw_output": raw_output,
         },
     ]
-    return bind_case_evaluation(
+    return build_case_grade(
         case_id,
-        [bind_criterion_evaluation(case_id, records[0], records[1], [records[2]])],
+        [build_criterion_grade(case_id, records[0], records[1], [records[2]])],
     )
 
 
@@ -72,7 +72,7 @@ def _execution(row: dict[str, object]) -> dict[str, object]:
     case = row["case"]
     assert isinstance(case, dict)
     refusal = case["refusal"] if isinstance(case["refusal"], str) else None
-    return case_execution_payload(
+    return graded_answer_payload(
         int(case["case_id"]),
         encode_candidate_invocation(
             "" if refusal is not None else str(case["answer"]),
@@ -325,9 +325,9 @@ def test_invalid_judge_evidence_is_retained_under_an_unscored_grade() -> None:
         "reason": "invalid_json",
         "raw_output": "not json",
     }
-    row = bind_case_evaluation(
+    row = build_case_grade(
         1,
-        [bind_criterion_evaluation(1, case, check, [invalid])],
+        [build_criterion_grade(1, case, check, [invalid])],
     )
 
     result = agg.aggregate(

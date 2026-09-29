@@ -37,7 +37,7 @@ from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import CaseResult
-from screamingface_engine.benchmarks.contracteval.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.contracteval.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -111,7 +111,7 @@ def aggregate(
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
     """Validate the envelope, then hoist attempt 1 into the shared candidate shape."""
 
-    envelope = decode_case_evaluation(grading, expected_case_id)
+    envelope = decode_case_grade(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
     # AIDEV-NOTE (review, PR #984): this used to read `attempt.get("metadata")`, which `_check`
     # never emits — dead on arrival, ported verbatim from medxpert where it is equally dead. The
@@ -269,7 +269,7 @@ _PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="ContractEval",
         error_type=AggregateError,
-        decode_case_evaluation=_decode,
+        decode_case_grade=_decode,
     ),
     grade_case=_grade_case,
     failure_messages=_FAILURE_MESSAGES,

@@ -8,12 +8,12 @@ from typing import Any
 
 from screamingface_engine.benchmarks.contract import is_valid_corrective_execution
 
-CASE_EVALUATION_SCHEMA = "screamingface.ifeval-case-evaluation.v1"
+CASE_GRADE_SCHEMA = "screamingface.ifeval-case-evaluation.v1"
 CHECK_SCHEMA = "screamingface.ifeval-check.v1"
 _FIELDS = frozenset({"schema", "case_id", "attempts"})
 
 
-def bind_case_evaluation(
+def build_case_grade(
     case_id: int,
     attempts: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -31,13 +31,13 @@ def bind_case_evaluation(
         if _optional_case_id(attempt.get("attempt")) != sequence:
             raise ValueError("IFEval Case evaluation attempts must be consecutive and ordered")
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": selected_id,
         "attempts": selected,
     }
 
 
-def decode_case_evaluation(
+def decode_case_grade(
     value: Any,
     expected_case_id: int,
 ) -> tuple[dict[str, Any], ...] | None:
@@ -48,7 +48,7 @@ def decode_case_evaluation(
     if (
         decoded is not None
         and set(decoded) == _FIELDS
-        and decoded.get("schema") == CASE_EVALUATION_SCHEMA
+        and decoded.get("schema") == CASE_GRADE_SCHEMA
         and _optional_case_id(decoded.get("case_id")) == expected_case_id
     ):
         attempts = decoded.get("attempts")
@@ -83,7 +83,7 @@ def graded_record(
     run rather than grading the wrong Case.
     """
 
-    records = decode_case_evaluation(value, expected_case_id)
+    records = decode_case_grade(value, expected_case_id)
     if records is None or len(records) != 1:
         raise ValueError("not a valid IFEval Case Evaluation")
     record = records[0]
@@ -175,9 +175,9 @@ def _optional_case_id(value: object) -> int | None:
 
 
 __all__ = [
-    "CASE_EVALUATION_SCHEMA",
+    "CASE_GRADE_SCHEMA",
     "CHECK_SCHEMA",
-    "bind_case_evaluation",
-    "decode_case_evaluation",
+    "build_case_grade",
+    "decode_case_grade",
     "graded_record",
 ]

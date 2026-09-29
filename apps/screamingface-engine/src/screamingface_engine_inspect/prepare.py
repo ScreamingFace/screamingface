@@ -13,7 +13,8 @@ Emits, per benchmark::
 
     <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees
     <out>/targets/<id>.json  {"target": ..., "choices": [...]?} — private; read by the
-                             aggregate (the scorer adapter's grading material) and the check surface
+                             aggregate (the scorer adapter's grading material) and the
+                             draft-feedback offer
 
 ONE generic pipeline serves every imported single-shot benchmark; a benchmark is a
 :class:`CasesSpec` DATA entry in :data:`BENCHMARK_CASES` — dataset pins plus two dotted

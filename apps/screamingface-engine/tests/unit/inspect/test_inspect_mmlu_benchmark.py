@@ -2,7 +2,7 @@
 
 INVARIANT the suite defends: an MCQ benchmark bakes their SINGLE_ANSWER prompt as data,
 grades through their real `choice()` scorer via the scorer adapter's choices replay, and is
-REFUSED a check surface — pass/fail feedback over a handful of options is an
+REFUSED a draft-feedback offer — pass/fail feedback over a handful of options is an
 elimination attack (OME-796), so the client preflight's refusal of a loop recipe is
 correct behavior this benchmark must preserve. Together with gsm8k this covers both
 declaration shapes the importer (OME-1116) can produce.
@@ -21,15 +21,15 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (
     benchmark_registrations,  # noqa: E402
     imported_benchmark,  # noqa: E402
 )
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES, emit_cases  # noqa: E402
 
@@ -95,7 +95,7 @@ def test_benchmark_identity_and_mcq_declaration() -> None:
 
 
 def test_mcq_benchmark_is_refused_a_check_surface() -> None:
-    """OME-796: no check surface on MCQ — its absence IS the declared contract."""
+    """OME-796: no draft-feedback offer on MCQ — its absence IS the declared contract."""
 
     assert MMLU_BENCHMARK.benchmark.check_surface is None
     assert "check_surface" not in MMLU_BENCHMARK.benchmark.catalog_entry()
@@ -149,10 +149,10 @@ def _row(case_id: int, answer: str) -> dict[str, object]:
         "finish_reason": "stop",
         "execution": None,
     }
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(answer, "stop", None),
-        [bind_case_evaluation(case_id, [record])],
+        [build_case_grade(case_id, [record])],
     )
 
 

@@ -1,4 +1,4 @@
-"""Versioned semantics for GDPval's mid-run check surface — ``gdpval-pass.v1``.
+"""Versioned semantics for GDPval's mid-run draft-feedback offer — ``gdpval-pass.v1``.
 
 This file is the WHOLE GDPval check adapter: it declares where the rubric keeps its criteria,
 which judge grades a draft, what "passed" means, and which sanitized vocabulary the feedback may
@@ -25,16 +25,19 @@ from __future__ import annotations
 
 from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.variant import CHECK_CRITERION
-from screamingface_engine.benchmarks.rubric_check import RubricCheck, RubricShape
+from screamingface_engine.benchmarks.rubric_draft_feedback import (
+    RubricDraftFeedback,
+    RubricFileLayout,
+)
 
 CHECK_THRESHOLD = 0.5
 
-GDPVAL_CHECK = RubricCheck(
+GDPVAL_DRAFT_FEEDBACK = RubricDraftFeedback(
     label="GDPval",
     criterion=CHECK_CRITERION,
     threshold=CHECK_THRESHOLD,
     # Flat `items`, points-weighted, and no area vocabulary at all.
-    shape=RubricShape(
+    shape=RubricFileLayout(
         layout="flat",
         items="items",
         id_field="rubric_id",
@@ -49,4 +52,4 @@ GDPVAL_CHECK = RubricCheck(
     question="chat_envelope",
 )
 
-__all__ = ["CHECK_THRESHOLD", "GDPVAL_CHECK"]
+__all__ = ["CHECK_THRESHOLD", "GDPVAL_DRAFT_FEEDBACK"]

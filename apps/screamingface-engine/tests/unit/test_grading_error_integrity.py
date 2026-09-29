@@ -22,7 +22,6 @@ from unittest import mock
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import (
     CandidateResult,
     encode_candidate_invocation,
@@ -38,6 +37,7 @@ from screamingface_engine.benchmarks.draco.variant import (
 from screamingface_engine.benchmarks.draco.variant import (
     Routes as DracoRoutes,
 )
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.healthbench import grade as healthbench_agg
 from screamingface_engine.benchmarks.healthbench.variant import (
     Routes as HealthRoutes,
@@ -88,7 +88,7 @@ async def test_healthbench_inner_grading_fanout_fails_fast() -> None:
 
 
 def _execution(case_id: int, answer: str, grading: object) -> dict[str, object]:
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(answer, "stop", None),
         [grading],

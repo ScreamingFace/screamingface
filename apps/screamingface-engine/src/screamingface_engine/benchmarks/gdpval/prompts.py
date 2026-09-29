@@ -9,8 +9,8 @@ malformed reply costs one redraw instead of forty. The cost is call volume — a
 about 4,498 judge calls per candidate — which is the trade this benchmark accepts.
 
 AIDEV-NOTE: the judge is never told the Case id or the rubric id. The Engine stamps those onto
-the verdict itself (see ``verdict.bind``), because a model cannot be trusted to echo an
-identifier it was handed.
+the verdict itself (see ``verdict.build_evidence_record``), because a model cannot be trusted to
+echo an identifier it was handed.
 """
 
 from __future__ import annotations

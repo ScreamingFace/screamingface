@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.gdpval.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.gdpval.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.gdpval.scoring import case_score
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
@@ -115,7 +115,7 @@ _PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="GDPval",
         error_type=AggregateError,
-        decode_case_evaluation=decode_case_evaluation,
+        decode_case_grade=decode_case_grade,
     ),
     grade_case=rubric_grade_case(case_score=case_score, judge_producer_id="gdpval/judge"),
     failure_messages=_FAILURE_MESSAGES,

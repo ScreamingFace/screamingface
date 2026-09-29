@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.draco import assets as draco_assets
-from screamingface_engine.benchmarks.draco.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
-    bind_criterion_evaluation,
+from screamingface_engine.benchmarks.draco.case_grade import (
+    CASE_GRADE_SCHEMA,
+    build_criterion_grade,
 )
 from screamingface_engine.benchmarks.draco.definition import (
     CANONICAL_VARIANT,
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CASES_ROUTE,
     CRITERION_EVALUATION_ROUTE,
     DRACO,
@@ -70,7 +70,7 @@ def test_draco_builds_exact_criterion_and_case_evaluations() -> None:
 
     assert isinstance(url4, str)
     assert url4.count(CRITERION_EVALUATION_ROUTE) == 1
-    assert url4.count(CASE_EVALUATION_ROUTE) == 1
+    assert url4.count(CASE_GRADE_ROUTE) == 1
 
 
 @pytest.mark.asyncio
@@ -126,10 +126,10 @@ async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Pa
         "1",
     )
 
-    result = await _call(node, CASE_EVALUATION_ROUTE, [criterion], "1")
+    result = await _call(node, CASE_GRADE_ROUTE, [criterion], "1")
 
     assert result == {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case": case,
         "checks": [check],
         "evidence": verdicts,
@@ -169,7 +169,7 @@ def test_case_record_requires_explicit_execution_provenance() -> None:
     }
 
     with pytest.raises(ValueError, match="invalid Case record"):
-        bind_criterion_evaluation(1, case, check, [evidence])
+        build_criterion_grade(1, case, check, [evidence])
 
 
 # WHY these two tests were REWRITTEN (OME-999, owner-approved): install used to validate

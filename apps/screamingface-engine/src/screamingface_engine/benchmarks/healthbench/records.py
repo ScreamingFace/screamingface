@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from screamingface_engine.benchmarks.case_records import build_case_record
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 
 CASE_SCHEMA = "screamingface.healthbench-case-record.v1"
 RUBRIC_SCHEMA = "screamingface.healthbench-rubric-record.v1"

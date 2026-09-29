@@ -5,7 +5,7 @@ varies only which Cases it serves, how it totals them, and what it calls itself 
 decides every route address.
 
 ``variant_revision`` fingerprints the whole identity into 16 hex characters; ``Routes`` hangs the
-six protocol routes plus the check surface under ``/benchmarks/<id>/<revision>/``;
+six protocol routes plus the draft-feedback offer under ``/benchmarks/<id>/<revision>/``;
 ``build_variant_protocol`` writes the url4 tree. ``gdpval_benchmark`` is the one call a benchmark
 makes.
 
@@ -31,8 +31,8 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
     DifficultyTier,
+    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.gdpval import verdict
@@ -57,7 +57,7 @@ from url4.peer.server import Url4Node
 #: The one physical asset directory every GDPval benchmark reads — one immutable bake.
 ASSET_BUNDLE_ID = "gdpval"
 
-#: The pass criterion of the mid-run check surface.
+#: The pass criterion of the mid-run draft-feedback offer.
 CHECK_CRITERION = "gdpval-pass.v1"
 
 VariantMean = Callable[[Sequence[float | None]], float | None]
@@ -301,7 +301,7 @@ def gdpval_benchmark(
         focus=focus,
         dataset_url=dataset_url,
         # Every check is a judge call over the Case's rubric, so the loop's cost is real.
-        check_surface=CheckSurface(
+        check_surface=DraftFeedbackOffer(
             check_route=variant.routes.check_surface,
             feedback_intent="feedback",
             expected_check_cost="paid",

@@ -19,9 +19,9 @@ from typing import Any
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.contracteval import aggregate as reducing
-from screamingface_engine.benchmarks.contracteval.case_evaluation import (
+from screamingface_engine.benchmarks.contracteval.case_grade import (
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine.benchmarks.contracteval.definition import (
     BENCHMARK_ID,
@@ -29,8 +29,8 @@ from screamingface_engine.benchmarks.contracteval.definition import (
     REVISION,
 )
 from screamingface_engine.benchmarks.contracteval.grading import is_abstention, jaccard, verdict
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.grading_endpoints import (
     candidate_answer,
     compact_json,
     positive_case_id,
@@ -128,7 +128,7 @@ BENCHMARK = ServedBenchmark(
     preflight=lambda root, case_ids: preflight(root, case_ids),
     build_public_cases=_build_public_cases,
     check=_check,
-    bind_case_evaluation=bind_case_evaluation,
+    build_case_grade=build_case_grade,
     reduce=reducing.aggregate,
 )
 

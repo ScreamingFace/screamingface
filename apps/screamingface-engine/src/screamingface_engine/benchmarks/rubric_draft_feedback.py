@@ -2,16 +2,16 @@
 
 FEATURE: benchmark-independent corrective loop (OME-830, the template stage).
 STORY: as the next rubric benchmark (GDPval-rubric, FSResearch), I get a mid-run
-check surface by declaring a `RubricCheck` — no adapter code of my own.
+draft-feedback offer by declaring a `RubricDraftFeedback` — no adapter code of my own.
 
 Mental model: a marker who is handed a rubric, a marking policy, and a phone
 number for a judge. The marking WORK is identical everywhere; only the paperwork
 differs. So the work lives here once, and each benchmark supplies paperwork:
 
-- `RubricShape` — where the criteria sit in that benchmark's rubric file, and
+- `RubricFileLayout` — where the criteria sit in that benchmark's rubric file, and
   which fields carry the id, the requirement text, the weight, and (if it has
   one) the area a criterion belongs to.
-- `RubricCheck` — the marking policy: which judge, the pass criterion's NAME and
+- `RubricDraftFeedback` — the marking policy: which judge, the pass criterion's NAME and
   threshold, how a question is rendered for the judge, and which sanitized
   feedback vocabulary the benchmark may safely speak.
 
@@ -50,9 +50,7 @@ from typing import Any, Literal
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.evaluation import candidate_answer, compact_json, json_object
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
@@ -60,8 +58,14 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
 from screamingface_engine.benchmarks.failure_classes import judge_failure as _judge_failure
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.grading_endpoints import (
+    candidate_answer,
+    compact_json,
+    json_object,
+)
 from screamingface_engine.benchmarks.phases import observe_phase
-from screamingface_engine.benchmarks.shared_grading.verdict import extract_json_array
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import extract_json_array
 from url4 import RelExpr, Text, expr, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -90,7 +94,7 @@ type QuestionStyle = Literal["text", "chat_envelope"]
 
 
 @dataclass(frozen=True, slots=True)
-class RubricShape:
+class RubricFileLayout:
     """Where one benchmark's rubric file keeps its criteria, and under which names.
 
     ``layout="sections"`` walks ``<items>[].<nested>[]`` (DRACO's axis sections);
@@ -110,13 +114,13 @@ class RubricShape:
 
 
 @dataclass(frozen=True, slots=True)
-class RubricCheck:
+class RubricDraftFeedback:
     """One benchmark's complete check-surface declaration — arguments, not code."""
 
     label: str
     criterion: str
     threshold: float
-    shape: RubricShape
+    shape: RubricFileLayout
     judge_model: str
     judge_params: tuple[tuple[str, str], ...] = ()
     feedback: FeedbackVocabulary = "areas"
@@ -142,7 +146,7 @@ class RubricCheck:
         return f"{prefix}/check-surface/{self.criterion}"
 
 
-def check_surface(node: Url4Node, root: Path, config: RubricCheck):
+def rubric_draft_feedback_endpoint(node: Url4Node, root: Path, config: RubricDraftFeedback):
     """Build one benchmark's check endpoint from its declaration.
 
     Closes over ``node`` so the judge route resolves at REQUEST time: benchmark
@@ -169,7 +173,7 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
             )
         return compact_json(
             {
-                "schema": CHECK_SURFACE_SCHEMA,
+                "schema": DRAFT_FEEDBACK_SCHEMA,
                 "passed": satisfaction >= config.threshold,
                 "satisfaction": satisfaction,
                 "feedback": _feedback(config, criteria, verdicts),
@@ -184,7 +188,7 @@ def check_surface(node: Url4Node, root: Path, config: RubricCheck):
 # --- inputs -----------------------------------------------------------------------
 
 
-def _payload(config: RubricCheck, value: object) -> tuple[str, str, str]:
+def _payload(config: RubricDraftFeedback, value: object) -> tuple[str, str, str]:
     payload = json_object(value, f"{config.label} check surface")
     if set(payload) != {"input", "invocation"}:
         raise _contract_error(
@@ -203,7 +207,7 @@ def _payload(config: RubricCheck, value: object) -> tuple[str, str, str]:
     return question, invocation, answer
 
 
-def _case_by_input(config: RubricCheck, root: Path, question: str) -> int:
+def _case_by_input(config: RubricDraftFeedback, root: Path, question: str) -> int:
     """Resolve the case whose pinned input is exactly ``question``.
 
     Ambiguity is a bounded failure, never a guess: a silently mismatched case
@@ -226,7 +230,7 @@ def _case_by_input(config: RubricCheck, root: Path, question: str) -> int:
     return case_id
 
 
-def _asked(config: RubricCheck, question: str) -> str:
+def _asked(config: RubricDraftFeedback, question: str) -> str:
     """Render the case input the way this benchmark's judge expects to read it."""
 
     if config.question == "text":
@@ -248,7 +252,7 @@ def _asked(config: RubricCheck, question: str) -> str:
 # --- rubric reading ---------------------------------------------------------------
 
 
-def _criteria(config: RubricCheck, root: Path, case_id: int) -> list[dict[str, Any]]:
+def _criteria(config: RubricDraftFeedback, root: Path, case_id: int) -> list[dict[str, Any]]:
     rubric = json.loads(
         _read(root / "rubrics" / f"{case_id}.json", f"{config.label} rubric {case_id}")
     )
@@ -260,7 +264,7 @@ def _criteria(config: RubricCheck, root: Path, case_id: int) -> list[dict[str, A
     return criteria
 
 
-def _read_criteria(shape: RubricShape, rubric: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
+def _read_criteria(shape: RubricFileLayout, rubric: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
     for group, rows in _groups(shape, rubric):
         for row in rows:
             if not isinstance(row, Mapping):
@@ -274,7 +278,7 @@ def _read_criteria(shape: RubricShape, rubric: Mapping[str, Any]) -> Iterator[di
 
 
 def _groups(
-    shape: RubricShape,
+    shape: RubricFileLayout,
     rubric: Mapping[str, Any],
 ) -> Iterator[tuple[str, Sequence[Any]]]:
     container = rubric.get(shape.items)
@@ -291,7 +295,7 @@ def _groups(
             yield _area(shape, section), rows
 
 
-def _area(shape: RubricShape, section: Mapping[str, Any]) -> str:
+def _area(shape: RubricFileLayout, section: Mapping[str, Any]) -> str:
     for name in shape.area_fields:
         value = section.get(name)
         if isinstance(value, str) and value.strip():
@@ -310,7 +314,7 @@ def _weight(value: object) -> float:
 
 async def _judged(
     node: Url4Node,
-    config: RubricCheck,
+    config: RubricDraftFeedback,
     *,
     question: str,
     answer: str,
@@ -347,7 +351,7 @@ async def _judged(
     )
 
 
-def _judge_budget(config: RubricCheck) -> str:
+def _judge_budget(config: RubricDraftFeedback) -> str:
     """The judge's token budget as message text — the knob a failure must name."""
     cap = dict(config.judge_params).get("max_tokens")
     return f"max_tokens={cap}" if cap is not None else "max_tokens unset (provider default)"
@@ -389,7 +393,7 @@ def _attempt_prompt(prompt: str, attempt: int) -> str:
     return f"{prompt}\n<retry_attempt>{attempt}</retry_attempt>"
 
 
-def _judge_expression(config: RubricCheck) -> str:
+def _judge_expression(config: RubricDraftFeedback) -> str:
     # WHY the prompt is an env binding, not inlined: it carries the Candidate's own
     # answer, and a quote or comma in that text would corrupt the rendered expression.
     # Retry identity belongs in that bound prompt, not in fake model parameters that
@@ -481,7 +485,7 @@ def _score(
 
 
 def _feedback(
-    config: RubricCheck,
+    config: RubricDraftFeedback,
     criteria: Sequence[Mapping[str, Any]],
     verdicts: Mapping[str, bool],
 ) -> str:
@@ -520,11 +524,11 @@ def _shortfall(row: Mapping[str, Any], verdicts: Mapping[str, bool]) -> bool:
     return (weight >= 0 and not met) or (weight < 0 and met)
 
 
-def _surface_feedback(config: RubricCheck, value: object) -> str:
+def _surface_feedback(config: RubricDraftFeedback, value: object) -> str:
     record = json_object(value, f"{config.label} check-surface feedback")
-    if record.get("schema") != CHECK_SURFACE_SCHEMA:
+    if record.get("schema") != DRAFT_FEEDBACK_SCHEMA:
         raise _contract_error(
-            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+            f"feedback input must be a {DRAFT_FEEDBACK_SCHEMA} check-surface record"
         )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
@@ -550,8 +554,8 @@ def _read(path: Path, label: str) -> str:
 __all__ = [
     "CHECK_ATTEMPTS",
     "CHECK_INSTRUCTIONS",
-    "RubricCheck",
-    "RubricShape",
+    "RubricDraftFeedback",
+    "RubricFileLayout",
     "build_check_prompt",
-    "check_surface",
+    "rubric_draft_feedback_endpoint",
 ]

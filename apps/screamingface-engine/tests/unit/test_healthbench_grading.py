@@ -21,7 +21,10 @@ from screamingface_engine.benchmarks.healthbench.scoring import (
     clipped_mean,
     unclipped_mean,
 )
-from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
+from screamingface_engine.benchmarks.healthbench.verdict import (
+    build_evidence_record,
+    evidence_record_key,
+)
 
 # WHY the shared grading code import: sample_stdev / verdict_coverage moved into the shared
 # benchmark scorer (OME-1097) — the tests follow the production location of the code they pin.
@@ -68,15 +71,15 @@ def test_the_grader_prompt_preserves_an_empty_model_output() -> None:
 
 
 def test_binding_key_decodes_engine_ids() -> None:
-    assert binding_key("12:3") == (12, 3)
+    assert evidence_record_key("12:3") == (12, 3)
     for bad in ("12", "0:1", "1:0", "a:b", ""):
         with pytest.raises(ValueError):
-            binding_key(bad)
+            evidence_record_key(bad)
 
 
 def test_a_fenced_json_reply_binds_as_a_valid_verdict() -> None:
     raw = '```json\n{"explanation": "met because…", "criteria_met": true}\n```'
-    record = bind(raw, case_id=5, rubric_id=2, producer_id="judge")
+    record = build_evidence_record(raw, case_id=5, rubric_id=2, producer_id="judge")
     assert record["valid"] is True
     assert record["criteria_met"] is True
     assert record["case_id"] == 5
@@ -86,11 +89,15 @@ def test_a_fenced_json_reply_binds_as_a_valid_verdict() -> None:
 
 def test_bare_json_and_preambled_json_bind_too() -> None:
     assert (
-        bind('{"criteria_met": false}', case_id=1, rubric_id=1, producer_id="j")["criteria_met"]
+        build_evidence_record('{"criteria_met": false}', case_id=1, rubric_id=1, producer_id="j")[
+            "criteria_met"
+        ]
         is False
     )
     preambled = 'Sure! {"explanation": "…", "criteria_met": false}'
-    assert bind(preambled, case_id=1, rubric_id=1, producer_id="j")["valid"] is True
+    assert (
+        build_evidence_record(preambled, case_id=1, rubric_id=1, producer_id="j")["valid"] is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -109,7 +116,7 @@ def test_bare_json_and_preambled_json_bind_too() -> None:
     ],
 )
 def test_unusable_replies_stay_invalid_with_evidence(raw: str, reason: str) -> None:
-    record = bind(raw, case_id=2, rubric_id=1, producer_id="j")
+    record = build_evidence_record(raw, case_id=2, rubric_id=1, producer_id="j")
     assert record["valid"] is False
     assert record["reason"] == reason
     assert record["raw_output"] == raw  # the audit trail keeps the exact reply

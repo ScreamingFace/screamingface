@@ -36,14 +36,13 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from screamingface_engine.benchmarks.candidate_execution import record_candidate_execution
 from screamingface_engine.benchmarks.contract import (
-    CorrectiveExecution,
+    CorrectiveLoopOutcome,
     decode_candidate_invocation,
 )
 from screamingface_engine.benchmarks.ensemble.policy import (
     ANSWER_ROUTE,
-    CHECK_SURFACE_SCHEMA,
+    DRAFT_FEEDBACK_SCHEMA,
     GATE_ROUTE,
     MEMBER_ROUTE,
     RESULT_ROUTE,
@@ -51,14 +50,15 @@ from screamingface_engine.benchmarks.ensemble.policy import (
     SELECT_ROUTE,
     member_labels,
 )
-from screamingface_engine.benchmarks.evaluation import compact_json, json_array, json_object
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import compact_json, json_array, json_object
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
+from screamingface_engine.benchmarks.loop_outcomes import record_loop_outcome
 from screamingface_engine.model_outcomes import (
     ModelOutcome,
     bind_model_outcome,
@@ -234,8 +234,8 @@ def _result(request: Request) -> str:
         raise _definition_error("corrective result does not accept parameters")
     outcome = _corrective_outcome(request.context, "corrective result")
     output, finish_reason, refusal = _invocation(outcome["invocation"], "corrective result")
-    record_candidate_execution(
-        CorrectiveExecution(
+    record_loop_outcome(
+        CorrectiveLoopOutcome(
             stop_reason="passed" if outcome["passed"] else "max_rounds",
             rounds_executed=outcome["round"],
         )
@@ -340,8 +340,8 @@ def _decoded_record(value: object, label: str) -> dict[str, Any]:
             value = json.loads(value)
         except ValueError as exc:
             raise _contract_error(f"{label} must be a JSON check-surface record: {exc}") from None
-    if not isinstance(value, dict) or value.get("schema") != CHECK_SURFACE_SCHEMA:
-        raise _contract_error(f"{label} must be a {CHECK_SURFACE_SCHEMA} check-surface record")
+    if not isinstance(value, dict) or value.get("schema") != DRAFT_FEEDBACK_SCHEMA:
+        raise _contract_error(f"{label} must be a {DRAFT_FEEDBACK_SCHEMA} check-surface record")
     expected = {"schema", "passed", "satisfaction", "feedback", "answer", "invocation"}
     if set(value) != expected:
         raise _contract_error(

@@ -9,28 +9,28 @@ from typing import Any
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.grading_endpoints import (
     aggregate_endpoint,
     candidate_answer,
     compact_json,
     json_object,
 )
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.failure_classes import (
-    benchmark_contract_error as _contract_error,
-)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.ifeval import grade as scoring
 from screamingface_engine.benchmarks.ifeval import grading
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
     BENCHMARK_ID,
     CASE_COUNT,
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
-    CHECK_SURFACE_ROUTE,
+    DRAFT_FEEDBACK_ROUTE,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
 from url4.core.errors import ResolutionError
@@ -44,8 +44,8 @@ def install(node: Url4Node, root: Path) -> None:
     routes = frozenset(node.processor_routes())
     endpoints = (
         (CHECK_ROUTE, _check(root)),
-        (CHECK_SURFACE_ROUTE, _check_surface(root)),
-        (CASE_EVALUATION_ROUTE, _case_evaluation),
+        (DRAFT_FEEDBACK_ROUTE, _check_surface(root)),
+        (CASE_GRADE_ROUTE, _case_evaluation),
         (
             AGGREGATE_ROUTE,
             aggregate_endpoint(
@@ -166,7 +166,7 @@ def _check_surface(root: Path):
             described = " | ".join(str(item) for item in violations) or ("unspecified requirement")
             feedback = f"The answer failed these requirements: {described}"
         record = {
-            "schema": CHECK_SURFACE_SCHEMA,
+            "schema": DRAFT_FEEDBACK_SCHEMA,
             "passed": passed,
             "satisfaction": satisfaction,
             "feedback": feedback,
@@ -196,9 +196,9 @@ def _surface_feedback(record_json: object) -> str:
     """Extract the sanitized feedback text from one check-surface record."""
 
     record = json_object(record_json, "IFEval check-surface feedback")
-    if record.get("schema") != CHECK_SURFACE_SCHEMA:
+    if record.get("schema") != DRAFT_FEEDBACK_SCHEMA:
         raise _contract_error(
-            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+            f"feedback input must be a {DRAFT_FEEDBACK_SCHEMA} check-surface record"
         )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
@@ -248,7 +248,7 @@ def _case_evaluation(request: Request) -> str:
             if not isinstance(decoded, dict):
                 raise ValueError(f"IFEval Case evaluation {field} must decode to an object")
             attempts.append(decoded)
-        result = bind_case_evaluation(case_id, attempts)
+        result = build_case_grade(case_id, attempts)
     except (TypeError, ValueError) as exc:
         raise _contract_error(str(exc)) from exc
     return compact_json(result)

@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.healthbench.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.healthbench.case_grade import (
+    CASE_GRADE_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
 )
 from screamingface_engine.benchmarks.healthbench.grade import (
@@ -74,7 +74,7 @@ def _case_row(
     output = None if refusal is not None else f"output-{case_id}"
     answer = refusal if refusal is not None else output
     grading = {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": case_id,
         "case": {
             "schema": CASE_SCHEMA,
@@ -105,7 +105,7 @@ def _case_row(
         ],
     }
     assert isinstance(answer, str)
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(
             output or "",
@@ -291,7 +291,7 @@ def test_an_error_collected_row_fails_its_case(tmp_path: Path) -> None:
         [
             _case_row(1, {1: True}),
             {
-                "schema": CASE_EVALUATION_SCHEMA,
+                "schema": CASE_GRADE_SCHEMA,
                 "case_id": 2,
                 "error": {
                     "kind": "ResolutionError",

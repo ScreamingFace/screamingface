@@ -7,7 +7,7 @@ from screamingface_engine.benchmarks.draco.validation import (
     require_positive_integer,
     require_text,
 )
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 
 CASE_SCHEMA = "screamingface.draco-case-record.v1"
 CHECK_SCHEMA = "screamingface.draco-check-record.v1"

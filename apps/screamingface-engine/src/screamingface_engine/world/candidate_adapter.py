@@ -6,10 +6,10 @@ from collections.abc import Mapping
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_context import case_scope
-from screamingface_engine.benchmarks.case_execution import install_case_execution
 from screamingface_engine.benchmarks.case_request import candidate_input, candidate_position
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
+from screamingface_engine.benchmarks.graded_answer import install_graded_answer_endpoint
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.candidate_scope import candidate_invocation_scope
@@ -80,7 +80,7 @@ def install_candidate_invocation(node: Url4Node) -> None:
     """Install the one Engine-owned Candidate adapter on ``node``."""
 
     node.endpoint(CANDIDATE_ROUTE)(_CandidateInvocation(node))
-    install_case_execution(node)
+    install_graded_answer_endpoint(node)
 
 
 def _candidate_policy(params: Mapping[str, str]) -> RetrievalPolicy:

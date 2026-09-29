@@ -7,8 +7,8 @@ import json
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.ifeval.grade import AggregateError, aggregate
 from screamingface_engine.world import connector
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
@@ -149,7 +149,7 @@ def test_ambiguous_errors_do_not_gain_candidate_provenance(code: object) -> None
 
 @pytest.mark.parametrize("code", ["ifeval_checker_failed", "aigateway_http_503"])
 def test_protected_checker_failure_keeps_its_grading_boundary(code: str) -> None:
-    row = case_execution_payload(
+    row = graded_answer_payload(
         153,
         encode_candidate_invocation("Answer", "stop", None),
         [_error_payload(ResolutionError("Checker failed", code=code, permanent=False))],

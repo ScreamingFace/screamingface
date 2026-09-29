@@ -32,7 +32,7 @@ from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import CaseResult
-from screamingface_engine.benchmarks.medxpert.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.medxpert.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
@@ -111,7 +111,7 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
     attempt; the shared grading code reads the candidate's half of the row under ``case``.
     """
 
-    envelope = decode_case_evaluation(grading, expected_case_id)
+    envelope = decode_case_grade(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
     metadata: object = attempt.get("metadata")
     fields: dict[str, Any] = dict(metadata) if isinstance(metadata, Mapping) else {}
@@ -235,7 +235,7 @@ _PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="MedXpertQA",
         error_type=AggregateError,
-        decode_case_evaluation=_decode,
+        decode_case_grade=_decode,
     ),
     grade_case=_grade_case,
     failure_messages=_FAILURE_MESSAGES,

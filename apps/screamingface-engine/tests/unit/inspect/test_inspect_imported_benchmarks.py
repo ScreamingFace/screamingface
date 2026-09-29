@@ -6,7 +6,7 @@
 INVARIANT the suite defends: a benchmark is two data rows the importer generated and a
 human reviewed — so each row pair must (1) register under its `inspect-<key>` id,
 (2) pin a 40-hex dataset revision and a positive case count (benchmark identity), (3)
-declare the check surface by family — free-text benchmarks carry it, MCQ benchmarks are
+declare the draft-feedback offer by family — free-text benchmarks carry it, MCQ benchmarks are
 refused it (OME-796) — and (4) point at a scorer and templates that actually
 resolve inside the pinned eval package. Catalogue prose is filled (never TODO):
 onboarding is AI-first, and unreviewed placeholder prose must fail CI, not ship.
@@ -30,9 +30,9 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
 )
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
 
-#: Every imported benchmark key and its family: "mcq" (choice scorer, check surface
-#: refused per OME-796), "free_text" (check surface ON, spec §4), or "judged"
-#: (LLM-judged — check surface refused until the check-cost knob, OME-1116/OME-1240).
+#: Every imported benchmark key and its family: "mcq" (choice scorer, draft-feedback offer
+#: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), or "judged"
+#: (LLM-judged — draft-feedback offer refused until the check-cost knob, OME-1116/OME-1240).
 _EXPECTED_FAMILIES: dict[str, str] = {
     "gsm8k": "free_text",
     "mmlu": "mcq",
@@ -52,7 +52,7 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "wmdp_cyber": "mcq",
     "hellaswag": "mcq",
     # LAB-Bench text subsets (OME-1264 batch 1): MCQ graded by the eval's OWN
-    # precision_choice scorer — still the MCQ family (check surface refused);
+    # precision_choice scorer — still the MCQ family (draft-feedback offer refused);
     # FigQA/TableQA are image-based and stay out of the text-only bake.
     "lab_bench_litqa": "mcq",
     "lab_bench_suppqa": "mcq",
@@ -62,7 +62,7 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "lab_bench_cloning_scenarios": "mcq",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
-    # questions; MCQ graded by the choice scorer, no check surface.
+    # questions; MCQ graded by the choice scorer, no draft-feedback offer.
     "onet_m6": "mcq",
     # OME-1269: the question filter keeps the eval's 500-question test list of 1,000 rows.
     "pubmedqa": "mcq",

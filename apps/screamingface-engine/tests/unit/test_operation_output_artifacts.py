@@ -7,7 +7,7 @@ import json
 from screamingface_engine.benchmarks.aggregation import SelectedCase, scored_case_result
 from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.contract import OperationOutput
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 
 
 def test_case_record_carries_operations_only_when_attributed() -> None:

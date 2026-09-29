@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import (
-    case_execution_payload,
-    install_case_execution,
-)
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
-from screamingface_engine.benchmarks.healthbench.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
+from screamingface_engine.benchmarks.graded_answer import (
+    graded_answer_payload,
+    install_graded_answer_endpoint,
+)
+from screamingface_engine.benchmarks.healthbench.case_grade import (
+    CASE_GRADE_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
@@ -270,13 +270,13 @@ async def test_the_grading_chain_binds_engine_identities(tmp_path: Path) -> None
         str(_CASE_ID),
     )
     assert isinstance(case_evaluation, dict)
-    assert case_evaluation["schema"] == CASE_EVALUATION_SCHEMA
+    assert case_evaluation["schema"] == CASE_GRADE_SCHEMA
     result = await _call(
         node,
         WORST30_VARIANT.routes.aggregate,
         json.dumps(
             [
-                case_execution_payload(
+                graded_answer_payload(
                     _CASE_ID,
                     encode_candidate_invocation(_ANSWER, None, None),
                     [case_evaluation],
@@ -377,7 +377,7 @@ async def test_a_limit_one_expression_resolves_end_to_end(tmp_path: Path) -> Non
     _write_assets(tmp_path)
     node = Url4Node("test")
     install(node, tmp_path, WORST30_VARIANT)
-    install_case_execution(node)
+    install_graded_answer_endpoint(node)
 
     @node.endpoint(CANDIDATE_ROUTE)
     def candidate(request: Request) -> str:

@@ -261,7 +261,7 @@ def _register_against_the_case(transport: JudgeTransport, path: str, context: st
     params, the envelope context, and the empty intent the wire carries when
     ``encode_subrequest`` is given none. The owner names the scorer adapter's fixed
     evidence shape (one check "1", sequence 1). A no-op outside a run's capture
-    or when the transport carries no benchmark — tests and the check surface stay
+    or when the transport carries no benchmark — tests and the draft-feedback offer stay
     join-free.
     """
 

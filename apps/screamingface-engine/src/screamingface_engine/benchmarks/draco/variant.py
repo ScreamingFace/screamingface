@@ -32,8 +32,8 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
     DifficultyTier,
+    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.draco.prompts import (
@@ -91,7 +91,7 @@ JUDGE_PARAMS = (
     ("reasoning_effort", "low"),
     ("max_tokens", "4096"),
 )
-# The pass criterion of the mid-run check surface (OME-829/830). Declared here rather
+# The pass criterion of the mid-run draft-feedback offer (OME-829/830). Declared here rather
 # than imported from check_policy, which reads this module for the judge pinning.
 CHECK_CRITERION = "draco-pass.v1"
 
@@ -377,7 +377,7 @@ def draco_benchmark(
         dataset_url=dataset_url,
         # The mid-run check is a real Judge call over the case rubric, so a corrective
         # loop's check budget is paid (same surface as canonical).
-        check_surface=CheckSurface(
+        check_surface=DraftFeedbackOffer(
             check_route=variant.routes.check_surface,
             feedback_intent="feedback",
             expected_check_cost="paid",

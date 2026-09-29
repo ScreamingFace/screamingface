@@ -105,7 +105,7 @@ flags. The importing agent (not a human) resolves all of them:
   the eval is not row-importable and silently shipping a different benchmark is the one
   unforgivable outcome.
 
-## Step 3 — decide the check surface
+## Step 3 — decide the draft-feedback offer
 
 `with_check_surface=True` **only for string-match free-text benchmarks** (spec §4): the
 eval's own scorer then also answers the corrective loop's mid-run checks with sealed

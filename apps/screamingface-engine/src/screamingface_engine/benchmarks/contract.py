@@ -308,7 +308,7 @@ class OperationOutput(_StrictWireModel):
         return validate_finish_reason(value)
 
 
-class CorrectiveExecution(_StrictWireModel):
+class CorrectiveLoopOutcome(_StrictWireModel):
     """The final, benchmark-neutral execution outcome of one corrective Recipe."""
 
     schema_version: Literal["screamingface.corrective-execution.v1"] = Field(
@@ -328,7 +328,7 @@ class CandidateInvocation(_StrictWireModel):
     output: str
     finish_reason: str | None
     refusal: str | None
-    execution: CorrectiveExecution | None
+    execution: CorrectiveLoopOutcome | None
     # WHY: excluded when None so an unattributed Candidate envelope stays byte-identical to
     # the pre-OME-843 contract — the key exists only when the Engine attributed named operations.
     operations: list[OperationOutput] | None = Field(
@@ -368,7 +368,7 @@ def is_valid_corrective_execution(value: object) -> bool:
     return True
 
 
-def validate_corrective_execution(value: object) -> CorrectiveExecution:
+def validate_corrective_execution(value: object) -> CorrectiveLoopOutcome:
     """Decode the exact versioned envelope accepted at Engine wire boundaries."""
 
     if (
@@ -377,7 +377,7 @@ def validate_corrective_execution(value: object) -> CorrectiveExecution:
         or value.get("schema") != "screamingface.corrective-execution.v1"
     ):
         raise ValueError("corrective execution has an invalid shape or schema")
-    return CorrectiveExecution.model_validate(value)
+    return CorrectiveLoopOutcome.model_validate(value)
 
 
 def _require_scored_case(case: CaseResult) -> None:
@@ -596,7 +596,7 @@ def encode_candidate_invocation(
     output: str,
     finish_reason: str | None,
     refusal: str | None,
-    execution: CorrectiveExecution | None = None,
+    execution: CorrectiveLoopOutcome | None = None,
     *,
     status: CandidateInvocationStatus | None = None,
     operations: Sequence[OperationOutput] | None = None,
@@ -653,7 +653,7 @@ def decode_candidate_invocation(value: str) -> tuple[str, str | None, str | None
     return decoded.output, decoded.finish_reason, decoded.refusal
 
 
-def decode_candidate_execution(value: str) -> CorrectiveExecution | None:
+def decode_loop_outcome(value: str) -> CorrectiveLoopOutcome | None:
     """Decode the optional execution provenance carried by a Candidate Invocation."""
 
     return decode_candidate_invocation_record(value).execution
@@ -672,7 +672,7 @@ __all__ = [
     "CaseGrade",
     "CaseResult",
     "CandidateResult",
-    "CorrectiveExecution",
+    "CorrectiveLoopOutcome",
     "OperationOutput",
     "OperationAccounting",
     "OperationCache",
@@ -682,7 +682,7 @@ __all__ = [
     "EvidenceProducer",
     "Failure",
     "candidate_coverage",
-    "decode_candidate_execution",
+    "decode_loop_outcome",
     "decode_candidate_invocation",
     "decode_candidate_invocation_record",
     "encode_candidate_invocation",

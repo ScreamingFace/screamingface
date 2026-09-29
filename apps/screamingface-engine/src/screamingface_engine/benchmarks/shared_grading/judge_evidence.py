@@ -10,16 +10,16 @@ say WHICH criterion it was grading. Turning that reply into evidence is the same
 every benchmark — recover the JSON from however the judge presented it, demand the benchmark's
 verdict field, stamp the Engine-known identity on, keep the raw reply for audit. Only the
 paperwork differs per benchmark, so the work lives here once and each benchmark supplies a
-``VerdictShape``: its schema string, its verdict field (an enum status or a strict JSON
+``JudgeReplyFormat``: its schema string, its verdict field (an enum status or a strict JSON
 boolean), and its reason vocabulary — merged parsers, unchanged wire records.
 
 Worked example (the bool dialect): raw ``'```json\\n{"criteria_met": true}\\n```'`` →
 fences stripped → JSON recovered → ``criteria_met`` is a real boolean → a valid
-``Verdict`` whose ``raw_output`` still holds the ORIGINAL fenced bytes. The same reply
+``JudgeEvidence`` whose ``raw_output`` still holds the ORIGINAL fenced bytes. The same reply
 with ``"criteria_met": "true"`` is invalid (``bad_status``) — recovery never softens what
 counts as a verdict.
 
-INVARIANT (OME-1023): every audit field on ``Verdict`` is a required constructor
+INVARIANT (OME-1023): every audit field on ``JudgeEvidence`` is a required constructor
 argument — no defaults — so a caller omitting ``raw_output`` fails typecheck and runtime
 construction. ``raw_output: ""`` was type-valid with the wrong meaning; absence is not.
 
@@ -47,7 +47,7 @@ _FAILURE_CODES = (
 
 
 @dataclass(frozen=True, slots=True)
-class VerdictShape:
+class JudgeReplyFormat:
     """One benchmark's verdict dialect — arguments, not code.
 
     Args (as fields):
@@ -77,7 +77,7 @@ class VerdictShape:
 
 
 @dataclass(frozen=True, slots=True)
-class Verdict:
+class JudgeEvidence:
     """One judge reply bound to Engine identity — the audit trail is mandatory.
 
     INVARIANT: NO field has a default (pinned by test). Every call site must hand over
@@ -118,14 +118,14 @@ class Verdict:
         return value
 
 
-def parse_verdict(
+def parse_judge_evidence(
     raw: str,
     *,
-    shape: VerdictShape,
+    shape: JudgeReplyFormat,
     identity: tuple[tuple[str, int | str], ...],
     producer_id: str,
-) -> Verdict:
-    """Turn one raw judge reply into a ``Verdict``, or a documented failure.
+) -> JudgeEvidence:
+    """Turn one raw judge reply into a ``JudgeEvidence``, or a documented failure.
 
     Stages, in execution order:
 
@@ -144,7 +144,7 @@ def parse_verdict(
     decoded = extract_json_object(raw)
     code = _failure_code(shape, raw, decoded)
     if code is not None:
-        return Verdict(
+        return JudgeEvidence(
             schema=shape.schema,
             identity=identity,
             producer_id=producer_id,
@@ -154,7 +154,7 @@ def parse_verdict(
             reason=shape.reasons[code],
         )
     assert isinstance(decoded, Mapping)  # narrowed by _failure_code returning None
-    return Verdict(
+    return JudgeEvidence(
         schema=shape.schema,
         identity=identity,
         producer_id=producer_id,
@@ -165,7 +165,7 @@ def parse_verdict(
     )
 
 
-def _failure_code(shape: VerdictShape, raw: object, decoded: object) -> str | None:
+def _failure_code(shape: JudgeReplyFormat, raw: object, decoded: object) -> str | None:
     """The first canonical reason this reply is not a verdict, or None when it is one.
 
     INVARIANT: order matters — each check assumes the previous ones passed, and the
@@ -194,7 +194,7 @@ def _failure_code(shape: VerdictShape, raw: object, decoded: object) -> str | No
     return next((code for failed, code in checks if failed), None)
 
 
-def _payload(shape: VerdictShape, decoded: Mapping[str, Any]) -> tuple[tuple[str, object], ...]:
+def _payload(shape: JudgeReplyFormat, decoded: Mapping[str, Any]) -> tuple[tuple[str, object], ...]:
     """The benchmark-dialect verdict fields off a reply `_failure_code` already accepted."""
 
     status: object = decoded[shape.status_field]
@@ -207,7 +207,7 @@ def _payload(shape: VerdictShape, decoded: Mapping[str, Any]) -> tuple[tuple[str
     return (("explanation", explanation), (shape.status_field, status))
 
 
-# --- JSON recovery — shared by every dialect and the check surface -----------------------
+# --- JSON recovery — shared by every dialect and the draft-feedback offer -----------------------
 
 
 def extract_json_object(raw: object) -> Any:
@@ -229,7 +229,7 @@ def extract_json_object(raw: object) -> Any:
 
 
 def extract_json_array(reply: str) -> list[object] | None:
-    """The first JSON array embedded in a judge reply, or None — the check surface's shape."""
+    """The first JSON array embedded in a judge reply, or None — the draft feedback's shape."""
 
     if not isinstance(reply, str):
         return None
@@ -278,7 +278,7 @@ def require_text(value: object, label: str) -> str:
 # --- shared rubric wiring (healthbench and gdpval were byte-identical copies) ------------
 
 
-def rubric_binding_key(value: str) -> tuple[int, int]:
+def rubric_evidence_record_key(value: str) -> tuple[int, int]:
     """Decode ``case_id:rubric_id`` — both Engine-assigned positive integers."""
 
     case_text, separator, rubric_text = value.partition(":")
@@ -329,13 +329,13 @@ def rubric_verdict_call(judge: object, *, case_id: str, rubric_id: str, route: s
 
 
 __all__ = [
-    "Verdict",
-    "VerdictShape",
-    "parse_verdict",
+    "JudgeEvidence",
+    "JudgeReplyFormat",
+    "parse_judge_evidence",
     "extract_json_array",
     "extract_json_object",
     "require_positive_int",
     "require_text",
-    "rubric_binding_key",
+    "rubric_evidence_record_key",
     "rubric_verdict_call",
 ]

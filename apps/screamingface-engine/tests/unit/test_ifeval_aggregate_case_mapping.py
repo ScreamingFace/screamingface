@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.ifeval.grade import (
     SCHEMA,
     AggregateError,
@@ -44,11 +44,11 @@ def _record(case_id: int) -> dict[str, object]:
 
 
 def _evaluation(case_id: int) -> dict[str, object]:
-    return bind_case_evaluation(case_id, [_record(case_id)])
+    return build_case_grade(case_id, [_record(case_id)])
 
 
 def _execution(evaluation: dict[str, object], case_id: int) -> dict[str, object]:
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(f"Answer {case_id}", "stop", None),
         [evaluation],
@@ -79,7 +79,7 @@ def test_truthy_text_cannot_impersonate_verifier_booleans() -> None:
     forged["strict"] = ["false"]
     rows = json.dumps(
         [
-            _execution(bind_case_evaluation(1, [forged]), 1),
+            _execution(build_case_grade(1, [forged]), 1),
             _execution(_evaluation(2), 2),
         ]
     )
@@ -93,7 +93,7 @@ def test_a_refusal_must_be_the_exact_text_checked_by_ifeval() -> None:
     forged["refusal"] = "provider refusal"
     rows = json.dumps(
         [
-            _execution(bind_case_evaluation(1, [forged]), 1),
+            _execution(build_case_grade(1, [forged]), 1),
             _execution(_evaluation(2), 2),
         ]
     )

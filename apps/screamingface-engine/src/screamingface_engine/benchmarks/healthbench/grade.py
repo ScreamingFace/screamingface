@@ -19,7 +19,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.healthbench.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.healthbench.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.healthbench.scoring import case_score
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
@@ -115,7 +115,7 @@ _PATH = BenchmarkAggregation(
     reader=CaseGradeReader(
         benchmark_label="HealthBench",
         error_type=AggregateError,
-        decode_case_evaluation=decode_case_evaluation,
+        decode_case_grade=decode_case_grade,
     ),
     grade_case=rubric_grade_case(case_score=case_score, judge_producer_id="healthbench/judge"),
     failure_messages=_FAILURE_MESSAGES,

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.case_execution import CASE_EXECUTION_ROUTE
-from screamingface_engine.benchmarks.evaluation import positive_count
+from screamingface_engine.benchmarks.graded_answer import GRADED_ANSWER_ROUTE
+from screamingface_engine.benchmarks.grading_endpoints import positive_count
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 
 EVALUATION_PROTOCOL_REVISION = "outcome-preserving-case-evaluation-v1"
@@ -53,7 +53,7 @@ def preserve_candidate_outcome(
         src(protected_grading, name="protected_grading", weight=0.0),
         src(
             RelExpr(
-                path=CASE_EXECUTION_ROUTE,
+                path=GRADED_ANSWER_ROUTE,
                 context=render(
                     struct(
                         {

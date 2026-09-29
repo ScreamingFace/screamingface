@@ -73,8 +73,8 @@ from screamingface_engine.benchmarks.aggregation import (
     refusal_case_result,
     scored_case_result,
 )
-from screamingface_engine.benchmarks.case_execution import CaseExecutionOutcome
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
+from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeIndex,
     CaseGradeReader,
@@ -381,7 +381,7 @@ class BenchmarkAggregation:
 
         case_id = int(selected.case_id)
         result: CaseResult | _Omitted | None
-        grading_failure: CaseExecutionOutcome | None = indexed.grading_failures.get(case_id)
+        grading_failure: GradedAnswer | None = indexed.grading_failures.get(case_id)
         if grading_failure is not None:
             assert grading_failure.error is not None
             result = grading_failure_case_result(

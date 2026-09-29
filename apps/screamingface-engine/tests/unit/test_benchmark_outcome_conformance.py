@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco.grade import aggregate as aggregate_draco
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.healthbench.grade import aggregate as aggregate_healthbench
 from screamingface_engine.benchmarks.healthbench.scoring import unclipped_mean
 from screamingface_engine.benchmarks.ifeval.grade import aggregate as aggregate_ifeval
@@ -67,7 +67,7 @@ def test_refusal_survives_a_later_grading_failure_across_benchmarks(
         refusal,
         status="refused",
     )
-    row = case_execution_payload(
+    row = graded_answer_payload(
         1,
         invocation,
         [
@@ -112,7 +112,7 @@ def test_case_execution_identity_mismatch_fails_loudly_across_benchmarks(
         None,
         status="completed",
     )
-    row = case_execution_payload(
+    row = graded_answer_payload(
         2,
         invocation,
         [

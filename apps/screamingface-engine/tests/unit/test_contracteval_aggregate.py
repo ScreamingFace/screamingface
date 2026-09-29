@@ -7,18 +7,18 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.contracteval.aggregate import (
     AggregateError,
     aggregate,
     selected_cases,
 )
-from screamingface_engine.benchmarks.contracteval.case_evaluation import (
+from screamingface_engine.benchmarks.contracteval.case_grade import (
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine.benchmarks.contracteval.definition import BENCHMARK_ID, REVISION
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 
 
 def _root(tmp_path: Path, polarity: dict[int, bool]) -> Path:
@@ -63,10 +63,10 @@ def _record(
 def _rows(*records: dict) -> str:
     return json.dumps(
         [
-            case_execution_payload(
+            graded_answer_payload(
                 r["case_id"],
                 encode_candidate_invocation("reply", "stop", None),
-                [bind_case_evaluation(r["case_id"], [r])],
+                [build_case_grade(r["case_id"], [r])],
             )
             for r in records
         ]

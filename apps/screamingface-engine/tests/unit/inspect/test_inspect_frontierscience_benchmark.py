@@ -23,14 +23,14 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
 from screamingface_engine_inspect.single_shot import JudgeSpec  # noqa: E402
@@ -132,10 +132,10 @@ def _row(case_id: int, answer: str) -> dict[str, object]:
         "finish_reason": "stop",
         "execution": None,
     }
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(answer, "stop", None),
-        [bind_case_evaluation(case_id, [record])],
+        [build_case_grade(case_id, [record])],
     )
 
 

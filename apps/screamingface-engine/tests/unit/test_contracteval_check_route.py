@@ -8,7 +8,7 @@ through production code. Two things were unpinned as a result:
 
   * that an empty reply yields `correct=False` / `abstained=False` — the spec D-5 case, where a
     model that says nothing is scored wrong rather than excluded;
-  * that `_check`'s output actually satisfies `bind_case_evaluation`'s own validator. A field
+  * that `_check`'s output actually satisfies `build_case_grade`'s own validator. A field
     drift there fails only at runtime, after inference has been paid for.
 """
 
@@ -21,9 +21,9 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.contracteval.case_evaluation import (
+from screamingface_engine.benchmarks.contracteval.case_grade import (
     CHECK_SCHEMA,
-    bind_case_evaluation,
+    build_case_grade,
 )
 from screamingface_engine.benchmarks.contracteval.prepare import emit
 from screamingface_engine.benchmarks.contracteval.runtime import _check
@@ -117,7 +117,7 @@ class TestNegativeRow:
 
 class TestEnvelopeContract:
     def test_the_records_check_passes_the_envelope_validator(self, tmp_path: Path) -> None:
-        """The seam the review named: `_check` emits, `bind_case_evaluation` validates. Field
+        """The seam the review named: `_check` emits, `build_case_grade` validates. Field
         drift between them fails only at runtime today — after inference is paid for."""
 
         for spans, reply in [
@@ -128,7 +128,7 @@ class TestEnvelopeContract:
             ([_GOLD], ""),
         ]:
             record = _checked(_root(tmp_path / f"c{len(reply)}{len(spans)}", spans=spans), reply)
-            bound = bind_case_evaluation(1, [record])
+            bound = build_case_grade(1, [record])
 
             assert bound["attempts"][0]["schema"] == CHECK_SCHEMA
 

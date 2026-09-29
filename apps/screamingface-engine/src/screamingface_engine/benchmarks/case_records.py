@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 
 from screamingface_engine.benchmarks.contract import validate_candidate_outcome
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer, positive_case_id
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer, positive_case_id
 
 
 def build_case_record(

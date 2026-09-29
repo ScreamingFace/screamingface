@@ -17,6 +17,11 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeReader,
     read_selected_cases,
 )
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
+    JudgeEvidence,
+    JudgeReplyFormat,
+    parse_judge_evidence,
+)
 from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
 from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload, TextPayload
 from screamingface_engine.benchmarks.shared_grading.rubric import rubric_grade_case
@@ -28,11 +33,6 @@ from screamingface_engine.benchmarks.shared_grading.serving import (
     candidate_record,
     compute_benchmark_revision,
     install_benchmark,
-)
-from screamingface_engine.benchmarks.shared_grading.verdict import (
-    Verdict,
-    VerdictShape,
-    parse_verdict,
 )
 
 __all__ = [
@@ -47,14 +47,14 @@ __all__ = [
     "BenchmarkAggregation",
     "ServedBenchmark",
     "TextPayload",
-    "Verdict",
-    "VerdictShape",
+    "JudgeEvidence",
+    "JudgeReplyFormat",
     "benchmark_preflight",
     "benchmark_routes",
     "candidate_record",
     "compute_benchmark_revision",
     "install_benchmark",
-    "parse_verdict",
+    "parse_judge_evidence",
     "read_selected_cases",
     "rubric_grade_case",
 ]

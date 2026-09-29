@@ -24,8 +24,8 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
 
 
@@ -49,14 +49,14 @@ def _reader(label: str = "TestBoard", error: type[Exception] = BenchmarkError) -
     return CaseGradeReader(
         benchmark_label=label,
         error_type=error,
-        decode_case_evaluation=_decode,
+        decode_case_grade=_decode,
     )
 
 
 def _envelope(case_id: int, grading: object = "graded") -> dict[str, object]:
     """One valid Case-execution envelope carrying an opaque grading outcome."""
 
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(f"output-{case_id}", "stop", None),
         [grading],
@@ -239,7 +239,7 @@ def test_a_claiming_reader_files_an_anonymous_error_as_the_cases_grade() -> None
     reader = CaseGradeReader(
         benchmark_label="TestBoard",
         error_type=BenchmarkError,
-        decode_case_evaluation=_decode,
+        decode_case_grade=_decode,
         claim_anonymous_errors=True,
     )
     index = reader.index(json.dumps([_collected_error("upstream 503")]), (1,))

@@ -75,10 +75,10 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase
-from screamingface_engine.benchmarks.case_execution import (
-    CaseExecutionOutcome,
-    case_execution_matches,
-    case_execution_outcome,
+from screamingface_engine.benchmarks.graded_answer import (
+    GradedAnswer,
+    graded_answer,
+    graded_answer_matches,
 )
 
 
@@ -98,7 +98,7 @@ class CaseGradeIndex:
 
     case_grades: dict[int, dict[str, Any]]
     collected_errors: dict[int, list[dict[str, Any]]]
-    grading_failures: dict[int, CaseExecutionOutcome]
+    grading_failures: dict[int, GradedAnswer]
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +115,7 @@ class CaseGradeReader:
             share the one label "HealthBench", so this is deliberately not `benchmark_id`.
         error_type: the benchmark's own `AggregateError`. Injected rather than shared so a
             test asserting one benchmark raised keeps failing when the other one does.
-        decode_case_evaluation: the benchmark's envelope validator, the only authority on its
+        decode_case_grade: the benchmark's envelope validator, the only authority on its
             own schema. Called as `(grading, expected_case_id) -> decoded case grade`; it raises
             `ValueError`/`TypeError`, which this module wraps with the case grade's position.
         claim_anonymous_errors: when True an anonymous `on_error=collect` case grade is ADOPTED
@@ -128,7 +128,7 @@ class CaseGradeReader:
 
     benchmark_label: str
     error_type: type[Exception]
-    decode_case_evaluation: Callable[[object, int], dict[str, Any]]
+    decode_case_grade: Callable[[object, int], dict[str, Any]]
     claim_anonymous_errors: bool = False
 
     def index(self, raw_case_grades: str, case_ids: tuple[int, ...]) -> CaseGradeIndex:
@@ -185,8 +185,8 @@ class CaseGradeReader:
         if self._filed_outer_error(row, position, expected_case_id, index):
             return
         try:
-            outcome: CaseExecutionOutcome = case_execution_outcome(row)
-            if not case_execution_matches(outcome, expected_case_id):
+            outcome: GradedAnswer = graded_answer(row)
+            if not graded_answer_matches(outcome, expected_case_id):
                 raise ValueError(
                     f"Case execution claims case_id {outcome.case_id!r}, "
                     f"but the selected Case is {expected_case_id!r}"
@@ -194,7 +194,7 @@ class CaseGradeReader:
             if outcome.error is not None:
                 index.grading_failures[expected_case_id] = outcome
             else:
-                index.case_grades[expected_case_id] = self.decode_case_evaluation(
+                index.case_grades[expected_case_id] = self.decode_case_grade(
                     outcome.grading, expected_case_id
                 )
         except (TypeError, ValueError) as exc:

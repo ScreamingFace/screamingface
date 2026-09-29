@@ -6,12 +6,12 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 CHECK_SCHEMA = "screamingface.medxpert-check.v1"
-CASE_EVALUATION_SCHEMA = "screamingface.medxpert-case-evaluation.v1"
+CASE_GRADE_SCHEMA = "screamingface.medxpert-case-evaluation.v1"
 
-_CASE_EVALUATION_FIELDS = frozenset({"schema", "case_id", "attempts"})
+_CASE_GRADE_FIELDS = frozenset({"schema", "case_id", "attempts"})
 
 
-def bind_case_evaluation(
+def build_case_grade(
     case_id: int,
     attempts: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -29,10 +29,10 @@ def bind_case_evaluation(
         if attempt.get("case_id") != selected:
             raise ValueError(f"attempt {index} belongs to another Case")
         bound.append(dict(attempt))
-    return {"schema": CASE_EVALUATION_SCHEMA, "case_id": selected, "attempts": bound}
+    return {"schema": CASE_GRADE_SCHEMA, "case_id": selected, "attempts": bound}
 
 
-def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, Any]:
+def decode_case_grade(value: object, expected_case_id: int) -> dict[str, Any]:
     """Validate one exact aggregate input envelope without shape inference.
 
     INVARIANT: no inference. The aggregate reads only envelopes this accepted, so a malformed row
@@ -42,15 +42,15 @@ def decode_case_evaluation(value: object, expected_case_id: int) -> dict[str, An
     selected = _positive(expected_case_id, "expected_case_id")
     if not isinstance(value, Mapping):
         raise ValueError("Case evaluation must be an object")
-    _require(value, CASE_EVALUATION_SCHEMA, selected, "Case evaluation")
-    unknown = set(value) - _CASE_EVALUATION_FIELDS
+    _require(value, CASE_GRADE_SCHEMA, selected, "Case evaluation")
+    unknown = set(value) - _CASE_GRADE_FIELDS
     if unknown:
         raise ValueError(f"Case evaluation carries unknown fields {sorted(unknown)}")
     attempts = value.get("attempts")
     if not isinstance(attempts, Sequence) or isinstance(attempts, str) or not attempts:
         raise ValueError("Case evaluation needs at least one attempt")
     return {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": selected,
         "attempts": [_decoded_attempt(a, i, selected) for i, a in enumerate(attempts, start=1)],
     }
@@ -77,8 +77,8 @@ def _positive(value: object, label: str) -> int:
 
 
 __all__ = [
-    "CASE_EVALUATION_SCHEMA",
+    "CASE_GRADE_SCHEMA",
     "CHECK_SCHEMA",
-    "bind_case_evaluation",
-    "decode_case_evaluation",
+    "build_case_grade",
+    "decode_case_grade",
 ]

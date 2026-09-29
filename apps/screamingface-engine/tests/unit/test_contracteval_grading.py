@@ -49,7 +49,7 @@ class TestIsAbstention:
         assert is_abstention("") is False
 
 
-class TestVerdict:
+class TestJudgeEvidence:
     def test_positive_row_needs_every_gold_span_present(self) -> None:
         output = "Clause A says X. Clause B says Y."
 

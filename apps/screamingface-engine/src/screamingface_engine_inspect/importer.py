@@ -636,7 +636,7 @@ def _solver_facts(
             # and this solver is one of its two witnesses (the other is the choice
             # scorer — see the mcq fact). The solver witness covers an eval grading
             # MCQ with its own scorer (lab_bench's precision_choice), which must
-            # still be refused the check surface (OME-796); the scorer witness
+            # still be refused the draft-feedback offer (OME-796); the scorer witness
             # covers an eval hiding multiple_choice inside a custom @solver
             # wrapper (mmlu's mmlu_multiple_choice), invisible to this walk.
             uses_multiple_choice = True

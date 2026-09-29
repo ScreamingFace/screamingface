@@ -97,7 +97,7 @@ def test_a_folded_code_surfaces_its_source_spelling_in_metadata() -> None:
         grading_failure_case_result,
     )
     from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-    from screamingface_engine.benchmarks.evaluation import candidate_answer
+    from screamingface_engine.benchmarks.grading_endpoints import candidate_answer
 
     case = grading_failure_case_result(
         selected_case=SelectedCase(case_id=1, input="q", metadata={}),

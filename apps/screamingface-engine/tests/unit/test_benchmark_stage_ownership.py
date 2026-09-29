@@ -6,12 +6,12 @@ import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks import evaluation, phases
+from screamingface_engine.benchmarks import grading_endpoints, phases
 from screamingface_engine.observations import ModelCall, RunObservations
 from url4.peer.server import Request
 
 
-@pytest.mark.parametrize("factory", ["aggregate", "case_evaluation", "attempt_records"])
+@pytest.mark.parametrize("factory", ["aggregate", "case_grade", "attempt_records"])
 def test_shared_endpoint_emits_without_an_installation_wrapper(monkeypatch, factory):
     records = []
     monkeypatch.setattr(
@@ -20,14 +20,14 @@ def test_shared_endpoint_emits_without_an_installation_wrapper(monkeypatch, fact
         lambda: lambda body, attributes, **kw: records.append(attributes),
     )
     if factory == "aggregate":
-        handler = evaluation.aggregate_endpoint(
+        handler = grading_endpoints.aggregate_endpoint(
             label="example", available_case_count=1, aggregate=lambda rows, count: {"score": 1}
         )
         context, intent, kind = "[]", "aggregate:1", "aggregation"
     else:
-        builder = getattr(evaluation, f"{factory}_endpoint")
+        builder = getattr(grading_endpoints, f"{factory}_endpoint")
         handler = builder(label="example", item_name="record", bind=lambda case, rows: {"score": 1})
-        context = "[{}]" if factory == "case_evaluation" else '{"attempt_1": {}}'
+        context = "[{}]" if factory == "case_grade" else '{"attempt_1": {}}'
         intent, kind = "1", "grading"
     # INVARIANT: neither the handler nor its registration is decorated by the caller.
     with RunObservations((ActivityObserver,)).bind():

@@ -122,8 +122,8 @@ def rubric_items(row: Mapping[str, Any], case_id: int) -> list[dict[str, Any]]:
                 f"case {case_id}: rubric item {index} score must be an integer, got {points!r}"
             )
         # INVARIANT: rubric_id is the 1-BASED position. `scoring.case_score` indexes points
-        # with `enumerate(points, start=1)` and `verdict.binding_key` refuses anything below 1,
-        # so a 0-based id here would silently misalign every criterion with its point value.
+        # with `enumerate(points, start=1)` and `verdict.evidence_record_key` refuses anything below
+        # 1, so a 0-based id here would silently misalign every criterion with its point value.
         items.append({"rubric_id": index, "criterion": criterion, "points": points})
 
     if not any(item["points"] > 0 for item in items):

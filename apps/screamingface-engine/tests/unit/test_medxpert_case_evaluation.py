@@ -7,12 +7,12 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.benchmarks.evaluation import attempt_records_endpoint
-from screamingface_engine.benchmarks.medxpert.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
+from screamingface_engine.benchmarks.grading_endpoints import attempt_records_endpoint
+from screamingface_engine.benchmarks.medxpert.case_grade import (
+    CASE_GRADE_SCHEMA,
     CHECK_SCHEMA,
-    bind_case_evaluation,
-    decode_case_evaluation,
+    build_case_grade,
+    decode_case_grade,
 )
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
@@ -26,7 +26,7 @@ def _endpoint():
     return attempt_records_endpoint(
         label="MedXpertQA Case evaluation",
         item_name="Attempt",
-        bind=bind_case_evaluation,
+        bind=build_case_grade,
         error_context_head=300,
     )
 
@@ -42,7 +42,7 @@ def test_route_accepts_the_attempt_struct_the_expression_renders() -> None:
     result = _call(json.dumps({"attempt_1": json.dumps(_check_record())}))
 
     assert result == {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": 1,
         "attempts": [_check_record()],
     }
@@ -85,7 +85,7 @@ def test_route_reports_the_context_head_on_a_bind_level_failure() -> None:
 def test_route_rejects_a_context_that_is_not_json() -> None:
     """A decode failure surfaces bare — `error_context_head` only decorates bind-level
     errors, because json_object raises ResolutionError, which the handler does not catch.
-    Shared with case_evaluation_endpoint; pinned here so a fix updates both knowingly."""
+    Shared with case_grade_endpoint; pinned here so a fix updates both knowingly."""
 
     with pytest.raises(ResolutionError, match="must be JSON: "):
         _call("not json at all")
@@ -93,34 +93,34 @@ def test_route_rejects_a_context_that_is_not_json() -> None:
 
 def test_bind_rejects_an_attempt_from_another_case() -> None:
     with pytest.raises(ValueError, match="belongs to another Case"):
-        bind_case_evaluation(1, [_check_record(case_id=2)])
+        build_case_grade(1, [_check_record(case_id=2)])
 
 
 def test_bind_rejects_an_attempt_without_the_check_schema() -> None:
     with pytest.raises(ValueError, match=f"must carry schema {CHECK_SCHEMA}"):
-        bind_case_evaluation(1, [{"case_id": 1, "answer": "C"}])
+        build_case_grade(1, [{"case_id": 1, "answer": "C"}])
 
 
 def test_bind_needs_at_least_one_attempt() -> None:
     with pytest.raises(ValueError, match="at least one attempt"):
-        bind_case_evaluation(1, [])
+        build_case_grade(1, [])
 
 
 def test_decode_round_trips_what_bind_produced() -> None:
-    bound = bind_case_evaluation(1, [_check_record()])
+    bound = build_case_grade(1, [_check_record()])
 
-    assert decode_case_evaluation(bound, 1) == bound
+    assert decode_case_grade(bound, 1) == bound
 
 
 def test_decode_rejects_unknown_fields() -> None:
-    bound = bind_case_evaluation(1, [_check_record()]) | {"score": 1.0}
+    bound = build_case_grade(1, [_check_record()]) | {"score": 1.0}
 
     with pytest.raises(ValueError, match=r"unknown fields \['score'\]"):
-        decode_case_evaluation(bound, 1)
+        decode_case_grade(bound, 1)
 
 
 def test_decode_rejects_an_envelope_for_another_case() -> None:
-    bound = bind_case_evaluation(1, [_check_record()])
+    bound = build_case_grade(1, [_check_record()])
 
     with pytest.raises(ValueError, match="belongs to another Case"):
-        decode_case_evaluation(bound, 2)
+        decode_case_grade(bound, 2)
