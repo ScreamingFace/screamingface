@@ -1959,7 +1959,7 @@ def test_a_judged_row_never_advertises_a_check_surface() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task route — evals that drop questions after loading (OME-1269)
+# Question filter — evals that drop questions after loading (OME-1269)
 # ---------------------------------------------------------------------------
 
 
@@ -2011,25 +2011,25 @@ def _fewshot_filter_task() -> Task:
 
 
 def _filtering_two_loads_task() -> Task:
-    """A filtered exam PLUS a second load — the route would feed both the exam's questions."""
+    """A filtered exam PLUS a second load — the question filter would feed both loads."""
 
     module = sys.modules[_FAKE_MODULE]
     module.hf_dataset(path="acme/sums", split="train", sample_fields=module.record_to_sample)
     return _filtering_task()
 
 
-def test_introspect_reads_a_filtering_task_as_a_task_route(
+def test_introspect_reads_a_filtering_task_as_filtering_after_load(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Acceptance 2: the probe's dummy question used to fail the eval's keep-test,
     and inspect crashed with "dataset is empty". Now the task builds, and the
-    import names it as a task route with the args it ran with."""
+    import names it as filtering after load with the args it ran with."""
 
     _install_fake_eval(monkeypatch, sums=_filtering_task)
 
     facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums", {"subset": "kept"})
 
-    assert facts.task_route is True
+    assert facts.filters_after_load is True
     assert facts.task_args == {"subset": "kept"}
     assert facts.dataset == "acme/sums"
     assert facts.prompt_template == f"{_FAKE_MODULE}:TEMPLATE"
@@ -2039,11 +2039,11 @@ def test_introspect_keeps_a_dedupe_only_task_on_todays_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Six live boards (wmdp x3, mmlu, race_h, winogrande) run only the duplicate-id
-    remover; routing them would move their published revisions."""
+    remover; sending them through their task would move their published revisions."""
 
     _install_fake_eval(monkeypatch, sums=_dedupe_only_task)
 
-    assert introspect_task(f"{_FAKE_MODULE}:sums").task_route is False
+    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
 
 
 def test_introspect_ignores_a_filter_on_a_non_exam_load(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2051,7 +2051,7 @@ def test_introspect_ignores_a_filter_on_a_non_exam_load(monkeypatch: pytest.Monk
 
     _install_fake_eval(monkeypatch, sums=_fewshot_filter_task)
 
-    assert introspect_task(f"{_FAKE_MODULE}:sums").task_route is False
+    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is False
 
 
 def test_introspect_refuses_a_filtering_task_that_loads_two_datasets(
@@ -2081,39 +2081,39 @@ def test_introspect_refuses_a_filtering_task_with_a_seeded_choice_shuffle(
         introspect_task(f"{_FAKE_MODULE}:sums")
 
 
-def test_a_task_route_row_names_the_task_and_its_args() -> None:
+def test_a_question_filter_row_names_the_task_and_its_args() -> None:
     fragments = render_fragments(
         "sums",
-        _facts(task_route=True, task_args={"subset": "kept", "limit_to": 2}),
+        _facts(filters_after_load=True, task_args={"subset": "kept", "limit_to": 2}),
         Observations(revision="c" * 40, case_count=2, license="mit"),
     )
 
-    assert f'task="{_FAKE_MODULE}:sums",' in fragments.snapshot
-    assert 'task_args={"limit_to": 2, "subset": "kept"},' in fragments.snapshot
+    assert f'question_filter_task="{_FAKE_MODULE}:sums",' in fragments.snapshot
+    assert 'question_filter_task_args={"limit_to": 2, "subset": "kept"},' in fragments.snapshot
     ast.parse("x = {\n" + fragments.snapshot + "}")
 
 
-def test_a_row_without_the_route_carries_no_task_field() -> None:
+def test_a_row_without_a_question_filter_carries_no_task_field() -> None:
     """Every board before OME-1269 must render exactly as it did."""
 
     fragments = render_fragments(
         "sums", _facts(), Observations(revision="c" * 40, case_count=2, license="mit")
     )
 
-    assert "task=" not in fragments.snapshot
-    assert "task_args=" not in fragments.snapshot
+    assert "question_filter_task=" not in fragments.snapshot
+    assert "question_filter_task_args=" not in fragments.snapshot
 
 
 def test_task_args_that_could_escape_the_row_are_refused(engine_src_copy: Path) -> None:
     with pytest.raises(ImporterError, match="injection guard"):
-        _generate(engine_src_copy, task_route=True, task_args={"subset": 'x"\nimport os'})
+        _generate(engine_src_copy, filters_after_load=True, task_args={"subset": 'x"\nimport os'})
 
 
-def test_a_task_route_counts_the_questions_the_eval_keeps(
+def test_a_question_filter_board_counts_the_questions_the_eval_keeps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The row's case count is the KEPT count (pubmedqa's 500, not 1,000 rows): the
-    default counter runs the bake's own route over the pinned rows."""
+    default counter runs the bake's own question filter over the pinned rows."""
 
     from screamingface_engine_inspect import prepare as prepare_module
 
@@ -2142,7 +2142,7 @@ def test_main_imports_a_filtering_task_instead_of_crashing(
 
     assert exit_code == 0
     prepare_text: str = (engine_src_copy / "prepare.py").read_text()
-    assert f'task="{_FAKE_MODULE}:sums",' in prepare_text
+    assert f'question_filter_task="{_FAKE_MODULE}:sums",' in prepare_text
 
 
 # ---------------------------------------------------------------------------
@@ -2245,16 +2245,16 @@ def _dedupe_then_filter_task() -> Task:
     )
 
 
-def test_introspect_routes_a_task_that_filters_after_dropping_duplicates(
+def test_introspect_flags_a_task_that_filters_after_dropping_duplicates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The dedupe exemption covers the duplicate remover ONLY: an eval that dedupes and
-    then keeps one subject (mmlu_0_shot with subjects) must still take the route, or
+    then keeps one subject (mmlu_0_shot with subjects) must still take the question filter, or
     the bake would ship every row while inspect runs the subset (review on PR #1110)."""
 
     _install_fake_eval(monkeypatch, sums=_dedupe_then_filter_task)
 
-    assert introspect_task(f"{_FAKE_MODULE}:sums").task_route is True
+    assert introspect_task(f"{_FAKE_MODULE}:sums").filters_after_load is True
 
 
 def test_introspect_refuses_a_filtering_task_that_numbers_rows_with_auto_id(
@@ -2277,7 +2277,7 @@ def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> Non
     the row has no place for a list (review on PR #1110)."""
 
     with pytest.raises(ImporterError, match="is a list") as refusal:
-        _generate(engine_src_copy, task_route=True, task_args={"subjects": ["anatomy"]})
+        _generate(engine_src_copy, filters_after_load=True, task_args={"subjects": ["anatomy"]})
     assert "injection" not in str(refusal.value)
 
 

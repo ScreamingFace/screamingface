@@ -751,9 +751,9 @@ def test_non_json_sample_metadata_refuses_the_bake(tmp_path: Path) -> None:
         del sys.modules["fake_metadata_eval"]
 
 
-# ── task route: the eval's own filter picks the questions (OME-1269) ─────────
+# ── question filter: the eval's own filter picks the questions (OME-1269) ─────────
 
-_ROUTE_MODULE = "fake_filtering_eval"
+_FILTER_MODULE = "fake_filtering_eval"
 
 #: Six numbered questions; the fake eval keeps the even (or odd) ones AFTER loading,
 #: the way pubmedqa keeps its 500 test ids out of 1,000 rows.
@@ -771,7 +771,7 @@ def _install_filtering_eval(monkeypatch: pytest.MonkeyPatch, **task_fns: Any) ->
     from inspect_ai.scorer import match
     from inspect_ai.solver import generate
 
-    module = types.ModuleType(_ROUTE_MODULE)
+    module = types.ModuleType(_FILTER_MODULE)
 
     def record_to_sample(record: dict[str, Any]) -> Sample:
         return Sample(id=record["n"], input=f"Question {record['n']}?", target=str(record["n"]))
@@ -795,19 +795,19 @@ def _install_filtering_eval(monkeypatch: pytest.MonkeyPatch, **task_fns: Any) ->
     module.keep_parity = keep_parity  # type: ignore[attr-defined]
     for name, fn in task_fns.items():
         setattr(module, name, fn)
-    monkeypatch.setitem(sys.modules, _ROUTE_MODULE, module)
+    monkeypatch.setitem(sys.modules, _FILTER_MODULE, module)
     return module
 
 
-def _route_spec(**overrides: Any) -> SnapshotSpec:
+def _filter_spec(**overrides: Any) -> SnapshotSpec:
     fields: dict[str, Any] = {
         "dataset": "acme/numbers",
         "config": "",
         "split": "test",
         "dataset_revision": "deadbeef" * 5,
         "case_count": 3,
-        "record_to_sample": f"{_ROUTE_MODULE}:record_to_sample",
-        "task": f"{_ROUTE_MODULE}:keep_parity",
+        "record_to_sample": f"{_FILTER_MODULE}:record_to_sample",
+        "question_filter_task": f"{_FILTER_MODULE}:keep_parity",
     }
     fields.update(overrides)
     return SnapshotSpec(**fields)
@@ -817,7 +817,7 @@ def _baked_inputs(out: Path) -> list[str]:
     return [case["input"] for case in json.loads((out / "cases.json").read_text("utf-8"))]
 
 
-def test_task_route_bakes_exactly_the_questions_the_eval_keeps(
+def test_question_filter_bakes_exactly_the_questions_the_eval_keeps(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """INVARIANT (OME-1269): a board holds exactly the questions inspect would run —
@@ -825,7 +825,7 @@ def test_task_route_bakes_exactly_the_questions_the_eval_keeps(
 
     _install_filtering_eval(monkeypatch)
 
-    summary = emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path, expected_cases=3)
+    summary = emit_snapshot(_filter_spec(), _NUMBER_ROWS, tmp_path, expected_cases=3)
 
     assert _baked_inputs(tmp_path) == ["Question 2?", "Question 4?", "Question 6?"]
     target = json.loads((tmp_path / "targets" / "3.json").read_text(encoding="utf-8"))
@@ -833,7 +833,7 @@ def test_task_route_bakes_exactly_the_questions_the_eval_keeps(
     assert summary["cases"] == 3
 
 
-def test_task_route_enforces_the_kept_count_not_the_raw_count(
+def test_question_filter_enforces_the_kept_count_not_the_raw_count(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The exam's identity is the questions the eval keeps (pubmedqa's 500), not
@@ -842,23 +842,25 @@ def test_task_route_enforces_the_kept_count_not_the_raw_count(
     _install_filtering_eval(monkeypatch)
 
     with pytest.raises(PrepareError, match="pinned case count"):
-        emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path, expected_cases=len(_NUMBER_ROWS))
+        emit_snapshot(_filter_spec(), _NUMBER_ROWS, tmp_path, expected_cases=len(_NUMBER_ROWS))
 
 
-def test_task_route_forwards_task_args(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_question_filter_forwards_task_args(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Task args pick what the filter keeps (xstest's subset) — the bake must pass them."""
 
     _install_filtering_eval(monkeypatch)
 
-    emit_snapshot(_route_spec(task_args={"parity": "odd"}), _NUMBER_ROWS, tmp_path)
+    emit_snapshot(_filter_spec(question_filter_task_args={"parity": "odd"}), _NUMBER_ROWS, tmp_path)
 
     assert _baked_inputs(tmp_path) == ["Question 1?", "Question 3?", "Question 5?"]
 
 
-def test_task_route_keeps_the_pinned_seeded_order(
+def test_question_filter_keeps_the_pinned_seeded_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The route filters OUR seeded order; it never re-shuffles (the order is exam identity)."""
+    """The question filter runs over OUR seeded order and never re-shuffles it (exam identity)."""
 
     import random
 
@@ -866,7 +868,7 @@ def test_task_route_keeps_the_pinned_seeded_order(
     seeded: list[dict[str, Any]] = list(_NUMBER_ROWS)
     random.Random(7).shuffle(seeded)
 
-    emit_snapshot(_route_spec(shuffle_seed=7), _NUMBER_ROWS, tmp_path)
+    emit_snapshot(_filter_spec(shuffle_seed=7), _NUMBER_ROWS, tmp_path)
 
     assert _baked_inputs(tmp_path) == [
         f"Question {row['n']}?" for row in seeded if row["n"] % 2 == 0
@@ -880,7 +882,7 @@ def _raising_task() -> Any:
 def _two_loads_task() -> Any:
     import sys
 
-    module: Any = sys.modules[_ROUTE_MODULE]
+    module: Any = sys.modules[_FILTER_MODULE]
     module.hf_dataset(path="acme/numbers", split="train")
     return module.keep_parity()
 
@@ -892,7 +894,7 @@ def _reordering_task() -> Any:
 
     from inspect_ai import Task
 
-    module: Any = sys.modules[_ROUTE_MODULE]
+    module: Any = sys.modules[_FILTER_MODULE]
     dataset: Any = module.hf_dataset(path="acme/numbers", split="test")
     dataset.samples.reverse()
     return Task(dataset=dataset)
@@ -906,7 +908,7 @@ def _adding_task() -> Any:
     from inspect_ai import Task
     from inspect_ai.dataset import Sample
 
-    module: Any = sys.modules[_ROUTE_MODULE]
+    module: Any = sys.modules[_FILTER_MODULE]
     dataset: Any = module.hf_dataset(path="acme/numbers", split="test")
     return Task(dataset=[*dataset, Sample(id=99, input="Extra?", target="99")])
 
@@ -920,32 +922,36 @@ def _adding_task() -> Any:
         ("adding", _adding_task, "not an in-order subset"),
     ],
 )
-def test_task_route_refuses_what_it_cannot_reproduce(
+def test_question_filter_refuses_what_it_cannot_reproduce(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, task_name: str, task_fn: Any, reason: str
 ) -> None:
-    """The route only lets the eval DROP questions. A task that fails, loads twice
-    (the route hands every load the same samples), reorders, or adds a question
+    """The question filter only lets the eval DROP questions. A task that fails, loads twice
+    (the question filter hands every load the same samples), reorders, or adds a question
     would bake an exam we cannot vouch for — refuse by name, bake nothing."""
 
     _install_filtering_eval(monkeypatch, **{task_name: task_fn})
 
     with pytest.raises(PrepareError, match=reason):
-        emit_snapshot(_route_spec(task=f"{_ROUTE_MODULE}:{task_name}"), _NUMBER_ROWS, tmp_path)
+        emit_snapshot(
+            _filter_spec(question_filter_task=f"{_FILTER_MODULE}:{task_name}"),
+            _NUMBER_ROWS,
+            tmp_path,
+        )
     assert not (tmp_path / "cases.json").exists()
 
 
-def test_task_route_refuses_a_module_without_hf_dataset(
+def test_question_filter_refuses_a_module_without_hf_dataset(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     module: Any = _install_filtering_eval(monkeypatch)
     monkeypatch.delattr(module, "hf_dataset")
 
     with pytest.raises(PrepareError, match="no hf_dataset binding"):
-        emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path)
+        emit_snapshot(_filter_spec(), _NUMBER_ROWS, tmp_path)
 
 
-def test_the_task_route_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Routing a board through its task, or changing the task args, changes which
+def test_the_question_filter_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sending a board through its task's filter, or changing the task args, changes which
     questions the bake keeps — the revision must move both times."""
 
     from dataclasses import replace
@@ -958,10 +964,12 @@ def test_the_task_route_is_exam_identity(monkeypatch: pytest.MonkeyPatch) -> Non
         return boards.imported_board("gsm8k").benchmark.revision
 
     base: str = revision()
-    routed = replace(SNAPSHOTS["gsm8k"], task=f"{_ROUTE_MODULE}:keep_parity")
-    monkeypatch.setitem(SNAPSHOTS, "gsm8k", routed)
+    filtered = replace(SNAPSHOTS["gsm8k"], question_filter_task=f"{_FILTER_MODULE}:keep_parity")
+    monkeypatch.setitem(SNAPSHOTS, "gsm8k", filtered)
     even: str = revision()
-    monkeypatch.setitem(SNAPSHOTS, "gsm8k", replace(routed, task_args={"parity": "odd"}))
+    monkeypatch.setitem(
+        SNAPSHOTS, "gsm8k", replace(filtered, question_filter_task_args={"parity": "odd"})
+    )
     odd: str = revision()
 
     assert len({base, even, odd}) == 3
@@ -979,7 +987,7 @@ def test_excluded_sample_ids_drop_exactly_those_questions(
     _install_filtering_eval(monkeypatch)
 
     emit_snapshot(
-        _route_spec(excluded_sample_ids=("4",), case_count=2),
+        _filter_spec(excluded_sample_ids=("4",), case_count=2),
         _NUMBER_ROWS,
         tmp_path,
         expected_cases=2,
@@ -988,7 +996,9 @@ def test_excluded_sample_ids_drop_exactly_those_questions(
     assert _baked_inputs(tmp_path) == ["Question 2?", "Question 6?"]
 
 
-def test_excluded_sample_ids_count_after_the_exclusion_without_a_route(tmp_path: Path) -> None:
+def test_excluded_sample_ids_count_after_the_exclusion_without_a_question_filter(
+    tmp_path: Path,
+) -> None:
     """The deviation works on a plain board too: the size check moves to what is left."""
 
     from inspect_evals.wmdp.wmdp import record_to_sample
@@ -1018,7 +1028,7 @@ def test_a_stale_excluded_sample_id_refuses_the_bake(
     _install_filtering_eval(monkeypatch)
 
     with pytest.raises(PrepareError, match="99"):
-        emit_snapshot(_route_spec(excluded_sample_ids=("99",)), _NUMBER_ROWS, tmp_path)
+        emit_snapshot(_filter_spec(excluded_sample_ids=("99",)), _NUMBER_ROWS, tmp_path)
 
 
 def test_excluded_sample_ids_are_exam_identity(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1165,7 +1175,7 @@ def test_the_skip_switch_never_skips_a_public_dataset(
     assert summary["cases"] == 2
 
 
-def test_task_route_puts_the_evals_own_loader_back(
+def test_question_filter_puts_the_evals_own_loader_back(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The swap is for one call only — after a bake, and after a refused one, the
@@ -1174,10 +1184,14 @@ def test_task_route_puts_the_evals_own_loader_back(
     module: Any = _install_filtering_eval(monkeypatch, raising=_raising_task)
     original: Any = module.hf_dataset
 
-    emit_snapshot(_route_spec(), _NUMBER_ROWS, tmp_path / "ok")
+    emit_snapshot(_filter_spec(), _NUMBER_ROWS, tmp_path / "ok")
     assert module.hf_dataset is original
     with pytest.raises(PrepareError):
-        emit_snapshot(_route_spec(task=f"{_ROUTE_MODULE}:raising"), _NUMBER_ROWS, tmp_path / "no")
+        emit_snapshot(
+            _filter_spec(question_filter_task=f"{_FILTER_MODULE}:raising"),
+            _NUMBER_ROWS,
+            tmp_path / "no",
+        )
     assert module.hf_dataset is original
 
 
@@ -1189,7 +1203,7 @@ def test_task_route_puts_the_evals_own_loader_back(
         ({"config": "x"}, "config"),
     ],
 )
-def test_task_route_refuses_a_row_pinning_another_load(
+def test_question_filter_refuses_a_row_pinning_another_load(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, override: dict[str, str], field: str
 ) -> None:
     """The swap ignores what the task asks for, so the row must pin the SAME load —
@@ -1199,7 +1213,7 @@ def test_task_route_refuses_a_row_pinning_another_load(
     _install_filtering_eval(monkeypatch)
 
     with pytest.raises(PrepareError, match=f"different load.*{field}"):
-        emit_snapshot(_route_spec(**override), _NUMBER_ROWS, tmp_path)
+        emit_snapshot(_filter_spec(**override), _NUMBER_ROWS, tmp_path)
 
 
 def test_a_gated_dataset_with_a_token_bakes_even_with_the_skip_switch(

@@ -12,9 +12,9 @@ finished: 2026-09-29
 
 Three inspect evals (onet_m6, pubmedqa, xstest) drop questions after loading. Today the
 importer crashes on them with "dataset is empty", and the bake has no way to run their
-filter. This unit (PR 1 of 3 for OME-1269) adds the task route: the bake hands the eval's own
+filter. This unit (PR 1 of 3 for OME-1269) adds the question-filter step: the bake hands the eval's own
 task function our pinned questions and keeps exactly what it keeps. It also ships the first
-route board, `onet_m6` (owner widened the scope; see Deviations).
+question-filter board, `onet_m6` (owner widened the scope; see Deviations).
 
 ## Planned changes
 
@@ -31,7 +31,7 @@ See the plan, steps 1 and 4.
 
 ## Acceptance
 
-Ticket acceptance 1, 2 and 3; acceptance 5 by construction (the old path runs when `task`
+Ticket acceptance 1, 2 and 3; acceptance 5 by construction (the old path runs when `question_filter_task`
 is None).
 
 ## Outcome (fill at the end — required before COMMIT)
@@ -43,7 +43,7 @@ is None).
 - **Gates:** ruff check, ruff format --check, pyright (0 errors), check_layering OK,
   `pytest --cov` 4575 passed / 44 skipped, coverage 93.66%; inspect lane 453 passed (419
   before this unit).
-- **Free real-data checks (no token):** the real importer writes a task-route row for
+- **Free real-data checks (no token):** the real importer writes a question-filter row for
   `pubmedqa` (500 cases) and for `onet_m6` (397 cases); both crashed with "dataset is empty"
   before. The production bake (`prepare_snapshot`) of the committed `onet_m6` row gives 391
   cases: 391 unique ids, equal to inspect's own 397 minus the 6 excluded ids, with the same
@@ -51,5 +51,7 @@ is None).
   inspect's CoT wording.
 - **Deviations:** scope widened by the owner to ship `onet_m6` in this PR, with
   `cot=True` support and the named exclusion (6 questions whose answer letter points past
-  their last choice).
+  their last choice). After a naming review, the mechanism's own names moved to the
+  question-filter vocabulary before merge (`question_filter_task` / `question_filter_task_args`,
+  `filters_after_load`), so no house word lands that OME-1404 would later rename.
 - **Owner-verify:** a paid smoke run of `onet_m6` is the owner's to press.

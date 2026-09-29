@@ -61,10 +61,10 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "lab_bench_seqqa": "mcq",
     "lab_bench_cloning_scenarios": "mcq",
     "frontierscience": "judged",
-    # OME-1269: the first task-route board — the eval's own filter picks the
+    # OME-1269: the first question-filter board — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no check surface.
     "onet_m6": "mcq",
-    # OME-1269: task route keeps the eval's 500-question test list of 1,000 rows.
+    # OME-1269: the question filter keeps the eval's 500-question test list of 1,000 rows.
     "pubmedqa": "mcq",
     # OME-1269: judged compliance on XSTest's safe prompts — no answer key.
     "xstest_safe": "judged",
@@ -134,9 +134,9 @@ def test_snapshot_row_references_resolve_inside_the_pinned_eval(key: str) -> Non
         references.append(snapshot.choice_template)
     if snapshot.system_message is not None:
         references.append(snapshot.system_message)
-    if snapshot.task is not None:
-        # The task-route pointer (OME-1269): the bake CALLS it at image build.
-        references.append(snapshot.task)
+    if snapshot.question_filter_task is not None:
+        # The question-filter pointer (OME-1269): the bake CALLS it at image build.
+        references.append(snapshot.question_filter_task)
     for reference in references:
         module_name, _, attribute = reference.partition(":")
         assert hasattr(import_module(module_name), attribute), reference
@@ -333,12 +333,12 @@ def test_system_message_pointer_rides_exam_identity() -> None:
     assert not any(p.startswith("system_message=") for p in _revision_pins(SNAPSHOTS["musr"]))
 
 
-def test_onet_m6_routes_through_its_task_with_the_named_exclusion() -> None:
-    """OME-1269's first task-route board. Its questions are whatever the eval's own
+def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
+    """OME-1269's first question-filter board. Its questions are whatever the eval's own
     filter keeps, minus the owner-approved named deviation (6 questions inspect keeps
     whose answer letter lies past their choices), and it renders inspect's own
     chain-of-thought template because the eval passes multiple_choice(cot=True).
-    The route and the exclusion change which questions are served, so both ride its
+    The question filter and the exclusion change which questions are served, so both ride its
     revision; the template pointer does not (template pointers predate revision-pin
     coverage — see boards._revision_pins)."""
 
@@ -348,18 +348,18 @@ def test_onet_m6_routes_through_its_task_with_the_named_exclusion() -> None:
 
     row = SNAPSHOTS["onet_m6"]
     assert row.dataset_revision == UPSTREAM
-    assert row.task == "inspect_evals.onet.onet:onet_m6"
+    assert row.question_filter_task == "inspect_evals.onet.onet:onet_m6"
     assert row.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
     assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6
     assert row.case_count == 397 - 6
     pins = _revision_pins(row)
-    assert "task=inspect_evals.onet.onet:onet_m6" in pins
+    assert "question_filter_task=inspect_evals.onet.onet:onet_m6" in pins
     assert any(pin.startswith("excluded_sample_ids=") for pin in pins)
 
 
 def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
     """pubmedqa loads all 1,000 labelled questions and keeps the 500 on its bundled
-    test list; the board routes through the eval's task so its own filter keeps
+    test list; the board runs the eval's task so its own filter keeps
     them, the count pins the KEPT 500, and the eval's template renders them."""
 
     from inspect_evals.pubmedqa.pubmedqa import PUBMEDQA_DATASET_REVISION as UPSTREAM
@@ -368,11 +368,11 @@ def test_pubmedqa_bakes_the_evals_test_list_through_its_task() -> None:
 
     row = SNAPSHOTS["pubmedqa"]
     assert row.dataset_revision == UPSTREAM
-    assert row.task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
+    assert row.question_filter_task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
     assert row.choice_template == "inspect_evals.pubmedqa.pubmedqa:TEMPLATE"
     assert row.case_count == 500
     assert row.excluded_sample_ids is None
-    assert "task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)
+    assert "question_filter_task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)
 
 
 def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() -> None:
@@ -388,12 +388,12 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
 
     row = SNAPSHOTS["xstest_safe"]
     assert row.dataset_revision == UPSTREAM
-    assert row.task == "inspect_evals.xstest.xstest:xstest"
-    assert row.task_args == {"subset": "safe"}
+    assert row.question_filter_task == "inspect_evals.xstest.xstest:xstest"
+    assert row.question_filter_task_args == {"subset": "safe"}
     assert row.case_count == 250
     assert row.has_answer_key is False
     assert row.gated is True
-    assert 'task_args={"subset": "safe"}' in _revision_pins(row)
+    assert 'question_filter_task_args={"subset": "safe"}' in _revision_pins(row)
     board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
     assert board.scorer_kwargs["template"] == scorer_template
     assert board.scorer_kwargs["instructions"] == scorer_instructions
