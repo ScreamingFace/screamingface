@@ -34,6 +34,18 @@ INSECURE_DEFAULT_JWT_SECRET = "dev-insecure-change-me"
 # without restating the literal — the same shape as INSECURE_DEFAULT_JWT_SECRET above.
 LOCAL_AIGATEWAY_BASE_URL = "http://127.0.0.1:9105"
 
+# FEATURE (OME-1308, E18 · A local app): the origins the Studio frontend calls the Engine from —
+# its Next.js dev server (`devUrl` in `src-tauri/tauri.conf.json`) and the Tauri 2 packaged
+# webview on macOS/Linux, Windows, and Windows with `useHttpsScheme`.
+#
+# INVARIANT: Studio's origins only. Another frontend adds its origin through the env var, not here.
+STUDIO_CORS_ORIGINS = (
+    "http://localhost:3000",
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+)
+
 
 class Settings(BaseSettings):
     """Environment-backed configuration for the App: auth, NATS, job-runner backend selection,
@@ -75,6 +87,9 @@ class Settings(BaseSettings):
     # Same env var (URL4_CLOUD_ARTIFACTS_DIR) the Runner's spill side reads — one name, so the
     # writer and the `GET /artifacts/{id}` server cannot be pointed at different directories.
     artifacts_dir: str = job_env.DEFAULT_ARTIFACTS_DIR
+    # FEATURE (OME-1308): browser origins granted CORS on the REST surface. The env var
+    # (`URL4_CLOUD_CORS_ALLOWED_ORIGINS`, a JSON list) REPLACES the default; `[]` grants none.
+    cors_allowed_origins: list[str] = Field(default_factory=lambda: list(STUDIO_CORS_ORIGINS))
     # FEATURE: over-cap results survive the Runner Job on a multi-pod deployment (OME-929).
     #
     # INVARIANT: every field below reads the env var `job_env` declares for it, by construction —
