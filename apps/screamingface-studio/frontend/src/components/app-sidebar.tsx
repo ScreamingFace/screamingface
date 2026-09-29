@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 
 import { SidebarThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +35,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsTauri } from "@/hooks/use-is-tauri";
 import { useEnsembleStore } from "@/lib/ensemble-store";
-import { useModelStore } from "@/lib/model-store";
+import { useModelStore, useProviders } from "@/lib/model-store";
 import {
   OPENMINED_BUDGET_TOTAL,
   useOpenMinedStore,
@@ -96,10 +97,15 @@ export function AppSidebar() {
   const activeEnsembleId = useEnsembleStore(
     (state) => state.activeEnsembleId,
   );
-  const connectedProviders = useModelStore(
-    (state) =>
-      state.providers.filter((provider) => provider.connected).length,
-  );
+  const connectedProviders = useProviders().filter(
+    (provider) => provider.connected && !provider.keyless,
+  ).length;
+  const catalogLoad = useModelStore((state) => state.load);
+  const refreshCatalog = useModelStore((state) => state.refresh);
+
+  useEffect(() => {
+    if (catalogLoad === "idle") void refreshCatalog();
+  }, [catalogLoad, refreshCatalog]);
   const omConnected = useOpenMinedStore((state) => state.connected);
   const authOpen = useOpenMinedStore((state) => state.authOpen);
   const authorizing = useOpenMinedStore((state) => state.authorizing);
