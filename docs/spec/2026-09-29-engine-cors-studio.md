@@ -1,6 +1,6 @@
 ---
 status: approved 2026-09-29
-ticket: unfiled (leaf under epic OME-1308, filed at PR-open)
+ticket: OME-1403 (leaf under epic OME-1308)
 date: 2026-09-29
 ---
 
