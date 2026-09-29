@@ -291,13 +291,13 @@ class SnapshotSpec:
     has_answer_key: bool = True
     #: The dataset sits behind a Hugging Face gate, so downloading it needs a token
     #: from an account that accepted its terms (xstest). Without one the bake stops by
-    #: name, unless SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1 (PR builds, which get no
+    #: name, unless SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1 (PR builds, which get no
     #: secret) skips the board with a warning. Access, not exam identity: no pin.
-    gated: bool = False
+    needs_hf_token: bool = False
 
 
 #: The build-time switch that lets a PR build skip gated boards instead of failing.
-SKIP_GATED_ENV = "SCREAMINGFACE_SKIP_GATED_BENCHMARKS"
+SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV = "SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN"
 
 #: Written into a skipped gated bundle, so the runtime can say WHY the board has no
 #: questions instead of a bare "cases are unavailable" (review on PR #1112).
@@ -697,7 +697,7 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {
         question_filter_task_args={"subset": "safe"},
         # Gated on the Hub: the bake needs HF_TOKEN from an account that
         # accepted the dataset's terms (OME-1269).
-        gated=True,
+        needs_hf_token=True,
         # The judge grades complied / refused from the question and the reply;
         # the dataset has no answer key (xstest's row rule sets no target).
         has_answer_key=False,
@@ -1114,12 +1114,12 @@ def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:
 
     A gated dataset needs a Hugging Face token (``HF_TOKEN``, or a cached login).
     Without one the bake refuses by name, so a main or release image can never ship
-    missing a board; a PR build that sets ``SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1``
+    missing a board; a PR build that sets ``SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1``
     skips the board instead, writes nothing, and says so loudly in the build log.
     """
 
-    if spec.gated and _available_hf_token() is None:
-        if os.environ.get(SKIP_GATED_ENV) != "1":
+    if spec.needs_hf_token and _available_hf_token() is None:
+        if os.environ.get(SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV) != "1":
             raise PrepareError(
                 f"{spec.dataset} is a gated Hugging Face dataset and no token is available — "
                 "in CI, check the HF_TOKEN_BENCHMARKS repo secret; locally, export HF_TOKEN "
@@ -1127,8 +1127,8 @@ def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:
             )
         reason: str = f"gated dataset {spec.dataset}, built without a Hugging Face token"
         print(
-            f"WARNING: skipping {reason} ({SKIP_GATED_ENV}=1); this image has NO assets "
-            "for its board",
+            f"WARNING: skipping {reason} ({SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV}=1); "
+            "this image has NO assets for its board",
             file=sys.stderr,
             flush=True,
         )

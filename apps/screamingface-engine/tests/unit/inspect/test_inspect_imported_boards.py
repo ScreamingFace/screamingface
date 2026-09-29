@@ -392,7 +392,7 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
     assert row.question_filter_task_args == {"subset": "safe"}
     assert row.case_count == 250
     assert row.has_answer_key is False
-    assert row.gated is True
+    assert row.needs_hf_token is True
     assert 'question_filter_task_args={"subset": "safe"}' in _revision_pins(row)
     board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
     assert board.scorer_kwargs["template"] == scorer_template

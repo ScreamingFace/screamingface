@@ -17,7 +17,7 @@ Spec: `docs/spec/2026-09-29-inspect-task-route-bake.md` §2b.
 
 ## Planned changes
 
-- `apps/screamingface-engine/src/screamingface_engine_inspect/prepare.py` — `gated`,
+- `apps/screamingface-engine/src/screamingface_engine_inspect/prepare.py` — `needs_hf_token`,
   `has_answer_key`, the token rule in `prepare_snapshot`.
 - `boards.py` — `_check_answer_key_opt_in`; the `xstest_safe` board. `importer.py` — the
   Hub gate observation. `pins.py` — the importer's pins.
@@ -47,7 +47,7 @@ far as it can be checked before merge (see Owner-verify).
   `pytest --cov` 4606 passed / 44 skipped, coverage 93.67%; inspect lane 480 passed;
   `.github/scripts/test_preview_contract.py` 19 passed; the five workflows parse as YAML.
 - **Real checks (read-only token, passed only as an env var, file deleted after):** the
-  importer writes the `xstest_safe` row with 250 cases and `gated=True`; the production bake
+  importer writes the `xstest_safe` row with 250 cases and `needs_hf_token=True`; the production bake
   gives 250 cases whose ids and prompts equal inspect's own `xstest(subset="safe")`, each with
   an empty target. With no token (cached login hidden) the bake refuses by name; with the skip
   switch it warns and writes nothing.

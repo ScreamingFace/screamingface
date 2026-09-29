@@ -1124,7 +1124,7 @@ def _no_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(prepare_module, "_load_rows", no_download)
 
 
-def test_a_gated_dataset_without_a_token_refuses_the_bake_by_name(
+def test_a_dataset_needing_an_hf_token_refuses_the_bake_without_one(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Main and release builds must fail loudly, naming the missing token — never an
@@ -1133,13 +1133,13 @@ def test_a_gated_dataset_without_a_token_refuses_the_bake_by_name(
     from screamingface_engine_inspect.prepare import prepare_snapshot
 
     _no_token(monkeypatch)
-    monkeypatch.delenv("SCREAMINGFACE_SKIP_GATED_BENCHMARKS", raising=False)
+    monkeypatch.delenv("SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN", raising=False)
 
     with pytest.raises(PrepareError, match="HF_TOKEN"):
-        prepare_snapshot(_no_key_spec(gated=True), tmp_path)
+        prepare_snapshot(_no_key_spec(needs_hf_token=True), tmp_path)
 
 
-def test_a_pr_build_skips_a_gated_dataset_loudly(
+def test_a_pr_build_skips_a_dataset_needing_an_hf_token_loudly(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """PR builds from forks and Dependabot get no Actions secrets; they opt in to
@@ -1148,9 +1148,9 @@ def test_a_pr_build_skips_a_gated_dataset_loudly(
     from screamingface_engine_inspect.prepare import prepare_snapshot
 
     _no_token(monkeypatch)
-    monkeypatch.setenv("SCREAMINGFACE_SKIP_GATED_BENCHMARKS", "1")
+    monkeypatch.setenv("SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN", "1")
 
-    summary = prepare_snapshot(_no_key_spec(gated=True), tmp_path)
+    summary = prepare_snapshot(_no_key_spec(needs_hf_token=True), tmp_path)
 
     assert summary["cases"] == 0
     assert "skipped" in summary
@@ -1166,7 +1166,7 @@ def test_the_skip_switch_never_skips_a_public_dataset(
     from screamingface_engine_inspect import prepare as prepare_module
     from screamingface_engine_inspect.prepare import prepare_snapshot
 
-    monkeypatch.setenv("SCREAMINGFACE_SKIP_GATED_BENCHMARKS", "1")
+    monkeypatch.setenv("SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN", "1")
     monkeypatch.setattr(prepare_module, "_available_hf_token", lambda: None)
     monkeypatch.setattr(prepare_module, "_load_rows", lambda spec: _XSTEST_ROWS)
 
@@ -1216,7 +1216,7 @@ def test_question_filter_refuses_a_row_pinning_another_load(
         emit_snapshot(_filter_spec(**override), _NUMBER_ROWS, tmp_path)
 
 
-def test_a_gated_dataset_with_a_token_bakes_even_with_the_skip_switch(
+def test_a_dataset_needing_an_hf_token_bakes_with_one_even_with_the_skip_switch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The main-branch case: with a token the gated board downloads and bakes. The
@@ -1229,16 +1229,16 @@ def test_a_gated_dataset_with_a_token_bakes_even_with_the_skip_switch(
     monkeypatch.setattr(prepare_module, "_available_hf_token", lambda: "hf_read_only")
     monkeypatch.setattr(prepare_module, "_load_rows", lambda spec: _XSTEST_ROWS)
     for switch in ("", "1"):
-        monkeypatch.setenv("SCREAMINGFACE_SKIP_GATED_BENCHMARKS", switch)
+        monkeypatch.setenv("SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN", switch)
         out = tmp_path / f"switch-{switch or 'off'}"
 
-        summary = prepare_snapshot(_no_key_spec(gated=True, has_answer_key=False), out)
+        summary = prepare_snapshot(_no_key_spec(needs_hf_token=True, has_answer_key=False), out)
 
         assert summary["cases"] == 2
         assert not (out / "SKIPPED").exists()
 
 
-def test_a_skipped_gated_board_names_the_skip_at_runtime(
+def test_a_board_skipped_for_its_hf_token_names_the_skip_at_runtime(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A preview image built without the token still lists the board; running it must
@@ -1249,8 +1249,8 @@ def test_a_skipped_gated_board_names_the_skip_at_runtime(
     from url4.core.errors import ResolutionError
 
     _no_token(monkeypatch)
-    monkeypatch.setenv("SCREAMINGFACE_SKIP_GATED_BENCHMARKS", "1")
-    prepare_snapshot(_no_key_spec(gated=True), tmp_path)
+    monkeypatch.setenv("SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN", "1")
+    prepare_snapshot(_no_key_spec(needs_hf_token=True), tmp_path)
 
     assert "walledai/XSTest" in (tmp_path / "SKIPPED").read_text(encoding="utf-8")
     with pytest.raises(ResolutionError, match="built without this board's questions") as refusal:

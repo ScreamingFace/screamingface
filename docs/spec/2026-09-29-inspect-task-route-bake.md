@@ -64,9 +64,9 @@ the same input, target and choices for all four.
 
 ## 2b. PR 3 — CI token and `xstest_safe` (owner decisions 2026-09-29)
 
-- R12. `SnapshotSpec.gated`: a dataset behind a Hugging Face gate. The bake refuses it by
+- R12. `SnapshotSpec.needs_hf_token`: a dataset behind a Hugging Face gate. The bake refuses it by
   name when no token is available (`HF_TOKEN` or a cached login), unless
-  `SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1`, which skips the board with a warning and writes
+  `SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1`, which skips the board with a warning and writes
   nothing. Not exam identity. The importer reads the gate from the Hub (`dataset_info.gated`).
 - R13. `SnapshotSpec.has_answer_key=False`: a judged board whose judge grades from the
   question and the reply alone. The bake accepts an empty target for a case with no

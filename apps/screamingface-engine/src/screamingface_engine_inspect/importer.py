@@ -148,7 +148,7 @@ class Observations:
     license: str | None
     #: The Hub's gate on the dataset (dataset_info.gated is "auto"/"manual" when set):
     #: the bake then needs a token from an account that accepted its terms (OME-1269).
-    gated: bool = False
+    needs_hf_token: bool = False
 
 
 @dataclass(frozen=True)
@@ -919,7 +919,7 @@ def capture_observations(
         revision=revision,
         case_count=int(counter(facts, revision)),
         license=None if license_value is None else str(license_value),
-        gated=bool(getattr(info, "gated", False)),
+        needs_hf_token=bool(getattr(info, "gated", False)),
     )
 
 
@@ -1063,7 +1063,7 @@ def render_fragments(
         snapshot_lines.append("        # address a candidate's system role).")
         snapshot_lines.append(f'        system_message="{facts.system_message}",')
     snapshot_lines.extend(
-        [*seed_snapshot_lines, *_question_filter_lines(facts), *_gated_lines(observations)]
+        [*seed_snapshot_lines, *_question_filter_lines(facts), *_hf_token_lines(observations)]
     )
     for solver_name in facts.custom_solvers:
         snapshot_lines.append(
@@ -1129,15 +1129,15 @@ def _seed_fragments(
     return pin_lines, import_names, snapshot_lines
 
 
-def _gated_lines(observations: Observations) -> list[str]:
+def _hf_token_lines(observations: Observations) -> list[str]:
     """The SnapshotSpec line marking a dataset gated on the Hub (none otherwise)."""
 
-    if not observations.gated:
+    if not observations.needs_hf_token:
         return []
     return [
         "        # Gated on the Hub: the bake needs HF_TOKEN from an account that",
         "        # accepted the dataset's terms (OME-1269).",
-        "        gated=True,",
+        "        needs_hf_token=True,",
     ]
 
 

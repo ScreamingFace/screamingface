@@ -186,7 +186,7 @@ jobs:
           # with a warning instead of failing the preview (OME-1269).
           build-args: |
             BASE=${{ env.REGISTRY }}/screamingface-engine:${{ needs.plan.outputs.tag }}
-            SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1
+            SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1
             SCREAMINGFACE_HF_TOKEN_PRESENT=${{ secrets.HF_TOKEN_BENCHMARKS != '' }}
           secrets: |
             hf_token=${{ secrets.HF_TOKEN_BENCHMARKS }}

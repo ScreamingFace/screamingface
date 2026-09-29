@@ -2203,7 +2203,9 @@ def test_introspect_flags_cot_with_multiple_correct(monkeypatch: pytest.MonkeyPa
 @pytest.mark.parametrize(
     ("hub_gated", "expected"), [("auto", True), ("manual", True), (False, False)]
 )
-def test_capture_records_whether_the_dataset_is_gated(hub_gated: Any, expected: bool) -> None:
+def test_capture_records_whether_the_dataset_needs_an_hf_token(
+    hub_gated: Any, expected: bool
+) -> None:
     """The bake needs a token for a gated dataset; the importer reads the gate from
     the Hub (dataset_info.gated: False, "auto" or "manual") so the row says so."""
 
@@ -2213,19 +2215,21 @@ def test_capture_records_whether_the_dataset_is_gated(hub_gated: Any, expected: 
         _facts(), dataset_info=lambda dataset, revision: info, count_rows=lambda f, r: 3
     )
 
-    assert observations.gated is expected
+    assert observations.needs_hf_token is expected
 
 
-def test_a_gated_row_says_so_and_a_public_row_does_not() -> None:
-    gated = render_fragments(
-        "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit", gated=True)
+def test_a_row_needing_an_hf_token_says_so_and_a_public_row_does_not() -> None:
+    token_row = render_fragments(
+        "sums",
+        _facts(),
+        Observations(revision="c" * 40, case_count=3, license="mit", needs_hf_token=True),
     )
     public = render_fragments(
         "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
     )
 
-    assert "        gated=True," in gated.snapshot
-    assert "gated=" not in public.snapshot
+    assert "        needs_hf_token=True," in token_row.snapshot
+    assert "needs_hf_token=" not in public.snapshot
 
 
 def _dedupe_then_filter_task() -> Task:
