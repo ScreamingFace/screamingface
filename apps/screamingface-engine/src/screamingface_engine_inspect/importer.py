@@ -129,8 +129,8 @@ class TaskFacts:
     #: The eval drops questions after loading — a ``.filter()`` on the exam load
     #: other than inspect_evals' duplicate-id remover (OME-1269). The row then
     #: names the task function, so the bake lets the eval's own filter pick.
-    task_route: bool = False
-    #: The args the import ran the task with; a task-route row forwards them at
+    filters_after_load: bool = False
+    #: The args the import ran the task with; a question-filter row forwards them at
     #: bake time because they can change what the filter keeps (xstest's subset).
     task_args: Mapping[str, Any] = field(default_factory=dict)
 
@@ -199,7 +199,7 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     finally:
         module.hf_dataset = original  # type: ignore[attr-defined]
 
-    kwargs, exam_stub = _exam_dataset_kwargs(task, recorded, task_ref)
+    kwargs, cases_load_stub = _exam_dataset_kwargs(task, recorded, task_ref)
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
     sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
@@ -230,7 +230,9 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         upstream_choice_shuffle_seed=_choice_shuffle_seed_fact(kwargs.get("shuffle_choices")),
         data_files=_conserved_data_files(kwargs.get("data_files"), task_ref),
         features=_features_reference(module, kwargs.get("features"), task_ref),
-        task_route=_is_task_route(exam_stub, filters, len(recorded), kwargs, task_ref),
+        filters_after_load=_drops_questions_after_load(
+            cases_load_stub, filters, len(recorded), kwargs, task_ref
+        ),
         task_args=dict(task_args or {}),
     )
 
@@ -259,14 +261,14 @@ def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
 
 
 #: inspect_evals' duplicate-id remover, by module + qualname. It is the one post-load
-#: filter the bake does NOT route: six live boards run it (wmdp x3, mmlu, race_h,
-#: winogrande), and routing them would move their published revisions. The wmdp
+#: filter the bake does NOT send through its task: six live boards run it (wmdp x3, mmlu, race_h,
+#: winogrande), and sending them through their task would move their published revisions. The wmdp
 #: rows carry a hand-verified note that it is a no-op at their pins.
 _DEDUPE_FILTER = "inspect_evals.utils.deps_utils:filter_duplicate_ids.<locals>.is_unique_id"
 
 
-def _is_task_route(
-    exam_stub: Any,
+def _drops_questions_after_load(
+    cases_load_stub: Any,
     filters: list[tuple[Any, Any]],
     load_count: int,
     kwargs: Mapping[str, Any],
@@ -275,7 +277,7 @@ def _is_task_route(
     """Whether the eval drops exam questions after loading — then the bake must run
     its task (OME-1269). Filters on other loads (a fewshot pool) change no exam.
 
-    Three combinations refuse by name, because the route could not reproduce them:
+    Three combinations refuse by name, because the question filter could not reproduce them:
     a second load (the bake hands the pinned questions to every load the task
     makes); ``auto_id`` (inspect numbers the rows 1..N at load, the bake's swapped
     loader does not, so a filter that reads ids would keep different questions);
@@ -286,20 +288,20 @@ def _is_task_route(
     exam_filters: list[str] = [
         f"{getattr(predicate, '__module__', '')}:{getattr(predicate, '__qualname__', '')}"
         for dataset, predicate in filters
-        if dataset is exam_stub
+        if dataset is cases_load_stub
     ]
     if all(name == _DEDUPE_FILTER for name in exam_filters):
         return False
     if load_count != 1:
         raise ImporterError(
             f"{task_ref}: the eval drops questions after loading and loads {load_count} "
-            "datasets — the bake's task route hands the pinned questions to every load, "
+            "datasets — the bake's question-filter step hands the pinned questions to every load, "
             "so it cannot reproduce this exam; import it by hand"
         )
     if kwargs.get("auto_id"):
         raise ImporterError(
             f"{task_ref}: the eval drops questions after loading and numbers its rows "
-            "with auto_id — the bake's task route hands the task samples without those "
+            "with auto_id — the bake's question-filter step hands the task samples without those "
             "ids, so a filter that reads them would keep different questions; import it "
             "by hand"
         )
@@ -904,11 +906,11 @@ def _hub_dataset_info(dataset: str, revision: str | None) -> Any:
 def _hub_count_rows(facts: TaskFacts, revision: str) -> int:
     """Row count at the pinned revision — the bake's drift guard, observed once.
 
-    A task-route row counts the questions the eval KEEPS instead (pubmedqa: 500 of
-    1,000 rows), by running the bake's own route over the pinned rows (OME-1269).
+    A question-filter row counts the questions the eval KEEPS instead (pubmedqa: 500 of
+    1,000 rows), by running the bake's own question filter over the pinned rows (OME-1269).
     """
 
-    if facts.task_route:
+    if facts.filters_after_load:
         from screamingface_engine_inspect.prepare import (
             PrepareError,
             SnapshotSpec,
@@ -916,7 +918,7 @@ def _hub_count_rows(facts: TaskFacts, revision: str) -> int:
         )
 
         # case_count=0: unknown yet — this call is what measures it.
-        route_spec: SnapshotSpec = SnapshotSpec(
+        filter_spec: SnapshotSpec = SnapshotSpec(
             dataset=facts.dataset,
             config=facts.config,
             split=facts.split,
@@ -925,11 +927,11 @@ def _hub_count_rows(facts: TaskFacts, revision: str) -> int:
             record_to_sample=facts.record_to_sample,
             data_files=facts.data_files,
             features=facts.features,
-            task=facts.task_ref,
-            task_args=dict(facts.task_args),
+            question_filter_task=facts.task_ref,
+            question_filter_task_args=dict(facts.task_args),
         )
         try:
-            return count_kept_cases(route_spec)
+            return count_kept_cases(filter_spec)
         except PrepareError as exc:
             raise ImporterError(
                 f"{facts.task_ref}: counting the kept questions failed ({exc})"
@@ -1031,7 +1033,7 @@ def render_fragments(
         )
         snapshot_lines.append("        # address a candidate's system role).")
         snapshot_lines.append(f'        system_message="{facts.system_message}",')
-    snapshot_lines.extend([*seed_snapshot_lines, *_task_route_lines(facts)])
+    snapshot_lines.extend([*seed_snapshot_lines, *_question_filter_lines(facts)])
     for solver_name in facts.custom_solvers:
         snapshot_lines.append(
             f"        # TODO(review): solver {solver_name} is not reproduced by "
@@ -1096,25 +1098,25 @@ def _seed_fragments(
     return pin_lines, import_names, snapshot_lines
 
 
-def _task_route_lines(facts: TaskFacts) -> list[str]:
-    """The SnapshotSpec kwarg lines that route a board through its task (OME-1269).
+def _question_filter_lines(facts: TaskFacts) -> list[str]:
+    """The SnapshotSpec kwarg lines that run a board's questions through its task (OME-1269).
 
-    Empty for every other row, so rows imported before the route render unchanged.
+    Empty for every other row, so rows imported before the question filter render unchanged.
     """
 
-    if not facts.task_route:
+    if not facts.filters_after_load:
         return []
     lines: list[str] = [
         "        # The eval drops questions after loading; the bake runs its task over",
         "        # the pinned questions and keeps exactly what it keeps (OME-1269).",
-        f'        task="{facts.task_ref}",',
+        f'        question_filter_task="{facts.task_ref}",',
     ]
     if facts.task_args:
         rendered_args: str = ", ".join(
             f"{json.dumps(name)}: {_scorer_kwarg_literal(value)}"
             for name, value in sorted(facts.task_args.items())
         )
-        lines.append(f"        task_args={{{rendered_args}}},")
+        lines.append(f"        question_filter_task_args={{{rendered_args}}},")
     return lines
 
 
@@ -1313,17 +1315,17 @@ def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> Non
 
 
 def _refuse_injectable_task_args(facts: TaskFacts) -> None:
-    """A task-route row writes its task args into a generated dict literal — same
+    """A question-filter row writes its task args into a generated dict literal — same
     sink as data_files, so names must be identifiers and values plain literals."""
 
-    if not facts.task_route:
+    if not facts.filters_after_load:
         return
     for name, value in facts.task_args.items():
         if not isinstance(value, str | int | float | bool | None):
             # WHY a separate message: a list arg (mmlu_0_shot's subjects) is not an
             # injection attempt; the row format just has no place for it yet.
             raise ImporterError(
-                f"task arg {name} is a {type(value).__name__} — a task-route row only "
+                f"task arg {name} is a {type(value).__name__} — a question-filter row only "
                 "carries str, int, float, bool or None args; import this eval by hand"
             )
         safe_value: bool = (
