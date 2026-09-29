@@ -1,9 +1,9 @@
 ---
 ticket: OME-1071
 stack: screamingface
-status: done   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-09-29
-finished: 2026-09-29
+finished:   # set when the PR is merged
 ---
 
 # sdk-run-isolation-evaluation-outcome — one failed Candidate does not stop its siblings
@@ -133,3 +133,50 @@ caller's own `on_event` callback still stop everything.
     `candidates_failed` (follows from Q2 (a); in the CHANGELOG).
 - **Follow-ups:** none. (Q5 is deferred by the owner; no ticket.) PR-open, the Linear
   close of OME-1071 / OME-1067 and the push are the user's decisions.
+
+### Review round 1 (design-reviewer: ACCEPT WITH FIXES) — fix commit on top of `e060d6df`
+
+- **Item 1 — swept siblings read `stopped` (DONE).** One abort flag per Evaluation
+  (`threading.Event`, both twins; the async twin uses only `set()`/`is_set()`, never
+  `wait()`, so it never blocks the loop and the twins stay identical). The abort arm sets it
+  FIRST, before `_sweep_*`; `run_isolated` then calls the new `candidate_stopped` instead of
+  `candidate_failed` (and, async, also for a sibling that is cancelled). The async twin
+  waits with `asyncio.wait(FIRST_EXCEPTION)` (`_settled_tasks`) instead of `gather`: when
+  the Evaluation's task is cancelled, `gather` cancels the children before the arm can set
+  the flag and sweep. New observer method `candidate_stopped` on the sync/async observers,
+  the terminal (`<name> · run stopped`), `_EvaluationProgress` / `_CandidateProgress.stop`
+  and the notebook view. Spec §5 item 3 updated.
+  Tests: new `tests/test_evaluation_outcome_abort.py` (8): sync KeyboardInterrupt and
+  callback error, async cancellation and callback error — swept siblings end `stopped`
+  (panel and terminal), never `run_failed`; sync and async independent failure still shows
+  `run_failed` at once; the stop notice leaves finished/unsubmitted rows alone; the
+  notebook panel shows the stopped row. RED shown: flag checks disabled (4 fail); flag set
+  AFTER the sweep, sync (2 fail) and async (2 fail); `gather` instead of `_settled_tasks`
+  (1 fail); widget method emptied (1 fail).
+- **Item 2 — README / spec / hint (DONE).** README "Errors" section: `candidates_failed`,
+  `details["failed"]`, `ExecutionError.partial_report`, the `__cause__` rule (failures at
+  Benchmark / Model-catalogue loading and one-Candidate Evaluations still arrive directly),
+  and a recovery example that exports the Partial Report. `candidates_failed` sets the
+  existing `hint=` of `ScreamingFaceError` (no new parameter; snapshot unchanged) pointing
+  to `error.partial_report` (or saying no Candidate succeeded). Spec §5 item 5 updated.
+  RED shown: hint removed (6 fail). CHANGELOG entry extended.
+- **Item 7 (DONE).** `raise_candidates_failed(evaluation, settled)` is called AFTER the
+  `except _CandidatesFailed` block, so `__context__` does not keep the carrier and every
+  result body alive (RED: 1 fail). The multi-Candidate `Report(...)` is guarded
+  (`_partial_report`): only a cross-Candidate rule can fail there, so on `TypeError` /
+  `ValueError` the Partial Report is `None`, the reason is logged and added as a note, and
+  `candidates_failed` is still raised (RED: 1 fail). Spec §5.2 updated.
+- **Item 8 (SKIPPED, justified).** `_decoded` keeps the one-Candidate Report: the `Report`
+  adds the per-Candidate Benchmark and Case-count checks that `results._candidate_result`
+  alone does not, so a bad Candidate is named by itself (WHY comment in `outcome.py`).
+- **Gates:** `run_gates.py screamingface --base origin/main --skip-append-only` ALL GREEN —
+  ruff, ruff format, pyright, pytest 1999 passed / 26 skipped / 26 deselected, coverage
+  96 % (floor 95), notebooks, build, distribution.
+- **Prior files touched in this round:** none beyond the two approved in the first round
+  (`test_run_resume_reconnect.py` replacement, `public_surface_snapshot.json`). Extended
+  test files `tests/test_evaluation_outcome.py` and `tests/test_evaluation_outcome_runner.py`
+  were created by this unit (`e060d6df`). Source: `_evaluation/outcome.py`,
+  `_evaluation/progress.py`, `_evaluation/runner.py`, `_ui/evaluation_state.py`,
+  `_ui/evaluation_widget.py`; docs: `README.md`, `CHANGELOG.md`, spec.
+- **Follow-ups:** move the observers out of `runner.py` (now 801 lines, over the 450-line
+  guideline) in a separate refactor — prior tests patch its names.

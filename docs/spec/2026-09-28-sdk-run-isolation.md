@@ -130,6 +130,12 @@ Behavior (owner answers Q1-Q3, 2026-09-29). It is the same in the sync and async
    its end (success or failure).
 3. **C1c.** An exception from the caller's `on_event` callback stops everything, as C1a,
    and re-raises THAT exception (not `candidates_failed`). See §5.1.
+   - **Swept siblings read as stopped** (review round 1). The abort arm sets one abort flag
+     per Evaluation BEFORE the sweep. After that, a sibling whose Run ends with an error
+     (the sweep ended its stream) or that is cancelled is shown as `stopped` (row
+     `stopped`, terminal `run stopped`), never as `run_failed`. The async twin waits with
+     `asyncio.wait`, not `gather`: when the Evaluation's task is cancelled, `gather` would
+     cancel the siblings before the arm can set the flag and sweep.
 4. All Candidates succeed → the Report (unchanged).
 5. One or more fail → `ExecutionError(code="candidates_failed")`, raised `from` the first
    failed Candidate in the caller's Candidate order, with:
@@ -140,7 +146,9 @@ Behavior (owner answers Q1-Q3, 2026-09-29). It is the same in the sync and async
      stable fallback `unexpected_error`;
    - `partial_report`: a Report of the Candidates that succeeded (§5.2), or `None` when no
      Candidate succeeded;
-   - message: `<n> of <total> Candidates failed: <name> (<code>), ...`.
+   - message: `<n> of <total> Candidates failed: <name> (<code>), ...`;
+   - `hint` points to `error.partial_report` and `error.details['failed']` (IPython shows
+     only message, hint and code).
    So the caller can tell "this Candidate's stream failed" (`candidates_failed`, the name
    and its code) from "the Evaluation was aborted" (the interrupt or the callback's
    exception) — OME-1067 acceptance.
@@ -196,6 +204,10 @@ Why this design:
   Partial Report. (In an Evaluation where every Run succeeded, a decode error is raised
   directly, as today.)
 - `None` when no Candidate succeeded: `Report` requires at least one Candidate.
+- `None` also when the multi-Candidate `Report` cannot be built (only a cross-Candidate
+  rule, for example two equal names, can fail there, because each Candidate already passed
+  its own one-Candidate Report). The reason is logged and added as a note on the error;
+  `candidates_failed` is still raised.
 - The Partial Report is a normal `Report`. The caller may export it or submit its
   Candidates to a leaderboard one by one; each `CandidateResult` is complete on its own.
 - Progress output: the final step is `abort(candidates_failed)`, as for any error today.

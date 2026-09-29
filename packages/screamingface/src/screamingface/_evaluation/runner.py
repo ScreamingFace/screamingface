@@ -8,6 +8,7 @@ import logging
 from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from threading import Event as ThreadEvent
 from threading import Lock
 from typing import TYPE_CHECKING, Protocol
 
@@ -183,8 +184,10 @@ def _settled_sync(
             transport, candidates, observer, completion_callback(evaluation, observer)
         )
     except _CandidatesFailed as failed:
-        # INVARIANT (spec §5): the private carrier never reaches the caller.
-        raise_candidates_failed(evaluation, failed)
+        settled = failed.settled
+    # INVARIANT (spec §5): the private carrier never reaches the caller. Raised outside the
+    # `except`, so the error does not keep the carrier as its `__context__`.
+    raise_candidates_failed(evaluation, settled)
 
 
 async def _settled_async(
@@ -198,7 +201,8 @@ async def _settled_async(
             transport, candidates, observer, completion_callback(evaluation, observer)
         )
     except _CandidatesFailed as failed:
-        raise_candidates_failed(evaluation, failed)
+        settled = failed.settled
+    raise_candidates_failed(evaluation, settled)
 
 
 def _evaluation_options(on_event: object, progress: object) -> None:
@@ -297,6 +301,10 @@ class _SyncEventObserver:
         with self._lock:
             _candidate_failed_progress(self._builtin, candidate, exc)
 
+    def candidate_stopped(self, candidate: Candidate) -> None:
+        with self._lock:
+            _candidate_stopped_progress(self._builtin, candidate)
+
     def raised_by_caller(self, exc: BaseException) -> bool:
         with self._lock:
             return any(exc is recorded for recorded in self._caller_errors)
@@ -359,6 +367,10 @@ class _AsyncEventObserver:
         async with self._lock:
             _candidate_failed_progress(self._builtin, candidate, exc)
 
+    def candidate_stopped(self, candidate: Candidate) -> None:
+        # WHY sync and no lock: a cancelled task must not await again; see `connection`.
+        _candidate_stopped_progress(self._builtin, candidate)
+
     def raised_by_caller(self, exc: BaseException) -> bool:
         # WHY no lock: one event loop drives this observer, and this reads with no await.
         return any(exc is recorded for recorded in self._caller_errors)
@@ -408,6 +420,12 @@ def _candidate_failed_progress(
     selected = getattr(observer, "candidate_failed", None)
     if callable(selected):
         _observe_progress(selected, candidate, exc)
+
+
+def _candidate_stopped_progress(observer: object | None, candidate: Candidate) -> None:
+    selected = getattr(observer, "candidate_stopped", None)
+    if callable(selected):
+        _observe_progress(selected, candidate)
 
 
 def _close_event_observer(observer: object) -> None:
@@ -520,7 +538,8 @@ def _run_candidates_sync(
     if len(candidates) == 1:
         return ((candidates[0], run(candidates[0])),)
 
-    run_isolated = _isolated_sync(run, observer)
+    aborting = ThreadEvent()
+    run_isolated = _isolated_sync(run, observer, aborting)
 
     with ThreadPoolExecutor(
         max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
@@ -532,6 +551,9 @@ def _run_candidates_sync(
             settled = tuple(zip(candidates, _settled_results(futures), strict=True))
         except BaseException as exc:
             # C1a / C1c: the owner stopped the Evaluation, or the caller's callback failed.
+            # INVARIANT: set BEFORE the sweep — every sibling error from here on is the
+            # sweep's doing, so its row reads `stopped`, never `run_failed`.
+            aborting.set()
             _sweep_sync(transport, exc)
             for future in futures:
                 future.cancel()
@@ -540,7 +562,9 @@ def _run_candidates_sync(
 
 
 def _isolated_sync(
-    run: Callable[[Candidate], _RunOutcome], observer: _SyncEventObserver | None
+    run: Callable[[Candidate], _RunOutcome],
+    observer: _SyncEventObserver | None,
+    aborting: ThreadEvent,
 ) -> Callable[[Candidate], _RunOutcome | _Failed]:
     def run_isolated(candidate: Candidate) -> _RunOutcome | _Failed:
         # INVARIANT (spec 4.1 C1b): an ordinary failure belongs to ONE Run, whose transport
@@ -552,25 +576,38 @@ def _isolated_sync(
                 return _Failed(exc)
             if observer.raised_by_caller(exc):
                 raise  # C1c: the caller's own callback failed — abort the Evaluation
-            observer.candidate_failed(candidate, exc)
+            if aborting.is_set():
+                observer.candidate_stopped(candidate)  # the sweep ended this Run
+            else:
+                observer.candidate_failed(candidate, exc)
             return _Failed(exc)
 
     return run_isolated
 
 
 def _isolated_async(
-    run: Callable[[Candidate], Awaitable[_RunOutcome]], observer: _AsyncEventObserver | None
+    run: Callable[[Candidate], Awaitable[_RunOutcome]],
+    observer: _AsyncEventObserver | None,
+    aborting: ThreadEvent,
 ) -> Callable[[Candidate], Coroutine[object, object, _RunOutcome | _Failed]]:
     async def run_isolated(candidate: Candidate) -> _RunOutcome | _Failed:
         # INVARIANT: see the sync twin (spec 4.1 C1b / C1c).
         try:
             return await run(candidate)
+        except asyncio.CancelledError:
+            # WHY: a sibling the abort arm cancels was stopped, not failed.
+            if observer is not None and aborting.is_set():
+                observer.candidate_stopped(candidate)
+            raise
         except Exception as exc:
             if observer is None:
                 return _Failed(exc)
             if observer.raised_by_caller(exc):
                 raise
-            await observer.candidate_failed(candidate, exc)
+            if aborting.is_set():
+                observer.candidate_stopped(candidate)
+            else:
+                await observer.candidate_failed(candidate, exc)
             return _Failed(exc)
 
     return run_isolated
@@ -587,6 +624,20 @@ def _settled_results[T](futures: tuple[Future[T], ...]) -> tuple[T, ...]:
         if future in done and future.exception() is not None:
             future.result()
     return tuple(future.result() for future in futures)
+
+
+async def _settled_tasks[T](tasks: tuple[asyncio.Task[T], ...]) -> tuple[T, ...]:
+    """The async twin of `_settled_results`.
+
+    WHY `asyncio.wait` and not `gather`: when the Evaluation's own task is cancelled (owner
+    abort), `gather` cancels every child at once — BEFORE the abort arm can set its flag and
+    sweep. `wait` leaves the children alone, so the arm keeps its order: flag, sweep, cancel.
+    """
+    done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+    for task in tasks:
+        if task in done and task.exception() is not None:
+            task.result()
+    return tuple(task.result() for task in tasks)
 
 
 def _sweep_sync(transport: SyncRunTransport, exc: BaseException) -> None:
@@ -624,15 +675,20 @@ async def _run_candidates_async(
     if len(candidates) == 1:
         return ((candidates[0], await run(candidates[0])),)
 
-    run_isolated = _isolated_async(run, observer)
+    # WHY a threading.Event in the async twin too: only `set()` / `is_set()` are used, never
+    # `wait()`, so it never blocks the loop, and one type keeps the twins identical.
+    aborting = ThreadEvent()
+    run_isolated = _isolated_async(run, observer, aborting)
 
     tasks = tuple(asyncio.create_task(run_isolated(candidate)) for candidate in candidates)
     try:
-        settled = await asyncio.gather(*tasks)
+        settled = await _settled_tasks(tasks)
     except BaseException as exc:
         # C1a / C1c. INVARIANT: sweep BEFORE cancelling the siblings, exactly as the
         # synchronous path does. Each Run discards its own capability on the way out, so
         # cancelling first empties the registry and makes this fallback a guaranteed no-op.
+        # The flag is set first, as in the sync twin.
+        aborting.set()
         await _sweep_async(transport, exc)
         for task in tasks:
             task.cancel()

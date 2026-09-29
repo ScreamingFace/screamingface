@@ -195,6 +195,8 @@ def _assert_isolated_failure(
     assert error.partial_report is not None
     assert [result.name for result in error.partial_report.candidates] == ["healthy"]
     assert error.partial_report.candidates.only.score == 0.8
+    # WHY: IPython shows only message, hint and code, so the hint points to the results.
+    assert error.hint is not None and "error.partial_report" in error.hint
     # INVARIANT (spec 4.1 C1b): nothing swept; the healthy Run was never stopped.
     assert recorder.cancel_calls == 0
     assert _capability(engine, recorder, "healthy") not in engine.state.deleted
@@ -246,6 +248,10 @@ def _assert_all_failed(error: ExecutionError) -> None:
     assert error.partial_report is None
     assert isinstance(error.__cause__, ExecutionError)
     assert "2 of 2 Candidates failed" in error.message
+    assert error.hint is not None and "No Candidate succeeded" in error.hint
+    # WHY (review fix 7): raised outside the carrier's `except`, so the context does not
+    # keep every settled result body alive.
+    assert error.__context__ is None or error.__context__ is error.__cause__
 
 
 def test_when_every_candidate_fails_there_is_no_partial_report() -> None:

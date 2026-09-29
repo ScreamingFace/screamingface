@@ -8,6 +8,7 @@ AIDEV-NOTE: both runner twins settle through `settle`, so sync and async cannot 
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import NoReturn
 
@@ -20,6 +21,7 @@ from screamingface.report import CandidateResult, Report
 # WHY a fixed code: `details["failed"]` is machine-read, so a failure outside the SDK's
 # error classes (a defect, a library error) still needs one stable value to match on.
 _FALLBACK_CODE = "unexpected_error"
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,11 +62,15 @@ def failure_code(error: BaseException) -> str:
     return error.code if isinstance(error, ScreamingFaceError) else _FALLBACK_CODE
 
 
-def raise_candidates_failed(evaluation: _Evaluation, failed: _CandidatesFailed) -> NoReturn:
-    """Raise `candidates_failed` from the first failure, with the Partial Report (§5.2)."""
+def raise_candidates_failed(evaluation: _Evaluation, settled: _Settled) -> NoReturn:
+    """Raise `candidates_failed` from the first failure, with the Partial Report (§5.2).
+
+    AIDEV-NOTE: call it OUTSIDE the `except _CandidatesFailed` block, so the raised error's
+    `__context__` does not keep the carrier (and every settled result body) alive.
+    """
     successes: list[CandidateResult] = []
     failures: list[tuple[Candidate, Exception]] = []
-    for candidate, outcome in failed.settled:
+    for candidate, outcome in settled:
         if isinstance(outcome, _Failed):
             failures.append((candidate, outcome.error))
             continue
@@ -74,29 +80,62 @@ def raise_candidates_failed(evaluation: _Evaluation, failed: _CandidatesFailed) 
             # WHY: a Run that succeeded but whose result does not decode has no Candidate
             # Result; it is named as failed rather than hiding its siblings' results.
             failures.append((candidate, exc))
+    partial, unavailable = _partial_report(evaluation, successes)
     named = ", ".join(f"{candidate.name} ({failure_code(exc)})" for candidate, exc in failures)
-    raise ExecutionError(
-        f"{len(failures)} of {len(failed.settled)} Candidates failed: {named}",
+    error = ExecutionError(
+        f"{len(failures)} of {len(settled)} Candidates failed: {named}",
         code="candidates_failed",
         details={"failed": {candidate.name: failure_code(exc) for candidate, exc in failures}},
-        # INVARIANT: the Partial Report names only Candidates that succeeded; `None` when
-        # none did, because a Report requires at least one Candidate.
-        partial_report=(
+        # WHY a hint: IPython shows only message, hint and code, so it must say where the
+        # paid results of the Candidates that succeeded are.
+        hint=(
+            "The Candidates that succeeded are in `error.partial_report`; "
+            "`error.details['failed']` names each failed Candidate and its code."
+            if partial is not None
+            else "No Candidate succeeded; `error.details['failed']` names each failed "
+            "Candidate and its code."
+        ),
+        partial_report=partial,
+    )
+    if unavailable is not None:
+        error.add_note(f"The Partial Report could not be built: {unavailable}")
+    raise error from failures[0][1]
+
+
+def _partial_report(
+    evaluation: _Evaluation, successes: list[CandidateResult]
+) -> tuple[Report | None, Exception | None]:
+    """The Partial Report, or `None` with the reason it could not be built.
+
+    INVARIANT: the Partial Report names only Candidates that succeeded; `None` when none
+    did, because a Report requires at least one Candidate.
+    WHY a guard: every Candidate already passed its own one-Candidate Report, so only a
+    cross-Candidate rule (for example two equal names) can fail here. That failure must not
+    replace `candidates_failed` — the caller still learns which Candidates failed; the
+    reason is logged and noted on the error.
+    """
+    if not successes:
+        return None, None
+    try:
+        return (
             Report(
                 benchmark=evaluation.benchmark,
                 case_count=evaluation.case_count,
                 candidates=successes,
-            )
-            if successes
-            else None
-        ),
-    ) from failures[0][1]
+            ),
+            None,
+        )
+    except (TypeError, ValueError) as exc:
+        _logger.exception("ScreamingFace could not build the Partial Report")
+        return None, exc
 
 
 def _decoded(
     evaluation: _Evaluation, candidate: Candidate, outcome: _RunOutcome
 ) -> CandidateResult:
-    # WHY the one-Candidate Report: it applies exactly the final Report's validation.
+    # WHY the one-Candidate Report (and not `results._candidate_result` alone): the Report
+    # adds the per-Candidate Benchmark and Case-count checks, so a bad Candidate is named
+    # by itself here. `completion.py` validates live rows the same way.
     return report_from_outcomes(evaluation, ((candidate, outcome),)).candidates[0]
 
 

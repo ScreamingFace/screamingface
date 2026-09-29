@@ -376,3 +376,28 @@ def test_notebook_panel_shows_the_failed_row(monkeypatch: pytest.MonkeyPatch) ->
     assert view._progress.announcement == "broken run failed"  # noqa: SLF001
     assert "broken run failed" in _widget_text(view._html)  # noqa: SLF001
     view.close()
+
+
+def test_a_partial_report_that_cannot_be_built_does_not_mask_candidates_failed() -> None:
+    # INVARIANT (review fix 7): a cross-Candidate Report rule (here: two equal names) must
+    # not replace `candidates_failed`; the Partial Report is then None, with a note.
+    from test_evaluation_compilation import evaluation_plan
+
+    from screamingface._evaluation.outcome import raise_candidates_failed
+
+    twin, broken = candidate("twin"), candidate("broken")
+    evaluation = evaluation_plan((twin, broken))
+    settled = (
+        (twin, valid_outcome("twin")),
+        (twin, valid_outcome("twin")),
+        (broken, _Failed(ExecutionError("lost", code="websocket_disconnected"))),
+    )
+    with pytest.raises(ExecutionError) as caught:
+        raise_candidates_failed(evaluation, settled)
+
+    assert caught.value.code == "candidates_failed"
+    assert caught.value.partial_report is None
+    assert any(
+        "The Partial Report could not be built" in note
+        for note in getattr(caught.value, "__notes__", ())
+    )

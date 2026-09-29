@@ -258,6 +258,15 @@ class _CandidateProgress:
             self.have_tokens = True
         self.activity = "Result ready"
 
+    def stop(self) -> None:
+        """The SDK stopped this submitted Run (owner abort or callback error, OME-1071)."""
+        if self.result is not None or self.status not in {"queued", "running"}:
+            return
+        if not self.submitted:
+            return  # the final `abort` labels it `not_run`
+        self.workflow_status = "stopped"
+        self.activity = "Run stopped"
+
     def abort(self, exc: BaseException) -> None:
         if self.result is not None or self.status not in {"queued", "running"}:
             return
@@ -436,6 +445,16 @@ class _EvaluationProgress:
 
     def candidate_result(self, result: CandidateResult) -> None:
         self._rows_by_name[result.name].reconcile(result)
+
+    def candidate_stopped(self, candidate: Candidate) -> None:
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        before = row.status
+        row.stop()
+        if row.status != before:
+            self.announcement = f"{candidate.name} stopped"
 
     def candidate_failed(self, candidate: Candidate, exc: BaseException) -> None:
         """Show ONE failed Candidate at once; its siblings keep running (OME-1071)."""
