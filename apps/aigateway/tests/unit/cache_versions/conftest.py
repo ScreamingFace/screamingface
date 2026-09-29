@@ -24,8 +24,8 @@ def _versions_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AIGW_REQUEST_CACHE_ENABLED", "true")
 
 
-@pytest.fixture
-def capture_client(_versions_env: None, client: TestClient) -> TestClient:
+def login_admin(client: TestClient) -> TestClient:
+    """Log ``client`` in as the admin and return it."""
     response = client.post(
         "/v1/auth/login",
         json={"username": "admin", "password": "test-admin-password"},
@@ -33,3 +33,8 @@ def capture_client(_versions_env: None, client: TestClient) -> TestClient:
     assert response.status_code == 200, response.text
     client.headers.update({"Authorization": f"Bearer {response.json()['token']}"})
     return client
+
+
+@pytest.fixture
+def capture_client(_versions_env: None, client: TestClient) -> TestClient:
+    return login_admin(client)
