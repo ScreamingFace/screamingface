@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from screamingface.report import Report
 
 
 class ScreamingFaceError(Exception):
@@ -81,9 +85,41 @@ class PlanningError(_DiagnosticError):
 
 
 class ExecutionError(_DiagnosticError):
-    """A Run ended without a valid Report."""
+    """A Run ended without a valid Report.
+
+    ``partial_report`` (ADR-0002) is set only on ``code="candidates_failed"``: the Report of
+    the Candidates that succeeded when one or more Candidates of a multi-Candidate Evaluation
+    failed, or ``None`` when none succeeded. ``details["failed"]`` maps each failed
+    Candidate's name to its code.
+    """
 
     _default_code: str = "execution_failed"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        status: int | None = None,
+        permanent: bool | None = None,
+        details: object = None,
+        hint: str | None = None,
+        trace_id: str | None = None,
+        partial_report: Report | None = None,
+    ) -> None:
+        # WHY on the error and not a returned Report (spec 2026-09-28 §5, owner Q2): a
+        # Report returned as though the Evaluation completed would hide the missing
+        # Candidates; dropping it would lose paid results.
+        self.partial_report: Report | None = partial_report
+        super().__init__(
+            message,
+            code=code,
+            status=status,
+            permanent=permanent,
+            details=details,
+            hint=hint,
+            trace_id=trace_id,
+        )
 
 
 class ProviderConnectionError(_DiagnosticError):

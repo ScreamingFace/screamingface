@@ -1,9 +1,9 @@
 ---
 ticket: OME-1071
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-29
-finished:
+finished: 2026-09-29
 ---
 
 # sdk-run-isolation-evaluation-outcome — one failed Candidate does not stop its siblings
@@ -73,7 +73,63 @@ caller's own `on_event` callback still stop everything.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned.
+  - `errors.py` — `ExecutionError.__init__(..., partial_report=None)` and the
+    `partial_report` attribute.
+  - New `_evaluation/outcome.py` — `_Failed`, the private carrier `_CandidatesFailed`,
+    `settle`, `failure_code` (fallback `unexpected_error`), `raise_candidates_failed`
+    (Partial Report + `candidates_failed`, raised `from` the first failed Candidate in
+    the caller's order). 100 % covered.
+  - `_evaluation/runner.py` — both twins: `_isolated_sync/_async` settle an ordinary
+    `Exception` as `_Failed` (C1b, no sweep) unless the observer tagged it as the caller's
+    (C1c); a `BaseException` or a tagged exception sweeps (`_sweep_sync/_async`, note kept),
+    cancels the siblings and re-raises. The sync twin waits with `FIRST_EXCEPTION`
+    (`_settled_results`) so an abort-class failure is seen at once. The observers record
+    the caller's callback exceptions (`raised_by_caller`, identity) and forward
+    `candidate_failed` to the built-in progress. `evaluate_*` convert the carrier through
+    `_settled_sync/_async`. One-Candidate path unchanged.
+  - `_evaluation/progress.py` (terminal line `<name> · run failed (<code>)`),
+    `_ui/evaluation_state.py` (`_EvaluationProgress.candidate_failed`),
+    `_ui/evaluation_widget.py` (`candidate_failed`).
+  - Tests: new `tests/test_evaluation_outcome.py` (12, real transport + `_isolation_engine`
+    stub, sync + async) and `tests/test_evaluation_outcome_runner.py` (16).
+  - `tests/test_run_resume_reconnect.py` — the approved replacement (below).
+  - `tests/public_surface_snapshot.json` — regenerated (below).
+  - `packages/screamingface/CHANGELOG.md` — Unreleased / Bug Fixes entry, with the behavior
+    change named.
+- **Commits:** `266db2b1` docs(screamingface): record owner answers Q1-Q5 and the
+  evaluation-outcome design; then `fix(screamingface): let the other Candidates finish when
+  one fails; raise candidates_failed with a Partial Report` (this ledger's commit).
+- **Gates:** `run_gates.py screamingface --base origin/main --skip-append-only` ALL GREEN —
+  ruff, ruff format, pyright (0 errors), pytest 1990 passed / 26 skipped / 26 deselected,
+  coverage 96 % (floor 95), notebooks, build, distribution. Without the skip, the
+  append-only check fails on exactly the two approved files below and nothing else.
+- **Prior tests / artifacts touched (owner approval 2026-09-29, Q1 and Q2):**
+  - `packages/screamingface/tests/test_run_resume_reconnect.py::test_abort_sweep_records_note_when_stop_rejected`
+    — REPLACED (Q1 (a)) by `test_an_ordinary_candidate_failure_calls_no_sweep` (an
+    `ExecutionError` from one Candidate calls `cancel_active()` zero times) and
+    `test_owner_abort_sweep_records_note_when_stop_rejected` (a KeyboardInterrupt sweeps
+    once and carries the note "Stopping active SF Engine runs also failed"). Async twin of
+    the note pin: `test_evaluation_outcome_runner.py::test_async_owner_abort_sweeps_once_and_records_a_rejected_stop`.
+  - `packages/screamingface/tests/public_surface_snapshot.json` — regenerated (Q2 (a)) with
+    `UPDATE_SURFACE_SNAPSHOT=1 uv run pytest tests/test_public_surface.py` (that run fails
+    on purpose; the next plain run passes). The only change: `ExecutionError.__init__`
+    gains `partial_report: 'Report | None' = None`.
+  - Because of these two, the final gate run used `--skip-append-only`. No other prior test
+    changed; `_isolation_engine.py` and `_websocket_wire.py` are unchanged.
 - **Deviations:**
+  - The tests reach the stub through a small wrapper that replaces only the result body of
+    a completed Run with a valid Candidate result (the stub's body is not one), and a
+    `dict` subclass that finds a plan by the Candidate name inside the compiled URL4. This
+    keeps `_isolation_engine.py` unchanged.
+  - In the callback-abort tests the raising Run is not held: after its in-band stop the
+    transport closes the socket, and the stub answers a close only after a held stream is
+    released (stub fidelity, not SDK behavior).
+  - `runner.py` was 614 lines before this unit (over the 450-line guideline) and is now 745.
+    Moving the observers out is a separate refactor (prior tests import them from
+    `runner`); not done here.
+  - Consequence recorded in spec §5: in a multi-Candidate Evaluation, `EngineUnavailableError`
+    / `AuthenticationError` from a Candidate now arrive as the `__cause__` of
+    `candidates_failed` (follows from Q2 (a); in the CHANGELOG).
+- **Follow-ups:** none. (Q5 is deferred by the owner; no ticket.) PR-open, the Linear
+  close of OME-1071 / OME-1067 and the push are the user's decisions.

@@ -437,6 +437,19 @@ class _EvaluationProgress:
     def candidate_result(self, result: CandidateResult) -> None:
         self._rows_by_name[result.name].reconcile(result)
 
+    def candidate_failed(self, candidate: Candidate, exc: BaseException) -> None:
+        """Show ONE failed Candidate at once; its siblings keep running (OME-1071)."""
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        before = row.status
+        # WHY `abort` of the row: it already maps the evidence (submitted, started) to the
+        # right failed status, and it leaves a finished row as it is.
+        row.abort(exc)
+        if row.status != before:
+            self.announcement = f"{candidate.name} {row.status.replace('_', ' ')}"
+
     def reconcile(self, report: Report) -> None:
         if self.case_count is not None and report.case_count != self.case_count:
             raise ValueError("final Report has the wrong selected Case count")

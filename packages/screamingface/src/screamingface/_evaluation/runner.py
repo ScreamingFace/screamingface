@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import Awaitable, Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
+from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, Protocol
@@ -30,6 +30,12 @@ from screamingface._evaluation.model import (
     _with_answer_seed,
 )
 from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
+from screamingface._evaluation.outcome import (
+    _CandidatesFailed,
+    _Failed,
+    raise_candidates_failed,
+    settle,
+)
 from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
@@ -100,9 +106,7 @@ def evaluate_sync(
         check_disclosure=check_disclosure,
     )
     try:
-        outcomes = _run_candidates_sync(
-            transport, selected_candidates, observer, completion_callback(evaluation, observer)
-        )
+        outcomes = _settled_sync(transport, evaluation, selected_candidates, observer)
         report = report_from_outcomes(evaluation, outcomes)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
@@ -159,15 +163,42 @@ async def evaluate_async(
         check_disclosure=check_disclosure,
     )
     try:
-        outcomes = await _run_candidates_async(
-            transport, selected_candidates, observer, completion_callback(evaluation, observer)
-        )
+        outcomes = await _settled_async(transport, evaluation, selected_candidates, observer)
         report = report_from_outcomes(evaluation, outcomes)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
     _reconcile_event_observer(observer, report)
     return report
+
+
+def _settled_sync(
+    transport: SyncRunTransport,
+    evaluation: _Evaluation,
+    candidates: tuple[Candidate, ...],
+    observer: _SyncEventObserver | None,
+) -> tuple[tuple[Candidate, _RunOutcome], ...]:
+    try:
+        return _run_candidates_sync(
+            transport, candidates, observer, completion_callback(evaluation, observer)
+        )
+    except _CandidatesFailed as failed:
+        # INVARIANT (spec §5): the private carrier never reaches the caller.
+        raise_candidates_failed(evaluation, failed)
+
+
+async def _settled_async(
+    transport: AsyncRunTransport,
+    evaluation: _Evaluation,
+    candidates: tuple[Candidate, ...],
+    observer: _AsyncEventObserver | None,
+) -> tuple[tuple[Candidate, _RunOutcome], ...]:
+    try:
+        return await _run_candidates_async(
+            transport, candidates, observer, completion_callback(evaluation, observer)
+        )
+    except _CandidatesFailed as failed:
+        raise_candidates_failed(evaluation, failed)
 
 
 def _evaluation_options(on_event: object, progress: object) -> None:
@@ -230,6 +261,7 @@ class _SyncEventObserver:
         self._builtin = builtin
         self._callback = callback
         self._lock = Lock()
+        self._caller_errors: list[BaseException] = []
 
     def begin(self, candidate: Candidate) -> None:
         with self._lock:
@@ -242,7 +274,13 @@ class _SyncEventObserver:
                 if self._builtin is not None:
                     _observe_candidate_progress(self._builtin, candidate, event)
                 if self._callback is not None:
-                    self._callback(event)
+                    try:
+                        self._callback(event)
+                    except BaseException as exc:
+                        # WHY (spec §5.1): tag the caller's own exception by identity, so
+                        # the runner can abort for it (C1c) and not settle it as C1b.
+                        self._caller_errors.append(exc)
+                        raise
 
         def connection(notice: _ConnectionNotice) -> None:
             with self._lock:
@@ -254,6 +292,14 @@ class _SyncEventObserver:
         selected = getattr(self._builtin, "candidate_result", None)
         if callable(selected):
             _observe_progress(selected, result)
+
+    def candidate_failed(self, candidate: Candidate, exc: Exception) -> None:
+        with self._lock:
+            _candidate_failed_progress(self._builtin, candidate, exc)
+
+    def raised_by_caller(self, exc: BaseException) -> bool:
+        with self._lock:
+            return any(exc is recorded for recorded in self._caller_errors)
 
     def reconcile(self, report: Report) -> None:
         _reconcile_progress(self._builtin, report)
@@ -274,6 +320,7 @@ class _AsyncEventObserver:
         self._builtin = builtin
         self._callback = callback
         self._lock = asyncio.Lock()
+        self._caller_errors: list[BaseException] = []
 
     async def begin(self, candidate: Candidate) -> None:
         async with self._lock:
@@ -286,9 +333,14 @@ class _AsyncEventObserver:
                 if self._builtin is not None:
                     _observe_candidate_progress(self._builtin, candidate, event)
                 if self._callback is not None:
-                    returned = self._callback(event)
-                    if inspect.isawaitable(returned):
-                        await returned
+                    try:
+                        returned = self._callback(event)
+                        if inspect.isawaitable(returned):
+                            await returned
+                    except BaseException as exc:
+                        # WHY: see the sync twin (spec §5.1).
+                        self._caller_errors.append(exc)
+                        raise
 
         def connection(notice: _ConnectionNotice) -> None:
             # WHY no `self._lock`: it is an asyncio.Lock and this runs on the same loop
@@ -302,6 +354,14 @@ class _AsyncEventObserver:
         selected = getattr(self._builtin, "candidate_result", None)
         if callable(selected):
             _observe_progress(selected, result)
+
+    async def candidate_failed(self, candidate: Candidate, exc: Exception) -> None:
+        async with self._lock:
+            _candidate_failed_progress(self._builtin, candidate, exc)
+
+    def raised_by_caller(self, exc: BaseException) -> bool:
+        # WHY no lock: one event loop drives this observer, and this reads with no await.
+        return any(exc is recorded for recorded in self._caller_errors)
 
     def reconcile(self, report: Report) -> None:
         _reconcile_progress(self._builtin, report)
@@ -338,6 +398,16 @@ def _connection_progress(
     selected = getattr(observer, "connection", None)
     if callable(selected):
         _observe_progress(selected, candidate, notice)
+
+
+def _candidate_failed_progress(
+    observer: object | None, candidate: Candidate, exc: Exception
+) -> None:
+    # WHY optional: a custom or older renderer may not draw a per-Candidate failure; its
+    # row then changes at the final `abort`, as before.
+    selected = getattr(observer, "candidate_failed", None)
+    if callable(selected):
+        _observe_progress(selected, candidate, exc)
 
 
 def _close_event_observer(observer: object) -> None:
@@ -450,25 +520,87 @@ def _run_candidates_sync(
     if len(candidates) == 1:
         return ((candidates[0], run(candidates[0])),)
 
+    run_isolated = _isolated_sync(run, observer)
+
     with ThreadPoolExecutor(
         max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
         thread_name_prefix="screamingface-candidate",
     ) as executor:
-        futures = ()
+        futures: tuple[Future[_RunOutcome | _Failed], ...] = ()
         try:
-            futures = tuple(executor.submit(run, candidate) for candidate in candidates)
-            return tuple(
-                (candidate, future.result())
-                for candidate, future in zip(candidates, futures, strict=True)
-            )
+            futures = tuple(executor.submit(run_isolated, candidate) for candidate in candidates)
+            settled = tuple(zip(candidates, _settled_results(futures), strict=True))
         except BaseException as exc:
-            try:
-                transport.cancel_active()
-            except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
-                exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
+            # C1a / C1c: the owner stopped the Evaluation, or the caller's callback failed.
+            _sweep_sync(transport, exc)
             for future in futures:
                 future.cancel()
             raise
+    return settle(settled)
+
+
+def _isolated_sync(
+    run: Callable[[Candidate], _RunOutcome], observer: _SyncEventObserver | None
+) -> Callable[[Candidate], _RunOutcome | _Failed]:
+    def run_isolated(candidate: Candidate) -> _RunOutcome | _Failed:
+        # INVARIANT (spec 4.1 C1b): an ordinary failure belongs to ONE Run, whose transport
+        # already stopped it. Settle it here so it never reaches the owner sweep.
+        try:
+            return run(candidate)
+        except Exception as exc:
+            if observer is None:
+                return _Failed(exc)
+            if observer.raised_by_caller(exc):
+                raise  # C1c: the caller's own callback failed — abort the Evaluation
+            observer.candidate_failed(candidate, exc)
+            return _Failed(exc)
+
+    return run_isolated
+
+
+def _isolated_async(
+    run: Callable[[Candidate], Awaitable[_RunOutcome]], observer: _AsyncEventObserver | None
+) -> Callable[[Candidate], Coroutine[object, object, _RunOutcome | _Failed]]:
+    async def run_isolated(candidate: Candidate) -> _RunOutcome | _Failed:
+        # INVARIANT: see the sync twin (spec 4.1 C1b / C1c).
+        try:
+            return await run(candidate)
+        except Exception as exc:
+            if observer is None:
+                return _Failed(exc)
+            if observer.raised_by_caller(exc):
+                raise
+            await observer.candidate_failed(candidate, exc)
+            return _Failed(exc)
+
+    return run_isolated
+
+
+def _settled_results[T](futures: tuple[Future[T], ...]) -> tuple[T, ...]:
+    """Every result in order — but an abort-class failure is raised as soon as it happens.
+
+    WHY FIRST_EXCEPTION: only an abort-class failure (C1a, C1c) is raised by a future, and
+    it must stop the siblings at once — not after the slower Candidates listed before it end.
+    """
+    done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+    for future in futures:
+        if future in done and future.exception() is not None:
+            future.result()
+    return tuple(future.result() for future in futures)
+
+
+def _sweep_sync(transport: SyncRunTransport, exc: BaseException) -> None:
+    try:
+        transport.cancel_active()
+    except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
+        exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
+
+
+async def _sweep_async(transport: AsyncRunTransport, exc: BaseException) -> None:
+    try:
+        await transport.cancel_active()
+    except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
+        exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
 
 
 async def _run_candidates_async(
@@ -492,22 +624,21 @@ async def _run_candidates_async(
     if len(candidates) == 1:
         return ((candidates[0], await run(candidates[0])),)
 
-    tasks = tuple(asyncio.create_task(run(candidate)) for candidate in candidates)
+    run_isolated = _isolated_async(run, observer)
+
+    tasks = tuple(asyncio.create_task(run_isolated(candidate)) for candidate in candidates)
     try:
-        outcomes = await asyncio.gather(*tasks)
+        settled = await asyncio.gather(*tasks)
     except BaseException as exc:
-        # INVARIANT: sweep BEFORE cancelling the siblings, exactly as the synchronous path
-        # does. Each Run discards its own capability on the way out, so cancelling first
-        # empties the registry and makes this fallback a guaranteed no-op.
-        try:
-            await transport.cancel_active()
-        except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
-            exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
+        # C1a / C1c. INVARIANT: sweep BEFORE cancelling the siblings, exactly as the
+        # synchronous path does. Each Run discards its own capability on the way out, so
+        # cancelling first empties the registry and makes this fallback a guaranteed no-op.
+        await _sweep_async(transport, exc)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
-    return tuple(zip(candidates, outcomes, strict=True))
+    return settle(tuple(zip(candidates, settled, strict=True)))
 
 
 def _missing_required_models(
