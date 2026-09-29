@@ -338,6 +338,37 @@ narrow the same way. It is a targeted version of the full reset, not a different
 carries the same guarantee: the next caller re-fills what was removed. There is no runtime
 endpoint for this — it is a deliberate database operation, on purpose.
 
+### Cache versions: capture
+
+`AIGW_CACHE_VERSIONS_ENABLED` is the E14 kill switch. It is `false` by default. When it is `true`,
+the chat route records each call that carries a valid inbound `traceparent` header. A call with no
+valid `traceparent` header is not recorded. This is true also when the live cache is off.
+
+What capture stores:
+
+- One row in `cache_capture_entry` for each traced call. The row holds the account, the trace id,
+  the cache key hash (NULL when the call has no key, for example a stream), and the outcome:
+  `hit`, `stored`, `unstored`, `bypass`, `version_hit` or `error`.
+- The response body is in this row only for the outcomes `unstored`, `bypass` and `version_hit`,
+  and only when the call has a key. For `hit` and `stored`, the live cache row holds the body.
+- One row in `request_cache_prompt` for each distinct key hash. It holds the prompt text (the
+  canonical key material) in plaintext. A prompt is stored once, also when many calls use it.
+
+Capture rows and prompt rows are kept forever. The gateway does not delete them. A capture failure
+never changes the chat response. It only adds one to an in-process counter.
+
+`AIGW_AUTH_MODE=disabled` is for development only. In this mode, every caller is the anonymous
+account, so all traces share one capture scope. In production, `cloudflare_headers` gives one
+capture scope for each verified user.
+
+A prune of the live cache must not delete a prompt that a capture row still names. After a cache
+prune, run this statement. It deletes only the prompts that no capture row and no live cache row
+names, and it runs unchanged on SQLite and PostgreSQL:
+
+```sql
+DELETE FROM request_cache_prompt WHERE NOT EXISTS (SELECT 1 FROM cache_capture_entry c WHERE c.key_hash = request_cache_prompt.key_hash) AND NOT EXISTS (SELECT 1 FROM request_cache_entries e WHERE e.key_hash = request_cache_prompt.key_hash)
+```
+
 ### Plaintext storage boundary
 
 Global response rows are readable to anyone with database, replica, snapshot or backup access. If a
