@@ -1,13 +1,13 @@
 ---
 id: OME-1414
 linear_url: https://linear.app/openmined/issue/OME-1414/clear-the-open-dependabot-backlog-to-zero-2026-09-29-sweep
-status: in_review
+status: done
 type: task
 priority: Medium
 labels: [repo-dev-processes, agentic, autonomous, task]
 parent: OME-1320
 created: 2026-09-29
-closed:
+closed: 2026-09-29
 ---
 
 # Clear the open Dependabot backlog to zero (2026-09-29 sweep)
