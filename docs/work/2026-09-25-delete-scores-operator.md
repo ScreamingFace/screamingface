@@ -1,9 +1,9 @@
 ---
 ticket: OME-1385
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-09-25
-finished:
+finished: 2026-09-29
 ---
 
 # delete-scores-operator — an operator module that deletes named scores from a public board
