@@ -187,6 +187,7 @@ jobs:
           build-args: |
             BASE=screamingface-engine-ci
             SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1
+            SCREAMINGFACE_HF_TOKEN_PRESENT=${{ secrets.HF_TOKEN_BENCHMARKS != '' }}
           secrets: |
             hf_token=${{ secrets.HF_TOKEN_BENCHMARKS }}
           push: false

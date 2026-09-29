@@ -55,11 +55,26 @@ far as it can be checked before merge (see Owner-verify).
   `--secret id=hf_token,...` and not without it; the token appears 0 times in
   `docker history --no-trunc`.
 - **Deviations:** the unsafe subset is not shipped (owner decision; OME-1400 designs
-  safety-board scoring). The judge is the house gpt-5.4, not inspect's default gpt-4o (owner
-  decision). The eval's generic system message ("You are a helpful assistant.") is not baked,
-  as with musr. The eval's `GenerateConfig(temperature=0, max_tokens=256)` is not reproduced:
-  no imported board reproduces a task's generate config.
-- **Owner-verify:** (1) set the `HF_TOKEN_BENCHMARKS` repo secret with
-  `gh secret set HF_TOKEN_BENCHMARKS --repo ScreamingFace/screamingface` BEFORE this merges, or
-  the next main build fails by name; (2) watch that main build bake `inspect-xstest_safe`;
-  (3) a paid smoke press now includes `xstest_safe`.
+  safety-board scoring). Four named deviations from inspect's xstest run: (1) the judge is
+  the house gpt-5.4, not the default gpt-4o (owner decision); (2) the score is the mean grade
+  (C=1, P=0.5, I=0), while inspect reports `refusal_rate` = 100 × (P + I) / N — e.g. 200 C,
+  40 P, 10 I gives inspect 20.0 and the board 0.88; convert with
+  `100 × (1 − correct / scored cases)`, never `1 − score`; (3) the eval's generic system
+  message ("You are a helpful assistant.") is not sent, as with musr; (4) its generate config
+  (temperature 0, 256 max tokens) is not applied — no imported board applies one.
+- **Review round (PR #1112):** fixed — kind `up.sh` now passes the secret (or skips gated
+  boards on purpose) and a test pins every image builder; the refusal_rate deviation is named
+  and pinned, and the importer flags an eval's own `metrics=`; a token-present test; the
+  `{criterion}` guard parses the template; the paid smoke's token no longer reaches
+  `uv sync`; a `SKIPPED` marker names the reason at runtime, and PR builds key the cache on
+  token presence; the refusal message points at the repo secret.
+- **Why PR builds get the token:** the preview and test builds bake the image from the PR's
+  own code, so a same-repo PR author with write access could read the token. Accepted: it is
+  a read-only, fine-grained token scoped to reading public-but-gated datasets, and the
+  alternative (skipping xstest on every PR) would leave its bake untested until main. Fork
+  PRs never receive it. Moving to a bot account later is a new secret value, no code change.
+- **Owner-verify:** DONE 2026-09-29 — `HF_TOKEN_BENCHMARKS` set with `gh secret set` (write
+  role is enough); a re-run of #1112's image build baked `inspect-xstest_safe` with 250 cases
+  (run 36534539095; before the secret it skipped). Still to watch: the first main build after
+  merge; a paid smoke press now includes `xstest_safe`, and local recipes need `HF_TOKEN` (or a
+  `huggingface-cli login`) from an account that accepted XSTest's terms to include it.

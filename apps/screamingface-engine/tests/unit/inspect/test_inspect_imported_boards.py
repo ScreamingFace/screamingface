@@ -398,3 +398,32 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
     assert board.scorer_kwargs["template"] == scorer_template
     assert board.scorer_kwargs["instructions"] == scorer_instructions
     assert "{criterion}" not in scorer_template
+
+
+def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The board reports the mean grade (C=1, P=0.5, I=0); upstream reports
+    refusal_rate and runs at temperature 0 with 256 max tokens. Both deviations are
+    named on the board — if a dependency bump changes either upstream fact, this
+    fails and the board's notes must be revisited (review on PR #1112)."""
+
+    from importlib import import_module
+
+    from inspect_ai._util.registry import registry_info
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    from screamingface_engine_inspect.boards import BOARDS
+
+    module = import_module("inspect_evals.xstest.xstest")
+    monkeypatch.setattr(
+        module,
+        "hf_dataset",
+        lambda *args, **kwargs: MemoryDataset([Sample(input="q", metadata={"label": "safe"})]),
+    )
+    task = module.xstest(subset="safe")
+
+    assert [registry_info(metric).name for metric in task.metrics] == ["inspect_evals/refusal_rate"]
+    assert (task.config.temperature, task.config.max_tokens) == (0.0, 256)
+    board = next(spec for spec in BOARDS if spec.key == "xstest_safe")
+    assert "refusal rate = 100 x (1 - correct / scored cases)" in board.description

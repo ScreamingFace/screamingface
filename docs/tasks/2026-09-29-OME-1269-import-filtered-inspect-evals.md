@@ -1,12 +1,12 @@
 ---
 id: OME-1269
 linear_url: https://linear.app/openmined/issue/OME-1269/import-onet-m6-pubmedqa-and-xstest-with-exactly-the-questions-inspect
-status: In Progress
+status: Done
 type: task
 priority: Medium
 labels: [screamingface-engine, human]
 created: 2026-09-23
-closed:
+closed: 2026-09-29
 ---
 
 # Import `onet_m6`, `pubmedqa` and `xstest` with exactly the questions inspect keeps

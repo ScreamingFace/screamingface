@@ -1200,3 +1200,45 @@ def test_task_route_refuses_a_row_pinning_another_load(
 
     with pytest.raises(PrepareError, match=f"different load.*{field}"):
         emit_snapshot(_route_spec(**override), _NUMBER_ROWS, tmp_path)
+
+
+def test_a_gated_dataset_with_a_token_bakes_even_with_the_skip_switch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The main-branch case: with a token the gated board downloads and bakes. The
+    skip switch only ever fires when NO token is available, so a change like "skip
+    whenever the switch is set" must fail here (review on PR #1112)."""
+
+    from screamingface_engine_inspect import prepare as prepare_module
+    from screamingface_engine_inspect.prepare import prepare_snapshot
+
+    monkeypatch.setattr(prepare_module, "_available_hf_token", lambda: "hf_read_only")
+    monkeypatch.setattr(prepare_module, "_load_rows", lambda spec: _XSTEST_ROWS)
+    for switch in ("", "1"):
+        monkeypatch.setenv("SCREAMINGFACE_SKIP_GATED_BENCHMARKS", switch)
+        out = tmp_path / f"switch-{switch or 'off'}"
+
+        summary = prepare_snapshot(_no_key_spec(gated=True, has_answer_key=False), out)
+
+        assert summary["cases"] == 2
+        assert not (out / "SKIPPED").exists()
+
+
+def test_a_skipped_gated_board_names_the_skip_at_runtime(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A preview image built without the token still lists the board; running it must
+    say WHY it has no questions, not a bare "cases are unavailable" (review on PR #1112)."""
+
+    from screamingface_engine_inspect.prepare import prepare_snapshot
+    from screamingface_engine_inspect.single_shot import _cases
+    from url4.core.errors import ResolutionError
+
+    _no_token(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_SKIP_GATED_BENCHMARKS", "1")
+    prepare_snapshot(_no_key_spec(gated=True), tmp_path)
+
+    assert "walledai/XSTest" in (tmp_path / "SKIPPED").read_text(encoding="utf-8")
+    with pytest.raises(ResolutionError, match="built without this board's questions") as refusal:
+        _cases(tmp_path)()
+    assert getattr(refusal.value, "code", None) == "benchmark_unavailable"

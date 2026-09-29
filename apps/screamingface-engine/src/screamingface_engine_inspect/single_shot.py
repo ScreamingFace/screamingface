@@ -81,6 +81,7 @@ from screamingface_engine_inspect.pins import (
     PROTOCOL_REVISION,
     pinned_inspect_packages,
 )
+from screamingface_engine_inspect.prepare import SKIPPED_MARKER
 from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
@@ -458,6 +459,14 @@ def _cases(root: Path) -> Callable[[], str]:
         try:
             return (root / "cases.json").read_text(encoding="utf-8")
         except OSError as exc:
+            # A gated board skipped at image build (PR builds without the Hugging Face
+            # token) leaves a marker saying so — name that instead of a bare IO error.
+            skipped: Path = root / SKIPPED_MARKER
+            if skipped.is_file():
+                raise _unavailable(
+                    "this image was built without this board's questions: "
+                    + skipped.read_text(encoding="utf-8").strip()
+                ) from exc
             raise _unavailable(f"imported board cases are unavailable: {exc}") from exc
 
     return cases

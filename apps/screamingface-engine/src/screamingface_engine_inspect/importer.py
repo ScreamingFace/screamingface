@@ -133,6 +133,10 @@ class TaskFacts:
     #: The args the import ran the task with; a task-route row forwards them at
     #: bake time because they can change what the filter keeps (xstest's subset).
     task_args: Mapping[str, Any] = field(default_factory=dict)
+    #: The eval's own ``Task(metrics=...)`` by registry name (xstest's
+    #: refusal_rate). An imported board always reports the MEAN per-case score, so a
+    #: custom metric is a deviation the board must name (review on PR #1112).
+    custom_metrics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -235,7 +239,28 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         features=_features_reference(module, kwargs.get("features"), task_ref),
         task_route=_is_task_route(exam_stub, filters, len(recorded), kwargs, task_ref),
         task_args=dict(task_args or {}),
+        custom_metrics=_custom_metrics(task),
     )
+
+
+def _custom_metrics(task: Any) -> tuple[str, ...]:
+    """The eval's own ``metrics=`` by registry name — empty when it uses the scorer's."""
+
+    from inspect_ai._util.registry import registry_info
+
+    metrics: Any = getattr(task, "metrics", None)
+    if not metrics:
+        return ()
+    # WHY the fallback: inspect also takes metric GROUPS (a dict of name → metrics),
+    # which carry no registry entry; the review flag only needs a readable name.
+    listed: list[Any] = list(metrics) if isinstance(metrics, list) else [metrics]
+    names: list[str] = []
+    for metric in listed:
+        try:
+            names.append(str(registry_info(metric).name))
+        except Exception:  # noqa: BLE001 — any unregistered shape still gets flagged
+            names.append(repr(metric))
+    return tuple(names)
 
 
 def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
@@ -1170,6 +1195,14 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
             for name, value in sorted(facts.scorer_kwargs.items())
         )
         board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    for metric_name in facts.custom_metrics:
+        board_lines.append(
+            f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
+        )
+        board_lines.append(
+            "        # board reports the mean per-case score — name that deviation (and how"
+        )
+        board_lines.append("        # to convert between the two) in the board's description.")
     judged: bool = _is_judged(facts)
     if judged:
         # OME-1240: a judged row must never land silently — the TODO model is

@@ -75,11 +75,20 @@ the same input, target and choices for all four.
   prompts do). This is the mechanism OME-1371 asked for.
 - R14. CI: `Dockerfile.benchmark` reads an optional BuildKit secret `hf_token` into the bake
   step's environment. Main and release builds pass the `HF_TOKEN_BENCHMARKS` repo secret
-  with no skip switch; PR builds (preview, tests) pass it plus the skip switch; the paid smoke
-  passes it as `HF_TOKEN`.
+  with no skip switch; PR builds (preview, tests) pass it plus the skip switch and whether a
+  token was present (so a re-run after the secret is added misses the build cache); the paid
+  smoke passes it as `HF_TOKEN` to its bake step only. Local builders (kind `up.sh`, the SDK
+  `justfile`) pass `HF_TOKEN` when set and otherwise skip gated boards on purpose. A skipped
+  bundle holds a `SKIPPED` marker, so running its board names the reason. A test pins that
+  every repo builder of the image passes the secret.
 - R15. The `xstest_safe` board: task route with `subset=safe` (250 of 450), gated, no answer
   key, judged by the house judge gpt-5.4 (a named deviation from inspect's default gpt-4o),
-  with the eval's own judge prompt copied verbatim and pinned by a drift test. The unsafe
+  with the eval's own judge prompt copied verbatim and pinned by a drift test. Its score is
+  the mean grade (C=1, P=0.5, I=0), a second named deviation: upstream reports
+  `refusal_rate` = 100 × (P + I) / N, lower is better. The board description gives the
+  conversion from its own metrics, `100 × (1 − correct / scored cases)`; a test pins
+  upstream's metric and generate config. The importer now flags any eval's own `metrics=`
+  for review, since every imported board reports the mean. The unsafe
   subset waits for OME-1400 (safety-board scoring: refusing is the right answer there).
 
 ## 3. Out of scope (this unit)

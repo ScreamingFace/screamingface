@@ -469,3 +469,21 @@ def test_a_judge_prompt_without_the_key_assembles(monkeypatch: pytest.MonkeyPatc
     )
 
     assert _assembled(spec, monkeypatch).benchmark.revision
+
+
+@pytest.mark.parametrize(
+    "template",
+    ["{criterion!s}", "{criterion:>10}", "{criterion.text}", "Key: {criterion[0]}", "{oops"],
+)
+def test_every_spelling_of_the_answer_key_field_is_caught(
+    monkeypatch: pytest.MonkeyPatch, template: str
+) -> None:
+    """A substring test missed {criterion!s} and friends; the formatter's own parser
+    sees them all, and an unparseable template is treated as reading the key
+    (review on PR #1112)."""
+
+    _no_key_snapshot(monkeypatch)
+    spec = _judged_spec(scorer_kwargs={"model": "screamingface/judge-4", "template": template})
+
+    with pytest.raises(ValueError, match="criterion"):
+        _assembled(spec, monkeypatch)

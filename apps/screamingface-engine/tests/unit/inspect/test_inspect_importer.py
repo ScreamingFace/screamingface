@@ -2279,3 +2279,31 @@ def test_a_list_task_arg_is_refused_for_what_it_is(engine_src_copy: Path) -> Non
     with pytest.raises(ImporterError, match="is a list") as refusal:
         _generate(engine_src_copy, task_route=True, task_args={"subjects": ["anatomy"]})
     assert "injection" not in str(refusal.value)
+
+
+def test_introspect_flags_an_evals_own_metrics_for_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A board reports the mean per-case score. xstest reports refusal_rate instead,
+    and the importer never looked, so the deviation went unnamed (review on PR #1112):
+    a task's own metrics= must surface as a review item on the generated board row."""
+
+    from inspect_ai.scorer import accuracy
+
+    def with_metrics() -> Task:
+        task = _free_text_task()
+        return Task(dataset=task.dataset, solver=task.solver, scorer=match(), metrics=[accuracy()])
+
+    _install_fake_eval(monkeypatch, sums=with_metrics)
+
+    facts: TaskFacts = introspect_task(f"{_FAKE_MODULE}:sums")
+    fragments = render_fragments(
+        "sums", facts, Observations(revision="c" * 40, case_count=3, license="mit")
+    )
+
+    assert facts.custom_metrics == ("inspect_ai/accuracy",)
+    assert "TODO(review): the eval reports its own metric inspect_ai/accuracy" in fragments.board
+    assert (
+        "own metric"
+        not in render_fragments(
+            "sums", _facts(), Observations(revision="c" * 40, case_count=3, license="mit")
+        ).board
+    )

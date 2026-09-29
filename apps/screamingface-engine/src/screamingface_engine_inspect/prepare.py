@@ -299,6 +299,10 @@ class SnapshotSpec:
 #: The build-time switch that lets a PR build skip gated boards instead of failing.
 SKIP_GATED_ENV = "SCREAMINGFACE_SKIP_GATED_BENCHMARKS"
 
+#: Written into a skipped gated bundle, so the runtime can say WHY the board has no
+#: questions instead of a bare "cases are unavailable" (review on PR #1112).
+SKIPPED_MARKER = "SKIPPED"
+
 
 #: Every imported board's bake. Importing another eval = one more entry here
 #: (plus its pins) — never a new function.
@@ -1116,16 +1120,19 @@ def prepare_snapshot(spec: SnapshotSpec, out: Path) -> dict[str, Any]:
         if os.environ.get(SKIP_GATED_ENV) != "1":
             raise PrepareError(
                 f"{spec.dataset} is a gated Hugging Face dataset and no token is available — "
-                "set HF_TOKEN to a read-only token from an account that accepted its terms, "
-                f"or set {SKIP_GATED_ENV}=1 to skip it (PR builds only)"
+                "in CI, check the HF_TOKEN_BENCHMARKS repo secret; locally, export HF_TOKEN "
+                "as a read-only token from an account that accepted the dataset's terms"
             )
+        reason: str = f"gated dataset {spec.dataset}, built without a Hugging Face token"
         print(
-            f"WARNING: skipping gated dataset {spec.dataset} — no Hugging Face token "
-            f"({SKIP_GATED_ENV}=1); this image has NO assets for its board",
+            f"WARNING: skipping {reason} ({SKIP_GATED_ENV}=1); this image has NO assets "
+            "for its board",
             file=sys.stderr,
             flush=True,
         )
-        return {"cases": 0, "skipped": "gated dataset, no Hugging Face token", "out": str(out)}
+        out.mkdir(parents=True, exist_ok=True)
+        (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
+        return {"cases": 0, "skipped": reason, "out": str(out)}
     rows: list[dict[str, Any]] = _load_rows(spec)
     return emit_snapshot(spec, rows, out, expected_cases=spec.case_count)
 

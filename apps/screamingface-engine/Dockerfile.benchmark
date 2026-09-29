@@ -84,6 +84,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # boards with a loud warning instead. Local build with the token:
 #   docker build --secret id=hf_token,env=HF_TOKEN -f apps/screamingface-engine/Dockerfile.benchmark .
 ARG SCREAMINGFACE_SKIP_GATED_BENCHMARKS=
+# WHY: a secret mount is NOT part of the build cache key, so a PR build re-run after the secret
+# was added would reuse the cached, gated-board-skipped layer. PR builds pass whether a token was
+# present ("true"/"false"); a change of this ARG misses the cache for the RUN below. Never the token.
+ARG SCREAMINGFACE_HF_TOKEN_PRESENT=
 RUN --mount=type=secret,id=hf_token,required=false \
     if [ -s /run/secrets/hf_token ]; then HF_TOKEN="$(cat /run/secrets/hf_token)"; export HF_TOKEN; fi; \
     SCREAMINGFACE_SKIP_GATED_BENCHMARKS="$SCREAMINGFACE_SKIP_GATED_BENCHMARKS" \

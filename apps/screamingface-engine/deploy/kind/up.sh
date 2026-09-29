@@ -46,8 +46,21 @@ docker build -f "${APP_ROOT}/Dockerfile" -t "${ENGINE_BASE_TAG}" "${REPO_ROOT}"
 docker build -f "${HERE}/engine-kind.Dockerfile" \
   --build-arg "BASE=${ENGINE_BASE_TAG}" \
   -t "${ENGINE_TAG}" "${REPO_ROOT}"
+# Gated datasets (xstest_safe, OME-1269) download only with a Hugging Face token. docker build
+# never sees shell variables, so the token goes in as the `hf_token` BuildKit secret. Without
+# one, this local cluster skips gated boards ON PURPOSE (a PR-build-style skip) rather than
+# failing step 2 for every developer; the skipped board says so if you run it.
+benchmark_build_args=(--build-arg "BASE=${ENGINE_TAG}")
+if [ -n "${HF_TOKEN:-}" ]; then
+  benchmark_build_args+=(--secret "id=hf_token,env=HF_TOKEN")
+else
+  echo "    NOTE: HF_TOKEN is not set, so gated benchmarks (xstest_safe) are skipped in this image."
+  echo "          To include them: export HF_TOKEN=<read-only token from a Hugging Face account"
+  echo "          that accepted https://huggingface.co/datasets/walledai/XSTest>"
+  benchmark_build_args+=(--build-arg "SCREAMINGFACE_SKIP_GATED_BENCHMARKS=1")
+fi
 docker build -f "${APP_ROOT}/Dockerfile.benchmark" \
-  --build-arg "BASE=${ENGINE_TAG}" \
+  "${benchmark_build_args[@]}" \
   -t "${BENCHMARK_TAG}" "${REPO_ROOT}"
 docker build -f "${HERE}/aigw-stub/Dockerfile" -t "${STUB_TAG}" "${HERE}/aigw-stub"
 

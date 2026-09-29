@@ -638,3 +638,44 @@ def test_prepare_cli_lists_bundle_ids_without_baking_anything(
     listed = capsys.readouterr().out.split()
     assert listed == sorted(listed)
     assert "draco" in listed
+
+
+def test_every_benchmark_image_build_passes_the_hugging_face_token_secret() -> None:
+    """Gated datasets (xstest_safe, OME-1269) bake only with the ``hf_token`` BuildKit
+    secret, because ``docker build`` never sees a shell's variables. A builder that
+    forgets it either fails its bake by name or skips the board, and the kind lane
+    that exercises ``deploy/kind/up.sh`` skips in CI without a cluster — so pin it
+    here, for every workflow and script that builds the image (review on PR #1112)."""
+
+    if not (REPOSITORY_ROOT / ".github" / "workflows").is_dir():
+        pytest.skip("engine checked out apart from the monorepo; the workflows are absent")
+    candidates: list[Path] = [
+        *(REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml"),
+        *REPOSITORY_ROOT.glob("apps/*/deploy/**/*.sh"),
+        *REPOSITORY_ROOT.glob("apps/*/scripts/**/*.sh"),
+        *REPOSITORY_ROOT.glob("*/*/justfile"),
+    ]
+    builds_the_image: re.Pattern[str] = re.compile(r"(file:|-f)\s+\S*Dockerfile\.benchmark")
+    builders: list[Path] = [
+        path for path in candidates if builds_the_image.search(path.read_text(encoding="utf-8"))
+    ]
+
+    # The wiring itself, on code lines only: a comment that merely MENTIONS hf_token
+    # must not satisfy the check.
+    passes_the_secret: re.Pattern[str] = re.compile(
+        r"id=hf_token\b|^\s*hf_token=\$\{\{\s*secrets\.HF_TOKEN_BENCHMARKS\s*\}\}", re.M
+    )
+    missing: list[str] = [
+        str(path.relative_to(REPOSITORY_ROOT))
+        for path in builders
+        if not passes_the_secret.search(_without_comment_lines(path.read_text(encoding="utf-8")))
+    ]
+    assert missing == []
+    # Four workflows plus the kind script today; a lower count means the scan went blind.
+    assert len(builders) >= 5
+
+
+def _without_comment_lines(text: str) -> str:
+    """The file's code lines only — whole-line ``#`` comments dropped."""
+
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
