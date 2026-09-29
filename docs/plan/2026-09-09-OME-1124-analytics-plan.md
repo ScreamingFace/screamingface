@@ -19,6 +19,18 @@ Scoreboard database aggregates, website instrumentation and identity linking are
 
 Never implement apps/analytics inside the SDK issue as an untracked second landing. Shared schemas can be a versioned HTTP contract; do not introduce a new shared package until needed. Engine internals and public website are not changed by this plan. A new service requires CODEOWNERS, toolchain/lockfile, CI, release lane, dependabot entry and deployment registration per repository routing rules.
 
+### Local implementation authorization — 25 September 2026
+
+Owner authorized the local SDK slice in conversation after confirming anonymous
+dev ingestion and edge configuration. Work begins at origin/main `1c22a64a` in
+`codex/local-sdk-analytics`. Use the existing local/remote classification for
+BYOK/hosted, as explicitly confirmed by the owner; no extra mode setting or Engine
+change. Compose local consent storage and a background sink at the SDK boundary.
+The initial destination remains the verified dev analytics service. A text-only,
+nonblocking choice notice appears at explicit interactive connection setup; users
+choose through the Python controls. Colab, identity linking, production rollout
+and PR creation are not authorized by this implementation unit.
+
 ## 2. SDK foundation (after OME-1152) — meaningful TDD slices
 
 Invoke sdlc-python before any Python code. Use a worktree per approved implementation unit from current origin/main; recheck source drift. Preserve existing tests and add behavior tests rather than assertions mirroring implementation.

@@ -68,3 +68,10 @@ Next: review/merge the existing docs PR, then implement OME-1152 separately befo
 - Discovery/review events and benchmark/provider/cost/cache-hit fields are deferred. No identity linking, email prompts, website instrumentation or Scoreboard database aggregates in this first slice.
 
 Authoritative docs review: [ScreamingFace analytics docs PR](https://github.com/ScreamingFace/screamingface/pull/871). Docs approval/merge precedes a separate service implementation PR; this update implements no product code.
+
+## Local SDK draft — 29 September 2026
+
+Local SDK/CLI/Jupyter consent controls, installation/process-session IDs and four
+sync/async evaluation/submission events are implemented on the local SDK branch.
+Delivery targets dev only. Colab SDK integration and end-to-end deployed browser
+verification remain outstanding; this does not complete the parent issue.

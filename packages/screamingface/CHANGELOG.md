@@ -21,6 +21,11 @@
 
 ### Features
 
+* **screamingface:** add opt-in local analytics via `sf.analytics.status()`, `enable()`,
+  `disable()` and `reset_identifier()`, plus `screamingface analytics` CLI controls.
+  Evaluation/submission events use random installation/process identifiers and bounded
+  background delivery to the dev analytics service. Analytics defaults off, respects
+  `DO_NOT_TRACK`, and excludes Colab and identity linking in this slice.
 * `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
   started can reach a hosted Engine without a browser window. A malformed or expired token fails
   at Client construction with `access_env_token_invalid`.
