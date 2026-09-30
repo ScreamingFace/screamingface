@@ -27,6 +27,8 @@ from .core.auth.log_filter import (
     install_provisioning_token_redaction,
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
+from .core.cache_versions.capture_store import TortoiseCaptureSink
+from .core.cache_versions.stats import CaptureStats
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
@@ -443,6 +445,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # OME-1044: the Tavily retrieval lane takes no availability gate — it is unconditional
     # (owner decision), so unlike the response cache above there is nothing to configure.
     app.state.tavily_retrieval_cache_store = TavilyRetrievalCacheStore()
+    # FEATURE: OME-1307 (E14) - the capture sink and its in-process counters. Both are always built;
+    # `begin_capture` reads `cache_versions_enabled`, so the kill switch needs no rebuild here.
+    app.state.capture_sink = TortoiseCaptureSink()
+    app.state.capture_stats = CaptureStats()
 
     _configure_fake_anthropic_oauth(app)
     _configure_fake_codex_oauth(app)

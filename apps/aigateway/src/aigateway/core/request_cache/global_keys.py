@@ -47,7 +47,7 @@ from typing import Any, Final
 
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProjection
 from ..chat_parameters import ParameterProjectionRule
-from .canonical import CanonicalizationError, canonical_digest, canonical_material
+from .canonical import CanonicalizationError, canonical_material, canonical_material_and_digest
 from .global_eligibility import (
     ABSENT,
     BYPASS_DECLARED,
@@ -254,6 +254,48 @@ def build_global_cache_key_dto(
     )
 
 
+def build_global_cache_key_with_material(
+    *,
+    provider: str,
+    body: Mapping[str, Any],
+    rules: Iterable[ParameterProjectionRule],
+    projection: GlobalCacheProjection,
+    provider_auth_modes: Iterable[str],
+    parameter_contract_revision: str = PARAMETER_CONTRACT_REVISION,
+) -> tuple[GlobalCacheKeyResult, str] | CacheBypass:
+    """`build_global_cache_key`, plus the canonical material that was hashed.
+
+    INTERNAL: for the one caller that persists the material (the E14 capture key). The material
+    contains the prompt verbatim; it escapes ONLY to `build_capture_key`, which persists it under
+    the erd 3.1 exception. It is never logged.
+
+    INVARIANT: no identity parameter exists on this signature, as on `build_global_cache_key`.
+    """
+    dto = build_global_cache_key_dto(
+        provider=provider,
+        body=body,
+        rules=rules,
+        projection=projection,
+        provider_auth_modes=provider_auth_modes,
+        parameter_contract_revision=parameter_contract_revision,
+    )
+    if isinstance(dto, CacheBypass):
+        return dto
+    try:
+        material, key_hash = canonical_material_and_digest(_canonical_mapping(dto))
+    except (CanonicalizationError, TypeError, ValueError):
+        return CacheBypass(BYPASS_CANONICALIZATION)
+    return (
+        GlobalCacheKeyResult(
+            key_hash=key_hash,
+            prompt_hash=key_hash,
+            provider=dto.provider,
+            model=dto.requested_model,
+        ),
+        material,
+    )
+
+
 def build_global_cache_key(
     *,
     provider: str,
@@ -270,7 +312,7 @@ def build_global_cache_key(
     using, so two different callers sending the identical explicit request still
     reach the identical hash — which is the whole point of a globally shared row.
     """
-    dto = build_global_cache_key_dto(
+    built = build_global_cache_key_with_material(
         provider=provider,
         body=body,
         rules=rules,
@@ -278,15 +320,4 @@ def build_global_cache_key(
         provider_auth_modes=provider_auth_modes,
         parameter_contract_revision=parameter_contract_revision,
     )
-    if isinstance(dto, CacheBypass):
-        return dto
-    try:
-        key_hash = canonical_digest(_canonical_mapping(dto))
-    except (CanonicalizationError, TypeError, ValueError):
-        return CacheBypass(BYPASS_CANONICALIZATION)
-    return GlobalCacheKeyResult(
-        key_hash=key_hash,
-        prompt_hash=key_hash,
-        provider=dto.provider,
-        model=dto.requested_model,
-    )
+    return built if isinstance(built, CacheBypass) else built[0]

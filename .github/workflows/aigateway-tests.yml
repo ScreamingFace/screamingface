@@ -84,6 +84,13 @@ jobs:
           AIGW_TEST_PG: "1"
         run: uv run pytest -m needs_postgres -v
 
+      # The capture NFR bench measures an absolute p99, so it runs alone (not with the smoke
+      # containers above) to keep host load from failing it.
+      - name: Run Postgres timing benches
+        env:
+          AIGW_TEST_PG: "1"
+        run: uv run pytest -m needs_postgres_bench -v
+
       - name: Test report
         uses: dorny/test-reporter@v3
         if: always()

@@ -112,3 +112,19 @@ def canonical_digest(mapping: Mapping[str, Any]) -> str:
         CanonicalizationError: as `canonical_material`.
     """
     return _sha256(canonical_material(mapping))
+
+
+def canonical_material_and_digest(mapping: Mapping[str, Any]) -> tuple[str, str]:
+    """The material and its digest from ONE canonicalisation.
+
+    INTERNAL: for the one caller that must persist the material beside its key hash
+    (the E14 capture key). Every other lane uses `canonical_digest`.
+
+    INVARIANT: the material escapes ONLY to `build_capture_key`, which persists it under the
+    erd 3.1 exception. It is never logged.
+
+    Raises:
+        CanonicalizationError: as `canonical_material`.
+    """
+    material = canonical_material(mapping)
+    return material, _sha256(material)

@@ -35,7 +35,7 @@ from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from ..plugin_base import ProviderPluginBase
 from .global_controls import GlobalCacheControls
 from .global_eligibility import BYPASS_RULE_SET, BYPASS_UNSUPPORTED_SHAPE, is_text
-from .global_keys import GlobalCacheKeyResult, build_global_cache_key
+from .global_keys import GlobalCacheKeyResult, build_global_cache_key_with_material
 
 # The operator's kill switch. Published in ``X-AIGW-Cache-Reason`` like every other
 # reason, so an operator reading a response can tell "off" from "not cacheable".
@@ -67,6 +67,24 @@ def build_global_cache_plan(
     WHY the operator gate is checked FIRST: when the cache is off, nothing about
     the request can change the answer, and reporting the caller's opt-out or an
     eligibility detail instead would describe a decision that was never reached.
+    """
+    planned = build_global_cache_plan_with_material(
+        body=body, plugin=plugin, controls=controls, cache_enabled=cache_enabled
+    )
+    return planned if isinstance(planned, CacheBypass) else planned[0]
+
+
+def build_global_cache_plan_with_material(
+    *,
+    body: dict[str, Any],
+    plugin: ProviderPluginBase,
+    controls: GlobalCacheControls,
+    cache_enabled: bool,
+) -> tuple[GlobalCacheKeyResult, str] | CacheBypass:
+    """`build_global_cache_plan`, plus the canonical material that the key hashes.
+
+    INTERNAL: for the one caller that persists the material (the E14 capture key). Every gate and
+    every reason is the one of the public function, which is a thin wrapper over this one.
     """
     if not cache_enabled:
         return CacheBypass(BYPASS_DISABLED)
@@ -132,11 +150,10 @@ def build_global_cache_plan(
         provider_modes = tuple(plugin.available_auth_modes())
     except Exception:
         return CacheBypass(BYPASS_RULE_SET)
-    built = build_global_cache_key(
+    return build_global_cache_key_with_material(
         provider=plugin.custom_llm_provider,
         body=body,
         rules=rules,
         projection=plugin.global_cache_projection,
         provider_auth_modes=provider_modes,
     )
-    return built
