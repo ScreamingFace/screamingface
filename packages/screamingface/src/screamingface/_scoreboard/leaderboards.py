@@ -439,6 +439,29 @@ def _cost_text(cost: Decimal | None) -> str | None:
     return None if cost is None else str(cost)
 
 
+def _published_cost(candidate_result: CandidateResult) -> dict[str, object]:
+    """The cost the board may show for this run: its spend, unless the cache served any call.
+
+    FEATURE (OME-1441, spec 2026-09-30-cached-run-not-complete): stop publishing fake $0 costs.
+    A cache hit spends nothing upstream, so a cached run's spend understates what the run costs,
+    and until the board ranks on spend plus saving (`OME-1382`) that spend would rank as exact.
+
+    INVARIANT (D1): ANY hit turns a `complete` claim into `partial` with no amount. Only the
+    published pair changes; the local result keeps its true spend and status. `partial` and
+    `unavailable` already carry no amount, so they pass through unchanged, and `unavailable`
+    never becomes `partial`: the board reads `partial` as "saving evidence exists".
+
+    AIDEV-NOTE: relax to "any hit without a `reported` price" once `OME-1382` ranks on spend
+    plus saving; a reported hit's saving then completes the cost instead of hiding it.
+    """
+    if candidate_result.cache_hits > 0 and candidate_result.run_cost_status == "complete":
+        return {"run_cost_usd": None, "run_cost_status": "partial"}
+    return {
+        "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
+        "run_cost_status": candidate_result.run_cost_status,
+    }
+
+
 def _submission(
     candidate_result: CandidateResult,
     *,
@@ -461,8 +484,7 @@ def _submission(
         # PAIR. The board refuses `complete` without an amount and an amount beside any other
         # status, so sending a mismatched pair only moves a 422 from submit time into the field.
         # `_run_cost_status` on the result already enforces the same rule at construction.
-        "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
-        "run_cost_status": candidate_result.run_cost_status,
+        **_published_cost(candidate_result),
         "client": {
             "name": "screamingface",
             "version": _package_version(),

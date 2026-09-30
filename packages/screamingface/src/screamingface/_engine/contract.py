@@ -59,6 +59,12 @@ class _RunState:
         # nothing", and the run-level status derivation reads exactly that difference.
         self._saved_cost_usd: Decimal | None = None
         self._saved_cost_archive_usd: Decimal | None = None
+        # WHY two counts: the run summary log counts EVERY gateway round trip that hit, while a
+        # span keeps only its LAST call's cache outcome, so spans alone can under-count a span
+        # whose first call hit. The summary is the authority; hit spans are the fallback for an
+        # engine that sends no summary. The outcome takes the larger of the two.
+        self._summary_cache_hits = 0
+        self._hit_spans = 0
         self._client_version: str | None = None
         self._version_conflict = False
         self._last_sequence = 0
@@ -196,10 +202,18 @@ class _RunState:
             if self._client_version is not None and self._client_version != version:
                 self._version_conflict = True
             self._client_version = version
+        # The engine's run summary (`cache_counters.attributes`, one per run that touched the
+        # cache). Root only: it is the run's own tally, not a child endpoint's.
+        if envelope["source"] == self._root_source and _CACHE_HITS in event.attributes:
+            self._summary_cache_hits = max(
+                self._summary_cache_hits, _cache_hit_count(event.attributes[_CACHE_HITS])
+            )
         return _Accepted(event=event)
 
     def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
         span = _span(envelope, data)
+        if span.cache_status == "hit":
+            self._hit_spans += 1
         # INVARIANT (OME-1252): accumulate the two provenances SEPARATELY, and never a third
         # holding their sum. Each producing field is already a span total, so summing across the
         # run's spans reproduces the engine's own figure — the contract stated on the wire field
@@ -269,10 +283,27 @@ class _RunState:
                 root_usage=self._root_usage,
                 cache_saved_cost_usd=self._saved_cost_usd,
                 cache_saved_cost_archive_usd=self._saved_cost_archive_usd,
+                cache_hits=max(self._summary_cache_hits, self._hit_spans),
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
             ),
         )
+
+
+# The engine's run-summary attribute counting every gateway round trip the cache served
+# (`screamingface_engine.runner.cache_counters.CACHE_HITS`).
+_CACHE_HITS = "cache.hits"
+
+
+def _cache_hit_count(value: object) -> int:
+    """The summary's hit count, or a refusal: a malformed count must not read as 'no hits'.
+
+    INVARIANT: fail CLOSED. This number decides whether a cost may be published as exact, so a
+    value that cannot be trusted stops the run rather than silently becoming zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ExecutionError("SF Engine cache summary cache.hits is invalid")
+    return value
 
 
 def _advisory_error(data: Mapping[str, object]) -> tuple[str, str]:
