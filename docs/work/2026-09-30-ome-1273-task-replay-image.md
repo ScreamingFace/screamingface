@@ -66,3 +66,12 @@ PR image job runs strict and fails on any changed Cases. Covers spec R5, R9, R10
   `test_inspect_imported_benchmarks.py` runs alone, identically on main `364f68b8`; it passes in
   the full suite (the gateway Judge provider is registered by another test's import). Not
   touched here.
+- **Review follow-ups (fresh sf-code-review, 2026-09-30, verdict mergeable):** widened the
+  child's cache redirection (XDG, HF modules/xet/assets) and pinned it with a real-child probe;
+  SKIPPED reasons are now one line (the child's final error), the stderr tail goes to the build
+  log; added tests that the written files re-seal to the pinned digest and that strict mode
+  ignores a gated-token skip; the stand-in eval prepends to PYTHONPATH. Spec gained a Known
+  limitation: Task replay has no gated-dataset path.
+- **Carry to PR 3:** capture the import-time Case Digest through `replayed_cases` (the JSON
+  round trip), never in-process `case_records`: metadata with integer keys re-sorts after the
+  round trip, and an in-process digest would SKIP that Benchmark at every build.

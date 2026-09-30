@@ -21,7 +21,8 @@ Stages, in execution order:
     Stage 3 — child: write the prepared Cases as JSON to the result file. WHY a file and
               not stdout: evals print while they load.
     Stage 4 — parent: a non-zero exit, a timeout or a missing result is a TaskReplayError
-              carrying the child's last stderr lines, so the SKIPPED reason names the cause.
+              carrying the child's final error line, so the SKIPPED reason names the cause;
+              the stderr tail goes to the build log.
     Stage 5 — Case Preparation (:func:`prepare_replayed_cases`): refuse a different Case
               count, then a different Case Digest; write the Cases only when both match,
               otherwise write the SKIPPED marker with the reason.
@@ -68,11 +69,42 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     empty directory under ``cache_root``."""
 
     env: dict[str, str] = dict(base)
-    # INVARIANT: every cache a fetch could hit is redirected, so each replay really fetches.
+    # INVARIANT: on Linux, where images are built, every cache a Case Source fetch reads is
+    # redirected, so each replay really fetches. XDG_CACHE_HOME moves inspect_ai's own cache
+    # (platformdirs), which its hf_dataset reads back when called without a revision.
+    # AIDEV-NOTE: macOS ignores XDG_CACHE_HOME, so on a dev Mac inspect_ai's cache stays
+    # shared; it only matters for hf_dataset calls with no revision, and none of OME-1273's
+    # packages make one. HF_HOME is left alone on purpose: it also holds a cached login token.
+    env["XDG_CACHE_HOME"] = str(cache_root / "xdg")
     env["INSPECT_EVALS_CACHE_DIR"] = str(cache_root / "inspect_evals")
     env["HF_DATASETS_CACHE"] = str(cache_root / "hf_datasets")
     env["HF_HUB_CACHE"] = str(cache_root / "hf_hub")
+    env["HF_MODULES_CACHE"] = str(cache_root / "hf_modules")
+    env["HF_XET_CACHE"] = str(cache_root / "hf_xet")
+    env["HF_ASSETS_CACHE"] = str(cache_root / "hf_assets")
     return env
+
+
+def _failure_reason(stderr: str | bytes | None) -> str:
+    """The child's last non-empty stderr line, usually its final exception line.
+
+    WHY one line: the reason is baked into the SKIPPED marker and returned to callers at run
+    time, so it must name the cause, not dump builder paths; the full tail goes to the log.
+    """
+
+    text: str = stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr or ""
+    lines: list[str] = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else "no error output"
+
+
+def _log_child_stderr(task_ref: str, stderr: str | bytes | None) -> None:
+    """Copy the tail of the child's stderr into the build log, where the full story belongs."""
+
+    text: str = stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr or ""
+    tail: list[str] = text.strip().splitlines()[-_STDERR_TAIL_LINES:]
+    if tail:
+        print(f"{task_ref}: replay stderr (last {len(tail)} lines):", file=sys.stderr)
+        print("\n".join(tail), file=sys.stderr, flush=True)
 
 
 def replayed_cases(
@@ -109,12 +141,14 @@ def replayed_cases(
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
+            _log_child_stderr(spec.task, exc.stderr)
             raise TaskReplayError(f"{spec.task}: replay timed out after {timeout:g}s") from exc
-        # Stage 4 — turn any failure into a named reason.
+        # Stage 4 — turn any failure into a one-line named reason; the tail goes to the log.
         if completed.returncode != 0 or not result_path.is_file():
-            tail: str = "\n".join(completed.stderr.strip().splitlines()[-_STDERR_TAIL_LINES:])
+            _log_child_stderr(spec.task, completed.stderr)
             raise TaskReplayError(
-                f"{spec.task}: replay failed (exit {completed.returncode}): {tail}"
+                f"{spec.task}: replay failed (exit {completed.returncode}): "
+                f"{_failure_reason(completed.stderr)}"
             )
         loaded: list[PreparedCase] = json.loads(result_path.read_text(encoding="utf-8"))
         return loaded

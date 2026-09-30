@@ -12,6 +12,9 @@ never written; the Benchmark goes SKIPPED with the reason instead.
 
 from __future__ import annotations
 
+import json
+import os
+import sys
 import textwrap
 from pathlib import Path
 
@@ -53,6 +56,24 @@ FAKE_EVAL: str = textwrap.dedent(
         raise RuntimeError("upstream URL returned 404")
 
     @task
+    def cache_probe() -> Task:
+        # Report, as Case inputs, where each library would cache a fetch in this process.
+        import datasets.config
+        import huggingface_hub.constants
+        from inspect_ai._util.appdirs import inspect_cache_dir
+        from inspect_evals.constants import INSPECT_EVALS_CACHE_PATH
+        paths = {
+            "datasets": datasets.config.HF_DATASETS_CACHE,
+            "hub": huggingface_hub.constants.HF_HUB_CACHE,
+            "modules": datasets.config.HF_MODULES_CACHE,
+            "inspect_evals": INSPECT_EVALS_CACHE_PATH,
+            "inspect_ai": inspect_cache_dir("hf_datasets"),
+        }
+        return Task(dataset=MemoryDataset(
+            [Sample(id=name, input=f"{name}={path}", target="x") for name, path in paths.items()]
+        ))
+
+    @task
     def stalled() -> Task:
         time.sleep(30)
         return Task(dataset=MemoryDataset([]))
@@ -67,7 +88,10 @@ def fake_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     """Write the stand-in eval where the child process can import it."""
 
     (tmp_path / "fake_replay_eval.py").write_text(FAKE_EVAL, encoding="utf-8")
-    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
     return "fake_replay_eval"
 
 
@@ -202,3 +226,69 @@ def test_a_failed_fetch_serves_nothing(fake_eval: str, tmp_path: Path) -> None:
 
     assert "upstream URL returned 404" in summary[CHANGED_CASES_KEY]
     assert not (tmp_path / "out" / "cases.json").exists()
+
+
+# ── review follow-ups: real-child caches, one-line reasons, disk matches the seal ─
+
+
+def test_the_real_child_caches_nothing_where_the_builder_caches(
+    fake_eval: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review Focus 4, probed in a real child: a builder's configured caches are never read.
+
+    WHY a probe and not an env assertion: a cache the redirect forgot is invisible to a test
+    that only checks the variables it sets.
+    """
+
+    builder: Path = tmp_path / "builder-cache"
+    for variable in ("XDG_CACHE_HOME", "HF_DATASETS_CACHE", "HF_HUB_CACHE", "HF_MODULES_CACHE"):
+        monkeypatch.setenv(variable, str(builder / variable.lower()))
+    monkeypatch.setenv("INSPECT_EVALS_CACHE_DIR", str(builder / "inspect_evals"))
+    spec = TaskReplayCasesSpec(task=f"{fake_eval}:cache_probe", case_count=5, case_digest=_UNPINNED)
+
+    reported: dict[str, str] = dict(
+        item["case"]["input"].split("=", 1) for item in replayed_cases(spec)
+    )
+
+    checked: set[str] = {"datasets", "hub", "modules", "inspect_evals"}
+    if sys.platform == "linux":
+        # AIDEV-NOTE: platformdirs honours XDG_CACHE_HOME on Linux only (image builds).
+        checked.add("inspect_ai")
+    for library in checked:
+        assert str(builder) not in reported[library], library
+        assert "task-replay-" in reported[library], library
+
+
+def test_a_skipped_reason_is_one_line_naming_the_cause(fake_eval: str, tmp_path: Path) -> None:
+    """The reason reaches callers at run time: it names the error, never builder paths."""
+
+    spec = TaskReplayCasesSpec(task=f"{fake_eval}:broken", case_count=2, case_digest=_UNPINNED)
+
+    summary = prepare_replayed_cases(spec, tmp_path / "out")
+
+    reason: str = summary[CHANGED_CASES_KEY]
+    assert reason.endswith("RuntimeError: upstream URL returned 404")
+    assert "\n" not in reason
+    assert "Traceback" not in reason
+    assert 'File "' not in reason
+
+
+def test_the_files_written_are_the_cases_the_digest_checked(fake_eval: str, tmp_path: Path) -> None:
+    """Spec R5: what lands on disk re-seals to the pinned Case Digest, order included."""
+
+    spec = _pinned(fake_eval)
+    out = tmp_path / "out"
+
+    prepare_replayed_cases(spec, out)
+
+    cases: list[dict[str, object]] = json.loads((out / "cases.json").read_text(encoding="utf-8"))
+    on_disk = [
+        {
+            "case": case,
+            "grading_material": json.loads(
+                (out / "targets" / f"{case['id']}.json").read_text(encoding="utf-8")
+            ),
+        }
+        for case in cases
+    ]
+    assert case_digest(on_disk) == spec.case_digest

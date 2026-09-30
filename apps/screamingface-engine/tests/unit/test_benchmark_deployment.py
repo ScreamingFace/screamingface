@@ -759,3 +759,30 @@ def test_benchmark_image_forwards_strict_mode_into_case_preparation() -> None:
 
     assert "ARG SCREAMINGFACE_FAIL_ON_CHANGED_CASES=" in body
     assert 'SCREAMINGFACE_FAIL_ON_CHANGED_CASES="$SCREAMINGFACE_FAIL_ON_CHANGED_CASES"' in body
+
+
+def test_strict_mode_ignores_a_gated_benchmark_skipped_for_want_of_a_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WHY: fork and Dependabot PR builds get no Hugging Face secret, so gated Benchmarks
+    (xstest) are skipped there on purpose; strict mode must fail only on changed Cases."""
+
+    summaries: dict[str, object] = {
+        "inspect-xstest_safe": {"cases": 0, "skipped": "gated dataset, no Hugging Face token"},
+        "inspect-gsm8k": {"cases": 1319},
+    }
+
+    def prepare(
+        _root: Path,
+        on_prepared: Callable[[str, object], None] | None = None,
+        **_only: object,
+    ) -> dict[str, object]:
+        for bundle, summary in summaries.items():
+            if on_prepared is not None:
+                on_prepared(bundle, summary)
+        return summaries
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
+    monkeypatch.setenv(prepare_module.FAIL_ON_CHANGED_CASES_ENV, "1")
+
+    assert prepare_module.main(["--root", str(tmp_path)]) == 0
