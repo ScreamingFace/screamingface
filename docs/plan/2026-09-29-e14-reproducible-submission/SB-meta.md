@@ -483,6 +483,16 @@ leaderboard route tests must stay green.
 - A legacy row (revision 1 from the migration default) is editable (MD-D8, covered by MD-5).
 - A board that turns private between the read and the write: the row lock plus the visibility
   read inside the same transaction decide once. No extra re-check is needed on a write.
+- Plan gap found in review (guard registry): `tests/unit/guards/test_visibility_exit_guard.py`
+  walks every function that reads `visibility` and lists its unguarded exits in
+  `EXPECTED_UNGUARDED`. A new store method that reads `visibility` (here `update_metadata` and
+  `metadata_history`) needs registry rows, and that edit is to an existing test file, so the
+  append-only gate flags it and needs the user's approval. This plan did not say so. SB-grants and
+  SB-publish also read visibility in new functions: plan the same registry edit and ask for the
+  approval up front. A read that queries AFTER the visibility decision (a history, a list) is not
+  "reads it fresh": return the decision (`benchmark_id`, `private`) and re-check it with
+  `turned_private` in the route, as `get_score` does. The exit guard matches source text, so never
+  write the name of a re-check helper in a docstring or comment of the store function.
 
 ### 7.2 What not to do
 

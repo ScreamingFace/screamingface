@@ -124,6 +124,22 @@
   // carrier: the diamond shows the mark and the
   // sr-only text names it. The gold row background stays the SEPARATE highest-score
   // signal, so a row can carry one, both or neither.
+  // The authors cell, plus a link to the submission's paper when it has a safe one. Built with DOM
+  // calls only, never innerHTML. The URL reaches the page as an href, after the scheme check in
+  // L.paperLink, and never as text: the label is fixed, so a hostile string cannot show up as
+  // words on the board.
+  function renderAuthorsCell(entry) {
+    var td = P.el("td", null, P.formatAuthors(entry.authors));
+    var link = L.paperLink(entry.paper_url);
+    if (link !== null) {
+      td.appendChild(document.createTextNode(" \u00b7 "));
+      var a = P.link("paper-link", link.href, "paper");
+      a.setAttribute("rel", link.rel);
+      td.appendChild(a);
+    }
+    return td;
+  }
+
   function renderMarkSlot(entry) {
     var td = P.el("td", "col-mark");
     if (!L.isParetoMarked(entry)) return td;
@@ -212,7 +228,7 @@
       var backendsTd = P.el("td", null, P.formatProviders(entry.ran_with_providers));
       backendsTd.appendChild(renderOpenness(entry));
       tr.appendChild(backendsTd);
-      tr.appendChild(P.el("td", null, P.formatAuthors(entry.authors)));
+      tr.appendChild(renderAuthorsCell(entry));
       tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
       // WHY the title: the cell rounds to cents, but the frontier compares the full stored
       // Decimal — so two rows inside one cent render identically while only one is marked. The
