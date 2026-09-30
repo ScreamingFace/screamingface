@@ -3,22 +3,28 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .adapters.fs_archive_reader import FilesystemArchiveReader
 from .adapters.jws_receipt_verifier import Ed25519ReceiptVerifier
+from .adapters.s3_archive_reader import S3ArchiveConfig, S3ArchiveReader
+from .adapters.sigv4 import Credentials
 from .adapters.url4_fingerprinter import Url4Fingerprinter
 from .config import Settings
+from .core.publish.ports import VersionArchiveReader
 from .core.registry import RegistryService
 from .db import close_db, init_db
 from .metrics import build_metrics
 from .portal import register_portal
-from .routes import health, leaderboard, results, score_metadata, scores
+from .routes import health, leaderboard, publish, results, score_metadata, scores
 from .scores.baseline_store import BaselineStore
 from .scores.cluster_store import ClusterStore
 from .scores.metadata_store import ScoreMetadataStore
+from .scores.publication_store import PublicationStore
 from .scores.store import ScoreStore
 from .scores.system_registry_store import TortoiseSystemRepository
 
@@ -121,6 +127,64 @@ def _wire_clustered_submit(app: FastAPI, settings: Settings) -> None:
     app.state.metrics = build_metrics()
     app.state.cluster_store = ClusterStore(app.state.score_store, app.state.system_registry)
     app.include_router(results.router)
+    # WHY here: publish reuses `app.state.metrics` and the other E14 objects built above, and its
+    # router must also come BEFORE `register_portal`. It also keeps `create_app` at the
+    # statement limit (`max-statements = 26`).
+    _wire_publish(app, settings)
+
+
+def _s3_archive_reader(settings: Settings) -> S3ArchiveReader:
+    required = {
+        "SCOREBOARD_ARCHIVE_S3_ENDPOINT_URL": settings.archive_s3_endpoint_url,
+        "SCOREBOARD_ARCHIVE_S3_BUCKET": settings.archive_s3_bucket,
+        "SCOREBOARD_ARCHIVE_S3_ACCESS_KEY_ID": settings.archive_s3_access_key_id,
+        "SCOREBOARD_ARCHIVE_S3_SECRET_ACCESS_KEY": settings.archive_s3_secret_access_key,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing or settings.archive_s3_secret_access_key is None:
+        raise ValueError(f"SCOREBOARD_ARCHIVE_BACKEND=s3 also requires {', '.join(missing)}")
+    return S3ArchiveReader(
+        S3ArchiveConfig(
+            endpoint_url=str(settings.archive_s3_endpoint_url),
+            bucket=str(settings.archive_s3_bucket),
+            credentials=Credentials(
+                access_key=str(settings.archive_s3_access_key_id),
+                secret_key=settings.archive_s3_secret_access_key.get_secret_value(),
+                region=settings.archive_s3_region,
+            ),
+        )
+    )
+
+
+def _archive_reader(settings: Settings) -> VersionArchiveReader | None:
+    """The bucket reader the settings name, or None for `archive_backend=none`.
+
+    INVARIANT: a half-set configuration fails at startup and names the variable, never a value.
+    """
+    if settings.archive_backend == "filesystem":
+        if settings.archive_fs_root is None:
+            raise ValueError(
+                "SCOREBOARD_ARCHIVE_BACKEND=filesystem also requires SCOREBOARD_ARCHIVE_FS_ROOT"
+            )
+        return FilesystemArchiveReader(settings.archive_fs_root)
+    if settings.archive_backend == "s3":
+        return _s3_archive_reader(settings)
+    return None
+
+
+def _wire_publish(app: FastAPI, settings: Settings) -> None:
+    """FEATURE: OME-1307 (E14) publish and takedown — the store, the ports and the route.
+
+    `release_publisher_factory` and `archive_reader` stay None when publishing is not configured;
+    the publish route then answers 503 `publish_unavailable` (PB-19).
+    """
+    app.state.publication_store = PublicationStore(settings.public_base_url)
+    app.state.release_publisher_factory = None
+    app.state.archive_reader = _archive_reader(settings)
+    # WHY a callable on `app.state` (as SB-grants does): the routes and the worker read one clock,
+    # and a test sets it.
+    app.state.clock = lambda: datetime.now(UTC)
+    app.include_router(publish.router)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
