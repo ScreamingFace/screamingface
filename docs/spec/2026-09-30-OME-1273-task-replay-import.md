@@ -1,6 +1,6 @@
 # Spec — import the Benchmarks whose Cases the importer can't see, by replaying the eval's own task
 
-- Status: draft for owner review. Design decisions: owner, 2026-09-30 (recorded on the ticket).
+- Status: approved (owner, 2026-09-30). Design decisions: owner, 2026-09-30 (recorded on the ticket).
   Settled on this PR (owner, 2026-09-30): four refusals route to Task replay (R1), the strict
   image-job switch is approved (R11), the code ships as five PRs (Delivery), and the strict
   job's cost below is accepted.
@@ -247,4 +247,4 @@ A plan in `docs/plan/` follows this spec's approval and fixes each PR's file lis
    another pins that the strict switch turns it into a non-zero exit.
 4. A test pins that each of the four R1 refusals routes to Task replay and every other refusal
    does not.
-5. The owner approves this spec before the first line of code.
+5. The owner approves this spec before the first line of code (approved 2026-09-30).
