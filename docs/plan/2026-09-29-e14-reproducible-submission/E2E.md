@@ -4,8 +4,8 @@
 > then commit). Do the steps in order. Each step uses checkbox (`- [ ]`) syntax. When a step
 > says **STOP**, do not continue. Report to the orchestrator.
 
-**Goal:** Prove the five E14 flow spines end to end, on a real local stack (real gateway, real
-engine, real scoreboard), with zero provider spend: MD-21, SC-23, RP-21, RP-22 in the E2E replay
+**Goal:** Prove the four E14 flow spines end to end, on a real local stack (real gateway, real
+engine, real scoreboard), with zero provider spend: MD-21, SC-23 and RP-21 in the E2E replay
 lane, and PB-22 nightly against a sandbox GitHub repo.
 
 **Delivery (D1):** this unit lands on the one branch `e14-reproducible-submission-spec`. There
@@ -35,7 +35,7 @@ a cache miss is a loud `404 profile_not_found`, never spend
 
 **Spec (the rubric):** `docs/spec/2026-09-29-e14-reproducible-submission/` —
 `prd/edit-metadata.md` (MD-21), `prd/submit-and-cluster.md` (SC-23),
-`prd/replay-pinned-run.md` (RP-21, RP-22), `prd/publish-and-takedown.md` (PB-22),
+`prd/replay-pinned-run.md` (RP-21), `prd/publish-and-takedown.md` (PB-22),
 `contracts.md` (C1–C10), `test-plan.md` §1, §4, §6.
 
 ## Global constraints
@@ -78,7 +78,7 @@ a cache miss is a loud `404 profile_not_found`, never spend
 | MD-21 | `test_submit_then_edit_then_read_on_leaderboard` | `prd/edit-metadata.md:222`, MD-D5 |
 | SC-23 | `test_two_users_same_system_one_row_two_results_original_ranks` | `prd/submit-and-cluster.md:239`, SC-H2, SC-H3 |
 | RP-21 | `test_submit_then_other_user_replays_all_hits_zero_cost_then_submit_labelled_replay` | `prd/replay-pinned-run.md:243`, RP-H1, RP-D9 |
-| RP-22 | `test_changed_recipe_pin_by_date_partial_hits` | `prd/replay-pinned-run.md:244`, RP-H3 |
+| ~~RP-22~~ | ~~`test_changed_recipe_pin_by_date_partial_hits`~~ | Dropped (owner, 2026-09-30, Q30): no paid run is used as a test |
 | PB-22 | `test_submit_publish_download_asset_digest_matches_version` | `prd/publish-and-takedown.md:221` (nightly, sandbox repo) |
 
 **Out of scope** (other units own them; do not test them here):
@@ -102,26 +102,27 @@ a cache miss is a loud `404 profile_not_found`, never spend
   the e14 branch HEAD when this unit starts (D2).
 - **WIRING (wave 5, same wave; D6).** E2E uses the WIRING local-runtime wiring (the E14 flags and
   the archive dir of `screamingface up`) and the WIRING admin route that sets
-  `Benchmark.redistributable`, **when present**. WIRING is built in parallel, so it can be
-  absent on `unit/E2E`. The harness then uses its own fallback (§4.1, §4.3 step 5), and the
-  ledger records "WIRING absent: fallback used". The integrator merges WIRING before E2E, and
-  then runs the E2E lane on the e14 branch: that run must use the WIRING path (the self-test of
-  Step 1.2 fails if the fallback and WIRING disagree).
+  `Benchmark.redistributable`. **As built (2026-09-30):** WIRING was merged (093330ec) before
+  E2E started, so the E2E review removed the planned fallback. The harness imports
+  `apply_local_e14_environment` directly, and it always calls the admin route. A missing or
+  broken WIRING hook is an import error or a test failure, never a silent fallback. The
+  original plan text (a fallback when WIRING is absent, and a drift check in Step 1.2) is
+  superseded.
 - **Contracts consumed (black box, over HTTP and the SDK):**
   - C1 (SDK → engine run with `X-SF-Cache-Replay` on the start request `GET /?q=`, D7 X-5):
-    RP-21, RP-22.
-  - C2a/C2b (freeze through the engine): all five tests, through `client.leaderboards.submit`.
+    RP-21.
+  - C2a/C2b (freeze through the engine): all four tests, through `client.leaderboards.submit`.
   - C3 (receipt, gateway → scoreboard; `sub` is the verified email, and the scoreboard checks
-    it in `cloudflare_headers` mode): all five tests.
-  - C4 (submit with `paper_url`, `revision_of`, receipt, `replay` block): all five tests.
+    it in `cloudflare_headers` mode): all four tests.
+  - C4 (submit with `paper_url`, `revision_of`, receipt, `replay` block): all four tests.
   - C5 (metadata `PATCH` and read; owner check on the verified email): MD-21.
-  - C6 (replay grant; `sub` is the verified email): RP-21, RP-22.
+  - C6 (replay grant; `sub` is the verified email): RP-21.
   - C7 (GitHub releases): PB-22 only.
   - C8a/C8b (archive, gateway writes and scoreboard reads): PB-22.
   - C9 (chat call with the grant header, `X-AIGW-Cache-Version`; the gateway checks the grant
-    `sub` against the caller): RP-21, RP-22 (seen through the report counters).
-  - C10 (results list, publish): SC-23, RP-21, RP-22, PB-22.
-  - The engine counter frame (D7 X-7), through the SDK report: RP-21, RP-22.
+    `sub` against the caller): RP-21 (seen through the report counters).
+  - C10 (results list, publish): SC-23, RP-21, PB-22.
+  - The engine counter frame (D7 X-7), through the SDK report: RP-21.
 - **Implements no contract.** This unit adds no product code.
 
 ### 2.1 Integration notes
@@ -182,7 +183,7 @@ the encoding. Do not guess an encoding.
 
 | File | Change | Exemplar to imitate |
 |---|---|---|
-| `packages/screamingface/tests/e2e/harness/e14_env.py` | create: the E14 env of the stack (keys from SDK-replay, flags and archive dir from WIRING or the fallback) | `harness/_gating.py:1-45` (small pure module, typed, `Final` names) |
+| `packages/screamingface/tests/e2e/harness/e14_env.py` | create: the E14 env of the stack (keys from SDK-replay, flags and archive dir from the WIRING hook; as built: no fallback) | `harness/_gating.py:1-45` (small pure module, typed, `Final` names) |
 | `packages/screamingface/tests/e2e/harness/identity.py` | create: the test edge (`EdgeIdentityTransport`) | `harness/ports.py` (one small seam with a docstring that states the invariant) |
 | `packages/screamingface/tests/e2e/harness/scoreboard_proc.py` | create | `harness/cache_seeded.py:108-175` (Postgres container, migrate, subprocess, health) |
 | `packages/screamingface/tests/e2e/harness/e14_stack.py` | create | `harness/stack.py:94-116` (`replay_stack` context manager, reverse teardown) |
@@ -192,7 +193,7 @@ the encoding. Do not guess an encoding.
 | `packages/screamingface/tests/e2e/conftest.py` | change: add the E14 fixtures | same file, `:23-39` (`synthetic_gateway`) |
 | `packages/screamingface/tests/e2e/test_e14_submit_edit.py` | create (MD-21) | `tests/e2e/test_boards.py:110-150` |
 | `packages/screamingface/tests/e2e/test_e14_cluster.py` | create (SC-23) | `tests/e2e/test_boards.py:110-150` |
-| `packages/screamingface/tests/e2e/test_e14_replay.py` | create (RP-21, RP-22) | `tests/e2e/test_boards.py:110-150` |
+| `packages/screamingface/tests/e2e/test_e14_replay.py` | create (RP-21) | `tests/e2e/test_boards.py:110-150` |
 | `packages/screamingface/tests/e2e/test_e14_publish_nightly.py` | create (PB-22) | `tests/e2e/test_boards.py:110-150` |
 | `packages/screamingface/tests/e2e/test_e14_harness_contracts.py` | create (harness self-tests, no stack) | `tests/e2e/test_harness_contracts.py` |
 | `packages/screamingface/pyproject.toml` | change: add marker `e2e_github` next to `e2e` and `paid` | same file, `:132-140` |
@@ -209,29 +210,16 @@ the encoding. Do not guess an encoding.
 GATEWAY_PREFIXES: Final = ("AIGATEWAY_", "AIGW_")
 SCOREBOARD_PREFIXES: Final = ("SCOREBOARD_",)
 
-# From WIRING.md §2.1 table and §4.5 (Step 0 checks them against the merged code).
-WIRING_HOOK_MODULE: Final = "screamingface._runtime.local_features"
-WIRING_HOOK_FUNCTION: Final = "apply_local_e14_environment"
-
-# INVARIANT: the fallback is the harness copy of what the WIRING hook sets. Step 1.2 fails
-# when the two drift, so the fallback can never hide a missing WIRING flag.
-FALLBACK_FLAGS: Final[Mapping[str, str]] = {
-    "AIGW_CACHE_VERSIONS_ENABLED": "true",
-    "SCOREBOARD_CLUSTERING_ENABLED": "true",
-    # WIRING LOCAL_E14_FLAGS has only these two (WIRING.md §2.1, §4.5).
-}
-# The WIRING ARCHIVE_ENV_GROUP (WIRING.md §4.5): two backends and two dirs, one directory.
-FALLBACK_ARCHIVE_BACKENDS: Final = ("AIGW_CACHE_VERSION_ARCHIVE_BACKEND", "SCOREBOARD_ARCHIVE_BACKEND")
-FALLBACK_ARCHIVE_DIRS: Final = ("AIGW_CACHE_VERSION_ARCHIVE_DIR", "SCOREBOARD_ARCHIVE_FS_ROOT")
+# As built: a direct import. No harness copy of the WIRING flags exists.
+from screamingface._runtime.local_features import apply_local_e14_environment
+from screamingface._runtime.signing_keys import apply_local_signing_environment
 
 @dataclass(frozen=True, slots=True)
 class E14Env:
     gateway: Mapping[str, str]      # AIGATEWAY_* and AIGW_* keys only
     scoreboard: Mapping[str, str]   # SCOREBOARD_* keys only
     archive_dir: Path               # the root of the filesystem archive adapter (C8 local mode)
-    source: Literal["wiring", "fallback"]
 
-def wiring_hook() -> Callable[[MutableMapping[str, str], Path], None] | None: ...
 def e14_env(data_dir: Path) -> E14Env: ...
 def split_env(env: Mapping[str, str]) -> tuple[dict[str, str], dict[str, str]]: ...
 ```
@@ -245,15 +233,11 @@ def split_env(env: Mapping[str, str]) -> tuple[dict[str, str], dict[str, str]]: 
    the code `screamingface up` runs, so the E2E keys have the same form as the local runtime
    keys (raw base64, JSON `{kid: b64}`, receipt kid `sha256(raw public key).hexdigest()[:16]`,
    grant kid `"local-" + …`, D7 X-4).
-3. `hook = wiring_hook()`. It returns
-   `getattr(importlib.import_module(WIRING_HOOK_MODULE), WIRING_HOOK_FUNCTION)`, or `None` on
-   `ImportError` or `AttributeError` (WIRING not merged on this branch).
-   - `hook is not None` → `hook(env, data_dir)`, `source = "wiring"`. If the WIRING.md
-     signature is not `(MutableMapping[str, str], Path) -> None`, **STOP** and ask (do not
-     write an adapter that guesses).
-   - `hook is None` → `env.update(FALLBACK_FLAGS)`, set each `FALLBACK_ARCHIVE_BACKENDS` name to
-     `"filesystem"`, and set each `FALLBACK_ARCHIVE_DIRS` name to
-     `str(data_dir / "cache-version-archive")`; `source = "fallback"`.
+3. **As built:** `apply_local_e14_environment(env, data_dir)` (WIRING,
+   `screamingface._runtime.local_features`). It sets `AIGW_CACHE_VERSIONS_ENABLED` and
+   `SCOREBOARD_CLUSTERING_ENABLED` to `"true"`, the two archive backends to `"filesystem"`, and
+   the two archive dirs to `str(data_dir / "cache-version-archive")`. There is no fallback and
+   no `source` field: a renamed or broken hook fails at import or at call time.
 4. `archive_dir = Path(env["AIGW_CACHE_VERSION_ARCHIVE_DIR"])`; `mkdir(parents=True,
    exist_ok=True)`. Raise `RuntimeError` when `env["SCOREBOARD_ARCHIVE_FS_ROOT"]` has another value
    (C8 local mode: one shared directory).
@@ -323,8 +307,8 @@ def edge_http(base_url: str, user: str | None) -> httpx.Client:
 SCOREBOARD_ADMIN: Final = "e2e-scoreboard-admin@e2e.example"
 
 class ScoreboardProcess:
-    def __init__(self, *, work_dir: Path, extra_env: Mapping[str, str] | None = None,
-                 wiring_present: bool) -> None: ...
+    def __init__(self, *, work_dir: Path, extra_env: Mapping[str, str] | None = None) -> None: ...
+    # As built: no `wiring_present` kwarg. The admin route is always called (step 5).
     def start(self, *, engine_url: str, board: str) -> str: ...   # returns the base URL
     def stop(self) -> None: ...                                   # idempotent
 ```
@@ -352,14 +336,16 @@ class ScoreboardProcess:
    WHY the clustering flag is in `extra_env`: the SB-submit code default is `False`, and with it
    off `POST /v1/scores` runs the legacy path and ignores the receipt (SB-submit §4.1).
 5. Board preparation (after the app is healthy):
-   - `redistributable = true`. When `wiring_present`: call the WIRING admin route `PUT /v1/admin/benchmarks/<board>/redistributable` with the body `{"redistributable": true, "reason": "e2e"}` (WIRING.md §2.1, §4.1; success is `200`)
+   - `redistributable = true` (**as built: always by the route**). Call the WIRING admin route
+     `PUT /v1/admin/benchmarks/<board>/redistributable` with the body
+     `{"redistributable": true, "reason": "e2e"}` (WIRING.md §2.1, §4.1; success is `200`)
      through `edge_http(base_url, SCOREBOARD_ADMIN)`. Raise `RuntimeError` unless the status is
-     2xx. Then `GET /v1/benchmarks` and assert the board shows `redistributable is True` if the
-     schema has the field (record in the ledger). When not `wiring_present`: SQL fallback (next
-     bullet) sets it too. WHY the route first: D6 makes it the product path, so E2E proves it.
-   - SQL, test-only: `container.exec(["psql", "-U", user, "-d", dbname, "-v", "ON_ERROR_STOP=1",
-     "-c", "UPDATE benchmarks SET case_count = NULL<, redistributable = true when not
-     wiring_present> WHERE id = '<board>'"])`. `container.exec` (testcontainers 4) returns
+     2xx and the response has `redistributable is true` (`GET /v1/benchmarks` has no
+     `redistributable` field, ledger D-6). There is no SQL fallback for this column. WHY: D6
+     makes the route the product path, so E2E proves it.
+   - SQL, test-only (as built: `case_count` only): `container.exec(["psql", "-U", user, "-d",
+     dbname, "-v", "ON_ERROR_STOP=1", "-c", "UPDATE benchmarks SET case_count = NULL WHERE id =
+     '<board>'"])`. `container.exec` (testcontainers 4) returns
      `(exit_code, output)`. Raise `RuntimeError` unless `exit_code == 0` and `b"UPDATE 1" in
      output`.
    - WHY `case_count = NULL`: the golden replays 50 cases (`fixtures/goldens/ifeval.golden.json`,
@@ -378,7 +364,7 @@ class E14Stack:
     aigateway_url: str
     scoreboard_url: str
     archive_dir: Path
-    env_source: Literal["wiring", "fallback"]
+    # As built: no `env_source` field (the hook is always the source).
 
 @contextmanager
 def e14_stack(
@@ -400,10 +386,8 @@ Order (teardown in reverse, also after a failed boot, as in `stack.py:104-116`):
    The engine keeps its local mode. It reads no identity mode of its own; it forwards
    `X-User-Email` (§2 value table).
 4. Scoreboard: `ScoreboardProcess(work_dir=work_dir, extra_env={**env.scoreboard,
-   **(scoreboard_extra_env or {})}, wiring_present=env.source == "wiring")`,
-   `start(engine_url=..., board=board)`.
-5. Write `env.source` in the test log (`print` is fine; it holds no secret). Yield
-   `E14Stack(..., archive_dir=env.archive_dir, env_source=env.source)`.
+   **(scoreboard_extra_env or {})})`, `start(engine_url=..., board=board)`.
+5. Yield `E14Stack(..., archive_dir=env.archive_dir)`. (As built: no `env_source` log line.)
 
 WHY one shared `archive_dir`: this is the local-mode filesystem adapter of C8 (gateway writes,
 scoreboard reads). No MinIO container is needed.
@@ -445,7 +429,7 @@ scoreboard reads). No MinIO container is needed.
 - `e14_golden() -> GoldenReport` (session): `load_golden(GOLDENS_DIR / "ifeval.golden.json")`.
 - `e14` (**function** scope, `tmp_path` as `work_dir`): `require_e2e_stack()`, then
   `with e14_stack(work_dir=tmp_path, assets_dir=e14_assets) as stack: yield stack`.
-  WHY function scope: RP-21, SC-23 and RP-22's recipe `B` all use the same recipe
+  WHY function scope: RP-21 and SC-23 use the same recipe
   (`build_candidate(golden)`), so on a shared stack one test's head would absorb the next
   test's submit (it would cluster, or get `system_already_named`) and the result depends on
   test order. One stack per test removes that. INVARIANT: no test reads rows that another test
@@ -456,21 +440,14 @@ scoreboard reads). No MinIO container is needed.
 - Board: `"ifeval"`. Candidate: `build_candidate(e14_golden)` (`harness/goldens.py:313-343`),
   `limit=e14_golden.limit` (50), `progress=False`.
 - Users (verified emails set by the edge): `"ana@e2e.example"`, `"bruno@e2e.example"`,
-  `"kevin@e2e.example"`, `"carol@e2e.example"` (RED proofs only). The published local parts
-  are `"ana"`, `"bruno"`, `"kevin"` (`schemas.py:179-230`).
+  `"carol@e2e.example"` (RED proofs only). The published local parts
+  are `"ana"`, `"bruno"` (`schemas.py:179-230`).
 - `paper_url` values: `"https://arxiv.org/abs/2609.01234"`, then `"https://doi.org/10.1234/abc"`
   (MD-H1, MD-H3).
 - Every SDK client is `with edge_client(stack, user) as client:` (§4.2).
 - Raw reads of public data (`GET /v1/leaderboard/ifeval`, `GET /v1/scores/{id}`,
   `GET /v1/scores/{id}/results`, metadata history) use `edge_http(stack.scoreboard_url, None)`
   (anonymous, as a public reader). A read that needs the owner uses the owner's email.
-- RP-22 recipes (both carry the same name, so the name is not the difference):
-  `A = sf.CorrectiveLoop([spec_model(s) for s in golden.member_specs],
-  judge=spec_model(golden.judge_spec), max_rounds=golden.max_rounds - 1, name="e2e-kevins-best")`
-  and `B` = the same call with `max_rounds=golden.max_rounds`. `spec_model` is
-  `harness/goldens.py:286-290`; the `name=` kwarg is `CorrectiveLoop.__init__`
-  (`packages/screamingface/src/screamingface/corrective.py:43-60`). Do not change
-  `loop_candidate` (it has no `name` parameter, `goldens.py:293-310`).
 - Find a head's leaderboard entry by `entry["url4_expression"] == str(candidate_result.url4)`.
   WHY: the entry has no `id` field (`apps/scoreboard/src/scoreboard/scores/schemas.py:763-784`),
   and `score_id` is set only for heads with 2 or more results (SB-submit §4.10).
@@ -492,8 +469,8 @@ There are no CHAR rows in this unit.
 
 - [ ] **Step 0 — Ledger and value table.** Start `docs/work/2026-09-29-e14-e2e.md`. Fill
   the §2 value table with `file:line` from the e14 branch HEAD, and the WIRING names from
-  `WIRING.md` (§2.1). Write in the ledger whether WIRING is merged on `unit/E2E` (normally it is
-  not, D2). **STOP** if one value is missing.
+  `WIRING.md` (§2.1). Write in the ledger whether WIRING is merged on `unit/E2E` (as built: it
+  was merged, 093330ec). **STOP** if one value is missing.
 
 - [ ] **Step 1 — Harness self-tests (no stack), `test_e14_harness_contracts.py`.**
   These run in the normal SDK job (no Docker needed).
@@ -508,13 +485,15 @@ There are no CHAR rows in this unit.
      **private** key and the grant **public** map; the scoreboard map has only the grant
      **private** key and the receipt **public** map. RED: create the module with a stub
      `e14_env` that returns empty maps, so the failure is behavioral, not an import error.
-  2. `test_e14_env_fallback_matches_the_wiring_hook` — skip with the reason "WIRING not merged"
-     when `wiring_hook() is None`. Else: run the hook on an empty env, and assert that every
-     flag in `FALLBACK_FLAGS` has the same value in the hook env, and that every key the hook
-     sets is a key variable, a `FALLBACK_FLAGS` key, or a `FALLBACK_ARCHIVE_BACKENDS` /
-     `FALLBACK_ARCHIVE_DIRS` name with the same value as the fallback. RED: set one
-     `FALLBACK_FLAGS` value to `"false"` in a scratch copy, see the failure, revert (this row
-     runs after the integrator merges WIRING; before that it skips, and the ledger says so).
+  2. **As built (the E2E review replaced the fallback drift check):**
+     `test_e14_env_flags_and_archive_dir_are_what_the_wiring_hook_sets` — the flags and the
+     archive dir of `e14_env(tmp_path)` equal what the real `apply_local_e14_environment` sets
+     on an empty env. `test_e14_env_surfaces_a_failing_wiring_hook` — monkeypatch the
+     module-level hook name with a hook that raises, and assert that `e14_env` raises (no silent
+     fallback). `test_scoreboard_board_prep_always_uses_the_admin_route` — `ScoreboardProcess`
+     takes no `wiring_present`, always calls the route, and its board SQL never sets
+     `redistributable`. RED: the first run failed (no direct import, `wiring_present` still
+     required), then GREEN (ledger, review-fix round).
   3. `test_e14_env_refuses_a_key_with_no_service_prefix` — `split_env({"OTHER": "x"})` raises
      `ValueError` with the text `OTHER` and never `x`. RED: a stub that drops the key.
   4. `test_edge_sets_the_verified_email_and_drops_a_client_copy` — use `httpx.MockTransport` as
@@ -527,7 +506,7 @@ There are no CHAR rows in this unit.
      `CacheSeededGateway(..., extra_env={"AIGATEWAY_SECRET_KEY": "x"})`,
      `CacheSeededGateway(..., extra_env={"AIGW_AUTH_MODE": "disabled"})`,
      `EngineProcess(..., extra_env={"OPENROUTER_API_KEY": "x"})` and
-     `ScoreboardProcess(..., extra_env={"OPENROUTER_API_KEY": "x"}, wiring_present=False)` raise
+     `ScoreboardProcess(..., extra_env={"OPENROUTER_API_KEY": "x"})` raise
      `ValueError` whose message is exactly `"refusing secret env key: <KEY>"` (for
      `AIGW_AUTH_MODE`: `"refusing env key: AIGW_AUTH_MODE (use auth_mode=)"`). The key name,
      never the value. RED: `refuse_secret_env` is a stub that returns `None`.
@@ -536,8 +515,8 @@ There are no CHAR rows in this unit.
   test that you do not commit. It asserts: `GET {scoreboard_url}/healthz == 200`;
   `GET {scoreboard_url}/v1/benchmarks` lists `ifeval`; an anonymous
   `GET {scoreboard_url}/v1/leaderboard/ifeval` is `200` (a public board stays readable with no
-  identity); and the scoreboard log shows no `create_app` guard error. Write the result and
-  `stack.env_source` in the ledger. Delete the scratch test after. (The committed check that
+  identity); and the scoreboard log shows no `create_app` guard error. Write the result in
+  the ledger (as built: `stack.env_source` does not exist). Delete the scratch test after. (The committed check that
   the auth mode is real is MD-21 step 0.)
   Also run one `limit=1` evaluation of `build_candidate(golden)` through
   `edge_client(stack, "ana@e2e.example")`. **STOP** and report if any engine or preflight call
@@ -574,7 +553,7 @@ There are no CHAR rows in this unit.
   gateway extra env, set `AIGW_CACHE_VERSIONS_ENABLED` to `"false"`. Expected failure: step 2
   (`cache_version` is `None`, because the freeze gets `503 capture_disabled` (C2b), and the SDK
   submits with no receipt, SC-E1). Set it in `E14Env.gateway` after `e14_env` returns (a
-  temporary edit of `e14_stack`), so the WIRING and fallback paths both get it.
+  temporary edit of `e14_stack`), so the value of the WIRING hook is overridden.
 
 - [ ] **Step 4 — RP-21 (H×H).** File `tests/e2e/test_e14_replay.py`,
   `test_submit_then_other_user_replays_all_hits_zero_cost_then_submit_labelled_replay`.
@@ -645,47 +624,13 @@ There are no CHAR rows in this unit.
   `edge_client(e14, "bruno@e2e.example")`. Expected failure: step 2 raises
   `code == "not_submission_owner"` (`403`).
 
-- [ ] **Step 6 — RP-22 feasibility probe (STOP gate).** RP-22 needs a **changed recipe**
-  (a different fingerprint) whose calls overlap the pinned version, and whose other calls are
-  in the seeded snapshot (else they fail as `profile_not_found`). No committed fixture is
-  known to give this. Probe this one variant, in a scratch test that you do not commit:
-  - Version recipe `A` and changed recipe `B` exactly as §4.7 defines them (both named
-    `e2e-kevins-best`; `A` has `max_rounds = golden.max_rounds - 1`, `B` has the recorded
-    `golden.max_rounds`).
-  - Check 0: run `B` with `limit=50` and no replay. No case failure has code
-    `profile_not_found`. (So the `name=` kwarg does not change any model request.)
-  - Check 1: run `A` with `limit=50`. Every case is terminal, and no case failure has code
-    `profile_not_found`. (So `A`'s calls are a subset of the recording.)
-  - Check 2: `A` and `B` render different `url4` text (so the fingerprints differ).
-  - Check 3: submit `A`, then run `B` with `replay=f"result:{A_result_id}"`. The report has
-    `hits > 0` **and** `misses > 0`, and no `profile_not_found`.
-  WHY a version miss is free here: on a version miss the gateway goes on to the normal path
-  (CV-16 "STAGE 0 before STAGE 1"), and the seeded global cache serves the call.
-  **If all four pass**, go to Step 7 with `A` and `B`. **If one fails, STOP.** Report which
-  check failed. Do not try other variants. Do not record a new fixture (that needs an owner
-  paid run, `tests/e2e/README.md` step ③). See OD-4.
+- **Step 6 — RP-22 feasibility probe. Dropped (Q30).** The owner decided (2026-09-30) that no
+  paid run is used as a test. There is no probe and no fixture. The step number stays, so the
+  other step numbers stay stable.
 
-- [ ] **Step 7 — RP-22 (M×M).** In `tests/e2e/test_e14_replay.py`,
-  `test_changed_recipe_pin_by_date_partial_hits`.
-  1. Kevin (`edge_client(e14, "kevin@e2e.example")`) runs `A` and submits it. The SDK
-     sends `spec_id = candidate_result.name = "e2e-kevins-best"`
-     (`packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:453`). Assert
-     `r1.spec_id == "e2e-kevins-best"` and `r1.reported_result.is_original is True`. Keep `r1`
-     (head) and `x1 = r1.reported_result.id`.
-  2. `t = r1.submitted_at` (from the raw `GET /v1/scores/{r1.id}`), as an ISO-8601 string with
-     a UTC offset (the pin grammar rejects a time with no offset on both sides, D7 X-21). WHY equal-T: a result with `submitted_at == T` is included (RP-D7), so the pin is
-     deterministic with no clock control and no sleep.
-  3. Kevin runs `B` with `replay=f"e2e-kevins-best@{t}"`.
-  4. Assert `replay.pinned_baseline_result_id == x1`, `replay.result_id == x1`,
-     `hits > 0`, `misses > 0`, `coverage == "partial"`.
-  5. Kevin submits `B` with `revision_of="e2e-kevins-best"`. Assert a **new** head (id is not
-     `r1.id`), with `spec_id == "e2e-kevins-best"` and `reported_result.is_original is True`
-     (SC-H5, SR-H4).
-  6. Assert the only results-list item of the new head has
-     `replay.pinned_baseline_result_id == x1`, `replay.replayed_from_result_id == x1`, and
-     `replay.hits` and `replay.misses` equal to step 4.
-  **RED proof:** pin with `t` minus one day. Expected failure: step 3 raises the SDK error for
-  `404 replay_pin_not_found` before the run starts (RP-E1).
+- **Step 7 — RP-22. Dropped (Q30).** No test is built. The behavior stays covered by RP-6 and
+  RP-7 (pin by date), CV-17 and RP-13 (a miss falls through and is counted), and RP-21 (the E2E
+  replay spine).
 
 - [ ] **Step 8 — PB-22 (H×M, nightly).** File `tests/e2e/test_e14_publish_nightly.py`,
   `test_submit_publish_download_asset_digest_matches_version`. Marks: `pytest.mark.e2e` and
@@ -726,11 +671,11 @@ There are no CHAR rows in this unit.
      `"e2e_github: nightly E14 publish spine against a sandbox GitHub repo (secrets + docker)"`.
   2. `screamingface-e2e-replay.yml`: add `"apps/scoreboard/**"` to the `push` and
      `pull_request` `paths:` lists; set `timeout-minutes: 60`. WHY: the E14 spines break when
-     the scoreboard changes, and they add four stack boots (each with two Postgres
-     containers) and seven 50-case runs (SC-23 2, RP-21 2, MD-21 1, RP-22 2). With D1 there is
+     the scoreboard changes, and they add three stack boots (each with two Postgres
+     containers) and five 50-case runs (SC-23 2, RP-21 2, MD-21 1). With D1 there is
      no unit PR: the lane runs on the push of the e14 branch after the wave-5 integration, and
      the integrator also runs it locally (§8). The existing
-     `pytest tests/e2e -rs -v` step runs MD-21, SC-23, RP-21, RP-22. PB-22 skips there (no
+     `pytest tests/e2e -rs -v` step runs MD-21, SC-23, RP-21. PB-22 skips there (no
      `SCREAMINGFACE_TEST_E2E_GITHUB`).
   3. Create `screamingface-e14-publish-nightly.yml`:
      - `on: schedule: - cron: "17 3 * * *"` and `workflow_dispatch`.
@@ -752,7 +697,7 @@ There are no CHAR rows in this unit.
        `SCREAMINGFACE_E2E_ASSETS`, `E14_SANDBOX_REPO: ${{ vars.E14_SANDBOX_REPO }}`,
        `E14_SANDBOX_TOKEN: ${{ steps.<id>.outputs.token }}`, and the scoreboard App variables
        mapped from the same secrets.
-  4. README: add an "E14 spines" section: what the five tests prove, how to run them
+  4. README: add an "E14 spines" section: what the four tests prove, how to run them
      (`SCREAMINGFACE_TEST_E2E=1 uv run pytest tests/e2e -k e14 -rs`), and the nightly secrets.
 
 ## 7. Edge cases and what not to do
@@ -785,7 +730,7 @@ There are no CHAR rows in this unit.
   `X-Forwarded-For` pass the peer check.
 - **Grant life (D4).** The grant lives 12 h. E2E runs take minutes. Do not add a test that
   waits for an expiry; SDK-replay row 25 and ENG-replay RP-14 cover the expiry path.
-- **Do not** add a sleep between submits. Use the equal-T rule (Step 7.2).
+- **Do not** add a sleep between submits. Do not build a pin-by-date E2E test (RP-22 is dropped, Q30).
 - **Do not** weaken an assertion to fit the result. If an assertion fails, classify it
   (product defect, test defect, environment, flake). Report a product defect to the
   orchestrator with the owning unit id (D1: the fix goes on that unit's branch or on the e14
@@ -816,11 +761,12 @@ SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_TEST_E2E_GITHUB=1 E14_SANDBOX_REPO=<owner
 
 **Done when:**
 
-1. MD-21, SC-23, RP-21, RP-22 pass locally on `unit/E2E` (the ledger records
-   `env_source`, normally `fallback`).
-2. After the integrator merges WIRING and then E2E into the e14 branch, the same four tests
-   pass again on the e14 branch with `env_source == "wiring"`, and Step 1.2 passes (not
-   skips). The `ScreamingFace E2E Replay` workflow is green on the push of the e14 branch.
+1. MD-21, SC-23 and RP-21 pass locally on `unit/E2E`. (RP-22 is dropped, Q30.)
+2. **As built:** after the integrator merges WIRING and then E2E into the e14 branch, the
+   stack tests pass again on the e14 branch, and the Step 1.2 tests of the direct hook import
+   pass (there is no `env_source` and no fallback). Result on the e14 branch (2026-09-30):
+   docker E2E lane 15 passed, 1 skipped (PB-22: nightly only),
+   no paid calls. The `ScreamingFace E2E Replay` workflow is green on the push of the e14 branch.
 3. PB-22 skips cleanly with no secrets (local and nightly), and passes once through
    `workflow_dispatch` of the nightly workflow after OD-5 is done. Its release is deleted
    after.
@@ -838,10 +784,9 @@ SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_TEST_E2E_GITHUB=1 E14_SANDBOX_REPO=<owner
 
 Still open (they need the owner; they do not block Steps 0 to 5):
 
-- **OD-4 — RP-22 fixture.** No committed fixture is known to give a changed recipe with
-  overlapping calls and zero spend. Step 6 probes one variant (`max_rounds - 1`). If the probe
-  fails, somebody must record a new E14 fixture with a paid owner run (`tests/e2e/README.md`
-  step ③, `just e2e-bless-fresh`). That is a spend decision for the owner.
+- ~~**OD-4 — RP-22 fixture.**~~ **Dropped (owner, 2026-09-30, Q30).** The owner said: "We will
+  not use a paid run as a test." RP-22 is dropped. It is not deferred, and no fixture is
+  planned.
 - **OD-5 — Nightly GitHub sandbox.** Somebody must create the sandbox repo and a GitHub App
   installed only on it, and add the secrets `E14_SANDBOX_APP_ID`,
   `E14_SANDBOX_APP_PRIVATE_KEY` and the variable `E14_SANDBOX_REPO`. Until then PB-22 skips
@@ -860,7 +805,7 @@ Decided:
   `cloudflare_headers`, and the test edge sets `X-User-Email` per user from an allowed network
   (§4.2). The `submitted_by` test transport is gone.
 - **OD-3 — how a board becomes `redistributable`.** Decided: D6. The WIRING admin route sets
-  it (§4.3 step 5). SQL is only the fallback when WIRING is not merged, and for `case_count`.
+  it (§4.3 step 5). As built: the route is always called; SQL sets only `case_count`.
 - **OD-6 — PB-E6 "local mode" and the publish owner check.** Decided: D5. E2E runs
   `cloudflare_headers`, so publish is allowed when the App is configured, and the owner check
   uses the verified email. In `disabled` mode publish answers 503; E2E does not use it.

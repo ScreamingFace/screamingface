@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1433   # E14 leaf under epic OME-1307 (filed at PR-open, 2026-09-30)
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-29
-finished:
+finished: 2026-09-30
 ---
 
 # e14-reproducible-submission-spec — PRD/ERD set for epic OME-1307 (E14)
@@ -51,3 +51,16 @@ ticket.
 - **Deviations:** the output folder is `docs/spec/<date>-<slug>/` (the repo convention)
   instead of the skill default `docs/plans/`. The interview grew the scope from the triage
   map's E14 (metadata plus cache version) to four parts (`ans:Q1`).
+- **Close-out (2026-09-30):** the spec, the plans and all 17 units are on the one branch
+  `e14-reproducible-submission-spec` (D1), with the final-check fixes (RP-X1, RP-X2, FS-1,
+  X-SEC-1, MRA-1, MRA-2). Unit ledgers in `docs/work/`: `2026-09-29-e14-{sb-schema,
+  system-registry, gw-capture, sb-meta, gw-freeze, eng-freeze, sdk-meta, sb-submit, gw-replay,
+  eng-replay, sdk-submit, sb-grants, sb-publish, sdk-replay, wiring, e2e}.md` (SB-registry is
+  `e14-system-registry.md`; URL4-fp is `2026-09-29-url4-system-fingerprint.md`), and the
+  final-check ledgers
+  `2026-09-30-e14-final-{apps-scoreboard, apps-screamingface-engine, packages-screamingface}.md`.
+  The decisions D1 to D8 are in `docs/plan/2026-09-29-e14-reproducible-submission/00-index.md` §7
+  (D8 is also spec `00-overview.md` §4.2 Q25). The status, the gate and E2E results, and the open
+  items for the owner are in `00-index.md` "Status (2026-09-30)". The Linear leaf issue, the
+  `docs/tasks/` mirror and the `OME-N` branch rename are deferred by the user, so `ticket` stays
+  `unfiled`.

@@ -65,8 +65,8 @@ risk register, the component split, and the not-tested list.
 | `apps/screamingface-engine` | ENG-freeze, ENG-replay | SC-21; RP-11 to RP-15 | 6 |
 | `apps/aigateway` | GW-capture, GW-freeze, GW-replay | CV-1 to CV-28; RP-5 | 29 |
 | Deploy and local wiring (`apps/scoreboard` admin route, both Helm charts, `charts.yml` / `verify_chart_wiring.py`, the keypair helper, the local runtime `screamingface up`) | WIRING `[stated ans:Q23]` | Plan-local ids only (it reuses the SDK-replay RP-20 key generator for `up`): for the `redistributable` admin route (admin only, audited), the chart wiring checks, and the keypair helper (raw base64, derived kid) | 1 |
-| E2E (local runtime; the nightly sandbox repo for PB-22) | E2E | MD-21, SC-23, RP-21, RP-22, PB-22 | 5 |
-| **Total** | | | **136** (the per-PRD totals: SR 20, CV 28, MD 21, SC 23, RP 22, PB 22) |
+| E2E (local runtime; the nightly sandbox repo for PB-22) | E2E | MD-21, SC-23, RP-21, PB-22 | 4 |
+| **Total** | | | **135** (the per-PRD totals: SR 20, CV 28, MD 21, SC 23, RP 21, PB 22; RP-22 is dropped, Q30) |
 
 **WIRING scope** `[stated ans:Q22, ans:Q23]`:
 
@@ -115,7 +115,7 @@ SB-grants, SB-publish) before a release of the SDK, because `ScoreSubmission` is
 - Integration: about 36%. Each contract C1–C10 and C12 has at least one test. Postgres-backed tests
   for the races (two sessions). A MinIO/Garage testcontainer for C8. `httpx.MockTransport` for the SDK HTTP (respx is not an SDK dependency; D7, X-20).
   Recorded fixtures for GitHub (C7).
-- E2E: 5, one or two per flow spine, on the local runtime. PB-22 runs nightly against a
+- E2E: 4, one or two per flow spine, on the local runtime. PB-22 runs nightly against a
   sandbox GitHub repo, never in the per-unit or per-wave gates.
 - Property-based (Hypothesis): SR-2 (fingerprint stability) and CV-12 (archive bytes are
   canonical and reproducible).
@@ -124,7 +124,7 @@ SB-grants, SB-publish) before a release of the SDK, because `ScoreSubmission` is
 
 | Check | Budget | How |
 |---|---|---|
-| Capture overhead | ≤ 5 ms p99 per chat call | A micro-benchmark in gateway CI: 1,000 calls with and without capture, compared at p99 |
+| Capture overhead | ≤ 5 ms p99 per chat call | A micro-benchmark in gateway CI: 1,000 calls with and without capture, compared at p99. Postgres runs with durable commit off (`fsync`, `synchronous_commit` and `full_page_writes` off). One transaction per call gives one commit (`ans:Q31`) |
 | Replay hit latency | ≤ 30 ms p99 | The same harness, grant cache warm |
 | Freeze time | ≤ 10 s for 5,000 entries | An integration test with a seeded ledger |
 | Results list | ≤ 200 ms p99 at 10,000 results | A seeded Postgres test |
@@ -138,6 +138,7 @@ SB-grants, SB-publish) before a release of the SDK, because `ScoreSubmission` is
 | Bit-exact replay of repeated sampled calls | Out of scope by design (RP-D5) | the ENG-replay unit owner | the report `repeated_key_collapses` | users report non-reproducible voting results |
 | Capture of streaming bodies | Out of scope (CV-D8) | the GW-capture unit owner | `aigw_cache_version_missing_total` | the engine starts to stream |
 | Load at 30 users | Depends on E23 (OME-1314) | E23 owner | the capacity dashboards | E6 gives the capacity number |
+| RP-22: E2E for a changed recipe pinned by date, with partial hits (dropped, Q30) | The owner decided (2026-09-30) that no paid run is used as a test. The test needs a fixture that only a paid run can make. | the ENG-replay unit owner | the report counters `hits` and `misses` and the `replay` block on `GET /v1/scores/{id}/results` | the owner approves a paid run as a test fixture. The behavior stays covered by RP-6, RP-7 (pin by date), CV-17 and RP-13 (a miss falls through and is counted), and RP-21 (the E2E replay spine) |
 
 ## 7. Entry and exit criteria per unit
 

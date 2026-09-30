@@ -88,6 +88,7 @@ Given Kevin runs a changed recipe (fingerprint F3) with `replay="kevins-best@202
 then the calls that the changed recipe shares with the old one are version hits. The new calls
 are misses that go to the live provider. The report shows `hits` and `misses`, and the
 baseline result id, so the difference can be looked up through `GET /v1/scores/{id}/results`.
+The E2E test for this scenario (RP-22) is dropped (owner, 2026-09-30, Q30): no paid run is used as a test; covered by RP-6, RP-7, CV-17, RP-13, RP-21.
 
 **RP-H4** `[stated ans:Q4]` — the owner replays a private version.
 Given Ana's result on a private board has version V,
@@ -248,4 +249,4 @@ resolution, then the engine plumbing, then the SDK surface, then the E2E spine.
 | RP-19 | `sdk_scoreboard_down_raises_replay_unavailable` | unit | [proposed] RP-E5 | M×M | no silent fallback |
 | RP-20 | `local_mode_grant_keys_wired_by_up` | integration | [proposed] RP-D8 | M×M | runtime config |
 | RP-21 | E2E `submit_then_other_user_replays_all_hits_zero_cost_then_submit_labelled_replay` | E2E | [stated prompt] RP-H1 RP-D9 | H×H | the spine |
-| RP-22 | E2E `changed_recipe_pin_by_date_partial_hits` | E2E | [stated prompt] RP-H3 | M×M | |
+| ~~RP-22~~ | ~~E2E `changed_recipe_pin_by_date_partial_hits`~~ | ~~E2E~~ | [stated prompt] RP-H3 | ~~M×M~~ | Dropped (owner, 2026-09-30, Q30): no paid run is used as a test; covered by RP-6, RP-7, CV-17, RP-13, RP-21 |

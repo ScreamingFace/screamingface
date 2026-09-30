@@ -23,7 +23,7 @@ Supporting tests have a letter suffix (RP-4a …), listed in §6.
 - RP-5 (gateway rejects a reused grant; unit GW-replay).
 - RP-11 … RP-15 (engine; ENG-freeze / ENG-replay).
 - RP-16 … RP-20 (SDK and local runtime; SDK-replay). RP-20 wires the local keys; this unit only reads the settings.
-- RP-21, RP-22 (E2E).
+- RP-21 (E2E). RP-22 is dropped (Q30).
 - The pin grammar itself (SR-20, unit SB-registry). This unit calls the merged parser.
 - A grant revocation list (DR-2 "change when").
 - Any write to the database. The grant route is read-only.
