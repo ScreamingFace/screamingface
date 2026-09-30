@@ -87,19 +87,30 @@ def _audit(request: Request, outcome: int) -> None:
     actor = getattr(request.state, "admin_actor", None)
     reason = getattr(request.state, "admin_reason", None)
     change = getattr(request.state, "admin_change", None)
+    who = actor if actor is not None else "<unidentified>"
+    target = _audit_target(request.path_params)
     # INVARIANT: the reason is caller text. It is escaped (no control character survives, so it
     # cannot forge a second line) and cut, before it reaches the log.
     shown = escape_markdown(reason)[:_REASON_LOG_MAX] if reason is not None else "<none>"
     # WHY the change comes last and only when set: the withdraw line stays byte-for-byte the same.
     suffix = f" change={change}" if change is not None else ""
     logger.info(
-        "admin_action actor=%s %s reason=%s outcome=%d%s",
-        actor if actor is not None else "<unidentified>",
-        _audit_target(request.path_params),
-        shown,
-        outcome,
-        suffix,
+        "admin_action actor=%s %s reason=%s outcome=%d%s", who, target, shown, outcome, suffix
     )
+    before = getattr(request.state, "admin_before", None)
+    after = getattr(request.state, "admin_after", None)
+    # INVARIANT (MRA-2, C10): a successful change leaves the value before and after it. It is a
+    # second line, not a longer `admin_action` line, because the `admin_action` line is pinned by
+    # prior tests. `before` and `after` are server values (a state, a flag), never caller text.
+    if outcome < status.HTTP_400_BAD_REQUEST and before is not None and after is not None:
+        logger.info(
+            "admin_change actor=%s %s before=%s after=%s reason=%s",
+            who,
+            target,
+            before,
+            after,
+            shown,
+        )
 
 
 class AdminAuditRoute(APIRoute):
@@ -151,7 +162,16 @@ async def withdraw_result(
             reason="no_cache_version",
         )
     store = cast(PublicationStore, request.app.state.publication_store)
+
+    def record_before(previous: str) -> None:
+        request.state.admin_before = previous
+
     state = await store.withdraw(
-        result_id, actor=admin.email, reason=body.reason, now=request.app.state.clock()
+        result_id,
+        actor=admin.email,
+        reason=body.reason,
+        now=request.app.state.clock(),
+        on_previous=record_before,
     )
+    request.state.admin_after = state
     return PublishStateResponse(state=state)
