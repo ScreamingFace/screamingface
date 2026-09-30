@@ -316,7 +316,7 @@ def _drops_questions_after_load(
     its task (OME-1269). Filters on other loads (a fewshot pool) change no benchmark.
 
     Three combinations refuse by name, because the question filter could not reproduce them:
-    a second load (the prepare step hands the pinned questions to every load the task
+    a second load (the prepare step hands the pinned Samples to every load the task
     makes); ``auto_id`` (inspect numbers the rows 1..N at load, the prepare step's swapped
     loader does not, so a filter that reads ids would keep different questions);
     and an upstream-seeded choice shuffle (upstream draws each case's choice order
@@ -1232,7 +1232,7 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
             "        # pinned params) here — both join the benchmark's identity."
         )
         benchmark_lines.append("        # If the scorer dispatches on sample metadata, also set")
-        benchmark_lines.append("        # keep_question_metadata=True on the CasesSpec row.")
+        benchmark_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
         benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
     if not facts.mcq and not judged:
         benchmark_lines.append(

@@ -20,7 +20,7 @@ everything else uses our word. Follows the OME-1404 glossary rename (#1139, merg
 
 1. `CONTEXT.md`: the Inspect entry (what `inspect`-prefixed names mean, and the word mapping).
 2. Identifiers for our own concepts: grading-material names for `target` / `targets_dir` /
-   `_validated_target`, and our names for `CasesSpec.keep_sample_metadata` / `excluded_sample_ids`.
+   `_validated_target`.
    Kept: inspect's API symbols (`Sample`, `Task`, `TaskState`, `record_to_sample`, `hf_dataset`) and
    references to inspect objects (`task_ref`, `question_filter_task`, `BenchmarkSpec.scorer` /
    `scorer_kwargs`); the on-disk `targets/` asset directory; the hashed revision-pin strings.
@@ -42,7 +42,7 @@ everything else uses our word. Follows the OME-1404 glossary rename (#1139, merg
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** `CONTEXT.md`, 8 engine source/test files and the imported-benchmark guide, this
+- **Actual files:** `CONTEXT.md`, 10 engine source/test files and the imported-benchmark guide, this
   ledger and the task mirror.
 - **Commits:** `docs: extend the Inspect entry to map inspect's words onto ours` · the identifier
   renames · the by-hand prose pass.
@@ -54,8 +54,10 @@ everything else uses our word. Follows the OME-1404 glossary rename (#1139, merg
     and worked examples; every change was reviewed here before commit. The core-and-guide pass found
     nothing to change (all hits were statistics, temperature sampling, route targets or HealthBench's
     own `grade_sample`).
-  - Kept on purpose: the public failure code `missing_target_asset`, the hashed pin strings
-    `keep_sample_metadata=1` / `excluded_sample_ids=` (a WHY comment now sits on each), the `targets/`
-    directory, and judge "tasks" (one judge job per rubric item, not inspect's Task).
+  - Kept on purpose: the public failure code `missing_target_asset`, the `targets/` directory, and
+    judge "tasks" (one judge job per rubric item, not inspect's Task).
+  - `CasesSpec.keep_sample_metadata` / `excluded_sample_ids` keep inspect's word (review finding):
+    they act on inspect Samples before Case Preparation decides which become Cases, and their values
+    are upstream Sample ids, not Case numbers. A first draft renamed them and was reverted.
   - Two wording slips the glossary rename left in the judged-benchmark tests are fixed here.
 - **Owner-verify:** merge.

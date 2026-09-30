@@ -680,16 +680,16 @@ def test_system_message_resolving_to_a_non_string_refuses_the_prepare(
         emit_cases(spec, _HELLASWAG_ROWS, tmp_path)
 
 
-# ── question metadata rides the private Grading Material (OME-1240, opt-in) ─
+# ── Sample metadata rides the private Grading Material (OME-1240, opt-in) ─
 
 
 def test_opted_in_sample_metadata_is_prepared_into_the_target(tmp_path: Path) -> None:
-    """A metadata-dispatching scorer (frontierscience) reads question metadata at
-    grade time — a row that opts in prepares it into the private Grading Material record."""
+    """A metadata-dispatching scorer (frontierscience) reads a Case's metadata at
+    grade time — a row that opts in prepares it into the Case's private Grading Material record."""
 
     from dataclasses import replace
 
-    spec = replace(BENCHMARK_CASES["gsm8k"], keep_question_metadata=True)
+    spec = replace(BENCHMARK_CASES["gsm8k"], keep_sample_metadata=True)
     emit_cases(spec, _GSM8K_ROWS, tmp_path)
     target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
     # gsm8k's record_to_sample attaches {"reasoning": ...} to every Sample.
@@ -717,7 +717,7 @@ def test_the_metadata_opt_in_is_benchmark_identity(monkeypatch: pytest.MonkeyPat
     base = benchmarks.imported_benchmark("gsm8k").benchmark.revision
 
     monkeypatch.setitem(
-        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], keep_question_metadata=True)
+        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], keep_sample_metadata=True)
     )
     monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
     monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
@@ -749,7 +749,7 @@ def test_non_json_sample_metadata_refuses_the_prepare(tmp_path: Path) -> None:
         spec = replace(
             BENCHMARK_CASES["gsm8k"],
             record_to_sample="fake_metadata_eval:record_to_sample",
-            keep_question_metadata=True,
+            keep_sample_metadata=True,
         )
         with pytest.raises(PrepareError, match="case 1"):
             emit_cases(spec, _GSM8K_ROWS[:1], tmp_path)
@@ -922,7 +922,7 @@ def _adding_task() -> Any:
 @pytest.mark.parametrize(
     ("task_name", "task_fn", "reason"),
     [
-        ("raising", _raising_task, "the eval's task refused the pinned questions"),
+        ("raising", _raising_task, "the eval's task refused the pinned Samples"),
         ("two_loads", _two_loads_task, "loaded 2 datasets"),
         ("reordering", _reordering_task, "not an in-order subset"),
         ("adding", _adding_task, "not an in-order subset"),
@@ -932,7 +932,7 @@ def test_question_filter_refuses_what_it_cannot_reproduce(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, task_name: str, task_fn: Any, reason: str
 ) -> None:
     """The question filter only lets the eval DROP questions. A task that fails, loads twice
-    (the question filter hands every load the same questions), reorders, or adds a question
+    (the question filter hands every load the same Samples), reorders, or adds a question
     would prepare a benchmark we cannot vouch for — refuse by name, prepare nothing."""
 
     _install_filtering_eval(monkeypatch, **{task_name: task_fn})
@@ -983,7 +983,7 @@ def test_the_question_filter_is_benchmark_identity(monkeypatch: pytest.MonkeyPat
     assert len({base, even, odd}) == 3
 
 
-# ── named deviation: pinned upstream question ids the prepare step leaves out (OME-1269) ─
+# ── named deviation: pinned Sample ids the prepare step leaves out (OME-1269) ─
 
 
 def test_excluded_sample_ids_drop_exactly_those_questions(
@@ -995,7 +995,7 @@ def test_excluded_sample_ids_drop_exactly_those_questions(
     _install_filtering_eval(monkeypatch)
 
     emit_cases(
-        _filter_spec(excluded_upstream_ids=("4",), case_count=2),
+        _filter_spec(excluded_sample_ids=("4",), case_count=2),
         _NUMBER_ROWS,
         tmp_path,
         expected_cases=2,
@@ -1018,7 +1018,7 @@ def test_excluded_sample_ids_count_after_the_exclusion_without_a_question_filter
         dataset_revision="deadbeef" * 5,
         case_count=1,
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
-        excluded_upstream_ids=(str(record_to_sample(_WMDP_ROWS[0]).id),),
+        excluded_sample_ids=(str(record_to_sample(_WMDP_ROWS[0]).id),),
     )
 
     emit_cases(spec, _WMDP_ROWS, tmp_path, expected_cases=1)
@@ -1036,7 +1036,7 @@ def test_a_stale_excluded_sample_id_refuses_the_prepare(
     _install_filtering_eval(monkeypatch)
 
     with pytest.raises(PrepareError, match="99"):
-        emit_cases(_filter_spec(excluded_upstream_ids=("99",)), _NUMBER_ROWS, tmp_path)
+        emit_cases(_filter_spec(excluded_sample_ids=("99",)), _NUMBER_ROWS, tmp_path)
 
 
 def test_excluded_sample_ids_are_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1051,7 +1051,7 @@ def test_excluded_sample_ids_are_benchmark_identity(monkeypatch: pytest.MonkeyPa
 
     base: str = revision()
     monkeypatch.setitem(
-        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], excluded_upstream_ids=("7",))
+        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], excluded_sample_ids=("7",))
     )
 
     assert revision() != base

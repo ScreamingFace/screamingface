@@ -219,7 +219,8 @@ Inspect's own words name only inspect's own objects, in the plugin code that cal
 Everywhere else, including our own concepts inside the plugin, use our word:
 - inspect Task (`@task`): one eval definition (dataset, solver, scorer) → the eval an Imported
   Benchmark is copied from
-- inspect Sample: one question with its target → a Case
+- inspect Sample: one question with its target → a Case, but only after Case Preparation keeps
+  it; before that step it is still a Sample, and a Sample it drops never becomes a Case
 - inspect Dataset (`hf_dataset`, `record_to_sample`): how a Task loads its Samples → the dataset
   that Case Preparation pins
 - inspect Target: the correct answer on a Sample → part of the Case's Grading Material

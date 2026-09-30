@@ -160,7 +160,7 @@ from screamingface_engine_inspect.pins import (
     ONET_M6_CONFIG,
     ONET_M6_DATASET,
     ONET_M6_DATASET_REVISION,
-    ONET_M6_EXCLUDED_UPSTREAM_IDS,
+    ONET_M6_EXCLUDED_SAMPLE_IDS,
     ONET_M6_SHUFFLE_SEED,
     ONET_M6_SPLIT,
     PAWS_CASE_COUNT,
@@ -266,11 +266,11 @@ class CasesSpec:
     #: format field).
     #: Default False keeps every published benchmark's prepared assets byte-identical
     #: (prepared cases are immutable at their revision); flipping it moves the revision.
-    keep_question_metadata: bool = False
+    keep_sample_metadata: bool = False
     #: OME-1269 question filter: the eval's own task function (same dotted-reference
     #: convention), for an eval that DROPS questions after loading — a
     #: ``.filter()`` inside the task (pubmedqa keeps its 500 test ids of 1,000
-    #: rows). The prepare step hands that function this benchmark's pinned questions in place
+    #: rows). The prepare step hands that function this benchmark's pinned Samples in place
     #: of its hf_dataset load and keeps exactly what its Task holds, so the
     #: eval's filter runs and is never copied. ``case_count`` is then the KEPT
     #: count. None (every benchmark before OME-1269) skips the step entirely.
@@ -284,7 +284,7 @@ class CasesSpec:
     #: Every id must be present, or the prepare step refuses (upstream moved under the
     #: deviation); ``case_count`` is the count left after the exclusion. The row
     #: says why beside the ids, and the ids ride benchmark identity (OME-1269).
-    excluded_upstream_ids: tuple[str, ...] | None = None
+    excluded_sample_ids: tuple[str, ...] | None = None
     #: False for a judged benchmark whose judge grades from the question and the reply
     #: alone (xstest: complied / refused), so the dataset has no answer key to store.
     #: The prepare step then accepts an empty answer key; every other benchmark keeps
@@ -644,7 +644,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # The scorer dispatches each case to its format's judge prompt via the
         # Sample's metadata (format/subject) — prepare it into the private Grading
         # Material record.
-        keep_question_metadata=True,
+        keep_sample_metadata=True,
         shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
     ),
     "onet_m6": CasesSpec(
@@ -664,10 +664,10 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         system_message="inspect_evals.onet.onet:SYSTEM_MESSAGE",
         shuffle_seed=ONET_M6_SHUFFLE_SEED,
         # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        # the pinned Samples and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.onet.onet:onet_m6",
         # Named deviation: six malformed questions inspect keeps (see the pin).
-        excluded_upstream_ids=ONET_M6_EXCLUDED_UPSTREAM_IDS,
+        excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
     ),
     "pubmedqa": CasesSpec(
         dataset=PUBMEDQA_DATASET,
@@ -681,7 +681,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         record_to_sample="inspect_evals.pubmedqa.pubmedqa:record_to_sample",
         choice_template="inspect_evals.pubmedqa.pubmedqa:TEMPLATE",
         # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        # the pinned Samples and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
     ),
     "xstest_safe": CasesSpec(
@@ -695,7 +695,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # verify against the eval's task.
         record_to_sample="inspect_evals.xstest.xstest:record_to_sample",
         # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        # the pinned Samples and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.xstest.xstest:xstest",
         question_filter_task_args={"subset": "safe"},
         # Gated on the Hub: the prepare step needs HF_TOKEN from an account that
@@ -841,7 +841,7 @@ def emit_cases(
         record: dict[str, Any] = (
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
-        if spec.keep_question_metadata and sample.metadata:
+        if spec.keep_sample_metadata and sample.metadata:
             record["metadata"] = _validated_metadata(sample.metadata, case_id)
         targets[case_id] = record
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
@@ -855,7 +855,7 @@ def _pinned_samples(
     checks its size on what is left instead of on the raw rows."""
 
     drops_questions: bool = (
-        spec.question_filter_task is not None or spec.excluded_upstream_ids is not None
+        spec.question_filter_task is not None or spec.excluded_sample_ids is not None
     )
     if not drops_questions:
         _require_case_count(len(rows), expected_cases, "dataset yielded", "rows")
@@ -865,16 +865,14 @@ def _pinned_samples(
     samples: list[Sample] = _converted_samples(ordered, _resolve(spec.record_to_sample))
     if spec.question_filter_task is not None:
         samples = task_kept_samples(spec, samples)
-    if spec.excluded_upstream_ids is not None:
-        samples = _without_excluded_upstream_ids(spec.excluded_upstream_ids, samples)
+    if spec.excluded_sample_ids is not None:
+        samples = _without_excluded_samples(spec.excluded_sample_ids, samples)
     if drops_questions:
         _require_case_count(len(samples), expected_cases, "the prepare step kept", "cases")
     return samples
 
 
-def _without_excluded_upstream_ids(
-    excluded_ids: tuple[str, ...], samples: list[Sample]
-) -> list[Sample]:
+def _without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sample]) -> list[Sample]:
     """The named deviation — drop the pinned ids, refusing any id that is not there.
 
     WHY refuse a missing id: the list was written against one revision's data; an
@@ -886,8 +884,8 @@ def _without_excluded_upstream_ids(
     missing: list[str] = sorted(set(excluded_ids) - present)
     if missing:
         raise PrepareError(
-            f"excluded_upstream_ids {', '.join(missing)} are not in the dataset — the named "
-            "deviation no longer matches the pinned questions"
+            f"excluded_sample_ids {', '.join(missing)} are not in the dataset — the named "
+            "deviation no longer matches the pinned Samples"
         )
     return [sample for sample in samples if str(sample.id) not in excluded_ids]
 
@@ -908,13 +906,13 @@ def _converted_samples(ordered: list[dict[str, Any]], record_to_sample: Any) -> 
 
 
 def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
-    """Stage 3b — let the eval's own task pick which pinned questions stay (OME-1269).
+    """Stage 3b — let the eval's own task pick which pinned Samples stay (OME-1269).
 
     Think of it as handing the eval's examiner our printed question stack instead
     of letting them fetch their own: they throw out the questions their rules
     exclude, and we freeze whatever they hand back. Worked example: pubmedqa's
     task loads 1,000 rows and keeps the 500 whose ids are on its bundled test
-    list — we give it our 1,000 pinned questions, it hands back 500, and the benchmark
+    list — we give it our 1,000 pinned Samples, it hands back 500, and the benchmark
     holds exactly those 500, in our pinned order.
 
     Stages, in execution order:
@@ -922,25 +920,25 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
         Stage 1 — resolve the task function and its module's ``hf_dataset``
                   binding (the one load the eval makes; no binding → refuse).
         Stage 2 — swap that binding for a loader that returns a FRESH dataset of
-                  our pinned questions (no download, and the eval's own shuffle kwargs are
+                  our pinned Samples (no download, and the eval's own shuffle kwargs are
                   ignored: the order is already pinned), then call the task with
                   ``spec.question_filter_task_args``. A raise refuses by name — e.g. inspect's
                   "dataset is empty" when the filter kept nothing.
         Stage 3 — refuse unless the loader ran exactly once (a second load, a
-                  fewshot pool, would have been handed the benchmark's questions too), and
+                  fewshot pool, would have been handed the benchmark's Samples too), and
                   asked for the dataset, config and split this row pins (the swap
                   ignores them, so a mismatched row would prepare another load's benchmark).
-        Stage 4 — refuse unless the questions the Task holds are an in-order subset of ours,
+        Stage 4 — refuse unless the Samples the Task holds are an in-order subset of ours,
                   compared by identity: the question filter may only DROP questions. An
-                  added, duplicated or reordered question is a benchmark we never pinned.
+                  added, duplicated or reordered Sample is a benchmark we never pinned.
 
     Args:
         spec: the benchmark's prepare declaration; ``spec.question_filter_task`` must be set.
-        samples: our pinned questions — converted by the eval's ``record_to_sample``
+        samples: our pinned Samples — converted by the eval's ``record_to_sample``
             and already in the benchmark's seeded order.
 
     Returns:
-        The questions the eval keeps, in our pinned order.
+        The Samples the eval keeps, in our pinned order.
     """
 
     # Stage 1 — the task function and the load it makes.
@@ -951,10 +949,10 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
     if not hasattr(module, "hf_dataset"):
         raise PrepareError(
             f"task {task_ref}: its module has no hf_dataset binding — the question-filter step "
-            "can only hand the pinned questions to an eval that loads through it"
+            "can only hand the pinned Samples to an eval that loads through it"
         )
 
-    # Stage 2 — swap the load for our pinned questions, then build the eval's Task.
+    # Stage 2 — swap the load for our pinned Samples, then build the eval's Task.
     from inspect_ai.dataset import MemoryDataset
 
     loads: list[dict[str, Any]] = []
@@ -968,9 +966,9 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
     try:
         task: Any = task_fn(**dict(spec.question_filter_task_args or {}))
     except Exception as exc:  # noqa: BLE001 — WHY broad: this is eval code over our
-        # pinned questions; ANY raise must refuse the prepare step by name, never crash raw.
+        # pinned Samples; ANY raise must refuse the prepare step by name, never crash raw.
         raise PrepareError(
-            f"task {task_ref}: the eval's task refused the pinned questions "
+            f"task {task_ref}: the eval's task refused the pinned Samples "
             f"({type(exc).__name__}: {exc})"
         ) from exc
     finally:
@@ -985,7 +983,7 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
         )
     _require_the_pinned_load(task_ref, spec, loads[0])
 
-    # Stage 4 — the kept questions become our Cases, each once, in our order.
+    # Stage 4 — the kept Samples become our Cases, each once, in our order.
     kept: list[Sample] = list(task.dataset)
     _require_in_order_subset(task_ref, samples, kept)
     return kept
@@ -1012,7 +1010,7 @@ def _load_arguments(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, 
 def _require_the_pinned_load(task_ref: str, spec: CasesSpec, arguments: dict[str, Any]) -> None:
     """Stage 3 of the question-filter step — the eval must ask for the load this row pins.
 
-    WHY: the swap hands the task our pinned questions whatever it asks for, so a row
+    WHY: the swap hands the task our pinned Samples whatever it asks for, so a row
     whose dataset/config/split drifted from the task's own call would prepare one
     load's questions through another load's filter, with every count agreeing.
     Worked example: onet_m6 asks ``path="matichon/thai-onet-m6-exam",
@@ -1053,7 +1051,7 @@ def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sa
         if position is None or position <= last_position:
             raise PrepareError(
                 f"task {task_ref}: the Task's dataset is not an in-order subset of the "
-                "pinned questions — the task added, duplicated or reordered a sample"
+                "pinned Samples — the task added, duplicated or reordered a sample"
             )
         last_position = position
 

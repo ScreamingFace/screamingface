@@ -48,7 +48,7 @@ check:
     makes an eval not row-importable as-is). There is no silent drop: an eval that
     grades only at specific sampling settings either isn't imported, or ships
     without them as a NAMED DEVIATION (below).
-  - Every question has a non-empty text target. A judged eval whose rubric IS the target
+  - Every Sample has a non-empty text target. A judged eval whose rubric IS the target
     (coconot, sosbench — the target is empty and the judge carries the whole rule)
     fails the deterministic prepare today; the prepare step extension is an unfiled follow-up,
     not a knob you can flip.
@@ -180,8 +180,8 @@ checklist (minutes, not hours):
     (precedent: HealthBench's judge model and params, `benchmarks/healthbench/revision_inputs.py`).
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
     are benchmark identity — expect the revision to move if any of them changes.
-  - If the scorer dispatches on question metadata (frontierscience's `format`), the
-    cases row sets `keep_question_metadata=True` — otherwise the scorer grades blind.
+  - If the scorer dispatches on Sample metadata (frontierscience's `format`), the
+    cases row sets `keep_sample_metadata=True` — otherwise the scorer grades blind.
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.

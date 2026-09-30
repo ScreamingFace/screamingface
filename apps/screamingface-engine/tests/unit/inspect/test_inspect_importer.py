@@ -1969,7 +1969,7 @@ def test_a_judged_row_never_advertises_a_check_surface() -> None:
         HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
     assert "with_check_surface" not in rows.benchmark
-    assert "keep_question_metadata" in rows.benchmark  # the reviewer reminder rides the flag
+    assert "keep_sample_metadata" in rows.benchmark  # the reviewer reminder rides the flag
 
 
 # ---------------------------------------------------------------------------
@@ -2073,7 +2073,7 @@ def test_read_inspect_task_ignores_a_filter_on_a_non_question_load(
 def test_read_inspect_task_refuses_a_filtering_task_that_loads_two_datasets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The prepare step hands the pinned questions to every load the task makes, so a second
+    """The prepare step hands the pinned Samples to every load the task makes, so a second
     load would be fed the benchmark — refuse by name instead of preparing a wrong benchmark."""
 
     _install_fake_eval(monkeypatch, sums=_filtering_two_loads_task)
