@@ -53,6 +53,12 @@ def format_jsonl(rows: Sequence[ScoreSchema]) -> str:
     lines = []
     for row in rows:
         payload: dict[str, Any] = row.model_dump(mode="python")
+        # INVARIANT: a certified export of an UNEDITED legacy row keeps its bytes, so an earlier
+        # export still authorizes its own purge (the trap `schemas.py` records on
+        # `ScoreSchema.metadata_revision`). The API always shows the revision; the export shows it
+        # only once an edit has moved it off the migration default of 1.
+        if payload.get("metadata_revision") == 1:
+            del payload["metadata_revision"]
         lines.append(json.dumps(payload, default=str, sort_keys=True))
     return "\n".join(lines)
 

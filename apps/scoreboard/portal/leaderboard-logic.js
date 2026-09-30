@@ -229,7 +229,33 @@
     };
   }
 
+  /* ---- paper link -------------------------------------------------------- */
+
+  // Returns {href, rel} for a safe absolute http(s) paper URL, else null. Pure; no DOM.
+  //
+  // The paper URL is untrusted text from the API. Only an absolute http(s) URL without credentials
+  // may become an anchor href, so a javascript:, data: or ftp: URL can never be made clickable,
+  // and a `user:pass@` link never puts a credential in front of a reader. The server refuses the
+  // same URLs at write time; this repeats the rule at render time because a row can predate it or
+  // arrive through a path that skipped it.
+  //
+  // WHY `new URL(value)` with no base: a relative URL must FAIL here, not resolve against the
+  // page. (httpUrlOrNull in benchmark.js resolves against the page on purpose, for its own inputs.)
+  function paperLink(value) {
+    if (typeof value !== "string" || value.length === 0 || value.length > 2048) return null;
+    var u;
+    try {
+      u = new URL(value);
+    } catch (e) {
+      return null;
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (u.username || u.password) return null;
+    return { href: u.href, rel: "noopener noreferrer nofollow" };
+  }
+
   return {
+    paperLink: paperLink,
     isReproducible: isReproducible,
     isParetoMarked: isParetoMarked,
     costNumber: costNumber,

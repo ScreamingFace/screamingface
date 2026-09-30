@@ -4,9 +4,11 @@ import json
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -328,6 +330,50 @@ AuthorEmail = Annotated[
 ]
 
 
+def _validate_authors(value: list[str] | None) -> list[str] | None:
+    # INVARIANT: the cap protects credit cardinality, not raw audit history. The
+    # serializer uses this exact key when it collapses repeated identities.
+    # WHY a module function: `ScoreSubmission` and `ScoreMetadataPatch` share one rule, so a
+    # metadata edit can never accept an author list that a submission would refuse.
+    if value is None:
+        return value
+    if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
+        raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(encoded) > _AUTHORS_MAX_BYTES:
+        raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+    return value
+
+
+# FEATURE: OME-1307 (E14a) — the paper URL of a submission.
+_PAPER_URL_MAX_CHARS = 2048
+_PAPER_URL_SCHEMES = frozenset({"http", "https"})
+_PAPER_URL_NOT_ABSOLUTE = "paper_url must be an absolute http or https URL"
+
+
+def validate_paper_url(value: str) -> str:
+    """INVARIANT (MD-E5): an absolute http(s) URL, at most 2048 chars, no credentials.
+
+    Deliberately syntax-only: it never resolves or fetches the URL (PRD §5). Nothing is
+    normalized, so the stored value is the value that was sent.
+    """
+    if len(value) > _PAPER_URL_MAX_CHARS:
+        raise ValueError(f"paper_url must be at most {_PAPER_URL_MAX_CHARS} characters")
+    if value != value.strip() or any(ord(char) < 0x21 or ord(char) == 0x7F for char in value):
+        raise ValueError("paper_url must not contain whitespace or control characters")
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
+        raise ValueError(_PAPER_URL_NOT_ABSOLUTE)
+    if not parts.netloc or not parts.hostname:
+        raise ValueError(_PAPER_URL_NOT_ABSOLUTE)
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("paper_url must not contain credentials")
+    return value
+
+
+PaperUrl = Annotated[str, AfterValidator(validate_paper_url)]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -380,6 +426,10 @@ class ScoreSubmission(BaseModel):
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    # FEATURE: OME-1307 (E14a) — the paper that describes this submission.
+    # INVARIANT: metadata, not identity. Absent from `_content_hash` and from `_REPLAY_FIELDS`
+    # (store.py), so two submissions of one recipe with different paper URLs still dedup.
+    paper_url: PaperUrl | None = None
     # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
     #
     # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
@@ -558,16 +608,7 @@ class ScoreSubmission(BaseModel):
     @field_validator("authors")
     @classmethod
     def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
-        # INVARIANT: the cap protects credit cardinality, not raw audit history. The
-        # serializer uses this exact key when it collapses repeated identities.
-        if value is None:
-            return value
-        if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
-            raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
-        if len(encoded) > _AUTHORS_MAX_BYTES:
-            raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
-        return value
+        return _validate_authors(value)
 
     @field_validator("models")
     @classmethod
@@ -621,6 +662,25 @@ class ScoreSubmission(BaseModel):
         if self.correct_questions is not None and self.correct_questions > self.total_questions:
             raise ValueError("correct_questions cannot exceed total_questions")
         return self
+
+
+class ScoreMetadataPatch(BaseModel):
+    """Body of `PATCH /v1/scores/{id}`: only the metadata a submitter may edit.
+
+    INVARIANT (MD-E8): `extra="forbid"`, so no identity field (score, url4_expression,
+    submitted_by ...) can ride an edit. An explicit `null` is a SENT key (MD-E7): the route reads
+    `model_fields_set` to tell it from an absent one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    paper_url: PaperUrl | None = None
+
+    @field_validator("authors")
+    @classmethod
+    def validate_authors(cls, value: list[str] | None) -> list[str] | None:
+        return _validate_authors(value)
 
 
 # INVARIANT (OME-894): the only two visibilities there are. A private benchmark stays LISTED in
@@ -771,9 +831,10 @@ class ScoreSchema(BaseModel):
     # purge, so a legacy row must not gain a key. They exist here so every stored Score column
     # reaches a read DTO (`test_every_score_field_reaches_at_least_one_read_dto`).
     paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    # AIDEV-NOTE: excluded at 1 in this unit only. SB-meta makes it always present in API
-    # responses and moves the "drop at 1" rule into the private export (see SB-meta plan).
-    metadata_revision: int = Field(default=1, exclude_if=lambda value: value == 1)
+    # INVARIANT: ALWAYS present in API JSON (C4/C5: it is the `If-Match` a client sends back). The
+    # "drop at 1" rule that keeps a certified export of an unedited legacy row byte-identical now
+    # lives in `format_jsonl` (export_private_submissions.py), the one place that needs it.
+    metadata_revision: int = 1
     metadata_updated_at: datetime | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -785,6 +846,50 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+
+class MetadataValues(BaseModel):
+    """The two editable fields, as one metadata event records them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Published form (local part), like every other author list on the API. Raw NULL stays None:
+    # an event records what was STORED, not the `[submitted_by]` a read derives from it.
+    authors: Authors = None
+    paper_url: str | None = None
+
+
+class MetadataHistoryEvent(BaseModel):
+    """One edit of a score's metadata (C5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor: SubmittedBy
+    at: datetime
+    from_revision: int
+    to_revision: int
+    before: MetadataValues
+    after: MetadataValues
+
+
+class MetadataHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    events: list[MetadataHistoryEvent]
+    next_cursor: str | None
+
+
+class CodedErrorDetail(BaseModel):
+    """`{"detail": {"code", "message", ...}}` — the error shape of E14 routes (D7 X-8)."""
+
+    model_config = ConfigDict(extra="allow")  # 412 adds "current"; 422 adds "fields" / "errors"
+
+    code: str
+    message: str
+
+
+class CodedErrorResponse(BaseModel):
+    detail: CodedErrorDetail
 
 
 class LeaderboardEntry(BaseModel):

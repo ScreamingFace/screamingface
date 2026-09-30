@@ -12,8 +12,9 @@ from .config import Settings
 from .db import close_db, init_db
 from .logs import configure as configure_logging
 from .portal import register_portal
-from .routes import health, leaderboard, scores
+from .routes import health, leaderboard, score_metadata, scores
 from .scores.baseline_store import BaselineStore
+from .scores.metadata_store import ScoreMetadataStore
 from .scores.store import ScoreStore
 
 # WHY read directly from os.environ, not a Settings field: this is uvicorn's own env var
@@ -185,6 +186,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.score_store = ScoreStore()
     app.state.baseline_store = BaselineStore()
+    # FEATURE: OME-1307 (E14a) — the store behind PATCH /v1/scores/{id}.
+    app.state.metadata_store = ScoreMetadataStore()
 
     if settings.cors_origins:
         app.add_middleware(
@@ -198,6 +201,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(leaderboard.router)
     app.include_router(scores.router)
+    # FEATURE: OME-1307 (E14a) — edit authors / paper_url, and read the edit history.
+    app.include_router(score_metadata.router)
     register_portal(app, settings)
     return app
 

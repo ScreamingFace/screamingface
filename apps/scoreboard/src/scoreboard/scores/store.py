@@ -337,6 +337,9 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
         "authors": submission.authors,
+        # FEATURE: OME-1307 (E14a) — metadata, not identity: deliberately absent from
+        # `_content_hash` and from `_REPLAY_FIELDS` (OD-M1), so it never splits or rewrites a row.
+        "paper_url": submission.paper_url,
         "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,
@@ -1628,6 +1631,23 @@ class ScoreStore:
         return {
             str(row["id"]): cast("list[str] | None", row["models"])
             for row in await _chunked_values(score_ids, "id", "models")
+        }
+
+    async def paper_urls_for_score_ids(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, str]:
+        """The paper link of each score in ``score_ids`` that has one, read in chunks.
+
+        FEATURE: OME-1307 (E14a) — the board shows the link beside a row. `connection`: a
+        `read_snapshot()` connection, so the links come from the snapshot of the ranked rows.
+
+        INVARIANT: selects `id` and `paper_url` and nothing else, like `models_for_score_ids`.
+        A score with no link is absent from the result, so a row without one gains no key.
+        """
+        return {
+            str(row["id"]): cast(str, row["paper_url"])
+            for row in await _chunked_values(score_ids, "id", "paper_url", connection=connection)
+            if row["paper_url"] is not None
         }
 
     @asynccontextmanager
