@@ -3,7 +3,7 @@
 # default (extra-less) install the typecheck gate runs against.
 """Judged-benchmark assembly — the judge is benchmark identity, and its only exit is the node.
 
-A judged benchmark's benchmark is not just its dataset: swap the judge model, its prompt, or
+A judged benchmark is not just its dataset: swap the judge model, its prompt, or
 its pinned params and a candidate sits a DIFFERENT benchmark. This suite pins that the
 judge declaration (``JudgeSpec``) rides the revision hash, that every misdeclaration
 refuses at assembly (CI), never at grade time, and that the aggregate binds the

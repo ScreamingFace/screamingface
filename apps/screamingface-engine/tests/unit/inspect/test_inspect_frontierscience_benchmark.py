@@ -56,7 +56,7 @@ def test_benchmark_identity_and_declaration() -> None:
 
 
 def test_the_judge_is_declared_and_pinned() -> None:
-    """The benchmark calls the SAME judge it declares, and the prepared cases prepares the
+    """The benchmark calls the SAME judge it declares, and Case Preparation writes the
     metadata its scorer dispatches on."""
 
     spec = next(spec for spec in BENCHMARKS if spec.key == "frontierscience")

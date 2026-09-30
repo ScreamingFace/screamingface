@@ -130,7 +130,7 @@ def _gateway(failed_candidate, failed_judge):
 
 def _assert_lifecycle(events, failed_candidate, failed_judge):
     completed = [e for e in events if e["sf.activity.state"] == "completed"]
-    # INVARIANT: packaging/recording is not grading; only scorer verdicts earn Graded.
+    # INVARIANT: packaging/recording is not grading; only grading verdicts earn Graded.
     grading = [e for e in completed if e["sf.activity.kind"] == "grading"]
     assert [(e.get("sf.activity.case_id"), e.get("sf.activity.scope")) for e in grading] == [
         (case_id, "case") for case_id in ([1] if failed_candidate or failed_judge else [1, 2])

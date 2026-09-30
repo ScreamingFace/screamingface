@@ -6,10 +6,10 @@
 """The imported benchmarks' prepared assets — their formatting prepared as data (spec §5.3).
 
 INVARIANT the suite defends: prompt formatting reproduces the eval's own solver-chain
-templates at prepare time; the public booklet (``cases.json``) never carries a target;
-the private ``targets/`` records hold exactly what the scorer adapter needs (the target,
-plus the choice texts for MCQ benchmarks); and the mmlu shuffle is seeded — the prepared
-order is benchmark identity.
+templates at prepare time; the public booklet (``cases.json``) never carries the answer
+key; the private Grading Material records (``targets/``) hold exactly what the scorer adapter
+needs (the answer key, plus the choice texts for MCQ benchmarks); and the mmlu shuffle is
+seeded — the prepared order is benchmark identity.
 
 Runs only with the `inspect` extra installed.
 """
@@ -602,7 +602,7 @@ def test_preparation_with_system_message_writes_it_as_leading_input_text(
     """OME-1253: a benchmark cannot address a candidate's system role, so an
     eval's system instruction is delivered as the LEADING TEXT of the candidate
     input (contracteval precedent) — stripped, once, ahead of the untouched
-    render — and it never leaks into the private targets."""
+    render — and it never leaks into the private Grading Material."""
 
     spec = CasesSpec(
         dataset="acme/sums",
@@ -642,7 +642,7 @@ _HELLASWAG_ROWS: list[dict[str, Any]] = [
 
 
 def test_hellaswag_preparation_leads_with_their_instruction(tmp_path: Path) -> None:
-    """OME-1253 (owner-approved): hellaswag's task instruction lives in a SYSTEM
+    """OME-1253 (owner-approved): hellaswag's instruction lives in a SYSTEM
     message upstream; the benchmark delivers it as the input's leading text (named
     deviation — a benchmark cannot address a candidate's system role), ahead of
     the untouched MCQ render, with the key private."""
@@ -680,12 +680,12 @@ def test_system_message_resolving_to_a_non_string_refuses_the_prepare(
         emit_cases(spec, _HELLASWAG_ROWS, tmp_path)
 
 
-# ── sample metadata rides the private target (OME-1240, opt-in) ──────────────
+# ── question metadata rides the private Grading Material (OME-1240, opt-in) ─
 
 
 def test_opted_in_sample_metadata_is_prepared_into_the_target(tmp_path: Path) -> None:
-    """A metadata-dispatching scorer (frontierscience) reads sample metadata at
-    grade time — a row that opts in prepares it into the private target record."""
+    """A metadata-dispatching scorer (frontierscience) reads question metadata at
+    grade time — a row that opts in prepares it into the private Grading Material record."""
 
     from dataclasses import replace
 
@@ -725,8 +725,8 @@ def test_the_metadata_opt_in_is_benchmark_identity(monkeypatch: pytest.MonkeyPat
 
 
 def test_non_json_sample_metadata_refuses_the_prepare(tmp_path: Path) -> None:
-    """The target file is JSON — an unserializable metadata value must fail the prepare step
-    by case number, never truncate or coerce a benchmark asset silently."""
+    """The Grading Material file is JSON — an unserializable metadata value must fail the
+    prepare step by case number, never truncate or coerce a benchmark asset silently."""
 
     import sys
     import types
@@ -932,7 +932,7 @@ def test_question_filter_refuses_what_it_cannot_reproduce(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, task_name: str, task_fn: Any, reason: str
 ) -> None:
     """The question filter only lets the eval DROP questions. A task that fails, loads twice
-    (the question filter hands every load the same samples), reorders, or adds a question
+    (the question filter hands every load the same questions), reorders, or adds a question
     would prepare a benchmark we cannot vouch for — refuse by name, prepare nothing."""
 
     _install_filtering_eval(monkeypatch, **{task_name: task_fn})
@@ -983,7 +983,7 @@ def test_the_question_filter_is_benchmark_identity(monkeypatch: pytest.MonkeyPat
     assert len({base, even, odd}) == 3
 
 
-# ── named deviation: pinned sample ids the prepare step leaves out (OME-1269) ────────
+# ── named deviation: pinned upstream question ids the prepare step leaves out (OME-1269) ─
 
 
 def test_excluded_sample_ids_drop_exactly_those_questions(
@@ -1101,7 +1101,7 @@ def test_a_row_without_the_opt_in_still_refuses_an_empty_answer_key(tmp_path: Pa
 
 def test_the_no_answer_key_opt_in_prepares_an_empty_target(tmp_path: Path) -> None:
     """xstest's judge reads only the question and the reply (complied / refused), so
-    there is no key to store — the opt-in prepares the prompt with an empty target."""
+    there is no key to store — the opt-in prepares the prompt with an empty answer key."""
 
     emit_cases(_no_key_spec(has_answer_key=False), _XSTEST_ROWS, tmp_path, expected_cases=2)
 

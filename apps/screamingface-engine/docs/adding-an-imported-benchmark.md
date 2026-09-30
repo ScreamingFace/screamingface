@@ -48,7 +48,7 @@ check:
     makes an eval not row-importable as-is). There is no silent drop: an eval that
     grades only at specific sampling settings either isn't imported, or ships
     without them as a NAMED DEVIATION (below).
-  - Every case has a non-empty text target. A judged eval whose rubric IS the target
+  - Every question has a non-empty text target. A judged eval whose rubric IS the target
     (coconot, sosbench — the target is empty and the judge carries the whole rule)
     fails the deterministic prepare today; the prepare step extension is an unfiled follow-up,
     not a knob you can flip.
@@ -113,14 +113,14 @@ pass/fail-only feedback. **MCQ benchmarks never get one** — pass/fail feedback
 handful of options is an elimination attack (OME-796). **Judged benchmarks never get one
 either (yet)** — a judged mid-run check spends judge tokens per attempt while the
 surface still advertises `free`; assembly refuses the combination until the check-cost
-knob lands (OME-1116). The generated row defaults correctly from the scorer family —
+knob lands (OME-1116). The generated row defaults correctly from the grading family —
 judged rows are generated with NO surface; treat changing any of it as an owner
 decision.
 
 ### Live activity comes from the shared adapter
 
 Benchmarks created through `single_shot_benchmark` inherit loading, answering, grading and
-aggregation observations. The shared Inspect scorer emits case-grading start and
+aggregation observations. The shared adapter's grading step emits case-grading start and
 terminal facts around actual scoring, including judge-backed scoring; merely recording
 an answer emits an answering operation with `action=recording` (displayed as
 “Answer recorded”), and packaging its attempt emits no grading event. Judge calls
@@ -168,7 +168,7 @@ checklist (minutes, not hours):
 - The license in the pins comment is genuinely cleared for a public catalogue.
 - Every `TODO(review)` is resolved with a reason, and the prose honestly describes
   the benchmark.
-- The check-surface flag matches the scorer family (string-match free text ⇔ surface
+- The check-surface flag matches the grading family (string-match free text ⇔ surface
   on; MCQ and judged ⇔ surface off).
 - **Judged rows only** (the model-graded lane, OME-1240):
   - The judge model is a DECLARED gateway model: its route (`/<gateway-model-id>`)
@@ -180,7 +180,7 @@ checklist (minutes, not hours):
     (precedent: HealthBench's judge model and params, `benchmarks/healthbench/revision_inputs.py`).
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
     are benchmark identity — expect the revision to move if any of them changes.
-  - If the scorer dispatches on sample metadata (frontierscience's `format`), the
+  - If the scorer dispatches on question metadata (frontierscience's `format`), the
     cases row sets `keep_question_metadata=True` — otherwise the scorer grades blind.
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
