@@ -16,7 +16,7 @@ entries (99.5%) carry no provider-reported price, so a cached run cannot supply 
 | # | Decision |
 | -- | -- |
 | D1 | **Any cache hit** makes a submission non-`complete`, until `OME-1382` ranks on spend plus saving. Then relax to "any hit without a `reported` price". |
-| D2 | Such a submission is `partial` with **no amount**: today's board contract (`schemas.py:547`) refuses an amount beside `partial`. It leaves every cost surface and the frontier. The score still publishes. |
+| D2 | Such a submission is `partial` with **no amount**: today's board contract (`schemas.py:547`) refuses an amount beside `partial`. It leaves every cost surface and the frontier. The score still publishes. This holds whatever the local status: an unpriced cached run (`unavailable` locally) is also sent as `partial` (owner, 2026-09-30, after review of #1187). The status sent then depends on the hit count alone. `unavailable` is left for uncached runs whose spend could not be priced. |
 | D3 | **SDK only.** Board-side enforcement for older clients (the SDK sends its hit counts; the board downgrades) is a separate follow-up under `OME-1251`. |
 | D4 | **Public addition approved:** read-only `CandidateResult.cache_hits: int`, serialized in `to_dict`. The public-surface snapshot is regenerated for exactly this change. |
 | D5 | **Unknown means partial** was approved for reloaded reports, but the SDK has no reload path: a `CandidateResult` is built only by a live run (`_evaluation/results.py:130`), which always knows its count. So the field is `int` with default `0` for hand-built results (keeps every prior test unchanged); a live run always sets it. |
@@ -48,7 +48,9 @@ exposes it read-only.
 | > 0 | `partial` | omitted | as today (when present) |
 
 `partial` beside a saving, and `partial` without one, are both accepted by the board today
-(`schemas.py:476-505`), so no board change is needed.
+(`schemas.py:476-505`), so no board change is needed. This widens `partial` beyond the board's own
+wording ("saving evidence exists", `scores/schemas.py:139`). That comment is updated under
+`OME-1442`.
 
 ## Consequences
 

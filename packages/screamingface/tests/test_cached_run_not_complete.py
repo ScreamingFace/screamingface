@@ -218,10 +218,21 @@ def test_an_uncached_run_submits_its_cost_exactly_as_before() -> None:
     assert Decimal(str(payload["run_cost_usd"])) == Decimal("0.829580")
 
 
-def test_an_unpriced_cached_run_stays_unavailable() -> None:
-    """No amount and no saving: `unavailable` already publishes nothing, and it must not claim
-    `partial` (the board reads `partial` as 'saving evidence exists')."""
+def test_an_unpriced_cached_run_is_partial_too() -> None:
+    """INVARIANT (D1): ANY hit means `partial`, whether or not the spend was priced. The status
+    sent is then a function of the hit count alone: `partial` means "the cache served some calls,
+    so no amount is published", which is the rule the board-side follow-up enforces (`OME-1442`).
+    """
     payload = _submission(_result(cost=None, cache_hits=3))
+
+    assert payload["run_cost_status"] == "partial"
+    assert payload["run_cost_usd"] is None
+
+
+def test_an_unpriced_uncached_run_stays_unavailable() -> None:
+    """`unavailable` keeps its meaning for a run the cache never served: the spend itself could
+    not be priced."""
+    payload = _submission(_result(cost=None, cache_hits=0))
 
     assert payload["run_cost_status"] == "unavailable"
     assert payload["run_cost_usd"] is None

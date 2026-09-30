@@ -63,8 +63,12 @@ is submitted changes. Parent epic `OME-1251`. Spec `docs/spec/2026-09-30-cached-
     every round trip (spec D5 amendment).
   - An invalid summary count (negative, bool, non-int) raises `ExecutionError` instead of
     being ignored.
-  - `partial` and `unavailable` pass through unchanged. `unavailable` never becomes `partial`,
-    because the board reads `partial` as saving evidence. The board accepts `partial` with
-    neither an amount nor a saving (`scores/schemas.py` `validate_cost_matches_its_status`).
+  - Review of #1187 (P2): the first version downgraded only `complete`, so an unpriced cached
+    run still went out as `unavailable`, against D1 and the spec's payload table. Owner decision
+    2026-09-30: follow the spec. Any hit now sends `partial`, whatever the local status, so the
+    status sent depends on the hit count alone. `unavailable` is left for uncached runs whose
+    spend could not be priced. The board accepts `partial` with neither an amount nor a saving
+    (`scores/schemas.py` `validate_cost_matches_its_status`). Its comment still defines
+    `partial` as "saving evidence exists"; that wording is updated under `OME-1442`.
   - Not solved here: older SDKs and non-SDK clients still submit cached runs as `complete`
     (board-side enforcement is a separate follow-up), and the stored rows need `OME-1384`.

@@ -446,15 +446,18 @@ def _published_cost(candidate_result: CandidateResult) -> dict[str, object]:
     A cache hit spends nothing upstream, so a cached run's spend understates what the run costs,
     and until the board ranks on spend plus saving (`OME-1382`) that spend would rank as exact.
 
-    INVARIANT (D1): ANY hit turns a `complete` claim into `partial` with no amount. Only the
-    published pair changes; the local result keeps its true spend and status. `partial` and
-    `unavailable` already carry no amount, so they pass through unchanged, and `unavailable`
-    never becomes `partial`: the board reads `partial` as "saving evidence exists".
+    INVARIANT (D1): ANY hit publishes `partial` with no amount, whatever the local status. The
+    status sent is then a function of the hit count alone: `partial` means "the cache served some
+    calls, so no amount is published", and `unavailable` keeps meaning "no hits, and the spend
+    itself could not be priced". Only the published pair changes; the local result keeps its
+    true spend and status.
 
-    AIDEV-NOTE: relax to "any hit without a `reported` price" once `OME-1382` ranks on spend
-    plus saving; a reported hit's saving then completes the cost instead of hiding it.
+    AIDEV-NOTE: this widens `partial` beyond the board's own wording ("saving evidence exists",
+    `scores/schemas.py`). The board accepts the pair; its definition is updated by `OME-1442`.
+    Relax to "any hit without a `reported` price" once `OME-1382` ranks on spend plus saving; a
+    reported hit's saving then completes the cost instead of hiding it.
     """
-    if candidate_result.cache_hits > 0 and candidate_result.run_cost_status == "complete":
+    if candidate_result.cache_hits > 0:
         return {"run_cost_usd": None, "run_cost_status": "partial"}
     return {
         "run_cost_usd": _cost_text(candidate_result.usage.cost_usd),
