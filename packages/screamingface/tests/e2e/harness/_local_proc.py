@@ -20,6 +20,7 @@ import os
 import socket
 import subprocess
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
@@ -47,6 +48,17 @@ def clean_env(extra: dict[str, str]) -> dict[str, str]:
     """A from-scratch child environment: passthrough basics + ``extra``, nothing else."""
     base = {name: value for name in _ENV_PASSTHROUGH if (value := os.environ.get(name))}
     return {**base, **extra}
+
+
+def refuse_secret_env(extra_env: Mapping[str, str] | None) -> None:
+    """Raise `ValueError` when a child env would carry a secret.
+
+    INVARIANT: spend stays impossible by construction. No `*_API_KEY` and no
+    `AIGATEWAY_SECRET_KEY` can reach a child. The message names the key, never the value.
+    """
+    for key in extra_env or ():
+        if key.endswith("_API_KEY") or key == "AIGATEWAY_SECRET_KEY":
+            raise ValueError(f"refusing secret env key: {key}")
 
 
 def free_port() -> int:

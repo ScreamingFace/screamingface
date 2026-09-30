@@ -15,6 +15,7 @@ on:
       - "packages/url4/**"
       - "apps/screamingface-engine/**"
       - "apps/aigateway/**"
+      - "apps/scoreboard/**"
       - ".github/workflows/screamingface-e2e-replay.yml"
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - "packages/url4/**"
       - "apps/screamingface-engine/**"
       - "apps/aigateway/**"
+      - "apps/scoreboard/**"
       - ".github/workflows/screamingface-e2e-replay.yml"
   workflow_dispatch:
 
@@ -31,7 +33,9 @@ permissions:
 jobs:
   golden-replay:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60: the E14 spines (OME-1307) add four stack boots, each with two Postgres containers, and
+    # seven 50-case runs on top of the golden replays.
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: packages/screamingface

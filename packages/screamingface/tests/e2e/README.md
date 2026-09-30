@@ -80,3 +80,38 @@ remain executable before credential resolution. It does not fabricate configured
 access or change production preflight behavior. All other datasheet fields, errors,
 chat/cache handling and the existing `profile_not_found` cache-miss assertions remain
 unchanged. Provider-access rejection itself stays covered by Client preflight tests.
+
+## E14 spines (OME-1307)
+
+Four end-to-end flows of the reproducible-submission work, on a real local stack: the real
+gateway, the real engine and the real scoreboard (three processes, two Postgres containers). The
+model answers come from the committed `ifeval` snapshot, so a cache miss is a loud failure and
+nothing is ever spent. The scoreboard and the gateway run the production auth mode
+`cloudflare_headers`; a test edge (`harness/identity.py`) sets `X-User-Email` per user from an
+allowed network, so the two-user flows use real identities.
+
+| Id | Test | Proves |
+|---|---|---|
+| SC-23 | `test_e14_cluster.py` | two users run one system: one leaderboard row, two results, the original ranks |
+| RP-21 | `test_e14_replay.py` | a second user replays a submitted run from its cache version: all hits, zero cost, labelled a replay |
+| MD-21 | `test_e14_submit_edit.py` | submit, edit the paper link and authors, read them on the leaderboard |
+| PB-22 | `test_e14_publish_nightly.py` | submit, publish to a sandbox GitHub repo, download, the asset digest matches the version. Nightly only |
+
+```sh
+SCREAMINGFACE_TEST_E2E=1 uv run pytest tests/e2e -k e14 -rs    # needs docker and prepared ifeval assets
+uv run pytest tests/e2e/test_e14_harness_contracts.py           # the harness self-tests: no docker
+```
+
+The stack env is built by the same code `screamingface up` runs: the SDK key builder
+(`screamingface._runtime.signing_keys`) and the WIRING hook
+(`screamingface._runtime.local_features`). If a key or a flag is wrong there, these tests fail.
+
+**PB-22 (nightly).** Workflow `screamingface-e14-publish-nightly.yml`. It needs a sandbox repo and
+a GitHub App installed only on it: the secrets `E14_SANDBOX_APP_ID` and
+`E14_SANDBOX_APP_PRIVATE_KEY` and the repository variable `E14_SANDBOX_REPO` (`owner/repo`). With
+none of them the run ends green and skipped, and the notice names what is missing. Locally the
+test also needs `SCREAMINGFACE_TEST_E2E_GITHUB=1`, `E14_SANDBOX_APP_INSTALLATION_ID` and
+`E14_SANDBOX_TOKEN`. The test deletes its release and tag when it ends.
+
+**Docker on Colima (macOS).** If testcontainers fails on the Ryuk container with a `docker.sock`
+mount error, run with `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock`.
