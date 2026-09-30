@@ -218,18 +218,27 @@ class ClusterStore:
         target = await self.load_replay_target(replay.result_id)
         if target is None or not self._replay_allowed(call, target, replay):
             raise InvalidReplayClaim
+        # INVARIANT (X-SEC-1): the baseline is held to the same board and access rules as the
+        # replayed result. The FK is NO ACTION (D8), so a baseline that names a result this caller
+        # may not see would block its owner's delete or purge, and the 201/422 split would tell the
+        # caller that the id exists.
         baseline = replay.pinned_baseline_result_id
-        if baseline is not None and not await ReportedResult.exists(id=baseline):
-            raise InvalidReplayClaim
+        if baseline is not None:
+            named = await self.load_replay_target(baseline)
+            if named is None or not self._replay_allowed(call, named, replay, baseline=True):
+                raise InvalidReplayClaim
 
     @staticmethod
-    def _replay_allowed(call: _Call, target: ReplayTarget, replay: ReplayClaim) -> bool:
+    def _replay_allowed(
+        call: _Call, target: ReplayTarget, replay: ReplayClaim, *, baseline: bool = False
+    ) -> bool:
         # INVARIANT: the claim names a result of THIS board (C4 trust rule). A grant across
         # boards is refused too (C6/RP-E4), so no grant could have produced such a claim.
+        # WHY `baseline`: the baseline is a result of its own, so the claimed version is not
+        # compared with it; the board and access rules are the same.
         if (
-            target.result.cache_version_id != replay.cache_version_id
-            or target.benchmark.id != call.submission.benchmark_id
-        ):
+            not baseline and target.result.cache_version_id != replay.cache_version_id
+        ) or target.benchmark.id != call.submission.benchmark_id:
             return False
         access = replay_access(
             board_visibility=target.benchmark.visibility,
