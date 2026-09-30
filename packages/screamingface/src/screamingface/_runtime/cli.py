@@ -22,6 +22,9 @@ from urllib.request import Request, urlopen
 
 from screamingface._runtime import source as runtime_source
 from screamingface._runtime.config import RuntimeConfig, default_data_dir
+from screamingface._runtime.files import (
+    write_json_atomic as _write_json_atomic,  # private alias: tests call cli._write_json_atomic
+)
 
 _STATE_VERSION = 1
 _PORT_DEFAULTS = {"gateway": 9105, "scoreboard": 9106, "engine": 9108}
@@ -777,22 +780,6 @@ def _validate_benchmark_output(name: str, destination: Path) -> list[str]:
     if not isinstance(cases, list) or not cases:
         raise RuntimeError("prepared cases.json contains no cases")
     return list(required)
-
-
-def _write_json_atomic(path: Path, value: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, sort_keys=True)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        path.chmod(0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _runtime_log_tail(path: Path, *, limit: int = _STARTUP_LOG_TAIL_LINES) -> str:

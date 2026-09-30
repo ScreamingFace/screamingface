@@ -23,6 +23,7 @@ from screamingface._runtime.bootstrap import (
     scoreboard_seed_json,
 )
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
+from screamingface._runtime.local_features import apply_local_e14_environment
 from screamingface._runtime.runtime_logging import log_service
 from screamingface._runtime.signing_keys import apply_local_signing_environment
 from screamingface._runtime.source import (
@@ -190,6 +191,8 @@ async def run(
     # step. The scoreboard child inherits it (`Popen` below passes no `env`), so both services see
     # the same pairs. INVARIANT: nothing about the keys is printed.
     apply_local_signing_environment(os.environ, config.data_dir)
+    # FEATURE (OME-1307, WIRING D6): the two E14 flags and one archive dir, next to the keys.
+    apply_local_e14_environment(os.environ, config.data_dir)
     await _migrate(config)
     gateway, engine, gateway_config = _build_apps(config)
     # WHY printed AND published (OME-1169): the log line makes the effective config
