@@ -145,7 +145,7 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
         output=ModelOutput.from_content(model=_CANDIDATE_MODEL, content=completion),
         # WHY: metadata-dispatching scorers (frontierscience's format field) read
         # the Sample's metadata off the state; the prepare step delivers it in the target
-        # record behind CasesSpec.keep_sample_metadata (OME-1240).
+        # record behind CasesSpec.keep_question_metadata (OME-1240).
         metadata=_sample_metadata(material),
     )
     if choices:

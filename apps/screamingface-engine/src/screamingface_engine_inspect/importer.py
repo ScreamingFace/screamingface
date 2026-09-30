@@ -1232,7 +1232,7 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
             "        # pinned params) here — both join the benchmark's identity."
         )
         benchmark_lines.append("        # If the scorer dispatches on sample metadata, also set")
-        benchmark_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
+        benchmark_lines.append("        # keep_question_metadata=True on the CasesSpec row.")
         benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
     if not facts.mcq and not judged:
         benchmark_lines.append(

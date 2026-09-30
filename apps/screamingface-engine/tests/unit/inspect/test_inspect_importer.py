@@ -1969,7 +1969,7 @@ def test_a_judged_row_never_advertises_a_check_surface() -> None:
         HubDatasetFacts(revision="c" * 40, case_count=7, license="mit"),
     )
     assert "with_check_surface" not in rows.benchmark
-    assert "keep_sample_metadata" in rows.benchmark  # the reviewer reminder rides the flag
+    assert "keep_question_metadata" in rows.benchmark  # the reviewer reminder rides the flag
 
 
 # ---------------------------------------------------------------------------

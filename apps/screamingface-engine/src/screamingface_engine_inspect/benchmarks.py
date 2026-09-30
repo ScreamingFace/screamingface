@@ -1063,8 +1063,9 @@ def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
         # sits (and the letter that grades correct), so the seed rides benchmark
         # identity exactly like the row-shuffle seed (OME-1264).
         pins.append(f"choice_shuffle_seed={cases_spec.choice_shuffle_seed}")
-    if cases_spec.keep_sample_metadata:
+    if cases_spec.keep_question_metadata:
         # Flipping the opt-in changes what the prepare step ships — benchmark identity moves.
+        # WHY the old field name: this pin string is hashed into the published revision.
         pins.append("keep_sample_metadata=1")
     if cases_spec.system_message is not None:
         # WHY: adding or dropping the leading instruction changes the benchmark a
@@ -1097,9 +1098,10 @@ def _dropped_question_pins(cases_spec: CasesSpec) -> list[str]:
         pins.append(f"question_filter_task={cases_spec.question_filter_task}")
         task_args: str = json.dumps(cases_spec.question_filter_task_args or {}, sort_keys=True)
         pins.append(f"question_filter_task_args={task_args}")
-    if cases_spec.excluded_sample_ids is not None:
+    if cases_spec.excluded_upstream_ids is not None:
         # WHY: the named deviation removes questions from the benchmark.
-        pins.append(f"excluded_sample_ids={','.join(sorted(cases_spec.excluded_sample_ids))}")
+        # WHY the old field name: this pin string is hashed into the published revision.
+        pins.append(f"excluded_sample_ids={','.join(sorted(cases_spec.excluded_upstream_ids))}")
     return pins
 
 

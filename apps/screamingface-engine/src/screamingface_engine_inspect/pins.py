@@ -339,7 +339,7 @@ ONET_M6_DATASET_REVISION = "93ffb5e3f3ec630b73e501937805984dd24f2365"
 # choice (2021_4_b447: answer E, 4 choices) and every candidate scores wrong there.
 # The importer counted 397; the pinned count is what is left after the exclusion.
 ONET_M6_CASE_COUNT = 391
-ONET_M6_EXCLUDED_SAMPLE_IDS = (
+ONET_M6_EXCLUDED_UPSTREAM_IDS = (
     "2019_10ข_6985",
     "2020_28_177b",
     "2020_43_b673",

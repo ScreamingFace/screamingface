@@ -354,7 +354,7 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
     assert row.dataset_revision == UPSTREAM
     assert row.question_filter_task == "inspect_evals.onet.onet:onet_m6"
     assert row.choice_template == "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
-    assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6
+    assert row.excluded_upstream_ids is not None and len(row.excluded_upstream_ids) == 6
     assert row.case_count == 397 - 6
     pins = _revision_pins(row)
     assert "question_filter_task=inspect_evals.onet.onet:onet_m6" in pins
@@ -375,7 +375,7 @@ def test_pubmedqa_prepares_the_evals_test_list_through_its_task() -> None:
     assert row.question_filter_task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
     assert row.choice_template == "inspect_evals.pubmedqa.pubmedqa:TEMPLATE"
     assert row.case_count == 500
-    assert row.excluded_sample_ids is None
+    assert row.excluded_upstream_ids is None
     assert "question_filter_task=inspect_evals.pubmedqa.pubmedqa:pubmedqa" in _revision_pins(row)
 
 

@@ -689,7 +689,7 @@ def test_opted_in_sample_metadata_is_prepared_into_the_target(tmp_path: Path) ->
 
     from dataclasses import replace
 
-    spec = replace(BENCHMARK_CASES["gsm8k"], keep_sample_metadata=True)
+    spec = replace(BENCHMARK_CASES["gsm8k"], keep_question_metadata=True)
     emit_cases(spec, _GSM8K_ROWS, tmp_path)
     target = json.loads((tmp_path / "targets" / "1.json").read_text(encoding="utf-8"))
     # gsm8k's record_to_sample attaches {"reasoning": ...} to every Sample.
@@ -717,7 +717,7 @@ def test_the_metadata_opt_in_is_benchmark_identity(monkeypatch: pytest.MonkeyPat
     base = benchmarks.imported_benchmark("gsm8k").benchmark.revision
 
     monkeypatch.setitem(
-        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], keep_sample_metadata=True)
+        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], keep_question_metadata=True)
     )
     monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
     monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
@@ -749,7 +749,7 @@ def test_non_json_sample_metadata_refuses_the_prepare(tmp_path: Path) -> None:
         spec = replace(
             BENCHMARK_CASES["gsm8k"],
             record_to_sample="fake_metadata_eval:record_to_sample",
-            keep_sample_metadata=True,
+            keep_question_metadata=True,
         )
         with pytest.raises(PrepareError, match="case 1"):
             emit_cases(spec, _GSM8K_ROWS[:1], tmp_path)
@@ -995,7 +995,7 @@ def test_excluded_sample_ids_drop_exactly_those_questions(
     _install_filtering_eval(monkeypatch)
 
     emit_cases(
-        _filter_spec(excluded_sample_ids=("4",), case_count=2),
+        _filter_spec(excluded_upstream_ids=("4",), case_count=2),
         _NUMBER_ROWS,
         tmp_path,
         expected_cases=2,
@@ -1018,7 +1018,7 @@ def test_excluded_sample_ids_count_after_the_exclusion_without_a_question_filter
         dataset_revision="deadbeef" * 5,
         case_count=1,
         record_to_sample="inspect_evals.wmdp.wmdp:record_to_sample",
-        excluded_sample_ids=(str(record_to_sample(_WMDP_ROWS[0]).id),),
+        excluded_upstream_ids=(str(record_to_sample(_WMDP_ROWS[0]).id),),
     )
 
     emit_cases(spec, _WMDP_ROWS, tmp_path, expected_cases=1)
@@ -1036,7 +1036,7 @@ def test_a_stale_excluded_sample_id_refuses_the_prepare(
     _install_filtering_eval(monkeypatch)
 
     with pytest.raises(PrepareError, match="99"):
-        emit_cases(_filter_spec(excluded_sample_ids=("99",)), _NUMBER_ROWS, tmp_path)
+        emit_cases(_filter_spec(excluded_upstream_ids=("99",)), _NUMBER_ROWS, tmp_path)
 
 
 def test_excluded_sample_ids_are_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1051,7 +1051,7 @@ def test_excluded_sample_ids_are_benchmark_identity(monkeypatch: pytest.MonkeyPa
 
     base: str = revision()
     monkeypatch.setitem(
-        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], excluded_sample_ids=("7",))
+        BENCHMARK_CASES, "gsm8k", replace(BENCHMARK_CASES["gsm8k"], excluded_upstream_ids=("7",))
     )
 
     assert revision() != base

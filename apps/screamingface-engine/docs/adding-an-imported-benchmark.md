@@ -181,7 +181,7 @@ checklist (minutes, not hours):
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
     are benchmark identity — expect the revision to move if any of them changes.
   - If the scorer dispatches on sample metadata (frontierscience's `format`), the
-    cases row sets `keep_sample_metadata=True` — otherwise the scorer grades blind.
+    cases row sets `keep_question_metadata=True` — otherwise the scorer grades blind.
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.

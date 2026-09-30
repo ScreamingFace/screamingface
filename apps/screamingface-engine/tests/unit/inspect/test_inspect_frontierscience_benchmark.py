@@ -65,7 +65,7 @@ def test_the_judge_is_declared_and_pinned() -> None:
         params=(("web_search", "false"), ("max_tokens", "4096")),
     )
     assert spec.scorer_kwargs["model"] == "screamingface/openrouter/openai/gpt-5.4"
-    assert BENCHMARK_CASES["frontierscience"].keep_sample_metadata is True
+    assert BENCHMARK_CASES["frontierscience"].keep_question_metadata is True
     assert BENCHMARK_CASES["frontierscience"].shuffle_seed is not None
 
 

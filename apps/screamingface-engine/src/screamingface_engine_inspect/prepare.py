@@ -24,7 +24,7 @@ never reimplemented, so an imported benchmark's content is exactly what the eval
 Importing eval #3 means adding one spec entry, zero new functions.
 
 INVARIANT — the Sample coming back from the eval's ``record_to_sample`` crosses ONE
-validated boundary (:func:`_validated_target`): a malformed row fails the whole prepare
+validated boundary (:func:`_validated_answer_key`): a malformed row fails the whole prepare
 by case number, never prepares a half-keyed or unkeyed benchmark.
 
 INVARIANT — ``cases.json`` carries NO target. The client receives ids and prompts; the
@@ -160,7 +160,7 @@ from screamingface_engine_inspect.pins import (
     ONET_M6_CONFIG,
     ONET_M6_DATASET,
     ONET_M6_DATASET_REVISION,
-    ONET_M6_EXCLUDED_SAMPLE_IDS,
+    ONET_M6_EXCLUDED_UPSTREAM_IDS,
     ONET_M6_SHUFFLE_SEED,
     ONET_M6_SPLIT,
     PAWS_CASE_COUNT,
@@ -265,7 +265,7 @@ class CasesSpec:
     #: needed by metadata-dispatching scorers (frontierscience's format field).
     #: Default False keeps every published benchmark's prepared assets byte-identical
     #: (prepared cases are immutable at their revision); flipping it moves the revision.
-    keep_sample_metadata: bool = False
+    keep_question_metadata: bool = False
     #: OME-1269 question filter: the eval's own task function (same dotted-reference
     #: convention), for an eval that DROPS questions after loading — a
     #: ``.filter()`` inside the task (pubmedqa keeps its 500 test ids of 1,000
@@ -283,7 +283,7 @@ class CasesSpec:
     #: Every id must be present, or the prepare step refuses (upstream moved under the
     #: deviation); ``case_count`` is the count left after the exclusion. The row
     #: says why beside the ids, and the ids ride benchmark identity (OME-1269).
-    excluded_sample_ids: tuple[str, ...] | None = None
+    excluded_upstream_ids: tuple[str, ...] | None = None
     #: False for a judged benchmark whose judge grades from the question and the reply
     #: alone (xstest: complied / refused), so the dataset has no answer key to store.
     #: The prepare step then accepts an empty target; every other benchmark keeps refusing one,
@@ -642,7 +642,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         record_to_sample="inspect_evals.frontierscience.frontierscience:record_to_sample",
         # The scorer dispatches each case to its format's judge prompt via the
         # Sample's metadata (format/subject) — prepare it into the private target.
-        keep_sample_metadata=True,
+        keep_question_metadata=True,
         shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
     ),
     "onet_m6": CasesSpec(
@@ -665,7 +665,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # the pinned questions and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.onet.onet:onet_m6",
         # Named deviation: six malformed questions inspect keeps (see the pin).
-        excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
+        excluded_upstream_ids=ONET_M6_EXCLUDED_UPSTREAM_IDS,
     ),
     "pubmedqa": CasesSpec(
         dataset=PUBMEDQA_DATASET,
@@ -820,7 +820,7 @@ def emit_cases(
     cases: list[dict[str, Any]] = []
     targets: dict[int, dict[str, Any]] = {}
     for case_id, sample in enumerate(samples, start=1):
-        target, choices = _validated_target(sample, case_id, spec.has_answer_key)
+        target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
         input_text: str = _prompt(sample, choices, template, choice_template)
         if system_text is not None:
             # Named deviation (contracteval pattern): the eval's SYSTEM
@@ -839,7 +839,7 @@ def emit_cases(
         record: dict[str, Any] = (
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
-        if spec.keep_sample_metadata and sample.metadata:
+        if spec.keep_question_metadata and sample.metadata:
             record["metadata"] = _validated_metadata(sample.metadata, case_id)
         targets[case_id] = record
     return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
@@ -853,7 +853,7 @@ def _pinned_samples(
     checks its size on what is left instead of on the raw rows."""
 
     drops_questions: bool = (
-        spec.question_filter_task is not None or spec.excluded_sample_ids is not None
+        spec.question_filter_task is not None or spec.excluded_upstream_ids is not None
     )
     if not drops_questions:
         _require_case_count(len(rows), expected_cases, "dataset yielded", "rows")
@@ -863,14 +863,16 @@ def _pinned_samples(
     samples: list[Sample] = _converted_samples(ordered, _resolve(spec.record_to_sample))
     if spec.question_filter_task is not None:
         samples = task_kept_samples(spec, samples)
-    if spec.excluded_sample_ids is not None:
-        samples = _without_excluded_samples(spec.excluded_sample_ids, samples)
+    if spec.excluded_upstream_ids is not None:
+        samples = _without_excluded_upstream_ids(spec.excluded_upstream_ids, samples)
     if drops_questions:
         _require_case_count(len(samples), expected_cases, "the prepare step kept", "cases")
     return samples
 
 
-def _without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sample]) -> list[Sample]:
+def _without_excluded_upstream_ids(
+    excluded_ids: tuple[str, ...], samples: list[Sample]
+) -> list[Sample]:
     """The named deviation — drop the pinned ids, refusing any id that is not there.
 
     WHY refuse a missing id: the list was written against one revision's data; an
@@ -882,7 +884,7 @@ def _without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sampl
     missing: list[str] = sorted(set(excluded_ids) - present)
     if missing:
         raise PrepareError(
-            f"excluded_sample_ids {', '.join(missing)} are not in the dataset — the named "
+            f"excluded_upstream_ids {', '.join(missing)} are not in the dataset — the named "
             "deviation no longer matches the pinned questions"
         )
     return [sample for sample in samples if str(sample.id) not in excluded_ids]
@@ -1163,7 +1165,7 @@ def _resolve(reference: str) -> Any:
     return getattr(import_module(module_name), attribute)
 
 
-def _validated_target(
+def _validated_answer_key(
     sample: Sample, case_id: int, has_answer_key: bool = True
 ) -> tuple[str, list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
@@ -1225,15 +1227,17 @@ def _emit(
     *,
     dataset_revision: str,
 ) -> dict[str, Any]:
-    targets_dir: Path = out / "targets"
+    grading_material_dir: Path = out / "targets"
     # WHY refuse a dirty out: a re-prepare into a used directory would leave orphan
     # targets/*.json from a previous, larger prepare — the image build always starts
     # fresh, and this makes that assumption loud instead of silent.
-    if (out / "cases.json").exists() or (targets_dir.is_dir() and any(targets_dir.iterdir())):
+    if (out / "cases.json").exists() or (
+        grading_material_dir.is_dir() and any(grading_material_dir.iterdir())
+    ):
         raise PrepareError(f"refusing to prepare into non-empty directory {out}")
-    targets_dir.mkdir(parents=True, exist_ok=True)
+    grading_material_dir.mkdir(parents=True, exist_ok=True)
     for case_id, record in targets.items():
-        (targets_dir / f"{case_id}.json").write_text(
+        (grading_material_dir / f"{case_id}.json").write_text(
             json.dumps(record, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
         )
     (out / "cases.json").write_text(
