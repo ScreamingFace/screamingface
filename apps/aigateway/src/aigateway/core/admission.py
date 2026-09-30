@@ -23,6 +23,21 @@ QUEUE_HEADER = "x-aigw-queue-timeout-s"
 REMAINING_HEADER = "x-aigw-remaining-timeout-s"
 
 
+class ProviderExecutionTimeout(HTTPException):
+    """Safe wire error retaining timeout identity for attempt accounting."""
+
+    def __init__(self) -> None:
+        # Accounting classifies transport failures by exception type. A plain
+        # HTTPException would erase timeout evidence before the route finalizes it.
+        super().__init__(
+            status_code=504,
+            detail={
+                "code": "provider_execution_timeout",
+                "message": "Provider execution timed out.",
+            },
+        )
+
+
 def _budget(request: Request, header: str, maximum: float) -> float:
     raw = request.headers.get(header)
     if raw is None:
@@ -91,9 +106,7 @@ async def _dispatch(request: Request, provider: str, call: Callable[[], Awaitabl
                     raise _timeout(
                         "provider_queue_timeout", "Timed out waiting for provider capacity."
                     ) from None
-                raise _timeout(
-                    "provider_execution_timeout", "Provider execution timed out."
-                ) from None
+                raise ProviderExecutionTimeout() from None
     except TimeoutError:
         outcome = "caller_deadline_exceeded"
         raise _timeout(outcome, "The caller's request budget expired.") from None

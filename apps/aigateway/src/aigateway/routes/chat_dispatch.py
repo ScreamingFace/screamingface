@@ -22,7 +22,7 @@ import httpx
 from fastapi import HTTPException, Request
 from litellm.exceptions import Timeout
 
-from ..core.admission import dispatch_with_budgets
+from ..core.admission import ProviderExecutionTimeout, dispatch_with_budgets
 from ..core.http_status import valid_http_error_status
 from ..core.provider_access import CredentialTarget, provider_access_for
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
@@ -131,13 +131,7 @@ async def _dispatch_with_backpressure(
         try:
             return await plugin.chat_completion(body)
         except (Timeout, httpx.TimeoutException):
-            raise HTTPException(
-                status_code=504,
-                detail={
-                    "code": "provider_execution_timeout",
-                    "message": "Provider execution timed out.",
-                },
-            ) from None
+            raise ProviderExecutionTimeout() from None
 
     # FEATURE (OME-1132): the provider call as a CHILD span — "which provider was slow",
     # answerable at last. Deliberately wraps the WHOLE block, slot wait and retries included,

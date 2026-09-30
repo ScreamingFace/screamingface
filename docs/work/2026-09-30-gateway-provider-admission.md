@@ -37,3 +37,11 @@ No expired/disconnected queued call dispatches; independent timeout phases and b
 - **Gates:** `PYTEST_ADDOPTS='-m "not live and not needs_postgres"' uv run .claude/scripts/run_gates.py aigateway --base 09a0379e`: ALL GATES GREEN (lint, format, Pyright, enterprise import guard, full offline coverage suite). Focused admission plus external review/socket tests: 33 passed on each of Python 3.12 and 3.13.
 - **Deviations:** Append-only baseline is the previously reviewed PR head; the original 504 timeout-status assertion is retained because timeout classification is the intended contract. Live/Postgres tests are excluded as in offline CI; no paid calls.
 - **Wisdom review:** Absolute deadline checks release already-acquired slots; dispatch stays in its request task, eliminating the cancellation coordination gap. No new dependencies, credential changes, or Engine runtime in this PR. Deploy before Engine #1152.
+
+## Review follow-up: preserve timeout accounting
+
+- **Cause:** Normalizing provider timeouts to a plain HTTPException erased the exception-type evidence used by attempt accounting, changing `transport_timeout` to generic `transport_error`.
+- **Fix:** Share a safe `ProviderExecutionTimeout` HTTPException subtype between provider transport timeouts and Gateway execution-budget expiry. The wire response remains 504 / `provider_execution_timeout`; accounting retains timeout identity without exposing provider text.
+- **Regression:** Add route-level tests with a real accounting collector and an observed fake send for HTTPX, LiteLLM, and Gateway execution-budget timeouts. All three failed before the fix; all pass afterward. Existing tests remain unchanged.
+- **Focused validation:** 568 admission/accounting/error-policy tests passed on Python 3.13; 28 admission/accounting tests passed on Python 3.12. The original independent base/head reproducer now passes all four cases. Eight independent socket/backoff checks passed. No paid provider calls.
+- **Full validation:** All Gateway gates passed with live/Postgres cases excluded, including append-only verification against `9909f372`, Ruff lint/format, Pyright, enterprise import guard, and the full offline suite with the 80% aggregate coverage floor.
