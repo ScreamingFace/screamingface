@@ -311,6 +311,28 @@ SKIPPED_MARKER = "SKIPPED"
 type PreparedCase = dict[str, dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class TaskReplayCasesSpec:
+    """One Task-replay Imported Benchmark's Case Preparation, as pure data (OME-1273).
+
+    The Cases come from calling the eval's own task function (``task``, a ``"module:attr"``
+    reference, called with ``task_args``); building its Task loads the dataset. No evaluation
+    runs: no solver, scorer or model. No dataset pin applies, so ``case_count`` and
+    ``case_digest`` are CAPTURED at import and Case Preparation serves nothing unless both
+    match. The prompt fields mean exactly what they mean on :class:`CasesSpec`.
+    """
+
+    task: str
+    case_count: int
+    case_digest: str
+    task_args: dict[str, Any] | None = None
+    prompt_template: str | None = None
+    choice_template: str | None = None
+    system_message: str | None = None
+    keep_sample_metadata: bool = False
+    has_answer_key: bool = True
+
+
 def case_digest(prepared: Sequence[PreparedCase]) -> str:
     """Fingerprint the prepared Cases: the sha256 of exactly what the writer writes (OME-1273).
 
@@ -740,6 +762,11 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
 }
 
 
+#: Every Task-replay Imported Benchmark's Case Preparation, keyed like BENCHMARK_CASES.
+#: Empty until OME-1273's import PRs add agieval, medqa and mgsm.
+TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {}
+
+
 def require_commit_sha(revision: str) -> str:
     """Refuse a mutable revision ref — only a 40-hex commit sha is benchmark identity.
 
@@ -849,7 +876,9 @@ def emit_cases(
     return {"cases": len(prepared), "dataset_revision": spec.dataset_revision, "out": str(out)}
 
 
-def case_records(samples: Sequence[Sample], spec: CasesSpec) -> list[PreparedCase]:
+def case_records(
+    samples: Sequence[Sample], spec: CasesSpec | TaskReplayCasesSpec
+) -> list[PreparedCase]:
     """Stage 5 — turn Samples into prepared Cases: the rendered input plus its Grading Material.
 
     Shared by both preparation paths (OME-1273), so a Hugging Face Benchmark and a
@@ -1139,7 +1168,7 @@ def _shuffle_choices(samples: list[Sample], seed: int) -> None:
         ) from exc
 
 
-def _resolved_system_text(spec: CasesSpec) -> str | None:
+def _resolved_system_text(spec: CasesSpec | TaskReplayCasesSpec) -> str | None:
     """The eval's system instruction as leading input text, or None without one.
 
     WHY stripped once here: eval constants often carry framing newlines
@@ -1334,6 +1363,8 @@ __all__ = [
     "BENCHMARK_CASES",
     "CasesSpec",
     "PreparedCase",
+    "TASK_REPLAY_CASES",
+    "TaskReplayCasesSpec",
     "case_digest",
     "case_records",
     "count_kept_cases",

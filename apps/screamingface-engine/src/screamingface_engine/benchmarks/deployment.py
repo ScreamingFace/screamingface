@@ -12,6 +12,10 @@ from screamingface_engine.benchmarks.definition import Benchmark
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
 
 type BenchmarkAssetSummary = Mapping[str, Any]
+
+#: Summary key a preparer sets when it skipped its bundle because the Cases changed or could
+#: not be fetched (OME-1273). Its value is the reason. The prepare CLI's strict mode fails on it.
+CHANGED_CASES_KEY = "changed_cases"
 type BenchmarkAssetPreparer = Callable[[Path], BenchmarkAssetSummary]
 
 _ASSET_BUNDLE_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -171,6 +175,7 @@ class BenchmarkDeployment:
 
 
 __all__ = [
+    "CHANGED_CASES_KEY",
     "BenchmarkAssetBundle",
     "BenchmarkAssetPreparer",
     "BenchmarkAssetPreparationError",
