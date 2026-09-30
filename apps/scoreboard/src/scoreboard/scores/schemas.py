@@ -1160,3 +1160,19 @@ class ReplayGrantResponse(BaseModel):
     score_id: UUID
     cache_version_id: UUID
     expires_at: datetime
+
+
+# FEATURE: OME-1307 (E14) publish and takedown — the wire of C10 (SB-publish). Appended at the END
+# of the file so the merge with SB-grants' block has no overlapping hunk.
+class PublishStateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: PublicationState
+    # Set only when state == "published"; the SDK decodes it as optional (PB-21).
+    release_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class WithdrawRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Annotated[str, Field(min_length=1, max_length=512)]

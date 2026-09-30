@@ -178,6 +178,7 @@ jobs:
             tests/unit/test_migration_e14_postgres.py \
             tests/unit/registry/test_system_registry_postgres.py \
             tests/unit/scores/test_cluster_race_postgres.py \
+            tests/unit/scores/test_publish_lease_postgres.py \
             -v
 
   cost:

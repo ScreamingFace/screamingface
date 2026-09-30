@@ -540,6 +540,89 @@ kubectl -n scoreboard get secret scoreboard-db -o jsonpath='{.data.database-url}
 
 If GHCR image pulls fail, create an image pull Secret and set `imagePullSecrets[0].name=<secret-name>`.
 
+## Publish and takedown
+
+<!-- FEATURE: OME-1307 (E14) publish and takedown (SB-publish). -->
+
+OME-1307 (E14) lets the owner of a result publish its cache version as a GitHub release. It also
+lets an admin withdraw a publication. `POST /v1/results/{result_id}/publish` records the request.
+A worker in the same process does the work. `POST /v1/admin/results/{result_id}/withdraw` takes a
+publication down.
+
+Publishing is available only when all of these are true:
+
+- `SCOREBOARD_AUTH_MODE=cloudflare_headers`. The `disabled` mode is for dev and local use only. In
+  that mode the publish route answers 503 `publish_unavailable`, and the admin route answers 503
+  `admin_unavailable`.
+- The three GitHub App variables are set.
+- `SCOREBOARD_ARCHIVE_BACKEND` is `s3` or `filesystem`.
+
+If one of these is false, the publish route answers 503 `publish_unavailable` and changes nothing.
+No worker starts.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SCOREBOARD_ADMIN_EMAILS` | empty | Comma-separated admin addresses (lowercased). Empty turns the admin routes off (503). They work only in `cloudflare_headers` mode. |
+| `SCOREBOARD_GITHUB_APP_ID` | none | The GitHub App id. |
+| `SCOREBOARD_GITHUB_APP_INSTALLATION_ID` | none | The installation id of the App on the one repository. |
+| `SCOREBOARD_GITHUB_APP_PRIVATE_KEY` | none | The App private key (PEM, RSA). A secret. |
+| `SCOREBOARD_GITHUB_REPO` | `ScreamingFace/screamingface-cache-versions` | The repository that holds the releases. |
+| `SCOREBOARD_GITHUB_API_URL` | `https://api.github.com` | The GitHub API origin. |
+| `SCOREBOARD_PUBLIC_BASE_URL` | `https://scoreboard.screamingface.ai` | The scoreboard origin for the link in the release body. |
+| `SCOREBOARD_ARCHIVE_BACKEND` | `none` | `none`, `s3` or `filesystem`. |
+| `SCOREBOARD_ARCHIVE_S3_ENDPOINT_URL` | none | The S3 origin (no path). Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_S3_BUCKET` | none | The bucket name. Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_S3_REGION` | `garage` | The SigV4 region. |
+| `SCOREBOARD_ARCHIVE_S3_ACCESS_KEY_ID` | none | The read-only access key. Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_S3_SECRET_ACCESS_KEY` | none | The read-only secret key. A secret. Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_FS_ROOT` | none | The archive directory (local mode). Needed for `filesystem`. |
+| `SCOREBOARD_PUBLISH_WORKER_ENABLED` | `true` | `false` stops the worker in this process. |
+| `SCOREBOARD_PUBLISH_POLL_INTERVAL_S` | `30` | Seconds between polls when no job is due. |
+
+A partly set configuration stops the startup with an error. The error names the missing variable.
+It never prints a value.
+
+### GitHub App
+
+Make one GitHub App. Give it the permission "Contents: read and write". Install it on the one
+repository in `SCOREBOARD_GITHUB_REPO` only. Give it no other permission and no other repository.
+The worker makes a new installation token for each job. The token is never stored.
+
+### Bucket credentials
+
+The scoreboard only reads the archive. Give it a key that can read the `cache-versions/` prefix and
+cannot write. The gateway holds the write key. The scoreboard reads
+`cache-versions/<version_id>/entries.jsonl.gz` and `cache-versions/<version_id>/manifest.json`.
+Before any GitHub call, the worker checks that `sha256(entries.jsonl.gz)` equals the digest in the
+receipt. If it does not, the job stops with `archive_mismatch`. It never uploads.
+
+Known limit: the receipt does not cover `manifest.json`. A changed manifest in the bucket is not
+detected.
+
+### Admin allowlist
+
+Set `SCOREBOARD_ADMIN_EMAILS` to the admin addresses. The admin is the address that Cloudflare
+Access verified. The peer check runs before the header is read. Each admin attempt writes one log
+line on the logger `scoreboard.routes.admin`: `admin_action actor=... result_id=... reason=...
+outcome=...`. The reason is escaped and cut to 120 characters.
+
+A withdraw keeps the score on the board. It sets the state to `withdrawn`, and the worker deletes the
+release and the tag. A withdrawn result cannot be published again.
+
+### Alerts
+
+The counters stay in the process. There is no `/metrics` route. Add these alert rules where the
+counters are scraped:
+
+- `scoreboard_publish_integrity_failures_total > 0`. An archive is missing, its digest does not
+  match, or a release holds other bytes. Check the bucket and the release.
+- `scoreboard_withdraw_cleanup_pending > 0`. A release delete has been pending for more than 1 hour.
+
+`scoreboard_publish_attempts_total{result}` and `scoreboard_publish_jobs{state}` show the load.
+
+The chart keys and the Secrets for these variables come from unit WIRING (D6). This unit does not
+change the chart.
+
 ## Operations Notes
 
 - The container listens on `0.0.0.0:9106` and exposes `/healthz` and `/readyz`.

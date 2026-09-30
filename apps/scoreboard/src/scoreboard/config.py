@@ -149,3 +149,50 @@ class Settings(BaseSettings):
         return tuple(
             ip_network(entry, strict=True) for part in value.split(",") if (entry := part.strip())
         )
+
+    # FEATURE: OME-1307 (E14) publish and takedown — SB-publish settings (plan 4.1).
+    # WHY at the end of the class: SB-grants adds its settings next to `receipt_public_keys`; a
+    # separate block keeps the two additive merges from touching the same hunk.
+
+    # WHY `NoDecode`: same trap as `allowed_networks` above — the value is a comma-separated list,
+    # not JSON, so pydantic-settings must not JSON-decode it before the validator runs.
+    admin_emails: Annotated[frozenset[str], NoDecode] = Field(default=frozenset())
+    """Addresses allowed to reach ``/v1/admin`` (env ``SCOREBOARD_ADMIN_EMAILS``).
+
+    Empty (the default) disables the admin routes.
+
+    INVARIANT: the allowlist works only in ``cloudflare_headers`` mode (D5); the ``disabled``
+    fallback answers 503 ``admin_unavailable``.
+    """
+
+    github_app_id: str | None = None
+    github_app_installation_id: str | None = None
+    github_app_private_key: SecretStr | None = None
+    """PEM, RSA. Key material: never logged, never in an error or a response."""
+
+    github_repo: str = "ScreamingFace/screamingface-cache-versions"
+    github_api_url: str = "https://api.github.com"
+    public_base_url: str = "https://scoreboard.screamingface.ai"
+
+    archive_backend: Literal["none", "s3", "filesystem"] = "none"
+    archive_s3_endpoint_url: str | None = None
+    archive_s3_bucket: str | None = None
+    archive_s3_region: str = "garage"
+    archive_s3_access_key_id: str | None = None
+    archive_s3_secret_access_key: SecretStr | None = None
+    archive_fs_root: Path | None = None
+
+    publish_worker_enabled: bool = True
+    publish_poll_interval_s: float = Field(default=30.0, gt=0)
+
+    @field_validator("admin_emails", mode="before")
+    @classmethod
+    def _parse_admin_emails(cls, value: object) -> object:
+        """Parse the comma-separated address list into a case-folded set.
+
+        Lowercased because mail domains are case-insensitive. Empty entries are dropped: a trailing
+        comma would otherwise put `""` in the set. Same rule as aigateway's `admin_emails`.
+        """
+        if not isinstance(value, str):
+            return value
+        return frozenset(entry.lower() for part in value.split(",") if (entry := part.strip()))
