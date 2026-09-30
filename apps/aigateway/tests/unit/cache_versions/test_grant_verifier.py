@@ -13,6 +13,7 @@ import base64
 import json
 import time
 from collections.abc import Callable
+from datetime import datetime, tzinfo
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -234,12 +235,52 @@ async def test_a_valid_grant_returns_its_claims(grant_key: Ed25519PrivateKey) ->
 
 
 async def test_a_grant_inside_the_skew_window_is_accepted(grant_key: Ed25519PrivateKey) -> None:
+    # WHY: real clock, so the row keeps a wide margin (30 s inside the 60 s leeway). `mint_grant`
+    # rounds the issue time down by up to 1 s; a row at the very edge would fail at random.
     verifier = _verifier(grant_key, FakeLookup({_VID}))
-    token = mint_grant(grant_key, sub=_CALLER, vid=_VID, ttl_s=-59)
+    token = mint_grant(grant_key, sub=_CALLER, vid=_VID, ttl_s=-30)
 
     grant = await verifier.verify(token, caller=_CALLER)
 
     assert grant.version_id == _VID
+
+
+class _FrozenDatetime(datetime):
+    """``datetime`` whose ``now()`` is a fixed instant - the clock PyJWT reads in ``decode``."""
+
+    frozen_at: float = 0.0
+
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> _FrozenDatetime:
+        return cls.fromtimestamp(cls.frozen_at, tz)
+
+
+@pytest.mark.parametrize(
+    ("ttl_s", "reason"),
+    [(-59, None), (-61, "expired")],
+    ids=["59s-past-exp-accepted", "61s-past-exp-refused"],
+)
+async def test_the_skew_window_edge_on_a_frozen_clock(
+    grant_key: Ed25519PrivateKey,
+    monkeypatch: pytest.MonkeyPatch,
+    ttl_s: int,
+    reason: str | None,
+) -> None:
+    # WHY: no real clock. PyJWT (fresh path) and the verifier (`wall`) both read the SAME frozen
+    # instant, so the 60 s leeway edge is exact and cannot flake under a loaded runner.
+    now = 1_800_000_000
+    monkeypatch.setattr(_FrozenDatetime, "frozen_at", float(now))
+    monkeypatch.setattr(jwt.api_jwt, "datetime", _FrozenDatetime)
+    verifier = _verifier(grant_key, FakeLookup({_VID}), wall=Clock(float(now)))
+    token = mint_grant(grant_key, sub=_CALLER, vid=_VID, ttl_s=ttl_s, now=now)
+
+    if reason is None:
+        grant = await verifier.verify(token, caller=_CALLER)
+        assert grant.expires_at == now + ttl_s
+    else:
+        with pytest.raises(GrantRejected) as excinfo:
+            await verifier.verify(token, caller=_CALLER)
+        assert excinfo.value.reason == reason
 
 
 async def test_subject_compare_ignores_case_and_outer_space(grant_key: Ed25519PrivateKey) -> None:
