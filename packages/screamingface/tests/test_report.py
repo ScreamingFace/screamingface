@@ -148,6 +148,7 @@ def test_report_reuses_public_benchmark_info_and_records_the_selected_case_count
         "id": "draco",
         "revision": "fixture-revision",
         "case_count": 2,
+        "inverted_grade": False,
     }
 
 
@@ -646,6 +647,7 @@ def test_candidate_export_preserves_full_benchmark_size_beside_report_selection(
         "id": "draco",
         "revision": "fixture-revision",
         "case_count": 2,
+        "inverted_grade": False,
     }
     candidates = payload["candidates"]
     assert isinstance(candidates, list)
@@ -655,6 +657,7 @@ def test_candidate_export_preserves_full_benchmark_size_beside_report_selection(
         "id": "draco",
         "revision": "fixture-revision",
         "case_count": 100,
+        "inverted_grade": False,
     }
 
 

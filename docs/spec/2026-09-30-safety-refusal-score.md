@@ -107,8 +107,11 @@ included), in the Benchmark catalogue, and in the notebook's report view (owner,
 - **The Benchmark resource and catalogue entry carry it**, only when true; the SDK reads an absent
   key as `False` (old Engines have no flipped Benchmarks). The normal path cross-checks the
   resource's mark against the result's.
-- **report.json** writes `"inverted_grade": true` in the top-level `benchmark` block and each
-  candidate's copy, only when true; report format stays `screamingface.report.v1` (additive).
+- **report.json** states `"inverted_grade"` in the top-level `benchmark` block and each
+  candidate's copy — `true` for a flipped Benchmark, `false` for every other one. The WIRE omits
+  the key unless true (old SDKs refuse unknown run-result keys), but the report follows its own
+  stable-key convention (`answer_seed`), so a researcher reads `false` instead of guessing.
+  Report format stays `screamingface.report.v1` (additive).
 - **Views (PR 3):** the catalogue listing and the notebook report view show the mark in plain
   words beside the Benchmark ("scored by 1 − the eval's grade").
 - **Deploy order:** release PR 2's SDK before deploying PR 2's Engine.

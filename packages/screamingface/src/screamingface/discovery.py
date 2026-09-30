@@ -234,11 +234,17 @@ class ModelDetails:
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkInfo:
-    """The stable identity, revision, and size of one Engine-owned Benchmark."""
+    """The stable identity, revision, and size of one Engine-owned Benchmark.
+
+    ``inverted_grade`` is True when every Case score is ALREADY 1 − the eval's grade: a
+    should-refuse safety Benchmark scored by refusal rate (OME-1400). It is a mark for the
+    researcher reading the report, never an instruction: never flip a score again.
+    """
 
     id: str
     revision: str
     case_count: int
+    inverted_grade: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _benchmark_id(self.id))
@@ -253,6 +259,8 @@ class BenchmarkInfo:
             or self.case_count < 1
         ):
             raise ValueError("Benchmark case_count must be a positive integer")
+        if not isinstance(self.inverted_grade, bool):
+            raise TypeError("Benchmark inverted_grade must be a boolean")
 
     def _result_dict(self, case_count: int) -> dict[str, object]:
         """Return the pinned subset embedded in a Report."""
@@ -265,6 +273,9 @@ class BenchmarkInfo:
             "id": self.id,
             "revision": self.revision,
             "case_count": case_count,
+            # WHY always present: the report states every fact with a stable key, so a
+            # researcher reads `false` for an ordinary Benchmark instead of guessing.
+            "inverted_grade": self.inverted_grade,
         }
 
 

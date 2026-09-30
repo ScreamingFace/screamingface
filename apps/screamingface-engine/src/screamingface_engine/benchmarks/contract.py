@@ -446,6 +446,11 @@ class CandidateResult(_StrictWireModel):
     metrics: dict[str, Any]
     cases: list[CaseResult]
     failures: list[Failure]
+    # FEATURE: the Benchmark-level refusal-rate mark (OME-1400). The run result carries it so a
+    # replayed report — which reads nothing else — can show it.
+    # INVARIANT: absent unless true. The SDK refuses unknown keys here, so emitting `false`
+    # for every Benchmark would break every SDK that predates the mark.
+    inverted_grade: bool = Field(default=False, exclude_if=lambda value: not value)
 
     @field_validator("score", mode="before")
     @classmethod

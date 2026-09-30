@@ -81,8 +81,13 @@ def finalize_candidate_result(
     cases: Sequence[CaseResult | Mapping[str, Any]],
     scorer: Scorer,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
+    inverted_grade: bool = False,
 ) -> CandidateResult:
-    """Preserve Cases and score exactly the subset carrying numeric Benchmark grades."""
+    """Preserve Cases and score exactly the subset carrying numeric Benchmark grades.
+
+    ``inverted_grade`` marks a Benchmark whose Case scores are already 1 − the eval's grade
+    (OME-1400); it rides the result so a replayed report can show it.
+    """
 
     selection = [
         case if isinstance(case, SelectedCase) else SelectedCase.model_validate(case)
@@ -145,6 +150,7 @@ def finalize_candidate_result(
         metrics=scored.metrics if scored is not None else {},
         cases=typed_cases,
         failures=typed_failures,
+        inverted_grade=inverted_grade,
     )
     reconcile_candidate_grading_accounting(result)
     return result

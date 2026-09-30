@@ -61,6 +61,9 @@ def _decode_benchmark_resource(
             id=benchmark_id,
             revision=_wire_text(resource.get("revision"), "Benchmark revision", _invalid),
             case_count=installed_case_count,
+            # WHY absent means False: the Engine publishes the mark only when true, and an
+            # Engine that predates it has no flipped Benchmark (OME-1400).
+            inverted_grade=_inverted_grade(resource.get("inverted_grade", False)),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc))
@@ -75,6 +78,14 @@ def _decode_benchmark_resource(
         url4=url4,
         check_surface=_check_surface(resource.get("check_surface")),
     )
+
+
+def _inverted_grade(value: object) -> bool:
+    """The Benchmark-level refusal-rate mark, refused unless it is a real boolean."""
+
+    if not isinstance(value, bool):
+        _invalid("Benchmark inverted_grade must be a boolean")
+    return value
 
 
 def _check_surface(value: object) -> _CheckSurface | None:

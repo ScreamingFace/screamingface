@@ -6,6 +6,10 @@
 
 * **screamingface:** render completed per-operation accounting and per-Case details across benchmarks. `CandidateResult.accounting` derives immutable stage, operation, member, model and Case summaries from retained records, preserving unknown values and authoritative root totals. Direct model members receive usage only when every Case has a unique observation. Includes an offline Jupyter review notebook (`14_report_accounting.ipynb`).
 
+* **screamingface:** mark Benchmarks scored by refusal rate. `BenchmarkInfo.inverted_grade` is `True` when every Case score is **already** 1 − the eval's grade (a should-refuse safety Benchmark such as `xstest_unsafe`), and report.json states it in the `benchmark` block — `false` for every other Benchmark. It is read from the Benchmark resource on a normal run (cross-checked against the run result) and from the run result on a replay. It is a mark, not an instruction: never flip a score with it. An Engine that predates the mark omits it, which reads as `false`.
+
+  **Engines that send the mark need this release first.** An older SDK refuses the run result of a flipped Benchmark ("unsupported field `inverted_grade`"); every other Benchmark is unaffected.
+
 * **screamingface:** preserve Engine-observed caller version as `CandidateResult.client_version` and in report JSON; unavailable provenance remains null.
 
 * **screamingface:** carry the catalogue's two grouping axes on `Benchmark` — `interaction` and the new hand-assigned `difficulty` tier (`easy`/`medium`/`hard`; served values verbatim, any non-blank string; `None` when an older Engine omits the key)

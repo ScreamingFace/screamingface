@@ -207,6 +207,12 @@ class Benchmark:
     # true fact for every benchmark authored in this repo, and the import lane must pass
     # origin="inspect_evals" explicitly at registration.
     origin: BenchmarkOrigin = "screamingface"
+    # FEATURE: safety Benchmarks where refusing is the right answer (OME-1400). True when
+    # every Case score is ALREADY 1 − the eval's grade (a should-refuse Benchmark, scored by
+    # refusal rate). A mark for researchers, never an instruction: no consumer flips again.
+    # INVARIANT: published only when true, so every other Benchmark's catalogue entry and
+    # resource stay byte-identical.
+    inverted_grade: bool = False
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -273,6 +279,8 @@ class Benchmark:
             metadata["dataset_url"] = self.dataset_url
         if self.check_surface is not None:
             metadata["check_surface"] = self.check_surface.as_block()
+        if self.inverted_grade:
+            metadata["inverted_grade"] = True
         return metadata
 
     def protocol(self, selected_case_count: int) -> Node:
