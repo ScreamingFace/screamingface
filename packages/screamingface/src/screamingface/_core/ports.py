@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
@@ -29,6 +29,31 @@ class _ResultArtifact:
     id: str
     size_bytes: int
     sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplayBinding:
+    """A grant the Scoreboard issued for one pinned run (contracts.md C6).
+
+    INVARIANT: the grant is an opaque string. The SDK never decodes, verifies or logs it, so the
+    field is kept out of `repr`.
+    """
+
+    grant: str = field(repr=False)
+    result_id: UUID
+    score_id: UUID
+    cache_version_id: UUID
+    expires_at: datetime
+    pinned_baseline_result_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplayCounts:
+    """The three replay counters of the engine closing cache-summary frame (contracts.md C12)."""
+
+    hits: int
+    misses: int
+    repeated_key_collapses: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +91,9 @@ class _RunOutcome:
     # round trips the response cache served. A hit spends nothing upstream, so any hit means the
     # spend is not the run's cost, and the submission must not publish it as `complete`.
     cache_hits: int = 0
+    # FEATURE (OME-1307, C12): the root replay counters of a run that carried a replay grant.
+    # None means the Engine sent none, which is not the same as zero.
+    replay_counts: _ReplayCounts | None = None
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet

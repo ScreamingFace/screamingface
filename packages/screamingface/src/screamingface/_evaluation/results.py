@@ -29,6 +29,7 @@ from screamingface.report import (
     EvidenceProducer,
     Failure,
     MemberResult,
+    ReplayProvenance,
     Report,
     RunCostStatus,
     Usage,
@@ -177,9 +178,30 @@ def _candidate_result(
             # archive sum, and never the two added (OME-1251 D3).
             cache_saved_cost_usd=outcome.cache_saved_cost_usd,
             cache_hits=outcome.cache_hits,
+            replay=_replay_provenance(candidate, outcome),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
+
+
+def _replay_provenance(candidate: Candidate, outcome: _RunOutcome) -> ReplayProvenance | None:
+    """What this pinned run replayed, with the Engine's counters (None when it sent none).
+
+    INVARIANT (OD-10): missing counters stay `None`, never zero. Zeros would state a fact nobody
+    measured, and `submit` refuses a replay run whose counters are unknown.
+    """
+    binding = candidate.replay
+    if binding is None:
+        return None
+    counts = outcome.replay_counts
+    return ReplayProvenance(
+        result_id=binding.result_id,
+        cache_version_id=binding.cache_version_id,
+        hits=None if counts is None else counts.hits,
+        misses=None if counts is None else counts.misses,
+        repeated_key_collapses=None if counts is None else counts.repeated_key_collapses,
+        pinned_baseline_result_id=binding.pinned_baseline_result_id,
+    )
 
 
 def _run_cost_status(outcome: _RunOutcome) -> RunCostStatus:

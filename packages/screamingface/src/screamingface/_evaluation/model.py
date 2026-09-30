@@ -10,6 +10,7 @@ from typing import Literal, NoReturn
 from url4 import Url4Error, build, render
 
 from screamingface._candidate_policy import GenerationParams
+from screamingface._core.ports import _ReplayBinding
 from screamingface._named_values import _NamedValues
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
@@ -52,6 +53,9 @@ class Candidate:
     # already receives, so the run-transport protocol (and every fake implementing it)
     # never widens. None = unseeded, the default for every compiled Candidate.
     answer_seed: int | None
+    # FEATURE (OME-1307): the replay grant rides the Candidate the transport already receives,
+    # for the same reason as `answer_seed`: the run-transport protocol never widens.
+    replay: _ReplayBinding | None
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -152,6 +156,7 @@ def _compiled_candidate(
         _candidate_parameter_assignments(parameter_assignments, operation_ids),
     )
     object.__setattr__(candidate, "answer_seed", None)
+    object.__setattr__(candidate, "replay", None)
     return candidate
 
 
@@ -179,9 +184,28 @@ def _with_answer_seed(candidate: Candidate, answer_seed: int) -> Candidate:
         "operations",
         "members",
         "parameter_assignments",
+        "replay",
     ):
         object.__setattr__(stamped, name, getattr(candidate, name))
     object.__setattr__(stamped, "answer_seed", answer_seed)
+    return stamped
+
+
+def _with_replay(candidate: Candidate, binding: _ReplayBinding) -> Candidate:
+    """Copy one compiled Candidate with the replay grant stamped on."""
+    stamped = object.__new__(Candidate)
+    for name in (
+        "name",
+        "kind",
+        "models",
+        "url4",
+        "operations",
+        "members",
+        "parameter_assignments",
+        "answer_seed",
+    ):
+        object.__setattr__(stamped, name, getattr(candidate, name))
+    object.__setattr__(stamped, "replay", binding)
     return stamped
 
 

@@ -24,6 +24,7 @@ from screamingface._runtime.bootstrap import (
 )
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
 from screamingface._runtime.runtime_logging import log_service
+from screamingface._runtime.signing_keys import apply_local_signing_environment
 from screamingface._runtime.source import (
     RuntimeSource,
     activate,
@@ -185,6 +186,10 @@ async def run(
     # runtime log (OME-1001).
     print(f"runtime source: {source.describe()}", flush=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
+    # FEATURE (OME-1307, RP-20): the local signing keys must be in `os.environ` before any service
+    # step. The scoreboard child inherits it (`Popen` below passes no `env`), so both services see
+    # the same pairs. INVARIANT: nothing about the keys is printed.
+    apply_local_signing_environment(os.environ, config.data_dir)
     await _migrate(config)
     gateway, engine, gateway_config = _build_apps(config)
     # WHY printed AND published (OME-1169): the log line makes the effective config

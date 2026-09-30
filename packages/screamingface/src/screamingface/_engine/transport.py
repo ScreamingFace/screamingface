@@ -265,6 +265,7 @@ class Url4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
+                            replay_grant=_candidate_grant(candidate),
                             admission=_new_admission(
                                 self._admission_budget_s, self._reconnect_base_delay_s
                             ),
@@ -661,6 +662,7 @@ class AsyncUrl4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
+                            replay_grant=_candidate_grant(candidate),
                             admission=_new_admission(
                                 self._admission_budget_s, self._reconnect_base_delay_s
                             ),
@@ -910,6 +912,7 @@ def _start_sync(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    replay_grant: str | None = None,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], bool] | None = None,
@@ -926,7 +929,9 @@ def _start_sync(
     wait = wait or _sleep_unaborted
     trace_id = trace.trace_id if trace else None
     while True:
-        response = _send_start_sync(http, token, url4, trace=trace, answer_seed=answer_seed)
+        response = _send_start_sync(
+            http, token, url4, trace=trace, answer_seed=answer_seed, replay_grant=replay_grant
+        )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
             break
@@ -943,6 +948,7 @@ def _send_start_sync(
     *,
     trace: TraceContext | None,
     answer_seed: int | None,
+    replay_grant: str | None = None,
 ) -> httpx.Response:
     """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -957,6 +963,7 @@ def _send_start_sync(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
+                    **_replay_grant_header(replay_grant),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1141,6 +1148,7 @@ async def _start_async(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    replay_grant: str | None = None,
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], Awaitable[bool]] | None = None,
@@ -1150,7 +1158,9 @@ async def _start_async(
     wait = wait or _sleep_unaborted_async
     trace_id = trace.trace_id if trace else None
     while True:
-        response = await _send_start_async(http, token, url4, trace=trace, answer_seed=answer_seed)
+        response = await _send_start_async(
+            http, token, url4, trace=trace, answer_seed=answer_seed, replay_grant=replay_grant
+        )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
             break
@@ -1167,6 +1177,7 @@ async def _send_start_async(
     *,
     trace: TraceContext | None,
     answer_seed: int | None,
+    replay_grant: str | None = None,
 ) -> httpx.Response:
     """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1181,6 +1192,7 @@ async def _send_start_async(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
+                    **_replay_grant_header(replay_grant),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1204,6 +1216,23 @@ def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
     if answer_seed is None:
         return {}
     return {"X-Answer-Seed": str(answer_seed)}
+
+
+_REPLAY_GRANT_HEADER = "X-SF-Cache-Replay"
+
+
+def _replay_grant_header(replay_grant: str | None) -> dict[str, str]:
+    """The replay grant as its start header (contract C1, D7 X-5) — nothing when unbound.
+
+    INVARIANT: absent means byte-identical to a run with no replay, like `X-Answer-Seed`. The
+    header rides the start request `GET /?q=` only: never `POST /token`, a WebSocket frame or the
+    url4. A re-sent start (503 admission, attach still registering) carries the same grant.
+    """
+    return {} if replay_grant is None else {_REPLAY_GRANT_HEADER: replay_grant}
+
+
+def _candidate_grant(candidate: Candidate) -> str | None:
+    return None if candidate.replay is None else candidate.replay.grant
 
 
 def _attachment_is_still_registering(response: httpx.Response) -> bool:

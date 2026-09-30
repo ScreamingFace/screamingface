@@ -19,6 +19,7 @@ from screamingface._core.ports import (
     AsyncRunTransport,
     SyncRunTransport,
     _ConnectionNotice,
+    _ReplayBinding,
     _RunOutcome,
 )
 from screamingface._evaluation.benchmark import _BenchmarkResource
@@ -29,6 +30,7 @@ from screamingface._evaluation.model import (
     _Evaluation,
     _validate_limit,
     _with_answer_seed,
+    _with_replay,
 )
 from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
 from screamingface._evaluation.outcome import (
@@ -70,6 +72,7 @@ def evaluate_sync(
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
     answer_seed: int | None = None,
+    replay: _ReplayBinding | None = None,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -85,6 +88,8 @@ def evaluate_sync(
     # FEATURE (OME-1193): stamp the declared sitting onto every compiled Candidate ONCE,
     # so the transport, the progress observer and the report all see the same objects.
     selected_candidates = _seeded_candidates(tuple(evaluation.candidates), answer_seed)
+    # FEATURE (OME-1307): the replay grant is stamped after the seed, so both ride one Candidate.
+    selected_candidates = _bound_candidates(selected_candidates, replay)
     catalog = load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
@@ -127,6 +132,7 @@ async def evaluate_async(
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
     answer_seed: int | None = None,
+    replay: _ReplayBinding | None = None,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -142,6 +148,8 @@ async def evaluate_async(
     # FEATURE (OME-1193): see the sync twin — one stamped tuple for transport,
     # observer and report alike.
     selected_candidates = _seeded_candidates(tuple(evaluation.candidates), answer_seed)
+    # FEATURE (OME-1307): see the sync twin.
+    selected_candidates = _bound_candidates(selected_candidates, replay)
     catalog = await load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
@@ -518,6 +526,16 @@ def _seeded_candidates(
     if answer_seed is None:
         return candidates
     return tuple(_with_answer_seed(candidate, answer_seed) for candidate in candidates)
+
+
+def _bound_candidates(
+    candidates: tuple[Candidate, ...],
+    replay: _ReplayBinding | None,
+) -> tuple[Candidate, ...]:
+    """Stamp the replay grant onto each compiled Candidate — identity when None."""
+    if replay is None:
+        return candidates
+    return tuple(_with_replay(candidate, replay) for candidate in candidates)
 
 
 def _run_candidates_sync(

@@ -7,7 +7,12 @@ from uuid import UUID
 
 from screamingface._default_client import default_client
 from screamingface._scoreboard.leaderboards import UNSET, _Unset
-from screamingface.leaderboard import Leaderboard, LeaderboardInfo, LeaderboardScore
+from screamingface.leaderboard import (
+    CacheVersionPublication,
+    Leaderboard,
+    LeaderboardInfo,
+    LeaderboardScore,
+)
 from screamingface.report import CandidateResult
 
 
@@ -65,4 +70,10 @@ def update_submission(
     )
 
 
-__all__ = ["get", "get_score", "list", "submit", "update_submission"]
+def publish_cache_version(result_id: UUID | str) -> CacheVersionPublication:
+    """Ask the Scoreboard to publish the cache version of one result you own."""
+
+    return default_client().leaderboards.publish_cache_version(result_id)
+
+
+__all__ = ["get", "get_score", "list", "publish_cache_version", "submit", "update_submission"]

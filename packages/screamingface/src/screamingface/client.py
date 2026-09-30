@@ -213,6 +213,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: None = None,
     ) -> Report: ...
 
     @overload
@@ -225,6 +226,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report: ...
 
     def evaluate(
@@ -236,9 +238,11 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report:
         """Evaluate Recipes, or replay one complete evaluation URL4 unchanged."""
 
+        from screamingface._evaluation.replay import replay_pin
         from screamingface._evaluation.runner import evaluate_sync
         from screamingface._evaluation.url4 import evaluate_url4_sync
 
@@ -247,6 +251,7 @@ class Client:
         # fail before any token is minted or run scheduled.
         selected_seed = _answer_seed_value(answer_seed)
         if isinstance(candidates, str):
+            _raw_url4_replay(replay)
             _raw_url4_options(benchmark, limit)
             return evaluate_url4_sync(
                 self._transport,
@@ -257,6 +262,14 @@ class Client:
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
+        # FEATURE (OME-1307): the grant comes first, so a pin that does not resolve spends nothing.
+        binding = (
+            None
+            if replay is None
+            else self.leaderboards._replay_grant(
+                replay_pin(replay, candidates, benchmark, limit), benchmark
+            )
+        )
         return evaluate_sync(
             self._benchmark_resources.load,
             self._transport,
@@ -268,6 +281,7 @@ class Client:
             on_event,
             progress,
             answer_seed=selected_seed,
+            replay=binding,
         )
 
     @overload
@@ -557,6 +571,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: None = None,
     ) -> Report: ...
 
     @overload
@@ -569,6 +584,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report: ...
 
     async def evaluate(
@@ -580,9 +596,11 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report:
         """Asynchronously evaluate Recipes, or replay one complete evaluation URL4."""
 
+        from screamingface._evaluation.replay import replay_pin
         from screamingface._evaluation.runner import evaluate_async
         from screamingface._evaluation.url4 import evaluate_url4_async
 
@@ -590,6 +608,7 @@ class AsyncClient:
         # FEATURE (OME-1193): see the sync twin — validate at the door.
         selected_seed = _answer_seed_value(answer_seed)
         if isinstance(candidates, str):
+            _raw_url4_replay(replay)
             _raw_url4_options(benchmark, limit)
             return await evaluate_url4_async(
                 self._transport,
@@ -600,6 +619,14 @@ class AsyncClient:
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
+        # FEATURE (OME-1307): see the sync twin.
+        binding = (
+            None
+            if replay is None
+            else await self.leaderboards._replay_grant(
+                replay_pin(replay, candidates, benchmark, limit), benchmark
+            )
+        )
         return await evaluate_async(
             self._benchmark_resources.load,
             self._transport,
@@ -611,6 +638,7 @@ class AsyncClient:
             on_event,
             progress,
             answer_seed=selected_seed,
+            replay=binding,
         )
 
     @overload
@@ -713,6 +741,12 @@ def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
         raise TypeError("benchmark must not be passed when evaluating a complete URL4")
     if limit is not None:
         raise TypeError("limit must not be passed when evaluating a complete URL4")
+
+
+def _raw_url4_replay(replay: object) -> None:
+    # WHY (OD-9): a raw URL4 names no `benchmark=`, and the grant request (C6) needs a benchmark id.
+    if replay is not None:
+        raise TypeError("replay requires Recipe candidates and benchmark=")
 
 
 def _engine_access_discovery_error(origin: str) -> BaseException:

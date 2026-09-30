@@ -178,6 +178,12 @@ class LeaderboardError(_DiagnosticError):
         )
 
 
+class ReplayUnavailable(LeaderboardError):
+    """The Scoreboard could not issue a replay grant; the run did not start."""
+
+    _default_code: str = "replay_unavailable"
+
+
 class EngineUnavailableError(_DiagnosticError):
     """The configured SF Engine could not be reached."""
 
@@ -237,5 +243,6 @@ __all__ = [
     "LeaderboardError",
     "PlanningError",
     "ProviderConnectionError",
+    "ReplayUnavailable",
     "ScreamingFaceError",
 ]

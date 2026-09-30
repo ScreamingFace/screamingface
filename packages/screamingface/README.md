@@ -545,7 +545,38 @@ edited = sf.leaderboards.update_submission(
 )
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
+
+# Publish the cache version of a result you own. `state` is "requested" (the Scoreboard will
+# publish it) or "published" (`release_url` names the release). A second call changes nothing.
+publication = sf.leaderboards.publish_cache_version(submission.reported_result.id)
 ```
+
+### Rerun a submission
+
+Pass a pin to `evaluate` to run one Candidate against the cache version of an earlier result. The
+Client asks the Scoreboard for a replay grant first (10 s, no retry), then runs. Calls that the
+version holds are answered from it, and the rest go to the live provider.
+
+```python
+# A pin is result:<uuid>, score:<uuid>, <name>, <name>@r<N>, or <name>@<date or time with offset>.
+report = sf.evaluate(recipe, benchmark="draco", replay="kevins-best@r2")
+replay = report.candidates.only.replay
+print(replay.coverage, replay.hits, replay.misses)  # "complete", "partial" or "unknown"
+
+# Report the rerun. It is sent as a replay of the pinned result, never as an independent result.
+sf.leaderboards.submit(report.candidates.only)
+```
+
+- A pin applies to one Candidate: pass exactly one `Recipe`. `replay=` is not accepted with a raw
+  URL4 string, because the grant request needs the benchmark.
+- A pin that is malformed raises `ValueError` before any call. A pin the Scoreboard cannot resolve
+  raises `LeaderboardError` (`replay_pin_not_found`, `cache_version_withdrawn`,
+  `invalid_replay_pin`, `replay_benchmark_mismatch`). A Scoreboard that cannot answer raises
+  `sf.ReplayUnavailable`. In each case no run starts, and the Client never falls back to a plain run.
+- A pinned run must finish within 12 hours of the grant. The grant is not renewed: if it expires
+  during the run, the Engine ends the run with `replay_grant_invalid`, and you must start a new run.
+- A replay run whose Engine sent no replay counters has `coverage == "unknown"`, and `submit`
+  refuses it.
 
 Explicit Clients provide the same interface through `client.models.list()` and
 `client.models.get(model_id)` alongside `client.benchmarks.list()`; asynchronous Clients use the
