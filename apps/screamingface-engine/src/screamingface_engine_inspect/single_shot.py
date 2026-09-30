@@ -24,6 +24,7 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -116,20 +117,30 @@ class AggregateError(ValueError):
 class JudgeSpec:
     """A judged board's declaration: its scorer dials a gateway judge.
 
-    The declaration is half of a two-sided contract the assembly cross-checks:
-    ``model`` must reappear as ``screamingface/<model>`` among the scorer's own
-    kwargs (the string the scorer actually dials), so the pinned judge and the
-    called judge can never drift apart.
+    The declaration is half of a two-sided contract the assembly cross-checks, and
+    the scorer reaches the judge one of two ways:
+
+    - **by name** (``model_role`` is None): ``model`` must reappear as
+      ``screamingface/<model>`` among the scorer's own kwargs (the string the
+      scorer actually dials), so the pinned judge and the called judge can never
+      drift apart.
+    - **by role** (``model_role="grader"``): the scorer names no model and asks inspect
+      for its grader role; the judged aggregate binds that role to
+      ``screamingface/<model>`` for the grading pass, and the scorer kwargs must
+      dial no judge of their own (OME-1370).
 
     Attributes:
         model: the gateway model id the judge call dials (the node route is
             ``/<model>``) — exam identity, hashed into the board revision.
         params: protocol params pinned onto every judge call (e.g.
             ``(("temperature", "0"),)``) — exam identity too.
+        model_role: the inspect model role this judge fills, or None when the scorer
+            names its judge in a kwarg. Exam identity when set.
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
+    model_role: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +275,9 @@ def single_shot_board(
                     else (
                         f"judge_model={judge.model}",
                         f"judge_params={json.dumps(list(judge.params))}",
+                        # WHY conditional again: a named judge's pins must stay
+                        # byte-identical, so FrontierScience's revision holds (OME-1370).
+                        *(() if judge.model_role is None else (f"judge_role={judge.model_role}",)),
                     )
                 ),
             )
@@ -671,6 +685,7 @@ def _judged_aggregate(
         from screamingface_engine_inspect.judge_provider import (
             JudgeTransport,
             bound_judge_transport,
+            judge_filling_model_role,
         )
 
         async def fetch(target: str) -> str:
@@ -685,7 +700,14 @@ def _judged_aggregate(
             params=board.judge.params,
             benchmark_id=board.benchmark.id,
         )
-        with bound_judge_transport(transport):
+        with ExitStack() as scope:
+            scope.enter_context(bound_judge_transport(transport))
+            if board.judge.model_role is not None:
+                # A role-based scorer asks inspect for "the grader" — answer
+                # with the pinned judge, for this grading pass only (OME-1370).
+                scope.enter_context(
+                    judge_filling_model_role(board.judge.model_role, board.judge.model)
+                )
             return await board_aggregate_async(
                 board,
                 case_evaluations,
