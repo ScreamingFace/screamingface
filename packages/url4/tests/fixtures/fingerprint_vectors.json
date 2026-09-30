@@ -1,0 +1,309 @@
+{
+  "binding": "candidate",
+  "exclude_bindings": [
+    "_sf_recipe"
+  ],
+  "schema": "url4.fingerprint.vectors.v1",
+  "vectors": [
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Be brief')!'$model_1'",
+      "fingerprint": "dcae09376e492cc80f8181972883a27de816a80aa431021703c9ad5f2f71514f",
+      "id": "c01-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Be brief\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Be brief')!'$model_1'",
+      "fingerprint": "dcae09376e492cc80f8181972883a27de816a80aa431021703c9ad5f2f71514f",
+      "id": "c01-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Be brief\\')!\\'$model_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Be brief')!'$model_1'",
+      "fingerprint": "dcae09376e492cc80f8181972883a27de816a80aa431021703c9ad5f2f71514f",
+      "id": "c01-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Be brief\\')!\\'$model_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Be brief')!'$model_1'",
+      "fingerprint": "dcae09376e492cc80f8181972883a27de816a80aa431021703c9ad5f2f71514f",
+      "id": "c01-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Be brief\\')!\\'$model_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Be brief')!'$model_1'",
+      "fingerprint": "dcae09376e492cc80f8181972883a27de816a80aa431021703c9ad5f2f71514f",
+      "id": "c01-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Be brief\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!'Be brief')!'$model_1'",
+      "fingerprint": "b309d04a1e07ec3058a5239a0bd9ac4926853afaac0f02ba8857c1629bf32cd7",
+      "id": "c02-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!\\'Be brief\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!'Be brief')!'$model_1'",
+      "fingerprint": "b309d04a1e07ec3058a5239a0bd9ac4926853afaac0f02ba8857c1629bf32cd7",
+      "id": "c02-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!\\'Be brief\\')!\\'$model_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!'Be brief')!'$model_1'",
+      "fingerprint": "b309d04a1e07ec3058a5239a0bd9ac4926853afaac0f02ba8857c1629bf32cd7",
+      "id": "c02-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!\\'Be brief\\')!\\'$model_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!'Be brief')!'$model_1'",
+      "fingerprint": "b309d04a1e07ec3058a5239a0bd9ac4926853afaac0f02ba8857c1629bf32cd7",
+      "id": "c02-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!\\'Be brief\\')!\\'$model_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!'Be brief')!'$model_1'",
+      "fingerprint": "b309d04a1e07ec3058a5239a0bd9ac4926853afaac0f02ba8857c1629bf32cd7",
+      "id": "c02-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model?temperature=0.2&q=($input)!\\'Be brief\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.')!'$model_2'",
+      "fingerprint": "9cf0758bf49552614a5e166cfdc4c12cba06cd42b22b456d5e28a8d11df8000e",
+      "id": "c03-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\')!\\'$model_2\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.')!'$model_2'",
+      "fingerprint": "9cf0758bf49552614a5e166cfdc4c12cba06cd42b22b456d5e28a8d11df8000e",
+      "id": "c03-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\')!\\'$model_2\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.')!'$model_2'",
+      "fingerprint": "9cf0758bf49552614a5e166cfdc4c12cba06cd42b22b456d5e28a8d11df8000e",
+      "id": "c03-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\')!\\'$model_2\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.')!'$model_2'",
+      "fingerprint": "9cf0758bf49552614a5e166cfdc4c12cba06cd42b22b456d5e28a8d11df8000e",
+      "id": "c03-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\')!\\'$model_2\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.')!'$model_2'",
+      "fingerprint": "9cf0758bf49552614a5e166cfdc4c12cba06cd42b22b456d5e28a8d11df8000e",
+      "id": "c03-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\')!\\'$model_2\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.', synthesis_1:0.0:/provider/synth({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Synthesize.')!'$synthesis_1'",
+      "fingerprint": "7626c49fa61365e24fbd245dc382cc47dafbd13aaaa68efc1c47d13fd97c2234",
+      "id": "c04-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\', synthesis_1:0.0:/provider/synth({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Synthesize.\\')!\\'$synthesis_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.', synthesis_1:0.0:/provider/synth({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Synthesize.')!'$synthesis_1'",
+      "fingerprint": "7626c49fa61365e24fbd245dc382cc47dafbd13aaaa68efc1c47d13fd97c2234",
+      "id": "c04-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\', synthesis_1:0.0:/provider/synth({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Synthesize.\\')!\\'$synthesis_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.', synthesis_1:0.0:/provider/synth({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Synthesize.')!'$synthesis_1'",
+      "fingerprint": "7626c49fa61365e24fbd245dc382cc47dafbd13aaaa68efc1c47d13fd97c2234",
+      "id": "c04-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\', synthesis_1:0.0:/provider/synth({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Synthesize.\\')!\\'$synthesis_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.', synthesis_1:0.0:/provider/synth({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Synthesize.')!'$synthesis_1'",
+      "fingerprint": "7626c49fa61365e24fbd245dc382cc47dafbd13aaaa68efc1c47d13fd97c2234",
+      "id": "c04-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\', synthesis_1:0.0:/provider/synth({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Synthesize.\\')!\\'$synthesis_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'Answer.', model_2:0.0:/provider/b($input)!'Answer.', synthesis_1:0.0:/provider/synth({input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2'}})!'Synthesize.')!'$synthesis_1'",
+      "fingerprint": "7626c49fa61365e24fbd245dc382cc47dafbd13aaaa68efc1c47d13fd97c2234",
+      "id": "c04-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'Answer.\\', model_2:0.0:/provider/b($input)!\\'Answer.\\', synthesis_1:0.0:/provider/synth({input: \\'$input\\', outputs: {member_1: \\'$model_1\\', member_2: \\'$model_2\\'}})!\\'Synthesize.\\')!\\'$synthesis_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5($input)!'It\\'s a test')!'$model_1'",
+      "fingerprint": "742bdd7ccdf2a1693a948139bb23669a22e72227234f957f9e594f427ab73434",
+      "id": "c05-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5($input)!\\'It\\\\\\'s a test\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5($input)!'It\\'s a test')!'$model_1'",
+      "fingerprint": "742bdd7ccdf2a1693a948139bb23669a22e72227234f957f9e594f427ab73434",
+      "id": "c05-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5($input)!\\'It\\\\\\'s a test\\')!\\'$model_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5($input)!'It\\'s a test')!'$model_1'",
+      "fingerprint": "742bdd7ccdf2a1693a948139bb23669a22e72227234f957f9e594f427ab73434",
+      "id": "c05-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5($input)!\\'It\\\\\\'s a test\\')!\\'$model_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5($input)!'It\\'s a test')!'$model_1'",
+      "fingerprint": "742bdd7ccdf2a1693a948139bb23669a22e72227234f957f9e594f427ab73434",
+      "id": "c05-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5($input)!\\'It\\\\\\'s a test\\')!\\'$model_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5($input)!'It\\'s a test')!'$model_1'",
+      "fingerprint": "742bdd7ccdf2a1693a948139bb23669a22e72227234f957f9e594f427ab73434",
+      "id": "c05-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5($input)!\\'It\\\\\\'s a test\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!'Short answer')!'$model_1'",
+      "fingerprint": "f222b4f89544b457e31dbf03c0d30493bc86ae6ee445a893faa778bf482dd46a",
+      "id": "c06-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!\\'Short answer\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!'Short answer')!'$model_1'",
+      "fingerprint": "f222b4f89544b457e31dbf03c0d30493bc86ae6ee445a893faa778bf482dd46a",
+      "id": "c06-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!\\'Short answer\\')!\\'$model_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!'Short answer')!'$model_1'",
+      "fingerprint": "f222b4f89544b457e31dbf03c0d30493bc86ae6ee445a893faa778bf482dd46a",
+      "id": "c06-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!\\'Short answer\\')!\\'$model_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!'Short answer')!'$model_1'",
+      "fingerprint": "f222b4f89544b457e31dbf03c0d30493bc86ae6ee445a893faa778bf482dd46a",
+      "id": "c06-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!\\'Short answer\\')!\\'$model_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!'Short answer')!'$model_1'",
+      "fingerprint": "f222b4f89544b457e31dbf03c0d30493bc86ae6ee445a893faa778bf482dd46a",
+      "id": "c06-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-5?max_tokens=64&top_p=0.9&q=($input)!\\'Short answer\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/anthropic/claude-opus($input)!'Think step by step.')!'$model_1'",
+      "fingerprint": "dc2d74714eb577b7bf63f710008b1744de345fee89131c84833e5514093ab4f2",
+      "id": "c07-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/anthropic/claude-opus($input)!\\'Think step by step.\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/anthropic/claude-opus($input)!'Think step by step.')!'$model_1'",
+      "fingerprint": "dc2d74714eb577b7bf63f710008b1744de345fee89131c84833e5514093ab4f2",
+      "id": "c07-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/anthropic/claude-opus($input)!\\'Think step by step.\\')!\\'$model_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/anthropic/claude-opus($input)!'Think step by step.')!'$model_1'",
+      "fingerprint": "dc2d74714eb577b7bf63f710008b1744de345fee89131c84833e5514093ab4f2",
+      "id": "c07-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/anthropic/claude-opus($input)!\\'Think step by step.\\')!\\'$model_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/anthropic/claude-opus($input)!'Think step by step.')!'$model_1'",
+      "fingerprint": "dc2d74714eb577b7bf63f710008b1744de345fee89131c84833e5514093ab4f2",
+      "id": "c07-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/anthropic/claude-opus($input)!\\'Think step by step.\\')!\\'$model_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/anthropic/claude-opus($input)!'Think step by step.')!'$model_1'",
+      "fingerprint": "dc2d74714eb577b7bf63f710008b1744de345fee89131c84833e5514093ab4f2",
+      "id": "c07-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/anthropic/claude-opus($input)!\\'Think step by step.\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c08-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"model\",\"named\":false,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c08-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"model\",\"named\":false,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c08-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"model\",\"named\":false,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c08-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"model\",\"named\":false,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c08-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"model\",\"named\":false,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c09-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"kevins-best\",\"named\":true,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c09-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"kevins-best\",\"named\":true,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c09-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"kevins-best\",\"named\":true,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c09-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"kevins-best\",\"named\":true,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/openrouter/model($input)!'Answer the request.')!'$model_1'",
+      "fingerprint": "07cb11a59df4d70f6e9a642907867ef937fdbce98496ef3b2721f75f79445f5d",
+      "id": "c09-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/openrouter/model($input)!\\'Answer the request.\\', _sf_recipe:0.0:\\'{\"recipe\":{\"binding\":\"model_1\",\"kind\":\"model\",\"name\":\"kevins-best\",\"named\":true,\"role\":\"model\"},\"schema\":\"screamingface.recipe.v1\"}\\')!\\'$model_1\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'x', model_2:0.0:/provider/a($input)!'y', model_3:0.0:/provider/c($input)!'z')!'$model_3'",
+      "fingerprint": "85f1d7ae3d61eabdf2c300d7b3effe3629a45098eae837bcf629fb128633fb17",
+      "id": "c10-b1",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'x\\', model_2:0.0:/provider/a($input)!\\'y\\', model_3:0.0:/provider/c($input)!\\'z\\')!\\'$model_3\\'', (answer:0.0:/candidate(question)!'$candidate')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'x', model_2:0.0:/provider/a($input)!'y', model_3:0.0:/provider/c($input)!'z')!'$model_3'",
+      "fingerprint": "85f1d7ae3d61eabdf2c300d7b3effe3629a45098eae837bcf629fb128633fb17",
+      "id": "c10-b2",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'x\\', model_2:0.0:/provider/a($input)!\\'y\\', model_3:0.0:/provider/c($input)!\\'z\\')!\\'$model_3\\'', (answer:0.0:($candidate)!'go')!'$answer')!''"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'x', model_2:0.0:/provider/a($input)!'y', model_3:0.0:/provider/c($input)!'z')!'$model_3'",
+      "fingerprint": "85f1d7ae3d61eabdf2c300d7b3effe3629a45098eae837bcf629fb128633fb17",
+      "id": "c10-b3",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'x\\', model_2:0.0:/provider/a($input)!\\'y\\', model_3:0.0:/provider/c($input)!\\'z\\')!\\'$model_3\\'', rows:0.0:/benchmarks/draco/revision-1/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'x', model_2:0.0:/provider/a($input)!'y', model_3:0.0:/provider/c($input)!'z')!'$model_3'",
+      "fingerprint": "85f1d7ae3d61eabdf2c300d7b3effe3629a45098eae837bcf629fb128633fb17",
+      "id": "c10-b4",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'x\\', model_2:0.0:/provider/a($input)!\\'y\\', model_3:0.0:/provider/c($input)!\\'z\\')!\\'$model_3\\'', rows:0.0:/benchmarks/gsm8k/revision-3/cases)!'$rows'"
+    },
+    {
+      "candidate_url4": "(model_1:0.0:/provider/a($input)!'x', model_2:0.0:/provider/a($input)!'y', model_3:0.0:/provider/c($input)!'z')!'$model_3'",
+      "fingerprint": "85f1d7ae3d61eabdf2c300d7b3effe3629a45098eae837bcf629fb128633fb17",
+      "id": "c10-b5",
+      "linked_url4": "(candidate:0.0:'(model_1:0.0:/provider/a($input)!\\'x\\', model_2:0.0:/provider/a($input)!\\'y\\', model_3:0.0:/provider/c($input)!\\'z\\')!\\'$model_3\\'', (answer:0.0:/candidate(question)!'$candidate', grade:0.0:/judge($answer)!'Grade it')!'$grade')!''"
+    }
+  ]
+}
