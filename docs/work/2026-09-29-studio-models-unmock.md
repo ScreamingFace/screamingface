@@ -89,3 +89,10 @@ Engine. Spec: `docs/spec/2026-09-29-studio-models-unmock.md`.
 - Seen during verification: `runtime/uv.lock` was stale (`No module named 'opentelemetry'`).
   It is fixed in this PR, in its own commit, re-locked to the OpenTelemetry and protobuf pins
   that aigateway and the SDK use. At the owner's call, no separate issue was filed.
+- Code-review follow-up (2026-09-30), all fixed in Studio with tests that fail on the earlier code:
+  - A `needs_reauth`/`error` credential is disconnected before signing in again or entering an API
+    key. The Engine returns 409 for both while the row exists.
+  - A `?recipe=` import waits for a `ready` catalog. A failed load shows an alert with Retry,
+    instead of importing an empty fusion.
+  - Recipe model ids the catalog doesn't have are named in a notice, not dropped silently.
+  - A starred model counts as available only while its provider is connected (or keyless).

@@ -405,8 +405,9 @@ function parseRecipe(raw: string, catalog: Model[]) {
   const match = raw.match(/^url4:\/\/([^?]+)\?(.*)$/);
   if (!match) return null;
   const params = new URLSearchParams(match[2]);
-  const slots = (params.get("models") ?? "")
-    .split(/[+\s]+/)
+  const ids = (params.get("models") ?? "").split(/[+\s]+/).filter(Boolean);
+  const unknown = ids.filter((id) => !catalog.some((model) => model.id === id));
+  const slots = ids
     .map((id) => catalog.find((model) => model.id === id))
     .filter((model): model is Model => Boolean(model))
     .map((model) => ({
@@ -418,6 +419,7 @@ function parseRecipe(raw: string, catalog: Model[]) {
   return {
     name: decodeURIComponent(match[1]).replace(/\s+/g, "-").toLowerCase(),
     slots,
+    unknown,
   };
 }
 
@@ -2228,8 +2230,13 @@ function EnsembleComposer() {
   const catalogLoad = useModelStore((state) => state.load);
   const refreshCatalog = useModelStore((state) => state.refresh);
   // An imported recipe names models by Engine id, so it can only be resolved once the catalog
-  // has loaded (or failed to).
-  const catalogSettled = catalogLoad === "ready" || catalogLoad === "error";
+  // has loaded. On a failed load it waits: resolving against an empty catalog would drop every
+  // model. A retry that succeeds re-runs the import.
+  const catalogReady = catalogLoad === "ready";
+  const [droppedModels, setDroppedModels] = useState<string[]>([]);
+  const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
+  const recipeWaiting =
+    Boolean(importedRecipe) && !requestedId && loadedEnsembleId !== ensembleId;
   const [name, setName] = useState("fusion-1");
   const {
     editing: editingName,
@@ -2243,7 +2250,6 @@ function EnsembleComposer() {
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [autoSave, setAutoSave] = useState(true);
-  const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
   const loadedKeyRef = useRef<string | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
@@ -2258,7 +2264,7 @@ function EnsembleComposer() {
     // loaded, a later catalog refresh must not re-run it and wipe the user's edits.
     const loadKey = `${ensembleId}|${importedRecipe ?? ""}`;
     if (loadedKeyRef.current === loadKey) return;
-    if (importedRecipe && !requestedId && !catalogSettled) return;
+    if (importedRecipe && !requestedId && !catalogReady) return;
     const storedEnsembles = useEnsembleStore.getState().ensembles;
     const saved = requestedId
       ? storedEnsembles.find((ensemble) => ensemble.id === requestedId) ?? null
@@ -2271,6 +2277,7 @@ function EnsembleComposer() {
       });
     const parsed = importedRecipe ? parseRecipe(importedRecipe, catalog) : null;
     const frame = window.requestAnimationFrame(() => {
+      setDroppedModels(!saved && parsed ? parsed.unknown : []);
       if (saved) {
         const savedRunHistory = saved.runHistory ?? [];
         const nextRoot =
@@ -2314,7 +2321,7 @@ function EnsembleComposer() {
   }, [
     ensembleId,
     addLibraryModels,
-    catalogSettled,
+    catalogReady,
     importedRecipe,
     providers,
     requestedId,
@@ -2491,6 +2498,30 @@ function EnsembleComposer() {
             </Button>
           </div>
         </div>
+
+        {recipeWaiting && catalogLoad === "error" && (
+          <div
+            role="alert"
+            className="mt-3 flex flex-wrap items-center gap-3 text-xs text-destructive"
+          >
+            The model catalog hasn&apos;t loaded, so this recipe can&apos;t be
+            imported yet. Is the local ScreamingFace runtime running?
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-lg"
+              onClick={() => void refreshCatalog()}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+        {droppedModels.length > 0 && (
+          <p role="status" className="mt-3 text-xs text-destructive">
+            Left out models the catalog doesn&apos;t have:{" "}
+            <span className="font-mono">{droppedModels.join(", ")}</span>
+          </p>
+        )}
 
         <TabsList className="-mb-4 mt-4">
           <TabsTrigger value="compose">Compose</TabsTrigger>

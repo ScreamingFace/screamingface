@@ -211,6 +211,12 @@ function ProviderConnect({ provider }: { provider: ProviderView }) {
 
   const supportsOAuth = provider.authMethods.includes("oauth");
   const supportsKey = provider.authMethods.includes("api_key");
+  // The Engine refuses a new sign-in (and an API key over an OAuth row) while a saved row exists,
+  // so a credential that stopped working is removed before connecting again.
+  const stale = provider.status === "needs_reauth" || provider.status === "error";
+  const clearStale = async () => {
+    if (stale) await disconnect(provider.id);
+  };
 
   if (provider.keyless) {
     return (
@@ -241,6 +247,7 @@ function ProviderConnect({ provider }: { provider: ProviderView }) {
     if (!key) return;
     void run("key", async () => {
       try {
+        await clearStale();
         await connectApiKey(provider.id, key);
       } finally {
         // The key goes to the Engine and nowhere else: never kept in the form after the call.
@@ -253,6 +260,7 @@ function ProviderConnect({ provider }: { provider: ProviderView }) {
     const controller = new AbortController();
     signInController.current = controller;
     void run("oauth", async () => {
+      await clearStale();
       const result = await signIn(provider.id, { signal: controller.signal });
       if (result.status === "error") {
         setMessage(`${provider.name} sign-in did not complete.`);
@@ -289,7 +297,7 @@ function ProviderConnect({ provider }: { provider: ProviderView }) {
 
   return (
     <div className="flex max-w-md flex-col gap-3 rounded-xl border bg-card p-4">
-      {(provider.status === "needs_reauth" || provider.status === "error") && (
+      {stale && (
         <p className="text-xs text-muted-foreground">
           The saved {provider.name} credential stopped working. Connect again to
           keep using its models.
@@ -424,7 +432,6 @@ export default function ModelsPage() {
   const providers = useProviders();
   const load = useModelStore((state) => state.load);
   const error = useModelStore((state) => state.error);
-  const models = useModelStore((state) => state.models);
   const refresh = useModelStore((state) => state.refresh);
   const library = useModelStore((state) => state.library);
   const toggleLibraryModel = useModelStore(
@@ -459,9 +466,16 @@ export default function ModelsPage() {
     () => new Set(library.map((model) => model.id)),
     [library],
   );
+  // A model is usable only while its provider is connected (or keyless): the catalog also lists
+  // models of providers that aren't.
   const availableIds = useMemo(
-    () => new Set(models.map((model) => model.id)),
-    [models],
+    () =>
+      new Set(
+        providers
+          .filter((provider) => provider.connected)
+          .flatMap((provider) => provider.models.map((model) => model.id)),
+      ),
+    [providers],
   );
   const isAvailable = (model: SavedModel) =>
     load !== "ready" || availableIds.has(model.id);

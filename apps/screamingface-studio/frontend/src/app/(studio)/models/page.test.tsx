@@ -164,6 +164,58 @@ describe("ModelsPage", () => {
     expect(await screen.findByRole("button", { name: "Sign in with Codex" })).toBeEnabled();
   });
 
+  it("clears an expired OAuth credential before signing in again", async () => {
+    connections = connections.map((row) =>
+      row.provider === "codex" ? { ...row, status: "needs_reauth" } : row,
+    );
+    client.disconnect.mockResolvedValue(connection("codex", "Codex"));
+    client.startOAuth.mockRejectedValue(new EngineError("unreachable"));
+    const user = await openProvider("Codex");
+
+    expect(screen.getByText(/credential stopped working/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sign in with Codex" }));
+
+    await waitFor(() => expect(client.startOAuth).toHaveBeenCalled());
+    expect(client.disconnect).toHaveBeenCalledWith("codex");
+    expect(client.disconnect.mock.invocationCallOrder[0]).toBeLessThan(
+      client.startOAuth.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("clears an errored credential before connecting an API key", async () => {
+    connections = connections.map((row) =>
+      row.provider === "openrouter" ? { ...row, status: "error" } : row,
+    );
+    client.disconnect.mockResolvedValue(connection("openrouter", "OpenRouter"));
+    client.connectApiKey.mockResolvedValue(
+      connection("openrouter", "OpenRouter", { status: "connected" }),
+    );
+    const user = await openProvider("OpenRouter");
+
+    await user.type(screen.getByLabelText("API Key"), "sk-or-new");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() =>
+      expect(client.connectApiKey).toHaveBeenCalledWith("openrouter", "sk-or-new"),
+    );
+    expect(client.disconnect.mock.invocationCallOrder[0]).toBeLessThan(
+      client.connectApiKey.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not clear a working credential before connecting an API key", async () => {
+    client.connectApiKey.mockResolvedValue(
+      connection("openrouter", "OpenRouter", { status: "connected" }),
+    );
+    const user = await openProvider("OpenRouter");
+
+    await user.type(screen.getByLabelText("API Key"), "sk-or-good");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(client.connectApiKey).toHaveBeenCalled());
+    expect(client.disconnect).not.toHaveBeenCalled();
+  });
+
   it("previews an unconnected provider's models with starring disabled", async () => {
     await openProvider("OpenRouter");
 
@@ -217,6 +269,32 @@ describe("ModelsPage", () => {
     expect(within(main).getByText("Unavailable")).toBeInTheDocument();
     expect(
       within(main).getByRole("checkbox", { name: "Select gone/old for composing" }),
+    ).toBeDisabled();
+  });
+
+  it("marks a starred model unavailable when its provider is not connected", async () => {
+    useModelStore.setState({
+      library: [
+        {
+          id: "openrouter/model-a",
+          name: "openrouter/model-a",
+          providerId: "openrouter",
+          providerName: "OpenRouter",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<ModelsPage />);
+
+    await screen.findByRole("button", { name: /^OpenRouter/ });
+    await user.click(screen.getByRole("button", { name: /^Starred/ }));
+
+    const main = screen.getByRole("main");
+    expect(within(main).getByText("Unavailable")).toBeInTheDocument();
+    expect(
+      within(main).getByRole("checkbox", {
+        name: "Select openrouter/model-a for composing",
+      }),
     ).toBeDisabled();
   });
 });
