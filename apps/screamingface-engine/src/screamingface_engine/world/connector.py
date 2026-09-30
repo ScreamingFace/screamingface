@@ -819,7 +819,7 @@ async def _fetch_completion(
         # unrecognised key silently costs every hit (spec §1.0).
         body={**body, **policy_to_body_field(cache)},
     )
-    _raise_for_status(resp)
+    _raise_for_status_counting_miss(resp, grant_sent=_CACHE_REPLAY_HEADER in headers)
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
         return resp, outcome
@@ -831,7 +831,7 @@ async def _fetch_completion(
         headers=headers,
         body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
-    _raise_for_status(resp)
+    _raise_for_status_counting_miss(resp, grant_sent=_CACHE_REPLAY_HEADER in headers)
     return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
 
 
@@ -1125,6 +1125,26 @@ def _json_or_raise(resp: httpx.Response) -> dict:
             code="aigateway_bad_response",
             permanent=True,
         ) from exc
+
+
+def _raise_for_status_counting_miss(resp: httpx.Response, *, grant_sent: bool) -> None:
+    """`_raise_for_status`, plus a version miss for a grant call that ends non-2xx.
+
+    INVARIANT (E14, RP-X1, RP-E6, RP-H5, C12): a call that SENT the grant, was not served from the
+    version, and then failed on the live path (a credential error, a provider 4xx or 5xx, an
+    intercepting redirect) is a version MISS. The gateway sends no version header on an error
+    response, and this raise skips `_report_version`, so without this line a benchmark that
+    collects the failed call would finish with misses == 0 and the SDK would label the replay
+    complete. A rejected grant (`replay_grant_invalid`) is not counted: it fails the run through
+    `report_grant_rejection`. A call with no grant counts nothing, so a plain run stays
+    byte-identical.
+    """
+    try:
+        _raise_for_status(resp)
+    except ResolutionError as exc:
+        if grant_sent and exc.code != "replay_grant_invalid":
+            report_version_outcome("miss", None)
+        raise
 
 
 def _raise_for_status(resp: httpx.Response) -> None:
