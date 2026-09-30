@@ -193,7 +193,9 @@
     return {
       text: "\u2014",
       tone: "unknown",
-      title: "Models not declared: this entry predates model identities, so it is not counted",
+      // No history in this text: `models` is optional on submissions, so a current older
+      // client files unidentified entries too. Say what is missing, never why.
+      title: "Models not declared, so this entry\u2019s openness is unidentified and it is not counted",
     };
   }
 

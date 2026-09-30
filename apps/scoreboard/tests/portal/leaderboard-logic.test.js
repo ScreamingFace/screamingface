@@ -436,3 +436,12 @@ test("opennessLabel: a missing or unexpected value is unknown, never open", () =
   assert.equal(L.opennessLabel({ openness: "yes" }).tone, "unknown");
   assert.equal(L.opennessLabel(null).tone, "unknown");
 });
+
+test("opennessLabel: the unidentified tooltip claims no history about the entry", () => {
+  // `models` stays optional on submissions, so an entry filed today by an older client is
+  // unidentified too. The tooltip may say what is missing, never why or since when.
+  const label = L.opennessLabel({ openness: "unidentified" });
+  assert.doesNotMatch(label.title, /predate|before|older|legacy/i);
+  assert.match(label.title, /unidentified/);
+  assert.match(label.title, /not counted/);
+});
