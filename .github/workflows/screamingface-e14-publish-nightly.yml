@@ -1,0 +1,100 @@
+# The nightly E14 publish spine (OME-1307, PB-22): submit a run, publish its cache version to a
+# SANDBOX GitHub repo through the scoreboard's GitHub App, download the release assets and check
+# that the asset digest is the one the scoreboard shows.
+#
+# Nightly and workflow_dispatch ONLY, never on push or pull_request. It needs a sandbox repo, a
+# GitHub App installed only on it, the secrets E14_SANDBOX_APP_ID and E14_SANDBOX_APP_PRIVATE_KEY,
+# and the repository variable E14_SANDBOX_REPO (owner/repo). Until they exist the run ends green
+# and skipped, with a notice that names the missing ones (never their values).
+#
+# Spend is impossible by construction: the gateway boots with no provider keys, and the model
+# answers come from the committed ifeval snapshot.
+name: ScreamingFace E14 Publish Nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish-spine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: packages/screamingface
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install SDK dependencies
+        run: uv sync
+
+      - name: Cache benchmark assets
+        uses: actions/cache@v6
+        with:
+          path: /tmp/screamingface-data/benchmark-assets
+          key: benchmark-assets-${{ hashFiles('apps/screamingface-engine/src/screamingface_engine/benchmarks/**') }}
+
+      - name: Prepare benchmark assets
+        run: uv run --extra runtime screamingface prepare --all --data-dir /tmp/screamingface-data
+
+      - name: Generate the synthetic plumbing fixture
+        working-directory: apps/aigateway
+        run: |
+          uv sync
+          .venv/bin/python ../../packages/screamingface/tests/e2e/fixtures/generate_synthetic.py
+
+      # A run with no sandbox secrets is a green skip, not a red failure (e.g. a fork, or before
+      # the sandbox exists). The step names the missing ones and never prints a value.
+      - name: Check the sandbox secrets
+        id: sandbox
+        env:
+          E14_SANDBOX_APP_ID: ${{ secrets.E14_SANDBOX_APP_ID }}
+          E14_SANDBOX_APP_PRIVATE_KEY: ${{ secrets.E14_SANDBOX_APP_PRIVATE_KEY }}
+          E14_SANDBOX_REPO: ${{ vars.E14_SANDBOX_REPO }}
+        run: |
+          missing=""
+          [ -n "$E14_SANDBOX_APP_ID" ] || missing="$missing E14_SANDBOX_APP_ID"
+          [ -n "$E14_SANDBOX_APP_PRIVATE_KEY" ] || missing="$missing E14_SANDBOX_APP_PRIVATE_KEY"
+          [ -n "$E14_SANDBOX_REPO" ] || missing="$missing E14_SANDBOX_REPO(variable)"
+          if [ -n "$missing" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::E14 publish spine skipped, not configured:$missing"
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
+          echo "owner=${E14_SANDBOX_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${E14_SANDBOX_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      # The token is scoped to the sandbox repo only. The scoreboard under test signs its own
+      # App tokens from the same App id and private key.
+      - name: Mint the sandbox token
+        id: app
+        if: steps.sandbox.outputs.present == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.E14_SANDBOX_APP_ID }}
+          private-key: ${{ secrets.E14_SANDBOX_APP_PRIVATE_KEY }}
+          owner: ${{ steps.sandbox.outputs.owner }}
+          repositories: ${{ steps.sandbox.outputs.name }}
+
+      - name: Run the publish spine against the sandbox repo
+        if: steps.sandbox.outputs.present == 'true'
+        env:
+          SCREAMINGFACE_TEST_E2E: "1"
+          SCREAMINGFACE_TEST_E2E_GITHUB: "1"
+          SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
+          E14_SANDBOX_REPO: ${{ vars.E14_SANDBOX_REPO }}
+          E14_SANDBOX_TOKEN: ${{ steps.app.outputs.token }}
+          E14_SANDBOX_APP_ID: ${{ secrets.E14_SANDBOX_APP_ID }}
+          E14_SANDBOX_APP_INSTALLATION_ID: ${{ steps.app.outputs.installation-id }}
+          E14_SANDBOX_APP_PRIVATE_KEY: ${{ secrets.E14_SANDBOX_APP_PRIVATE_KEY }}
+        run: uv run pytest tests/e2e/test_e14_publish_nightly.py -rs -v -m e2e_github
