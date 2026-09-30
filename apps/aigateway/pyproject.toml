@@ -69,5 +69,6 @@ dev = [
     "pyright>=1.1.393",
     "ruff>=0.8",
     "httpx>=0.28",
-    "testcontainers[postgres]==4.15.0",
+    "testcontainers[postgres,minio]==4.15.0",
+    "hypothesis>=6.100",
 ]
