@@ -409,6 +409,19 @@ class MessageErrorResponse(BaseModel):
     detail: str
 
 
+class ReplayClaim(BaseModel):
+    """C4 `replay`: the run says it replayed a frozen cache version. Stored as reported."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    result_id: UUID
+    cache_version_id: UUID
+    hits: Annotated[int, Field(ge=0)]
+    misses: Annotated[int, Field(ge=0)]
+    repeated_key_collapses: Annotated[int, Field(ge=0)] = 0
+    pinned_baseline_result_id: UUID | None = None
+
+
 class ScoreSubmission(BaseModel):
     """Input DTO for score ingestion."""
 
@@ -430,6 +443,14 @@ class ScoreSubmission(BaseModel):
     # INVARIANT: metadata, not identity. Absent from `_content_hash` and from `_REPLAY_FIELDS`
     # (store.py), so two submissions of one recipe with different paper URLs still dedup.
     paper_url: PaperUrl | None = None
+    # FEATURE: OME-1307 (E14) — the C4 submit fields. All optional and ignored while
+    # `SCOREBOARD_CLUSTERING_ENABLED` is off, so a newer Client can talk to an older board.
+    # WHY `trace_id` is here although the C4 field list omits it: C3 needs it (`tid` must equal
+    # the report's `trace_id`), spec gap G1. It is never read from `metadata`.
+    trace_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")] | None = None
+    revision_of: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    cache_version_receipt: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
+    replay: ReplayClaim | None = None
     # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
     #
     # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
@@ -738,6 +759,72 @@ class ScoreRankingNotice(BaseModel):
     registered_benchmark_revision: str
 
 
+CoverageStatus = Literal["complete", "partial"]
+PublicationState = Literal["private", "requested", "published", "failed", "withdrawn"]
+
+
+class CacheVersionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    sha256: str
+    entry_count: int
+    call_count: int
+    coverage_status: CoverageStatus
+
+
+class ReplayProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    replayed_from_result_id: UUID
+    hits: int
+    misses: int
+    pinned_baseline_result_id: UUID | None
+    # C4 trust rule: the counts are labelled as reported by the client.
+    reported_by: Literal["client"] = "client"
+
+
+class ReportedResultSchema(BaseModel):
+    """One reported run of a head (C10). Built in one place: `cluster_rules.result_schema`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    score_id: UUID
+    is_original: bool
+    reporter: SubmittedBy
+    submitted_at: datetime
+    score: float
+    total_questions: int
+    correct_questions: int | None
+    models: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    run_cost_usd: RunCostUsd
+    run_cost_status: RunCostStatus | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    cache_saved_cost_usd: RunCostUsd = Field(default=None, exclude_if=lambda value: value is None)
+    cache_version: CacheVersionSummary | None
+    publication_state: PublicationState | None
+    replay: ReplayProvenance | None = Field(default=None, exclude_if=lambda value: value is None)
+    labels: list[str] = Field(default_factory=list)
+
+
+class SubmitNotice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["system_already_named", "clustered_under"]
+    name: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    owner: SubmittedBy = Field(default=None, exclude_if=lambda value: value is None)
+    score_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class ReportedResultsPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    results: list[ReportedResultSchema]
+    next_cursor: str | None
+
+
 class ScoreSchema(BaseModel):
     """Read DTO for a score and the successful submission receipt."""
 
@@ -839,6 +926,15 @@ class ScoreSchema(BaseModel):
         default=None, exclude_if=lambda value: value is None
     )
     system_revision_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE: OME-1307 (E14) — the answer of the clustered submit (C4).
+    # INVARIANT: EXCLUDED AT THE DEFAULT, so `GET /v1/scores/{id}` and the private JSONL export
+    # stay byte-identical (the `OME-1181` Q2 trap, see `models` above). Only `POST /v1/scores`
+    # with clustering on sets them.
+    reported_result: ReportedResultSchema | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    reported_results_count: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    notices: list[SubmitNotice] | None = Field(default=None, exclude_if=lambda value: value is None)
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.

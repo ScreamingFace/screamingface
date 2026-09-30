@@ -98,6 +98,24 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
+    clustering_enabled: bool = False
+    """FEATURE: E14 — POST /v1/scores clusters by system (prd/submit-and-cluster.md).
+
+    WHY the code default is False: the legacy route tests are append-only and pin one row per
+    content hash (tests/unit/test_scores_routes.py:169-191). False keeps them meaningful. Unit
+    WIRING (D6) turns it on in the chart and in the local runtime (`screamingface up`).
+    """
+
+    receipt_public_keys: dict[str, str] = Field(default_factory=dict)
+    """C3 verifier keys: kid -> standard base64 of the RAW 32-byte Ed25519 public key (current
+    plus previous). Env SCOREBOARD_RECEIPT_PUBLIC_KEYS, a JSON object. Public keys, not a secret.
+
+    INVARIANT: the same encoding and the same kid values that the gateway publishes
+    (GW-freeze.md OD-F2: kid = sha256(raw public key).hexdigest()[:16]) and that the local runtime
+    writes (SDK-replay.md section 4.12). The scoreboard does not derive the kid; it uses the map
+    keys as given.
+    """
+
     @field_validator("database_url")
     @classmethod
     def _normalize_database_url(cls, database_url: str) -> str:

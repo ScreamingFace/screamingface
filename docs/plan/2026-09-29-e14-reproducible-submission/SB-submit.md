@@ -79,6 +79,7 @@ Create (C) or modify (M). Paths are from the repo root.
 | — | `apps/scoreboard/src/scoreboard/adapters/__init__.py` | Already made by SB-registry (wave 2). Do not create it. | — |
 | C | `apps/scoreboard/src/scoreboard/adapters/jws_receipt_verifier.py` | `Ed25519ReceiptVerifier` (PyJWT, EdDSA). Implements `ReceiptVerifier`. | `apps/screamingface-engine/src/screamingface_engine/auth/jwt.py:25-85` (codec shape, error mapping, "never log key material") |
 | C | `apps/scoreboard/src/scoreboard/scores/cluster_store.py` | `ClusterStore`: the Tortoise adapter and the transaction owner for the clustered submit (§4.4, §4.5). | `apps/scoreboard/src/scoreboard/scores/store.py:1253-1370` (`submit`: one read of visibility, lock, IntegrityError retry) |
+| C2 | `apps/scoreboard/src/scoreboard/scores/cluster_types.py` | Value types, errors and two row helpers split out of `cluster_store.py` (review fix round 1, 450-line limit); `cluster_store` re-exports the public names. | `apps/scoreboard/src/scoreboard/scores/cluster_rules.py` |
 | C | `apps/scoreboard/src/scoreboard/metrics.py` | `build_metrics()` with a per-app `CollectorRegistry` and the counters (§4.9). | `apps/screamingface-engine/src/screamingface_engine/metrics.py:9-40` |
 | M | `apps/scoreboard/src/scoreboard/scores/store.py` | Add three public methods: `lock_visibility(benchmark_id, per_submitter, *, connection)` (calls `_revalidate_visibility(..., connection=connection, lock=True)`, `store.py:1202-1216`), `readable_by(score, *, submitted_by, identity_verified)` (returns `await self._readable_by(...)`, `store.py:906-922`) and `results_counts(score_ids, *, connection)` (§4.10). Change nothing else. | `models_for_score_ids`, `store.py:1556-1576` |
 | M | `apps/scoreboard/src/scoreboard/scores/schemas.py` | New request fields and new DTOs (§4.2, §4.3). Put the new classes ABOVE `ScoreSchema` (`schemas.py:674`) so that `ScoreSchema` can refer to them. | `exclude_if` pattern at `schemas.py:702,734,752,759` |
@@ -413,6 +414,7 @@ def replay_access(*, board_visibility: str | None, redistributable: bool, report
 **Rule R (SC-14, C4 trust rule).** For `submission.replay`:
 1. `target = await load_replay_target(replay.result_id)`; None → `InvalidReplayClaim`.
 2. `target.result.cache_version_id != replay.cache_version_id` → `InvalidReplayClaim`.
+2a. `target.benchmark.id != submission.benchmark_id` → `InvalidReplayClaim` (added in review fix round 1: a claim names a result of the board it is posted on; C6/RP-E4 refuses a grant across boards with `replay_benchmark_mismatch`, so no grant could produce such a claim). Test row: SC-14 invalid-claim table, `result-of-another-benchmark`.
 3. `replay_access(board_visibility=target.benchmark.visibility, redistributable=target.benchmark.redistributable, reporter=target.result.reporter, publication_state=target.publication_state, caller=submission.submitted_by, identity_verified=identity_verified) != "allow"` → `InvalidReplayClaim`.
 4. `replay.pinned_baseline_result_id` is set and no `ReportedResult` has that id → `InvalidReplayClaim`.
 5. Store the counts as sent (C4: "stored as reported").

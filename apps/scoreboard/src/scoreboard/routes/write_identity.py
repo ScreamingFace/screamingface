@@ -25,6 +25,7 @@ from scoreboard.core.auth.cloudflare_identity import (
     identity_from_headers,
     peer_in_networks,
 )
+from scoreboard.routes.errors import coded_error
 from scoreboard.routes.scores import UNTRUSTED_PEER_DETAIL, identity_is_verified
 
 
@@ -51,15 +52,13 @@ async def write_identity(request: Request) -> str | None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=UNTRUSTED_PEER_DETAIL)
     email = identity_from_headers(request.headers)
     if email is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": "identity_not_verified",
-                "message": (
-                    f"Missing {HEADER_USER_EMAIL}: this service resolves the caller from the "
-                    "identity header the mesh gateway injects after verifying Cloudflare Access."
-                ),
-            },
+        raise coded_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "identity_not_verified",
+            (
+                f"Missing {HEADER_USER_EMAIL}: this service resolves the caller from the "
+                "identity header the mesh gateway injects after verifying Cloudflare Access."
+            ),
         )
     return email
 

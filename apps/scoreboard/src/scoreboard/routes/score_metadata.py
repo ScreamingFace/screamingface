@@ -16,12 +16,12 @@ import re
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Body, Header, Query, Request, Response, status
 from pydantic import ValidationError
 from tortoise.exceptions import OperationalError
 
 from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity, turned_private
-from scoreboard.routes.scores import SCORE_NOT_FOUND_DETAIL, STORE_UNAVAILABLE_DETAIL
+from scoreboard.routes.errors import UNPROCESSABLE, coded_error, score_not_found, store_unavailable
 from scoreboard.routes.write_identity import WriteIdentity
 from scoreboard.scores.metadata_store import (
     MetadataRevisionConflict,
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["scores"])
 
-_EDITABLE_FIELDS = frozenset({"authors", "paper_url"})
+_EDITABLE_FIELDS = frozenset(ScoreMetadataPatch.model_fields)
 # A strong ETag of the revision, as the API sends it: `"3"`. Revisions start at 1.
 _IF_MATCH_PATTERN = re.compile(r'^"([1-9][0-9]{0,9})"$')
 _CURSOR_PATTERN = re.compile(r"^[1-9][0-9]{0,9}$")
@@ -49,8 +49,6 @@ _CURSOR_PATTERN = re.compile(r"^[1-9][0-9]{0,9}$")
 # passed to the store as 0 and comes back as a 412 with the current state, except for the MD-D4
 # resend of equal values, which the store answers 200 before it checks the revision.
 _NEVER_A_REVISION = 0
-# WHY a literal: Starlette renamed `HTTP_422_UNPROCESSABLE_ENTITY` and the old name now warns.
-_UNPROCESSABLE = 422
 
 PATCH_METADATA_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_401_UNAUTHORIZED: {
@@ -69,7 +67,7 @@ PATCH_METADATA_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": CodedErrorResponse,
         "description": "metadata_revision_conflict: the body holds the current state.",
     },
-    _UNPROCESSABLE: {
+    UNPROCESSABLE: {
         "model": CodedErrorResponse,
         "description": "field_not_editable or invalid_metadata.",
     },
@@ -85,7 +83,7 @@ PATCH_METADATA_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 METADATA_HISTORY_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: PATCH_METADATA_RESPONSES[status.HTTP_404_NOT_FOUND],
-    _UNPROCESSABLE: {
+    UNPROCESSABLE: {
         "model": CodedErrorResponse,
         "description": "invalid_cursor.",
     },
@@ -95,25 +93,9 @@ METADATA_HISTORY_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _coded(status_code: int, code: str, message: str, **extra: object) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"code": code, "message": message, **extra}
-    )
-
-
-def _not_found() -> HTTPException:
-    # INVARIANT (OME-894): the same bytes as `GET /v1/scores/{id}`, with the private policy, so a
-    # score that does not exist and a private score that is not yours are indistinguishable.
-    return HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=SCORE_NOT_FOUND_DETAIL,
-        headers=PRIVATE_CACHE_HEADERS,
-    )
-
-
 def _expected_revision(if_match: str | None) -> int:
     if if_match is None or if_match.strip() in ("", "*"):
-        raise _coded(
+        raise coded_error(
             status.HTTP_428_PRECONDITION_REQUIRED,
             "precondition_required",
             'send If-Match with the metadata_revision you read, for example If-Match: "1"',
@@ -125,8 +107,8 @@ def _expected_revision(if_match: str | None) -> int:
 def _parse_patch(payload: dict[str, Any]) -> ScoreMetadataPatch:
     extra = sorted(set(payload) - _EDITABLE_FIELDS)
     if extra:
-        raise _coded(
-            _UNPROCESSABLE,
+        raise coded_error(
+            UNPROCESSABLE,
             "field_not_editable",
             "only authors and paper_url can be edited",
             fields=extra,
@@ -134,8 +116,8 @@ def _parse_patch(payload: dict[str, Any]) -> ScoreMetadataPatch:
     try:
         return ScoreMetadataPatch.model_validate(payload)
     except ValidationError as exc:
-        raise _coded(
-            _UNPROCESSABLE,
+        raise coded_error(
+            UNPROCESSABLE,
             "invalid_metadata",
             "authors or paper_url is not valid",
             errors=[
@@ -182,24 +164,22 @@ async def update_score_metadata(
             score_id, changes=changes, expected_revision=expected_revision, editor=editor
         )
     except ScoreNotFound as exc:
-        raise _not_found() from exc
+        raise score_not_found() from exc
     except NotSubmissionOwner as exc:
-        raise _coded(
+        raise coded_error(
             status.HTTP_403_FORBIDDEN,
             "not_submission_owner",
             "only the submitter of this score can edit its metadata",
         ) from exc
     except MetadataRevisionConflict as exc:
-        raise _coded(
+        raise coded_error(
             status.HTTP_412_PRECONDITION_FAILED,
             "metadata_revision_conflict",
             "the metadata changed since you read it; re-read and retry",
             current=_conflict_detail(exc.current),
         ) from exc
     except OperationalError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=STORE_UNAVAILABLE_DETAIL
-        ) from exc
+        raise store_unavailable() from exc
     if outcome.changed:
         # INVARIANT (PRD §4): counts only. An author list is PII and an email is never logged.
         logger.info(
@@ -233,8 +213,8 @@ async def score_metadata_history(
     one. `next_cursor` is the `to_revision` of the last event; pass it back as `cursor`.
     """
     if cursor is not None and not _CURSOR_PATTERN.match(cursor):
-        raise _coded(
-            _UNPROCESSABLE,
+        raise coded_error(
+            UNPROCESSABLE,
             "invalid_cursor",
             "cursor must be the next_cursor of a previous page",
         )
@@ -253,13 +233,11 @@ async def score_metadata_history(
         if page.private:
             response.headers.update(PRIVATE_CACHE_HEADERS)
         elif await turned_private(page.benchmark_id):
-            raise _not_found()
+            raise score_not_found()
     except ScoreNotFound as exc:
-        raise _not_found() from exc
+        raise score_not_found() from exc
     except OperationalError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=STORE_UNAVAILABLE_DETAIL
-        ) from exc
+        raise store_unavailable() from exc
     return MetadataHistoryResponse(
         events=page.events,
         next_cursor=None if page.next_revision is None else str(page.next_revision),

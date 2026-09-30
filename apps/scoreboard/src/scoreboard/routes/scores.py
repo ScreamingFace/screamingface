@@ -15,6 +15,7 @@ distinguish rows. OME-821 replaces it with a real distinction.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any, cast
 from uuid import UUID
 
@@ -27,13 +28,35 @@ from scoreboard.core.auth.cloudflare_identity import (
     identity_from_headers,
     peer_in_networks,
 )
+from scoreboard.core.submissions.receipts import (
+    ReceiptClaims,
+    ReceiptNotYours,
+    ReceiptRejected,
+    ReceiptVerifier,
+    check_receipt_binding,
+)
+from scoreboard.metrics import Metrics
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
     ReadIdentity,
     turned_private,
 )
+from scoreboard.routes.errors import (
+    CODED_ERRORS,
+    SCORE_NOT_FOUND_DETAIL,
+    STORE_UNAVAILABLE_DETAIL,
+    UNPROCESSABLE,
+    coded_http_error,
+)
+from scoreboard.scores.cluster_rules import result_schema
+from scoreboard.scores.cluster_store import (
+    CacheVersionAlreadyBound,
+    ClusterOutcome,
+    ClusterStore,
+)
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
+    CodedErrorResponse,
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
@@ -46,14 +69,13 @@ from scoreboard.scores.store import (
     ConcurrentScoreUpdate,
     PrivateBoardRequiresIdentity,
     ScoreStore,
+    _score_to_schema,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["scores"])
 
-STORE_UNAVAILABLE_DETAIL = "score store unavailable"
-# INVARIANT (OME-894): one detail for a missing score AND for a private score the caller
-# may not read, so the two are indistinguishable.
-SCORE_NOT_FOUND_DETAIL = "score not found"
 UNTRUSTED_PEER_DETAIL = (
     "This service accepts header identity only from the networks it was configured to trust."
 )
@@ -70,6 +92,11 @@ CONCURRENT_UPDATE_DETAIL = (
 
 VISIBILITY_CHANGED_DETAIL = (
     "the benchmark's visibility changed while this submission was in flight; retry"
+)
+
+PRIVATE_BOARD_IDENTITY_DETAIL = (
+    "submissions to a private benchmark require a verified identity; this "
+    "deployment runs with authentication disabled"
 )
 
 
@@ -133,11 +160,34 @@ SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     status.HTTP_403_FORBIDDEN: {
         "model": MessageErrorResponse,
-        "description": "Caller's peer network is not trusted to present identity headers.",
+        "description": (
+            "Caller's peer network is not trusted to present identity headers. With clustering "
+            "on, also a coded body (CodedErrorResponse): cache_version_not_yours, "
+            "not_system_owner."
+        ),
     },
     status.HTTP_404_NOT_FOUND: {
         "model": FieldErrorResponse,
-        "description": "Unknown benchmark_id.",
+        "description": (
+            "Unknown benchmark_id. With clustering on, also a coded body (CodedErrorResponse): "
+            "system_not_found."
+        ),
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": CodedErrorResponse,
+        "description": (
+            "cache_version_already_bound, system_name_taken (with `suggestion`), or "
+            "registry_conflict. The visibility and concurrent-update refusals keep a plain "
+            "string detail."
+        ),
+    },
+    UNPROCESSABLE: {
+        "model": CodedErrorResponse,
+        "description": (
+            "invalid_cache_version_receipt (with `reason`), invalid_replay_claim, "
+            "invalid_system_name (with `rule`), invalid_url4 or url4_too_large. A body that "
+            "fails validation keeps the standard FastAPI shape."
+        ),
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: {
         "model": MessageErrorResponse,
@@ -172,6 +222,134 @@ def _submission_response(score: ScoreSchema, registered_revision: str | None) ->
             )
         }
     )
+
+
+_STORE_REFUSALS = (BenchmarkVisibilityChanged, ConcurrentScoreUpdate, PrivateBoardRequiresIdentity)
+
+
+def _store_refusal(exc: Exception) -> HTTPException:
+    """The HTTP refusal of a submit that the store (legacy or clustered) declined.
+
+    Shared by both submit paths, so the two cannot drift.
+    """
+    if isinstance(exc, BenchmarkVisibilityChanged):
+        # The board changed under the request, so it was refused rather than completed on stale
+        # rules. 409 rather than 500: nothing is wrong with the request, and retrying it gets a
+        # consistent view (review of PR #719).
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=VISIBILITY_CHANGED_DETAIL)
+    if isinstance(exc, ConcurrentScoreUpdate):
+        # Same reasoning as the visibility 409 above: nothing is wrong with the request, and a
+        # retry resolves the row again and re-applies the correction. Raised BEFORE the outer
+        # `except OperationalError`, which would otherwise answer 503 store-unavailable for a
+        # race the store handled perfectly well (OME-1054).
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=CONCURRENT_UPDATE_DETAIL)
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN, detail=PRIVATE_BOARD_IDENTITY_DETAIL
+    )
+
+
+# FEATURE: OME-1307 (E14) — request fields that only the clustered path reads.
+_E14_REQUEST_FIELDS = frozenset({"trace_id", "revision_of", "cache_version_receipt", "replay"})
+
+
+def _log_ignored_e14_fields(submission: ScoreSubmission) -> None:
+    """Note that a deploy with clustering off ignored E14 fields. Names only, never values."""
+    ignored = sorted(name for name in _E14_REQUEST_FIELDS if getattr(submission, name) is not None)
+    if ignored:
+        logger.info("e14_fields_ignored fields=%s", ",".join(ignored))
+
+
+def _verified_receipt(
+    request: Request, submission: ScoreSubmission, settings: Settings
+) -> ReceiptClaims | None:
+    """The verified claims of the receipt, or None when the run sent none.
+
+    INVARIANT: runs BEFORE any read of scores, so a refused receipt writes nothing (SC-E2).
+    """
+    if submission.cache_version_receipt is None:
+        return None
+    verifier = cast(ReceiptVerifier, request.app.state.receipt_verifier)
+    metrics = cast(Metrics, request.app.state.metrics)
+    try:
+        claims = verifier.verify(submission.cache_version_receipt)
+        check_receipt_binding(
+            claims,
+            submitter=submission.submitted_by,
+            trace_id=submission.trace_id,
+            check_subject=identity_is_verified(settings.auth_mode),
+        )
+    except (ReceiptRejected, ReceiptNotYours) as exc:
+        reason = exc.reason if isinstance(exc, ReceiptRejected) else "not_yours"
+        metrics.receipt_rejections.labels(reason=reason).inc()
+        raise coded_http_error(exc) from exc
+    return claims
+
+
+async def _cluster(
+    request: Request,
+    submission: ScoreSubmission,
+    idempotency_key: str | None,
+    claims: ReceiptClaims | None,
+) -> ClusterOutcome:
+    """Run the clustered submit and refuse a PUBLIC answer for a board that turned private.
+
+    INVARIANT (OME-894): `RegistryService.resolve_for_submit` takes the board visibility as an
+    argument, so this route owns the revalidation. `lock_visibility` re-proves it inside the write
+    transaction; `turned_private` re-proves it before a public answer leaves, because the answer
+    can carry ANOTHER user's head (a run that joins a cluster, or an idempotent hit).
+    """
+    settings = cast(Settings, request.app.state.settings)
+    cluster_store = cast(ClusterStore, request.app.state.cluster_store)
+    metrics = cast(Metrics, request.app.state.metrics)
+    was_public = not await turned_private(submission.benchmark_id)
+    try:
+        outcome = await cluster_store.submit(
+            submission,
+            idempotency_key=idempotency_key,
+            identity_verified=identity_is_verified(settings.auth_mode),
+            claims=claims,
+        )
+    except _STORE_REFUSALS as exc:
+        raise _store_refusal(exc) from exc
+    except CODED_ERRORS as exc:
+        if isinstance(exc, CacheVersionAlreadyBound):
+            metrics.receipt_rejections.labels(reason="already_bound").inc()
+        raise coded_http_error(exc) from exc
+    if was_public and await turned_private(submission.benchmark_id):
+        raise _store_refusal(BenchmarkVisibilityChanged(submission.benchmark_id))
+    metrics.submits.labels(kind=outcome.kind).inc()
+    return outcome
+
+
+def _clustered_schema(outcome: ClusterOutcome) -> ScoreSchema:
+    """The head, with the run just reported, the cluster size and the notices (C4)."""
+    result = outcome.result
+    return _score_to_schema(outcome.head).model_copy(
+        update={
+            "reported_result": (
+                None if result is None else result_schema(result, outcome.publication_state)
+            ),
+            "reported_results_count": outcome.results_count,
+            "notices": outcome.notices,
+        }
+    )
+
+
+async def _submit_clustered(
+    submission: ScoreSubmission,
+    request: Request,
+    response: Response,
+    idempotency_key: str | None,
+    registered_revision: str | None,
+) -> ScoreSchema:
+    settings = cast(Settings, request.app.state.settings)
+    claims = _verified_receipt(request, submission, settings)
+    outcome = await _cluster(request, submission, idempotency_key, claims)
+    # 200 for a resend of a run already stored, 201 for a new result (C4).
+    response.status_code = (
+        status.HTTP_200_OK if outcome.kind == "replay_idempotent" else status.HTTP_201_CREATED
+    )
+    return _submission_response(_clustered_schema(outcome), registered_revision)
 
 
 @router.post(
@@ -239,37 +417,19 @@ async def submit_score(
         # board is inert in both directions until identity is real rather than half-open.
         settings = cast(Settings, request.app.state.settings)
         store = cast(ScoreStore, request.app.state.score_store)
+        if settings.clustering_enabled:
+            return await _submit_clustered(
+                submission, request, response, idempotency_key, registered_revision
+            )
+        _log_ignored_e14_fields(submission)
         try:
             outcome = await store.submit(
                 submission,
                 idempotency_key=idempotency_key,
                 identity_verified=identity_is_verified(settings.auth_mode),
             )
-        except BenchmarkVisibilityChanged as exc:
-            # The board changed under the request, so it was refused rather than completed on stale
-            # rules. 409 rather than 500: nothing is wrong with the request, and retrying it gets a
-            # consistent view (review of PR #719).
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=VISIBILITY_CHANGED_DETAIL,
-            ) from exc
-        except ConcurrentScoreUpdate as exc:
-            # Same reasoning as the visibility 409 above: nothing is wrong with the request, and a
-            # retry resolves the row again and re-applies the correction. Caught BEFORE the outer
-            # `except OperationalError`, which would otherwise answer 503 store-unavailable for a
-            # race the store handled perfectly well (OME-1054).
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=CONCURRENT_UPDATE_DETAIL,
-            ) from exc
-        except PrivateBoardRequiresIdentity as exc:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "submissions to a private benchmark require a verified identity; this "
-                    "deployment runs with authentication disabled"
-                ),
-            ) from exc
+        except _STORE_REFUSALS as exc:
+            raise _store_refusal(exc) from exc
         if not outcome.created:
             # WHY: a single atomic submit() call — not a separate pre-check plus a
             # second call — so the reported status code always matches what actually

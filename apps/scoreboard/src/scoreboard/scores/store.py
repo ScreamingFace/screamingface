@@ -16,6 +16,7 @@ from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.expressions import Q
+from tortoise.functions import Count
 from tortoise.query_api import execute_pypika
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
@@ -23,7 +24,7 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 
 from .frontier import FrontierMember, HistoryRow
-from .models import Benchmark, IdempotencyKey, Score
+from .models import Benchmark, IdempotencyKey, ReportedResult, Score
 from .pareto import ParetoEntry
 from .reproduction_cost import reproduction_cost
 from .schemas import (
@@ -1632,6 +1633,47 @@ class ScoreStore:
             str(row["id"]): cast("list[str] | None", row["models"])
             for row in await _chunked_values(score_ids, "id", "models")
         }
+
+    async def lock_visibility(
+        self, benchmark_id: str, per_submitter: bool, *, connection: Any
+    ) -> None:
+        """Lock the benchmark row and refuse if `visibility` no longer matches the decision.
+
+        FEATURE: OME-1307 (E14) — the clustered submit (`ClusterStore`) calls this first inside its
+        write transaction, so the decision it took and the write it makes see one state.
+        """
+        await self._revalidate_visibility(
+            benchmark_id, per_submitter, connection=connection, lock=True
+        )
+
+    async def readable_by(
+        self, score: Score | None, *, submitted_by: str | None, identity_verified: bool
+    ) -> Score | None:
+        """`score`, or None when this caller may not read it (one definition: `_readable_by`)."""
+        return await self._readable_by(
+            score, submitted_by=submitted_by, identity_verified=identity_verified
+        )
+
+    async def results_counts(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, int]:
+        """How many reported results each head in `score_ids` has, read in chunks.
+
+        FEATURE: OME-1307 (E14) — the leaderboard row shows "N reported results" from two. A head
+        with no rows is absent from the result. `connection`: a `read_snapshot()` connection.
+        """
+        counts: dict[str, int] = {}
+        for start in range(0, len(score_ids), _MODELS_READ_CHUNK):
+            chunk = list(score_ids[start : start + _MODELS_READ_CHUNK])
+            rows = (
+                await ReportedResult.filter(head_id__in=chunk)
+                .using_db(connection)
+                .annotate(n=Count("id"))
+                .group_by("head_id")
+                .values("head_id", "n")
+            )
+            counts.update({str(row["head_id"]): int(row["n"]) for row in rows})
+        return counts
 
     async def paper_urls_for_score_ids(
         self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None

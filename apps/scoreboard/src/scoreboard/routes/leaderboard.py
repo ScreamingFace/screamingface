@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -94,6 +94,17 @@ class RankedLeaderboardEntry(BaseModel):
     # INVARIANT: EXCLUDED WHEN ABSENT. Existing tests pin the exact key set of a board entry, and a
     # row with no paper URL must keep it, so `"paper_url": null` never appears.
     paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE: OME-1307 (E14) — the head id and how many reported results cluster under it, set
+    # only from TWO results (one result is the row itself), for the portal's "N reported results"
+    # link. Read by `get_leaderboard` from `ScoreStore.results_counts`.
+    #
+    # WHY not on LeaderboardEntry: the same reason as `paper_url` above. Two append-only guards
+    # iterate `LeaderboardEntry.model_fields` and compare each field with a `Score` column, and
+    # `Score` has no `score_id`.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, so every legacy payload stays byte-identical.
+    score_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    reported_results_count: int | None = Field(default=None, exclude_if=lambda value: value is None)
 
     # FEATURE: OME-923 part B — this row is on the Pareto frontier: no other row on the
     # board is both at least as good and at least as cheap, and strictly better on one.
@@ -205,14 +216,33 @@ def _ranked_entry(
     on_pareto_frontier: bool,
     openness: EntryVerdict,
     paper_url: str | None = None,
+    score_id: str | None = None,
+    reported_results_count: int | None = None,
 ) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(
         rank=rank,
         on_pareto_frontier=on_pareto_frontier,
         openness=openness,
         paper_url=paper_url,
+        score_id=score_id,
+        reported_results_count=reported_results_count,
         **entry.model_dump(),
     )
+
+
+# FEATURE: OME-1307 (E14) — a head with fewer results than this shows no count.
+_MIN_RESULTS_FOR_COUNT = 2
+
+
+def _cluster_marks(counts: dict[str, int], source_id: str) -> dict[str, Any]:
+    """`score_id` and `reported_results_count` of a row, only from two results.
+
+    INVARIANT: a count of 0 or 1 gives NO keys, so a legacy payload stays byte-identical.
+    """
+    count = counts.get(source_id, 0)
+    if count < _MIN_RESULTS_FOR_COUNT:
+        return {}
+    return {"score_id": source_id, "reported_results_count": count}
 
 
 def _history_submission(score: ScoreSchema) -> HistorySubmission:
@@ -367,6 +397,9 @@ async def get_leaderboard(
         paper_urls = await store.paper_urls_for_score_ids(
             [row.source_id for row in rows], connection=snapshot
         )
+        # FEATURE: OME-1307 (E14) — how many results cluster under each ranked head, from the same
+        # snapshot as the rows, so a count never belongs to a different row than its score.
+        counts = await store.results_counts([row.source_id for row in rows], connection=snapshot)
         frontier_inputs = (
             await store.leaderboard_pareto_inputs(
                 benchmark_id,
@@ -419,6 +452,7 @@ async def get_leaderboard(
                 # unidentified, never guessed, exactly as the card treats it.
                 openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
                 paper_url=paper_urls.get(row.source_id),
+                **_cluster_marks(counts, row.source_id),
             )
             for index, row in enumerate(rows, start=1)
         ],
