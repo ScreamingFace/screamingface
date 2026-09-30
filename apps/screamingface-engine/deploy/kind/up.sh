@@ -54,7 +54,7 @@ benchmark_build_args=(--build-arg "BASE=${ENGINE_TAG}")
 if [ -n "${HF_TOKEN:-}" ]; then
   benchmark_build_args+=(--secret "id=hf_token,env=HF_TOKEN")
 else
-  echo "    NOTE: HF_TOKEN is not set, so gated benchmarks (xstest_safe) are skipped in this image."
+  echo "    NOTE: HF_TOKEN is not set, so gated benchmarks (xstest_safe, xstest_unsafe) are skipped in this image."
   echo "          To include them: export HF_TOKEN=<read-only token from a Hugging Face account"
   echo "          that accepted https://huggingface.co/datasets/walledai/XSTest>"
   benchmark_build_args+=(--build-arg "SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1")

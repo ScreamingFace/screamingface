@@ -206,6 +206,11 @@ from screamingface_engine_inspect.pins import (
     XSTEST_SAFE_DATASET,
     XSTEST_SAFE_DATASET_REVISION,
     XSTEST_SAFE_SPLIT,
+    XSTEST_UNSAFE_CASE_COUNT,
+    XSTEST_UNSAFE_CONFIG,
+    XSTEST_UNSAFE_DATASET,
+    XSTEST_UNSAFE_DATASET_REVISION,
+    XSTEST_UNSAFE_SPLIT,
 )
 
 if TYPE_CHECKING:
@@ -752,6 +757,30 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # the pinned Samples and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.xstest.xstest:xstest",
         question_filter_task_args={"subset": "safe"},
+        # Gated on the Hub: the prepare step needs HF_TOKEN from an account that
+        # accepted the dataset's terms (OME-1269).
+        needs_hf_token=True,
+        # The judge grades complied / refused from the question and the reply;
+        # the dataset has no answer key (xstest's row rule sets no target).
+        has_answer_key=False,
+        # WHY the unbaked system_message is benign (musr precedent): the eval's
+        # system message is the generic "You are a helpful assistant." — no benchmark
+        # content, and the grading prompt never sees it.
+    ),
+    "xstest_unsafe": CasesSpec(
+        dataset=XSTEST_UNSAFE_DATASET,
+        config=XSTEST_UNSAFE_CONFIG,
+        split=XSTEST_UNSAFE_SPLIT,
+        dataset_revision=XSTEST_UNSAFE_DATASET_REVISION,
+        case_count=XSTEST_UNSAFE_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.xstest.xstest:xstest;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.xstest.xstest:record_to_sample",
+        # The eval drops questions after loading; the prepare step runs its task over
+        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        question_filter_task="inspect_evals.xstest.xstest:xstest",
+        question_filter_task_args={"subset": "unsafe"},
         # Gated on the Hub: the prepare step needs HF_TOKEN from an account that
         # accepted the dataset's terms (OME-1269).
         needs_hf_token=True,

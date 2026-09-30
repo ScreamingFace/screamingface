@@ -45,6 +45,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "wmdp_chem": "c1052f7956dd9bb6",
     "wmdp_cyber": "dbb68d47d68f4e09",
     "hellaswag": "b3f504a886222b6a",
+    # Verified against main 2026-09-30: the inverted-grade pin (OME-1400) exists only
+    # when a row sets the flag, so its uninverted sibling keeps this revision.
+    "xstest_safe": "97047574a6efa53a",
 }
 
 
