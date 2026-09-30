@@ -54,3 +54,9 @@ def _isolated_screamingface_data_dir(
 
 
 __all__: list[str] = []
+
+
+@pytest.fixture(autouse=True)
+def _isolated_analytics_preferences(tmp_path, monkeypatch):
+    # INVARIANT: opted-in developer preferences must never make tests send telemetry.
+    monkeypatch.setenv("SCREAMINGFACE_ANALYTICS_CONFIG", str(tmp_path / "analytics.json"))

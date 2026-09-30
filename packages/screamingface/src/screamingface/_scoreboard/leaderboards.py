@@ -20,6 +20,7 @@ from uuid import UUID
 
 import httpx
 
+from screamingface._analytics.tracking import tracked
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
     prepare_submission_notice,
@@ -57,9 +58,16 @@ _MAX_MODELS_BYTES = 4096
 class Leaderboards:
     """Synchronous public Leaderboards bound to one Client."""
 
-    def __init__(self, request: Callable[..., httpx.Response], scoreboard_url: str) -> None:
+    def __init__(
+        self,
+        request: Callable[..., httpx.Response],
+        scoreboard_url: str,
+        *,
+        analytics_engine_url: str | None = None,
+    ) -> None:
         self._request = request
         self._scoreboard_url = scoreboard_url
+        self._engine_url = analytics_engine_url
 
     def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
@@ -87,6 +95,7 @@ class Leaderboards:
             )
         )
 
+    @tracked("submission")
     def submit(
         self,
         candidate_result: CandidateResult,
@@ -133,9 +142,12 @@ class AsyncLeaderboards:
         self,
         request: Callable[..., Awaitable[httpx.Response]],
         scoreboard_url: str,
+        *,
+        analytics_engine_url: str | None = None,
     ) -> None:
         self._request = request
         self._scoreboard_url = scoreboard_url
+        self._engine_url = analytics_engine_url
 
     async def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
@@ -163,6 +175,7 @@ class AsyncLeaderboards:
             )
         )
 
+    @tracked("submission")
     async def submit(
         self,
         candidate_result: CandidateResult,
