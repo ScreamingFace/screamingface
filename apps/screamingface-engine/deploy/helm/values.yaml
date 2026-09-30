@@ -512,7 +512,10 @@ livenessProbe:
   periodSeconds: 20
   timeoutSeconds: 5
 
-# `/readyz` asks the event stream whether the broker is reachable (OME-942).
+# `/readyz` gates the COLD START (OME-942, ledger D8): it asks the event stream whether the
+# broker is reachable until the first ready answer, then stays ready for the life of the pod.
+# The App is pinned to one replica, so a later NATS blip must not empty the Service and 503
+# every route; a new pod that cannot reach NATS still never takes traffic.
 readinessProbe:
   httpGet:
     path: /readyz

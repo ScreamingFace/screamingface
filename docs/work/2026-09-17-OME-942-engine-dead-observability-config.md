@@ -273,7 +273,7 @@ to narrow the claim, not to widen the probe, because widening it makes F5/D8 str
 it puts three more connections' failures in front of every endpoint this Service fronts. Every
 docstring now states the scope exactly and names what is NOT probed.
 
-### F5 (MEDIUM, CONFIRMED as a real trade) — D8, and it is OPEN for the owner
+### F5 (MEDIUM, CONFIRMED as a real trade) — D8, DECIDED by the owner: cold-start gate only
 
 **D8. Broker-aware readiness on a single-Service, single-`/`-PathPrefix deployment is an
 availability trade this branch makes VISIBLE but does not claim to have settled.**
@@ -299,6 +299,14 @@ next to the probe, where the operator making the call will read it. **If the own
 readiness to stay broker-blind, the change is small and local — delete the `stream_readiness`
 call from `ops.readyz` and keep `/readyz` as an endpoint that exists; the leak and hang fixes
 above stand either way.**
+
+**D8 — decision (owner, 2026-09-30): gate the cold start only.** The chart pins the App to one
+replica, so "route around this pod" never happens in steady state and a NATS outage of 20–30 s
+would take the whole API down. `ops.readyz` now asks the stream until the first ready answer, then
+latches ready on `app.state` for the life of the App. Pinned by
+`test_a_broker_outage_after_the_first_ready_answer_keeps_the_pod_ready` (fails without the
+latch), `test_readiness_keeps_asking_until_the_first_ready_answer` and
+`test_the_readiness_latch_belongs_to_one_app`. Chart comment and README updated to match.
 
 ### F6 (MEDIUM, CONFIRMED and the most important item) — the invented incident narrative
 

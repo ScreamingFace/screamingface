@@ -389,7 +389,7 @@ The probes ask two different questions and target two different endpoints:
 | Probe | Path | Asks | On failure |
 |---|---|---|---|
 | `livenessProbe` | `/livez` | is this process up? | the pod is RESTARTED |
-| `readinessProbe` | `/readyz` | can this pod's EVENT STREAM reach NATS? | the pod leaves the Service's endpoints |
+| `readinessProbe` | `/readyz` | has this pod's EVENT STREAM reached NATS at least once? | a new pod does not join the Service's endpoints |
 
 Both used to target `/healthz`, which answers unconditionally — so the readiness probe could not
 fail whatever the state of the pod's NATS connection. (That is read off the chart and the
@@ -406,11 +406,13 @@ for. The 503 body's `reason` is a fixed literal — never the NATS URL and never
 error text, both of which reach an unauthenticated caller through the gateway's `/` route; the
 detail is in the pod's log at WARNING.
 
-**Availability trade, not yet signed off.** Readiness is now broker-aware for a Service fronted
-by a single `/` PathPrefix, so a TOTAL NATS outage empties every replica's endpoints at once —
-including paths that need no broker (token mint, `/docs`, catalog REST, artifact GETs). The
-probe pays off in PARTIAL failure and pays nothing in total failure. See `values.yaml` next to
-the probe definitions, and the OME-942 ledger's D8.
+**Cold-start gate only (ledger D8, owner decision).** `/readyz` asks the event stream until the
+first ready answer, then latches ready for the life of the App and never asks again. The App is
+pinned to one replica, so broker-aware readiness had nothing to route around: a NATS outage would
+have emptied the Service and 503'd every route, including those that need no broker (token mint,
+`/docs`, catalog REST, artifact GETs). What stays is the rollout gate — a new pod that cannot
+reach NATS never takes traffic. A later outage shows in the pod's logs and on the run paths that
+need the broker, not as a whole-API 503.
 
 ### Optional live activity
 

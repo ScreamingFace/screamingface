@@ -65,8 +65,64 @@ class _BrokerlessStream:
     """The in-process stream: no broker, so nothing to be unreachable."""
 
 
+class _FlippingStream:
+    """A broker-backed stream whose reachability the test flips between probes."""
+
+    def __init__(self, *, reachable: bool) -> None:
+        self.reachable = reachable
+        self.checks = 0
+
+    async def check_ready(self) -> None:
+        self.checks += 1
+        if not self.reachable:
+            raise StreamNotReadyError("event stream is not connected")
+
+
 def _client(stream: object | None) -> TestClient:
     return TestClient(create_app(stream=cast(Any, stream)))
+
+
+# --- cold-start gate (ledger D8) ------------------------------------------------------------
+
+
+async def test_a_broker_outage_after_the_first_ready_answer_keeps_the_pod_ready() -> None:
+    """D8 (owner decision): readiness gates the COLD START only. The App is pinned to one
+    replica, so a later NATS blip taking this pod out of the Service would 503 every route —
+    token mint, catalog, /docs, artifact GETs — including the ones that need no broker."""
+    stream = _FlippingStream(reachable=True)
+    with _client(stream) as client:
+        assert client.get("/readyz").status_code == 200
+        stream.reachable = False
+        response = client.get("/readyz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert stream.checks == 1, "once latched, the probe must not ask the broker again"
+
+
+async def test_readiness_keeps_asking_until_the_first_ready_answer() -> None:
+    """The rollout half D8 keeps: a new pod that cannot reach NATS never takes traffic, and it
+    turns ready the first time the broker answers."""
+    stream = _FlippingStream(reachable=False)
+    with _client(stream) as client:
+        assert client.get("/readyz").status_code == 503
+        assert client.get("/readyz").status_code == 503
+        stream.reachable = True
+        assert client.get("/readyz").status_code == 200
+
+    assert stream.checks == 3
+
+
+async def test_the_readiness_latch_belongs_to_one_app() -> None:
+    """The latch lives on the App, not the module: a second App in the same process (tests,
+    an embedding host) starts un-latched and asks its own broker."""
+    first = _FlippingStream(reachable=True)
+    with _client(first) as client:
+        assert client.get("/readyz").status_code == 200
+
+    second = _FlippingStream(reachable=False)
+    with _client(second) as client:
+        assert client.get("/readyz").status_code == 503
 
 
 # --- the endpoint ---------------------------------------------------------------------------

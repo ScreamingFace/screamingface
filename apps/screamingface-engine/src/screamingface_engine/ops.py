@@ -91,10 +91,25 @@ async def readyz(request: Request) -> Response:
 
     INVARIANT: readiness only, never liveness — `/livez` above stays broker-blind on purpose.
     A broker outage must take pods OUT OF ROTATION, not restart every one of them.
+
+    DECISION (ledger D8, owner): readiness gates the COLD START only. The probe asks the stream
+    until the first ready answer, then latches ready for the life of this App and never asks
+    again. WHY: the chart pins the App to ONE replica, so there is nothing to route around — a
+    NATS blip that emptied the Service would 503 every route, including those that need no
+    broker (token mint, catalog REST, `/docs`, artifact GETs). What stays is the rollout gate:
+    a new pod that cannot reach NATS never takes traffic. A later broker outage surfaces where
+    it belongs — the stream's own logs and the run paths that need it — not as a whole-API 503.
+
+    AIDEV-NOTE: the latch is per App (`app.state`), not module-global, so a second App in the
+    same process starts un-latched.
     """
-    reason = await stream_readiness(getattr(request.app.state, "stream", None))
+    state = request.app.state
+    if getattr(state, "stream_ready_latched", False):
+        return JSONResponse({"status": "ready"})
+    reason = await stream_readiness(getattr(state, "stream", None))
     if reason is not None:
         return JSONResponse({"status": "not_ready", "reason": reason}, status_code=503)
+    state.stream_ready_latched = True
     return JSONResponse({"status": "ready"})
 
 
