@@ -150,24 +150,16 @@ def _model_for(case: ProviderCase, model_ids: set[str]) -> str:
     raise AssertionError("unreachable after pytest.skip")
 
 
-def _profile_env_var(provider: str) -> str:
-    return f"AIGW_LIVE_{provider.upper().replace('-', '_')}_PROFILE"
-
-
 def _provider_headers(client: httpx.Client | TestClient, case: ProviderCase) -> dict[str, str]:
     if case.provider == "ollama":
         return {}
 
-    profile_override = os.environ.get(_profile_env_var(case.provider))
-    if profile_override:
-        return {"X-Profile": profile_override}
-
     connection = _single_active_connection(client, case.provider)
     if connection is not None:
-        return {"X-Profile": str(connection["label"])}
+        return {}
 
     if _default_profile_authenticated(client, case.provider):
-        return {"X-Profile": "default"}
+        return {}
 
     if case.provider == "gemini-cli":
         # Gemini can also run through gateway-owned API-key fallback. If absent,
@@ -192,13 +184,8 @@ def _single_active_connection(
     if not connections:
         return None
     if len(connections) > 1:
-        pytest.skip(
-            f"{provider} has multiple active OAuth connections; set {_profile_env_var(provider)}"
-        )
-    connection = connections[0]
-    if not isinstance(connection.get("label"), str) or not connection["label"]:
-        pytest.skip(f"{provider} active OAuth connection has no usable label")
-    return connection
+        pytest.skip(f"{provider} has multiple active OAuth connections; remove extras before retry")
+    return connections[0]
 
 
 def _default_profile_authenticated(client: httpx.Client | TestClient, provider: str) -> bool:

@@ -242,6 +242,16 @@ def test_two_active_connections_make_the_default_selector_ambiguous(harness: Har
     assert info.value.provider == PROVIDER
 
 
+def test_a_default_label_does_not_disambiguate_two_active_connections(harness: Harness) -> None:
+    harness.seed_connection(label="default")
+    harness.seed_connection(label="backup")
+
+    with pytest.raises(SelectorAmbiguous) as info:
+        _resolve(harness, DEFAULT)
+
+    assert info.value.provider == PROVIDER
+
+
 def test_an_unknown_label_is_refused_with_the_valid_labels(harness: Harness) -> None:
     harness.seed_connection(label="work")
     harness.seed_connection(label="personal")

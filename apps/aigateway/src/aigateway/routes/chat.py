@@ -81,7 +81,7 @@ from .chat_dispatch import (
     _unknown_provider_exception,
     convert_provider_response,
 )
-from .provider_access_http import refusals_as_http
+from .provider_access_http import refusals_as_http, selector_from_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -242,6 +242,11 @@ async def _dispatch_and_finalize_accounting(
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
+    # INVARIANT: authentication has already succeeded before this route-level boundary parses every
+    # repeated header value; refusal therefore precedes body, cache, credential and dispatch work.
+    with refusals_as_http():
+        selector = selector_from_request(request)
+
     try:
         body = await request.json()
     except ValueError:
@@ -273,10 +278,6 @@ async def chat_completions(request: Request, response: Response, current: Curren
             begin_accounting(request, plugin=None, provider="unresolved", model="")
         raise
 
-    # INVARIANT (OME-1207): the header is interpreted ONCE, here, by the port's own parser.
-    # The route no longer spells the normalisation, so absent/blank/whitespace all mean the
-    # implicit default in exactly one place and the Stage D sunset policy has a single seat.
-    selector = Selector.from_header(request.headers.get("X-Profile"))
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:

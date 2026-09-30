@@ -66,7 +66,8 @@ def test_the_reject_policy_refuses_every_present_selector(raw: str) -> None:
     with pytest.raises(SelectorUnsupported) as info:
         Selector.from_header(raw, policy=SelectorPolicy.REJECT_EXPLICIT)
 
-    assert info.value.requested == raw.strip()
+    assert raw.strip() not in str(info.value)
+    assert not hasattr(info.value, "requested")
 
 
 def test_the_honour_policy_is_the_default_and_admits_named_selectors() -> None:

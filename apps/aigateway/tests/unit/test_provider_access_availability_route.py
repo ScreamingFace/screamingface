@@ -4,8 +4,9 @@
 # so the Hosted Engine (OME-1245) reads one caller-scoped listing that names no Profile.
 # INVARIANT (D17, spec §3.3 op 6): rows carry `provider` and `status` ONLY, the status family is
 # `AvailabilityStatus`, every success is `Cache-Control: private, no-store`, inbound `X-Profile`
-# is non-selecting, and the route delegates to `app.state.provider_access.availability` — no
-# secret read, no credential strategy, no write.
+# is selector-less only when blank and otherwise rejected before delegation, and the route
+# delegates to `app.state.provider_access.availability` — no secret read, no credential strategy,
+# no write.
 # INVARIANT (edge): an internal status outside the public family never reaches the wire.
 """
 
@@ -30,6 +31,10 @@ ROUTE = "/v1/provider-access"
 STATUSES: frozenset[str] = frozenset(get_args(AvailabilityStatus))
 ROW_KEYS = frozenset({"provider", "status"})
 PRIVATE = "private, no-store"
+UNSUPPORTED_DETAIL = {
+    "code": "x_profile_unsupported",
+    "message": "X-Profile is no longer supported; omit the header.",
+}
 
 
 def _app(client: TestClient) -> FastAPI:
@@ -146,13 +151,27 @@ def test_listing_is_scoped_to_the_caller(
     assert mine != theirs
 
 
-@pytest.mark.parametrize("selector", ["default", "broken", "no-such-profile", ""])
-def test_inbound_x_profile_is_non_selecting(edge: _Edge, selector: str) -> None:
+@pytest.mark.parametrize("selector", ["default", "broken", "no-such-profile"])
+def test_explicit_x_profile_is_rejected_before_availability(
+    edge: _Edge, monkeypatch: pytest.MonkeyPatch, selector: str
+) -> None:
+    port = _RecordingPort(())
+    monkeypatch.setattr(edge.app.state, "provider_access", port)
+
+    response = edge.get(headers={"X-Profile": selector})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == UNSUPPORTED_DETAIL
+    assert selector not in response.text
+    assert port.calls == []
+
+
+def test_empty_x_profile_remains_selectorless_and_non_selecting(edge: _Edge) -> None:
     edge.seed("anthropic", "authenticated", "good")
     edge.seed("anthropic", "error", "broken")
     baseline = edge.get()
 
-    selected = edge.get(headers={"X-Profile": selector})
+    selected = edge.get(headers={"X-Profile": ""})
 
     assert baseline.status_code == selected.status_code == 200
     assert selected.json() == baseline.json()
