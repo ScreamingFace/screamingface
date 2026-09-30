@@ -90,7 +90,7 @@ from url4 import Node, RelExpr, Text, expr, render, src, struct
 from url4.peer.server import Request, Url4Node
 
 # INVARIANT: imported grading is retrieval-free — their scorers compare text to a
-# pinned target; a model that searched would answer a different question.
+# pinned answer key; a model that searched would answer a different question.
 _CANDIDATE_WEB_SEARCH = False
 
 # INVARIANT: failure wording is this plugin's published voice; no rubric-flavored
@@ -104,7 +104,7 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
 }
 
 # WHY this text and nothing richer: mid-run feedback crosses into the candidate's
-# context, so it must never carry the target or the scorer's explanation (which may
+# context, so it must never carry the answer key or the scorer's explanation (which may
 # quote it). Wrong-ness is the entire message; the sealed envelope holds.
 _CHECK_FEEDBACK = (
     "The committed answer does not match the expected solution. "
@@ -324,7 +324,7 @@ def single_shot_benchmark(
             DraftFeedbackOffer(
                 check_route=routes["check_surface"],
                 feedback_intent="feedback",
-                # Free: both proof scorers are deterministic. No cost knob exists
+                # Free: both proof benchmarks grade deterministically. No cost knob exists
                 # yet (YAGNI) — OME-1116 adds one when the first model-graded
                 # import lands.
                 expected_check_cost="free",
@@ -492,7 +492,7 @@ def _cases(root: Path) -> Callable[[], str]:
 def _check(root: Path) -> Callable[[Request], str]:
     """Record the Candidate's attempt verbatim — grading waits for the aggregate.
 
-    WHY no grading here: the scorer is the aggregate's job (through the scorer adapter), so a
+    WHY no grading here: grading is the aggregate's job (through the scorer adapter), so a
     scorer bug can never poison the collected row — the Candidate's answer is always
     preserved for re-grading.
     """
@@ -502,7 +502,7 @@ def _check(root: Path) -> Callable[[Request], str]:
         try:
             case_id: int = positive_case_id(request.intent)
             if _grading_material(root, case_id) is None:
-                # Refuse early: an attempt recorded against an unusable target
+                # Refuse early: an attempt recorded against unusable Grading Material
                 # could never be graded — fail the call, not the aggregate later.
                 raise ValueError(f"the private target record for case {case_id} is unusable")
             answer = candidate_answer(request.context)
@@ -591,7 +591,7 @@ def check_surface_verdict(
     Input-addressed (the OME-796 port rule): a black-box ``$candidate`` only ever sees
     ``$input``, so the case resolves by exact prompt text. The verdict record is the
     sealed-envelope boundary — it carries pass/fail and sanitized feedback, NEVER the
-    target or the scorer's explanation (which may quote it).
+    answer key or the scorer's explanation (which may quote it).
 
     AIDEV-NOTE: each call re-reads cases.json (linear scan) and rebuilds the
     BenchmarkAggregation + scorer + a fresh executor — fine at proof-benchmark scale, but cache a
@@ -743,7 +743,7 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
 
 
 def _grading_material(root: Path, case_id: int) -> Mapping[str, Any] | None:
-    """Read one Case's private target record; ``None`` when the asset is unusable."""
+    """Read one Case's private Grading Material record; ``None`` when the asset is unusable."""
 
     try:
         decoded: object = json.loads(

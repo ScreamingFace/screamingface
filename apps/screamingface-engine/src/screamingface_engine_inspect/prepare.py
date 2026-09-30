@@ -3,7 +3,7 @@
 # default (extra-less) install the typecheck gate runs against. Only unresolved-import
 # reporting is relaxed; every other diagnostic stays on, and with the extra installed
 # these imports type-check normally.
-"""Prepare the imported benchmarks' assets: public prompts and private targets.
+"""Prepare the imported benchmarks' assets: public prompts and private Grading Material.
 
 Run at IMAGE BUILD time, never at run time (OME-925): a Job's rootfs is read-only and
 holds no HuggingFace credential, so every artifact exists before a run starts. HF
@@ -24,11 +24,11 @@ never reimplemented, so an imported benchmark's content is exactly what the eval
 Importing eval #3 means adding one spec entry, zero new functions.
 
 INVARIANT — the Sample coming back from the eval's ``record_to_sample`` crosses ONE
-validated boundary (:func:`_validated_target`): a malformed row fails the whole prepare
+validated boundary (:func:`_validated_answer_key`): a malformed row fails the whole prepare
 by case number, never prepares a half-keyed or unkeyed benchmark.
 
-INVARIANT — ``cases.json`` carries NO target. The client receives ids and prompts; the
-answer key stays in the image.
+INVARIANT — ``cases.json`` carries NO Grading Material. The client receives ids and
+prompts; the answer key stays in the image.
 """
 
 from __future__ import annotations
@@ -261,15 +261,16 @@ class CasesSpec:
     #: ``record_to_sample``; resolved at prepare time and required to be a
     #: ``datasets.Features``. Rides the benchmark's revision pins too.
     features: str | None = None
-    #: OME-1240 opt-in: prepare each Sample's metadata into its private target record —
-    #: needed by metadata-dispatching scorers (frontierscience's format field).
+    #: OME-1240 opt-in: prepare each Sample's metadata into its private Grading
+    #: Material record — needed by metadata-dispatching scorers (frontierscience's
+    #: format field).
     #: Default False keeps every published benchmark's prepared assets byte-identical
     #: (prepared cases are immutable at their revision); flipping it moves the revision.
     keep_sample_metadata: bool = False
     #: OME-1269 question filter: the eval's own task function (same dotted-reference
     #: convention), for an eval that DROPS questions after loading — a
     #: ``.filter()`` inside the task (pubmedqa keeps its 500 test ids of 1,000
-    #: rows). The prepare step hands that function this benchmark's pinned samples in place
+    #: rows). The prepare step hands that function this benchmark's pinned Samples in place
     #: of its hf_dataset load and keeps exactly what its Task holds, so the
     #: eval's filter runs and is never copied. ``case_count`` is then the KEPT
     #: count. None (every benchmark before OME-1269) skips the step entirely.
@@ -286,8 +287,8 @@ class CasesSpec:
     excluded_sample_ids: tuple[str, ...] | None = None
     #: False for a judged benchmark whose judge grades from the question and the reply
     #: alone (xstest: complied / refused), so the dataset has no answer key to store.
-    #: The prepare step then accepts an empty target; every other benchmark keeps refusing one,
-    #: because there an empty key is a broken row. Assembly refuses the opt-in on a
+    #: The prepare step then accepts an empty answer key; every other benchmark keeps
+    #: refusing one, because there an empty key is a broken row. Assembly refuses the opt-in on a
     #: benchmark without a judge, or whose judge prompt reads the key (OME-1269, OME-1371).
     has_answer_key: bool = True
     #: The dataset sits behind a Hugging Face gate, so downloading it needs a token
@@ -641,7 +642,8 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # verify against the eval's task.
         record_to_sample="inspect_evals.frontierscience.frontierscience:record_to_sample",
         # The scorer dispatches each case to its format's judge prompt via the
-        # Sample's metadata (format/subject) — prepare it into the private target.
+        # Sample's metadata (format/subject) — prepare it into the private Grading
+        # Material record.
         keep_sample_metadata=True,
         shuffle_seed=FRONTIERSCIENCE_SHUFFLE_SEED,
     ),
@@ -662,7 +664,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         system_message="inspect_evals.onet.onet:SYSTEM_MESSAGE",
         shuffle_seed=ONET_M6_SHUFFLE_SEED,
         # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        # the pinned Samples and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.onet.onet:onet_m6",
         # Named deviation: six malformed questions inspect keeps (see the pin).
         excluded_sample_ids=ONET_M6_EXCLUDED_SAMPLE_IDS,
@@ -679,7 +681,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         record_to_sample="inspect_evals.pubmedqa.pubmedqa:record_to_sample",
         choice_template="inspect_evals.pubmedqa.pubmedqa:TEMPLATE",
         # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        # the pinned Samples and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.pubmedqa.pubmedqa:pubmedqa",
     ),
     "xstest_safe": CasesSpec(
@@ -693,7 +695,7 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # verify against the eval's task.
         record_to_sample="inspect_evals.xstest.xstest:record_to_sample",
         # The eval drops questions after loading; the prepare step runs its task over
-        # the pinned questions and keeps exactly what it keeps (OME-1269).
+        # the pinned Samples and keeps exactly what it keeps (OME-1269).
         question_filter_task="inspect_evals.xstest.xstest:xstest",
         question_filter_task_args={"subset": "safe"},
         # Gated on the Hub: the prepare step needs HF_TOKEN from an account that
@@ -795,7 +797,7 @@ def emit_cases(
                   target letter within the choices for MCQ benchmarks), then render the
                   prompt from the Sample's own shape: choices → the MCQ formatter; a
                   template reference → its substitution; neither → the raw input.
-        Stage 6 — write the booklet (prompts only) and the private targets.
+        Stage 6 — write the booklet (prompts only) and the private Grading Material records.
 
     Args:
         spec: the benchmark's prepare declaration.
@@ -820,7 +822,7 @@ def emit_cases(
     cases: list[dict[str, Any]] = []
     targets: dict[int, dict[str, Any]] = {}
     for case_id, sample in enumerate(samples, start=1):
-        target, choices = _validated_target(sample, case_id, spec.has_answer_key)
+        target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
         input_text: str = _prompt(sample, choices, template, choice_template)
         if system_text is not None:
             # Named deviation (contracteval pattern): the eval's SYSTEM
@@ -828,7 +830,7 @@ def emit_cases(
             input_text = f"{system_text}\n\n{input_text}"
         # WHY "case_id" beside "id": the benchmark's url4 protocol template reads
         # $item.case_id per Case (the transport contract's string spelling);
-        # "id" is the integer the engine's row/target files key on.
+        # "id" is the integer that cases.json rows and the targets/ files key on.
         cases.append(
             {
                 "id": case_id,
@@ -883,7 +885,7 @@ def _without_excluded_samples(excluded_ids: tuple[str, ...], samples: list[Sampl
     if missing:
         raise PrepareError(
             f"excluded_sample_ids {', '.join(missing)} are not in the dataset — the named "
-            "deviation no longer matches the pinned questions"
+            "deviation no longer matches the pinned Samples"
         )
     return [sample for sample in samples if str(sample.id) not in excluded_ids]
 
@@ -904,13 +906,13 @@ def _converted_samples(ordered: list[dict[str, Any]], record_to_sample: Any) -> 
 
 
 def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
-    """Stage 3b — let the eval's own task pick which pinned questions stay (OME-1269).
+    """Stage 3b — let the eval's own task pick which pinned Samples stay (OME-1269).
 
     Think of it as handing the eval's examiner our printed question stack instead
     of letting them fetch their own: they throw out the questions their rules
     exclude, and we freeze whatever they hand back. Worked example: pubmedqa's
     task loads 1,000 rows and keeps the 500 whose ids are on its bundled test
-    list — we give it our 1,000 pinned samples, it hands back 500, and the benchmark
+    list — we give it our 1,000 pinned Samples, it hands back 500, and the benchmark
     holds exactly those 500, in our pinned order.
 
     Stages, in execution order:
@@ -918,25 +920,25 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
         Stage 1 — resolve the task function and its module's ``hf_dataset``
                   binding (the one load the eval makes; no binding → refuse).
         Stage 2 — swap that binding for a loader that returns a FRESH dataset of
-                  our samples (no download, and the eval's own shuffle kwargs are
+                  our pinned Samples (no download, and the eval's own shuffle kwargs are
                   ignored: the order is already pinned), then call the task with
                   ``spec.question_filter_task_args``. A raise refuses by name — e.g. inspect's
                   "dataset is empty" when the filter kept nothing.
         Stage 3 — refuse unless the loader ran exactly once (a second load, a
-                  fewshot pool, would have been handed the benchmark's samples too), and
+                  fewshot pool, would have been handed the benchmark's Samples too), and
                   asked for the dataset, config and split this row pins (the swap
                   ignores them, so a mismatched row would prepare another load's benchmark).
-        Stage 4 — refuse unless the Task's samples are an in-order subset of ours,
+        Stage 4 — refuse unless the Samples the Task holds are an in-order subset of ours,
                   compared by identity: the question filter may only DROP questions. An
-                  added, duplicated or reordered sample is a benchmark we never pinned.
+                  added, duplicated or reordered Sample is a benchmark we never pinned.
 
     Args:
         spec: the benchmark's prepare declaration; ``spec.question_filter_task`` must be set.
-        samples: our pinned samples — converted by the eval's ``record_to_sample``
+        samples: our pinned Samples — converted by the eval's ``record_to_sample``
             and already in the benchmark's seeded order.
 
     Returns:
-        The samples the eval keeps, in our pinned order.
+        The Samples the eval keeps, in our pinned order.
     """
 
     # Stage 1 — the task function and the load it makes.
@@ -947,10 +949,10 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
     if not hasattr(module, "hf_dataset"):
         raise PrepareError(
             f"task {task_ref}: its module has no hf_dataset binding — the question-filter step "
-            "can only hand the pinned questions to an eval that loads through it"
+            "can only hand the pinned Samples to an eval that loads through it"
         )
 
-    # Stage 2 — swap the load for our samples, then build the eval's Task.
+    # Stage 2 — swap the load for our pinned Samples, then build the eval's Task.
     from inspect_ai.dataset import MemoryDataset
 
     loads: list[dict[str, Any]] = []
@@ -964,9 +966,9 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
     try:
         task: Any = task_fn(**dict(spec.question_filter_task_args or {}))
     except Exception as exc:  # noqa: BLE001 — WHY broad: this is eval code over our
-        # pinned questions; ANY raise must refuse the prepare step by name, never crash raw.
+        # pinned Samples; ANY raise must refuse the prepare step by name, never crash raw.
         raise PrepareError(
-            f"task {task_ref}: the eval's task refused the pinned questions "
+            f"task {task_ref}: the eval's task refused the pinned Samples "
             f"({type(exc).__name__}: {exc})"
         ) from exc
     finally:
@@ -981,7 +983,7 @@ def task_kept_samples(spec: CasesSpec, samples: list[Sample]) -> list[Sample]:
         )
     _require_the_pinned_load(task_ref, spec, loads[0])
 
-    # Stage 4 — the kept samples are ours, each once, in our order.
+    # Stage 4 — the kept Samples become our Cases, each once, in our order.
     kept: list[Sample] = list(task.dataset)
     _require_in_order_subset(task_ref, samples, kept)
     return kept
@@ -1008,7 +1010,7 @@ def _load_arguments(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, 
 def _require_the_pinned_load(task_ref: str, spec: CasesSpec, arguments: dict[str, Any]) -> None:
     """Stage 3 of the question-filter step — the eval must ask for the load this row pins.
 
-    WHY: the swap hands the task our pinned samples whatever it asks for, so a row
+    WHY: the swap hands the task our pinned Samples whatever it asks for, so a row
     whose dataset/config/split drifted from the task's own call would prepare one
     load's questions through another load's filter, with every count agreeing.
     Worked example: onet_m6 asks ``path="matichon/thai-onet-m6-exam",
@@ -1049,7 +1051,7 @@ def _require_in_order_subset(task_ref: str, samples: list[Sample], kept: list[Sa
         if position is None or position <= last_position:
             raise PrepareError(
                 f"task {task_ref}: the Task's dataset is not an in-order subset of the "
-                "pinned questions — the task added, duplicated or reordered a sample"
+                "pinned Samples — the task added, duplicated or reordered a sample"
             )
         last_position = position
 
@@ -1163,13 +1165,13 @@ def _resolve(reference: str) -> Any:
     return getattr(import_module(module_name), attribute)
 
 
-def _validated_target(
+def _validated_answer_key(
     sample: Sample, case_id: int, has_answer_key: bool = True
 ) -> tuple[str, list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
     ``has_answer_key=False`` (a judged benchmark whose judge never reads a key) is the
-    one place an empty target is accepted; the question itself is still required.
+    one place an empty answer key is accepted; the question itself is still required.
     """
 
     if not isinstance(sample.input, str) or not sample.input.strip():
@@ -1193,7 +1195,7 @@ def _validated_target(
 
 
 def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any]:
-    """The target file is JSON — refuse an unserializable metadata value by case
+    """The Grading Material file is JSON — refuse an unserializable metadata value by case
     number; truncating or coercing a benchmark asset silently is never an option."""
 
     try:
@@ -1225,15 +1227,17 @@ def _emit(
     *,
     dataset_revision: str,
 ) -> dict[str, Any]:
-    targets_dir: Path = out / "targets"
+    grading_material_dir: Path = out / "targets"
     # WHY refuse a dirty out: a re-prepare into a used directory would leave orphan
     # targets/*.json from a previous, larger prepare — the image build always starts
     # fresh, and this makes that assumption loud instead of silent.
-    if (out / "cases.json").exists() or (targets_dir.is_dir() and any(targets_dir.iterdir())):
+    if (out / "cases.json").exists() or (
+        grading_material_dir.is_dir() and any(grading_material_dir.iterdir())
+    ):
         raise PrepareError(f"refusing to prepare into non-empty directory {out}")
-    targets_dir.mkdir(parents=True, exist_ok=True)
+    grading_material_dir.mkdir(parents=True, exist_ok=True)
     for case_id, record in targets.items():
-        (targets_dir / f"{case_id}.json").write_text(
+        (grading_material_dir / f"{case_id}.json").write_text(
             json.dumps(record, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
         )
     (out / "cases.json").write_text(

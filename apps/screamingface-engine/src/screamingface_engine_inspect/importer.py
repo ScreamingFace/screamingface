@@ -316,7 +316,7 @@ def _drops_questions_after_load(
     its task (OME-1269). Filters on other loads (a fewshot pool) change no benchmark.
 
     Three combinations refuse by name, because the question filter could not reproduce them:
-    a second load (the prepare step hands the pinned questions to every load the task
+    a second load (the prepare step hands the pinned Samples to every load the task
     makes); ``auto_id`` (inspect numbers the rows 1..N at load, the prepare step's swapped
     loader does not, so a filter that reads ids would keep different questions);
     and an upstream-seeded choice shuffle (upstream draws each case's choice order

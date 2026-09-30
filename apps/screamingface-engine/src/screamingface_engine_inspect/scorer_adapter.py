@@ -144,8 +144,8 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
         choices=choices,
         output=ModelOutput.from_content(model=_CANDIDATE_MODEL, content=completion),
         # WHY: metadata-dispatching scorers (frontierscience's format field) read
-        # the Sample's metadata off the state; the prepare step delivers it in the target
-        # record behind CasesSpec.keep_sample_metadata (OME-1240).
+        # the Sample's metadata off the state; the prepare step delivers it in the Grading
+        # Material record behind CasesSpec.keep_sample_metadata (OME-1240).
         metadata=_sample_metadata(material),
     )
     if choices:
@@ -174,7 +174,7 @@ def _material(material: object) -> Mapping[str, Any]:
 
 
 def _sample_metadata(material: Mapping[str, Any]) -> dict[str, Any]:
-    """The prepared Sample metadata off the target record; absence stays an empty dict."""
+    """The prepared Sample metadata off the Grading Material record; absence stays an empty dict."""
 
     metadata: object = material.get("metadata")
     if metadata is None:

@@ -214,15 +214,29 @@ _Avoid_: Error handling
 The external evaluation framework (`inspect_ai`, with its eval catalogue `inspect_evals`) that
 Imported Benchmarks come from. A name that starts with `inspect` means it touches that framework:
 the `screamingface_engine_inspect` plugin, `inspect-<key>` Benchmark ids, the `inspect` install
-extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`. Inspect's own words stay only
-where code talks to inspect: an inspect Task is the eval definition we import, an inspect Sample
-becomes a Case, and an inspect Scorer becomes an Imported Benchmark's Grading.
+extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`.
+Inspect's own words name only inspect's own objects, in the plugin code that calls inspect.
+Everywhere else, including our own concepts inside the plugin, use our word:
+- inspect Task (`@task`): one eval definition (dataset, solver, scorer) → the eval an Imported
+  Benchmark is copied from
+- inspect Sample: one question with its target → a Case, but only after Case Preparation keeps
+  it; before that step it is still a Sample, and a Sample it drops never becomes a Case
+- inspect Dataset (`hf_dataset`, `record_to_sample`): how a Task loads its Samples → the dataset
+  that Case Preparation pins
+- inspect Target: the correct answer on a Sample → part of the Case's Grading Material
+- inspect Solver (`prompt_template`, `multiple_choice`, `system_message`): the steps that build the
+  prompt and call the model → the Case input that Case Preparation writes
+- inspect Scorer: grades one answer → an Imported Benchmark's Grading
+- inspect model role (`model_role="grader"`): a named model slot a Scorer fills → the Benchmark's
+  Judge
+- inspect ModelAPI: a pluggable model provider → the gateway Judge provider
 _Avoid_: inspect or introspect as a verb in our identifiers (say read or check), so an `inspect`
-name always means the framework; Sample when meaning a Case
+name always means the framework; Sample, Target, Solver and Scorer for our own concepts
 
 **Imported Benchmark**:
-A Benchmark copied from inspect_evals whose Cases are exactly the questions inspect itself would
-run, apart from any Named Deviation.
+A Benchmark generated from an external eval catalogue, whose Cases are exactly the items the
+upstream eval would run (apart from any Named Deviation) and whose Grading is the upstream eval's
+own grading code. Today the only source is Inspect.
 _Avoid_: Board, inspect board
 
 **Named Deviation**:
