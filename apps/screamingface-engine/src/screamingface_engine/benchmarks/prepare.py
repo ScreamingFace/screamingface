@@ -59,17 +59,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if only is not None:
         # WHY validated HERE and not by catching the orchestrator's ValueError: a preparer
         # decoding a dataset row raises ValueError too (json.JSONDecodeError subclasses it),
-        # so an except around the bake would relabel a malformed HF row as an operator typo
+        # so an except around the prepare step would relabel a malformed HF row as an operator typo
         # and discard its traceback — the exact laundering BenchmarkAssetPreparerContractError
         # exists to prevent. A typo is knowable before any download starts; check it there.
         unknown = sorted(set(only) - set(BUILTIN_DEPLOYMENT.asset_bundle_ids))
         if unknown:
             print(f"no such asset bundle(s): {', '.join(unknown)}", file=sys.stderr)
             return 1
-    return _bake(args.root, only)
+    return _prepare(args.root, only)
 
 
-def _bake(root: Path, only: tuple[str, ...] | None) -> int:
+def _prepare(root: Path, only: tuple[str, ...] | None) -> int:
     """Download and write out the selected benchmarks' datasets.
 
     Prints one JSON audit record per bundle as it lands, so a failure partway still leaves

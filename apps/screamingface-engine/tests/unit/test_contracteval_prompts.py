@@ -1,9 +1,9 @@
-"""The prompt bytes ARE the exam — pinned, because nothing else protects them.
+"""The prompt bytes ARE the benchmark — pinned, because nothing else protects them.
 
-WHY this file exists (review of PR #984): this is a judge-free board, so the prompt is the only
+WHY this file exists (review of PR #984): this is a judge-free benchmark, so the prompt is the only
 thing standing between a model and its score — `prompts.py` says as much: "Do not rephrase or
 summarize" is the difference between a correct answer and a zero. Those same bytes feed
-`compute_revision`, so they define the board's published identity.
+`compute_revision`, so they define the benchmark's published identity.
 
 Before this, no test mentioned `SYSTEM_PROMPT`, `USER_TEMPLATE` or `render_case_input`. A
 transcription typo was undetectable with every gate green, and would have moved our F1 off the
@@ -36,9 +36,9 @@ _REFERENCE_SYSTEM_PROMPT = (
 )
 
 # KNOWN one-byte delta from the pinned commit: the reference opens with `"Context: \n"`
-# (trailing space); the board's `USER_TEMPLATE` — and therefore this pin — drops it. Recorded
+# (trailing space); the benchmark's `USER_TEMPLATE` — and therefore this pin — drops it. Recorded
 # in `prompts.py`'s docstring; restoring the byte would re-address every route via
-# `compute_revision`, so that decision belongs to the board owner, not a tidy-up here.
+# `compute_revision`, so that decision belongs to the benchmark owner, not a tidy-up here.
 _REFERENCE_USER_TEMPLATE = "Context:\n```\n{context}\n```\nQuestion:\n```\n{question}\n```\n"
 
 
@@ -52,7 +52,7 @@ def test_the_user_template_is_byte_identical_to_the_reference() -> None:
 
 def test_the_em_dash_is_not_quietly_normalised_to_a_hyphen() -> None:
     """The reference writes "summarize in any way—respond"; a linter or editor that helpfully
-    swaps the em dash for "-" or " - " changes the exam's bytes and its revision."""
+    swaps the em dash for "-" or " - " changes the benchmark's bytes and its revision."""
 
     assert "any way—respond" in SYSTEM_PROMPT
     assert "any way-respond" not in SYSTEM_PROMPT
@@ -79,7 +79,7 @@ def test_the_rendered_case_carries_the_instructions_then_the_contract_and_questi
 
 
 def test_both_prompts_are_inside_the_revision_hash() -> None:
-    """WHY: a changed prompt is a changed exam and must re-address every route, or an
+    """WHY: a changed prompt is a changed benchmark and must re-address every route, or an
     already-recorded submission silently becomes incomparable.
 
     `compute_revision`'s injectable kwargs exist precisely so this can be proved.

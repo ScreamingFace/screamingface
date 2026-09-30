@@ -1,10 +1,10 @@
 """Install GDPval's private assets and deterministic functions into one Runner world.
 
-If ``exam.py`` writes the recipe — the expression tree that names six routes — this module is
+If ``benchmark.py`` writes the recipe — the expression tree that names six routes — this module is
 the kitchen: it registers a handler behind each route so the recipe can resolve. Data flows
-through them in exam order:
+through them in question order:
 
-    /cases             -> serve the selected work requests (from the baked assets)
+    /cases             -> serve the selected work requests (from the prepared assets)
     /rubric-tasks      -> Candidate submitted one Case: fetch its private rubric, render one
                           fully-built judge prompt per surviving criterion
     /rubric-verdict    -> parse one judge reply into a verdict (or raise -> retry)
@@ -24,17 +24,9 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
-    candidate_answer,
-    case_evaluation_endpoint,
-    compact_json,
-    json_object,
-    positive_case_id,
-)
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
@@ -43,18 +35,29 @@ from screamingface_engine.benchmarks.failure_classes import (
 )
 from screamingface_engine.benchmarks.gdpval import grade as reducing
 from screamingface_engine.benchmarks.gdpval import records
-from screamingface_engine.benchmarks.gdpval.case_evaluation import (
-    bind_case_evaluation,
-    bind_rubric_evaluation,
+from screamingface_engine.benchmarks.gdpval.case_grade import (
+    build_case_grade,
+    build_rubric_grade,
 )
-from screamingface_engine.benchmarks.gdpval.check_policy import GDPVAL_CHECK
-from screamingface_engine.benchmarks.gdpval.exam import Exam, ExamMean
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.gdpval.check_policy import GDPVAL_DRAFT_FEEDBACK
 from screamingface_engine.benchmarks.gdpval.prompts import build_grader_prompt, render_rubric_item
-from screamingface_engine.benchmarks.gdpval.verdict import bind, binding_key
-from screamingface_engine.benchmarks.grading_activity import grading_activity
-from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.gdpval.variant import GdpvalVariant, VariantMean
+from screamingface_engine.benchmarks.gdpval.verdict import (
+    build_evidence_record,
+    evidence_record_key,
+)
+from screamingface_engine.benchmarks.grading_endpoints import (
+    aggregate_endpoint,
+    candidate_answer,
+    case_grade_endpoint,
+    compact_json,
+    json_object,
+    positive_case_id,
+)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -64,37 +67,42 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, exam: Exam) -> None:
-    """Register every route this board's expressions reference.
+def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
+    """Register every route this benchmark's expressions reference.
 
-    INVARIANT: routes are namespaced by board id AND revision, so several boards can install
+    INVARIANT: routes are namespaced by benchmark id AND revision, so several benchmarks can install
     into ONE Runner world over ONE ``root`` without colliding.
     """
 
-    install_cases(node, exam.routes.cases, _cases(root, exam.case_ids))
+    install_cases(node, variant.routes.cases, _cases(root, variant.case_ids))
     installed = frozenset(node.processor_routes())
     endpoints = (
-        (exam.routes.tasks, _rubric_tasks(root, exam.case_ids, exam.id)),
+        (variant.routes.judge_requests, _rubric_judge_requests(root, variant.case_ids, variant.id)),
         # Closes over `node` so the judge route resolves per request — installation must still
         # work in a world holding no model routes.
-        (exam.routes.check_surface, check_surface(node, root, GDPVAL_CHECK)),
-        (exam.routes.verdict, _rubric_verdict(exam.id)),
-        (exam.routes.rubric_evaluation, _rubric_evaluation),
         (
-            exam.routes.case_evaluation,
-            case_evaluation_endpoint(
+            variant.routes.check_surface,
+            rubric_draft_feedback_endpoint(node, root, GDPVAL_DRAFT_FEEDBACK),
+        ),
+        (variant.routes.verdict, _rubric_verdict(variant.id)),
+        (variant.routes.rubric_evaluation, _rubric_evaluation),
+        (
+            variant.routes.case_evaluation,
+            case_grade_endpoint(
                 label="GDPval Case evaluation",
                 item_name="Rubric evaluation",
-                bind=bind_case_evaluation,
+                bind=build_case_grade,
                 error_context_head=300,
             ),
         ),
         (
-            exam.routes.aggregate,
+            variant.routes.aggregate,
             aggregate_endpoint(
                 label="GDPval",
-                available_case_count=len(exam.case_ids),
-                aggregate=_aggregate(root, exam.id, exam.revision, exam.case_ids, exam.mean),
+                available_case_count=len(variant.case_ids),
+                aggregate=_aggregate(
+                    root, variant.id, variant.revision, variant.case_ids, variant.mean
+                ),
             ),
         ),
     )
@@ -104,7 +112,7 @@ def install(node: Url4Node, root: Path, exam: Exam) -> None:
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> str:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam.
+    """Fail before the FIRST paid call when the prepared assets cannot serve this benchmark.
 
     A broken asset is knowable before any model runs. Without this check it would surface in the
     reducer — AFTER paying for a full Candidate run and ~44 judge calls per Case — only to score
@@ -137,12 +145,12 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> str:
 
 
 def _cases(root: Path, case_ids: tuple[int, ...]):
-    # WHY a memo: baked assets are immutable for the process lifetime, and cases.json is
+    # WHY a memo: prepared assets are immutable for the process lifetime, and cases.json is
     # multi-MB — it embeds the flattened text of all 85 reference documents. Only a SUCCESSFUL
     # payload is cached, so a broken asset re-checks (and re-fails loudly) on every call.
     memo: dict[str, str] = {}
 
-    @observe_stage(ActivityKind.CASE_LOADING)
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         if "payload" not in memo:
             raw = preflight(root, case_ids)
@@ -154,21 +162,21 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     return cases
 
 
-def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
-    """The fan-out point: one Candidate submission in, N ready-to-send judge tasks out."""
+def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
+    """The fan-out point: one Candidate submission in, N ready-to-send judge requests out."""
 
     # WHY memos: without them a 102-case run re-reads and re-parses the multi-MB cases.json
-    # ~204 times and re-opens every rubric file per submission. The baked assets never change
+    # ~204 times and re-opens every rubric file per submission. The prepared assets never change
     # within a process; failures are never cached, so a broken asset keeps failing visibly.
     raw_memo: dict[str, str] = {}
     text_memo: dict[int, str] = {}
     items_memo: dict[int, list[dict[str, Any]]] = {}
 
-    @observe_stage(ActivityKind.GRADING)
-    def rubric_tasks(request: Request) -> str:
+    @observe_phase(ActivityKind.GRADING)
+    def rubric_judge_requests(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
-            grading_activity(case_id, "started")
+            report_case_grading(case_id, "started")
             answer = candidate_answer(request.context)
             if "cases" not in raw_memo:
                 raw_memo["cases"] = _read(root / "cases.json", "GDPval cases")
@@ -178,8 +186,8 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
             work_request = text_memo[case_id]
             if case_id not in items_memo:
                 items_memo[case_id] = _rubric_items(root, case_id)
-            case_record = records.bind_case(raw_cases, case_id=case_id, candidate=answer)
-            tasks: list[dict[str, str]] = []
+            case_record = records.case_record(raw_cases, case_id=case_id, candidate=answer)
+            judge_requests: list[dict[str, str]] = []
             for item in items_memo[case_id]:
                 rendered = render_rubric_item(item["points"], item["criterion"])
                 grader_prompt = build_grader_prompt(work_request, answer.text, rendered)
@@ -195,22 +203,22 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                     context=grader_prompt,
                     intent="",
                 )
-                rubric_record = records.bind_rubric_item(
+                rubric_record = records.rubric_item_record(
                     rendered, case_id=case_id, rubric_id=item["rubric_id"]
                 )
-                tasks.append(
+                judge_requests.append(
                     {
                         "case_id": str(case_id),
                         "rubric_id": str(item["rubric_id"]),
                         # INVARIANT: the judge prompt is fully rendered HERE, Engine-side.
                         # Nothing about it is assembled inside the expression, so its bytes are
-                        # fixed by the board's revision.
+                        # fixed by the benchmark's revision.
                         "grader_prompt": grader_prompt,
                         # Dedup: the full Case record rides the FIRST task only; the rest carry
                         # "{}" and `case_evaluation` hoists it back to one record per Case.
                         "case_record": (
                             json.dumps(case_record, ensure_ascii=False, separators=(",", ":"))
-                            if not tasks
+                            if not judge_requests
                             else "{}"
                         ),
                         "rubric_record": json.dumps(
@@ -222,19 +230,19 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
             # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
             # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
-        return compact_json(tasks)
+        return compact_json(judge_requests)
 
-    return rubric_tasks
+    return rubric_judge_requests
 
 
 def _rubric_verdict(benchmark_id: str):
     """The parse gate between "the judge said something" and "we have a verdict"."""
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
-            case_id, rubric_id = binding_key(request.intent)
-            record = bind(
+            case_id, rubric_id = evidence_record_key(request.intent)
+            record = build_evidence_record(
                 request.context,
                 case_id=case_id,
                 rubric_id=rubric_id,
@@ -268,7 +276,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
-@observe_stage(ActivityKind.GRADING)
+@observe_phase(ActivityKind.GRADING)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)
@@ -278,7 +286,7 @@ def _rubric_evaluation(request: Request) -> str:
         if tuple(payload) != ("case", "rubric", "evidence"):
             raise ValueError("GDPval rubric evaluation fields must be case, rubric, evidence")
         raw_case = json_object(payload["case"], "Case record")
-        result = bind_rubric_evaluation(
+        result = build_rubric_grade(
             case_id,
             raw_case or None,
             json_object(payload["rubric"], "Rubric record"),
@@ -294,7 +302,7 @@ def _aggregate(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
-    mean: ExamMean,
+    mean: VariantMean,
 ):
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         return reducing.aggregate(

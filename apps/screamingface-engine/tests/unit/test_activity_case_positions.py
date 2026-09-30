@@ -37,9 +37,9 @@ async def test_stages_carry_the_same_position_as_nested_model_calls():
         events.append(attributes)
 
     with run.bind(), case_scope("007", position=(2, 100)):
-        stage = observer.stage(ActivityKind.ANSWERING, emit)
-        assert stage is not None
-        async with stage:
+        phase = observer.phase(ActivityKind.ANSWERING, emit)
+        assert phase is not None
+        async with phase:
             async with ModelCall("provider/model", emit):
                 pass
     await run.aclose()

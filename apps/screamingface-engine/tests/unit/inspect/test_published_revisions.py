@@ -1,10 +1,10 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this suite imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""The published boards' EXACT revisions — frozen as literals.
+"""The published benchmarks' EXACT revisions — frozen as literals.
 
-A board's revision is its exam identity: members' published scores hang off it, and
-the snapshot store treats a revision's baked assets as immutable. Every revision
+A benchmark's revision is its identity: members' published scores hang off it, and
+the asset store treats a revision's prepared assets as immutable. Every revision
 input so far (pins, protocol constants, the OME-1240 judge pins) is code an innocent
 refactor can touch, and the uniqueness/moves tests cannot see a WHOLESALE shift —
 a review probe moved all 17 revisions with a one-line change while 3575 tests
@@ -12,7 +12,7 @@ stayed green (2026-09-24). These literals make that failure loud.
 
 When a revision here changes on purpose (a pin bump, a protocol revision bump),
 updating the literal IS the review act — the diff line is the declaration that the
-published exam moved.
+published benchmark moved.
 
 Runs only with the `inspect` extra installed.
 """
@@ -24,7 +24,7 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from screamingface_engine_inspect.boards import imported_board  # noqa: E402
+from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
 
 #: key → the exact published revision, as served on main (verified 2026-09-24).
 _PUBLISHED_REVISIONS: dict[str, str] = {
@@ -49,5 +49,5 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
 
 
 @pytest.mark.parametrize(("key", "revision"), sorted(_PUBLISHED_REVISIONS.items()))
-def test_published_board_revision_is_byte_identical(key: str, revision: str) -> None:
-    assert imported_board(key).benchmark.revision == revision
+def test_published_benchmark_revision_is_byte_identical(key: str, revision: str) -> None:
+    assert imported_benchmark(key).benchmark.revision == revision

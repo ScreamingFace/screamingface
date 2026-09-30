@@ -23,15 +23,18 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.draco.check_policy import CHECK_THRESHOLD, DRACO_CHECK
+from screamingface_engine.benchmarks.draco.check_policy import CHECK_THRESHOLD, DRACO_DRAFT_FEEDBACK
 from screamingface_engine.benchmarks.draco.definition import (
     CHECK_CRITERION,
-    CHECK_SURFACE_ROUTE,
     DRACO,
+    DRAFT_FEEDBACK_ROUTE,
     JUDGE_MODEL,
 )
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
-from screamingface_engine.benchmarks.rubric_check import CHECK_INSTRUCTIONS, check_surface
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
+from screamingface_engine.benchmarks.rubric_draft_feedback import (
+    CHECK_INSTRUCTIONS,
+    rubric_draft_feedback_endpoint,
+)
 from url4 import RelExpr, Text, expr, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -86,11 +89,11 @@ def _node(
         seen.append(request)
         return replies.pop(0) if replies else "[]"
 
-    node.endpoint(CHECK_SURFACE_ROUTE)(
-        check_surface(
+    node.endpoint(DRAFT_FEEDBACK_ROUTE)(
+        rubric_draft_feedback_endpoint(
             node,
             tmp_path / "draco",
-            DRACO_CHECK,
+            DRACO_DRAFT_FEEDBACK,
         )
     )
     return node, seen
@@ -117,7 +120,7 @@ async def _call(node: Url4Node, payload: object, intent: str) -> str:
                     name="payload",
                     weight=0.0,
                 ),
-                RelExpr(path=CHECK_SURFACE_ROUTE, context="$payload", intent=Text(intent)),
+                RelExpr(path=DRAFT_FEEDBACK_ROUTE, context="$payload", intent=Text(intent)),
                 intent=Text(""),
             )
         )
@@ -146,7 +149,7 @@ async def test_a_strong_answer_passes_with_its_weighted_score(tmp_path: Path) ->
     record = await _check(node, "a good answer")
     invocation = encode_candidate_invocation("a good answer", "stop", None)
     assert record == {
-        "schema": CHECK_SURFACE_SCHEMA,
+        "schema": DRAFT_FEEDBACK_SCHEMA,
         "passed": True,
         "satisfaction": 1.0,
         "feedback": "",

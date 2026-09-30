@@ -24,9 +24,15 @@ public Candidate kinds.
 _Avoid_: Ensemble when referring to all Candidate kinds
 
 **Recipe**:
-An immutable, network-free description of Candidate-owned answer production. Model, Fusion, and
-Pipeline are the public Recipe values and may compose recursively.
+An immutable, network-free description of Candidate-owned answer production. Model, Fusion,
+Pipeline, Corrective Loop, and Self-Corrective are the public Recipe values and may compose
+recursively.
 _Avoid_: Candidate when the Recipe is nested inside another Recipe
+
+**Corrective Loop**:
+A Recipe that drafts an answer, asks the Benchmark for Draft Feedback, and revises until the draft
+passes or a round limit is reached. A Self-Corrective loop uses one Model as both drafter and reviser.
+_Avoid_: Retry, refinement loop
 
 **Complete Recipe**:
 A Recipe that accepts one input and produces one final answer. Every constructible public Model,
@@ -174,3 +180,53 @@ _Avoid_: Score Submission
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.
 _Avoid_: Reduction
+
+**Draft Feedback**:
+A Benchmark's mid-run answer to "is this draft good enough yet?", offered only by Benchmarks whose
+feedback cannot leak the answer. Corrective Loops use it; it never produces a Case Grade.
+_Avoid_: Check, check surface
+
+**Benchmark Revision**:
+The content hash that identifies one exact Benchmark: its Cases, prompts, Grading, and
+Benchmark-owned Models. Changing any of them yields a new revision.
+_Avoid_: Version
+
+**Grading Material**:
+The private part of a Case that the Candidate never sees: the answer key, choices, or Rubric used
+in Grading. A Case graded only by a Judge prompt may carry no answer key.
+_Avoid_: Target, answer, ground truth
+
+**Case Preparation**:
+The image-build step that downloads a Benchmark's Cases at a pinned dataset revision and freezes
+them, with their Grading Material, into the Benchmark image.
+_Avoid_: Bake, snapshot
+
+**Coverage**:
+The share of a Benchmark's Cases that received a valid Case Grade, reported beside the score.
+_Avoid_: Completion rate
+
+**Failure Policy**:
+A Benchmark's declared rule for how a Case without a valid Case Grade affects its score: counted
+as a failure, or excluded and reported through Coverage.
+_Avoid_: Error handling
+
+**Inspect**:
+The external evaluation framework (`inspect_ai`, with its eval catalogue `inspect_evals`) that
+Imported Benchmarks come from. A name that starts with `inspect` means it touches that framework:
+the `screamingface_engine_inspect` plugin, `inspect-<key>` Benchmark ids, the `inspect` install
+extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`. Inspect's own words stay only
+where code talks to inspect: an inspect Task is the eval definition we import, an inspect Sample
+becomes a Case, and an inspect Scorer becomes an Imported Benchmark's Grading.
+_Avoid_: inspect or introspect as a verb in our identifiers (say read or check), so an `inspect`
+name always means the framework; Sample when meaning a Case
+
+**Imported Benchmark**:
+A Benchmark copied from inspect_evals whose Cases are exactly the questions inspect itself would
+run, apart from any Named Deviation.
+_Avoid_: Board, inspect board
+
+**Named Deviation**:
+A declared, reviewable difference between an Imported Benchmark and its upstream eval, such as
+dropped questions or a system message delivered as input text. It is written on the Benchmark
+and included in its Benchmark Revision.
+_Avoid_: Patch, tweak

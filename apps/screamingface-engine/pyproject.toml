@@ -82,7 +82,7 @@ inspect = [
 benchmarks = [
     "screamingface-engine[inspect]",
     # GDPval's preparer flattens the task's reference PDFs and Word documents to text at
-    # build time, and that text is baked into the answer key. Pinned exactly for the same
+    # build time, and that text is frozen into the answer key. Pinned exactly for the same
     # reason `datasets` is: a release whose extraction differs would silently change what
     # every candidate is asked.
     "pdfplumber==0.11.10",

@@ -20,7 +20,7 @@ from screamingface_engine.benchmarks.contract import (
     Failure,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.evaluation import candidate_answer
+from screamingface_engine.benchmarks.grading_endpoints import candidate_answer
 
 
 def _grade(score: float | None = 1.0) -> CaseGrade:

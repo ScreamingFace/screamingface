@@ -1,6 +1,6 @@
 """OME-1038 — a run's declared answer seed travels from the REST edge onto every answer call.
 
-FEATURE: answer seeds (OME-1038). A leaderboard score today is one exam sitting presented
+FEATURE: answer seeds (OME-1038). A leaderboard score today is one benchmark sitting presented
 as the student's ability. Declaring an answer seed names the sitting: N runs with N seeds
 are N labelled, cache-separated samples, so a score can be published as mean ± CI and any
 sitting replayed exactly. The seed makes the same journey `profile` and the cache policy

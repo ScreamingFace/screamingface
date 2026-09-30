@@ -22,9 +22,9 @@ from url4.dag import run as execute  # noqa: E402
 from url4.observe import Log  # noqa: E402
 
 
-def _board(monkeypatch, tmp_path):
-    board = _assembled(_judged_spec(), monkeypatch)
-    root = tmp_path / board.benchmark.id
+def _benchmark(monkeypatch, tmp_path):
+    benchmark = _assembled(_judged_spec(), monkeypatch)
+    root = tmp_path / benchmark.benchmark.id
     (root / "targets").mkdir(parents=True)
     (root / "cases.json").write_text(
         json.dumps(
@@ -36,7 +36,7 @@ def _board(monkeypatch, tmp_path):
     )
     for case_id, answer in ((1, "Paris"), (2, "Rome")):
         (root / "targets" / f"{case_id}.json").write_text(json.dumps({"target": answer}))
-    return board
+    return benchmark
 
 
 @pytest.mark.asyncio
@@ -46,7 +46,7 @@ def _board(monkeypatch, tmp_path):
 async def test_imported_judged_recipe_records_then_grades_cases(
     monkeypatch, tmp_path, failed_candidate, failed_judge
 ):
-    board = _board(monkeypatch, tmp_path)
+    benchmark = _benchmark(monkeypatch, tmp_path)
     client = httpx.AsyncClient(
         base_url="http://gateway",
         transport=httpx.MockTransport(_gateway(failed_candidate, failed_judge)),
@@ -62,7 +62,7 @@ async def test_imported_judged_recipe_records_then_grades_cases(
     )
     node = world.node
     install_candidate_invocation(node)
-    board.benchmark.install(node, tmp_path)
+    benchmark.benchmark.install(node, tmp_path)
     events = []
 
     class Collector:
@@ -88,7 +88,7 @@ async def test_imported_judged_recipe_records_then_grades_cases(
                                 name="candidate",
                                 weight=0.0,
                             ),
-                            build(str(board.benchmark.resource(limit=2)["url4"])),
+                            build(str(benchmark.benchmark.resource(limit=2)["url4"])),
                             intent=text(""),
                         )
                     ),

@@ -4,7 +4,7 @@ INVARIANT: byte-for-byte from the reference harness at commit
 f2de74479bb067a13da2fd034972eec6905563b2 — `proprietary_model.py` lines 75-79 for the
 system prompt and lines 19-27 for the user template (MIT,
 https://github.com/olivialiu121/ContractEval/blob/f2de74479bb067a13da2fd034972eec6905563b2/proprietary_model.py).
-These bytes feed the board's revision hash, so an edit here is a new benchmark identity, not a
+These bytes feed the benchmark's revision hash, so an edit here is a new benchmark identity, not a
 tweak.
 
 KNOWN one-byte delta (review of PR #984, verified against the pinned commit): the reference's

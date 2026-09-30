@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.ifeval.grade import (
     SCHEMA,
     AggregateError,
@@ -80,7 +80,7 @@ def test_collected_candidate_failure_returns_a_complete_unscored_result() -> Non
             "failures": [
                 {
                     # WHY stage "grading": one IFEval row spans invocation AND checking,
-                    # and engine-collected url4 error rows carry no code (kind+message
+                    # and engine-collected url4 error cases carry no code (kind+message
                     # only), so a code-prefix stage guess could never fire on real rows —
                     # the aggregate now reports the one stage it actually knows: the row
                     # produced no valid evaluation record.
@@ -114,10 +114,10 @@ def test_provider_refusal_is_retained_exactly_and_graded_normally() -> None:
     result = aggregate(
         json.dumps(
             [
-                case_execution_payload(
+                graded_answer_payload(
                     1,
                     encode_candidate_invocation("", "content_filter", exact),
-                    [bind_case_evaluation(1, [record])],
+                    [build_case_grade(1, [record])],
                 )
             ]
         ),
@@ -151,13 +151,13 @@ def test_bare_check_record_is_not_a_case_evaluation_envelope() -> None:
         aggregate(payload, _SPEC, "ifeval", _ORDER, selected_case_count=1)
 
 
-def test_an_identified_error_row_takes_the_spine_case_error_shape() -> None:
+def test_an_identified_error_takes_the_shared_case_error_shape() -> None:
     """Pins the "collected rows are anonymous" assumption (OME-1101).
 
     Today a url4 ``on_error=collect`` row carries no case_id, so every collected
     IFEval error takes the anonymous path above (stage "grading", the diagnostic's
-    own code — the wording the golden pins). An error row that DOES carry a
-    matching case_id lands on the spine's identified rung instead: stage
+    own code — the wording the golden pins). An error case that DOES carry a
+    matching case_id lands on the shared grading code's identified rung instead: stage
     "candidate", published code "case_error", the diagnostic demoted to
     ``source_error`` metadata, and a grade envelope with score ``None`` rather
     than ``grade: None``. INVARIANT: if url4 ever stamps identity onto collect

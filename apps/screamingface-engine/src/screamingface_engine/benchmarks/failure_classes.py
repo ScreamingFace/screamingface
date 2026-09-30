@@ -8,7 +8,7 @@ supplies only the human message.
 
 Stage 1 — a raise site picks the helper matching its situation (a malformed
 payload, an author mistake, a grader that failed) and raises the returned
-``ResolutionError``; ``benchmark_unavailable`` (in ``evaluation.py``) stays the
+``ResolutionError``; ``benchmark_unavailable`` (in ``grading_endpoints.py``) stays the
 box for genuinely missing/unreadable assets. Stage 2 — the error travels
 upstream and ``aggregation.public_error`` projects code + message + retryable
 into the published ``Failure``. Stage 3 — a later PR closes ``Failure.code``

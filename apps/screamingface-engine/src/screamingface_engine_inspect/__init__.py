@@ -17,8 +17,8 @@ and resolves it through :mod:`.judge_provider` — an inspect model provider who
 exit is the node's own declared model route. The aggregate binds the transport per
 grading pass, so judge calls ride the same connector as every candidate call: routed,
 identity-stamped, and reported into the run's usage sink (``cost_usd`` counts judge
-tokens). The judge's model, params, and prompt join the board's revision (its
+tokens). The judge's model, params, and prompt join the benchmark's revision (its
 ``JudgeSpec`` row declaration). inspect's ``openai-api``-plus-env-vars route is
 forbidden here: it would bypass the usage sink and silently drop judge cost from the
-report. FrontierScience is the proof board.
+report. FrontierScience is the proof benchmark.
 """

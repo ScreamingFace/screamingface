@@ -1,27 +1,27 @@
-"""The DRACO boards this Engine serves, and what makes them different.
+"""The DRACO benchmarks this Engine serves, and what makes them different.
 
 Both sit the SAME 100-case dataset (``perplexity-ai/draco``) over the SAME rubric
 answer key — one Judge (Gemini-3.1-Pro Preview), one grading chain. They differ in
 exactly one place:
 
-    board         judge passes   grading
+    benchmark         judge passes   grading
     ────────────  ─────────────  ──────────────────────────────────────────────────
     draco         5              the official five-pass reproduction (the paper
                                  judges every answer five times for stability)
     draco-3pass   3              the cache-seeded replay — the draco-cache-seed
                                  archive covers grading rounds 1-3 only, so this
-                                 board re-runs the archived candidates fully from
+                                 benchmark re-runs the archived candidates fully from
                                  the shared response cache
 
 Everything else is shared and cannot drift: the dataset and judge pinning live in
-``exam.py``, and the revision math, route layout, and url4 expression tree live in
-``exam.py`` too. Each board below is one call to ``draco_benchmark``.
+``benchmark.py``, and the revision math, route layout, and url4 expression tree live in
+``benchmark.py`` too. Each benchmark below is one call to ``draco_benchmark``.
 
 INVARIANT: canonical ``draco``'s revision is FROZEN at ``62718f04ea1a980f``
 (``test_draco_3pass_definition.py``; OME-993 moved it deliberately from
 ``66a463248586b277`` when the judge gained reasoning_effort=low; max_tokens stays the paper's 4096).
 Its routes carry it and the scoreboard seeds it,
-so an accidental change would orphan every existing submission. The 3-pass board is a
+so an accidental change would orphan every existing submission. The 3-pass benchmark is a
 separate identity by construction — a different revision is a different benchmark, so
 its scores are never compared against the five-pass ones (OME-775).
 
@@ -32,7 +32,7 @@ References:
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.draco.exam import (
+from screamingface_engine.benchmarks.draco.variant import (
     ASSET_BUNDLE_ID,
     CASE_COUNT,
     CHECK_CRITERION,
@@ -46,12 +46,12 @@ from screamingface_engine.benchmarks.draco.exam import (
     draco_benchmark,
 )
 
-# Both boards replay the same 100 DRACO tasks over the same public dataset; they differ only in
+# Both benchmarks replay the same 100 DRACO tasks over the same public dataset; they differ only in
 # how many times each answer is judged.
 DRACO_DATASET_URL = "https://huggingface.co/datasets/perplexity-ai/draco"
 
-# ── Board 1 — the canonical five-pass reproduction ──────────────────────────────────
-CANONICAL_EXAM, DRACO = draco_benchmark(
+# ── Benchmark 1 — the canonical five-pass reproduction ──────────────────────────────────
+CANONICAL_VARIANT, DRACO = draco_benchmark(
     id="draco",
     title="DRACO",
     description=(
@@ -68,8 +68,8 @@ CANONICAL_EXAM, DRACO = draco_benchmark(
     dataset_url=DRACO_DATASET_URL,
 )
 
-# ── Board 2 — the three-pass cache-seeded replay ────────────────────────────────────
-THREE_PASS_EXAM, DRACO_3PASS = draco_benchmark(
+# ── Benchmark 2 — the three-pass cache-seeded replay ────────────────────────────────────
+THREE_PASS_VARIANT, DRACO_3PASS = draco_benchmark(
     id="draco-3pass",
     title="DRACO 3-Pass",
     description=(
@@ -81,10 +81,10 @@ THREE_PASS_EXAM, DRACO_3PASS = draco_benchmark(
         "against five-pass results."
     ),
     judge_passes=3,
-    # Same 100 tasks as the canonical board — the tier travels with the dataset, not the
+    # Same 100 tasks as the canonical benchmark — the tier travels with the dataset, not the
     # judge-pass count (OME-1257).
     difficulty="hard",
-    # The dataset and the subject are identical to the canonical board; the pass count is the
+    # The dataset and the subject are identical to the canonical benchmark; the pass count is the
     # only thing a reader needs to tell them apart, so that is what the Focus column says.
     focus="Research reports, three judge passes",
     dataset_url=DRACO_DATASET_URL,
@@ -92,32 +92,32 @@ THREE_PASS_EXAM, DRACO_3PASS = draco_benchmark(
 )
 
 # ── canonical aliases (kept for the runtime and the tests that import them) ─────────
-# These are the canonical board's values, re-exported so pre-factory callers keep
-# working unchanged. The runtime now reads the exam instead; only legacy imports touch
+# These are the canonical benchmark's values, re-exported so pre-factory callers keep
+# working unchanged. The runtime now reads the benchmark instead; only legacy imports touch
 # these.
-BENCHMARK_ID = CANONICAL_EXAM.id
-REVISION = CANONICAL_EXAM.revision
-JUDGE_PASSES = CANONICAL_EXAM.judge_passes
+BENCHMARK_ID = CANONICAL_VARIANT.id
+REVISION = CANONICAL_VARIANT.revision
+JUDGE_PASSES = CANONICAL_VARIANT.judge_passes
 JUDGE_SEEDS = tuple(range(1, JUDGE_PASSES + 1))
-ROUTE_PREFIX = CANONICAL_EXAM.routes.prefix
-CASES_ROUTE = CANONICAL_EXAM.routes.cases
-TASKS_ROUTE = CANONICAL_EXAM.routes.tasks
-VERDICT_ROUTE = CANONICAL_EXAM.routes.verdict
-CRITERION_EVALUATION_ROUTE = CANONICAL_EXAM.routes.criterion_evaluation
-CASE_EVALUATION_ROUTE = CANONICAL_EXAM.routes.case_evaluation
-AGGREGATE_ROUTE = CANONICAL_EXAM.routes.aggregate
-CHECK_SURFACE_ROUTE = CANONICAL_EXAM.routes.check_surface
+ROUTE_PREFIX = CANONICAL_VARIANT.routes.prefix
+CASES_ROUTE = CANONICAL_VARIANT.routes.cases
+JUDGE_REQUESTS_ROUTE = CANONICAL_VARIANT.routes.judge_requests
+VERDICT_ROUTE = CANONICAL_VARIANT.routes.verdict
+CRITERION_EVALUATION_ROUTE = CANONICAL_VARIANT.routes.criterion_evaluation
+CASE_GRADE_ROUTE = CANONICAL_VARIANT.routes.case_evaluation
+AGGREGATE_ROUTE = CANONICAL_VARIANT.routes.aggregate
+DRAFT_FEEDBACK_ROUTE = CANONICAL_VARIANT.routes.check_surface
 
 __all__ = [
     "AGGREGATE_ROUTE",
     "ASSET_BUNDLE_ID",
     "BENCHMARK_ID",
     "CASE_COUNT",
-    "CASE_EVALUATION_ROUTE",
+    "CASE_GRADE_ROUTE",
     "CASES_ROUTE",
-    "CANONICAL_EXAM",
+    "CANONICAL_VARIANT",
     "CHECK_CRITERION",
-    "CHECK_SURFACE_ROUTE",
+    "DRAFT_FEEDBACK_ROUTE",
     "CRITERION_EVALUATION_ROUTE",
     "DATASET",
     "DATASET_PREPARER_REVISION",
@@ -132,7 +132,7 @@ __all__ = [
     "RETRIEVAL_POLICY_ID",
     "REVISION",
     "ROUTE_PREFIX",
-    "TASKS_ROUTE",
-    "THREE_PASS_EXAM",
+    "JUDGE_REQUESTS_ROUTE",
+    "THREE_PASS_VARIANT",
     "VERDICT_ROUTE",
 ]

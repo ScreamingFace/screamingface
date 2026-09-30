@@ -20,10 +20,10 @@ answer scored zero" are different facts; collapsing them turns a judge outage in
 model weakness, which is precisely the reading this benchmark must never invite.
 
 WHY this is not imported from ``healthbench.scoring``, whose per-case math is identical: that
-module is bound to simple-evals parity and must follow the reference if it moves. This board's
+module is bound to simple-evals parity and must follow the reference if it moves. This benchmark's
 metric answers to the GDPval rubrics alone. Two modules that agree today for different reasons
 are not duplication worth collapsing — the shared version could only drift under one caller's
-obligations while silently redefining the other's exam.
+obligations while silently redefining the other's benchmark.
 """
 
 from __future__ import annotations
@@ -57,12 +57,12 @@ def case_score(points: Sequence[int], verdicts: Mapping[int, bool]) -> float | N
 
 
 def mean(scores: Iterable[float | None]) -> float | None:
-    """The exam score: a plain average over Cases that produced a number.
+    """The benchmark score: a plain average over Cases that produced a number.
 
     INVARIANT: unscorable Cases are SKIPPED, not averaged in as zero — otherwise a judge outage
-    would depress a candidate's exam score in a way indistinguishable from bad answers.
+    would depress a candidate's benchmark score in a way indistinguishable from bad answers.
 
-    INVARIANT: no floor at zero. HealthBench's professional board clips because the official
+    INVARIANT: no floor at zero. HealthBench's professional benchmark clips because the official
     HealthBench metric does; GDPval's official metric is an expert pairwise win rate, so there is
     no published convention to match and a clip here would imply one exists.
     """

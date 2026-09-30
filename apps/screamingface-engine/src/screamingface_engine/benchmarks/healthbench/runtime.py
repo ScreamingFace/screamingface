@@ -1,11 +1,11 @@
 """Install HealthBench's private assets and deterministic functions into one Runner world.
 
-If ``exam.py`` writes the recipe (the expression tree that names six routes),
+If ``benchmark.py`` writes the recipe (the expression tree that names six routes),
 this module is the kitchen: it registers a handler behind each of those routes so the
-recipe can actually resolve. Every board installs its own copy of them under its own
-revision prefix, all reading one baked answer key. Data flows through them in exam order:
+recipe can actually resolve. Every benchmark installs its own copy of them under its own
+revision prefix, all reading one prepared answer key. Data flows through them in question order:
 
-    /cases             → serve the selected question booklet (from the baked assets)
+    /cases             → serve the selected question booklet (from the prepared assets)
     /rubric-tasks      → Candidate answered one Case: fetch its private rubric, render
                          one fully-built judge prompt per rubric item
     /rubric-verdict    → parse one judge reply into a verdict (or raise → retry)
@@ -25,40 +25,43 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.benchmarks.evaluation import (
-    aggregate_endpoint,
-    candidate_answer,
-    case_evaluation_endpoint,
-    compact_json,
-    json_object,
-    positive_case_id,
-)
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
-from screamingface_engine.benchmarks.grading_activity import grading_activity
+from screamingface_engine.benchmarks.grading_endpoints import (
+    aggregate_endpoint,
+    candidate_answer,
+    case_grade_endpoint,
+    compact_json,
+    json_object,
+    positive_case_id,
+)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.healthbench import grade as reducing
 from screamingface_engine.benchmarks.healthbench import records
-from screamingface_engine.benchmarks.healthbench.case_evaluation import (
-    bind_case_evaluation,
-    bind_rubric_evaluation,
+from screamingface_engine.benchmarks.healthbench.case_grade import (
+    build_case_grade,
+    build_rubric_grade,
 )
-from screamingface_engine.benchmarks.healthbench.check_policy import HEALTHBENCH_CHECK
-from screamingface_engine.benchmarks.healthbench.exam import Exam, ExamMean
-from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.healthbench.check_policy import HEALTHBENCH_DRAFT_FEEDBACK
 from screamingface_engine.benchmarks.healthbench.prompts import (
     build_grader_prompt,
     render_rubric_item,
 )
-from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
-from screamingface_engine.benchmarks.rubric_check import check_surface
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.healthbench.variant import HealthbenchVariant, VariantMean
+from screamingface_engine.benchmarks.healthbench.verdict import (
+    build_evidence_record,
+    evidence_record_key,
+)
+from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -68,38 +71,38 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
-def install(node: Url4Node, root: Path, exam: Exam) -> None:
-    """Register every route one HealthBench board's expressions reference.
+def install(node: Url4Node, root: Path, variant: HealthbenchVariant) -> None:
+    """Register every route one HealthBench benchmark's expressions reference.
 
     Providers read lazily so a general-purpose Runner can carry the installed
     definition without HealthBench's private image assets — until an expression
     actually selects HealthBench, which is when the preflight below runs.
 
-    INVARIANT: every board is namespaced by its own id AND revision, so several boards
+    INVARIANT: every benchmark is namespaced by its own id AND revision, so several benchmarks
     install into ONE Runner world over ONE ``root`` without colliding — which is exactly
-    how the worst-30% challenge and the full professional exam coexist over a single
-    baked answer key.
+    how the worst-30% challenge and the full professional variant coexist over a single
+    prepared answer key.
 
     Args:
         node: the Runner world to register the routes in.
-        root: the baked HealthBench asset directory (shared by every board).
-        exam: which Cases this board serves, at which addresses, under which final mean.
+        root: the prepared HealthBench asset directory (shared by every benchmark).
+        benchmark: which Cases this benchmark serves, at which addresses, under which final mean.
     """
-    # Install the six routes that implement the exam's protocol.
+    # Install the six routes that implement the benchmark's protocol.
     _install_protocol_once(
         node,
         root,
-        cases_route=exam.routes.cases,
-        tasks_route=exam.routes.tasks,
-        verdict_route=exam.routes.verdict,
-        rubric_evaluation_route=exam.routes.rubric_evaluation,
-        case_evaluation_route=exam.routes.case_evaluation,
-        aggregate_route=exam.routes.aggregate,
-        check_surface_route=exam.routes.check_surface,
-        benchmark_id=exam.id,
-        benchmark_revision=exam.revision,
-        case_ids=exam.case_ids,
-        mean=exam.mean,
+        cases_route=variant.routes.cases,
+        judge_requests_route=variant.routes.judge_requests,
+        verdict_route=variant.routes.verdict,
+        rubric_evaluation_route=variant.routes.rubric_evaluation,
+        case_evaluation_route=variant.routes.case_evaluation,
+        aggregate_route=variant.routes.aggregate,
+        check_surface_route=variant.routes.check_surface,
+        benchmark_id=variant.id,
+        benchmark_revision=variant.revision,
+        case_ids=variant.case_ids,
+        mean=variant.mean,
     )
 
 
@@ -108,7 +111,7 @@ def _install_protocol_once(
     root: Path,
     *,
     cases_route: str,
-    tasks_route: str,
+    judge_requests_route: str,
     verdict_route: str,
     rubric_evaluation_route: str,
     case_evaluation_route: str,
@@ -117,24 +120,27 @@ def _install_protocol_once(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
-    mean: ExamMean,
+    mean: VariantMean,
 ) -> None:
     install_cases(node, cases_route, _cases(root, case_ids))
     routes = frozenset(node.processor_routes())
     endpoints = (
-        (tasks_route, _rubric_tasks(root, case_ids, benchmark_id)),
-        # The mid-run check surface the corrective loop consumes. It closes over `node`
+        (judge_requests_route, _rubric_judge_requests(root, case_ids, benchmark_id)),
+        # The mid-run draft-feedback offer the corrective loop consumes. It closes over `node`
         # so the judge route resolves per request — installation must still work in a
         # world holding no model routes.
-        (check_surface_route, check_surface(node, root, HEALTHBENCH_CHECK)),
+        (
+            check_surface_route,
+            rubric_draft_feedback_endpoint(node, root, HEALTHBENCH_DRAFT_FEEDBACK),
+        ),
         (verdict_route, _rubric_verdict(benchmark_id)),
         (rubric_evaluation_route, _rubric_evaluation),
         (
             case_evaluation_route,
-            case_evaluation_endpoint(
+            case_grade_endpoint(
                 label="HealthBench Case evaluation",
                 item_name="Rubric evaluation",
-                bind=bind_case_evaluation,
+                bind=build_case_grade,
                 error_context_head=300,
             ),
         ),
@@ -153,7 +159,7 @@ def _install_protocol_once(
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
-    """Fail before the FIRST paid call when the baked assets cannot serve this exam.
+    """Fail before the FIRST paid call when the prepared assets cannot serve this benchmark.
 
     A broken asset (missing cases.json, unreadable rubric) is knowable before any
     model runs. Without this check it would surface in the reducer — AFTER paying
@@ -184,8 +190,8 @@ def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
 def _cases(root: Path, case_ids: tuple[int, ...]):
     # Reference counterpart: the example selection at the top of the reference's
     # eval loop (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py)
-    # — here the selection is this board's case list, served from the baked assets.
-    @observe_stage(ActivityKind.CASE_LOADING)
+    # — here the selection is this benchmark's case list, served from the prepared assets.
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         preflight(root, case_ids)
         raw = _read(root / "cases.json", "HealthBench cases")
@@ -194,28 +200,28 @@ def _cases(root: Path, case_ids: tuple[int, ...]):
     return cases
 
 
-def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
-    # The fan-out point: one Candidate answer in, N ready-to-send judge tasks out.
+def _rubric_judge_requests(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
+    # The fan-out point: one Candidate answer in, N ready-to-send judge requests out.
     # Receives the Candidate's output (context) + the Case id (intent); pulls the
     # PRIVATE rubric off disk — the first time the answer key touches the flow.
     # Reference counterpart: the prompt-construction half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
-    @observe_stage(ActivityKind.GRADING)
-    def rubric_tasks(request: Request) -> str:
+    @observe_phase(ActivityKind.GRADING)
+    def rubric_judge_requests(request: Request) -> str:
         try:
             case_id = positive_case_id(request.intent)
-            grading_activity(case_id, "started")
+            report_case_grading(case_id, "started")
             answer = candidate_answer(request.context)
             evaluator_text = answer.text
             raw_cases = _read(root / "cases.json", "HealthBench cases")
             transcript = _transcript(raw_cases, case_id)
             items = _rubric_items(root, case_id)
-            case_record = records.bind_case(
+            case_record = records.case_record(
                 raw_cases,
                 case_id=case_id,
                 candidate=answer,
             )
-            tasks: list[dict[str, str]] = []
+            judge_requests: list[dict[str, str]] = []
             for item in items:
                 rendered = render_rubric_item(item["points"], item["criterion"])
                 grader_prompt = build_grader_prompt(transcript, evaluator_text, rendered)
@@ -232,10 +238,10 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                     context=grader_prompt,
                     intent="",
                 )
-                rubric_record = records.bind_rubric_item(
+                rubric_record = records.rubric_item_record(
                     rendered, case_id=case_id, rubric_id=item["rubric_id"]
                 )
-                tasks.append(
+                judge_requests.append(
                     {
                         "case_id": str(case_id),
                         "rubric_id": str(item["rubric_id"]),
@@ -244,11 +250,11 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
                         # — nothing about the prompt is assembled inside the expression.
                         "grader_prompt": grader_prompt,
                         # Dedup: the full Case record (Candidate's whole output) rides
-                        # the FIRST task only; the rest carry "{}" — case_evaluation.py
+                        # the FIRST task only; the rest carry "{}" — case_grade.py
                         # hoists it back to one record per Case.
                         "case_record": (
                             json.dumps(case_record, ensure_ascii=False, separators=(",", ":"))
-                            if not tasks
+                            if not judge_requests
                             else "{}"
                         ),
                         "rubric_record": json.dumps(
@@ -260,9 +266,9 @@ def _rubric_tasks(root: Path, case_ids: tuple[int, ...], benchmark_id: str):
             # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
             # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
-        return compact_json(tasks)
+        return compact_json(judge_requests)
 
-    return rubric_tasks
+    return rubric_judge_requests
 
 
 def _rubric_verdict(benchmark_id: str):
@@ -271,11 +277,11 @@ def _rubric_verdict(benchmark_id: str):
     # never trusted from the judge).
     # Reference counterpart: the parse-and-retry half of `grade_sample`
     # (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py).
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def rubric_verdict(request: Request) -> str:
         try:
-            case_id, rubric_id = binding_key(request.intent)
-            record = bind(
+            case_id, rubric_id = evidence_record_key(request.intent)
+            record = build_evidence_record(
                 request.context,
                 case_id=case_id,
                 rubric_id=rubric_id,
@@ -311,7 +317,7 @@ def _rubric_verdict(benchmark_id: str):
     return rubric_verdict
 
 
-@observe_stage(ActivityKind.GRADING)
+@observe_phase(ActivityKind.GRADING)
 def _rubric_evaluation(request: Request) -> str:
     try:
         case_id = positive_case_id(request.intent)
@@ -321,7 +327,7 @@ def _rubric_evaluation(request: Request) -> str:
         if tuple(payload) != ("case", "rubric", "evidence"):
             raise ValueError("HealthBench rubric evaluation fields must be case, rubric, evidence")
         raw_case = json_object(payload["case"], "Case record")
-        result = bind_rubric_evaluation(
+        result = build_rubric_grade(
             case_id,
             raw_case or None,
             json_object(payload["rubric"], "Rubric record"),
@@ -337,7 +343,7 @@ def _aggregate(
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
-    mean: ExamMean,
+    mean: VariantMean,
 ):
     def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
         return reducing.aggregate(

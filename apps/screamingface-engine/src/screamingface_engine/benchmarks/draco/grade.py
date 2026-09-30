@@ -1,34 +1,34 @@
-"""DRACO's grading hooks — everything the multi-pass boards still write to be graded.
+"""DRACO's grading hooks — everything the multi-pass benchmarks still write to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
-contribution: its multi-pass ``grade_case`` (N seeded judge verdicts per criterion
-reduced to one grade), its published cross-Case scorer, its selection validation,
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its multi-pass ``grade_case`` (N seeded judge verdicts per
+criterion reduced to one grade), its published cross-Case scorer, its selection validation,
 and its failure shapes. The engine ships mechanisms; a benchmark ships semantics.
 
-FEATURE: one grading spine per benchmark (OME-1024); this fold (OME-1100) is the
-first board with a genuinely different GRADING shape (N judge passes per criterion)
+FEATURE: one shared grading code per benchmark (OME-1024); this fold (OME-1100) is the
+first benchmark with a genuinely different GRADING shape (N judge passes per criterion)
 on the shared hook — the proof the hook is not single-pass-shaped.
 STORY: as a researcher, the number I publish is the DRACO paper's
 ``normalized_score`` (arXiv:2602.11685 §4.2).
 
-The stages, in execution order (one aggregate call = marking one board's exam):
+The stages, in execution order (one aggregate call = marking one benchmark's benchmark):
 
     Stage 1  selection validation      → non-empty, unique positive ids, input text
-    Stage 2  row filing (spine)        → RowReader + the exact envelope decoder;
-             draco CLAIMS anonymous error rows — position is identity here
-    Stage 3  the ladder (spine)        → draco's board-owned failure shapes ride the
-             four result hooks below; the spine's default rungs never fire
+    Stage 2  row filing (shared-grading)        → CaseGradeReader + the exact envelope decoder;
+             draco CLAIMS anonymous error cases — position is identity here
+    Stage 3  the ladder (shared-grading)        → draco's benchmark-owned failure shapes ride the
+             four result hooks below; the shared grading code's default rungs never fire
     Stage 4  grade_case (this module)  → valid verdicts per rubric → score_case over
              the passes, or the incomplete grade when nothing was scoreable
     Stage 5  the scorer (this module)  → the official cross-Case reduction
 
 INVARIANT: failure output is byte-identical to the pre-fold ``draco/aggregate.py``,
-with ONE owner-approved delta: an error row's Case now carries the selected Case's
+with ONE owner-approved delta: an error case's Case now carries the selected Case's
 own metadata (the cases.json extras, e.g. ``domain``) where pre-fold published
-``{}`` — error rows were the only Case shape dropping it (pinned in
+``{}`` — error cases were the only Case shape dropping it (pinned in
 ``test_draco_failure_integrity.py::test_an_error_row_case_carries_the_selected_cases_own_metadata``).
-The seven e2e failure tapes pin an error row's UPSTREAM code ("rate_limited",
-"provider_error") on a candidate-stage, grade-less failure; a missing row lands as
+The seven e2e failure tapes pin an error case's UPSTREAM code ("rate_limited",
+"provider_error") on a candidate-stage, grade-less failure; a missing case lands as
 the finalizer's ``case_result_missing``; a missing rubric is ``missing_case_rubric``
 with a ``row_index``; an unscoreable Case is ``judge_reply_invalid`` carrying its
 full zeroed metric block as audit material. The draco-3pass golden pins the scored
@@ -54,20 +54,20 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.draco import case_results
-from screamingface_engine.benchmarks.draco.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.draco.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.draco.definition import JUDGE_PASSES, REVISION
 from screamingface_engine.benchmarks.draco.errors import AggregateError
 from screamingface_engine.benchmarks.draco.validation import optional_integer
-from screamingface_engine.benchmarks.spine.rows import RowReader
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeCase,
     GradeRequest,
-    ScoredPath,
 )
+from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
 
-# WHY the table exists at all: every default rung of the spine's ladder is replaced
-# by a board-owned result hook below, so the spine never looks a draco code up —
+# WHY the table exists at all: every default rung of the shared grading code's ladder is replaced
+# by a benchmark-owned result hook below, so the shared grading code never looks a draco code up —
 # but the field is required, and the table documents which rungs draco owns.
 _FAILURE_MESSAGES: dict[str, str] = {
     "missing_rubric_asset": "the selected Case has no installed DRACO rubric",
@@ -90,11 +90,11 @@ def aggregate(
     Args:
         rows_json: the collected array of Case execution rows, in selected order.
         rubrics: case_id → the installed private rubric (the grading material).
-        benchmark_id: the board publishing this result ("draco" / "draco-3pass").
-        selected_cases: the raw selected-case mappings from the baked ``cases.json``
+        benchmark_id: the benchmark publishing this result ("draco" / "draco-3pass").
+        selected_cases: the raw selected-case mappings from the prepared ``cases.json``
             prefix — every field beyond id/input rides the result as Case metadata.
-        judge_passes: this board's evidence cardinality (5-pass vs 3-pass).
-        benchmark_revision: the board's revision, stamped into the result.
+        judge_passes: this benchmark's evidence cardinality (5-pass vs 3-pass).
+        benchmark_revision: the benchmark's revision, stamped into the result.
 
     The Case-scoped failure is attached to its own Case Result. Candidate-level
     ``failures`` stays empty by design — it is reserved for failures that cannot be
@@ -111,12 +111,12 @@ def aggregate(
         )
         for case in expected
     ]
-    path = ScoredPath(
-        reader=RowReader(
+    path = BenchmarkAggregation(
+        reader=CaseGradeReader(
             benchmark_label="DRACO",
             error_type=AggregateError,
-            decode_case_evaluation=_decode(judge_passes),
-            # Position is identity: an anonymous error row IS that Case's row here.
+            decode_case_grade=_decode(judge_passes),
+            # Position is identity: an anonymous error case IS that Case's row here.
             claim_anonymous_errors=True,
         ),
         grade_case=_grade_case(judge_passes),
@@ -124,10 +124,10 @@ def aggregate(
         method="rubric",
         grading_failure_code="draco_grading_failed",
         grading_failure_message="the DRACO grader could not grade this Case",
-        # A missing row files NOTHING — the finalizer reports case_result_missing,
+        # A missing case files NOTHING — the finalizer reports case_result_missing,
         # exactly the shape the pre-fold zip produced by dropping the Case.
-        missing_row_result=lambda selected, index, orphans: None,
-        error_row_result=_error_row_result,
+        missing_case_result=lambda selected, index, orphans: None,
+        error_case_result=_error_case_result,
         missing_material_result=_missing_material_result,
         hook_failure_result=_hook_failure_result,
     )
@@ -142,10 +142,10 @@ def aggregate(
 
 
 def _decode(judge_passes: int) -> Callable[[object, int], dict[str, Any]]:
-    """Bind this board's evidence cardinality into the exact envelope decoder."""
+    """Bind this benchmark's evidence cardinality into the exact envelope decoder."""
 
     def decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-        return decode_case_evaluation(grading, expected_case_id, judge_passes=judge_passes)
+        return decode_case_grade(grading, expected_case_id, judge_passes=judge_passes)
 
     return decode
 
@@ -171,11 +171,11 @@ def _grade_case(judge_passes: int) -> GradeCase:
     return grade
 
 
-# ── the board-owned failure shapes (each replaces one spine rung) ───────────
+# ── the benchmark-owned failure shapes (each replaces one shared-grading rung) ───────────
 
 
-def _error_row_result(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
-    """An error row publishes the UPSTREAM error's own code, with no grade envelope."""
+def _error_case_result(selected: SelectedCase, index: int, row: Mapping[str, Any]) -> CaseResult:
+    """An error case publishes the UPSTREAM error's own code, with no grade envelope."""
 
     metadata: dict[str, Any] = {"row_index": index}
     diagnostic = public_error(
@@ -218,7 +218,7 @@ def _missing_material_result(
     }
     if row is None:
         # No row AND no rubric: nothing observable to retain. Unreachable on an
-        # installed board (asset validation requires every case's rubric).
+        # installed benchmark (asset validation requires every case's rubric).
         return failed_case_result(selected_case=selected, failures=[failure])
     return case_results.ungraded_case_result(row["case"], failure)
 

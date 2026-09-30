@@ -44,7 +44,7 @@ class _FakeEntryPoint:
 
 def _registration() -> BenchmarkRegistration:
     # WHY a real Benchmark (DRACO): BenchmarkRegistration type-checks its fields, and
-    # this suite is about the discovery loop, not about authoring a fake board.
+    # this suite is about the discovery loop, not about authoring a fake benchmark.
     bundle = BenchmarkAssetBundle(id="fake-plugin-bundle", prepare=lambda out: {})
     return BenchmarkRegistration(benchmark=DRACO, asset_bundle=bundle)
 

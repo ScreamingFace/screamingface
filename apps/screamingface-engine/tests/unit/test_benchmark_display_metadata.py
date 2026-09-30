@@ -1,7 +1,7 @@
 """The Engine owns every word the leaderboard shows about a Benchmark (OME-904).
 
 FEATURE: benchmark descriptions on the leaderboard, with one authoring site.
-STORY: as a leaderboard reader, I see what a benchmark tests without leaving the board.
+STORY: as a leaderboard reader, I see what a benchmark tests without leaving the Leaderboard.
 """
 
 from __future__ import annotations
@@ -121,36 +121,36 @@ async def test_a_dataset_link_that_is_not_an_absolute_web_url_is_refused(referen
 )
 async def test_every_installed_benchmark_publishes_a_focus_line(benchmark: Benchmark) -> None:
     # STORY: the portal's "Focus" column is filled from the Engine, not hand-copied into a chart.
-    # WHY not a table of the exact lines (OME-1095): the wording is authored in the board's own
+    # WHY not a table of the exact lines (OME-1095): the wording is authored in the benchmark's own
     # definition module and reviewed in that diff; a second copy here would only have to be
-    # edited by hand for every new board. What the shared suite owns is that the column is
-    # never empty for a registered board.
+    # edited by hand for every new benchmark. What the shared suite owns is that the column is
+    # never empty for a registered benchmark.
     assert benchmark.focus
 
 
-async def test_no_two_boards_are_published_under_the_same_focus_line() -> None:
-    """INVARIANT: the Focus column is where a reader tells two boards over one dataset apart.
+async def test_no_two_benchmarks_are_published_under_the_same_focus_line() -> None:
+    """INVARIANT: the Focus column is where a reader tells two benchmarks over one dataset apart.
 
-    The two HealthBench boards share a dataset and the two DRACO boards share cases, rubrics
+    The two HealthBench benchmarks share a dataset and the two DRACO benchmarks share cases, rubrics
     and dataset alike — the focus line is the only place the leaderboard shows the difference.
-    Two boards sharing one line leaves a reader with two indistinguishable rows.
+    Two benchmarks sharing one line leaves a reader with two indistinguishable rows.
     """
 
     lines = [benchmark.focus for benchmark in BUILTIN_BENCHMARKS]
 
-    assert len(set(lines)) == len(lines), f"duplicate focus lines across boards: {lines}"
+    assert len(set(lines)) == len(lines), f"duplicate focus lines across benchmarks: {lines}"
 
 
-async def test_boards_baked_from_one_asset_bundle_publish_one_dataset_link() -> None:
+async def test_benchmarks_prepared_from_one_asset_bundle_publish_one_dataset_link() -> None:
     """INVARIANT: one physical dataset, one published link — derived, not hand-listed.
 
-    A board's dataset link is a fact about the assets it reads, and boards that share an
-    asset bundle read the same baked files. Two links under one bundle means at least one
-    board sends a reader to a dataset it was not built from.
+    A benchmark's dataset link is a fact about the assets it reads, and benchmarks that share an
+    asset bundle read the same prepared files. Two links under one bundle means at least one
+    benchmark sends a reader to a dataset it was not built from.
 
-    WHY nothing here asserts which boards have a link at all: that is a per-board editorial
+    WHY nothing here asserts which benchmarks have a link at all: that is a per-benchmark editorial
     fact (IFEval publishes none because its dataset is vendored inside the Engine, so no
-    public URL is authoritative), owned by the board's definition module.
+    public URL is authoritative), owned by the benchmark's definition module.
     """
 
     published: dict[str, set[str | None]] = {}
@@ -164,8 +164,8 @@ async def test_boards_baked_from_one_asset_bundle_publish_one_dataset_link() -> 
 
 
 async def test_the_catalog_publishes_the_computed_revision_untouched_by_display_metadata() -> None:
-    # INVARIANT: a submission carries the Engine's revision and the board ranks per revision, so
-    # a revision that moves makes every already-recorded submission look incomparable. `revision`
+    # INVARIANT: a submission carries the Engine's revision and the Leaderboard ranks per revision,
+    # so a revision that moves makes every already-recorded submission look incomparable. `revision`
     # is computed from dataset and protocol constants; editorial text must never reach it, and
     # the wire value must be that computed value rather than anything derived from metadata.
     entry = await _catalog(
@@ -179,7 +179,7 @@ async def test_the_catalog_publishes_the_computed_revision_untouched_by_display_
 async def test_the_catalog_publishes_every_installed_benchmarks_own_revision() -> None:
     # AIDEV-NOTE: deliberately NOT a table of literal hashes. Pinning them here would recreate
     # the very failure OME-904 removes — a hand-copied second copy that silently goes stale.
-    # The board no longer holds its own copy either: it seeds `revision` straight from this
+    # The benchmark no longer holds its own copy either: it seeds `revision` straight from this
     # catalogue response.
     for benchmark in BUILTIN_BENCHMARKS:
         entry = await _catalog(benchmark)
@@ -195,12 +195,12 @@ async def test_the_catalog_publishes_every_installed_benchmarks_own_revision() -
         ("revision", "x" * 65),
     ],
 )
-async def test_text_too_long_for_the_board_to_store_is_refused_at_authoring_time(
+async def test_text_too_long_for_the_benchmark_to_store_is_refused_at_authoring_time(
     field: str, value: str
 ) -> None:
-    # WHY the Engine enforces the board's limits: "one authoring site" means an Engine author
-    # never runs the board's validation. Without a cap here, a 130-character focus line passes
-    # every Engine test and is only discovered at the next deploy, where the board can do
+    # WHY the Engine enforces the benchmark's limits: "one authoring site" means an Engine author
+    # never runs the benchmark's validation. Without a cap here, a 130-character focus line passes
+    # every Engine test and is only discovered at the next deploy, where the benchmark can do
     # nothing better than skip that benchmark and keep its old text. Fail where it is written.
     with pytest.raises(ValueError, match=field):
         if field == "focus":
@@ -216,7 +216,7 @@ async def test_the_catalog_keeps_the_field_names_the_leaderboard_seeds_from() ->
 
     INVARIANT: `apps/scoreboard/src/scoreboard/seed.py` fetches this document at deploy and
     maps `title` onto its own `display_name` column. Rename or drop one of the required names
-    here and the board stops registering that benchmark — it lands in the seed job's `rejected`
+    here and the benchmark stops registering that benchmark — it lands in the seed job's `rejected`
     list, so the benchmark quietly vanishes from the leaderboard while the Engine's own tests
     stay green.
 
@@ -249,15 +249,15 @@ async def test_the_catalogue_publishes_a_usable_case_count() -> None:
     here — `cases`, `total_cases` — or drop it from `_metadata()`, and both suites stay green:
     the two apps have separate virtualenvs, and the Scoreboard's `_CatalogEntry` uses
     `extra="ignore"` and tolerates a missing count by design. The next seed then writes nothing,
-    every board's `case_count` goes stale or absent, and one-case runs rank as complete again.
+    every benchmark's `case_count` goes stale or absent, and one-case runs rank as complete again.
     Silently, with a deploy that exits 0.
 
     WHY a separate test rather than adding `case_count` to `required` above: that set's loop
     asserts every member is a non-empty `str`, and this is an `int`. Asserted here instead, so
     no prior assertion changes (rule 5).
 
-    INVARIANT: `>= 1`, matching `SeedBenchmark`'s constraint on the board side. A published `0`
-    would be tolerated by the board — costing it the filter, not the benchmark's row — but it is
+    INVARIANT: `>= 1`, matching `SeedBenchmark`'s constraint on the Scoreboard side. A published `0`
+    would be tolerated by the benchmark — costing it the filter, not the benchmark's row — but it is
     not a state any built-in should ever be in, so it fails here, on the producing side, where
     it is a real defect rather than someone else's bad input.
     """
@@ -270,7 +270,7 @@ async def test_the_catalogue_publishes_a_usable_case_count() -> None:
         )
         count = entry["case_count"]
         assert isinstance(count, int) and not isinstance(count, bool), (
-            f"{benchmark.id} publishes case_count as {type(count).__name__}; the board parses "
+            f"{benchmark.id} publishes case_count as {type(count).__name__}; the Scoreboard parses "
             "an int and normalises anything else to None, which costs it the filter"
         )
         assert count >= 1, f"{benchmark.id} publishes case_count={count}"

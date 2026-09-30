@@ -65,7 +65,7 @@ def test_the_two_parsers_disagree_on_a_letter_last_essay() -> None:
 
     INVARIANT: these two must stay different functions. The prior implementation applied the
     first-match parser to essays like this and measured 35.5% against a true 70.2%. If this test
-    ever passes with both parsers agreeing, someone has collapsed them — and the board's scores
+    ever passes with both parsers agreeing, someone has collapsed them — and the benchmark's scores
     silently halve.
     """
 

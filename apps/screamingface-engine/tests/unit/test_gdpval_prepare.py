@@ -1,8 +1,8 @@
-"""Baking the GDPval text-subset assets — and every way the build refuses to bake a wrong one.
+"""Preparing the GDPval text-subset assets — and every way the build refuses to prepare a wrong one.
 
 INVARIANT under test: the preparer's output IS the answer key. It must be reproducible byte for
 byte, it must refuse to proceed when the upstream dataset has moved under the frozen selection,
-and it must refuse to bake a Case whose rubric cannot produce a score.
+and it must refuse to prepare a Case whose rubric cannot produce a score.
 
 AIDEV-NOTE: `datasets`, `pdfplumber` and `python-docx` are build-time only and absent here, so
 these tests drive the pure functions and inject a fake reference reader. `load_rows` is the one
@@ -57,7 +57,7 @@ def test_selection_returns_the_frozen_tasks_in_frozen_order() -> None:
 
 def test_a_missing_task_fails_the_build_and_names_it() -> None:
     # INVARIANT: the dataset moving under the frozen selection must stop the build, never
-    # silently bake a smaller exam under the same identity.
+    # silently prepare a smaller benchmark under the same identity.
     rows = [r for r in _all_rows() if r["task_id"] != TEXT_SUBSET_TASK_IDS[0]]
     with pytest.raises(PrepareError) as excinfo:
         select_rows(rows)
@@ -69,7 +69,7 @@ def test_extra_upstream_tasks_are_ignored_not_served() -> None:
     assert len(select_rows(rows)) == len(TEXT_SUBSET_TASK_IDS)
 
 
-def test_container_criteria_are_absent_from_the_baked_rubric() -> None:
+def test_container_criteria_are_absent_from_the_prepared_rubric() -> None:
     row = _row("t", rubric=_rubric((2, _CONTENT), (2, _CONTAINER)))
     items = rubric_items(row, 1)
     assert [i["criterion"] for i in items] == [_CONTENT]
@@ -140,7 +140,7 @@ def test_emit_is_byte_identical_across_runs(tmp_path) -> None:
 
 def test_rubric_ids_are_one_based_positions() -> None:
     # INVARIANT: `scoring.case_score` indexes points with enumerate(points, start=1) and
-    # `verdict.binding_key` refuses ids below 1. A 0-based id here would misalign every
+    # `verdict.evidence_record_key` refuses ids below 1. A 0-based id here would misalign every
     # criterion with its point value and silently produce wrong scores.
     row = _row("t", rubric=_rubric((2, _CONTENT), (1, "Second criterion."), (3, "Third.")))
     assert [item["rubric_id"] for item in rubric_items(row, 1)] == [1, 2, 3]
@@ -168,7 +168,7 @@ def test_reference_urls_tolerates_a_row_with_no_references() -> None:
 
 def test_an_unfetchable_reference_names_its_task_and_file(tmp_path) -> None:
     # INVARIANT: a reference with no URL fails the build identifiably. Silently skipping it would
-    # bake a task whose prompt refers to material the model never received.
+    # prepare a task whose prompt refers to material the model never received.
     from screamingface_engine.benchmarks.gdpval.ingestion import IngestionError
     from screamingface_engine.benchmarks.gdpval.prepare import _build_reader
 
@@ -233,7 +233,7 @@ class _Response:
 def test_fetch_writes_the_destination_only_by_atomic_replace(tmp_path, monkeypatch) -> None:
     # INVARIANT: a download killed mid-write must not leave a truncated file. The cache-hit
     # check is presence plus non-zero size, so a truncated file would be accepted FOREVER —
-    # baking truncated reference text into the answer key. The destination path may only ever
+    # preparing truncated reference text into the answer key. The destination path may only ever
     # appear complete: bytes land in a temp sibling, then rename into place atomically.
     from pathlib import Path
 

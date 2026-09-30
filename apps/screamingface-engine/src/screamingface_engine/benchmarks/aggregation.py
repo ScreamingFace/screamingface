@@ -19,15 +19,15 @@ from screamingface_engine.benchmarks.contract import (
     CaseGrade,
     CaseId,
     CaseResult,
-    CorrectiveExecution,
+    CorrectiveLoopOutcome,
     Failure,
     OperationOutput,
     candidate_coverage,
     is_declared_failure_code,
     validate_case_id,
 )
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer
 from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
 
@@ -235,7 +235,7 @@ def scored_case_result(
     finish_reason: str | None,
     grade: CaseGrade | Mapping[str, Any],
     metadata: Mapping[str, Any] | None = None,
-    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Construct one scored Case without exposing the wire envelope to adapters."""
@@ -266,7 +266,7 @@ def failed_case_result(
     finish_reason: str | None = None,
     grade: CaseGrade | Mapping[str, Any] | None = None,
     metadata: Mapping[str, Any] | None = None,
-    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Construct one failed Case while retaining any safe partial grading evidence."""
@@ -303,7 +303,7 @@ def refusal_case_result(
     finish_reason: str | None = None,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
     metadata: Mapping[str, Any] | None = None,
-    execution: CorrectiveExecution | Mapping[str, Any] | None = None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None = None,
     operations: Sequence[OperationOutput | Mapping[str, Any]] | None = None,
 ) -> CaseResult:
     """Classify one refused Candidate Invocation into its case-level outcome.
@@ -456,14 +456,14 @@ def _case_metadata(
 
 
 def _execution_fields(
-    execution: CorrectiveExecution | Mapping[str, Any] | None,
+    execution: CorrectiveLoopOutcome | Mapping[str, Any] | None,
 ) -> tuple[Literal["passed", "max_rounds"] | None, int | None]:
     if execution is None:
         return None, None
     typed = (
         execution
-        if isinstance(execution, CorrectiveExecution)
-        else CorrectiveExecution.model_validate(execution)
+        if isinstance(execution, CorrectiveLoopOutcome)
+        else CorrectiveLoopOutcome.model_validate(execution)
     )
     return typed.stop_reason, typed.rounds_executed
 

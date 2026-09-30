@@ -2,27 +2,27 @@
 
 from __future__ import annotations
 
-from screamingface_engine.benchmarks.case_records import bind_case_record
+from screamingface_engine.benchmarks.case_records import build_case_record
 from screamingface_engine.benchmarks.draco.validation import (
     require_positive_integer,
     require_text,
 )
-from screamingface_engine.benchmarks.evaluation import CandidateAnswer
+from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 
 CASE_SCHEMA = "screamingface.draco-case-record.v1"
 CHECK_SCHEMA = "screamingface.draco-check-record.v1"
 _CRITERION_TYPES = frozenset({"positive", "negative"})
 
 
-def bind_case(
+def case_record(
     raw_cases: str,
     *,
     case_id: int,
     candidate: CandidateAnswer,
 ) -> dict[str, object]:
-    """Bind evaluator text and exact Candidate outcome to one Engine-owned Case."""
+    """Build evaluator text and exact Candidate outcome to one Engine-owned Case."""
 
-    return bind_case_record(
+    return build_case_record(
         raw_cases,
         case_id=case_id,
         candidate=candidate,
@@ -31,14 +31,14 @@ def bind_case(
     )
 
 
-def bind_check(
+def check_record(
     requirement: str,
     *,
     case_id: int,
     criterion_id: str,
     criterion_type: str,
 ) -> dict[str, object]:
-    """Bind one public criterion description to Engine-known Case identity."""
+    """Build one public criterion description to Engine-known Case identity."""
 
     selected_type = require_text(criterion_type, "criterion_type")
     if selected_type not in _CRITERION_TYPES:
@@ -52,4 +52,4 @@ def bind_check(
     }
 
 
-__all__ = ["CASE_SCHEMA", "CHECK_SCHEMA", "bind_case", "bind_check"]
+__all__ = ["CASE_SCHEMA", "CHECK_SCHEMA", "case_record", "check_record"]

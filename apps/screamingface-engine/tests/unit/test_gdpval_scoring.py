@@ -4,7 +4,7 @@ INVARIANT under test: an unscorable Case yields ``None``, never ``0.0``. "We cou
 this" and "the answer scored zero" are different facts, and collapsing them turns an
 infrastructure failure into a plausible model weakness.
 
-INVARIANT under test: the exam mean is PLAIN — no clip. GDPval's official metric is an expert
+INVARIANT under test: the benchmark mean is PLAIN — no clip. GDPval's official metric is an expert
 pairwise win rate, so there is no published convention to line up with; inventing a floor would
 imply one exists.
 """
@@ -62,7 +62,7 @@ def test_mean_averages_graded_cases() -> None:
 
 def test_mean_ignores_unscorable_cases() -> None:
     # INVARIANT: an unscorable Case must not be averaged in as a zero — that would let a judge
-    # outage depress a candidate's exam score.
+    # outage depress a candidate's benchmark score.
     assert mean([1.0, None, 0.0]) == pytest.approx(0.5)
 
 
@@ -72,7 +72,7 @@ def test_mean_of_no_graded_cases_is_none() -> None:
 
 
 def test_mean_is_not_clipped() -> None:
-    # INVARIANT: no floor at zero. HealthBench's professional board clips because the official
+    # INVARIANT: no floor at zero. HealthBench's professional benchmark clips because the official
     # HealthBench metric does; GDPval has no such published convention.
     assert mean([-0.4, -0.2]) == pytest.approx(-0.3)
 
@@ -81,7 +81,7 @@ def test_mean_is_not_clipped() -> None:
 
 
 def test_sample_stdev_of_fewer_than_two_values_is_zero() -> None:
-    from screamingface_engine.benchmarks.spine.exam import sample_stdev
+    from screamingface_engine.benchmarks.shared_grading.mean_scorer import sample_stdev
 
     assert sample_stdev([]) == 0.0
     assert sample_stdev([0.5]) == 0.0
@@ -90,18 +90,18 @@ def test_sample_stdev_of_fewer_than_two_values_is_zero() -> None:
 def test_sample_stdev_uses_the_n_minus_one_denominator() -> None:
     # WHY pinned: population stdev of [0, 1] is 0.5; the sample form is 0.7071. A silent switch
     # would understate spread on exactly the small partial runs a reader sees most.
-    from screamingface_engine.benchmarks.spine.exam import sample_stdev
+    from screamingface_engine.benchmarks.shared_grading.mean_scorer import sample_stdev
 
     assert sample_stdev([0.0, 1.0]) == pytest.approx(0.7071067811865476)
 
 
 def test_verdict_coverage_is_the_judged_fraction() -> None:
-    from screamingface_engine.benchmarks.spine.exam import verdict_coverage
+    from screamingface_engine.benchmarks.shared_grading.mean_scorer import verdict_coverage
 
     assert verdict_coverage(3, 4) == pytest.approx(0.75)
 
 
 def test_verdict_coverage_of_nothing_is_zero_not_a_division_error() -> None:
-    from screamingface_engine.benchmarks.spine.exam import verdict_coverage
+    from screamingface_engine.benchmarks.shared_grading.mean_scorer import verdict_coverage
 
     assert verdict_coverage(0, 0) == 0.0

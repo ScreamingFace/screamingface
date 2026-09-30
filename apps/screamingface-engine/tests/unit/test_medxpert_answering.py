@@ -31,7 +31,7 @@ def test_an_echoed_trigger_is_cut_before_matching() -> None:
 
 def test_the_trigger_echo_phrase_cannot_be_read_as_a_letter() -> None:
     # INVARIANT: "A through J" contains A and J. Without the phrase strip the parser would
-    # return A on every echoed completion — the whole board would score as if it answered A.
+    # return A on every echoed completion — the whole benchmark would score as if it answered A.
     assert extract_choice_letter("A through J, the answer is C", 10) == "C"
 
 
@@ -58,7 +58,7 @@ def test_the_pronoun_i_is_read_as_choice_i_at_ten_options() -> None:
 
     AIDEV-NOTE: it is only reachable at >= 9 options, and only when the model writes a bare "I"
     in the committed span. Do not "fix" it without changing PROTOCOL_REVISION — that is a
-    different exam.
+    different benchmark.
     """
 
     assert extract_choice_letter("I could not determine the answer.", 10) == "I"

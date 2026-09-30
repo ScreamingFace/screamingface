@@ -9,7 +9,7 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    CheckSurface,
+    DraftFeedbackOffer,
     candidate,
 )
 from screamingface_engine.benchmarks.protocol import (
@@ -56,8 +56,8 @@ CASES_ROUTE = f"{ROUTE_PREFIX}/cases"
 CHECK_ROUTE = f"{ROUTE_PREFIX}/check"
 # The advertised check-surface port (OME-796): input-addressed because a black-box
 # $candidate only ever sees $input — the adapter resolves the case behind the route.
-CHECK_SURFACE_ROUTE = f"{ROUTE_PREFIX}/check-surface"
-CASE_EVALUATION_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
+DRAFT_FEEDBACK_ROUTE = f"{ROUTE_PREFIX}/check-surface"
+CASE_GRADE_ROUTE = f"{ROUTE_PREFIX}/case-evaluation"
 AGGREGATE_ROUTE = f"{ROUTE_PREFIX}/aggregate"
 
 
@@ -84,7 +84,7 @@ def _build(case_count: int) -> Node:
         src(checked_call, name="record", weight=0.0),
         src(
             RelExpr(
-                path=CASE_EVALUATION_ROUTE,
+                path=CASE_GRADE_ROUTE,
                 context=render(struct({"attempt_1": "$record"})),
                 intent=Text("$item.case_id"),
             ),
@@ -130,7 +130,7 @@ IFEVAL = Benchmark(
     # (screamingface_engine.benchmarks.ifeval.vendor), so no single public URL is authoritative.
     revision=REVISION,
     case_count=CASE_COUNT,
-    # INVARIANT: the declared policy matches the code — this board reduces through the
+    # INVARIANT: the declared policy matches the code — this benchmark reduces through the
     # shared finalize_candidate_result, which scores exactly the gradeable subset and
     # publishes coverage (coverage_declare). Declare `withhold` only if the aggregate
     # actually withholds (OME-1039).
@@ -145,8 +145,8 @@ IFEVAL = Benchmark(
     install=install_ifeval,
     # Free: the deterministic verifier costs no model call, so a corrective loop
     # on IFEval spends only on members and the judge.
-    check_surface=CheckSurface(
-        check_route=CHECK_SURFACE_ROUTE,
+    check_surface=DraftFeedbackOffer(
+        check_route=DRAFT_FEEDBACK_ROUTE,
         feedback_intent="feedback",
         expected_check_cost="free",
     ),

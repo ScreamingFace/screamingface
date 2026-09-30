@@ -23,19 +23,19 @@
         <mxCell id="rh1" value="interaction=&#xa;&quot;single_shot&quot;&#xa;one prompt, one reply" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="160" width="200" height="110" as="geometry" />
         </mxCell>
-        <mxCell id="rh2" value="interaction=&#xa;&quot;multi_turn&quot;&#xa;board invokes Candidate&#xa;N times per Case" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+        <mxCell id="rh2" value="interaction=&#xa;&quot;multi_turn&quot;&#xa;benchmark invokes Candidate&#xa;N times per Case" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="290" width="200" height="110" as="geometry" />
         </mxCell>
         <mxCell id="rh3" value="agentic / tool-env&#xa;(Later — new declared&#xa;values + environment&#xa;field on the declaration)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=#2e250f;strokeColor=#d7b357;fontColor=#d7b357;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="420" width="200" height="110" as="geometry" />
         </mxCell>
-        <mxCell id="c11" value="draco · draco-3pass&#xa;healthbench ×2 · gdpval&#xa;(shared rubric factory,&#xa;~122-line board)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="c11" value="draco · draco-3pass&#xa;healthbench ×2 · gdpval&#xa;(shared rubric factory,&#xa;~122-line benchmark)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="260" y="160" width="220" height="110" as="geometry" />
         </mxCell>
-        <mxCell id="c12" value="ifeval&#xa;(bool-vector checks,&#xa;401-line board)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="c12" value="ifeval&#xa;(bool-vector checks,&#xa;401-line benchmark)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="500" y="160" width="220" height="110" as="geometry" />
         </mxCell>
-        <mxCell id="c23" value="medxpert&#xa;(28-line marking rule,&#xa;245-line board)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="c23" value="medxpert&#xa;(28-line marking rule,&#xa;245-line benchmark)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="740" y="290" width="220" height="110" as="geometry" />
         </mxCell>
         <mxCell id="warn" value="⚠ method is a FREE STRING — nothing validates it; a typo ships to the leaderboard.&#xa;interaction + failure_policy are refused by name at construction." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2c1218;strokeColor=#e06c75;fontColor=#e06c75;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
