@@ -138,6 +138,21 @@ jobs:
             --set 'networkPolicy.clientPodNames[0]=ci-placeholder-envoy' \
             --set networkPolicy.clientNamespace=ci-placeholder-envoy-ns > /dev/null
 
+      # The scoreboard prod posture (D5, E14): `cloudflare_headers` behind the Envoy edge. The prod
+      # values file cannot know the Envoy data plane, and the chart refuses to render without it
+      # (the NetworkPolicy is the authentication boundary), so this step passes placeholders.
+      #
+      # AIDEV-NOTE: release-scoreboard.yml renders the same file and needs the SAME --set keys. It
+      # runs only on a release tag, so it cannot notice when a newly-required value has left it
+      # unable to render. `verify_chart_wiring.py` asserts the two lanes carry an identical set,
+      # keyed off THIS step.
+      - name: Render the scoreboard prod values
+        run: |
+          helm template scoreboard apps/scoreboard/charts/scoreboard \
+            --values apps/scoreboard/charts/scoreboard/values-prod.yaml \
+            --set 'networkPolicy.clientPodNames[0]=ci-placeholder-envoy' \
+            --set networkPolicy.clientNamespace=ci-placeholder-envoy-ns > /dev/null
+
   image:
     name: Build the console image
     runs-on: ubuntu-latest
