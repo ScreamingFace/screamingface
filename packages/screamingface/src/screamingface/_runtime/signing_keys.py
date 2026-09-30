@@ -24,19 +24,25 @@ import os
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Final, Literal
 
 from nacl.signing import SigningKey
 
 KEY_FILENAME = "signing-keys.json"
 _FILE_VERSION = 1
 
-# Env groups (D7 X-4): raw standard base64 keys, JSON `{kid: b64}` public-key maps.
-_RECEIPT_NAMES = ("AIGATEWAY_RECEIPT_SIGNING_KEY", "SCOREBOARD_RECEIPT_PUBLIC_KEYS")
-_GRANT_NAMES = (
-    "SCOREBOARD_REPLAY_GRANT_SIGNING_KEY",
-    "SCOREBOARD_REPLAY_GRANT_SIGNING_KID",
-    "AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS",
-)
+# The five variable names of the two groups (D7 X-4): raw standard base64 keys, JSON `{kid: b64}`
+# public-key maps. Public on purpose: the operator key helper (`keygen`) names the same variables.
+RECEIPT_SIGNING_KEY_ENV: Final = "AIGATEWAY_RECEIPT_SIGNING_KEY"
+RECEIPT_PUBLIC_KEYS_ENV: Final = "SCOREBOARD_RECEIPT_PUBLIC_KEYS"
+GRANT_SIGNING_KEY_ENV: Final = "SCOREBOARD_REPLAY_GRANT_SIGNING_KEY"
+GRANT_SIGNING_KID_ENV: Final = "SCOREBOARD_REPLAY_GRANT_SIGNING_KID"
+GRANT_PUBLIC_KEYS_ENV: Final = "AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS"
+
+_RECEIPT_NAMES = (RECEIPT_SIGNING_KEY_ENV, RECEIPT_PUBLIC_KEYS_ENV)
+_GRANT_NAMES = (GRANT_SIGNING_KEY_ENV, GRANT_SIGNING_KID_ENV, GRANT_PUBLIC_KEYS_ENV)
+
+KeyPurpose = Literal["receipt", "replay_grant"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +65,10 @@ def ensure_local_signing_keys(data_dir: Path) -> LocalSigningKeys:
     path = data_dir / KEY_FILENAME
     if path.exists():
         return _read(path)
-    keys = LocalSigningKeys(receipt=_new_pair(""), replay_grant=_new_pair("local-"))
+    keys = LocalSigningKeys(
+        receipt=generate_key_pair("receipt"),
+        replay_grant=generate_key_pair("replay_grant", kid_prefix="local-"),
+    )
     _write_json_atomic(
         path,
         {
@@ -84,12 +93,12 @@ def apply_local_signing_environment(environment: MutableMapping[str, str], data_
         return
     keys = ensure_local_signing_keys(data_dir)
     if receipt_open:
-        environment[_RECEIPT_NAMES[0]] = keys.receipt.private_key
-        environment[_RECEIPT_NAMES[1]] = _public_key_map(keys.receipt)
+        environment[RECEIPT_SIGNING_KEY_ENV] = keys.receipt.private_key
+        environment[RECEIPT_PUBLIC_KEYS_ENV] = _public_key_map(keys.receipt)
     if grant_open:
-        environment[_GRANT_NAMES[0]] = keys.replay_grant.private_key
-        environment[_GRANT_NAMES[1]] = keys.replay_grant.kid
-        environment[_GRANT_NAMES[2]] = _public_key_map(keys.replay_grant)
+        environment[GRANT_SIGNING_KEY_ENV] = keys.replay_grant.private_key
+        environment[GRANT_SIGNING_KID_ENV] = keys.replay_grant.kid
+        environment[GRANT_PUBLIC_KEYS_ENV] = _public_key_map(keys.replay_grant)
 
 
 def _group_is_open(environment: MutableMapping[str, str], names: tuple[str, ...]) -> bool:
@@ -105,11 +114,25 @@ def _public_key_map(pair: LocalKeyPair) -> str:
     return json.dumps({pair.kid: pair.public_key})
 
 
-def _new_pair(kid_prefix: str) -> LocalKeyPair:
-    signing_key = SigningKey.generate()
+def derive_kid(public_raw: bytes, *, prefix: str = "") -> str:
+    """prefix + sha256(public_raw).hexdigest()[:16]  (GW-freeze OD-F2, D7 X-4)."""
+    return f"{prefix}{hashlib.sha256(public_raw).hexdigest()[:16]}"
+
+
+def generate_key_pair(
+    purpose: KeyPurpose, *, kid_prefix: str = "", seed: bytes | None = None
+) -> LocalKeyPair:
+    """A fresh pair, or the pair of `seed` (32 bytes, else `ValueError`).
+
+    INVARIANT: a receipt kid is derived by the gateway (GW-freeze OD-F2), so it takes no prefix. A
+    replay-grant kid comes from the scoreboard's own setting, so it may (`local-` for `up`).
+    """
+    if purpose == "receipt" and kid_prefix:
+        raise ValueError("a receipt kid is derived and takes no prefix")
+    signing_key = SigningKey.generate() if seed is None else SigningKey(seed)
     public = bytes(signing_key.verify_key)
     return LocalKeyPair(
-        kid=f"{kid_prefix}{hashlib.sha256(public).hexdigest()[:16]}",
+        kid=derive_kid(public, prefix=kid_prefix),
         private_key=base64.b64encode(bytes(signing_key)).decode("ascii"),
         public_key=base64.b64encode(public).decode("ascii"),
     )
