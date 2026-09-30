@@ -11,23 +11,23 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from collections.abc import MutableMapping
 from pathlib import Path
 
+import harness.e14_env as e14_env_module
 import httpx
 import pytest
 from harness.cache_seeded import CacheSeededGateway
-from harness.e14_env import (
-    FALLBACK_ARCHIVE_BACKENDS,
-    FALLBACK_ARCHIVE_DIRS,
-    FALLBACK_FLAGS,
-    e14_env,
-    split_env,
-    wiring_hook,
-)
+from harness.e14_env import e14_env, split_env
 from harness.identity import EdgeIdentityTransport
 from harness.scoreboard_proc import ScoreboardProcess
 from harness.stack import EngineProcess
 from nacl.signing import SigningKey, VerifyKey
+
+from screamingface._runtime.local_features import (
+    apply_local_e14_environment,
+    local_archive_dir,
+)
 
 _RECEIPT_PRIVATE = "AIGATEWAY_RECEIPT_SIGNING_KEY"
 _RECEIPT_PUBLIC = "SCOREBOARD_RECEIPT_PUBLIC_KEYS"
@@ -80,24 +80,29 @@ def test_e14_env_archive_dir_is_one_shared_directory(tmp_path: Path) -> None:
     assert env.scoreboard["SCOREBOARD_ARCHIVE_BACKEND"] == "filesystem"
 
 
-def test_e14_env_fallback_matches_the_wiring_hook(tmp_path: Path) -> None:
-    hook = wiring_hook()
-    if hook is None:
-        pytest.skip("WIRING not merged")
+def test_e14_env_flags_and_archive_dir_are_what_the_wiring_hook_sets(tmp_path: Path) -> None:
     hook_env: dict[str, str] = {}
-    hook(hook_env, tmp_path)
+    apply_local_e14_environment(hook_env, tmp_path)
 
-    for name, value in FALLBACK_FLAGS.items():
-        assert hook_env[name] == value, f"fallback flag {name} drifted from the WIRING hook"
-    fallback_names = (
-        set(FALLBACK_FLAGS) | set(FALLBACK_ARCHIVE_BACKENDS) | set(FALLBACK_ARCHIVE_DIRS)
-    )
-    assert set(hook_env) <= fallback_names | _KEY_NAMES, (
-        "the WIRING hook sets a key the fallback does not know: "
-        f"{sorted(set(hook_env) - fallback_names - _KEY_NAMES)}"
-    )
-    assert {hook_env[name] for name in FALLBACK_ARCHIVE_BACKENDS} == {"filesystem"}
-    assert len({hook_env[name] for name in FALLBACK_ARCHIVE_DIRS}) == 1
+    env = e14_env(tmp_path)
+
+    # INVARIANT: no harness copy of the hook exists, so the stack env is the hook env.
+    assert env.archive_dir == local_archive_dir(tmp_path)
+    combined = {**env.gateway, **env.scoreboard}
+    assert {name: combined[name] for name in hook_env} == hook_env
+
+
+def test_e14_env_surfaces_a_failing_wiring_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken_hook(environment: MutableMapping[str, str], data_dir: Path) -> None:
+        raise RuntimeError("wiring hook broke")
+
+    # WHY: a broken hook must fail every spine, never fall back to a copy of its flags.
+    monkeypatch.setattr(e14_env_module, "apply_local_e14_environment", broken_hook)
+
+    with pytest.raises(RuntimeError, match="wiring hook broke"):
+        e14_env(tmp_path)
 
 
 def test_e14_env_refuses_a_key_with_no_service_prefix() -> None:
@@ -168,9 +173,7 @@ def test_extra_env_refuses_secrets_on_every_child(tmp_path: Path, key: str) -> N
     builders = {
         "gateway": lambda: _gateway(tmp_path, {key: "value-x"}),
         "engine": lambda: EngineProcess(work_dir=tmp_path, extra_env={key: "value-x"}),
-        "scoreboard": lambda: ScoreboardProcess(
-            work_dir=tmp_path, extra_env={key: "value-x"}, wiring_present=False
-        ),
+        "scoreboard": lambda: ScoreboardProcess(work_dir=tmp_path, extra_env={key: "value-x"}),
     }
     for name, build in builders.items():
         with pytest.raises(ValueError) as caught:
@@ -183,3 +186,36 @@ def test_extra_env_refuses_the_auth_override_on_the_gateway(tmp_path: Path) -> N
         _gateway(tmp_path, {"AIGW_AUTH_MODE": "disabled"})
 
     assert str(caught.value) == "refusing env key: AIGW_AUTH_MODE (use auth_mode=)"
+
+
+class _FakeContainer:
+    username = "board"
+    dbname = "board"
+
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+
+    def exec(self, command: list[str]) -> tuple[int, bytes]:
+        self.commands.append(command)
+        return 0, b"UPDATE 1"
+
+
+def test_scoreboard_board_prep_always_uses_the_admin_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routed: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        ScoreboardProcess,
+        "_set_redistributable_by_route",
+        lambda self, base_url, board: routed.append((base_url, board)),
+    )
+    process = ScoreboardProcess(work_dir=tmp_path)
+    container = _FakeContainer()
+    process._container = container  # noqa: SLF001 - the Postgres seam, faked
+
+    process._prepare_board("http://board.test", "ifeval")  # noqa: SLF001
+
+    assert routed == [("http://board.test", "ifeval")]
+    # INVARIANT: the route is the only path that sets `redistributable`, so SQL never does.
+    expected = "UPDATE benchmarks SET case_count = NULL WHERE id = 'ifeval'"
+    assert container.commands[0][-1] == expected

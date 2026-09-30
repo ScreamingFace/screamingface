@@ -48,12 +48,10 @@ class ScoreboardProcess:
         *,
         work_dir: Path,
         extra_env: Mapping[str, str] | None = None,
-        wiring_present: bool,
     ) -> None:
         refuse_secret_env(extra_env)
         self._work_dir = work_dir
         self._extra_env = dict(extra_env or {})
-        self._wiring_present = wiring_present
         self._container: Any = None
         self._process: ManagedProcess | None = None
 
@@ -161,8 +159,7 @@ class ScoreboardProcess:
     # -- Stage 4: board preparation -------------------------------------------------------
 
     def _prepare_board(self, base_url: str, board: str) -> None:
-        if self._wiring_present:
-            self._set_redistributable_by_route(base_url, board)
+        self._set_redistributable_by_route(base_url, board)
         self._set_board_columns(board)
 
     def _set_redistributable_by_route(self, base_url: str, board: str) -> None:
@@ -184,10 +181,6 @@ class ScoreboardProcess:
         # WHY case_count = NULL: the golden replays 50 cases (`limit: 50`), and the leaderboard
         # hides a run with fewer cases than `case_count`. With NULL the filter is off. No
         # product path sets it, and none is needed. Test-only SQL, run inside the container.
-        assignments = "case_count = NULL"
-        if not self._wiring_present:
-            # Fallback when WIRING is absent: the column defaults to false.
-            assignments += ", redistributable = true"
         container = self._container
         exit_code, output = container.exec(
             [
@@ -199,7 +192,7 @@ class ScoreboardProcess:
                 "-v",
                 "ON_ERROR_STOP=1",
                 "-c",
-                f"UPDATE benchmarks SET {assignments} WHERE id = '{board}'",
+                f"UPDATE benchmarks SET case_count = NULL WHERE id = '{board}'",
             ]
         )
         if exit_code != 0 or b"UPDATE 1" not in output:

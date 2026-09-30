@@ -22,7 +22,6 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 import screamingface as sf
 
@@ -40,7 +39,6 @@ class E14Stack:
     aigateway_url: str
     scoreboard_url: str
     archive_dir: Path
-    env_source: Literal["wiring", "fallback"]
 
 
 @contextmanager
@@ -64,20 +62,16 @@ def e14_stack(
     scoreboard = ScoreboardProcess(
         work_dir=work_dir,
         extra_env={**env.scoreboard, **(scoreboard_extra_env or {})},
-        wiring_present=env.source == "wiring",
     )
     try:
         aigateway_url = asyncio.run(gateway.start())
         engine_url = engine.start(aigateway_url)
         scoreboard_url = scoreboard.start(engine_url=engine_url, board=board)
-        # AIDEV-NOTE: the env source is public (no secret in it); the ledger records it.
-        print(f"e14 stack env source: {env.source}")
         yield E14Stack(
             engine_url=engine_url,
             aigateway_url=aigateway_url,
             scoreboard_url=scoreboard_url,
             archive_dir=env.archive_dir,
-            env_source=env.source,
         )
     finally:
         scoreboard.stop()
