@@ -144,6 +144,10 @@ async def test_the_run_path_with_identity_and_profile_sends_its_recorded_headers
     sent = {name.lower(): value for name, value in chats[0].headers.items()}
     engine_owned = {name: value for name, value in sent.items() if name not in _HTTPX_OWN_HEADERS}
 
-    assert engine_owned == _GOLDEN_IDENTITY_HEADERS
+    assert engine_owned == {
+        **_GOLDEN_IDENTITY_HEADERS,
+        "x-aigw-execution-timeout-s": "60.0",
+        "x-aigw-queue-timeout-s": "60.0",
+    }
     assert json.loads(chats[0].content) == _GOLDEN_REQUEST
     assert result == _GOLDEN_RESULT
