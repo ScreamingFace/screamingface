@@ -57,7 +57,8 @@ RED first:
   figcaption disclaimer, removed the now-dangling provenance comment, removed the legend item.
   `apps/scoreboard/tests/unit/test_portal_static.py` — flipped one assertion, rewrote one test's
   docstring/assertions, added one new test.
-- **Commits:** pending — one commit, `Refs: OME-1146`.
+- **Commits:** `176519ab` fix(scoreboard): drop the self-reported-costs disclaimer on the Pareto
+  chart (PR #1123); review-round-1 fix on top (below).
 - **Gates:**
   - `run_gates.py scoreboard --base origin/main --skip-append-only` → ALL GATES GREEN: ruff check,
     ruff format, pyright, pytest with `--cov-fail-under=80`, all three portal node suites.
@@ -66,3 +67,15 @@ RED first:
     (192, 222-225, 233) as changed. Matches the recorded Confidence-Gate exception — an existing
     test's docstring and assertion changed to reflect the new state, not a silent deletion.
 - **Deviations:** none from the plan.
+
+## Review round 1 (2026-09-30, self-review)
+
+**High, fixed: the replacement sentence claimed a rerun verifies cost.** "you can rerun any claim,
+score, or cost" implied a rerun checks the published cost, but a rerun measures what the
+rerunner pays now: cache state, provider prices and routing can all differ from the submitter's
+run. The removal of the disclaimer itself stands (owner decision). **Fix:** the note now reads
+"Every row keeps its URL4 expression, so you can rerun the recipe and evaluate its score and your
+own run cost before trusting the claim." **Test:** this PR's own
+`test_pareto_chart_disclaimer_is_folded_into_the_read_this_first_note` now pins the new sentence
+and refuses the old one; RED before, GREEN after. The test is new in this PR, so no prior test
+changed.
