@@ -13,8 +13,15 @@ AIDEV-NOTE: the two statements run in ONE ``in_transaction()``. WHY:
 - The Postgres "poisoned transaction" risk (see the note in ``routes/chat.py``) is handled. The
   prompt insert cannot fail on a duplicate key (ON CONFLICT DO NOTHING / INSERT OR IGNORE), and
   ``in_transaction`` rolls back on any exception, so a failed capture insert leaves no prompt row.
-- Capture fails open in the route: ``record_capture`` (``routes/chat_capture_stage.py``, lines 74
-  to 82) catches the sink error and counts it in ``CaptureStats.failures``.
+- Capture fails open in the route: the except block of ``record_capture`` in
+  ``routes/chat_capture_stage.py`` catches the sink error and counts it in
+  ``CaptureStats.failures``.
+- ``record`` never runs inside a caller's outer transaction. Its only caller is ``record_capture``,
+  and the ``routes/chat.py`` call sites are not inside ``in_transaction``. If a later caller wraps
+  it in a transaction, this block becomes a savepoint, and the pair is all-or-nothing only within
+  that caller's transaction.
+- The ``as conn`` and ``using_db=conn`` are explicit so that a future helper cannot pick another
+  connection.
 """
 
 from __future__ import annotations

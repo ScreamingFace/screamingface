@@ -100,7 +100,7 @@ They override older text in this spec set.
 | Q28 | (Final check MRA-1/MRA-2.) A durable admin audit table, or a log line? | A log line (`admin_action`, `admin_change`, C10). | answered 2026-09-30 |
 | Q29 | (Final check RP-X2.) Is a coded `503 replay_unsupported` permanent in the SDK? | No. It is transient (the `status >= 500` rule). | answered 2026-09-30 |
 | Q30 | Must RP-22 run on a zero-spend fixture made by a paid run? | No. We will not use a paid run as a test. RP-22 is dropped. | answered 2026-09-30 |
-| Q31 | The capture bench failed on CI because of disk fsync stalls. How is it fixed? | Write the prompt and capture rows in one transaction (one commit), and run the bench's Postgres with fsync and synchronous_commit off. The budget stays 5 ms. | answered 2026-09-30 |
+| Q31 | The capture bench failed on CI because of disk fsync stalls. How is it fixed? | Write the prompt and capture rows in one transaction (one commit), and run the bench's Postgres with fsync, synchronous_commit and full_page_writes off. The budget stays 5 ms. | answered 2026-09-30 |
 
 ## 5. Deferred questions
 

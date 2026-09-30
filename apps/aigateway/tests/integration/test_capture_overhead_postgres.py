@@ -31,6 +31,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from urllib.parse import quote
 
+import asyncpg  # type: ignore[import-untyped]
 import pytest
 from fastapi import Request
 from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
@@ -41,7 +42,8 @@ from aigateway.core.cache_versions.stats import CaptureStats
 from aigateway.db import close_db, init_db
 from aigateway.routes.chat_capture_stage import CaptureContext, record_capture
 
-# AIDEV-NOTE: this module carries `needs_postgres_bench` and NOT `needs_postgres`. The bench
+# AIDEV-NOTE: the timing bench carries `needs_postgres_bench` and NOT `needs_postgres` (only the
+# commit-count test below adds `needs_postgres`). The bench
 # measures an absolute p99 of two Postgres round trips, which moves with host load. Inside a full
 # `-m needs_postgres` run (many containers alive) it measured 35 ms against the 5 ms budget, so
 # it would make that gate load-flaky. It runs alone, in its own gate step.
@@ -52,6 +54,8 @@ _CALLS = 1_000
 _BUDGET_SECONDS = 0.005
 _ATTEMPTS = 3
 _KEY_RANGE = 10_000
+_COMMIT_CALLS = 20
+_COMMIT_KEY_BASE = 90_000
 _BODY = {"id": "resp", "choices": [{"message": {"content": "x" * 4_000}, "finish_reason": "stop"}]}
 
 
@@ -149,3 +153,69 @@ def test_capture_overhead_p99_is_at_most_5_ms(migrated_postgres: str) -> None:
     # WHY the best attempt: host load only ever ADDS latency, so the smallest p99 overhead is the
     # honest estimate of what capture costs. The budget itself is not relaxed.
     assert min(overheads) <= _BUDGET_SECONDS
+
+
+async def _next_xid(database_url: str) -> int:
+    """The next transaction id, read on its own connection.
+
+    WHY the xid, not ``pg_stat_database.xact_commit``: those counters are flushed lazily, per
+    backend, so a read right after the calls can miss them. ``xmax`` of the current snapshot moves
+    at once. A read-only statement never takes an xid, so the reads do not disturb the count.
+    """
+    conn = await asyncpg.connect(database_url)
+    try:
+        return int(await conn.fetchval("select txid_snapshot_xmax(txid_current_snapshot())"))
+    finally:
+        await conn.close()
+
+
+# AIDEV-NOTE: this test carries `needs_postgres` on purpose (it does not time anything, so it is
+# not load-flaky), and it also carries the module's `needs_postgres_bench`. The regular Postgres
+# lane runs it; the bench lane runs it again, which is harmless.
+@pytest.mark.needs_postgres
+def test_capture_makes_exactly_one_commit_per_call(migrated_postgres: str) -> None:
+    """INVARIANT: N traced calls make N commits (N write transactions), never 2N.
+
+    WHY: the bench Postgres runs with durable commit off, so the p99 can no longer see how many
+    commits one call waits for. A return to two autocommits, or a third write outside the
+    transaction, would pass the timing bench. This count catches it. Each write transaction takes
+    one xid, so the xid delta is the commit count.
+    """
+    request = cast(
+        Request,
+        SimpleNamespace(
+            app=SimpleNamespace(
+                state=SimpleNamespace(
+                    capture_sink=TortoiseCaptureSink(), capture_stats=CaptureStats()
+                )
+            )
+        ),
+    )
+
+    async def _capture(index: int) -> None:
+        key = CaptureKey(key_hash=f"{index:064x}", material=f'{{"prompt":"call {index}"}}')
+        context = CaptureContext(account_id="acct", trace_id="a7" * 16, key=key)
+        inline = index % 2 == 0
+        await record_capture(
+            request, context, "bypass" if inline else "stored", response=_BODY if inline else None
+        )
+
+    async def _run() -> int:
+        await close_db()
+        await init_db(migrated_postgres)
+        try:
+            # Warm the pool first: connection setup must not fall inside the counted window.
+            for index in range(_COMMIT_KEY_BASE - 5, _COMMIT_KEY_BASE):
+                await _capture(index)
+            before = await _next_xid(migrated_postgres)
+            for index in range(_COMMIT_KEY_BASE, _COMMIT_KEY_BASE + _COMMIT_CALLS):
+                await _capture(index)
+            return await _next_xid(migrated_postgres) - before
+        finally:
+            await close_db()
+
+    commits = asyncio.run(_run())
+    state: Any = cast(Any, request).app.state
+
+    assert state.capture_stats.failures == 0, "every call must write, or the count means nothing"
+    assert commits == _COMMIT_CALLS, "one commit per captured call (two autocommits would be 2N)"
