@@ -71,6 +71,11 @@ This applies to the non-streaming evaluation dispatch path. Cache hits do not re
 provider admission. SSE keeps its existing separate dispatch path; this change does
 not add streaming retry or change streaming behavior.
 
-Tests use fake providers/transports only, including 32 simultaneous requests,
-phase timing, saturated admission, queue cancellation/disconnect, execution timeout,
-caller deadlines, capped Retry-After and the shared connector attempt limit.
+Gateway tests use fake providers/transports only, including 32 simultaneous requests,
+phase timing, saturated admission, cancellation, execution timeout, operator-limit
+clamping, and timeout during overload backoff. Localhost HTTP tests exercise actual
+disconnects while queued and executing, including the auth-disabled middleware,
+and verify timeout status codes, Retry-After, trace headers, and capacity recovery.
+Route-level accounting tests preserve `transport_timeout` for provider timeouts and
+Gateway execution-budget expiry. Engine's follow-up tests cover its capped Retry-After
+handling and shared connector attempt limit.

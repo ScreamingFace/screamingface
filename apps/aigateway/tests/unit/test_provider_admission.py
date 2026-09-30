@@ -305,3 +305,49 @@ async def test_stalled_waiter_preserves_earlier_caller_deadline_classification()
     with pytest.raises(HTTPException) as error:
         await task
     assert cast(dict[str, str], error.value.detail)["code"] == "caller_deadline_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_execution_budget_includes_overload_backoff():
+    from fastapi import HTTPException
+
+    from aigateway.config import Settings
+    from aigateway.routes.chat_dispatch import _dispatch_with_backpressure
+
+    req, _ = request()
+    req.app.state.settings = Settings(
+        provider_max_concurrency=1,
+        provider_execution_timeout_s=0.03,
+        retry_backoff_base_seconds=1,
+        retry_jitter_seconds=0,
+    )
+    count = 0
+
+    async def provider(body):
+        nonlocal count
+        count += 1
+        raise HTTPException(503, detail="fake overload")
+
+    with pytest.raises(HTTPException) as error:
+        await _dispatch_with_backpressure(
+            req, SimpleNamespace(chat_completion=provider), "fake", {}
+        )
+    assert error.value.status_code == 504
+    assert cast(dict[str, str], error.value.detail)["code"] == "provider_execution_timeout"
+    assert count == 1
+    async with provider_slot(req.app, "fake", 1, timeout_s=0.1):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_execution_header_cannot_extend_operator_limit():
+    req, _ = request(execution=0.01, headers={"x-aigw-execution-timeout-s": 100})
+
+    async def blocked():
+        await asyncio.Event().wait()
+
+    with pytest.raises(HTTPException) as error:
+        await asyncio.wait_for(dispatch_with_budgets(req, "openrouter", blocked), 1)
+    assert error.value.status_code == 504
+    assert cast(dict[str, str], error.value.detail)["code"] == "provider_execution_timeout"
+    assert await dispatch_with_budgets(req, "openrouter", answer) == "answer"

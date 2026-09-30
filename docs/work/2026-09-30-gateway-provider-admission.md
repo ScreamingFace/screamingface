@@ -45,3 +45,11 @@ No expired/disconnected queued call dispatches; independent timeout phases and b
 - **Regression:** Add route-level tests with a real accounting collector and an observed fake send for HTTPX, LiteLLM, and Gateway execution-budget timeouts. All three failed before the fix; all pass afterward. Existing tests remain unchanged.
 - **Focused validation:** 568 admission/accounting/error-policy tests passed on Python 3.13; 28 admission/accounting tests passed on Python 3.12. The original independent base/head reproducer now passes all four cases. Eight independent socket/backoff checks passed. No paid provider calls.
 - **Full validation:** All Gateway gates passed with live/Postgres cases excluded, including append-only verification against `9909f372`, Ruff lint/format, Pyright, enterprise import guard, and the full offline suite with the 80% aggregate coverage floor.
+
+## Whole-PR review follow-up
+
+- Re-reviewed the complete diff against `2adc7a9f` for standards and specification compliance. No additional production defect or justified structural rewrite was identified; admission owns phase timing/disconnect handling and concurrency owns slot acquisition/release.
+- Retained seven localhost HTTP regression cases in the repository, covering disconnects in both phases with and without the actual auth-disabled middleware, timeout wire responses, trace headers, and capacity recovery. Retained two additional unit cases for execution-budget clamping and expiry during overload backoff.
+- The 37 admission/accounting/HTTP cases passed on Python 3.12 and 3.13. Tests use fake providers and loopback sockets only.
+- All offline Gateway gates passed, including append-only verification against `b727e2a1`, lint/format, type checking, enterprise import guard, and aggregate coverage. Live-provider and Postgres checks remain outside this local validation.
+- Clarified Gateway-versus-Engine test ownership in the contract. Rewrote the PR description around final behavior, scope, rollout, and retained tests; corrected the existing timeout-policy assertion's original status from the stale 502 claim to 408.
