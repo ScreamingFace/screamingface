@@ -1,9 +1,9 @@
 ---
 ticket: OME-1386
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-09-26
-finished:
+finished: 2026-09-30
 ---
 
 # open-entry-badge — mark each leaderboard entry open or closed

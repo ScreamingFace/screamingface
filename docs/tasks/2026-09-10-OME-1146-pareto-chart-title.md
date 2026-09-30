@@ -1,12 +1,12 @@
 ---
 id: OME-1146
 linear_url: https://linear.app/openmined/issue/OME-1146/rename-the-score-for-cost-chart-to-pareto-frontier-costscore-and-drop
-status: in_review
+status: done
 type: task
 priority: 2
 labels: [BUG, scoreboard, agentic, autonomous]
 created: 2026-09-08
-closed:
+closed: 2026-09-30
 ---
 
 # Rename the "Score for cost" chart to "Pareto Frontier (cost/score)"
@@ -26,3 +26,4 @@ reverses `OME-770` D11 and contradicts recorded invariants in `scores/models/sco
 
 Related: `OME-923` (introduced the Pareto frontier naming), `OME-770` (D11, the disclaimer),
 `OME-1143` (costs on this chart are currently wrong for cached runs).
+- 2026-09-30: closed with the ticket. Part 1 (#892, `68cad9d9`) shipped 2026-09-11; part 2 merged via #1123 (`ea9f8d7c`).
