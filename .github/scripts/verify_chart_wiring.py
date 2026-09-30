@@ -1699,7 +1699,8 @@ sb_refused_cases = (
     ("config.authMode", ("--set", "config.authMode=other")),
     (
         "config.publish.enabled",
-        ("--set", "config.authMode=disabled", "--set", "config.publish.enabled=true"),
+        # WHY the full set: every other publish rule is met, so only the auth rule can refuse.
+        (*SB_FULL_SET, "--set", "config.authMode=disabled"),
     ),
     (
         "config.publish.githubAppId",

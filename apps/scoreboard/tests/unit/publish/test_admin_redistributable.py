@@ -222,3 +222,38 @@ async def test_redistributable_unblocks_publish_and_withdraw_line_is_unchanged(
         f"admin_action actor=admin@x.org result_id={seeded.result_id} reason=x outcome=200"
     )
     assert "benchmark_id=" not in line
+
+
+_FORGED_ID = "x%0Aadmin_action%20actor=admin@x.org%20benchmark_id=pub%20reason=ok%20outcome=200"
+
+
+@pytest.mark.parametrize("user", [BRUNO, None], ids=["non-admin", "anonymous"])
+async def test_caller_text_in_the_target_cannot_forge_an_audit_line(
+    publish_client: AsyncClient, caplog: pytest.LogCaptureFixture, user: str | None
+) -> None:
+    # WHY no credentials: the audit wrapper logs a 401 and a 403 before the Path rule is checked,
+    # so the raw path parameter (percent-decoded by Starlette) must be encoded before it is logged.
+    caplog.set_level(logging.INFO, logger=_AUDIT)
+
+    response = await _put(publish_client, _FORGED_ID, user=user)
+
+    assert response.status_code in (401, 403)
+    (line,) = _audit_lines(caplog)
+    assert "\n" not in line
+    assert line.count("admin_action ") == 1
+    assert "benchmark_id=x%0Aadmin_action%20actor" in line
+    assert await Benchmark.filter(id__startswith="x").exists() is False
+
+
+async def test_a_65_character_benchmark_id_is_422_audited_and_creates_no_row(
+    publish_client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=_AUDIT)
+    rows_before = await Benchmark.all().count()
+
+    response = await _put(publish_client, "b" * 65)
+
+    assert response.status_code == 422
+    (line,) = _audit_lines(caplog)
+    assert "outcome=422" in line
+    assert await Benchmark.all().count() == rows_before

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, cast
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -68,10 +69,16 @@ async def require_admin(request: Request) -> AdminPrincipal:
 
 
 def _audit_target(path_params: Mapping[str, str]) -> str:
-    """'result_id=<id>' or 'benchmark_id=<id>'; '<none>' when neither is there."""
+    """'result_id=<id>' or 'benchmark_id=<id>'; '<none>' when neither is there.
+
+    INVARIANT: the value is caller text (Starlette percent-decodes it, and the audit line is
+    written before the `Path` length rule runs), so it is percent-encoded and cut before it is
+    logged. A newline or a space cannot forge a second line or a second field. A UUID and an
+    ordinary benchmark id stay byte-for-byte the same.
+    """
     for name in ("result_id", "benchmark_id"):
         if name in path_params:
-            return f"{name}={path_params[name]}"
+            return f"{name}={quote(str(path_params[name]), safe='')[:_REASON_LOG_MAX]}"
     return "<none>"
 
 
