@@ -583,6 +583,20 @@ config has burned real money here.
   nothing. Require at least one test constructing the REAL vendor type. Flag any
   reliance on a `_private` vendor method unless a drift-alarm test will scream on the
   next bump; prefer tripwires pinned to the vendor's own exported constants (#903).
+- **A version pinned in two projects drifts through the copy nobody holds.** The Engine
+  and the SDK are separate uv projects with separate lockfiles, so a pin they must share
+  exists twice: the SDK's `inspect` extra copies the Engine's `inspect-ai`, which every
+  Imported Benchmark's Benchmark Revision hashes. OME-1411 held `inspect-ai` in Dependabot
+  for the Engine's directory only, and #1119 and #1135 then moved the SDK alone to
+  0.3.270. Both merged green, while the SDK's own `pyproject.toml` comment said the two
+  must match. Review checks: a diff that pins, bumps or holds a dependency (in
+  `pyproject.toml`, `uv.lock`, `.github/dependabot.yml` or `dependabot-ignores.yml`) must
+  find every other project pinning the same package (`git grep '"<pkg>=='` across `apps/`
+  and `packages/`) and move or hold them together. A hold added for one directory is a
+  finding unless the other copies are held too. The cure is Lane 3's: name one side the
+  source of truth, and bind the copy with a conformance test **twinned in both projects**
+  (`test_inspect_pin_conformance.py`). It has to be twinned because CI is path-filtered,
+  so a one-sided test never runs on the other side's Dependabot PR (OME-1421).
 - **Migrations.** Model change and its migration land in the same diff;
   `makemigrations` afterwards reports "no changes"; new columns on populated tables
   are nullable; no `RunPython`/`RunSQL` data rewrites. Remember: aigateway does NOT

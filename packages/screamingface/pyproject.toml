@@ -43,8 +43,12 @@ notebook = [
 # (apps/screamingface-engine) already pins this exact version as revision identity — the
 # exporter and the importer must speak the same dialect. FEATURE: OME-1117 one-way
 # report export in inspect's log format.
+# INVARIANT: a COPY of the Engine's inspect-ai pin, which is the single source of truth.
+# Change the Engine's first (through OME-1410's bump check), then this. Both packages'
+# tests/unit/test_inspect_pin_conformance.py fail on any drift, and Dependabot holds
+# inspect-ai in both directories.
 inspect = [
-    "inspect-ai==0.3.270",
+    "inspect-ai==0.3.263",
 ]
 runtime = [
     "aiosqlite==0.22.1",
