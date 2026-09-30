@@ -6,6 +6,8 @@ the missing variable and never a secret value.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ from scoreboard.adapters.fs_archive_reader import FilesystemArchiveReader
 from scoreboard.adapters.s3_archive_reader import S3ArchiveReader
 from scoreboard.config import Settings
 from scoreboard.main import create_app
+from scoreboard.publish.worker import PublishWorker
 
 _S3: dict[str, Any] = {
     "archive_backend": "s3",
@@ -66,3 +69,134 @@ def test_s3_backend_with_a_missing_setting_is_refused_without_the_secret(
         _app(**values)
 
     assert "the-secret-value" not in str(refused.value)
+
+
+_GITHUB: dict[str, Any] = {
+    "github_app_id": "12345",
+    "github_app_installation_id": "678",
+    "github_app_private_key": "the-private-key-value",
+}
+
+
+def test_no_github_settings_means_no_publisher_factory() -> None:
+    assert _app().state.release_publisher_factory is None
+
+
+def test_all_three_github_settings_build_a_publisher_factory() -> None:
+    assert callable(_app(**_GITHUB).state.release_publisher_factory)
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        ["github_app_id"],
+        ["github_app_installation_id", "github_app_private_key"],
+    ],
+)
+def test_a_partly_set_github_app_is_refused_naming_the_missing_variables(
+    missing: list[str],
+) -> None:
+    values = {key: value for key, value in _GITHUB.items() if key not in missing}
+
+    with pytest.raises(ValueError) as refused:
+        _app(**values)
+
+    for name in missing:
+        assert f"SCOREBOARD_{name.upper()}" in str(refused.value)
+    # WHY: the message names variables, never a value that is set.
+    assert "the-private-key-value" not in str(refused.value)
+
+
+def _lifespan_app(tmp_path: Path, **values: Any) -> Any:
+    return _app(
+        database_url=f"sqlite://{tmp_path / 'lifespan.sqlite3'}",
+        auth_mode="cloudflare_headers",
+        allowed_networks="127.0.0.1/32",
+        archive_backend="filesystem",
+        archive_fs_root=tmp_path,
+        publish_poll_interval_s=0.01,
+        **_GITHUB,
+        **values,
+    )
+
+
+@pytest.fixture
+def _forwarded_ips(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_forwarded_ips")
+async def test_the_worker_loop_runs_inside_the_lifespan_and_stops_with_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ran = asyncio.Event()
+    calls: list[int] = []
+
+    async def run_once(self: PublishWorker) -> bool:
+        calls.append(1)
+        ran.set()
+        return False
+
+    monkeypatch.setattr(PublishWorker, "run_once", run_once)
+    app = _lifespan_app(tmp_path)
+
+    async with app.router.lifespan_context(app):
+        await asyncio.wait_for(ran.wait(), timeout=5)
+    settled = len(calls)
+    await asyncio.sleep(0.05)
+
+    # The loop is cancelled and awaited before the database closes: no call after shutdown.
+    assert len(calls) == settled
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_forwarded_ips")
+async def test_the_worker_loop_survives_an_iteration_error_and_logs_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    recovered = asyncio.Event()
+    calls: list[int] = []
+
+    async def run_once(self: PublishWorker) -> bool:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        recovered.set()
+        return False
+
+    monkeypatch.setattr(PublishWorker, "run_once", run_once)
+    caplog.set_level(logging.ERROR)
+    app = _lifespan_app(tmp_path)
+
+    async with app.router.lifespan_context(app):
+        await asyncio.wait_for(recovered.wait(), timeout=5)
+
+    assert "publish worker iteration failed" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_forwarded_ips")
+async def test_no_worker_starts_when_it_is_disabled_or_publishing_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+
+    async def run_once(self: PublishWorker) -> bool:
+        calls.append(1)
+        return False
+
+    monkeypatch.setattr(PublishWorker, "run_once", run_once)
+    disabled = _lifespan_app(tmp_path, publish_worker_enabled=False)
+    unavailable = _app(
+        database_url=f"sqlite://{tmp_path / 'other.sqlite3'}",
+        auth_mode="cloudflare_headers",
+        allowed_networks="127.0.0.1/32",
+        publish_poll_interval_s=0.01,
+    )
+
+    for app in (disabled, unavailable):
+        async with app.router.lifespan_context(app):
+            await asyncio.sleep(0.05)
+
+    assert calls == []

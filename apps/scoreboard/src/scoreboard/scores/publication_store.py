@@ -146,7 +146,7 @@ class PublicationStore:
                 row.last_error = error
             await row.save(using_db=conn)
 
-    async def withdraw(self, result_id: UUID, *, actor: str, reason: str, now: datetime) -> str:
+    async def withdraw(self, result_id: UUID, *, actor: str, reason: str, now: datetime) -> State:
         """Apply `admin_takedown` under the row lock. Returns the new state.
 
         On a change: withdrawn_at/by/reason, attempts=0, and next_attempt_at=now when a release
@@ -168,11 +168,11 @@ class PublicationStore:
                 row.attempts = 0
                 row.next_attempt_at = now if previous != "private" else None
                 await row.save(using_db=conn)
-            return str(row.state)
+            return cast(State, row.state)
 
     async def record_retry(
         self, job: PublishJob, *, error: str, delay_s: float, now: datetime
-    ) -> str:
+    ) -> State:
         """A retryable failure: count it and back off. Returns the new state.
 
         Locks the row and RE-READS the state first. A publish job whose row is now withdrawn (an
@@ -187,7 +187,7 @@ class PublicationStore:
             else:
                 self._count_failure(row, job, error, now + timedelta(seconds=delay_s))
             await row.save(using_db=conn)
-            return str(row.state)
+            return cast(State, row.state)
 
     def _count_failure(
         self, row: CacheVersionPublication, job: PublishJob, error: str, retry_at: datetime

@@ -165,6 +165,22 @@ async def unconfigured_client(
         yield client
 
 
+@pytest_asyncio.fixture
+async def no_admin_client(
+    tortoise_db: None,
+    partial_unique_indexes: None,
+    monkeypatch: pytest.MonkeyPatch,
+    receipt_key: ReceiptKey,
+    tmp_path: Path,
+) -> AsyncGenerator[AsyncClient, None]:
+    """`cloudflare_headers` with an empty admin allowlist: the admin routes answer 503."""
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.1")
+    # WHY no seeding: the test also uses `publish_client`, and both share one database.
+    app = create_app(_settings(tmp_path, receipt_key, admin_emails=""))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+
 @pytest.fixture
 def seed_result(
     receipt_key: ReceiptKey,

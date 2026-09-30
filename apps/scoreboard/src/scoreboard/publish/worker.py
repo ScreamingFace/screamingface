@@ -89,8 +89,10 @@ class PublishWorker:
         except Exception:
             # WHY the broad catch: this is the worker boundary. The lease of the job ends by
             # itself (LEASE_S), so the job is tried again; the state has not changed.
+            # WHY False: the loop then sleeps the poll interval, and a database outage does not
+            # turn into a busy loop.
             logger.exception("publish worker job failed")
-            return True
+            return False
         return job is not None
 
     async def _publish(self, job: PublishJob, now: datetime) -> None:

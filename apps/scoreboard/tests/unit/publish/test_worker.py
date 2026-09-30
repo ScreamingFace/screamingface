@@ -7,17 +7,19 @@ asset with other bytes stops the job (PB-5).
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from scoreboard.core.publish.ports import ArchivePair
+from scoreboard.core.publish.ports import ArchivePair, PublisherError
 from scoreboard.core.publish.release_body import render_release_body
 from scoreboard.publish.worker import PublishWorker
 from scoreboard.scores.models import CacheVersionPublication
-from tests.unit.publish._fakes import NOW, FakeArchiveReader, FakeReleasePublisher, Seeded
+from tests.unit.publish._fakes import NOW, Clock, FakeArchiveReader, FakeReleasePublisher, Seeded
 from tests.unit.submissions._receipts import ANA, as_user
 
 pytestmark = pytest.mark.asyncio
@@ -200,3 +202,169 @@ async def test_withdraw_during_publish_deletes_new_release_no_published(
     assert fake_publisher.tags == set()
     assert row.next_attempt_at is None
     assert await build_worker(seeded).run_once() is False
+
+
+PENDING = "scoreboard_withdraw_cleanup_pending"
+
+
+def _gauge(app: FastAPI, name: str, labels: dict[str, str] | None = None) -> float:
+    return _counter(app, name, labels)
+
+
+async def _pending_after(
+    worker: PublishWorker, app: FastAPI, clock: Clock, seconds: float
+) -> float:
+    """Move the clock, let the worker run once, and read the pending-cleanup gauge."""
+    clock.advance(seconds)
+    await worker.run_once()
+    return _gauge(app, PENDING)
+
+
+async def test_withdraw_github_delete_failure_marks_cleanup_pending_and_retries(
+    publish_client: AsyncClient,
+    publish_app: FastAPI,
+    seed_result: Seed,
+    build_worker: Build,
+    fake_publisher: FakeReleasePublisher,
+    clock: Clock,
+) -> None:
+    seeded = await _requested(publish_client, seed_result)
+    worker = build_worker(seeded)
+    await worker.run_once()
+    await publish_app.state.publication_store.withdraw(
+        seeded.result_uuid, actor="admin@x.org", reason="license", now=clock()
+    )
+    fake_publisher.fail_methods["delete_release"] = PublisherError("HTTP 502", retryable=True)
+
+    await worker.run_once()
+
+    row = await _row(seeded)
+    assert row.state == "withdrawn"
+    assert row.attempts == 1
+    assert row.next_attempt_at == NOW + timedelta(seconds=60)
+    assert row.last_error == "HTTP 502"
+    # The delete keeps failing; the pending measure counts from `withdrawn_at`, not from the retry.
+    assert await _pending_after(worker, publish_app, clock, 59 * 60) == 0
+    assert await _pending_after(worker, publish_app, clock, 2 * 60) == 1
+    assert (await _row(seeded)).state == "withdrawn"
+
+    del fake_publisher.fail_methods["delete_release"]
+    clock.advance(3600)
+    await worker.run_once()
+
+    row = await _row(seeded)
+    assert row.next_attempt_at is None
+    assert fake_publisher.releases == {}
+    assert _gauge(publish_app, PENDING) == 0
+    assert _gauge(publish_app, "scoreboard_publish_jobs", {"state": "withdrawn"}) == 1
+
+
+async def test_github_5xx_429_backoff_then_failed_after_8(
+    publish_client: AsyncClient,
+    seed_result: Seed,
+    build_worker: Build,
+    fake_publisher: FakeReleasePublisher,
+    clock: Clock,
+) -> None:
+    seeded = await _requested(publish_client, seed_result)
+    worker = build_worker(seeded)
+    errors = [
+        PublisherError("HTTP 429: rate limited " + "x" * 900, retryable=True, retry_after_s=900),
+        PublisherError("HTTP 502: bad gateway", retryable=True),
+        PublisherError("HTTP 403: secondary rate limit", retryable=True, retry_after_s=120),
+    ]
+    fake_publisher.fail_next = [errors[i % 3] for i in range(8)]
+
+    for attempt in range(1, 8):
+        await worker.run_once()
+        row = await _row(seeded)
+        assert (row.state, row.attempts) == ("requested", attempt)
+        raw = min(3600.0, 60.0 * 2 ** (attempt - 1))
+        delay = max(raw, errors[(attempt - 1) % 3].retry_after_s or 0)
+        # rng is 0.0 in the tests, so the delay is the plain capped backoff or Retry-After,
+        # whichever is larger; the row is not due before it.
+        assert row.next_attempt_at == clock() + timedelta(seconds=delay)
+        assert await worker.run_once() is False
+        clock.advance(4000)
+    await worker.run_once()
+
+    row = await _row(seeded)
+    assert (row.state, row.attempts) == ("failed", 8)
+    assert row.last_error is not None
+    assert len(row.last_error) <= 512
+    assert "ghs_" not in row.last_error
+    assert await worker.run_once() is False
+
+
+async def test_a_final_github_error_fails_the_job_and_counts_an_error(
+    publish_client: AsyncClient,
+    publish_app: FastAPI,
+    seed_result: Seed,
+    build_worker: Build,
+    fake_publisher: FakeReleasePublisher,
+) -> None:
+    seeded = await _requested(publish_client, seed_result)
+    fake_publisher.fail_next = [PublisherError("HTTP 422: tag already exists", retryable=False)]
+
+    await build_worker(seeded).run_once()
+
+    row = await _row(seeded)
+    assert (row.state, row.last_error, row.attempts) == (
+        "failed",
+        "HTTP 422: tag already exists",
+        0,
+    )
+    assert _counter(publish_app, "scoreboard_publish_attempts_total", {"result": "error"}) == 1
+    # A GitHub error is not an integrity failure: the alert counter stays at zero.
+    assert _counter(publish_app, "scoreboard_publish_integrity_failures_total") == 0
+
+
+async def test_a_delete_that_fails_after_a_lost_race_stays_pending_and_retries(
+    publish_client: AsyncClient,
+    publish_app: FastAPI,
+    seed_result: Seed,
+    build_worker: Build,
+    fake_publisher: FakeReleasePublisher,
+    clock: Clock,
+) -> None:
+    seeded = await _requested(publish_client, seed_result)
+    worker = build_worker(seeded)
+
+    async def admin_wins_the_race() -> None:
+        await publish_app.state.publication_store.withdraw(
+            seeded.result_uuid, actor="admin@x.org", reason="x", now=NOW
+        )
+
+    fake_publisher.before_upload["manifest.json"] = admin_wins_the_race
+    fake_publisher.fail_methods["delete_release"] = PublisherError("HTTP 502", retryable=True)
+
+    await worker.run_once()
+
+    row = await _row(seeded)
+    assert (row.state, row.published_at, row.lease_until) == ("withdrawn", None, None)
+    assert row.next_attempt_at == NOW
+    assert fake_publisher.releases
+    del fake_publisher.fail_methods["delete_release"]
+    await worker.run_once()
+    assert fake_publisher.releases == {}
+    assert (await _row(seeded)).next_attempt_at is None
+
+
+async def test_an_unexpected_error_is_logged_and_the_worker_reports_no_job(
+    publish_app: FastAPI,
+    build_worker: Build,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def broken(now: object) -> None:
+        raise RuntimeError("database is gone")
+
+    monkeypatch.setattr(publish_app.state.publication_store, "lease_next", broken)
+    seeded = Seeded("h", "r", uuid.uuid4(), ArchivePair(b"", b""))
+
+    handled = await build_worker(seeded).run_once()
+
+    # INVARIANT: `run_once` never raises. It reports False, so the loop sleeps the poll interval
+    # instead of hammering a database that is down.
+    assert handled is False
+    assert "publish worker job failed" in caplog.text

@@ -6,11 +6,21 @@ of `state` outside `state.apply`.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import get_args
 
 import pytest
+from httpx import AsyncClient, Response
 
 from scoreboard.core.publish.state import Event, State, Transition, TransitionRejected, apply
+from scoreboard.scores.models import CacheVersionPublication
+from tests.unit.publish._fakes import NOW, Seeded
+from tests.unit.publish._rows import seed_rows
+from tests.unit.publish.conftest import ADMIN
+from tests.unit.publish.test_worker import Build
+from tests.unit.submissions._receipts import ANA, as_user
+
+Seed = Callable[..., Awaitable[Seeded]]
 
 _REJECT = None
 
@@ -69,3 +79,71 @@ def test_double_publish_is_noop_table(
 def test_publish_after_withdraw_is_rejected_by_the_machine() -> None:
     with pytest.raises(TransitionRejected):
         apply("withdrawn", "owner_publishes")
+
+
+@pytest.mark.asyncio
+async def test_publish_after_withdraw_409(publish_client: AsyncClient, seed_result: Seed) -> None:
+    seeded = await seed_result(publish_client, board="pub")
+    withdrawn = await publish_client.post(
+        f"/v1/admin/results/{seeded.result_id}/withdraw",
+        json={"reason": "license"},
+        headers=as_user(ADMIN),
+    )
+
+    response = await publish_client.post(
+        f"/v1/results/{seeded.result_id}/publish", headers=as_user(ANA)
+    )
+
+    assert withdrawn.status_code == 200
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "withdrawn"
+    assert (await CacheVersionPublication.get(result_id=seeded.result_id)).state == "withdrawn"
+
+
+async def _publish(client: AsyncClient, result_id: str) -> Response:
+    return await client.post(f"/v1/results/{result_id}/publish", headers=as_user(ANA))
+
+
+@pytest.mark.asyncio
+async def test_republish_from_failed_resets_attempts(publish_client: AsyncClient) -> None:
+    retryable = await seed_rows(state="failed")
+    row = await CacheVersionPublication.get(result_id=retryable.result_id)
+    row.last_error, row.attempts = "HTTP 502", 8
+    await row.save()
+    integrity = await seed_rows(state="failed")
+    stuck = await CacheVersionPublication.get(result_id=integrity.result_id)
+    stuck.last_error = "archive_mismatch"
+    await stuck.save()
+
+    again = await _publish(publish_client, retryable.result_id)
+    refused = await _publish(publish_client, integrity.result_id)
+
+    assert again.status_code == 202
+    assert again.json() == {"state": "requested"}
+    row = await CacheVersionPublication.get(result_id=retryable.result_id)
+    assert (row.state, row.attempts, row.last_error) == ("requested", 0, None)
+    # PB-E5 (OD-3): the owner cannot retry an integrity failure.
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "not_publishable"
+    assert refused.json()["detail"]["reason"] == "integrity_failure"
+    assert (await CacheVersionPublication.get(result_id=integrity.result_id)).state == "failed"
+
+
+@pytest.mark.asyncio
+async def test_double_publish_is_noop(
+    publish_client: AsyncClient, seed_result: Seed, build_worker: Build
+) -> None:
+    seeded = await seed_result(publish_client, board="pub")
+
+    first = await _publish(publish_client, seeded.result_id)
+    second = await _publish(publish_client, seeded.result_id)
+    await build_worker(seeded).run_once()
+    third = await _publish(publish_client, seeded.result_id)
+
+    assert (first.status_code, first.json()) == (202, {"state": "requested"})
+    assert (second.status_code, second.json()) == (200, {"state": "requested"})
+    row = await CacheVersionPublication.get(result_id=seeded.result_id)
+    assert row.state == "published"
+    assert third.status_code == 200
+    assert third.json() == {"state": "published", "release_url": row.release_url}
+    assert row.published_at == NOW

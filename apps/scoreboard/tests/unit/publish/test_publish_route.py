@@ -13,7 +13,7 @@ import pytest
 from httpx import AsyncClient, Response
 
 from scoreboard.routes.scores import UNTRUSTED_PEER_DETAIL
-from scoreboard.scores.models import CacheVersionPublication
+from scoreboard.scores.models import Benchmark, CacheVersionPublication
 from tests.unit.publish._fakes import NOW, Seeded
 from tests.unit.publish._rows import seed_rows
 from tests.unit.submissions._receipts import ANA, BRUNO, as_user
@@ -114,3 +114,65 @@ async def test_owner_publish_202_requested(publish_client: AsyncClient, seed_res
     assert row.requested_by == ANA
     assert row.requested_at == NOW
     assert row.release_tag == f"cv-{seeded.version_id}"
+
+
+async def test_publish_unavailable_503_without_app_config(
+    unconfigured_client: AsyncClient, seed_result: Seed
+) -> None:
+    seeded = await seed_result(unconfigured_client, board="pub")
+
+    response = await _publish(unconfigured_client, seeded.result_id)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "publish_unavailable"
+    # PB-19: an unavailable deployment changes nothing.
+    assert await _state(seeded.result_id) == "private"
+
+
+async def test_a_board_that_turns_private_before_the_request_is_refused(
+    publish_client: AsyncClient, seed_result: Seed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route re-checks the board after its checks and before it requests anything.
+
+    WHY: the worker copies the cache of this result to a public repository, so a board that
+    turned private since the first read must stop the request (visibility-exit rule, OME-894).
+    """
+    from scoreboard.routes import publish as publish_routes
+
+    seeded = await seed_result(publish_client, board="pub")
+    original = publish_routes._load
+
+    async def load_then_flip(result_id: uuid.UUID) -> object:
+        loaded = await original(result_id)
+        await Benchmark.filter(id="pub").update(visibility="private")
+        return loaded
+
+    monkeypatch.setattr(publish_routes, "_load", load_then_flip)
+
+    response = await _publish(publish_client, seeded.result_id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["reason"] == "private_board"
+    assert await _state(seeded.result_id) == "private"
+
+
+async def test_a_takedown_that_wins_the_race_makes_the_publish_409_withdrawn(
+    publish_client: AsyncClient, seed_result: Seed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scoreboard.routes import publish as publish_routes
+
+    seeded = await seed_result(publish_client, board="pub")
+    original = publish_routes._load
+
+    async def load_then_withdraw(result_id: uuid.UUID) -> object:
+        loaded = await original(result_id)
+        await CacheVersionPublication.filter(result_id=result_id).update(state="withdrawn")
+        return loaded
+
+    monkeypatch.setattr(publish_routes, "_load", load_then_withdraw)
+
+    response = await _publish(publish_client, seeded.result_id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "withdrawn"
+    assert await _state(seeded.result_id) == "withdrawn"

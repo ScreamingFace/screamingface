@@ -127,3 +127,17 @@ def test_s3_config_refuses_an_endpoint_that_is_not_an_origin(endpoint: str) -> N
             bucket="cv",
             credentials=Credentials(access_key="a", secret_key="b", region="garage"),
         )
+
+
+@pytest.mark.asyncio
+async def test_s3_reader_maps_a_transport_error_to_a_retryable_sanitized_error() -> None:
+    def serve(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("no route to garage.test:3900", request=request)
+
+    with pytest.raises(PublisherError) as refused:
+        await _s3_reader(httpx.MockTransport(serve)).read(uuid.uuid4())
+
+    assert refused.value.retryable is True
+    assert "ConnectTimeout" in refused.value.message
+    # WHY: the text of a transport error can carry the host; only the class name is kept.
+    assert "garage.test" not in refused.value.message

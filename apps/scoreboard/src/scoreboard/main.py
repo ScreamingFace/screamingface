@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
+import random
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 
@@ -10,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .adapters.fs_archive_reader import FilesystemArchiveReader
+from .adapters.github_releases import GitHubAppTokenSource, GitHubReleasePublisherFactory
 from .adapters.jws_receipt_verifier import Ed25519ReceiptVerifier
 from .adapters.s3_archive_reader import S3ArchiveConfig, S3ArchiveReader
 from .adapters.sigv4 import Credentials
@@ -20,7 +24,8 @@ from .core.registry import RegistryService
 from .db import close_db, init_db
 from .metrics import build_metrics
 from .portal import register_portal
-from .routes import health, leaderboard, publish, results, score_metadata, scores
+from .publish.worker import PublishWorker
+from .routes import admin, health, leaderboard, publish, results, score_metadata, scores
 from .scores.baseline_store import BaselineStore
 from .scores.cluster_store import ClusterStore
 from .scores.metadata_store import ScoreMetadataStore
@@ -107,12 +112,44 @@ def _find_forwarded_allow_ips_overlap(
     return None
 
 
+logger = logging.getLogger(__name__)
+
+
+async def _publish_forever(worker: PublishWorker, interval_s: float) -> None:
+    """Run publish jobs one after another; sleep the poll interval when there is none.
+
+    INVARIANT: an error in one iteration is logged and does not stop the loop. Only a cancel ends
+    it (`CancelledError` is not an `Exception`).
+    """
+    while True:
+        try:
+            handled = await worker.run_once()
+        except Exception:
+            logger.exception("publish worker iteration failed")
+            handled = False
+        if not handled:
+            await asyncio.sleep(interval_s)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db(app.state.settings.database_url)
+    worker = getattr(app.state, "publish_worker", None)
+    task = (
+        asyncio.create_task(_publish_forever(worker, app.state.settings.publish_poll_interval_s))
+        if worker is not None and app.state.settings.publish_worker_enabled
+        else None
+    )
     try:
         yield
     finally:
+        # WHY before `close_db()`: a job still running would otherwise lose its connection.
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        if app.state.close_github is not None:
+            await app.state.close_github()
         await close_db()
 
 
@@ -172,19 +209,62 @@ def _archive_reader(settings: Settings) -> VersionArchiveReader | None:
     return None
 
 
+def _release_publisher_factory(settings: Settings) -> GitHubReleasePublisherFactory | None:
+    """The GitHub App publisher the settings name, or None when none of the three is set.
+
+    INVARIANT: a partly set App fails at startup and names the missing variables, never a value.
+    """
+    required = {
+        "SCOREBOARD_GITHUB_APP_ID": settings.github_app_id,
+        "SCOREBOARD_GITHUB_APP_INSTALLATION_ID": settings.github_app_installation_id,
+        "SCOREBOARD_GITHUB_APP_PRIVATE_KEY": settings.github_app_private_key,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if len(missing) == len(required):
+        return None
+    if missing or settings.github_app_private_key is None:
+        raise ValueError(f"the GitHub App is partly configured; also set {', '.join(missing)}")
+    source = GitHubAppTokenSource(
+        str(settings.github_app_id),
+        str(settings.github_app_installation_id),
+        settings.github_app_private_key.get_secret_value(),
+        settings.github_api_url,
+        lambda: datetime.now(UTC),
+    )
+    return GitHubReleasePublisherFactory(source, settings.github_repo, settings.github_api_url)
+
+
 def _wire_publish(app: FastAPI, settings: Settings) -> None:
-    """FEATURE: OME-1307 (E14) publish and takedown — the store, the ports and the route.
+    """FEATURE: OME-1307 (E14) publish and takedown — the store, the ports, the worker, the routes.
 
     `release_publisher_factory` and `archive_reader` stay None when publishing is not configured;
-    the publish route then answers 503 `publish_unavailable` (PB-19).
+    the publish route then answers 503 `publish_unavailable` (PB-19), and no worker is built.
     """
-    app.state.publication_store = PublicationStore(settings.public_base_url)
-    app.state.release_publisher_factory = None
-    app.state.archive_reader = _archive_reader(settings)
+    store = PublicationStore(settings.public_base_url)
+    factory = _release_publisher_factory(settings)
+    reader = _archive_reader(settings)
+    app.state.publication_store = store
+    app.state.release_publisher_factory = factory
+    app.state.archive_reader = reader
+    # WHY kept apart from `release_publisher_factory`: a test replaces that with a plain function.
+    app.state.close_github = factory.aclose if factory is not None else None
     # WHY a callable on `app.state` (as SB-grants does): the routes and the worker read one clock,
     # and a test sets it.
     app.state.clock = lambda: datetime.now(UTC)
+    # INVARIANT: publishing is available only when all three hold (plan 4.1).
+    app.state.publish_worker = None
+    if factory is not None and reader is not None and settings.auth_mode == "cloudflare_headers":
+        app.state.publish_worker = PublishWorker(
+            store=store,
+            publisher_factory=factory,
+            archive_reader=reader,
+            facts_loader=store.release_facts,
+            metrics=app.state.metrics,
+            clock=app.state.clock,
+            rng=random.random,
+        )
     app.include_router(publish.router)
+    app.include_router(admin.router)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
