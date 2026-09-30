@@ -1475,7 +1475,13 @@ def _problem_parts(response: httpx.Response) -> tuple[str, str | None, object]:
     if isinstance(problem, dict):
         if isinstance(problem.get("detail"), str):
             detail = problem["detail"]
-        if isinstance(problem.get("type"), str):
+        # INVARIANT (E14 contracts.md "Error bodies"): the SDK maps an Engine error by its
+        # top-level `code` first. The Engine always sets `type` to `about:blank`, so `type`
+        # is only the fallback for a problem that carries no usable `code`.
+        top_level = problem.get("code")
+        if isinstance(top_level, str) and top_level.strip():
+            code = top_level
+        elif isinstance(problem.get("type"), str):
             code = problem["type"]
     return detail, code, problem
 
