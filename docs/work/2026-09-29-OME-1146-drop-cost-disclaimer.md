@@ -70,12 +70,17 @@ RED first:
 
 ## Review round 1 (2026-09-30, self-review)
 
-**High, fixed: the replacement sentence claimed a rerun verifies cost.** "you can rerun any claim,
-score, or cost" implied a rerun checks the published cost, but a rerun measures what the
-rerunner pays now: cache state, provider prices and routing can all differ from the submitter's
-run. The removal of the disclaimer itself stands (owner decision). **Fix:** the note now reads
-"Every row keeps its URL4 expression, so you can rerun the recipe and evaluate its score and your
-own run cost before trusting the claim." **Test:** this PR's own
-`test_pareto_chart_disclaimer_is_folded_into_the_read_this_first_note` now pins the new sentence
-and refuses the old one; RED before, GREEN after. The test is new in this PR, so no prior test
-changed.
+**Declined, owner 2026-09-30: rewording the note to "your own run cost".** The finding: a rerun
+measures what the rerunner pays now, not the submitter's historical cost, so "rerun any claim,
+score, or cost" overstates what a rerun checks. It was applied (`7b049f25`) and reverted. The
+owner's reasons for keeping the decided sentence:
+
+- the 2026-09-29 decision chose that sentence precisely because it covers cost "without singling
+  out cost"; "your own run cost" singles it out again;
+- the ticket's premise is that submissions are treated as verified by default, and a cost-specific
+  "yours may differ" line re-introduces a softer form of the disclaimer it removes;
+- the wording was the one put to Irina on 2026-09-25, so changing it belongs in that thread, not in
+  this PR.
+
+The note and `test_pareto_chart_disclaimer_is_folded_into_the_read_this_first_note` are back to
+`176519ab` exactly. The only lasting change from this round is the Commits line above.

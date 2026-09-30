@@ -231,24 +231,16 @@ def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
 def test_pareto_chart_disclaimer_is_folded_into_the_read_this_first_note() -> None:
     """FEATURE (OME-1146 part 2): the disclaimer is gone; its job moves into the shared note.
 
-    INVARIANT: this is a folded caveat, not a silent drop. The page still tells a reader to rerun
-    the recipe before trusting a claim.
-
-    INVARIANT (self-review, 2026-09-30): the note never says a rerun VERIFIES the published cost.
-    A rerun measures what the rerunner pays now; cache state, provider prices and routing can all
-    differ from the submitter's run. So the reader evaluates the score and their OWN run cost.
+    INVARIANT: this is a folded caveat, not a silent drop. The page must still tell a reader to
+    verify cost, just via the same instruction it already gives for score, rather than a
+    cost-specific line living apart from it.
     """
     portal = Path(__file__).resolve().parents[2] / "portal"
     html = (portal / "benchmark.html").read_text(encoding="utf-8")
-    note = " ".join(html.split())
 
     assert "Costs are self-reported, not verified by re-running." not in html
     assert "costs are self-reported, not verified by re-running" not in html
-    assert "rerun any claim, score, or cost" not in note
-    assert (
-        "Every row keeps its URL4 expression, so you can rerun the recipe and evaluate its score "
-        "and your own run cost before trusting the claim."
-    ) in note
+    assert "rerun any claim, score, or cost, before trusting it" in html
 
 
 def test_portal_index_filters_private_boards_through_the_shared_logic_module() -> None:
