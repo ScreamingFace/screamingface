@@ -632,7 +632,6 @@ def test_the_probe_list_pins_the_colab_gap_differentiators() -> None:
         "bcrypt",
         "cryptography",
         "fastapi",
-        "kubernetes",
         "litellm",
         "prometheus_client",
         "pydantic_settings",
