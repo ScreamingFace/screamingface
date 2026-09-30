@@ -3,11 +3,13 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .adapters.jws_grant_signer import Ed25519GrantSigner
 from .adapters.jws_receipt_verifier import Ed25519ReceiptVerifier
 from .adapters.url4_fingerprinter import Url4Fingerprinter
 from .config import Settings
@@ -16,10 +18,11 @@ from .db import close_db, init_db
 from .logs import configure as configure_logging
 from .metrics import build_metrics
 from .portal import register_portal
-from .routes import health, leaderboard, results, score_metadata, scores
+from .routes import health, leaderboard, replay_grants, results, score_metadata, scores
 from .scores.baseline_store import BaselineStore
 from .scores.cluster_store import ClusterStore
 from .scores.metadata_store import ScoreMetadataStore
+from .scores.replay_resolver import ReplayPinResolver
 from .scores.store import ScoreStore
 from .scores.system_registry_store import TortoiseSystemRepository
 
@@ -125,6 +128,45 @@ def _wire_clustered_submit(app: FastAPI, settings: Settings) -> None:
     app.state.metrics = build_metrics()
     app.state.cluster_store = ClusterStore(app.state.score_store, app.state.system_registry)
     app.include_router(results.router)
+    _wire_replay_grants(app, settings)
+
+
+def _grant_signer(settings: Settings) -> Ed25519GrantSigner | None:
+    """The signer of replay grants, or None when neither variable is set (the route then answers
+    503 `replay_unavailable`). One variable without the other, or a bad key, fails at startup.
+
+    INVARIANT: no error message holds key text (`Ed25519GrantSigner.from_config` and the messages
+    here name the variable, never the value).
+    """
+    key, kid = settings.replay_grant_signing_key, settings.replay_grant_signing_kid
+    if key is None and not kid:
+        return None
+    if key is None:
+        raise ValueError(
+            "SCOREBOARD_REPLAY_GRANT_SIGNING_KID is set but SCOREBOARD_REPLAY_GRANT_SIGNING_KEY "
+            "is not"
+        )
+    if not kid:
+        raise ValueError(
+            "SCOREBOARD_REPLAY_GRANT_SIGNING_KEY is set but SCOREBOARD_REPLAY_GRANT_SIGNING_KID "
+            "is not"
+        )
+    return Ed25519GrantSigner.from_config(key.get_secret_value(), kid)
+
+
+def _wire_replay_grants(app: FastAPI, settings: Settings) -> None:
+    """FEATURE: OME-1307 (E14) replay grants: the route and what it reads from `app.state`.
+
+    WHY called from `_wire_clustered_submit` and not from `create_app`: the resolver reads the
+    cluster store and the registry that function builds, and `create_app` sits at the statement
+    limit. The router is still included before `register_portal`, which mounts `/` last.
+    """
+    app.state.grant_signer = _grant_signer(settings)
+    app.state.replay_resolver = ReplayPinResolver(
+        app.state.cluster_store, app.state.system_registry
+    )
+    app.state.clock = lambda: datetime.now(UTC)
+    app.include_router(replay_grants.router)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

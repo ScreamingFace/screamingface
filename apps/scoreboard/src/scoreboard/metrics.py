@@ -22,6 +22,10 @@ class Metrics:
     submits: Counter
     # scoreboard_receipt_rejections_total{reason}: a RejectReason, or not_yours | already_bound.
     receipt_rejections: Counter
+    # FEATURE: OME-1307 (E14) replay grants.
+    # scoreboard_replay_grants_total{result}: issued | not_found | withdrawn | mismatch | invalid |
+    # unavailable | unauthenticated.
+    replay_grants: Counter
 
 
 def build_metrics() -> Metrics:
@@ -38,4 +42,16 @@ def build_metrics() -> Metrics:
         ["reason"],
         registry=registry,
     )
-    return Metrics(registry=registry, submits=submits, receipt_rejections=receipt_rejections)
+    # FEATURE: OME-1307 (E14) replay grants.
+    replay_grants = Counter(
+        "scoreboard_replay_grants",
+        "Replay grant requests answered, by result.",
+        ["result"],
+        registry=registry,
+    )
+    return Metrics(
+        registry=registry,
+        submits=submits,
+        receipt_rejections=receipt_rejections,
+        replay_grants=replay_grants,
+    )

@@ -1138,3 +1138,25 @@ class BaselineImportRow(BaseModel):
     @classmethod
     def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
         return _validate_bounded_metadata(value)
+
+
+# FEATURE: OME-1307 (E14) replay grants (SB-grants, C6).
+class ReplayGrantRequest(BaseModel):
+    """Input DTO for POST /v1/replay-grants: a pin and the board it must belong to."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pin: Annotated[str, Field(min_length=1, max_length=256)]
+    benchmark_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class ReplayGrantResponse(BaseModel):
+    """The signed grant and the ids it names (C6). `expires_at` equals the grant's `exp`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    grant: str
+    result_id: UUID
+    score_id: UUID
+    cache_version_id: UUID
+    expires_at: datetime

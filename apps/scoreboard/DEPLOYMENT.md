@@ -237,6 +237,49 @@ unit does not change the chart.
 `GET /v1/scores/{score_id}/results` lists the runs of a head, newest first, with a cursor. Its
 privacy rules are the ones of `GET /v1/scores/{score_id}`.
 
+### Replay grants
+
+OME-1307 (E14) adds `POST /v1/replay-grants`. The route turns a pin (`result:<id>`, `score:<id>`,
+`name`, `name@r<N>` or `name@<date>`) and a `benchmark_id` into ONE result. Then it signs a grant
+that the gateway checks. The route only reads: it writes no row and it does not call the gateway.
+Two variables control it. Both are read at startup.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SCOREBOARD_REPLAY_GRANT_SIGNING_KEY` | unset | The standard base64 of the RAW 32-byte Ed25519 private key (the seed). Put it in a Secret. |
+| `SCOREBOARD_REPLAY_GRANT_SIGNING_KID` | unset | The `kid` header of each grant. |
+
+Set both or neither. If only one is set, or the key is not base64 of 32 bytes, the startup stops
+with an error that names the variable and never prints the key. If neither is set, the route
+answers `503 replay_unavailable`.
+
+```bash
+SCOREBOARD_REPLAY_GRANT_SIGNING_KEY=<base64 of the raw 32-byte private key>   # from a Secret
+SCOREBOARD_REPLAY_GRANT_SIGNING_KID=sb-2026-09
+```
+
+The gateway holds the matching PUBLIC keys in `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` (a JSON object
+`{kid: base64 of the raw 32-byte public key}`). The two sides must use the same `kid` and the same
+key.
+
+**Key rotation.** Make a new key pair and a new `kid`. First add the new public key to the gateway
+(the gateway keeps the current key and the previous key). Then change the two variables here and
+restart. A grant signed with the previous `kid` stays valid until it expires.
+
+**Grant life.** The life is fixed at 12 hours (43,200 s). There is no setting and no refresh
+(D4). This is a known limit: the engine job deadline is 57,600 s, and a queued job can wait before
+it starts, so a grant can expire during a run. The gateway then refuses the grant and that run
+fails with the typed replay error. The user starts a new run with a new grant.
+
+**Identity.** Production runs `SCOREBOARD_AUTH_MODE=cloudflare_headers`. The grant `sub` is the
+verified email, and a caller with no verified identity gets `401` (or `403` from an untrusted
+peer). The gateway checks `sub` against the caller, so a grant for an unverified caller is useless
+there. In `disabled` mode (dev and local only) the `sub` is `anonymous`, nobody is an owner, and
+only public, redistributable results resolve.
+
+The chart values and the Secret for these two variables come from unit WIRING (D6). This unit does
+not change the chart.
+
 ## Smoke Checks
 
 Run the Helm test and check public health:

@@ -5,7 +5,7 @@ from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_DATABASE_URL = "sqlite://./scoreboard.sqlite3"
@@ -115,6 +115,20 @@ class Settings(BaseSettings):
     writes (SDK-replay.md section 4.12). The scoreboard does not derive the kid; it uses the map
     keys as given.
     """
+
+    # FEATURE: OME-1307 (E14) replay grants (SB-grants; C6, scoreboard side).
+    replay_grant_signing_key: SecretStr | None = None
+    """Standard base64 of the RAW 32-byte Ed25519 private key (the seed). Env
+    SCOREBOARD_REPLAY_GRANT_SIGNING_KEY, from a Secret.
+
+    INVARIANT: the same byte form the gateway uses for its keys (GW-freeze.md OD-F2,
+    GW-replay.md section 4.1: AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS holds base64 of the raw 32-byte
+    public key) and the local runtime writes (SDK-replay.md section 4.12).
+    AIDEV-NOTE: key material: never log it or put it in an error.
+    """
+    replay_grant_signing_kid: str | None = None
+    """SCOREBOARD_REPLAY_GRANT_SIGNING_KID, the JWS `kid` header of a grant (the variable name the
+    local runtime sets, SDK-replay.md section 4.12 table)."""
 
     @field_validator("database_url")
     @classmethod
