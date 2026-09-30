@@ -331,6 +331,13 @@ PUT  /v1/admin/benchmarks/{benchmark_id}/redistributable {"redistributable": tru
   a path that dropped the header). The alternative, a typed permanent failure, was rejected: the
   run still finishes and the misses show, so the SDK can state that the replay was not complete
   (RP-E6, RP-H5). A call with no grant and no answer counts nothing.
+- **A call that fails after the version did not serve it.** A chat call that sent the grant and
+  ended non-2xx (a credential error, a provider 4xx or 5xx, or a redirect from a proxy) also
+  counts as a **version miss**. The gateway sends no version header on an error response, so the
+  engine counts the miss itself. Without this rule a benchmark that collects the failed call
+  would finish with `misses` 0 and the SDK would call the replay complete (RP-H5, ans:Q13). The
+  one exception is `403 replay_grant_invalid`: it is not a miss, it fails the run (RP-E6). A call
+  with no grant counts nothing.
 - **Revalidation.** A version hit is exempt from the engine max-age revalidation. The engine
   does not re-ask the gateway for a hit that came from a version.
 - **Consumer rule.** The SDK builds the replay report (RP-H1) and the C4 `replay` block from
