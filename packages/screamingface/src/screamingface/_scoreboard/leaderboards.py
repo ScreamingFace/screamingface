@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import enum
+import logging
 import math
 import platform
+import random
 import re
+import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
@@ -14,32 +21,48 @@ from importlib.metadata import PackageNotFoundError, version
 # parameter named `json`, so the module name is shadowed inside exactly the functions most
 # likely to want it. Importing the one callable under its own name removes the trap.
 from json import dumps as _json_dumps
-from typing import NoReturn
+from typing import Final, NoReturn
 from urllib.parse import quote
 from uuid import UUID
 
 import httpx
 
+from screamingface._core.ports import (
+    AsyncCacheVersionFreezer,
+    SyncCacheVersionFreezer,
+    _FreezeOutcome,
+    _FreezeUnavailable,
+    _FrozenCacheVersion,
+    _ReplayBinding,
+)
+from screamingface._scoreboard.replay_pin import _ReplayPin
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
     prepare_submission_notice,
 )
 from screamingface._ui.leaderboard_view import LeaderboardCatalog
-from screamingface.errors import LeaderboardError
+from screamingface.errors import LeaderboardError, ReplayUnavailable
 from screamingface.leaderboard import (
+    CacheVersionPublication,
     Leaderboard,
     LeaderboardBaseline,
+    LeaderboardCacheVersion,
     LeaderboardEntry,
     LeaderboardInfo,
+    LeaderboardNotice,
     LeaderboardRankingNotice,
+    LeaderboardReportedResult,
     LeaderboardScore,
 )
-from screamingface.report import CandidateResult
+from screamingface.report import CandidateResult, ReplayProvenance
 from screamingface.url4 import Url4
+
+_logger = logging.getLogger(__name__)
 
 _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 _SCORES_PATH = "/v1/scores"
+_RESULTS_PATH = "/v1/results"
 _AUTHOR_EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 _MAX_AUTHORS = 10
 _MAX_AUTHOR_LENGTH = 255
@@ -52,14 +75,96 @@ _MAX_AUTHOR_LENGTH = 255
 _MAX_MODELS = 32
 _MAX_MODEL_LENGTH = 255
 _MAX_MODELS_BYTES = 4096
+# FEATURE: OME-1307 (E14) editable submission metadata. Contract C5 fixes a 15 s SDK timeout for
+# the PATCH and one re-send after a connection error.
+_METADATA_EDIT_OPERATION = "edit the submission metadata on"
+_METADATA_EDIT_TIMEOUT_S = 15.0
+_METADATA_EDIT_TRANSPORT_RETRIES = 1
+_SUBMIT_OPERATION = "submit a score to"
+# FEATURE: OME-1307 (E14) contract C4: a 30 s timeout and two re-sends with backoff after a
+# connection error or a 5xx. The idempotency key (`run_id`) makes a re-send safe.
+_SUBMIT_TIMEOUT_S = 30.0
+_SUBMIT_RESENDS = 2
+_SUBMIT_BACKOFF_BASE_S = 0.5
+# WHY bounded: a long notebook session submits many runs, and the receipt cache must not grow
+# without end. The freeze is idempotent (CV-D3), so a cache that dropped an entry only costs one
+# more freeze call.
+_RECEIPT_CACHE_SIZE = 32
+_CACHE_VERSION_WARNING = "cache_version_unavailable"
+_SUBMIT_CODES: Final[Mapping[int, str]] = {
+    400: "invalid_score_submission",
+    401: "scoreboard_authentication_required",
+    403: "score_submission_forbidden",
+    409: "score_submission_conflict",
+    422: "invalid_score_submission",
+}
+# WHY a status fallback beside the coded body (D7 X-8): a proxy or a board before E14a can send a
+# status with no `{"detail": {"code": ...}}` body, and the SDK must still give a typed code.
+_METADATA_EDIT_CODES: Final[Mapping[int, str]] = {
+    401: "identity_not_verified",
+    403: "not_submission_owner",
+    404: "unknown_score",
+    412: "metadata_revision_conflict",
+    422: "invalid_submission_metadata",
+    428: "precondition_required",
+}
+# FEATURE: OME-1307 (E14) contract C6: a 10 s timeout, no re-send, no fallback. A grant has no side
+# effect, so the request is replay-safe, but a retry would only delay the caller's error (RP-19).
+_REPLAY_GRANTS_PATH = "/v1/replay-grants"
+_REPLAY_GRANT_OPERATION = "request a replay grant from"
+_REPLAY_GRANT_TIMEOUT_S = 10.0
+# INVARIANT: mirrors the engine and gateway limit of C1 (2,048 UTF-8 bytes), so the SDK refuses a
+# grant that the engine would refuse, before the run and its spend.
+_MAX_GRANT_BYTES = 2048
+_REPLAY_GRANT_CODES: Final[Mapping[int, str]] = {
+    404: "replay_pin_not_found",
+    410: "cache_version_withdrawn",
+    422: "invalid_replay_pin",
+}
+# FEATURE: OME-1307 (E14) contract C10: the owner publishes the cache version of a result. The
+# request is idempotent (PB-D5), so it is replay-safe.
+_PUBLISH_OPERATION = "publish the cache version on"
+_PUBLISH_CODES: Final[Mapping[int, str]] = {
+    403: "not_result_owner",
+    409: "not_publishable",
+    503: "publish_unavailable",
+}
+# WHY these four: their boards send `{"detail": {"code": ...}}` (D7 X-8). The other operations keep
+# the status map only, as before.
+_CODED_OPERATIONS: Final = frozenset(
+    {_SUBMIT_OPERATION, _METADATA_EDIT_OPERATION, _REPLAY_GRANT_OPERATION, _PUBLISH_OPERATION}
+)
+_STATUS_CODES_BY_OPERATION: Final[Mapping[str, Mapping[int, str]]] = {
+    _SUBMIT_OPERATION: _SUBMIT_CODES,
+    _METADATA_EDIT_OPERATION: _METADATA_EDIT_CODES,
+    _REPLAY_GRANT_OPERATION: _REPLAY_GRANT_CODES,
+    _PUBLISH_OPERATION: _PUBLISH_CODES,
+}
+
+
+class _Unset(enum.Enum):
+    UNSET = "UNSET"
+
+
+UNSET: Final = _Unset.UNSET
 
 
 class Leaderboards:
     """Synchronous public Leaderboards bound to one Client."""
 
-    def __init__(self, request: Callable[..., httpx.Response], scoreboard_url: str) -> None:
+    def __init__(
+        self,
+        request: Callable[..., httpx.Response],
+        scoreboard_url: str,
+        freezer: SyncCacheVersionFreezer | None = None,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._request = request
         self._scoreboard_url = scoreboard_url
+        self._freezer = freezer
+        self._sleep = sleep
+        self._receipts: OrderedDict[tuple[str, str], _FrozenCacheVersion] = OrderedDict()
 
     def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
@@ -92,24 +197,56 @@ class Leaderboards:
         candidate_result: CandidateResult,
         *,
         authors: Sequence[str] | None = None,
+        paper_url: str | None = None,
+        revision_of: str | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors)
+        payload = _submission(
+            candidate_result, authors=authors, paper_url=paper_url, revision_of=revision_of
+        )
         notebook_notice = prepare_submission_notice(candidate_result)
+        # WHY here: after the input checks and the partial-submission advisory, so `-W error`
+        # still aborts before any engine call, as before.
+        warning = _attach_cache_version(
+            payload, candidate_result, self._cache_version(candidate_result)
+        )
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
-            payload=_sync_json(
-                self._request,
-                self._scoreboard_url,
-                "POST",
-                _SCORES_PATH,
-                json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
-                replay_safe=True,
-                operation="submit a score to",
-            ),
+            payload=self._submit_with_retries(payload, candidate_result.run_id),
         )
         display_submission_notice(notebook_notice)
-        return score
+        return _with_warning(score, warning)
+
+    def _cache_version(self, candidate_result: CandidateResult) -> _FreezeOutcome:
+        trace_id = candidate_result.trace_id
+        if trace_id is None or self._freezer is None:
+            return _FreezeUnavailable("no_trace" if trace_id is None else "freeze_unconfigured")
+        key = (candidate_result.run_id, trace_id)
+        outcome: _FreezeOutcome | None = self._receipts.get(key)
+        if outcome is None:
+            outcome = self._freezer.freeze(trace_id)
+            _remember_receipt(self._receipts, key, outcome)
+        return outcome
+
+    def _submit_with_retries(self, payload: Mapping[str, object], run_id: str) -> object:
+        resend = 0
+        while True:
+            try:
+                return _sync_json(
+                    self._request,
+                    self._scoreboard_url,
+                    "POST",
+                    _SCORES_PATH,
+                    json=payload,
+                    headers={"Idempotency-Key": run_id},
+                    replay_safe=True,
+                    timeout=_SUBMIT_TIMEOUT_S,
+                    operation=_SUBMIT_OPERATION,
+                )
+            except LeaderboardError as exc:
+                if resend >= _SUBMIT_RESENDS or not _resendable(exc):
+                    raise
+                resend += 1
+                self._sleep(_submit_backoff(resend))
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -125,6 +262,69 @@ class Leaderboards:
             ),
         )
 
+    def update_submission(
+        self,
+        score_id: UUID | str,
+        *,
+        expected_revision: int,
+        authors: Sequence[str] | None | _Unset = UNSET,
+        paper_url: str | None | _Unset = UNSET,
+    ) -> LeaderboardScore:
+        selected = _score_id(score_id)
+        revision = _expected_revision(expected_revision)
+        body = _metadata_patch(authors, paper_url)
+        return _decode_score(
+            scoreboard_url=self._scoreboard_url,
+            payload=_sync_json(
+                self._request,
+                self._scoreboard_url,
+                "PATCH",
+                f"{_SCORES_PATH}/{selected}",
+                json=body,
+                headers={"If-Match": f'"{revision}"'},
+                replay_safe=True,
+                timeout=_METADATA_EDIT_TIMEOUT_S,
+                transport_retries=_METADATA_EDIT_TRANSPORT_RETRIES,
+                operation=_METADATA_EDIT_OPERATION,
+                missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            ),
+        )
+
+    def _replay_grant(self, pin: _ReplayPin, benchmark_id: str) -> _ReplayBinding:
+        """C6: the grant for one pinned run. Unreachable, slow or 5xx is `ReplayUnavailable`."""
+        try:
+            payload = _sync_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                _REPLAY_GRANTS_PATH,
+                json={"pin": pin.text, "benchmark_id": benchmark_id},
+                replay_safe=True,
+                timeout=_REPLAY_GRANT_TIMEOUT_S,
+                transport_retries=0,
+                operation=_REPLAY_GRANT_OPERATION,
+            )
+        except LeaderboardError as exc:
+            if _scoreboard_down(exc):
+                raise _replay_unavailable(self._scoreboard_url, exc) from exc
+            raise
+        return _decode_replay_binding(payload, pin, self._scoreboard_url)
+
+    def publish_cache_version(self, result_id: UUID | str) -> CacheVersionPublication:
+        selected = _result_id(result_id)
+        return _decode_publication(
+            selected,
+            _sync_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                f"{_RESULTS_PATH}/{selected}/publish",
+                replay_safe=True,
+                operation=_PUBLISH_OPERATION,
+                missing=("unknown_result", f"Result {str(selected)!r} was not found"),
+            ),
+        )
+
 
 class AsyncLeaderboards:
     """Asynchronous public Leaderboards bound to one AsyncClient."""
@@ -133,9 +333,15 @@ class AsyncLeaderboards:
         self,
         request: Callable[..., Awaitable[httpx.Response]],
         scoreboard_url: str,
+        freezer: AsyncCacheVersionFreezer | None = None,
+        *,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._request = request
         self._scoreboard_url = scoreboard_url
+        self._freezer = freezer
+        self._sleep = sleep
+        self._receipts: OrderedDict[tuple[str, str], _FrozenCacheVersion] = OrderedDict()
 
     async def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
@@ -168,24 +374,56 @@ class AsyncLeaderboards:
         candidate_result: CandidateResult,
         *,
         authors: Sequence[str] | None = None,
+        paper_url: str | None = None,
+        revision_of: str | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors)
+        payload = _submission(
+            candidate_result, authors=authors, paper_url=paper_url, revision_of=revision_of
+        )
         notebook_notice = prepare_submission_notice(candidate_result)
+        # WHY here: after the input checks and the partial-submission advisory, so `-W error`
+        # still aborts before any engine call, as before.
+        warning = _attach_cache_version(
+            payload, candidate_result, await self._cache_version(candidate_result)
+        )
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
-            payload=await _async_json(
-                self._request,
-                self._scoreboard_url,
-                "POST",
-                _SCORES_PATH,
-                json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
-                replay_safe=True,
-                operation="submit a score to",
-            ),
+            payload=await self._submit_with_retries(payload, candidate_result.run_id),
         )
         display_submission_notice(notebook_notice)
-        return score
+        return _with_warning(score, warning)
+
+    async def _cache_version(self, candidate_result: CandidateResult) -> _FreezeOutcome:
+        trace_id = candidate_result.trace_id
+        if trace_id is None or self._freezer is None:
+            return _FreezeUnavailable("no_trace" if trace_id is None else "freeze_unconfigured")
+        key = (candidate_result.run_id, trace_id)
+        outcome: _FreezeOutcome | None = self._receipts.get(key)
+        if outcome is None:
+            outcome = await self._freezer.freeze(trace_id)
+            _remember_receipt(self._receipts, key, outcome)
+        return outcome
+
+    async def _submit_with_retries(self, payload: Mapping[str, object], run_id: str) -> object:
+        resend = 0
+        while True:
+            try:
+                return await _async_json(
+                    self._request,
+                    self._scoreboard_url,
+                    "POST",
+                    _SCORES_PATH,
+                    json=payload,
+                    headers={"Idempotency-Key": run_id},
+                    replay_safe=True,
+                    timeout=_SUBMIT_TIMEOUT_S,
+                    operation=_SUBMIT_OPERATION,
+                )
+            except LeaderboardError as exc:
+                if resend >= _SUBMIT_RESENDS or not _resendable(exc):
+                    raise
+                resend += 1
+                await self._sleep(_submit_backoff(resend))
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -201,6 +439,131 @@ class AsyncLeaderboards:
             ),
         )
 
+    async def update_submission(
+        self,
+        score_id: UUID | str,
+        *,
+        expected_revision: int,
+        authors: Sequence[str] | None | _Unset = UNSET,
+        paper_url: str | None | _Unset = UNSET,
+    ) -> LeaderboardScore:
+        selected = _score_id(score_id)
+        revision = _expected_revision(expected_revision)
+        body = _metadata_patch(authors, paper_url)
+        return _decode_score(
+            scoreboard_url=self._scoreboard_url,
+            payload=await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "PATCH",
+                f"{_SCORES_PATH}/{selected}",
+                json=body,
+                headers={"If-Match": f'"{revision}"'},
+                replay_safe=True,
+                timeout=_METADATA_EDIT_TIMEOUT_S,
+                transport_retries=_METADATA_EDIT_TRANSPORT_RETRIES,
+                operation=_METADATA_EDIT_OPERATION,
+                missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            ),
+        )
+
+    async def _replay_grant(self, pin: _ReplayPin, benchmark_id: str) -> _ReplayBinding:
+        try:
+            payload = await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                _REPLAY_GRANTS_PATH,
+                json={"pin": pin.text, "benchmark_id": benchmark_id},
+                replay_safe=True,
+                timeout=_REPLAY_GRANT_TIMEOUT_S,
+                transport_retries=0,
+                operation=_REPLAY_GRANT_OPERATION,
+            )
+        except LeaderboardError as exc:
+            if _scoreboard_down(exc):
+                raise _replay_unavailable(self._scoreboard_url, exc) from exc
+            raise
+        return _decode_replay_binding(payload, pin, self._scoreboard_url)
+
+    async def publish_cache_version(self, result_id: UUID | str) -> CacheVersionPublication:
+        selected = _result_id(result_id)
+        return _decode_publication(
+            selected,
+            await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                f"{_RESULTS_PATH}/{selected}/publish",
+                replay_safe=True,
+                operation=_PUBLISH_OPERATION,
+                missing=("unknown_result", f"Result {str(selected)!r} was not found"),
+            ),
+        )
+
+
+def _remember_receipt(
+    receipts: OrderedDict[tuple[str, str], _FrozenCacheVersion],
+    key: tuple[str, str],
+    outcome: _FreezeOutcome,
+) -> None:
+    """Keep a frozen version for a resubmit of the same run (SC-20), never an unavailable one."""
+    if not isinstance(outcome, _FrozenCacheVersion):
+        return
+    receipts[key] = outcome
+    while len(receipts) > _RECEIPT_CACHE_SIZE:
+        receipts.popitem(last=False)
+
+
+def _attach_cache_version(
+    payload: dict[str, object],
+    candidate_result: CandidateResult,
+    outcome: _FreezeOutcome,
+) -> str | None:
+    """Put the receipt on the payload, or return the local warning when there is none (SC-E1).
+
+    INVARIANT: `trace_id` rides ONLY with a receipt. `ScoreSubmission` is `extra="forbid"`, so a
+    plain submit must not carry a key that an older board would refuse.
+    INVARIANT: no trace id, receipt or author reaches the log line. The reason is a token.
+    WHY not `warnings.warn`: it comes before the POST, and under `-W error` it would raise and
+    stop a submit that SC-E1 says must go on. The field and the log line give both signals.
+    """
+    if isinstance(outcome, _FrozenCacheVersion):
+        payload["cache_version_receipt"] = outcome.receipt
+        payload["trace_id"] = candidate_result.trace_id
+        return None
+    warning = f"{_CACHE_VERSION_WARNING}: {outcome.reason}"
+    _logger.warning("%s (run_id=%s)", warning, candidate_result.run_id)
+    return warning
+
+
+def _with_warning(score: LeaderboardScore, warning: str | None) -> LeaderboardScore:
+    return score if warning is None else replace(score, cache_version_warning=warning)
+
+
+def _resendable(error: LeaderboardError) -> bool:
+    """C4: re-send after a connection error or a 5xx, never after a 4xx (SC-E2)."""
+    return error.code == "scoreboard_unreachable" or (error.status or 0) >= 500
+
+
+def _submit_backoff(resend: int) -> float:
+    """0.5 s before the first re-send and 1 s before the second, each with up to 25% jitter."""
+    return _SUBMIT_BACKOFF_BASE_S * 2 ** (resend - 1) * (1 + 0.25 * random.random())
+
+
+def _scoreboard_down(error: LeaderboardError) -> bool:
+    """C6 (RP-19): the board did not answer, or answered 5xx. Any other refusal is its verdict."""
+    return error.code == "scoreboard_unreachable" or (error.status or 0) >= 500
+
+
+def _replay_unavailable(scoreboard_url: str, error: LeaderboardError) -> ReplayUnavailable:
+    return ReplayUnavailable(
+        "Could not get a replay grant from the Scoreboard",
+        scoreboard_url=scoreboard_url,
+        status=error.status,
+        permanent=False,
+    )
+
 
 def _sync_json(
     request: Callable[..., httpx.Response],
@@ -214,19 +577,29 @@ def _sync_json(
     headers: Mapping[str, str] | None = None,
     missing: tuple[str, str] | None = None,
     operation: str = "load",
+    timeout: float | None = None,
+    transport_retries: int = 0,
 ) -> object:
-    try:
-        response = request(
-            method,
-            path,
-            params=params,
-            json=json,
-            headers=headers,
-            replay_safe=replay_safe,
-        )
-    except httpx.HTTPError as exc:
-        _unreachable(scoreboard_url, exc)
-    return _response_json(response, scoreboard_url, missing, operation)
+    retries_left = transport_retries
+    while True:
+        try:
+            response = request(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                replay_safe=replay_safe,
+                **_timeout_argument(timeout),
+            )
+        except httpx.TransportError as exc:
+            if retries_left < 1:
+                _unreachable(scoreboard_url, exc)
+            retries_left -= 1
+            continue
+        except httpx.HTTPError as exc:
+            _unreachable(scoreboard_url, exc)
+        return _response_json(response, scoreboard_url, missing, operation)
 
 
 async def _async_json(
@@ -241,19 +614,35 @@ async def _async_json(
     headers: Mapping[str, str] | None = None,
     missing: tuple[str, str] | None = None,
     operation: str = "load",
+    timeout: float | None = None,
+    transport_retries: int = 0,
 ) -> object:
-    try:
-        response = await request(
-            method,
-            path,
-            params=params,
-            json=json,
-            headers=headers,
-            replay_safe=replay_safe,
-        )
-    except httpx.HTTPError as exc:
-        _unreachable(scoreboard_url, exc)
-    return _response_json(response, scoreboard_url, missing, operation)
+    retries_left = transport_retries
+    while True:
+        try:
+            response = await request(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                replay_safe=replay_safe,
+                **_timeout_argument(timeout),
+            )
+        except httpx.TransportError as exc:
+            if retries_left < 1:
+                _unreachable(scoreboard_url, exc)
+            retries_left -= 1
+            continue
+        except httpx.HTTPError as exc:
+            _unreachable(scoreboard_url, exc)
+        return _response_json(response, scoreboard_url, missing, operation)
+
+
+def _timeout_argument(timeout: float | None) -> dict[str, float]:
+    # WHY only when given: the default call shape must not change, so the client's own timeout
+    # still applies to every call that does not name one.
+    return {} if timeout is None else {"timeout": timeout}
 
 
 def _response_json(
@@ -274,11 +663,17 @@ def _response_json(
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
-        submission_conflict = response.status_code == 409 and operation == "submit a score to"
+        # WHY a coded 409 is a fixed fact (`system_name_taken`, `cache_version_already_bound`): the
+        # board sends an uncoded 409 for a transient race, and only that one gets the retry hint.
+        submission_conflict = (
+            response.status_code == 409
+            and operation == _SUBMIT_OPERATION
+            and _coded_detail(details) is None
+        )
         raise LeaderboardError(
             f"Could not {operation} the Scoreboard: HTTP {response.status_code}{suffix}",
             scoreboard_url=scoreboard_url,
-            code=_status_code(response.status_code, operation),
+            code=_error_code(details, response.status_code, operation),
             status=response.status_code,
             permanent=(
                 response.status_code < 500
@@ -304,16 +699,23 @@ def _error_details(response: httpx.Response) -> object:
     return payload
 
 
+def _error_code(details: object, status: int, operation: str) -> str:
+    if operation in _CODED_OPERATIONS:
+        coded = _coded_detail(details)
+        if coded is not None:
+            return coded
+    return _status_code(status, operation)
+
+
+def _coded_detail(details: object) -> str | None:
+    """The `detail.code` of a coded error body (D7 X-8), or None when the body has none."""
+    detail = details.get("detail") if isinstance(details, Mapping) else None
+    code = detail.get("code") if isinstance(detail, Mapping) else None
+    return code.strip() if isinstance(code, str) and code.strip() else None
+
+
 def _status_code(status: int, operation: str) -> str:
-    if operation != "submit a score to":
-        return "scoreboard_contract_error"
-    return {
-        400: "invalid_score_submission",
-        401: "scoreboard_authentication_required",
-        403: "score_submission_forbidden",
-        409: "score_submission_conflict",
-        422: "invalid_score_submission",
-    }.get(status, "scoreboard_contract_error")
+    return _STATUS_CODES_BY_OPERATION.get(operation, {}).get(status, "scoreboard_contract_error")
 
 
 def _unreachable(scoreboard_url: str, exc: httpx.HTTPError) -> NoReturn:
@@ -394,9 +796,119 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             scoreboard_url=scoreboard_url,
             authors=_decode_authors(root.get("authors"), "Leaderboard score authors"),
             ranking_notice=_decode_ranking_notice(root),
+            paper_url=_optional_text(root.get("paper_url"), "Leaderboard score paper_url"),
+            metadata_revision=_optional_integer(
+                root.get("metadata_revision"), "Leaderboard score metadata_revision"
+            ),
+            reported_result=_decode_reported_result(root.get("reported_result")),
+            reported_results_count=_optional_integer(
+                root.get("reported_results_count"), "Leaderboard score reported_results_count"
+            ),
+            notices=_decode_notices(root.get("notices")),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _decode_replay_binding(payload: object, pin: _ReplayPin, scoreboard_url: str) -> _ReplayBinding:
+    """C6 `200` body to a binding. A grant that breaks its limit is refused BEFORE the run."""
+    root = _mapping(payload, "Replay grant")
+    grant = _replay_grant_text(root.get("grant"), scoreboard_url)
+    try:
+        result_id = UUID(_text(root.get("result_id"), "Replay grant result_id"))
+        return _ReplayBinding(
+            grant=grant,
+            result_id=result_id,
+            score_id=UUID(_text(root.get("score_id"), "Replay grant score_id")),
+            cache_version_id=UUID(
+                _text(root.get("cache_version_id"), "Replay grant cache_version_id")
+            ),
+            expires_at=_timestamp(root.get("expires_at"), "Replay grant expires_at"),
+            # OD-8: only a `date` pin resolves to a baseline the caller did not name.
+            pinned_baseline_result_id=result_id if pin.kind == "date" else None,
+        )
+    except ValueError as exc:
+        _invalid(str(exc), exc)
+
+
+def _replay_grant_text(value: object, scoreboard_url: str) -> str:
+    """The opaque grant, trimmed of outer whitespace only.
+
+    INVARIANT: never decoded, verified or logged here (RP-D2).
+    """
+    if not isinstance(value, str) or not value.strip():
+        reason = "the grant must be non-blank text"
+    elif len(value.strip().encode()) > _MAX_GRANT_BYTES:
+        reason = f"the grant must be at most {_MAX_GRANT_BYTES} UTF-8 bytes"
+    else:
+        return value.strip()
+    raise LeaderboardError(
+        f"Invalid Scoreboard replay grant: {reason}",
+        scoreboard_url=scoreboard_url,
+        code="invalid_replay_grant",
+        permanent=True,
+    )
+
+
+def _decode_publication(result_id: UUID, payload: object) -> CacheVersionPublication:
+    root = _mapping(payload, "Cache version publication")
+    state = _text(root.get("state"), "Cache version publication state")
+    if state not in ("requested", "published"):
+        _invalid("Cache version publication state must be requested or published")
+    try:
+        return CacheVersionPublication(
+            result_id=result_id,
+            state="requested" if state == "requested" else "published",
+            release_url=_optional_text(
+                root.get("release_url"), "Cache version publication release_url"
+            ),
+        )
+    except (TypeError, ValueError) as exc:
+        _invalid(str(exc), exc)
+
+
+def _decode_reported_result(value: object) -> LeaderboardReportedResult | None:
+    if value is None:
+        return None
+    root = _mapping(value, "Leaderboard reported result")
+    version = root.get("cache_version")
+    return LeaderboardReportedResult(
+        id=UUID(_text(root.get("id"), "Leaderboard reported result id")),
+        is_original=_boolean(root.get("is_original"), "Leaderboard reported result is_original"),
+        reporter=_optional_text(root.get("reporter"), "Leaderboard reported result reporter"),
+        cache_version=None if version is None else _decode_cache_version(version),
+        publication_state=_optional_text(
+            root.get("publication_state"), "Leaderboard reported result publication_state"
+        ),
+    )
+
+
+def _decode_cache_version(value: object) -> LeaderboardCacheVersion:
+    root = _mapping(value, "Leaderboard cache version")
+    coverage = _text(root.get("coverage_status"), "Leaderboard cache version coverage_status")
+    if coverage not in ("complete", "partial"):
+        _invalid("Leaderboard cache version coverage_status must be complete or partial")
+    return LeaderboardCacheVersion(
+        id=UUID(_text(root.get("id"), "Leaderboard cache version id")),
+        sha256=_text(root.get("sha256"), "Leaderboard cache version sha256"),
+        entry_count=_integer(root.get("entry_count"), "Leaderboard cache version entry_count"),
+        call_count=_integer(root.get("call_count"), "Leaderboard cache version call_count"),
+        coverage_status="complete" if coverage == "complete" else "partial",
+    )
+
+
+def _decode_notices(value: object) -> tuple[LeaderboardNotice, ...]:
+    if value is None:
+        return ()
+    return tuple(_decode_notice(item) for item in _array(value, "Leaderboard score notices"))
+
+
+def _decode_notice(value: object) -> LeaderboardNotice:
+    root = _mapping(value, "Leaderboard notice")
+    return LeaderboardNotice(
+        code=_text(root.get("code"), "Leaderboard notice code"),
+        details={key: item for key, item in root.items() if key != "code"},
+    )
 
 
 def _decode_ranking_notice(root: Mapping[str, object]) -> LeaderboardRankingNotice | None:
@@ -443,10 +955,14 @@ def _submission(
     candidate_result: CandidateResult,
     *,
     authors: Sequence[str] | None = None,
+    paper_url: str | None = None,
+    revision_of: str | None = None,
 ) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
     selected_authors = _submission_authors(authors)
+    selected_paper_url = None if paper_url is None else _paper_url_text(paper_url)
+    selected_revision_of = None if revision_of is None else _revision_of_text(revision_of)
     payload: dict[str, object] = {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
@@ -478,12 +994,45 @@ def _submission(
     # list is exact. Never send null or auto-add an identity the caller did not name.
     if selected_authors is not None:
         payload["authors"] = list(selected_authors)
+    # INVARIANT (E14a, C4): like `authors`, absent means "not given". A board before E14a is
+    # `extra="forbid"`, so sending null would 422 a normal submit.
+    if selected_paper_url is not None:
+        payload["paper_url"] = selected_paper_url
+    # INVARIANT (E14, C4): like `paper_url`, absent means "not given", and a board before E14
+    # refuses an unknown key.
+    if selected_revision_of is not None:
+        payload["revision_of"] = selected_revision_of
     # INVARIANT (OME-1326, OME-1251 D5): sent beside the spend, never added to it; the board sums
     # the two at the point of use. Omitted when absent rather than sent as null, so an uncached
     # run's payload is unchanged and a board that predates the field 422s only cached runs.
     if candidate_result.cache_saved_cost_usd is not None:
         payload["cache_saved_cost_usd"] = _cost_text(candidate_result.cache_saved_cost_usd)
+    # INVARIANT (E14, C4): absent for a plain run, and a board before E14 refuses an unknown key.
+    if candidate_result.replay is not None:
+        payload["replay"] = _replay_block(candidate_result.replay)
     return payload
+
+
+def _replay_block(replay: ReplayProvenance) -> dict[str, object]:
+    """The C4 `replay` block. A replay run with no counters is refused before any HTTP call.
+
+    WHY refuse (OD-10, SC-D7): a replay must never show as an independent result, and C4 needs
+    integer counts. Zeros would state a fact nobody measured.
+    """
+    if replay.hits is None or replay.misses is None or replay.repeated_key_collapses is None:
+        raise ValueError(
+            "this replay run has no replay counters from the SF Engine, "
+            "so it cannot be submitted as a replay"
+        )
+    baseline = replay.pinned_baseline_result_id
+    return {
+        "result_id": str(replay.result_id),
+        "cache_version_id": str(replay.cache_version_id),
+        "hits": replay.hits,
+        "misses": replay.misses,
+        "repeated_key_collapses": replay.repeated_key_collapses,
+        "pinned_baseline_result_id": None if baseline is None else str(baseline),
+    }
 
 
 def _submission_models(models: Sequence[str]) -> list[str]:
@@ -536,6 +1085,61 @@ def _submission_authors(authors: Sequence[str] | None) -> tuple[str, ...] | None
         if len(author) > _MAX_AUTHOR_LENGTH or _AUTHOR_EMAIL.fullmatch(author) is None:
             raise ValueError("each author must be a valid email address of at most 255 characters")
     return selected
+
+
+def _expected_revision(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("expected_revision must be an integer")
+    if value < 1:
+        raise ValueError("expected_revision must be positive")
+    return value
+
+
+def _paper_url_text(value: object) -> str:
+    # WHY the type is the only rule: the Scoreboard is the one validator of paper URLs (MD-E5),
+    # so the SDK never drifts from it.
+    if not isinstance(value, str):
+        raise TypeError("paper_url must be a string or None")
+    selected = value.strip()
+    if not selected:
+        raise ValueError("paper_url must be non-blank text or None")
+    return selected
+
+
+def _revision_of_text(value: object) -> str:
+    # WHY the type and blankness are the only rules: the registry owns the name grammar (SR-E2),
+    # so the SDK never drifts from it.
+    if not isinstance(value, str):
+        raise TypeError("revision_of must be a string or None")
+    selected = value.strip()
+    if not selected:
+        raise ValueError("revision_of must be non-blank text or None")
+    return selected
+
+
+def _metadata_patch(
+    authors: Sequence[str] | None | _Unset,
+    paper_url: str | None | _Unset,
+) -> dict[str, object]:
+    """The C5 body: only the fields the caller gave.
+
+    INVARIANT: `None` is a value here (it clears the field, MD-E7) and is sent as JSON null.
+    "Not given" is the `UNSET` sentinel, which sends no key. This differs from `submit`, where
+    `authors=None` means "do not send the key".
+    """
+    if authors is _Unset.UNSET and paper_url is _Unset.UNSET:
+        raise ValueError("update_submission needs authors or paper_url")
+    body: dict[str, object] = {}
+    if authors is not _Unset.UNSET:
+        if authors is None:
+            body["authors"] = None
+        else:
+            selected = _submission_authors(authors)
+            assert selected is not None
+            body["authors"] = list(selected)
+    if paper_url is not _Unset.UNSET:
+        body["paper_url"] = None if paper_url is None else _paper_url_text(paper_url)
+    return body
 
 
 def _score_value(candidate_result: CandidateResult) -> float:
@@ -725,14 +1329,22 @@ def _benchmark_id(value: object) -> str:
 
 
 def _score_id(value: object) -> UUID:
+    return _uuid_argument(value, "score_id")
+
+
+def _result_id(value: object) -> UUID:
+    return _uuid_argument(value, "result_id")
+
+
+def _uuid_argument(value: object, name: str) -> UUID:
     if isinstance(value, UUID):
         return value
     if not isinstance(value, str):
-        raise TypeError("score_id must be a UUID or string")
+        raise TypeError(f"{name} must be a UUID or string")
     try:
         return UUID(value)
     except ValueError as exc:
-        raise ValueError("score_id must be a valid UUID") from exc
+        raise ValueError(f"{name} must be a valid UUID") from exc
 
 
 def _top(value: object) -> int:

@@ -54,3 +54,12 @@ cors:
 helm template scoreboard apps/scoreboard/charts/scoreboard \
   --values apps/scoreboard/charts/scoreboard/values-prod.yaml
 ```
+
+## E14 values
+
+The E14 (reproducible submissions) values are `config.adminEmails`, `config.clustering`,
+`config.receiptPublicKeys`, `config.publish.*`, `e14Secret.*` and `networkPolicy.clientNamespace` /
+`clientPodNames`. `values-prod.yaml` now sets `config.authMode: cloudflare_headers`, turns the
+Ingress off, and needs the Envoy data-plane peers at install time. The chart refuses unsafe
+combinations at render time. The values, the key recipe and the ops checklist are in
+`apps/scoreboard/DEPLOYMENT.md`, section "E14 deploy wiring".

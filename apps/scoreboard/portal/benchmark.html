@@ -123,10 +123,11 @@
     </div>
   </div>
 
-  <!-- leaderboard-logic.js before benchmark.js: it publishes window.SFLeaderboardLogic,
-       which benchmark.js reads at render time. Both are `defer`, so they execute in
-       document order. -->
+  <!-- leaderboard-logic.js and reported-results.js before benchmark.js: they publish
+       window.SFLeaderboardLogic and window.SFReportedResults, which benchmark.js reads at render
+       time. All are `defer`, so they execute in document order. -->
   <script src="leaderboard-logic.js" defer></script>
+  <script src="reported-results.js" defer></script>
   <script src="pareto-chart.js" defer></script>
   <script src="main.js" defer></script>
   <script src="benchmark.js" defer></script>

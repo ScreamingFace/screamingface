@@ -57,6 +57,7 @@ class Client:
             _client_caller_auth,
         )
         from screamingface._engine.benchmark import BenchmarkResources
+        from screamingface._engine.cache_versions import EngineCacheVersions
         from screamingface._engine.catalog import Benchmarks, Models
         from screamingface._engine.connections import Connections
         from screamingface._engine.transport import Url4CloudTransport
@@ -101,6 +102,7 @@ class Client:
         self.leaderboards: Leaderboards = Leaderboards(
             self._scoreboard_request,
             self._scoreboard_url,
+            freezer=EngineCacheVersions(self._http_request),
         )
 
     @property
@@ -211,6 +213,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: None = None,
     ) -> Report: ...
 
     @overload
@@ -223,6 +226,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report: ...
 
     def evaluate(
@@ -234,9 +238,11 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report:
         """Evaluate Recipes, or replay one complete evaluation URL4 unchanged."""
 
+        from screamingface._evaluation.replay import prepare_replay_sync
         from screamingface._evaluation.runner import evaluate_sync
         from screamingface._evaluation.url4 import evaluate_url4_sync
 
@@ -245,6 +251,7 @@ class Client:
         # fail before any token is minted or run scheduled.
         selected_seed = _answer_seed_value(answer_seed)
         if isinstance(candidates, str):
+            _raw_url4_replay(replay)
             _raw_url4_options(benchmark, limit)
             return evaluate_url4_sync(
                 self._transport,
@@ -255,6 +262,14 @@ class Client:
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
+        # FEATURE (OME-1307): the grant comes first, so a pin that does not resolve spends nothing.
+        binding = (
+            None
+            if replay is None
+            else prepare_replay_sync(
+                replay, candidates, benchmark, limit, self.leaderboards._replay_grant
+            )
+        )
         return evaluate_sync(
             self._benchmark_resources.load,
             self._transport,
@@ -266,6 +281,7 @@ class Client:
             on_event,
             progress,
             answer_seed=selected_seed,
+            replay=binding,
         )
 
     @overload
@@ -346,9 +362,15 @@ class Client:
         path: str,
         *,
         json: Any = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
-        return self._http.request(method, path, json=json, extensions={_REPLAY_SAFE: True})
+        # FEATURE: OME-1307 (E14) the freeze names its own 60 s timeout (C2a). Every other engine
+        # call keeps the client's timeout, so the default call shape does not change.
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        return self._http.request(
+            method, path, json=json, extensions={_REPLAY_SAFE: True}, **options
+        )
 
     def _scoreboard_request(
         self,
@@ -359,8 +381,10 @@ class Client:
         json: Any = None,
         headers: Mapping[str, str] | None = None,
         replay_safe: bool = False,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
         return self._scoreboard_http.request(
             method,
             path,
@@ -368,6 +392,7 @@ class Client:
             json=json,
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
+            **options,
         )
 
 
@@ -390,6 +415,7 @@ class AsyncClient:
             _client_caller_auth,
         )
         from screamingface._engine.benchmark import AsyncBenchmarkResources
+        from screamingface._engine.cache_versions import AsyncEngineCacheVersions
         from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
         from screamingface._engine.connections import AsyncConnections
         from screamingface._engine.transport import AsyncUrl4CloudTransport
@@ -434,6 +460,7 @@ class AsyncClient:
         self.leaderboards: AsyncLeaderboards = AsyncLeaderboards(
             self._scoreboard_request,
             self._scoreboard_url,
+            freezer=AsyncEngineCacheVersions(self._http_request),
         )
 
     @property
@@ -544,6 +571,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: None = None,
     ) -> Report: ...
 
     @overload
@@ -556,6 +584,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report: ...
 
     async def evaluate(
@@ -567,9 +596,11 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
+        replay: str | None = None,
     ) -> Report:
         """Asynchronously evaluate Recipes, or replay one complete evaluation URL4."""
 
+        from screamingface._evaluation.replay import prepare_replay_async
         from screamingface._evaluation.runner import evaluate_async
         from screamingface._evaluation.url4 import evaluate_url4_async
 
@@ -577,6 +608,7 @@ class AsyncClient:
         # FEATURE (OME-1193): see the sync twin — validate at the door.
         selected_seed = _answer_seed_value(answer_seed)
         if isinstance(candidates, str):
+            _raw_url4_replay(replay)
             _raw_url4_options(benchmark, limit)
             return await evaluate_url4_async(
                 self._transport,
@@ -587,6 +619,14 @@ class AsyncClient:
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
+        # FEATURE (OME-1307): see the sync twin.
+        binding = (
+            None
+            if replay is None
+            else await prepare_replay_async(
+                replay, candidates, benchmark, limit, self.leaderboards._replay_grant
+            )
+        )
         return await evaluate_async(
             self._benchmark_resources.load,
             self._transport,
@@ -598,6 +638,7 @@ class AsyncClient:
             on_event,
             progress,
             answer_seed=selected_seed,
+            replay=binding,
         )
 
     @overload
@@ -663,9 +704,13 @@ class AsyncClient:
         path: str,
         *,
         json: Any = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
-        return await self._http.request(method, path, json=json, extensions={_REPLAY_SAFE: True})
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        return await self._http.request(
+            method, path, json=json, extensions={_REPLAY_SAFE: True}, **options
+        )
 
     async def _scoreboard_request(
         self,
@@ -676,8 +721,10 @@ class AsyncClient:
         json: Any = None,
         headers: Mapping[str, str] | None = None,
         replay_safe: bool = False,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
         return await self._scoreboard_http.request(
             method,
             path,
@@ -685,6 +732,7 @@ class AsyncClient:
             json=json,
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
+            **options,
         )
 
 
@@ -693,6 +741,12 @@ def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
         raise TypeError("benchmark must not be passed when evaluating a complete URL4")
     if limit is not None:
         raise TypeError("limit must not be passed when evaluating a complete URL4")
+
+
+def _raw_url4_replay(replay: object) -> None:
+    # WHY (OD-9): a raw URL4 names no `benchmark=`, and the grant request (C6) needs a benchmark id.
+    if replay is not None:
+        raise TypeError("replay requires Recipe candidates and benchmark=")
 
 
 def _engine_access_discovery_error(origin: str) -> BaseException:

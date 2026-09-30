@@ -16,6 +16,7 @@ from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
 from tortoise.expressions import Q
+from tortoise.functions import Count
 from tortoise.query_api import execute_pypika
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
@@ -23,7 +24,7 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 
 from .frontier import FrontierMember, HistoryRow
-from .models import Benchmark, IdempotencyKey, Score
+from .models import Benchmark, IdempotencyKey, ReportedResult, Score
 from .pareto import ParetoEntry
 from .schemas import (
     BenchmarkSchema,
@@ -133,6 +134,11 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # this field, so it was stored and never left the database, and a purge-certifying
         # export would have omitted data the purge deletes (review of PR #1055, P1).
         cache_saved_cost_usd=model.cache_saved_cost_usd,
+        # FEATURE: OME-1307 (E14) — inert here; each is excluded from output at its default.
+        paper_url=model.paper_url,
+        metadata_revision=model.metadata_revision,
+        metadata_updated_at=model.metadata_updated_at,
+        system_revision_id=model.system_revision_id,
     )
 
 
@@ -302,6 +308,9 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "url4_expression": submission.url4_expression,
         "submitted_by": submission.submitted_by,
         "authors": submission.authors,
+        # FEATURE: OME-1307 (E14a) — metadata, not identity: deliberately absent from
+        # `_content_hash` and from `_REPLAY_FIELDS` (OD-M1), so it never splits or rewrites a row.
+        "paper_url": submission.paper_url,
         "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,
@@ -796,6 +805,24 @@ class ScoreStore:
         """
         updated = await Benchmark.filter(id=benchmark_id).update(visibility=visibility)
         return bool(updated)
+
+    async def set_redistributable(self, benchmark_id: str, value: bool) -> bool | None:
+        """Set an EXISTING benchmark's redistributable flag, touching nothing else.
+
+        None: no such benchmark. Otherwise the value it had BEFORE this call (the admin audit
+        record needs it, C10 MRA-2); the caller compares it with `value` to know if it changed.
+        FEATURE: OME-1307 (E14) D6 — the audited admin route is the only writer.
+        AIDEV-NOTE: `register_benchmark` must never write this column. The seed job runs on every
+        deploy, and it must not reset an admin decision. No row lock: two admins who write at once
+        each get an audited answer, and the last write wins.
+        """
+        row = await Benchmark.get_or_none(id=benchmark_id)
+        if row is None:
+            return None
+        before = row.redistributable
+        if before != value:
+            await Benchmark.filter(id=benchmark_id).update(redistributable=value)
+        return before
 
     async def list_benchmarks(self) -> list[BenchmarkSchema]:
         rows = await Benchmark.all().order_by("id")
@@ -1573,6 +1600,64 @@ class ScoreStore:
         return {
             str(row["id"]): cast("list[str] | None", row["models"])
             for row in await _chunked_values(score_ids, "id", "models")
+        }
+
+    async def lock_visibility(
+        self, benchmark_id: str, per_submitter: bool, *, connection: Any
+    ) -> None:
+        """Lock the benchmark row and refuse if `visibility` no longer matches the decision.
+
+        FEATURE: OME-1307 (E14) — the clustered submit (`ClusterStore`) calls this first inside its
+        write transaction, so the decision it took and the write it makes see one state.
+        """
+        await self._revalidate_visibility(
+            benchmark_id, per_submitter, connection=connection, lock=True
+        )
+
+    async def readable_by(
+        self, score: Score | None, *, submitted_by: str | None, identity_verified: bool
+    ) -> Score | None:
+        """`score`, or None when this caller may not read it (one definition: `_readable_by`)."""
+        return await self._readable_by(
+            score, submitted_by=submitted_by, identity_verified=identity_verified
+        )
+
+    async def results_counts(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, int]:
+        """How many reported results each head in `score_ids` has, read in chunks.
+
+        FEATURE: OME-1307 (E14) — the leaderboard row shows "N reported results" from two. A head
+        with no rows is absent from the result. `connection`: a `read_snapshot()` connection.
+        """
+        counts: dict[str, int] = {}
+        for start in range(0, len(score_ids), _MODELS_READ_CHUNK):
+            chunk = list(score_ids[start : start + _MODELS_READ_CHUNK])
+            rows = (
+                await ReportedResult.filter(head_id__in=chunk)
+                .using_db(connection)
+                .annotate(n=Count("id"))
+                .group_by("head_id")
+                .values("head_id", "n")
+            )
+            counts.update({str(row["head_id"]): int(row["n"]) for row in rows})
+        return counts
+
+    async def paper_urls_for_score_ids(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, str]:
+        """The paper link of each score in ``score_ids`` that has one, read in chunks.
+
+        FEATURE: OME-1307 (E14a) — the board shows the link beside a row. `connection`: a
+        `read_snapshot()` connection, so the links come from the snapshot of the ranked rows.
+
+        INVARIANT: selects `id` and `paper_url` and nothing else, like `models_for_score_ids`.
+        A score with no link is absent from the result, so a row without one gains no key.
+        """
+        return {
+            str(row["id"]): cast(str, row["paper_url"])
+            for row in await _chunked_values(score_ids, "id", "paper_url", connection=connection)
+            if row["paper_url"] is not None
         }
 
     @asynccontextmanager

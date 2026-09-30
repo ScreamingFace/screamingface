@@ -27,6 +27,9 @@ from .core.auth.log_filter import (
     install_provisioning_token_redaction,
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
+from .core.cache_versions.capture_store import TortoiseCaptureSink
+from .core.cache_versions.stats import CaptureStats
+from .core.cache_versions.wiring import build_cache_version_services
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
@@ -57,6 +60,7 @@ from .routes import (
     api_key_validation,
     auth,
     auth_session,
+    cache_versions,
     chat,
     health,
     model_admission,
@@ -249,12 +253,20 @@ async def _lifespan(app):
                 app.state.settings.cache_snapshot_s3_bucket,
             )
 
+        # FEATURE: OME-1307 (E14, GW-freeze): the archive exporter is one owned task, started here
+        # and stopped in the finally below, like the snapshot scheduler.
+        if app.state.cache_version_exporter is not None:
+            app.state.cache_version_exporter.start()
+
         yield
     finally:
         # The scheduler's owned task must never outlive the app: cancel and await it.
         scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
         if scheduler is not None:
             await scheduler.stop()
+        version_exporter = getattr(app.state, "cache_version_exporter", None)
+        if version_exporter is not None:
+            await version_exporter.stop()
         # §9.12: closed explicitly here rather than left to __del__, which is not
         # guaranteed to run and cannot await. An unclosed handler leaks its connection
         # pool across TestClient lifecycles and across a reload in dev.
@@ -426,6 +438,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # OME-1044: the Tavily retrieval lane takes no availability gate — it is unconditional
     # (owner decision), so unlike the response cache above there is nothing to configure.
     app.state.tavily_retrieval_cache_store = TavilyRetrievalCacheStore()
+    # FEATURE: OME-1307 (E14) - the capture sink and its in-process counters. Both are always built;
+    # `begin_capture` reads `cache_versions_enabled`, so the kill switch needs no rebuild here.
+    app.state.capture_sink = TortoiseCaptureSink()
+    app.state.capture_stats = CaptureStats()
+    # FEATURE: OME-1307 (E14, GW-freeze) - the freezer and the archive exporter. Either can be
+    # `None`: the freezer when the flag is off or the signing key is unset, the exporter when the
+    # archive backend is `none`.
+    cache_version_services = build_cache_version_services(settings, app.state.capture_stats)
+    app.state.cache_version_freezer = cache_version_services.freezer
+    app.state.cache_version_exporter = cache_version_services.exporter
+    # FEATURE: OME-1307 (E14, GW-replay) - the version lookup and the grant verifier (`None` when
+    # the flag is off or no grant public key is set).
+    app.state.cache_version_lookup = cache_version_services.lookup
+    app.state.replay_grant_verifier = cache_version_services.grant_verifier
 
     _configure_fake_anthropic_oauth(app)
     _configure_fake_codex_oauth(app)
@@ -470,6 +496,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
+    app.include_router(cache_versions.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))
     return app

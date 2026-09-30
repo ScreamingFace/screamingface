@@ -170,3 +170,64 @@ from starting, turning "I needed no credential" into an outage.
 true
 {{- end -}}
 {{- end -}}
+
+{{/*
+Refuse cache-version settings that the app would refuse at start, or that hide a mistake.
+*/}}
+{{- define "aigateway.validateCacheVersions" -}}
+{{- $cv := .Values.config.cacheVersions -}}
+{{- if not (has $cv.archive.backend (list "none" "s3")) -}}
+{{- fail (printf "config.cacheVersions.archive.backend=%q is not supported by the chart — set none or s3. filesystem is for `screamingface up` only: a per-Pod directory is not shared across replicas, and the scoreboard could not read it." $cv.archive.backend) -}}
+{{- end -}}
+{{- if and $cv.enabled (not $cv.existingSecret) (not $cv.receiptSigningKey) -}}
+{{- fail "config.cacheVersions.enabled=true with no key source — the gateway signs receipts with AIGATEWAY_RECEIPT_SIGNING_KEY. Set config.cacheVersions.existingSecret (recommended) or, for dev only, config.cacheVersions.receiptSigningKey. The chart never mints a receipt key: the scoreboard must hold its public half." -}}
+{{- end -}}
+{{- if eq $cv.archive.backend "s3" -}}
+{{- if not $cv.enabled -}}
+{{- fail "config.cacheVersions.archive.backend=s3 with config.cacheVersions.enabled=false — an exporter with the capture off is a mistake. Set config.cacheVersions.enabled=true, or the backend to none." -}}
+{{- end -}}
+{{- if not (include "aigateway.cacheVersionsEndpoint" .) -}}
+{{- fail "config.cacheVersions.archive.backend=s3 with no endpoint — set config.cacheVersions.archive.endpointUrl, or enable the bundled Garage (snapshot.enabled and snapshot.garage.enabled)." -}}
+{{- end -}}
+{{- if and (not $cv.existingSecret) (not (and $cv.archiveAccessKey $cv.archiveSecretKey)) -}}
+{{- fail "config.cacheVersions.archive.backend=s3 with no credentials source — set config.cacheVersions.existingSecret (recommended), or both config.cacheVersions.archiveAccessKey and config.cacheVersions.archiveSecretKey (dev only)." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The S3 endpoint of the cache-version archive: the operator's `archive.endpointUrl`, else the
+bundled snapshot Garage Service when it is enabled (the `aigateway.snapshotEndpoint` form), else
+empty (validateCacheVersions refuses that for the s3 backend).
+*/}}
+{{- define "aigateway.cacheVersionsEndpoint" -}}
+{{- if .Values.config.cacheVersions.archive.endpointUrl -}}
+{{- .Values.config.cacheVersions.archive.endpointUrl -}}
+{{- else if and .Values.snapshot.enabled .Values.snapshot.garage.enabled -}}
+{{- printf "http://%s-garage:3900" (include "aigateway.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The Secret carrying the receipt signing key and the archive writer key - an operator's own when
+supplied, else the chart's.
+*/}}
+{{- define "aigateway.cacheVersionsSecretName" -}}
+{{- if .Values.config.cacheVersions.existingSecret -}}
+{{- .Values.config.cacheVersions.existingSecret -}}
+{{- else -}}
+{{- printf "%s-cache-versions" (include "aigateway.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Prints `true` when any inline cache-version secret value is set, else nothing (the
+`aigateway.tracingHasSecret` form, so `if include ...` works).
+*/}}
+{{- define "aigateway.cacheVersionsInlineSecret" -}}
+{{- with .Values.config.cacheVersions -}}
+{{- if or .receiptSigningKey .archiveAccessKey .archiveSecretKey -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}

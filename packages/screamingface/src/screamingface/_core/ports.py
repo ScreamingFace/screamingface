@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from uuid import UUID
 
 if TYPE_CHECKING:
     from screamingface._evaluation.model import Candidate
@@ -28,6 +29,31 @@ class _ResultArtifact:
     id: str
     size_bytes: int
     sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplayBinding:
+    """A grant the Scoreboard issued for one pinned run (contracts.md C6).
+
+    INVARIANT: the grant is an opaque string. The SDK never decodes, verifies or logs it, so the
+    field is kept out of `repr`.
+    """
+
+    grant: str = field(repr=False)
+    result_id: UUID
+    score_id: UUID
+    cache_version_id: UUID
+    expires_at: datetime
+    pinned_baseline_result_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplayCounts:
+    """The three replay counters of the engine closing cache-summary frame (contracts.md C12)."""
+
+    hits: int
+    misses: int
+    repeated_key_collapses: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +87,9 @@ class _RunOutcome:
     # including for a run whose frames never arrived.
     trace_id: str | None = None
     client_version: str | None = None
+    # FEATURE (OME-1307, C12): the root replay counters of a run that carried a replay grant.
+    # None means the Engine sent none, which is not the same as zero.
+    replay_counts: _ReplayCounts | None = None
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
@@ -122,6 +151,50 @@ class AsyncRunTransport(Protocol):
     async def cancel_active(self) -> None: ...
 
     async def close(self) -> None: ...
+
+
+# FEATURE: OME-1307 (E14) the freeze port. The core owns it; `_engine/cache_versions.py` is the
+# adapter and `client.py` joins them, so `_scoreboard/leaderboards.py` sees only these types.
+@dataclass(frozen=True, slots=True)
+class _FrozenCacheVersion:
+    """A version the gateway froze for one trace (contracts.md C2a).
+
+    INVARIANT: `receipt` is an opaque JWS. The SDK never decodes, verifies or logs it.
+    """
+
+    receipt: str
+    cache_version_id: UUID
+    entry_count: int
+    call_count: int
+    missing_count: int
+    coverage_status: Literal["complete", "partial"]
+    archive_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FreezeUnavailable:
+    """Why no version rides this submit (prd/submit-and-cluster.md SC-E1).
+
+    INVARIANT: `reason` is a token that matches `^[a-z0-9_]{1,64}$`, never untrusted text,
+    because it goes into a log line and a user-visible warning.
+    """
+
+    reason: str
+
+
+type _FreezeOutcome = _FrozenCacheVersion | _FreezeUnavailable
+
+
+class SyncCacheVersionFreezer(Protocol):
+    """Freeze the cache version of one trace."""
+
+    def freeze(self, trace_id: str) -> _FreezeOutcome: ...
+
+
+class AsyncCacheVersionFreezer(Protocol):
+    """Asynchronous counterpart of :class:`SyncCacheVersionFreezer`."""
+
+    async def freeze(self, trace_id: str) -> _FreezeOutcome: ...
 
 
 __all__: list[str] = []

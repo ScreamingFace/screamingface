@@ -338,6 +338,154 @@ narrow the same way. It is a targeted version of the full reset, not a different
 carries the same guarantee: the next caller re-fills what was removed. There is no runtime
 endpoint for this — it is a deliberate database operation, on purpose.
 
+### Cache versions: capture
+
+`AIGW_CACHE_VERSIONS_ENABLED` is the E14 kill switch. It is `false` by default. When it is `true`,
+the chat route records each call that carries a valid inbound `traceparent` header. A call with no
+valid `traceparent` header is not recorded. This is true also when the live cache is off.
+
+What capture stores:
+
+- One row in `cache_capture_entry` for each traced call. The row holds the account, the trace id,
+  the cache key hash (NULL when the call has no key, for example a stream), and the outcome:
+  `hit`, `stored`, `unstored`, `bypass`, `version_hit` or `error`.
+- The response body is in this row only for the outcomes `unstored`, `bypass` and `version_hit`,
+  and only when the call has a key. For `hit` and `stored`, the live cache row holds the body.
+- One row in `request_cache_prompt` for each distinct key hash. It holds the prompt text (the
+  canonical key material) in plaintext. A prompt is stored once, also when many calls use it.
+
+Capture rows and prompt rows are kept forever. The gateway does not delete them. A capture failure
+never changes the chat response. It only adds one to an in-process counter.
+
+`AIGW_AUTH_MODE=disabled` is for development only. In this mode, every caller is the anonymous
+account, so all traces share one capture scope. In production, `cloudflare_headers` gives one
+capture scope for each verified user.
+
+A prune of the live cache must not delete a prompt that a capture row still names. After a cache
+prune, run this statement. It deletes only the prompts that no capture row and no live cache row
+names, and it runs unchanged on SQLite and PostgreSQL:
+
+```sql
+DELETE FROM request_cache_prompt WHERE NOT EXISTS (SELECT 1 FROM cache_capture_entry c WHERE c.key_hash = request_cache_prompt.key_hash) AND NOT EXISTS (SELECT 1 FROM request_cache_entries e WHERE e.key_hash = request_cache_prompt.key_hash)
+```
+
+### Cache versions: freeze, receipt, archive
+
+`POST /v1/cache-versions` freezes one traced run. The body is `{"trace_id": "<32 lowercase hex>"}`.
+The caller must be logged in. The gateway freezes only the calls of the caller's own account. It
+copies the full request and the full response of each call into `cache_version_entry` and
+`cache_version_blob`. A version never changes after it is written.
+
+The route answers with a receipt (a signed JWS) and the counts of the version. A first freeze gives
+`201`. A repeated freeze of the same trace gives `200` with the same version id and the same
+`archive_sha256`. The receipt can differ (its `iat` claim).
+
+| Status | `detail.code` | Meaning |
+|---|---|---|
+| 404 | `trace_not_captured` | The account has no captured call for this trace. |
+| 413 | `cache_version_too_large` | The trace passes a cap. `detail.limit` is `entries` or `archive_bytes`. Nothing is written. |
+| 503 | `capture_disabled` | `AIGW_CACHE_VERSIONS_ENABLED` is off, or `AIGATEWAY_RECEIPT_SIGNING_KEY` is not set. |
+| 422 | (validation list) | The body is not valid. |
+
+A call that failed (outcome `error`), and a call whose live cache row is pruned or has expired, is
+not copied. It is counted in `missing_count`, and `coverage_status` is `partial`.
+
+Settings:
+
+| Variable | Default | Use |
+|---|---|---|
+| `AIGATEWAY_RECEIPT_SIGNING_KEY` | unset | The Ed25519 private key that signs receipts. Without it, capture runs and freeze answers `503`. The gateway logs one warning at start. |
+| `AIGW_CACHE_VERSION_MAX_ENTRIES` | `20000` | Most entries in one version. |
+| `AIGW_CACHE_VERSION_MAX_ARCHIVE_BYTES` | `1500000000` | Most compressed bytes of one archive. |
+| `AIGW_CACHE_VERSION_ARCHIVE_BACKEND` | `none` | `none`, `s3` or `filesystem`. With `none`, no archive is written and versions stay `frozen`. |
+| `AIGW_CACHE_VERSION_ARCHIVE_DIR` | unset | The root directory. Required for `filesystem`. |
+| `AIGW_CACHE_VERSION_S3_ENDPOINT_URL` | unset | The S3 origin. Required for `s3`. |
+| `AIGW_CACHE_VERSION_S3_BUCKET` | `screamingface-cache-versions` | The bucket. |
+| `AIGW_CACHE_VERSION_S3_REGION` | `garage` | The signing region. |
+| `AIGW_CACHE_VERSION_S3_ACCESS_KEY` | unset | The write key id. Required for `s3`. |
+| `AIGW_CACHE_VERSION_S3_SECRET_KEY` | unset | The write secret. Required for `s3`. |
+| `AIGW_CACHE_VERSION_S3_TIMEOUT_S` | `120` | The timeout of one bucket request. |
+| `AIGW_CACHE_VERSION_EXPORT_POLL_S` | `30` | The pause between export passes (a freeze wakes the exporter at once). |
+
+The gateway does not start with backend `s3` and a missing endpoint, access key or secret key. It
+does not start with backend `filesystem` and no directory.
+
+Key form. The private key is the standard base64 of the raw 32 bytes of an Ed25519 private key. The
+public key is the standard base64 of the raw 32 bytes of the public key. The receipt header has
+`kid = sha256(raw public key).hexdigest()[:16]`. The scoreboard holds a JSON map
+`{"<kid>": "<base64 public key>"}`. To rotate, add the new public key to that map first, then change
+the private key here. Do not put the key in a log, in `credential_blobs`, or in a chart value. For
+the key helper and the chart values, see the WIRING unit of E14 (`docs/plan/2026-09-29-e14-reproducible-submission/WIRING.md`).
+
+Archive. A version with status `frozen` is written to the archive by a background task. The task
+writes two objects, in this order: `cache-versions/<version id>/entries.jsonl.gz` and
+`cache-versions/<version id>/manifest.json`. Then it sets the status to `archived`. The task rebuilds
+the entries from the database rows and checks that their sha256 is `archive_sha256`. If the hash
+differs, the task does not upload, and it counts a digest mismatch. Objects are written once: the
+gateway checks with a signed `HEAD` and never overwrites an object that exists. While the bucket is
+down, versions stay `frozen`, the task retries with a growing pause (1 s, then 2 s, 4 s, up to 5
+minutes), and the database rows stay complete. Server-side encryption of the bucket is a bucket
+setting, not a request header.
+
+The freeze and export counters stay in the process (no metrics library): `freezes` by result,
+`missing_total`, `export_pending`, `export_failures` and `export_digest_mismatches`.
+
+### Cache versions: replay
+
+A chat call can be answered from one frozen cache version. The caller adds the request header
+`X-AIGW-Cache-Replay: <grant>`. The grant is a compact JWS that the scoreboard signs (`alg` `EdDSA`,
+header `kid`, claims `iss` `scoreboard`, `aud` `aigateway`, `sub`, `vid`, `rid`, `iat`, `exp`). The
+gateway checks the grant before the live cache and before it reads any credential. A hit reads no
+credential and sends nothing to a provider. The header is never sent to a provider.
+
+Result headers. Every `2xx` answer to a call with a valid grant has `X-AIGW-Cache-Version: hit` or
+`X-AIGW-Cache-Version: miss`. This includes a streaming answer and an answer from the live cache.
+A version hit also has `Cache-Status: aigateway; hit; detail=version; key="<12 hex>"`,
+`X-AIGW-Cache: hit` and `X-AIGW-Cache-Key`. A miss runs the normal path, so the call can still hit
+the live cache or run at the provider. A call with no grant has none of these version headers.
+
+Refusal. A bad grant gives `403` with `detail` `{"code": "replay_grant_invalid", "reason": ..., "message": ...}`.
+The call never runs live. `reason` is one of:
+
+| Reason | Meaning |
+|---|---|
+| `signature` | The token is not a valid grant: too long (over 4,096 bytes), no known `kid`, a bad signature, a wrong `iss`, a missing claim, or a `vid` that is not a UUID. Also the answer of a gateway that cannot verify grants (the flag is off, or `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` is empty). |
+| `expired` | `exp` is more than 60 s in the past. |
+| `audience` | `aud` is not `aigateway`. |
+| `unknown_version` | The version `vid` does not exist on this gateway. |
+| `subject` | `sub` is not the caller. The compare ignores case and outer spaces. With `AIGW_AUTH_MODE=disabled` (dev and local only) there is no subject check. |
+
+In production the mode is `cloudflare_headers`. The caller is the lowercased verified `X-User-Email`,
+and the scoreboard puts the same email in `sub`.
+
+Settings:
+
+| Variable | Default | Use |
+|---|---|---|
+| `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` | empty | A JSON object `{"<kid>": "<base64 of the raw 32-byte Ed25519 public key>"}`. The `kid` is the value of `SCOREBOARD_REPLAY_GRANT_SIGNING_KID`. The gateway does not start when a value is not base64 of 32 bytes (the message names the `kid`). Public keys are not secrets. |
+| `AIGW_REPLAY_GRANT_CACHE_TTL_S` | `60` | How long a verified grant is cached in the process. |
+
+The replay path runs only when `AIGW_CACHE_VERSIONS_ENABLED` is on and at least one public key is set.
+It does not need `AIGATEWAY_RECEIPT_SIGNING_KEY`.
+
+Grant cache. The gateway caches a verified grant for 60 s, so a repeated call does not read the
+database to check that the version exists. A cached grant still gets the subject check and the expiry
+check on every call. A refusal is never cached.
+
+Limits.
+
+- A takedown reaches an issued grant only at its `exp` (DR-2). The gateway has no revocation list.
+- A grant lives 12 hours (`exp = iat + 43,200 s`, D4). The engine job deadline (57,600 s) plus the
+  queue wait can be longer. A replay run whose grant expires in the middle of the run fails with
+  `403 replay_grant_invalid`, reason `expired`. The engine reports this as its typed error. There is
+  no refresh.
+- If the version lookup fails (a database error), the call is a miss with a warning in the log, and
+  the answer has `X-AIGW-Cache-Version: miss`. The version is never an availability dependency.
+
+The counter `replay_lookups` (`hit`, `miss`, `invalid_grant`) stays in the process, like the other
+counters. For the chart value and the Secret of the public keys, see the WIRING unit of E14
+(`docs/plan/2026-09-29-e14-reproducible-submission/WIRING.md`, D6).
+
 ### Plaintext storage boundary
 
 Global response rows are readable to anyone with database, replica, snapshot or backup access. If a
@@ -570,3 +718,86 @@ catalog snapshot, held per process (see the replica note below). Default **on**.
 - The Helm chart enables the global response cache by default; it stores plaintext responses and
   has no expiry. Set `config.requestCache.enabled=false` to opt out (see The Global Response Cache).
 - CNPG, backups, PodMonitor, and SigNoz/Prometheus integration are follow-up infrastructure work.
+
+## E14 deploy wiring
+
+This section wires the E14 features (capture, freeze and replay of traced runs, OME-1307) into the
+chart. It applies decisions D6 (flags and deploy wiring) and D7 (key forms). The scoreboard side is
+in `apps/scoreboard/DEPLOYMENT.md`, section "E14 deploy wiring". The ops checklist is there too.
+
+**Create `Secret/aigw-cache-versions` BEFORE you deploy `values-prod.yaml`.** The production values
+set `config.cacheVersions.enabled: true`, and the Deployment then reads that Secret at Pod start
+(`envFrom`, not optional). With the Secret missing, the Pods stay in `CreateContainerConfigError`.
+This stops the WHOLE gateway (every model call of the platform), not only E14.
+
+### Variables and Secret keys
+
+| Variable | Where in the chart | Chart value |
+|---|---|---|
+| `AIGW_CACHE_VERSIONS_ENABLED` | ConfigMap | `config.cacheVersions.enabled` (`false`; prod `true`) |
+| `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` | ConfigMap (JSON) | `config.cacheVersions.replayGrantPublicKeys` |
+| `AIGW_CACHE_VERSION_ARCHIVE_BACKEND` | ConfigMap | `config.cacheVersions.archive.backend` (`none` or `s3`) |
+| `AIGW_CACHE_VERSION_S3_ENDPOINT_URL`, `_BUCKET`, `_REGION` | ConfigMap (s3 only) | `archive.endpointUrl` (or the bundled Garage), `archive.bucket`, `archive.region` |
+| `AIGATEWAY_RECEIPT_SIGNING_KEY` | Secret | `config.cacheVersions.existingSecret` or `receiptSigningKey` (dev) |
+| `AIGW_CACHE_VERSION_S3_ACCESS_KEY`, `AIGW_CACHE_VERSION_S3_SECRET_KEY` | Secret | `existingSecret` or `archiveAccessKey`, `archiveSecretKey` (dev) |
+
+The chart does not emit `AIGW_CACHE_VERSION_ARCHIVE_DIR` (the filesystem archive is for
+`screamingface up` only), the limit and poll settings (`AIGW_CACHE_VERSION_MAX_ENTRIES`,
+`_MAX_ARCHIVE_BYTES`, `_S3_TIMEOUT_S`, `_EXPORT_POLL_S`), or `AIGW_REPLAY_GRANT_CACHE_TTL_S` (code
+defaults). It does not set `AIGW_REQUEST_CACHE_ENABLED`: capture works with the live cache off.
+
+The production Secret is `aigw-cache-versions`. Its keys are the env var names, because `envFrom`
+cannot rename a key: `AIGATEWAY_RECEIPT_SIGNING_KEY`, `AIGW_CACHE_VERSION_S3_ACCESS_KEY` and
+`AIGW_CACHE_VERSION_S3_SECRET_KEY`. A key that a feature does not use yet can be absent.
+
+**The chart never mints a receipt key.** The scoreboard must hold its public half, so a key made
+inside the chart could never be verified there. Make the keys with the helper in
+`apps/scoreboard/DEPLOYMENT.md` ("Make the keys"), and put the `replay-grant` stdout JSON into
+`config.cacheVersions.replayGrantPublicKeys` (`--set-json`). Rotation rules are in the same file.
+
+### Archive backends
+
+- `none` (default): freeze and replay work without a bucket. Nothing is exported.
+- `s3`: the gateway exports the archive of a frozen version to the bucket under
+  `cache-versions/<vid>/`. It needs `enabled: true`, an endpoint and a key pair (`existingSecret`, or
+  both inline keys for dev). The chart refuses an `s3` backend without them.
+- `filesystem` is for `screamingface up` only. A per-Pod directory is not shared across replicas, so
+  the chart refuses it.
+
+With `snapshot.enabled` and `snapshot.garage.enabled`, the endpoint defaults to the bundled Garage
+Service (`http://<fullname>-garage:3900`). To let the scoreboard read the bucket, add its Pods to
+`config.cacheVersions.archive.readerPeers`. One entry must carry BOTH selectors (they are ANDed):
+
+```yaml
+config:
+  cacheVersions:
+    archive:
+      readerPeers:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: scoreboard}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: scoreboard}}
+```
+
+### Bucket steps (ops)
+
+Garage `--default-bucket` creates only the snapshot bucket, so the cache-version bucket and its keys
+are ops steps. Key rights are per bucket, not per prefix, so the bucket holds only `cache-versions/`.
+Check the syntax with `garage --help` of the running version first.
+
+```bash
+garage bucket create screamingface-cache-versions
+garage key create aigw-cache-versions-writer
+garage bucket allow --read --write screamingface-cache-versions --key aigw-cache-versions-writer
+garage key create scoreboard-cache-versions-reader
+garage bucket allow --read screamingface-cache-versions --key scoreboard-cache-versions-reader
+```
+
+On the bundled Garage, run these in the Garage Pod:
+`kubectl -n <gateway-ns> exec -it statefulset/<release>-aigateway-garage -- /garage ...`.
+Encryption at rest (C8a): Garage has no SSE-S3, so use an encrypted volume or an S3 service with SSE,
+and record the choice. Put the writer pair into `aigw-cache-versions` (files
+`AIGW_CACHE_VERSION_S3_ACCESS_KEY` and `AIGW_CACHE_VERSION_S3_SECRET_KEY`) and the reader pair into
+the scoreboard `scoreboard-e14` Secret, with the one-file-per-key recipe of the scoreboard section.
+Then set `archive.backend: s3` and the endpoint.
+
+`config.cacheVersions.enabled: true` stores the prompts and answers of traced runs (a data posture,
+like the global response cache).

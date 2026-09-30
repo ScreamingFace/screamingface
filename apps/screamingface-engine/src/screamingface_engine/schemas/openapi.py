@@ -117,6 +117,13 @@ TAGS: list[dict[str, str]] = [
             "Connect provider credentials through the ScreamingFace Engine. " + _ERROR_DIALECT_NOTE
         ),
     },
+    {
+        "name": "Cache versions",
+        "description": (
+            "Freeze a run's cache entries into a cache version through the AI Gateway (E14). "
+            + _ERROR_DIALECT_NOTE
+        ),
+    },
 ]
 
 

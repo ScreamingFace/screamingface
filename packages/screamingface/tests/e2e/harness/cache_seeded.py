@@ -35,8 +35,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 from urllib.parse import quote
 
 import httpx
@@ -45,10 +46,12 @@ from ._local_proc import (
     ManagedProcess,
     clean_env,
     free_port,
+    refuse_secret_env,
     repo_root,
     sync_project,
     venv_bin,
 )
+from .identity import EDGE_NETWORK, FORWARDED_ALLOW_IPS_E2E
 
 ADMIN_ROLE_EMAIL: Final = "e2e-replay-admin@localhost"
 _UPLOAD_TIMEOUT_SECONDS: Final = 120.0
@@ -67,9 +70,27 @@ class CacheSeededGateway:
         manifest: the ``.manifest.json`` revision-guard sidecar, or ``None`` to load
             unverified (the job then carries the ``revisions_unverified`` warning).
         work_dir: where child logs land (a pytest ``tmp_path`` works).
+        extra_env: FEATURE OME-1307 (E14) E2E: variables added after the fixed env (the E14
+            keys, flags and archive dir). A secret key is refused (``refuse_secret_env``), and
+            so is ``AIGW_AUTH_MODE``: the mode is chosen by ``auth_mode``.
+        auth_mode: ``disabled`` (default, the OME-961 behaviour) or ``cloudflare_headers``
+            (D5, the production mode; the seed calls then carry the admin identity).
     """
 
-    def __init__(self, *, snapshot: Path, manifest: Path | None, work_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        snapshot: Path,
+        manifest: Path | None,
+        work_dir: Path,
+        extra_env: Mapping[str, str] | None = None,
+        auth_mode: Literal["disabled", "cloudflare_headers"] = "disabled",
+    ) -> None:
+        refuse_secret_env(extra_env)
+        if extra_env is not None and "AIGW_AUTH_MODE" in extra_env:
+            raise ValueError("refusing env key: AIGW_AUTH_MODE (use auth_mode=)")
+        self._extra_env = dict(extra_env or {})
+        self._auth_mode = auth_mode
         self._snapshot = snapshot
         self._manifest = manifest
         self._work_dir = work_dir
@@ -161,6 +182,18 @@ class CacheSeededGateway:
                 # Deliberately absent: every provider key. Spend is impossible.
             }
         )
+        if self._auth_mode == "cloudflare_headers":
+            # FEATURE: OME-1307 (E14) E2E, D5: the production identity mode. The peer check
+            # runs first, so the loopback peer must be an allowed network (see `identity`).
+            env["AIGW_AUTH_MODE"] = "cloudflare_headers"
+            env["AIGW_ALLOWED_NETWORKS"] = EDGE_NETWORK
+            env["FORWARDED_ALLOW_IPS"] = FORWARDED_ALLOW_IPS_E2E
+            # WHY: an authenticating gateway creates the bootstrap `admin` account at first boot
+            # and refuses to start without a password. Throwaway, for a loopback-only container
+            # database; the harness never logs in as this account and it is not a provider key.
+            env["AIGATEWAY_ADMIN_PASSWORD"] = "e2e-bootstrap-admin-not-a-secret"
+        # WHY after the fixed env: the E14 keys, flags and archive dir are added on top.
+        env.update(self._extra_env)
         self._process = ManagedProcess(
             name="aigateway",
             command=[
@@ -200,7 +233,11 @@ class CacheSeededGateway:
                     (self._manifest.name, self._manifest.read_bytes(), "application/json"),
                 )
             )
-        with httpx.Client(base_url=base_url, timeout=30.0) as client:
+        # In cloudflare_headers mode the admin route needs the verified admin identity.
+        headers = (
+            {"X-User-Email": ADMIN_ROLE_EMAIL} if self._auth_mode == "cloudflare_headers" else {}
+        )
+        with httpx.Client(base_url=base_url, timeout=30.0, headers=headers) as client:
             accepted = client.post("/v1/admin/cache/snapshots", files=files, data={"mode": "merge"})
             if accepted.status_code != 202:
                 raise SnapshotLoadFailed(

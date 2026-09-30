@@ -28,6 +28,11 @@ from screamingface_engine.operation_accounting import (
     combine_operation_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
+from screamingface_engine.replay_outcomes import (
+    grant_rejection_reason,
+    report_grant_rejection,
+    report_version_outcome,
+)
 from screamingface_engine.request_scope import (
     PROFILE_HEADER,
     RequestScope,
@@ -83,6 +88,7 @@ from url4.peer.server import Request, Url4Node
 from url4.streaming.protocol import CachePolicy
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
+_CACHE_REPLAY_HEADER = "X-AIGW-Cache-Replay"
 _truncate_tool_result = truncate_tool_result
 # WHY the pre-refactor name, not `__name__` (FX-19): this module moved from `runner/` to
 # `world/` in unit 1, and operators filter the runtime log by logger name. Keeping the old name
@@ -170,15 +176,17 @@ async def _observed_round_trip(
         resp, outcome = await _fetch_completion(
             http_client, headers=headers, body=body, cache=cache
         )
+        _report_version(outcome, grant_sent=_CACHE_REPLAY_HEADER in headers)
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
-        retained = _retained_operation_accounting(
-            request_model=real_model_id,
-            usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
-            aigw=data.get("_aigw"),
-            cache=outcome,
+        operation_accounting.append(
+            _retained_operation_accounting(
+                request_model=real_model_id,
+                usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
+                aigw=data.get("_aigw"),
+                cache=outcome,
+            )
         )
-        operation_accounting.append(retained)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
@@ -562,6 +570,24 @@ def _hit_cost(call: CallAccounting | None) -> Decimal:
     return call.cost_usd if call is not None and call.cost_usd is not None else Decimal(0)
 
 
+def _report_version(outcome: CacheOutcome | None, *, grant_sent: bool) -> None:
+    """Tell the run's sink what the gateway said about the cache version.
+
+    `None` is accepted for the same reason `_report_usage` accepts it: a caller with no reading
+    of the response (a stubbed fetch) has nothing to report.
+
+    INVARIANT (E14, RP-E6, RP-H5, C12): a 2xx call that SENT the grant and got no readable
+    version answer is a version MISS. A gateway that does not honour the grant (an old or mixed
+    replica, a path that drops the header) served that call from the live provider, and counting
+    nothing would let a partly live replay read as complete. A call that sent no grant reports
+    nothing when it has no answer, so a plain run stays byte-identical.
+    """
+    if outcome is not None and outcome.version is not None:
+        report_version_outcome(outcome.version, outcome.key)
+    elif grant_sent:
+        report_version_outcome("miss", None)
+
+
 def _report_usage(
     model: str, usage: dict | None, aigw: object = None, cache: CacheOutcome | None = None
 ) -> None:
@@ -796,7 +822,7 @@ async def _fetch_completion(
         # unrecognised key silently costs every hit (spec §1.0).
         body={**body, **policy_to_body_field(cache)},
     )
-    _raise_for_status(resp)
+    _raise_for_status_counting_miss(resp, grant_sent=_CACHE_REPLAY_HEADER in headers)
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
         return resp, outcome
@@ -808,7 +834,7 @@ async def _fetch_completion(
         headers=headers,
         body={**body, **policy_to_body_field(CachePolicy(participate=False))},
     )
-    _raise_for_status(resp)
+    _raise_for_status_counting_miss(resp, grant_sent=_CACHE_REPLAY_HEADER in headers)
     return resp, read_cache_outcome(resp.headers, retried=reissue_retried)
 
 
@@ -1070,13 +1096,22 @@ def _headers(scope: RequestScope) -> dict[str, str]:
     INVARIANT (FX-64): the trace comes ONLY from `trace_scope`. The run path binds it inside the
     driving task (`Url4Executor`); a sync producer binds it from the validated inbound header
     (`request_scope.trace_from_headers`). One carrier, so no path can prefer a second copy.
+
+    INVARIANT (E14, RP-D2): the replay header is gateway-owned like `X-Profile`. Any replay-named
+    key in the identity mapping is dropped, and the run's own grant is written last.
     """
-    headers = dict(scope.identity_headers)
+    headers = {
+        k: v for k, v in scope.identity_headers.items() if k.lower() != _CACHE_REPLAY_HEADER.lower()
+    }
     if scope.profile is not None:
         headers[PROFILE_HEADER] = scope.profile
     traceparent = current_traceparent()
     if traceparent is not None:
         headers["traceparent"] = traceparent
+    # INVARIANT (E14, RP-D2): gateway-owned and written LAST; an identity mapping can neither set
+    # nor displace it. Absent grant → header omitted, never sent blank.
+    if scope.replay_grant is not None:
+        headers[_CACHE_REPLAY_HEADER] = scope.replay_grant
     return headers
 
 
@@ -1106,6 +1141,26 @@ def _json_or_raise(resp: httpx.Response) -> dict:
         ) from exc
 
 
+def _raise_for_status_counting_miss(resp: httpx.Response, *, grant_sent: bool) -> None:
+    """`_raise_for_status`, plus a version miss for a grant call that ends non-2xx.
+
+    INVARIANT (E14, RP-X1, RP-E6, RP-H5, C12): a call that SENT the grant, was not served from the
+    version, and then failed on the live path (a credential error, a provider 4xx or 5xx, an
+    intercepting redirect) is a version MISS. The gateway sends no version header on an error
+    response, and this raise skips `_report_version`, so without this line a benchmark that
+    collects the failed call would finish with misses == 0 and the SDK would label the replay
+    complete. A rejected grant (`replay_grant_invalid`) is not counted: it fails the run through
+    `report_grant_rejection`. A call with no grant counts nothing, so a plain run stays
+    byte-identical.
+    """
+    try:
+        _raise_for_status(resp)
+    except ResolutionError as exc:
+        if grant_sent and exc.code != "replay_grant_invalid":
+            report_version_outcome("miss", None)
+        raise
+
+
 def _raise_for_status(resp: httpx.Response) -> None:
     """Turn a non-2xx (or redirected) aigateway response into a `ResolutionError`.
 
@@ -1129,11 +1184,22 @@ def _raise_for_status(resp: httpx.Response) -> None:
         payload = resp.json()
     except ValueError:
         payload = None
+    detail = None
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, dict):
             code = detail.get("code", code)
             message = detail.get("message", message)
+    if resp.status_code == 403 and code == "replay_grant_invalid":
+        # INVARIANT (E14, RP-E6): a rejected grant is a typed permanent failure, never a live
+        # fallback. The text carries the closed reason only: not the gateway message, not the grant.
+        reason = grant_rejection_reason(detail.get("reason") if isinstance(detail, dict) else None)
+        report_grant_rejection(reason)
+        raise ResolutionError(
+            f"aigateway rejected the replay grant (reason={reason})",
+            code="replay_grant_invalid",
+            permanent=True,
+        )
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
     raise ResolutionError(message, code=code, permanent=permanent)
 

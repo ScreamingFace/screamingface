@@ -187,6 +187,99 @@ both. A count mismatch, an unknown benchmark or a private board exits 2 and dele
 Private boards go through `purge_private_benchmark` instead. The backup is evidence, not a restore
 file: recreating a score means resubmitting it.
 
+### Backfill system names
+
+OME-1307 (E14) gives each public head a system name and a revision. Heads that were stored before
+E14 have no system revision. This operator module registers the `spec_id` of each such head as a
+system name and links the head to its revision. It never changes `spec_id`, the score, the content
+hash or any ranked column, and it never merges two heads. It skips heads on private boards.
+
+Always do the dry run first. It writes nothing and prints one line for each action, then a count
+for each action. The apply run writes the claims and the links. You can run it again: it skips
+heads that are already linked.
+
+```bash
+# 1. dry run: prints "DRY RUN — nothing written", then what the apply run would do
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.backfill_systems --dry-run
+# 2. read the report (look at every clash, name_mismatch and duplicate_head), then apply:
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.backfill_systems --apply
+```
+
+A head with no `submitted_by` (it was stored while the scoreboard ran in `disabled` auth mode) is
+reported as `no_owner` and stays unlinked. The registry has no verified owner for it.
+
+### Clustered submit and receipts
+
+OME-1307 (E14) lets `POST /v1/scores` cluster the runs of one system under one head and accept the
+gateway's cache-version receipt. Two variables control it. Both are read at startup.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SCOREBOARD_CLUSTERING_ENABLED` | `false` | `true` turns the clustered submit on. With `false` the route behaves as before and ignores the new request fields (it logs `e14_fields_ignored` with the field names only). |
+| `SCOREBOARD_RECEIPT_PUBLIC_KEYS` | `{}` | A JSON object `{kid: key}`. Each `key` is the standard base64 of the RAW 32-byte Ed25519 public key. Put the current key and the previous key here, so a receipt signed before a key change stays valid. |
+
+The keys are public keys, not a secret. The `kid` values are the ones the gateway publishes
+(`sha256(raw public key).hexdigest()[:16]`); the scoreboard does not derive them. An empty map is
+valid: then every receipt is refused with `unknown_kid` (422). A value that is not base64 of 32
+bytes stops the startup with an error that names the `kid` and never prints the key.
+
+```bash
+SCOREBOARD_CLUSTERING_ENABLED=true
+SCOREBOARD_RECEIPT_PUBLIC_KEYS='{"3f9c2a1b8d4e7a60":"<base64 of the raw 32-byte public key>"}'
+```
+
+Production must run `SCOREBOARD_AUTH_MODE=cloudflare_headers`. Then the verified email is the system
+owner, the reporter and the subject that the receipt must name. In `disabled` mode (dev and local
+only) the route keeps clustering by content hash, calls no registry and does not check the receipt
+subject. The chart values, the Secrets and the local runtime flags come from unit WIRING (D6); this
+unit does not change the chart.
+
+`GET /v1/scores/{score_id}/results` lists the runs of a head, newest first, with a cursor. Its
+privacy rules are the ones of `GET /v1/scores/{score_id}`.
+
+### Replay grants
+
+OME-1307 (E14) adds `POST /v1/replay-grants`. The route turns a pin (`result:<id>`, `score:<id>`,
+`name`, `name@r<N>` or `name@<date>`) and a `benchmark_id` into ONE result. Then it signs a grant
+that the gateway checks. The route only reads: it writes no row and it does not call the gateway.
+Two variables control it. Both are read at startup.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SCOREBOARD_REPLAY_GRANT_SIGNING_KEY` | unset | The standard base64 of the RAW 32-byte Ed25519 private key (the seed). Put it in a Secret. |
+| `SCOREBOARD_REPLAY_GRANT_SIGNING_KID` | unset | The `kid` header of each grant. |
+
+Set both or neither. If only one is set, or the key is not base64 of 32 bytes, the startup stops
+with an error that names the variable and never prints the key. If neither is set, the route
+answers `503 replay_unavailable`.
+
+```bash
+SCOREBOARD_REPLAY_GRANT_SIGNING_KEY=<base64 of the raw 32-byte private key>   # from a Secret
+SCOREBOARD_REPLAY_GRANT_SIGNING_KID=sb-2026-09
+```
+
+The gateway holds the matching PUBLIC keys in `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` (a JSON object
+`{kid: base64 of the raw 32-byte public key}`). The two sides must use the same `kid` and the same
+key.
+
+**Key rotation.** Make a new key pair and a new `kid`. First add the new public key to the gateway
+(the gateway keeps the current key and the previous key). Then change the two variables here and
+restart. A grant signed with the previous `kid` stays valid until it expires.
+
+**Grant life.** The life is fixed at 12 hours (43,200 s). There is no setting and no refresh
+(D4). This is a known limit: the engine job deadline is 57,600 s, and a queued job can wait before
+it starts, so a grant can expire during a run. The gateway then refuses the grant and that run
+fails with the typed replay error. The user starts a new run with a new grant.
+
+**Identity.** Production runs `SCOREBOARD_AUTH_MODE=cloudflare_headers`. The grant `sub` is the
+verified email, and a caller with no verified identity gets `401` (or `403` from an untrusted
+peer). The gateway checks `sub` against the caller, so a grant for an unverified caller is useless
+there. In `disabled` mode (dev and local only) the `sub` is `anonymous`, nobody is an owner, and
+only public, redistributable results resolve.
+
+The chart values and the Secret for these two variables come from unit WIRING (D6). This unit does
+not change the chart.
+
 ## Smoke Checks
 
 Run the Helm test and check public health:
@@ -285,6 +378,13 @@ the time. Re-check that assumption before releasing it.
 
 `0006_benchmark_native_scores` (OME-866, renaming `accuracy` to `score` and making
 `correct_questions` nullable) is the second. Same reasoning, same rollout options as above.
+
+`0017` to `0019` (OME-1307, E14) are expand-only and safe for a rolling rollout. They add columns
+that have a database default or allow `NULL` (`metadata_revision` and `redistributable` use
+`db_default`, so an old pod that omits them on `INSERT` still writes a valid row), add five new
+tables and two partial unique indexes, and add one original `reported_result` row for each existing
+score. They rename nothing and drop nothing, so old pods keep working against the new schema while
+the rollout runs.
 
 ### Private boards and rollback — run the preflight first
 
@@ -439,6 +539,89 @@ kubectl -n scoreboard get secret scoreboard-db -o jsonpath='{.data.database-url}
 
 If GHCR image pulls fail, create an image pull Secret and set `imagePullSecrets[0].name=<secret-name>`.
 
+## Publish and takedown
+
+<!-- FEATURE: OME-1307 (E14) publish and takedown (SB-publish). -->
+
+OME-1307 (E14) lets the owner of a result publish its cache version as a GitHub release. It also
+lets an admin withdraw a publication. `POST /v1/results/{result_id}/publish` records the request.
+A worker in the same process does the work. `POST /v1/admin/results/{result_id}/withdraw` takes a
+publication down.
+
+Publishing is available only when all of these are true:
+
+- `SCOREBOARD_AUTH_MODE=cloudflare_headers`. The `disabled` mode is for dev and local use only. In
+  that mode the publish route answers 503 `publish_unavailable`, and the admin route answers 503
+  `admin_unavailable`.
+- The three GitHub App variables are set.
+- `SCOREBOARD_ARCHIVE_BACKEND` is `s3` or `filesystem`.
+
+If one of these is false, the publish route answers 503 `publish_unavailable` and changes nothing.
+No worker starts.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SCOREBOARD_ADMIN_EMAILS` | empty | Comma-separated admin addresses (lowercased). Empty turns the admin routes off (503). They work only in `cloudflare_headers` mode. |
+| `SCOREBOARD_GITHUB_APP_ID` | none | The GitHub App id. |
+| `SCOREBOARD_GITHUB_APP_INSTALLATION_ID` | none | The installation id of the App on the one repository. |
+| `SCOREBOARD_GITHUB_APP_PRIVATE_KEY` | none | The App private key (PEM, RSA). A secret. |
+| `SCOREBOARD_GITHUB_REPO` | `ScreamingFace/screamingface-cache-versions` | The repository that holds the releases. |
+| `SCOREBOARD_GITHUB_API_URL` | `https://api.github.com` | The GitHub API origin. |
+| `SCOREBOARD_PUBLIC_BASE_URL` | `https://scoreboard.screamingface.ai` | The scoreboard origin for the link in the release body. |
+| `SCOREBOARD_ARCHIVE_BACKEND` | `none` | `none`, `s3` or `filesystem`. |
+| `SCOREBOARD_ARCHIVE_S3_ENDPOINT_URL` | none | The S3 origin (no path). Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_S3_BUCKET` | none | The bucket name. Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_S3_REGION` | `garage` | The SigV4 region. |
+| `SCOREBOARD_ARCHIVE_S3_ACCESS_KEY_ID` | none | The read-only access key. Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_S3_SECRET_ACCESS_KEY` | none | The read-only secret key. A secret. Needed for `s3`. |
+| `SCOREBOARD_ARCHIVE_FS_ROOT` | none | The archive directory (local mode). Needed for `filesystem`. |
+| `SCOREBOARD_PUBLISH_WORKER_ENABLED` | `true` | `false` stops the worker in this process. |
+| `SCOREBOARD_PUBLISH_POLL_INTERVAL_S` | `30` | Seconds between polls when no job is due. |
+
+A partly set configuration stops the startup with an error. The error names the missing variable.
+It never prints a value.
+
+### GitHub App
+
+Make one GitHub App. Give it the permission "Contents: read and write". Install it on the one
+repository in `SCOREBOARD_GITHUB_REPO` only. Give it no other permission and no other repository.
+The worker makes a new installation token for each job. The token is never stored.
+
+### Bucket credentials
+
+The scoreboard only reads the archive. Give it a key that can read the `cache-versions/` prefix and
+cannot write. The gateway holds the write key. The scoreboard reads
+`cache-versions/<version_id>/entries.jsonl.gz` and `cache-versions/<version_id>/manifest.json`.
+Before any GitHub call, the worker checks that `sha256(entries.jsonl.gz)` equals the digest in the
+receipt. If it does not, the job stops with `archive_mismatch`. It never uploads.
+
+Known limit: the receipt does not cover `manifest.json`. A changed manifest in the bucket is not
+detected.
+
+### Admin allowlist
+
+Set `SCOREBOARD_ADMIN_EMAILS` to the admin addresses. The admin is the address that Cloudflare
+Access verified. The peer check runs before the header is read. Each admin attempt writes one log
+line on the logger `scoreboard.routes.admin`: `admin_action actor=... result_id=... reason=...
+outcome=...`. The reason is escaped and cut to 120 characters.
+
+A withdraw keeps the score on the board. It sets the state to `withdrawn`, and the worker deletes the
+release and the tag. A withdrawn result cannot be published again.
+
+### Alerts
+
+The counters stay in the process. There is no `/metrics` route. Add these alert rules where the
+counters are scraped:
+
+- `scoreboard_publish_integrity_failures_total > 0`. An archive is missing, its digest does not
+  match, or a release holds other bytes. Check the bucket and the release.
+- `scoreboard_withdraw_cleanup_pending > 0`. A release delete has been pending for more than 1 hour.
+
+`scoreboard_publish_attempts_total{result}` and `scoreboard_publish_jobs{state}` show the load.
+
+The chart keys and the Secrets for these variables come from unit WIRING (D6). This unit does not
+change the chart.
+
 ## Operations Notes
 
 - The container listens on `0.0.0.0:9106` and exposes `/healthz`.
@@ -446,3 +629,177 @@ If GHCR image pulls fail, create an image pull Secret and set `imagePullSecrets[
 - The migration and seed Jobs use the same image and database Secret as the app Deployment.
 - The demo DB PVC owns the database state; deleting it deletes the database.
 - Backups, HA Postgres, PodMonitor, and HPA are follow-up infrastructure work.
+
+## E14 deploy wiring
+
+This section wires the E14 features (reproducible submissions, OME-1307) into the chart. It applies
+decisions D5 (production identity), D6 (flags, admin route, deploy wiring) and D7 (key forms). The
+gateway side is in `apps/aigateway/DEPLOYMENT.md`, section "E14 deploy wiring".
+
+### Identity posture (D5)
+
+`values-prod.yaml` sets `config.authMode: cloudflare_headers`. The scoreboard then trusts the
+`X-User-Email` header, so only the Cloudflare Access and Envoy edge may reach it. The chart
+enforces this in three ways:
+
+- `ingress.enabled` is `false` in `values-prod.yaml`. The chart refuses `cloudflare_headers` with an
+  Ingress, because any caller could then set `X-User-Email`.
+- The NetworkPolicy admits only the peers you name in `networkPolicy.clientPodNames` and
+  `networkPolicy.clientNamespace`. One `from` element pairs the namespace and the pod selector. The
+  chart refuses to render with no peer, because a rule with no `from:` admits every source.
+- `config.forwardedAllowIps` is `127.0.0.1` (never `*`), and `config.allowedNetworks` lists the
+  networks that may present the header. Narrow `allowedNetworks` to the Pod CIDR of the Envoy data
+  plane. The two lists must not overlap (`verify_chart_wiring.py` checks this).
+
+`authMode: disabled` stays the default of `values.yaml` and of `screamingface up`. In that mode the
+admin route and the publish route answer 503.
+
+**Deploying the new `values-prod.yaml` before item 1 below takes the public board offline.** The
+old file used a Traefik Ingress. The new file has none.
+
+### Ops checklist (do these in order, before you deploy `values-prod.yaml`)
+
+1. - [ ] **Ingress precondition (D5).** Route the production host (`scoreboard.screamingface.ai`)
+   through the Cloudflare Access and Envoy edge, the same chain as the gateway (see
+   `docs/work/2026-08-03-OME-404-authenticated-leaderboard-submissions.md`, lines 94-98). The edge
+   must (a) remove any client `X-User-Email`, (b) inject the verified email, and (c) keep anonymous
+   `GET` reads of the public board working (an Access bypass for reads, with the header still
+   removed). Name the Envoy data-plane Pods in `networkPolicy.clientPodNames` and
+   `networkPolicy.clientNamespace`, and narrow `config.allowedNetworks` to their Pod CIDR. Prove it:
+   from outside, a `POST /v1/scores` with a forged `X-User-Email` reaches the app with the verified
+   value only. From a non-Envoy Pod in the cluster, the connection is refused (NetworkPolicy) or
+   answers 403 (untrusted peer).
+2. - [ ] **Keys.** See "Make the keys" below. Create `Secret/scoreboard-e14` in the scoreboard
+   namespace and `Secret/aigw-cache-versions` in the gateway namespace. Deploy the gateway first,
+   then the scoreboard.
+3. - [ ] **Bucket (PB-D8, C8a).** See the gateway section for the bucket steps. Add the READ-ONLY
+   key pair to `scoreboard-e14` (files `SCOREBOARD_ARCHIVE_S3_ACCESS_KEY_ID` and
+   `SCOREBOARD_ARCHIVE_S3_SECRET_ACCESS_KEY`).
+4. - [ ] **GitHub App (PB-D7).** Create a GitHub App with `contents: write` on
+   `ScreamingFace/screamingface-cache-versions` only, and install it on that one repo. Put the App
+   id and the installation id into `config.publish.githubAppId` and
+   `config.publish.githubAppInstallationId`, and the S3 endpoint into
+   `config.publish.archive.endpointUrl`. Put the PEM into `scoreboard-e14` as
+   `SCOREBOARD_GITHUB_APP_PRIVATE_KEY` (`cp app.pem "$KEYDIR/scoreboard-e14/SCOREBOARD_GITHUB_APP_PRIVATE_KEY"`,
+   then the same `create ... | apply` as item 2). Add the PEM and set `config.publish.enabled: true`
+   in ONE deploy. An App key without the App id is a partial `github_app_*` set, and the scoreboard
+   refuses to start. The chart cannot see inside an `existingSecret`, so this order is your duty.
+5. - [ ] **Admins.** Set `config.adminEmails` at install time
+   (`--set-string 'config.adminEmails[0]=...'`). Then set `redistributable` on each board whose
+   licence allows it (see "Admin route" below).
+6. - [ ] **Release order.** Deploy the gateway, the engine (drained rollout) and the scoreboard
+   before the SDK release that sends the new submit fields.
+7. - [ ] **Smoke.** One submit with a receipt through the edge (201 and a `cache_version` in the
+   result), one replay grant (200), and one admin `PUT .../redistributable` (200, and the audit
+   line in the scoreboard log).
+
+### Variables and Secret keys
+
+| Variable | Where in the chart | Chart value |
+|---|---|---|
+| `SCOREBOARD_AUTH_MODE` | ConfigMap | `config.authMode` (prod `cloudflare_headers`) |
+| `SCOREBOARD_ALLOWED_NETWORKS` | ConfigMap | `config.allowedNetworks` |
+| `FORWARDED_ALLOW_IPS` | ConfigMap | `config.forwardedAllowIps` (prod `127.0.0.1`) |
+| `SCOREBOARD_CLUSTERING_ENABLED` | ConfigMap | `config.clustering.enabled` (`true`) |
+| `SCOREBOARD_RECEIPT_PUBLIC_KEYS` | ConfigMap (JSON) | `config.receiptPublicKeys` |
+| `SCOREBOARD_ADMIN_EMAILS` | ConfigMap (comma list) | `config.adminEmails` |
+| `SCOREBOARD_PUBLISH_WORKER_ENABLED` | ConfigMap | `config.publish.enabled` |
+| `SCOREBOARD_GITHUB_APP_ID`, `_INSTALLATION_ID`, `SCOREBOARD_GITHUB_REPO`, `SCOREBOARD_PUBLIC_BASE_URL` | ConfigMap (publish on) | `config.publish.*` |
+| `SCOREBOARD_ARCHIVE_BACKEND` | ConfigMap | `s3` when publish is on, else `none` |
+| `SCOREBOARD_ARCHIVE_S3_ENDPOINT_URL`, `_BUCKET`, `_REGION` | ConfigMap (publish on) | `config.publish.archive.*` |
+| `SCOREBOARD_REPLAY_GRANT_SIGNING_KEY`, `SCOREBOARD_REPLAY_GRANT_SIGNING_KID` | Secret | `e14Secret.*` |
+| `SCOREBOARD_GITHUB_APP_PRIVATE_KEY` | Secret | `e14Secret.*` |
+| `SCOREBOARD_ARCHIVE_S3_ACCESS_KEY_ID`, `SCOREBOARD_ARCHIVE_S3_SECRET_ACCESS_KEY` | Secret (READ-ONLY key) | `e14Secret.*` |
+
+The chart does not emit `SCOREBOARD_GITHUB_API_URL`, `SCOREBOARD_PUBLISH_POLL_INTERVAL_S` or
+`SCOREBOARD_ARCHIVE_FS_ROOT` (code defaults; the filesystem archive is for `screamingface up` only).
+
+The Secret keys are the env var names, because `envFrom` cannot rename a key. The production
+Secret is `scoreboard-e14` (`e14Secret.existingSecret`). The Pod does not start without it.
+`e14Secret.*` inline values are for dev only: they render a chart Secret (`<release>-scoreboard-e14`)
+and never reuse an old one (`lookup`), so a rotation is never reverted. No private value is ever
+in the ConfigMap or in a values file.
+
+### Make the keys
+
+Run the helper from a checkout and write OUTSIDE the checkout. The helper refuses a path inside a git
+work tree, and it never overwrites a file. It prints public parts only (`kid=...` and the verifier
+map).
+
+```bash
+KEYDIR="$(mktemp -d)"; chmod 700 "$KEYDIR"
+uv run --project packages/screamingface python -m screamingface._runtime.keygen \
+  --purpose receipt --out "$KEYDIR/receipt.env"
+uv run --project packages/screamingface python -m screamingface._runtime.keygen \
+  --purpose replay-grant --out "$KEYDIR/grant.env"
+```
+
+- `receipt` makes the key the gateway signs receipts with (`AIGATEWAY_RECEIPT_SIGNING_KEY`). Its
+  stdout gives `SCOREBOARD_RECEIPT_PUBLIC_KEYS={"<kid>": "<base64>"}`. Put that JSON into
+  `config.receiptPublicKeys` of the scoreboard: `--set-json 'config.receiptPublicKeys=<the JSON>'`.
+- `replay-grant` makes the key the scoreboard signs replay grants with. The file holds the key and
+  its kid together (the scoreboard refuses one without the other). Its stdout gives
+  `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS={"<kid>": "<base64>"}`. Put that JSON into the gateway
+  `config.cacheVersions.replayGrantPublicKeys`.
+
+Create each Secret with ONE recipe, one file per key. The file name is the env name.
+`kubectl --from-env-file` cannot carry a multi-line PEM, and it cannot be mixed with `--from-file`.
+
+```bash
+d="$KEYDIR/scoreboard-e14"; mkdir -m 700 "$d"
+while IFS= read -r line; do printf '%s' "${line#*=}" > "$d/${line%%=*}"; done < "$KEYDIR/grant.env"
+kubectl -n <scoreboard-ns> create secret generic scoreboard-e14 --from-file="$d" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+To add a key later, add its file to the same directory and run the same `create ... | apply` again.
+It replaces the whole Secret, so keep every file. Do the same for `Secret/aigw-cache-versions` in the
+gateway namespace from `receipt.env`. Delete `$KEYDIR` (`rm -rf "$KEYDIR"`) when items 3 and 4 are
+done.
+
+### Key rotation
+
+A grant lives 12 hours (D4, no refresh). To rotate:
+
+1. Make the new key. Add its kid to the VERIFIER map, and deploy the verifier.
+2. Switch the SIGNER to the new key.
+3. Remove the old kid from the verifier map after the longest grant life (12 hours). A run longer
+   than the grant life (job deadline 57,600 s plus the queue wait) fails with the typed replay
+   error.
+
+For receipts, the verifier is the scoreboard (`config.receiptPublicKeys`) and the signer is the
+gateway. For grants, the verifier is the gateway (`replayGrantPublicKeys`) and the signer is the
+scoreboard.
+
+### Admin route: `redistributable`
+
+Only an administrator (`config.adminEmails`) may set `Benchmark.redistributable`, and only in
+`cloudflare_headers`. Send the call through the edge. Every attempt leaves one audit line in the
+scoreboard log (`admin_action actor=... benchmark_id=... reason=... outcome=... change=...`).
+
+```bash
+curl -X PUT "https://scoreboard.screamingface.ai/v1/admin/benchmarks/<benchmark-id>/redistributable" \
+  -H 'content-type: application/json' \
+  -d '{"redistributable": true, "reason": "license: CC-BY-4.0"}'
+```
+
+The call answers 200 with `{"benchmark_id", "redistributable", "changed"}`. The same value again is
+200 with `changed: false`. An unknown benchmark is 404. The seed job never resets the flag.
+
+Setting `redistributable` to `false` on a board with published versions keeps the existing releases
+(a takedown is the withdraw route). New non-owner replay grants for that board answer 404, and new
+publish requests answer 409 `not_publishable` with reason `not_redistributable`.
+
+### Render placeholders and `helm test`
+
+`values-prod.yaml` cannot know the Envoy data plane. `charts.yml` and `release-scoreboard.yml` pass
+the same placeholders (`networkPolicy.clientPodNames[0]=ci-placeholder-envoy`,
+`networkPolicy.clientNamespace=ci-placeholder-envoy-ns`). Do not use them in a real install.
+
+`helm test` fails in production with the verified mode. The test Pod carries the label
+`app.kubernetes.io/name: scoreboard`, not an Envoy name, so the NetworkPolicy refuses it. This is
+expected. Do not add the test Pod to the peers (the peers are the identity boundary). Run `helm
+test` against a dev install (`authMode: disabled`) only.
+
+A receipt verifier map with no kid (production before item 2) answers every submit that has a
+receipt with 422 `unknown_kid`. A submit without a receipt still works.

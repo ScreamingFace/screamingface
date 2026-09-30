@@ -4,13 +4,16 @@ import json
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
     PlainSerializer,
+    StrictBool,
     field_validator,
     model_validator,
 )
@@ -328,6 +331,50 @@ AuthorEmail = Annotated[
 ]
 
 
+def _validate_authors(value: list[str] | None) -> list[str] | None:
+    # INVARIANT: the cap protects credit cardinality, not raw audit history. The
+    # serializer uses this exact key when it collapses repeated identities.
+    # WHY a module function: `ScoreSubmission` and `ScoreMetadataPatch` share one rule, so a
+    # metadata edit can never accept an author list that a submission would refuse.
+    if value is None:
+        return value
+    if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
+        raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(encoded) > _AUTHORS_MAX_BYTES:
+        raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
+    return value
+
+
+# FEATURE: OME-1307 (E14a) — the paper URL of a submission.
+_PAPER_URL_MAX_CHARS = 2048
+_PAPER_URL_SCHEMES = frozenset({"http", "https"})
+_PAPER_URL_NOT_ABSOLUTE = "paper_url must be an absolute http or https URL"
+
+
+def validate_paper_url(value: str) -> str:
+    """INVARIANT (MD-E5): an absolute http(s) URL, at most 2048 chars, no credentials.
+
+    Deliberately syntax-only: it never resolves or fetches the URL (PRD §5). Nothing is
+    normalized, so the stored value is the value that was sent.
+    """
+    if len(value) > _PAPER_URL_MAX_CHARS:
+        raise ValueError(f"paper_url must be at most {_PAPER_URL_MAX_CHARS} characters")
+    if value != value.strip() or any(ord(char) < 0x21 or ord(char) == 0x7F for char in value):
+        raise ValueError("paper_url must not contain whitespace or control characters")
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
+        raise ValueError(_PAPER_URL_NOT_ABSOLUTE)
+    if not parts.netloc or not parts.hostname:
+        raise ValueError(_PAPER_URL_NOT_ABSOLUTE)
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("paper_url must not contain credentials")
+    return value
+
+
+PaperUrl = Annotated[str, AfterValidator(validate_paper_url)]
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -363,6 +410,19 @@ class MessageErrorResponse(BaseModel):
     detail: str
 
 
+class ReplayClaim(BaseModel):
+    """C4 `replay`: the run says it replayed a frozen cache version. Stored as reported."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    result_id: UUID
+    cache_version_id: UUID
+    hits: Annotated[int, Field(ge=0)]
+    misses: Annotated[int, Field(ge=0)]
+    repeated_key_collapses: Annotated[int, Field(ge=0)] = 0
+    pinned_baseline_result_id: UUID | None = None
+
+
 class ScoreSubmission(BaseModel):
     """Input DTO for score ingestion."""
 
@@ -380,6 +440,18 @@ class ScoreSubmission(BaseModel):
     # None means the client did not specify a credit line; reads then derive [submitted_by].
     # An explicit list is exact — the submitter is not auto-added (OME-1051 D1).
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    # FEATURE: OME-1307 (E14a) — the paper that describes this submission.
+    # INVARIANT: metadata, not identity. Absent from `_content_hash` and from `_REPLAY_FIELDS`
+    # (store.py), so two submissions of one recipe with different paper URLs still dedup.
+    paper_url: PaperUrl | None = None
+    # FEATURE: OME-1307 (E14) — the C4 submit fields. All optional and ignored while
+    # `SCOREBOARD_CLUSTERING_ENABLED` is off, so a newer Client can talk to an older board.
+    # WHY `trace_id` is here although the C4 field list omits it: C3 needs it (`tid` must equal
+    # the report's `trace_id`), spec gap G1. It is never read from `metadata`.
+    trace_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")] | None = None
+    revision_of: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    cache_version_receipt: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
+    replay: ReplayClaim | None = None
     # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
     #
     # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
@@ -551,16 +623,7 @@ class ScoreSubmission(BaseModel):
     @field_validator("authors")
     @classmethod
     def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:
-        # INVARIANT: the cap protects credit cardinality, not raw audit history. The
-        # serializer uses this exact key when it collapses repeated identities.
-        if value is None:
-            return value
-        if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
-            raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
-        if len(encoded) > _AUTHORS_MAX_BYTES:
-            raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
-        return value
+        return _validate_authors(value)
 
     @field_validator("models")
     @classmethod
@@ -616,6 +679,25 @@ class ScoreSubmission(BaseModel):
         return self
 
 
+class ScoreMetadataPatch(BaseModel):
+    """Body of `PATCH /v1/scores/{id}`: only the metadata a submitter may edit.
+
+    INVARIANT (MD-E8): `extra="forbid"`, so no identity field (score, url4_expression,
+    submitted_by ...) can ride an edit. An explicit `null` is a SENT key (MD-E7): the route reads
+    `model_fields_set` to tell it from an absent one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
+    paper_url: PaperUrl | None = None
+
+    @field_validator("authors")
+    @classmethod
+    def validate_authors(cls, value: list[str] | None) -> list[str] | None:
+        return _validate_authors(value)
+
+
 # INVARIANT (OME-894): the only two visibilities there are. A private benchmark stays LISTED in
 # the public catalogue and marked (owner decision, 2026-08-24) — participants must be able to find
 # it to enter, and the catalogue carries no scores, so listing it leaks nothing.
@@ -669,6 +751,72 @@ class ScoreRankingNotice(BaseModel):
     code: Literal["benchmark_revision_mismatch"]
     submitted_benchmark_revision: str | None
     registered_benchmark_revision: str
+
+
+CoverageStatus = Literal["complete", "partial"]
+PublicationState = Literal["private", "requested", "published", "failed", "withdrawn"]
+
+
+class CacheVersionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    sha256: str
+    entry_count: int
+    call_count: int
+    coverage_status: CoverageStatus
+
+
+class ReplayProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    replayed_from_result_id: UUID
+    hits: int
+    misses: int
+    pinned_baseline_result_id: UUID | None
+    # C4 trust rule: the counts are labelled as reported by the client.
+    reported_by: Literal["client"] = "client"
+
+
+class ReportedResultSchema(BaseModel):
+    """One reported run of a head (C10). Built in one place: `cluster_rules.result_schema`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    score_id: UUID
+    is_original: bool
+    reporter: SubmittedBy
+    submitted_at: datetime
+    score: float
+    total_questions: int
+    correct_questions: int | None
+    models: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    run_cost_usd: RunCostUsd
+    run_cost_status: RunCostStatus | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    cache_saved_cost_usd: RunCostUsd = Field(default=None, exclude_if=lambda value: value is None)
+    cache_version: CacheVersionSummary | None
+    publication_state: PublicationState | None
+    replay: ReplayProvenance | None = Field(default=None, exclude_if=lambda value: value is None)
+    labels: list[str] = Field(default_factory=list)
+
+
+class SubmitNotice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["system_already_named", "clustered_under"]
+    name: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    owner: SubmittedBy = Field(default=None, exclude_if=lambda value: value is None)
+    score_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class ReportedResultsPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    results: list[ReportedResultSchema]
+    next_cursor: str | None
 
 
 class ScoreSchema(BaseModel):
@@ -751,6 +899,30 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    # FEATURE: OME-1307 (E14) — the four score columns E14 adds, INERT in this unit.
+    #
+    # INVARIANT: each is EXCLUDED AT ITS DEFAULT, for exactly the reason `models` above records
+    # (the `OME-1181` Q2 trap): this schema feeds the private JSONL export whose bytes authorize a
+    # purge, so a legacy row must not gain a key. They exist here so every stored Score column
+    # reaches a read DTO (`test_every_score_field_reaches_at_least_one_read_dto`).
+    paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    # INVARIANT: ALWAYS present in API JSON (C4/C5: it is the `If-Match` a client sends back). The
+    # "drop at 1" rule that keeps a certified export of an unedited legacy row byte-identical now
+    # lives in `format_jsonl` (export_private_submissions.py), the one place that needs it.
+    metadata_revision: int = 1
+    metadata_updated_at: datetime | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    system_revision_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE: OME-1307 (E14) — the answer of the clustered submit (C4).
+    # INVARIANT: EXCLUDED AT THE DEFAULT, so `GET /v1/scores/{id}` and the private JSONL export
+    # stay byte-identical (the `OME-1181` Q2 trap, see `models` above). Only `POST /v1/scores`
+    # with clustering on sets them.
+    reported_result: ReportedResultSchema | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    reported_results_count: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    notices: list[SubmitNotice] | None = Field(default=None, exclude_if=lambda value: value is None)
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.
@@ -758,6 +930,50 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+
+class MetadataValues(BaseModel):
+    """The two editable fields, as one metadata event records them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Published form (local part), like every other author list on the API. Raw NULL stays None:
+    # an event records what was STORED, not the `[submitted_by]` a read derives from it.
+    authors: Authors = None
+    paper_url: str | None = None
+
+
+class MetadataHistoryEvent(BaseModel):
+    """One edit of a score's metadata (C5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor: SubmittedBy
+    at: datetime
+    from_revision: int
+    to_revision: int
+    before: MetadataValues
+    after: MetadataValues
+
+
+class MetadataHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    events: list[MetadataHistoryEvent]
+    next_cursor: str | None
+
+
+class CodedErrorDetail(BaseModel):
+    """`{"detail": {"code", "message", ...}}` — the error shape of E14 routes (D7 X-8)."""
+
+    model_config = ConfigDict(extra="allow")  # 412 adds "current"; 422 adds "fields" / "errors"
+
+    code: str
+    message: str
+
+
+class CodedErrorResponse(BaseModel):
+    detail: CodedErrorDetail
 
 
 class LeaderboardEntry(BaseModel):
@@ -910,3 +1126,60 @@ class BaselineImportRow(BaseModel):
     @classmethod
     def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
         return _validate_bounded_metadata(value)
+
+
+# FEATURE: OME-1307 (E14) replay grants (SB-grants, C6).
+class ReplayGrantRequest(BaseModel):
+    """Input DTO for POST /v1/replay-grants: a pin and the board it must belong to."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pin: Annotated[str, Field(min_length=1, max_length=256)]
+    benchmark_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class ReplayGrantResponse(BaseModel):
+    """The signed grant and the ids it names (C6). `expires_at` equals the grant's `exp`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    grant: str
+    result_id: UUID
+    score_id: UUID
+    cache_version_id: UUID
+    expires_at: datetime
+
+
+# FEATURE: OME-1307 (E14) publish and takedown — the wire of C10 (SB-publish). Appended at the END
+# of the file so the merge with SB-grants' block has no overlapping hunk.
+class PublishStateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: PublicationState
+    # Set only when state == "published"; the SDK decodes it as optional (PB-21).
+    release_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class WithdrawRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Annotated[str, Field(min_length=1, max_length=512)]
+
+
+# FEATURE: OME-1307 (E14) D6 — the admin route that sets `Benchmark.redistributable` (WIRING).
+# Appended at the END of the file, after the SB-publish block.
+class RedistributableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # WHY StrictBool: the string "yes" or the number 1 must be a 422, not a silent true (a licence
+    # decision).
+    redistributable: StrictBool
+    reason: Annotated[str, Field(min_length=1, max_length=512)]
+
+
+class RedistributableResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    benchmark_id: str
+    redistributable: bool
+    changed: bool

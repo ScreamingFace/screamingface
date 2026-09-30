@@ -47,9 +47,14 @@ pytestmark = pytest.mark.anyio
 #
 # CALLER-GUARANTEED — a helper whose caller revalidates before ITS exits.
 #   _resolve_owned (submit() guards every path out)
+#   metadata_store.metadata_history  its one Return hands the page and the board id to the route,
+#                                    which re-checks the decision before a public answer; its two
+#                                    Raises are the RESTRICTIVE 404s
 #
 # READS IT FRESH — consults `visibility` at call time, so it cannot hold a stale value.
 #   _readable_by, _links_to_a_private_board
+#   metadata_store.update_metadata   reads `visibility` INSIDE the write's own transaction, after
+#                                    the row lock, so the decision and the write see one state
 #
 # CONFIG-DRIVEN — reads visibility from deployment configuration, immutable within a seed pass.
 #   the seed.py functions
@@ -59,11 +64,76 @@ pytestmark = pytest.mark.anyio
 # authorise, and a board flipped a second after it runs is caught by the next run. Revalidating
 # would only narrow a window that has nothing on the other side of it.
 #   check_rollback_safety.private_boards / format_verdict / running_version
+#   backfill_systems._public_unlinked_heads — reads which heads are public so the one-shot command
+#   never touches a private head; a board flipped a second later is caught by the next run.
+#
+# REGISTRY INPUT — visibility arrives as an argument (`board_visibility`) that the caller read; the
+# registry takes no decision from a stored copy. The caller (SB-submit) owns the revalidation of the
+# board; this function only receives the value it was given.
+#   service.py::resolve_for_submit (core/registry)
 #
 # QUERY BUILDER — returns an unevaluated locking query, not visibility data or a decision. Its
 # caller awaits the query and refuses immediately unless the freshly locked row is private; the
 # PostgreSQL SQL assertion below separately proves that this exact query retains `FOR UPDATE`.
 #   purge_private_benchmark._purge_visibility_query
+#
+# SUBMIT PATH (E14, SB-submit) — the clustered submit owns the revalidation that REGISTRY INPUT
+# above hands to its caller. Three layers:
+#   (1) `ClusterStore._write` re-proves the decision under the benchmark row lock
+#       (`ScoreStore.lock_visibility`, that is `_revalidate_visibility(lock=True)` under a wrapper)
+#       BEFORE the registry or any head is read;
+#   (2) the route (`_cluster` in routes/scores.py, and `list_results` in routes/results.py) calls
+#       `turned_private` before any public answer leaves; this guard recognises both because that
+#       call comes first;
+#   (3) the pure rules take only values.
+#   cluster_store.py::submit Raise       RESTRICTIVE — PrivateBoardRequiresIdentity refuses a
+#                                        private write with no verified identity, as
+#                                        store.py::submit does
+#   cluster_store.py::submit Return x2   CALLER-GUARANTEED — an idempotent hit (gated by
+#                                        `readable_by`, which reads visibility fresh) and the write
+#                                        result; the route re-checks with `turned_private` before
+#                                        the answer leaves
+#   cluster_store.py::_write Return      GUARDED BY LOCK — returns after `lock_visibility`; this
+#                                        guard only knows the private name it wraps
+#   cluster_store.py::_replay_allowed    PURE — a decision over values the caller loaded (rule R).
+#                                        It feeds only the stored provenance columns; no answer
+#                                        carries the replayed result's data
+#   replay_access.py::is_owner / replay_access   PURE — no request, no I/O (core/replay_access.py).
+#                                        `board_visibility` is an INPUT the caller read; SB-grants
+#                                        owns the revalidation of its own use
+#   results.py::_readable_head Raise x3  RESTRICTIVE — the 404s of a missing or not-yours head and
+#                                        the 503 of a store that is down
+#   results.py::_readable_head Return    CALLER-GUARANTEED — `list_results` re-checks with
+#                                        `turned_private` before a public answer
+#   store.py::readable_by                READS IT FRESH — delegates to `_readable_by`
+#
+# REPLAY GRANTS (E14, SB-grants) — recorded in docs/work/2026-09-29-e14-sb-grants.md.
+# `POST /v1/replay-grants` decides from ONE read of the board row (`ReplayPinResolver.resolve`);
+# the route re-checks with `turned_private` before it signs a grant for a non-owner.
+#   replay_resolver.py::resolve Raise x1    RESTRICTIVE — an unknown board answers PinNotFound, the
+#                                           same 404 as an unknown pin
+#   replay_resolver.py::resolve Return x2   CALLER-GUARANTEED — `issue_replay_grant` re-checks with
+#                                           `turned_private` before it signs for a non-owner
+#                                           (`ResolvedReplay.via_owner` is False)
+#   replay_resolver.py::_access Return      PURE — a decision over values the caller loaded
+#                                           (`benchmark`, the row's `reporter`, the state)
+#
+# PUBLISH PATH (E14, SB-publish) — `POST /v1/results/{id}/publish` reads the board visibility to
+# decide who may publish. The decision is re-checked before it acts: `publish_result` calls
+# `turned_private` after the checks and before `request_publish`, so the state changes only for a
+# board that is still public. That function has no row (the guard recognises the call).
+#   eligibility.py::publish_refusal Return  PURE — `next(...)` over values the caller read; an
+#                                           unknown visibility is refused (fail closed)
+#   publish.py::_load Return x3             CALLER-GUARANTEED — hands the loaded rows to
+#                                           `publish_result`, which re-checks with `turned_private`
+#                                           before `request_publish`
+#   publish.py::_check_owner Return x1 / Raise x2
+#                                           RESTRICTIVE — the 404 of a private result of another
+#                                           caller and the 403 of a non-owner; going stale can only
+#                                           mean the board OPENED, so the caller learns less
+#   publish.py::_check_publishable Return x1 / Raise x3
+#                                           RESTRICTIVE — the 409 refusals; a stale read can only
+#                                           refuse a result whose board has since opened
 EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::_private_leaderboard", "Return"): 1,
     ("leaderboard.py::get_leaderboard", "Return"): 1,
@@ -78,6 +148,10 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("store.py::_resolve_owned", "Return"): 3,
     ("store.py::_readable_by", "Return"): 3,
     ("store.py::_links_to_a_private_board", "Return"): 1,
+    ("metadata_store.py::update_metadata", "Raise"): 3,
+    ("metadata_store.py::update_metadata", "Return"): 2,
+    ("metadata_store.py::metadata_history", "Raise"): 2,
+    ("metadata_store.py::metadata_history", "Return"): 1,
     ("store.py::submit", "Raise"): 1,
     ("seed.py::_apply_orphan_visibility", "Return"): 1,
     ("seed.py::_classify_configured", "Return"): 1,
@@ -88,6 +162,27 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("check_rollback_safety.py::format_verdict", "Return"): 2,
     ("check_rollback_safety.py::running_version", "Return"): 2,
     ("purge_private_benchmark.py::_purge_visibility_query", "Return"): 1,
+    ("backfill_systems.py::_public_unlinked_heads", "Return"): 1,
+    ("service.py::resolve_for_submit", "Return"): 3,
+    ("service.py::resolve_for_submit", "Raise"): 1,
+    ("cluster_store.py::submit", "Raise"): 1,
+    ("cluster_store.py::submit", "Return"): 2,
+    ("cluster_store.py::_write", "Return"): 1,
+    ("cluster_store.py::_replay_allowed", "Return"): 2,
+    ("replay_access.py::is_owner", "Return"): 2,
+    ("replay_access.py::replay_access", "Return"): 3,
+    ("results.py::_readable_head", "Raise"): 3,
+    ("results.py::_readable_head", "Return"): 1,
+    ("store.py::readable_by", "Return"): 1,
+    ("replay_resolver.py::resolve", "Raise"): 1,
+    ("replay_resolver.py::resolve", "Return"): 2,
+    ("replay_resolver.py::_access", "Return"): 1,
+    ("eligibility.py::publish_refusal", "Return"): 1,
+    ("publish.py::_load", "Return"): 3,
+    ("publish.py::_check_owner", "Return"): 1,
+    ("publish.py::_check_owner", "Raise"): 2,
+    ("publish.py::_check_publishable", "Return"): 1,
+    ("publish.py::_check_publishable", "Raise"): 3,
 }
 
 
