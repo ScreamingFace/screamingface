@@ -198,6 +198,22 @@ fetch happen.
   Benchmark's revision pins only on a Task-replay Benchmark. All 17 published revisions stay
   byte-identical.
 
+### Network
+
+- **R16. Only Case Preparation has network access.** Case Preparation, at image build, is the
+  only step that fetches anything. Grading must work with no egress: it downloads nothing (no
+  model weights, tokenizers or data files), and any model call it makes (a Judge, in later
+  tickets) goes through the AI gateway, never to the internet directly. Run pods read the
+  prepared Cases from the image and never call the task function.
+- **R17. Enforced per Benchmark.** In the import PRs (Delivery, steps 5 and 6), each new
+  Benchmark's grading test runs with outbound network blocked inside that test (localhost
+  still allowed), so a scorer that tries to download fails in CI instead of in prod. We can
+  block all of it because **the 14 Benchmarks in this ticket are all graded without a Judge**:
+  their scorers match strings, choices or rules, so a correct grading test makes no network
+  call at all. A package whose scorer needs the network drops out of the 14 with that as its
+  named reason, the same way sevenllm's QA tasks did. Judge-graded Benchmarks (later tickets)
+  need their own version of this test, with the Judge stubbed or only the gateway allowed.
+
 ### Benchmarks and glossary
 
 - **R13. The 14 Benchmarks.** Each is imported with its Case Digest agreeing across two Case
@@ -249,8 +265,9 @@ fetch happen.
 3. Import side: routing, the recorder, the double run, the generated declaration and the licence
    gate (R1-R7).
 4. Scorer lookup in helper files (R8), split out so PR 3 stays under the cap.
-5. agieval, medqa, mgsm.
-6. The other 11, plus the four upstream issue drafts (R14).
+5. agieval, medqa, mgsm, each with its no-network grading test (R17).
+6. The other 11, each with its no-network grading test (R17), plus the four upstream issue
+   drafts (R14).
 
 A plan in `docs/plan/` follows this spec's approval and fixes each PR's file list and tests.
 
@@ -265,3 +282,4 @@ A plan in `docs/plan/` follows this spec's approval and fixes each PR's file lis
 4. A test pins that each of the four R1 refusals routes to Task replay and every other refusal
    does not.
 5. The owner approves this spec before the first line of code (approved 2026-09-30).
+6. Every imported Benchmark's grading test passes with outbound network blocked (R17).
