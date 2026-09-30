@@ -6,6 +6,8 @@
 
 * **screamingface:** render completed per-operation accounting and per-Case details across benchmarks. `CandidateResult.accounting` derives immutable stage, operation, member, model and Case summaries from retained records, preserving unknown values and authoritative root totals. Direct model members receive usage only when every Case has a unique observation. Includes an offline Jupyter review notebook (`14_report_accounting.ipynb`).
 
+* **screamingface:** edit a submission's authors or paper URL with `sf.leaderboards.update_submission(score_id, expected_revision=..., authors=..., paper_url=...)` (also `client.leaderboards`, sync and async), and pass `paper_url` to `submit`. `LeaderboardScore` gains `paper_url` and `metadata_revision`. The call sends `PATCH /v1/scores/{id}` with `If-Match` and only the fields you give (`None` clears a field), raises typed codes (`metadata_revision_conflict`, `not_submission_owner`, ...), and re-sends once after a connection error. **Requires a Scoreboard with the E14a metadata routes:** an older board answers `422` to `paper_url` and `405` to the `PATCH`.
+
 * **screamingface:** preserve Engine-observed caller version as `CandidateResult.client_version` and in report JSON; unavailable provenance remains null.
 
 * **screamingface:** carry the catalogue's two grouping axes on `Benchmark` — `interaction` and the new hand-assigned `difficulty` tier (`easy`/`medium`/`hard`; served values verbatim, any non-blank string; `None` when an older Engine omits the key)
