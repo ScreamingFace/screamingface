@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from scoreboard.scores.models import ReportedResult
+from scoreboard.scores.models import Benchmark, ReportedResult
 from tests.unit.submissions._receipts import ANA, BRUNO, post_score
 
 pytestmark = pytest.mark.asyncio
@@ -105,11 +105,17 @@ async def _invalid_claims(
     result_id, vid = await _original(client, sign_receipt)
     private_id, private_vid = await _original(client, sign_receipt, benchmark_id="priv")
     gated_id, gated_vid = await _original(client, sign_receipt, benchmark_id="gated")
+    # INVARIANT: a claim may only name a result of the board it is posted on (C4 trust rule;
+    # C6/RP-E4 refuses the same grant with 422). `other` is public and redistributable, so only the
+    # benchmark check can refuse this claim.
+    await Benchmark.create(id="other", display_name="Other", redistributable=True)
+    other_id, other_vid = await _original(client, sign_receipt, benchmark_id="other")
     return {
         "unknown-result": _claim(str(uuid.uuid4()), vid),
         "wrong-version": _claim(result_id, str(uuid.uuid4())),
         "private-result-of-another-user": _claim(private_id, private_vid),
         "not-redistributable-result-of-another-user": _claim(gated_id, gated_vid),
+        "result-of-another-benchmark": _claim(other_id, other_vid),
         "unknown-baseline": _claim(result_id, vid, pinned_baseline_result_id=str(uuid.uuid4())),
     }
 
@@ -121,6 +127,7 @@ async def _invalid_claims(
         "wrong-version",
         "private-result-of-another-user",
         "not-redistributable-result-of-another-user",
+        "result-of-another-benchmark",
         "unknown-baseline",
     ],
 )
