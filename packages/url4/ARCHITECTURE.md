@@ -40,6 +40,7 @@ layer. A layer imports only the layers below it.
 | engine | `url4.dag` | AST → typed DAG → concurrent execution. | `core`, `wire`, `io.layer`, `observe` |
 | io port | `url4.io` | The `IOLayer` port and its adapters — the seam. | `core`, `wire` |
 | leaf | `url4.observe` | Observation events and context-local sinks. | standard library |
+| leaf | `url4.fingerprint` | The system identity of a linked url4. Pure. | `core` + standard library |
 | node | `url4.peer` | `Url4Node` (server), `Client` (requestor), dispatch. | `core`, `wire`, `dag`, `io`, `observe` |
 | node | `url4.cli` | `url4 serve` / `url4 eval`. The composition root. | all of the above |
 | axis | `url4.streaming` | The wire contract between a client and a runner. | standard library + pydantic |
@@ -56,6 +57,7 @@ layer. A layer imports only the layers below it.
   reverse. `io.layer` is standard-library only, so the engine can name the port
   without dragging in a transport.
 - `url4.observe` is a leaf. It imports no engine module and no transport.
+- `url4.fingerprint` imports `url4.core` and the standard library only.
 - `url4.peer` must not import `cli`. The CLI composes the node, not the reverse.
 - `url4.streaming` imports no url4 module.
 
