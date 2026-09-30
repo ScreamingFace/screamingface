@@ -215,6 +215,20 @@ class Settings(BaseSettings):
         validation_alias="AIGW_CACHE_VERSION_EXPORT_POLL_S",
     )
 
+    # FEATURE: OME-1307 (E14, GW-replay) - the public keys that verify a replay grant.
+    # The env value is a JSON object `{"<kid>": "<base64 of the raw 32-byte Ed25519 public key>"}`
+    # (decided: D7, X-4). The content is decoded at wiring time by `Ed25519ReplayGrantVerifier`.
+    # An empty map means no verifier: a grant header is then refused with reason `signature`.
+    replay_grant_public_keys: dict[str, str] = Field(
+        default_factory=dict, validation_alias="AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS"
+    )
+    replay_grant_cache_ttl_s: float = Field(
+        default=60.0,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_REPLAY_GRANT_CACHE_TTL_S",
+    )
+
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
     # POST /v1/admin/cache/snapshots. Deliberately on the compressed bytes — that is what
     # crosses the wire and fills the spool directory — and deliberately generous: the DRACO

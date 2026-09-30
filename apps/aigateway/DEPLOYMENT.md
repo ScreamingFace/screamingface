@@ -430,6 +430,62 @@ setting, not a request header.
 The freeze and export counters stay in the process (no metrics library): `freezes` by result,
 `missing_total`, `export_pending`, `export_failures` and `export_digest_mismatches`.
 
+### Cache versions: replay
+
+A chat call can be answered from one frozen cache version. The caller adds the request header
+`X-AIGW-Cache-Replay: <grant>`. The grant is a compact JWS that the scoreboard signs (`alg` `EdDSA`,
+header `kid`, claims `iss` `scoreboard`, `aud` `aigateway`, `sub`, `vid`, `rid`, `iat`, `exp`). The
+gateway checks the grant before the live cache and before it reads any credential. A hit reads no
+credential and sends nothing to a provider. The header is never sent to a provider.
+
+Result headers. Every `2xx` answer to a call with a valid grant has `X-AIGW-Cache-Version: hit` or
+`X-AIGW-Cache-Version: miss`. This includes a streaming answer and an answer from the live cache.
+A version hit also has `Cache-Status: aigateway; hit; detail=version; key="<12 hex>"`,
+`X-AIGW-Cache: hit` and `X-AIGW-Cache-Key`. A miss runs the normal path, so the call can still hit
+the live cache or run at the provider. A call with no grant has none of these version headers.
+
+Refusal. A bad grant gives `403` with `detail` `{"code": "replay_grant_invalid", "reason": ..., "message": ...}`.
+The call never runs live. `reason` is one of:
+
+| Reason | Meaning |
+|---|---|
+| `signature` | The token is not a valid grant: too long (over 4,096 bytes), no known `kid`, a bad signature, a wrong `iss`, a missing claim, or a `vid` that is not a UUID. Also the answer of a gateway that cannot verify grants (the flag is off, or `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` is empty). |
+| `expired` | `exp` is more than 60 s in the past. |
+| `audience` | `aud` is not `aigateway`. |
+| `unknown_version` | The version `vid` does not exist on this gateway. |
+| `subject` | `sub` is not the caller. The compare ignores case and outer spaces. With `AIGW_AUTH_MODE=disabled` (dev and local only) there is no subject check. |
+
+In production the mode is `cloudflare_headers`. The caller is the lowercased verified `X-User-Email`,
+and the scoreboard puts the same email in `sub`.
+
+Settings:
+
+| Variable | Default | Use |
+|---|---|---|
+| `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` | empty | A JSON object `{"<kid>": "<base64 of the raw 32-byte Ed25519 public key>"}`. The `kid` is the value of `SCOREBOARD_REPLAY_GRANT_SIGNING_KID`. The gateway does not start when a value is not base64 of 32 bytes (the message names the `kid`). Public keys are not secrets. |
+| `AIGW_REPLAY_GRANT_CACHE_TTL_S` | `60` | How long a verified grant is cached in the process. |
+
+The replay path runs only when `AIGW_CACHE_VERSIONS_ENABLED` is on and at least one public key is set.
+It does not need `AIGATEWAY_RECEIPT_SIGNING_KEY`.
+
+Grant cache. The gateway caches a verified grant for 60 s, so a repeated call does not read the
+database to check that the version exists. A cached grant still gets the subject check and the expiry
+check on every call. A refusal is never cached.
+
+Limits.
+
+- A takedown reaches an issued grant only at its `exp` (DR-2). The gateway has no revocation list.
+- A grant lives 12 hours (`exp = iat + 43,200 s`, D4). The engine job deadline (57,600 s) plus the
+  queue wait can be longer. A replay run whose grant expires in the middle of the run fails with
+  `403 replay_grant_invalid`, reason `expired`. The engine reports this as its typed error. There is
+  no refresh.
+- If the version lookup fails (a database error), the call is a miss with a warning in the log, and
+  the answer has `X-AIGW-Cache-Version: miss`. The version is never an availability dependency.
+
+The counter `replay_lookups` (`hit`, `miss`, `invalid_grant`) stays in the process, like the other
+counters. For the chart value and the Secret of the public keys, see the WIRING unit of E14
+(`docs/plan/2026-09-29-e14-reproducible-submission/WIRING.md`, D6).
+
 ### Plaintext storage boundary
 
 Global response rows are readable to anyone with database, replica, snapshot or backup access. If a

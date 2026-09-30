@@ -234,3 +234,42 @@ class FreezeResult:
 
 class CacheVersionFreezer(Protocol):
     async def freeze(self, *, account_id: str, subject: str, trace_id: str) -> FreezeResult: ...
+
+
+# --- FEATURE: OME-1307 (E14, GW-replay) - verify a replay grant, look a call up in a version ------
+
+GrantRejectReason = Literal["signature", "expired", "audience", "unknown_version", "subject"]
+
+
+class GrantRejected(Exception):
+    """A replay grant was refused. ``reason`` is from a closed vocabulary. Maps to ``403``."""
+
+    def __init__(self, reason: GrantRejectReason) -> None:
+        super().__init__(reason)
+        self.reason: GrantRejectReason = reason
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedGrant:
+    version_id: UUID
+    result_id: str
+    subject: str
+    expires_at: int  # the `exp` claim, epoch seconds
+
+
+class ReplayGrantVerifier(Protocol):
+    async def verify(self, token: str, *, caller: str | None) -> VerifiedGrant:
+        """Verify a grant. Raises ``GrantRejected``. ``caller`` is None when auth is disabled."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class VersionHit:
+    response: dict[str, Any]
+    metadata_json: str | None
+
+
+class CacheVersionLookup(Protocol):
+    async def version_exists(self, version_id: UUID) -> bool: ...
+
+    async def find(self, version_id: UUID, key_hash: str) -> VersionHit | None: ...

@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from fastapi import Request, Response
+from fastapi import Request
 
 from ..core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS, CacheBypass
 from ..core.plugin_base import ProviderPluginBase
@@ -382,7 +382,7 @@ def global_cache_headers(
     profile, no credential name. ``X-AIGW-Cache-Write`` appears on a miss only,
     because "what did the write do" is meaningless for a hit or a bypass.
 
-    WHY a mapping and not just a mutator: the streaming path returns a FRESH
+    WHY a mapping and not a mutator: the streaming path returns a FRESH
     ``StreamingResponse``, and FastAPI does not merge the injected ``Response``
     object's headers into a response the handler returns itself. Building the set
     once here is what keeps the streaming bypass headers from drifting into a
@@ -397,13 +397,3 @@ def global_cache_headers(
     if write_status is not None:
         headers[WRITE_HEADER] = write_status
     return headers
-
-
-def set_global_cache_headers(
-    response: Response,
-    outcome: GlobalCacheOutcome,
-    *,
-    write_status: WriteStatus | None = None,
-) -> None:
-    """Publish ``global_cache_headers`` onto a response the framework will send."""
-    response.headers.update(global_cache_headers(outcome, write_status=write_status))

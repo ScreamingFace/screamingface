@@ -17,7 +17,7 @@ AIDEV-NOTE: the two statements run in ONE ``in_transaction()``. WHY:
   ``routes/chat_capture_stage.py`` catches the sink error and counts it in
   ``CaptureStats.failures``.
 - ``record`` never runs inside a caller's outer transaction. Its only caller is ``record_capture``,
-  and the ``routes/chat.py`` call sites are not inside ``in_transaction``. If a later caller wraps
+  and the single exit of the chat route is not inside ``in_transaction``. If a later caller wraps
   it in a transaction, this block becomes a savepoint, and the pair is all-or-nothing only within
   that caller's transaction.
 - The ``as conn`` and ``using_db=conn`` are explicit so that a future helper cannot pick another

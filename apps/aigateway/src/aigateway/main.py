@@ -465,6 +465,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     cache_version_services = build_cache_version_services(settings, app.state.capture_stats)
     app.state.cache_version_freezer = cache_version_services.freezer
     app.state.cache_version_exporter = cache_version_services.exporter
+    # FEATURE: OME-1307 (E14, GW-replay) - the version lookup and the grant verifier (`None` when
+    # the flag is off or no grant public key is set).
+    app.state.cache_version_lookup = cache_version_services.lookup
+    app.state.replay_grant_verifier = cache_version_services.grant_verifier
 
     _configure_fake_anthropic_oauth(app)
     _configure_fake_codex_oauth(app)

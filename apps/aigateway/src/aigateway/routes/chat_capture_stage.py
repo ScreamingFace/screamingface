@@ -1,6 +1,7 @@
 """The chat route's capture helpers (OME-1307, GW-capture).
 
-FEATURE: OME-1307 (E14) - a traced chat call leaves one capture row with its outcome.
+FEATURE: OME-1307 (E14) - a traced chat call leaves one capture row with its outcome: one row per
+call, written at the route exit.
 
 INVARIANT (CV-D5): only the INBOUND ``traceparent`` header selects a call for capture. The
 call-id middleware MINTS ``request.state.trace_id`` for an untraced call, so that value is never
@@ -14,17 +15,22 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, assert_never
 
 from fastapi import Request
 
 from ..core.cache_versions import CaptureKey, CaptureOutcome, build_capture_key, capture_record
 from ..core.plugin_base import ProviderPluginBase
 from ..w3c_trace import parse_trace_id
+from .chat_cache_stage import CacheStatus, WriteStatus
 
 logger = logging.getLogger(__name__)
 
 _TRACE_PREFIX_LENGTH = 8
+
+# Which source answered the call: the frozen version, the live global cache, or the provider
+# (a streamed answer is its own source, because it is never stored and has no body to keep).
+AnsweredBy = Literal["version", "global_cache", "provider", "provider_stream"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,3 +87,29 @@ async def record_capture(
         state.capture_stats.failures += 1
         return
     state.capture_stats.rows[outcome] += 1
+
+
+def capture_outcome(
+    answered_by: AnsweredBy, *, cache_status: CacheStatus | None, write_status: WriteStatus | None
+) -> CaptureOutcome:
+    """The capture outcome of an answered call. Pure and total over its inputs.
+
+    WHY `race_lost` is `unstored`: the live row then holds the OTHER caller's answer.
+    WHY a provider answer with no write and no bypass is `unstored` too: the live cache holds no
+    row for this call, so the capture row must carry the answer itself.
+    """
+    match answered_by:
+        case "version":
+            return "version_hit"
+        case "global_cache":
+            return "hit"
+        case "provider_stream":
+            return "bypass"
+        case "provider":
+            if write_status == "stored":
+                return "stored"
+            if write_status is not None:
+                return "unstored"
+            return "bypass" if cache_status == "bypass" else "unstored"
+        case _:
+            assert_never(answered_by)
