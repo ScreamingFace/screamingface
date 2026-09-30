@@ -76,6 +76,36 @@ pytestmark = pytest.mark.anyio
 # caller awaits the query and refuses immediately unless the freshly locked row is private; the
 # PostgreSQL SQL assertion below separately proves that this exact query retains `FOR UPDATE`.
 #   purge_private_benchmark._purge_visibility_query
+#
+# SUBMIT PATH (E14, SB-submit) — the clustered submit owns the revalidation that REGISTRY INPUT
+# above hands to its caller. Three layers:
+#   (1) `ClusterStore._write` re-proves the decision under the benchmark row lock
+#       (`ScoreStore.lock_visibility`, that is `_revalidate_visibility(lock=True)` under a wrapper)
+#       BEFORE the registry or any head is read;
+#   (2) the route (`_cluster` in routes/scores.py, and `list_results` in routes/results.py) calls
+#       `turned_private` before any public answer leaves; this guard recognises both because that
+#       call comes first;
+#   (3) the pure rules take only values.
+#   cluster_store.py::submit Raise       RESTRICTIVE — PrivateBoardRequiresIdentity refuses a
+#                                        private write with no verified identity, as
+#                                        store.py::submit does
+#   cluster_store.py::submit Return x2   CALLER-GUARANTEED — an idempotent hit (gated by
+#                                        `readable_by`, which reads visibility fresh) and the write
+#                                        result; the route re-checks with `turned_private` before
+#                                        the answer leaves
+#   cluster_store.py::_write Return      GUARDED BY LOCK — returns after `lock_visibility`; this
+#                                        guard only knows the private name it wraps
+#   cluster_store.py::_replay_allowed    PURE — a decision over values the caller loaded (rule R).
+#                                        It feeds only the stored provenance columns; no answer
+#                                        carries the replayed result's data
+#   replay_access.py::is_owner / replay_access   PURE — no request, no I/O (core/replay_access.py).
+#                                        `board_visibility` is an INPUT the caller read; SB-grants
+#                                        owns the revalidation of its own use
+#   results.py::_readable_head Raise x3  RESTRICTIVE — the 404s of a missing or not-yours head and
+#                                        the 503 of a store that is down
+#   results.py::_readable_head Return    CALLER-GUARANTEED — `list_results` re-checks with
+#                                        `turned_private` before a public answer
+#   store.py::readable_by                READS IT FRESH — delegates to `_readable_by`
 EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::_private_leaderboard", "Return"): 1,
     ("leaderboard.py::get_leaderboard", "Return"): 1,
@@ -107,6 +137,15 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("backfill_systems.py::_public_unlinked_heads", "Return"): 1,
     ("service.py::resolve_for_submit", "Return"): 3,
     ("service.py::resolve_for_submit", "Raise"): 1,
+    ("cluster_store.py::submit", "Raise"): 1,
+    ("cluster_store.py::submit", "Return"): 2,
+    ("cluster_store.py::_write", "Return"): 1,
+    ("cluster_store.py::_replay_allowed", "Return"): 2,
+    ("replay_access.py::is_owner", "Return"): 2,
+    ("replay_access.py::replay_access", "Return"): 3,
+    ("results.py::_readable_head", "Raise"): 3,
+    ("results.py::_readable_head", "Return"): 1,
+    ("store.py::readable_by", "Return"): 1,
 }
 
 

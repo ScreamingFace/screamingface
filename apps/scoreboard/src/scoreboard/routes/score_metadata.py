@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from tortoise.exceptions import OperationalError
 
 from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, ReadIdentity, turned_private
+from scoreboard.routes.errors import coded_error
 from scoreboard.routes.scores import SCORE_NOT_FOUND_DETAIL, STORE_UNAVAILABLE_DETAIL
 from scoreboard.routes.write_identity import WriteIdentity
 from scoreboard.scores.metadata_store import (
@@ -96,9 +97,7 @@ METADATA_HISTORY_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 def _coded(status_code: int, code: str, message: str, **extra: object) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"code": code, "message": message, **extra}
-    )
+    return coded_error(status_code, code, message, **extra)
 
 
 def _not_found() -> HTTPException:

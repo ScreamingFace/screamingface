@@ -208,6 +208,35 @@ kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.backfill
 A head with no `submitted_by` (it was stored while the scoreboard ran in `disabled` auth mode) is
 reported as `no_owner` and stays unlinked. The registry has no verified owner for it.
 
+### Clustered submit and receipts
+
+OME-1307 (E14) lets `POST /v1/scores` cluster the runs of one system under one head and accept the
+gateway's cache-version receipt. Two variables control it. Both are read at startup.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SCOREBOARD_CLUSTERING_ENABLED` | `false` | `true` turns the clustered submit on. With `false` the route behaves as before and ignores the new request fields (it logs `e14_fields_ignored` with the field names only). |
+| `SCOREBOARD_RECEIPT_PUBLIC_KEYS` | `{}` | A JSON object `{kid: key}`. Each `key` is the standard base64 of the RAW 32-byte Ed25519 public key. Put the current key and the previous key here, so a receipt signed before a key change stays valid. |
+
+The keys are public keys, not a secret. The `kid` values are the ones the gateway publishes
+(`sha256(raw public key).hexdigest()[:16]`); the scoreboard does not derive them. An empty map is
+valid: then every receipt is refused with `unknown_kid` (422). A value that is not base64 of 32
+bytes stops the startup with an error that names the `kid` and never prints the key.
+
+```bash
+SCOREBOARD_CLUSTERING_ENABLED=true
+SCOREBOARD_RECEIPT_PUBLIC_KEYS='{"3f9c2a1b8d4e7a60":"<base64 of the raw 32-byte public key>"}'
+```
+
+Production must run `SCOREBOARD_AUTH_MODE=cloudflare_headers`. Then the verified email is the system
+owner, the reporter and the subject that the receipt must name. In `disabled` mode (dev and local
+only) the route keeps clustering by content hash, calls no registry and does not check the receipt
+subject. The chart values, the Secrets and the local runtime flags come from unit WIRING (D6); this
+unit does not change the chart.
+
+`GET /v1/scores/{score_id}/results` lists the runs of a head, newest first, with a cursor. Its
+privacy rules are the ones of `GET /v1/scores/{score_id}`.
+
 ## Smoke Checks
 
 Run the Helm test and check public health:
