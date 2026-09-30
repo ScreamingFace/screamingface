@@ -12,6 +12,8 @@ benchmarks differ in case selection and the final clip, and in NOTHING else.
 
 from __future__ import annotations
 
+# OME-932 (owner-approved): early graded-results transport is additive; grading
+# and semantic revision pins remain unchanged to preserve ranked submissions.
 import hashlib
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS

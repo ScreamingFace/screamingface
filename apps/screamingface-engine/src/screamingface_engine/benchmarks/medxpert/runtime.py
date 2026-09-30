@@ -186,6 +186,7 @@ BENCHMARK = ServedBenchmark(
     check=_check,
     build_case_grade=build_case_grade,
     reduce=reducing.aggregate,
+    scoring=reducing.scoring,
 )
 
 __all__ = ["BENCHMARK", "install", "preflight"]

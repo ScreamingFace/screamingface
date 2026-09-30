@@ -38,6 +38,7 @@ from screamingface_engine.benchmarks.definition import (
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    early_result,
     preserve_candidate_outcome,
 )
 from screamingface_engine.benchmarks.shared_grading.serving import (
@@ -136,14 +137,18 @@ def _build(case_count: int) -> Node:
     )
     return build_evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=preserve_candidate_outcome(
-            candidate_invocation=candidate_invocation,
-            grading=checked,
-            case_id="$item.id",
+        case_evaluation=early_result(
+            preserve_candidate_outcome(
+                candidate_invocation=candidate_invocation,
+                grading=checked,
+                case_id="$item.id",
+            ),
+            aggregate_route=AGGREGATE_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=AGGREGATE_ROUTE,
+        aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
 
 

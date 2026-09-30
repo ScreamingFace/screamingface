@@ -47,6 +47,7 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeReader,
     read_selected_cases,
 )
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 
 # INVARIANT: failure wording is this benchmark's published voice — no rubric-flavored code
 # ("missing_rubric_asset") may leak into a result whose grading material is an answer key.
@@ -93,17 +94,29 @@ def aggregate(
     benchmark_revision: str,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
+    return scoring(
+        root, benchmark_id=benchmark_id, benchmark_revision=benchmark_revision, case_ids=case_ids
+    ).aggregate(raw_case_grades)
+
+
+def scoring(
+    root: Path,
+    *,
+    benchmark_id: str,
+    benchmark_revision: str,
+    case_ids: tuple[int, ...],
+) -> Scoring:
     """Score every selected Case on the shared scored path, then the paper's F1."""
 
     answers: dict[int, dict[str, Any] | None] = {
         case_id: load_answer(root, case_id) for case_id in case_ids
     }
-    return _PATH.aggregate(
-        raw_case_grades,
+    return Scoring(
+        path=_PATH,
         benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        selected_cases=selected_cases(root, case_ids),
-        grading_material=lambda case_id: answers.get(case_id),
+        revision=benchmark_revision,
+        selected=selected_cases(root, case_ids),
+        material=lambda case_id: answers.get(case_id),
         scorer=_confusion_matrix_score,
     )
 

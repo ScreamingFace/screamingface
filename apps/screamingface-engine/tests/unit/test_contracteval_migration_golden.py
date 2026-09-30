@@ -1,9 +1,9 @@
-"""Golden replay for the contracteval → shared serving migration (OME-1236).
+"""Golden contract for the serving-spine migration (OME-1236).
 
-INVARIANT: an expression addressed to the current revision must resolve to
-byte-identical protocol before and after the extraction. Every literal below was
-captured from the pre-migration benchmark at the head of this branch's base; if any
-assertion here fails, the migration changed the benchmark, not just its plumbing.
+OME-932 (owner-approved) adds early graded-result transport without changing
+this scoring revision or the legacy batch routes. Request/result compatibility
+is exercised in test_early_grade_compatibility; these pins protect exam identity
+and public asset/route contracts, not a ban on additive transport changes.
 """
 
 from __future__ import annotations

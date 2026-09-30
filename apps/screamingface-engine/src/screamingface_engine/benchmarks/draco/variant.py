@@ -45,6 +45,7 @@ from screamingface_engine.benchmarks.draco.verdict import call as criterion_verd
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    early_result,
     preserve_candidate_outcome,
 )
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
@@ -287,14 +288,18 @@ def build_draco_protocol(routes: Routes, case_count: int, judge_passes: int) -> 
     )
     return build_evaluation_protocol(
         cases_route=routes.cases,
-        case_evaluation=preserve_candidate_outcome(
-            candidate_invocation=candidate_invocation,
-            grading=case_evaluation,
-            case_id="$item.id",
+        case_evaluation=early_result(
+            preserve_candidate_outcome(
+                candidate_invocation=candidate_invocation,
+                grading=case_evaluation,
+                case_id="$item.id",
+            ),
+            aggregate_route=routes.aggregate,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=routes.aggregate,
+        aggregate_route=routes.aggregate + "/graded",
     )
 
 

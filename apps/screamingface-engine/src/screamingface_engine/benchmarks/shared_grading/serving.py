@@ -45,6 +45,11 @@ from screamingface_engine.benchmarks.grading_endpoints import (
     benchmark_unavailable,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
+    aggregate_result_endpoint,
+    case_result_endpoint,
+)
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -132,6 +137,7 @@ class ServedBenchmark:
     check: CheckFactory
     build_case_grade: CaseGradeBuilder
     reduce: BenchmarkReducer
+    scoring: Callable[..., Scoring] | None = None
 
     @property
     def routes(self) -> BenchmarkRoutes:
@@ -170,6 +176,39 @@ def install_benchmark(node: Url4Node, root: Path, benchmark: ServedBenchmark) ->
             ),
         ),
     )
+    if benchmark.scoring is not None:
+        scoring = benchmark.scoring
+
+        def load(count: int) -> Scoring:
+            return scoring(
+                root,
+                benchmark_id=benchmark.benchmark_id,
+                benchmark_revision=benchmark.revision,
+                case_ids=tuple(range(1, count + 1)),
+            )
+
+        endpoints = (
+            *endpoints,
+            (
+                routes.aggregate + "/case-result",
+                case_result_endpoint(
+                    load,
+                    available_case_count=benchmark_case_count(
+                        root, declared=benchmark.declared_case_count
+                    ),
+                ),
+            ),
+            (
+                routes.aggregate + "/graded",
+                aggregate_result_endpoint(
+                    label=benchmark.label,
+                    available_case_count=benchmark_case_count(
+                        root, declared=benchmark.declared_case_count
+                    ),
+                    load=load,
+                ),
+            ),
+        )
     for route, handler in endpoints:
         if route not in installed:
             node.endpoint(route)(handler)

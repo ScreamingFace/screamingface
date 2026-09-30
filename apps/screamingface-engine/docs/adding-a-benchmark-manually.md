@@ -358,3 +358,30 @@ serializable data in and `CaseGradeOutcome` out, that is a new ticket against
 - [`packages/screamingface/tests/e2e/README.md`](../../../packages/screamingface/tests/e2e/README.md)
   — the record/bless/replay lane (Step 7).
 - Diagram sources: `diagrams/*.drawio` (draw.io, `sf-dark` palette) next to their PNGs.
+
+## Running scores
+
+The notebook Score cell can update as canonical case grades become available. Keep the
+scoring formula in the benchmark: the client receives a scalar snapshot and never averages
+case scores itself (ContractEval, for example, uses dataset-level F1).
+
+For built-in protocols that finish judging each case before starting the next, bind the
+existing `BenchmarkAggregation`, selection, private material loader and scorer in
+`shared_grading.incremental.Scoring`. Wrap the preserved case execution with `early_result` and
+install `case_result_endpoint` plus `aggregate_result_endpoint`. The first endpoint grades
+once and carries a versioned typed result; the final endpoint validates those results and
+performs authoritative reduction and accounting. `ServedBenchmark.scoring` wires these endpoints
+for deterministic benchmarks. Do not reconstruct grades from log text or grade again in an
+observer. Preserve the existing batch aggregate route and add a separate
+`/aggregate/graded` route for typed results. When old/new protocol comparisons prove unchanged
+requests, scoring and complete results, preserve the semantic benchmark revision; a transport
+change alone does not require a leaderboard revision reset. Deploy the Engine routes before
+publishing expressions that use them.
+
+An async aggregate that performs its judging there already publishes completed grades through
+`BenchmarkAggregation.aggregate_async`. Such a benchmark updates scores during judging, after answering;
+answer completion alone is not a grade. Snapshots are optional and may be coalesced or lost.
+The final CandidateResult always remains authoritative, including failures and coverage.
+
+Test early availability with the next case or judge held open, solo and fusion candidates,
+unchanged prompts and call counts, failure handling, and equality with the final native score.

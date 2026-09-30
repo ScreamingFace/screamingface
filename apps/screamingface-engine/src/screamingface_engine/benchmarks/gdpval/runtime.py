@@ -47,17 +47,21 @@ from screamingface_engine.benchmarks.gdpval.verdict import (
     build_evidence_record,
     evidence_record_key,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.grading_endpoints import (
-    aggregate_endpoint,
     candidate_answer,
     case_grade_endpoint,
     compact_json,
     json_object,
     positive_case_id,
 )
-from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
+    aggregate_result_endpoint,
+    batch_result_endpoint,
+    case_result_endpoint,
+)
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -77,6 +81,13 @@ def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
     install_cases(node, variant.routes.cases, _cases(root, variant.case_ids))
     installed = frozenset(node.processor_routes())
     endpoints = (
+        (
+            variant.routes.aggregate + "/case-result",
+            case_result_endpoint(
+                _scoring(root, variant.id, variant.revision, variant.case_ids, variant.mean),
+                available_case_count=len(variant.case_ids),
+            ),
+        ),
         (variant.routes.judge_requests, _rubric_judge_requests(root, variant.case_ids, variant.id)),
         # Closes over `node` so the judge route resolves per request — installation must still
         # work in a world holding no model routes.
@@ -97,12 +108,18 @@ def install(node: Url4Node, root: Path, variant: GdpvalVariant) -> None:
         ),
         (
             variant.routes.aggregate,
-            aggregate_endpoint(
+            batch_result_endpoint(
                 label="GDPval",
                 available_case_count=len(variant.case_ids),
-                aggregate=_aggregate(
-                    root, variant.id, variant.revision, variant.case_ids, variant.mean
-                ),
+                load=_scoring(root, variant.id, variant.revision, variant.case_ids, variant.mean),
+            ),
+        ),
+        (
+            variant.routes.aggregate + "/graded",
+            aggregate_result_endpoint(
+                label="GDPval",
+                available_case_count=len(variant.case_ids),
+                load=_scoring(root, variant.id, variant.revision, variant.case_ids, variant.mean),
             ),
         ),
     )
@@ -297,16 +314,15 @@ def _rubric_evaluation(request: Request) -> str:
     return compact_json(result)
 
 
-def _aggregate(
+def _scoring(
     root: Path,
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
     mean: VariantMean,
 ):
-    def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return reducing.aggregate(
-            case_evaluations,
+    def aggregate_handler(selected_case_count: int):
+        return reducing.scoring(
             root,
             benchmark_id=benchmark_id,
             benchmark_revision=benchmark_revision,

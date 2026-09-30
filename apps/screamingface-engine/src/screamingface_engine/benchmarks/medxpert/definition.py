@@ -49,6 +49,7 @@ from screamingface_engine.benchmarks.medxpert.revision_inputs import (
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
     build_evaluation_protocol,
+    early_result,
     preserve_candidate_outcome,
 )
 from screamingface_engine.benchmarks.shared_grading.serving import (
@@ -166,18 +167,22 @@ def _build(case_count: int) -> Node:
     )
     return build_evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=preserve_candidate_outcome(
-            # The COMMIT is the candidate outcome — it holds the answer being graded.
-            candidate_invocation=commit,
-            grading=checked,
-            case_id="$item.id",
-            # Turn 1 lives here so both the commit envelope and the check read the SAME
-            # real reasoning (see the INVARIANT on `reasoning` above).
-            bindings=(src(reasoning, name="reasoning", weight=0.0),),
+        case_evaluation=early_result(
+            preserve_candidate_outcome(
+                # The COMMIT is the candidate outcome — it holds the answer being graded.
+                candidate_invocation=commit,
+                grading=checked,
+                case_id="$item.id",
+                # Turn 1 lives here so both the commit envelope and the check read the SAME
+                # real reasoning (see the INVARIANT on `reasoning` above).
+                bindings=(src(reasoning, name="reasoning", weight=0.0),),
+            ),
+            aggregate_route=AGGREGATE_ROUTE,
+            selected_case_count=case_count,
         ),
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=AGGREGATE_ROUTE,
+        aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
 
 

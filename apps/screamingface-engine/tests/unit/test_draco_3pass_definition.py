@@ -13,6 +13,8 @@ five-pass ones (OME-775).
 
 from __future__ import annotations
 
+# OME-932 (owner-approved): early graded-results transport is additive; grading
+# and semantic revision pins remain unchanged to preserve ranked submissions.
 import json
 from pathlib import Path
 

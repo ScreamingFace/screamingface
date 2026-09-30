@@ -7,6 +7,7 @@ from types import TracebackType
 
 from screamingface_engine.activity.case_grading import emit_case_grading
 from screamingface_engine.activity.contract import MAX_INTEGER, ActivityKind, safe_fact
+from screamingface_engine.activity.progress import Progress
 from screamingface_engine.activity.scope import Operation, operation, stop_heartbeats
 from screamingface_engine.activity.session import ActivitySession, activate
 from screamingface_engine.benchmarks.case_context import (
@@ -15,8 +16,9 @@ from screamingface_engine.benchmarks.case_context import (
     is_answer_recording,
 )
 from screamingface_engine.benchmarks.case_grading_report import GradingState
-from screamingface_engine.benchmarks.contract import CaseId
+from screamingface_engine.benchmarks.contract import CaseId, CaseResult
 from screamingface_engine.benchmarks.phases import PhaseScope
+from screamingface_engine.benchmarks.progress import ScoreCases
 from screamingface_engine.grading_call_scope import current_grading_case
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
@@ -26,6 +28,7 @@ class ActivityObserver:
         self.session = ActivitySession() if enabled else None
         self._calls: set[Operation] = set()
         self._grading: dict[str, bool] = {}
+        self._progress: dict[tuple[str, str], Progress] = {}
 
     def bind(self) -> AbstractContextManager[None]:
         return activate(self.session)
@@ -35,6 +38,7 @@ class ActivityObserver:
             self.session.revoke()
         # INVARIANT: abandoned call tasks cannot retain heartbeat resources after the run.
         self._grading.clear()
+        self._progress.clear()
         calls = tuple(self._calls)
         self._calls.clear()
         await stop_heartbeats(calls)
@@ -54,6 +58,26 @@ class ActivityObserver:
 
     def case_grading(self, case_id: CaseId, state: GradingState, emit: LogEmitter | None) -> None:
         emit_case_grading(self.session, emit, case_id, state, self._grading)
+
+    def case_completed(
+        self,
+        benchmark: str,
+        revision: str,
+        result: CaseResult,
+        scorer: ScoreCases,
+        emit: LogEmitter | None,
+    ) -> None:
+        if self.session is not None and self.session.active and emit is not None:
+            progress = self._progress.setdefault((benchmark, revision), Progress())
+            progress.observe(benchmark, revision, result, scorer, emit)
+
+    def flush_progress(
+        self, benchmark: str, revision: str, scorer: ScoreCases, emit: LogEmitter | None
+    ) -> None:
+        if self.session is not None and self.session.active and emit is not None:
+            progress = self._progress.get((benchmark, revision))
+            if progress is not None:
+                progress.flush(benchmark, revision, scorer, emit)
 
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
         if self.session is None or not self.session.active:

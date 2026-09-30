@@ -38,16 +38,20 @@ from screamingface_engine.benchmarks.failure_classes import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.grading_endpoints import (
-    aggregate_endpoint,
     candidate_answer,
     case_grade_endpoint,
     compact_json,
     json_object,
 )
-from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
+    aggregate_result_endpoint,
+    batch_result_endpoint,
+    case_result_endpoint,
+)
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -87,13 +91,21 @@ def install(node: Url4Node, root: Path, variant: DracoVariant) -> None:
             bind=build_case_grade,
         )
     )
+    node.endpoint(variant.routes.aggregate + "/case-result")(
+        case_result_endpoint(_scoring(assets, variant), available_case_count=CASE_COUNT)
+    )
     node.endpoint(variant.routes.aggregate)(
-        aggregate_endpoint(
+        batch_result_endpoint(
+            label="DRACO", available_case_count=CASE_COUNT, load=_scoring(assets, variant)
+        )
+    )
+    node.endpoint(variant.routes.aggregate + "/graded")(
+        aggregate_result_endpoint(
             label="DRACO",
             # WHY the constant: the lazy load validates len(cases) == CASE_COUNT on first
             # resolution, so the eager `len(selected_cases)` this replaced was always equal.
             available_case_count=CASE_COUNT,
-            aggregate=_aggregate(
+            load=_scoring(
                 assets,
                 variant,
             ),
@@ -300,14 +312,13 @@ def _criterion_evaluation(judge_passes: int):
     return handle
 
 
-def _aggregate(
+def _scoring(
     assets: Callable[[], ProtocolAssets],
     variant: DracoVariant,
 ):
-    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+    def aggregate(selected_case_count: int):
         _cases_json, selected_cases, rubrics = assets()
-        return grading.aggregate(
-            case_evaluations,
+        return grading.scoring(
             rubrics,
             variant.id,
             selected_cases=selected_cases[:selected_case_count],

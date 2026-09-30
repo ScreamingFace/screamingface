@@ -128,8 +128,27 @@ def aggregate(
     ``sorted(specs)`` or ``index + 1``.
     """
 
-    selected = _selected_cases(specs, case_order, selected_case_count)
-    path = BenchmarkAggregation(
+    selected = selected_cases(specs, case_order, selected_case_count)
+    path = aggregation(specs)
+    return path.aggregate(
+        rows_json,
+        benchmark_id=benchmark_id,
+        benchmark_revision=IFEVAL_REVISION,
+        selected_cases=selected,
+        # The spec is verified present for every selected Case before any grading,
+        # so the spine's missing-material rung is unreachable on this board.
+        grading_material=lambda case_id: specs.get(case_id),
+        scorer=score_cases,
+    )
+
+
+def aggregation(specs: Mapping[int, Mapping[str, Any]]) -> BenchmarkAggregation:
+    """Bind canonical IFEval validation and grading for batch or incremental use.
+
+    WHY: the early-grade proof must reuse the same failure and grading rules as
+    final aggregation, rather than grow a second implementation of IFEval scores.
+    """
+    return BenchmarkAggregation(
         reader=CaseGradeReader(
             benchmark_label="IFEval",
             error_type=AggregateError,
@@ -142,19 +161,9 @@ def aggregate(
         grading_failure_message="the IFEval checker could not grade this Case",
         missing_case_result=_missing_case_result,
     )
-    return path.aggregate(
-        rows_json,
-        benchmark_id=benchmark_id,
-        benchmark_revision=IFEVAL_REVISION,
-        selected_cases=selected,
-        # The spec is verified present for every selected Case before any grading,
-        # so the shared grading code's missing-material rung is unreachable on this benchmark.
-        grading_material=lambda case_id: specs.get(case_id),
-        scorer=_ifeval_score,
-    )
 
 
-def _selected_cases(
+def selected_cases(
     specs: Mapping[int, Mapping[str, Any]],
     case_order: Sequence[int],
     selected_case_count: int,
@@ -337,7 +346,7 @@ def _is_candidate_execution_failure(error: Mapping[str, Any]) -> bool:
     return error.get("kind") == CandidateExecutionError.__name__
 
 
-def _ifeval_score(cases: Sequence[CaseResult]) -> CandidateScore:
+def score_cases(cases: Sequence[CaseResult]) -> CandidateScore:
     """Apply IFEval's published accuracy formulas to gradeable typed Cases."""
 
     grades = [case.grade for case in cases]
@@ -400,4 +409,7 @@ __all__ = [
     "aggregate",
     "load_case_order",
     "load_specs",
+    "aggregation",
+    "score_cases",
+    "selected_cases",
 ]

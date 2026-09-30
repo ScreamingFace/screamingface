@@ -29,6 +29,7 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeReader,
     read_selected_cases,
 )
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
 from screamingface_engine.benchmarks.shared_grading.rubric import rubric_grade_case
 
@@ -88,7 +89,24 @@ def aggregate(
     case_ids: tuple[int, ...],
     mean: Callable[[Sequence[float]], float | None],
 ) -> dict[str, Any]:
-    """Score every selected Case on the shared scored path, with this benchmark's hooks.
+    return scoring(
+        root,
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        case_ids=case_ids,
+        mean=mean,
+    ).aggregate(raw_case_grades)
+
+
+def scoring(
+    root: Path,
+    *,
+    benchmark_id: str,
+    benchmark_revision: str,
+    case_ids: tuple[int, ...],
+    mean: Callable[[Sequence[float]], float | None],
+) -> Scoring:
+    """Score every selected Case on the shared scored path, with this board's hooks.
 
     ``case_ids`` is authoritative: a Case that produced no row stays visible without a
     grade rather than vanishing from the roll call. ``mean`` is GDPval's plain
@@ -96,14 +114,14 @@ def aggregate(
     so no published clip convention exists to match.
     """
 
-    return _PATH.aggregate(
-        raw_case_grades,
+    return Scoring(
+        path=_PATH,
         benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        selected_cases=read_selected_cases(
+        revision=benchmark_revision,
+        selected=read_selected_cases(
             root, case_ids, benchmark_label="GDPval", error_type=AggregateError
         ),
-        grading_material=lambda case_id: load_rubric_points(root, case_id),
+        material=lambda case_id: load_rubric_points(root, case_id),
         scorer=mean_scorer(mean),
     )
 

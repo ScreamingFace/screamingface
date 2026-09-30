@@ -13,26 +13,30 @@ from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEM
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.grading_endpoints import (
-    aggregate_endpoint,
     candidate_answer,
     compact_json,
     json_object,
 )
-from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.ifeval import grade as scoring
-from screamingface_engine.benchmarks.ifeval import grading
+from screamingface_engine.benchmarks.ifeval import grade, grading
 from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
-    BENCHMARK_ID,
     CASE_COUNT,
     CASE_GRADE_ROUTE,
+    CASE_RESULT_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
     DRAFT_FEEDBACK_ROUTE,
 )
+from screamingface_engine.benchmarks.ifeval.scoring import scoring as scoring_binding
 from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
+    aggregate_result_endpoint,
+    batch_result_endpoint,
+    case_result_endpoint,
+)
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -42,16 +46,27 @@ def install(node: Url4Node, root: Path) -> None:
 
     install_cases(node, CASES_ROUTE, _cases(root))
     routes = frozenset(node.processor_routes())
+
+    def load(count: int):
+        return scoring_binding(root, count)
+
     endpoints = (
         (CHECK_ROUTE, _check(root)),
         (DRAFT_FEEDBACK_ROUTE, _check_surface(root)),
         (CASE_GRADE_ROUTE, _case_evaluation),
+        (CASE_RESULT_ROUTE, case_result_endpoint(load, available_case_count=CASE_COUNT)),
         (
             AGGREGATE_ROUTE,
-            aggregate_endpoint(
+            batch_result_endpoint(
+                label="IFEval aggregation", available_case_count=CASE_COUNT, load=load
+            ),
+        ),
+        (
+            AGGREGATE_ROUTE + "/graded",
+            aggregate_result_endpoint(
                 label="IFEval aggregation",
                 available_case_count=CASE_COUNT,
-                aggregate=_aggregate(root),
+                load=load,
             ),
         ),
     )
@@ -83,7 +98,7 @@ def _check(root: Path):
             # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
         record = {
-            "schema": scoring.SCHEMA,
+            "schema": grade.SCHEMA,
             "case_id": case_id,
             "attempt": attempt,
             "valid": True,
@@ -135,7 +150,7 @@ def _check_surface(root: Path):
     """
 
     @observe_phase(ActivityKind.GRADING)
-    def check_surface(request: Request) -> str:
+    def rubric_draft_feedback_endpoint(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
         if request.intent != "check":
@@ -175,7 +190,7 @@ def _check_surface(root: Path):
         }
         return compact_json(record)
 
-    return check_surface
+    return rubric_draft_feedback_endpoint
 
 
 def _surface_verification(
@@ -276,20 +291,6 @@ def _verification(
         strict=result["strict"],
     )
     return spec, result, violations
-
-
-def _aggregate(root: Path):
-    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        case_order = scoring.load_case_order(root)
-        return scoring.aggregate(
-            case_evaluations,
-            scoring.load_specs(root / "instructions"),
-            BENCHMARK_ID,
-            case_order,
-            selected_case_count=selected_case_count,
-        )
-
-    return aggregate
 
 
 def _case_and_attempt(value: str) -> tuple[int, int]:

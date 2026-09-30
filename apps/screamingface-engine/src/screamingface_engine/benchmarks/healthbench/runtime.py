@@ -34,15 +34,14 @@ from screamingface_engine.benchmarks.failure_classes import (
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.grading_endpoints import (
-    aggregate_endpoint,
     candidate_answer,
     case_grade_endpoint,
     compact_json,
     json_object,
     positive_case_id,
 )
-from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.healthbench import grade as reducing
 from screamingface_engine.benchmarks.healthbench import records
 from screamingface_engine.benchmarks.healthbench.case_grade import (
@@ -62,6 +61,11 @@ from screamingface_engine.benchmarks.healthbench.verdict import (
 )
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.rubric_draft_feedback import rubric_draft_feedback_endpoint
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
+    aggregate_result_endpoint,
+    batch_result_endpoint,
+    case_result_endpoint,
+)
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,
@@ -125,8 +129,15 @@ def _install_protocol_once(
     install_cases(node, cases_route, _cases(root, case_ids))
     routes = frozenset(node.processor_routes())
     endpoints = (
+        (
+            aggregate_route + "/case-result",
+            case_result_endpoint(
+                _scoring(root, benchmark_id, benchmark_revision, case_ids, mean),
+                available_case_count=len(case_ids),
+            ),
+        ),
         (judge_requests_route, _rubric_judge_requests(root, case_ids, benchmark_id)),
-        # The mid-run draft-feedback offer the corrective loop consumes. It closes over `node`
+        # The mid-run check surface the corrective loop consumes. It closes over `node`
         # so the judge route resolves per request — installation must still work in a
         # world holding no model routes.
         (
@@ -146,10 +157,18 @@ def _install_protocol_once(
         ),
         (
             aggregate_route,
-            aggregate_endpoint(
+            batch_result_endpoint(
                 label="HealthBench",
                 available_case_count=len(case_ids),
-                aggregate=_aggregate(root, benchmark_id, benchmark_revision, case_ids, mean),
+                load=_scoring(root, benchmark_id, benchmark_revision, case_ids, mean),
+            ),
+        ),
+        (
+            aggregate_route + "/graded",
+            aggregate_result_endpoint(
+                label="HealthBench",
+                available_case_count=len(case_ids),
+                load=_scoring(root, benchmark_id, benchmark_revision, case_ids, mean),
             ),
         ),
     )
@@ -338,16 +357,15 @@ def _rubric_evaluation(request: Request) -> str:
     return compact_json(result)
 
 
-def _aggregate(
+def _scoring(
     root: Path,
     benchmark_id: str,
     benchmark_revision: str,
     case_ids: tuple[int, ...],
     mean: VariantMean,
 ):
-    def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return reducing.aggregate(
-            case_evaluations,
+    def aggregate_handler(selected_case_count: int):
+        return reducing.scoring(
             root,
             benchmark_id=benchmark_id,
             benchmark_revision=benchmark_revision,

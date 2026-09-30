@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
@@ -75,6 +75,7 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
+from screamingface_engine.benchmarks.progress import completed_case, grading_progress
 from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeIndex,
     CaseGradeReader,
@@ -294,40 +295,60 @@ class BenchmarkAggregation:
         handler over this face and no second loop ever exists.
         """
 
-        # Stage 1-2 — roll call and row filing (position is identity; see case_grades.py).
-        case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
-        indexed: CaseGradeIndex = self.reader.index(raw_case_grades, case_ids)
-        # Stage 3-4 — the hook is async (an enclave call is a network hop).
-        case_results: list[CaseResult] = await self._case_results(
-            selected_cases, indexed, grading_material, case_metadata
-        )
-        # Stage 5 — fold the marks into the class results.
-        return finalize_candidate_result(
-            benchmark_id=benchmark_id,
-            benchmark_revision=benchmark_revision,
-            selected_cases=list(selected_cases),
-            cases=case_results,
-            scorer=scorer,
-        ).as_payload()
+        with grading_progress(benchmark_id, benchmark_revision, scorer):
+            case_results = []
+            async for result in self.iter_case_results(
+                raw_case_grades,
+                selected_cases=selected_cases,
+                grading_material=grading_material,
+                case_metadata=case_metadata,
+            ):
+                case_results.append(result)
+                # INVARIANT: publish only after canonical grading; observing never regrades.
+                completed_case(benchmark_id, benchmark_revision, result, scorer)
+            # Stage 5 — fold the marks into the class results.
+            finalized = finalize_candidate_result(
+                benchmark_id=benchmark_id,
+                benchmark_revision=benchmark_revision,
+                selected_cases=list(selected_cases),
+                cases=case_results,
+                scorer=scorer,
+            )
+            observed = {case.case_id for case in case_results}
+            for case in finalized.cases:
+                if case.case_id not in observed:
+                    completed_case(benchmark_id, benchmark_revision, case, scorer)
+            return finalized.as_payload()
 
-    async def _case_results(
+    async def iter_case_results(
         self,
+        raw_case_grades: str,
+        *,
         selected_cases: Sequence[SelectedCase],
-        indexed: CaseGradeIndex,
         grading_material: Callable[[int], object | None],
-        case_metadata: Callable[[int], Mapping[str, Any]] | None,
-    ) -> list[CaseResult]:
-        # WHY sequential, not gather: selected order is publication order, and no
-        # current hook overlaps I/O; concurrency semantics are a later, separate call.
-        results: list[CaseResult | None] = [
-            await self._case_result(selected, index, indexed, grading_material, case_metadata)
-            for index, selected in enumerate(selected_cases)
-        ]
-        # An omitted Case (a missing-case hook returned None) files nothing; the
-        # finalizer materialises it as case_result_missing, so nothing vanishes.
-        return [result for result in results if result is not None]
+        case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
+    ) -> AsyncGenerator[CaseResult]:
+        """Yield canonical grades in selected order, before grading the next case.
 
-    async def _case_result(
+        Consuming this iterator executes grading; it is not an observer or replay.
+        All collected rows are validated before the first grade. A caller that
+        stops consuming must close the iterator; remaining cases are not graded.
+        Missing-row hooks that omit a result remain omitted: final aggregation
+        owns their conversion into case_result_missing failures.
+
+        FEATURE: OME-932's incremental consumer shares final aggregation's exact
+        grade path. This does not move grade production earlier in the URL4 graph.
+        """
+        case_ids = tuple(int(selected.case_id) for selected in selected_cases)
+        indexed = self.reader.index(raw_case_grades, case_ids)
+        for index, selected in enumerate(selected_cases):
+            result = await self.case_result(
+                selected, index, indexed, grading_material, case_metadata
+            )
+            if result is not None:
+                yield result
+
+    async def case_result(
         self,
         selected_case: SelectedCase,
         selected_index: int,
@@ -335,6 +356,11 @@ class BenchmarkAggregation:
         grading_material: Callable[[int], object | None],
         case_metadata: Callable[[int], Mapping[str, Any]] | None,
     ) -> CaseResult | None:
+        """Grade one selected Case with the same failure ladder as batch grading.
+
+        The original selected index preserves anonymous failure attribution.
+        ``None`` retains a board's explicit omission policy.
+        """
         case_id: int = int(selected_case.case_id)
         row: dict[str, Any] | None = indexed.case_grades.get(case_id)
         material: object | None = grading_material(case_id)

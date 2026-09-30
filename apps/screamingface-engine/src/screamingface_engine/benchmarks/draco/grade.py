@@ -65,6 +65,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.case_grades import CaseGradeReader
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 
 # WHY the table exists at all: every default rung of the shared grading code's ladder is replaced
 # by a benchmark-owned result hook below, so the shared grading code never looks a draco code up —
@@ -85,6 +86,23 @@ def aggregate(
     judge_passes: int = JUDGE_PASSES,
     benchmark_revision: str = REVISION,
 ) -> dict[str, Any]:
+    return scoring(
+        rubrics,
+        benchmark_id,
+        selected_cases=selected_cases,
+        judge_passes=judge_passes,
+        benchmark_revision=benchmark_revision,
+    ).aggregate(rows_json)
+
+
+def scoring(
+    rubrics: Mapping[int, Mapping[str, Any]],
+    benchmark_id: str,
+    *,
+    selected_cases: Sequence[Mapping[str, Any]],
+    judge_passes: int = JUDGE_PASSES,
+    benchmark_revision: str = REVISION,
+) -> Scoring:
     """Reduce the row array into a Candidate Result — one row per Case.
 
     Args:
@@ -131,12 +149,12 @@ def aggregate(
         missing_material_result=_missing_material_result,
         hook_failure_result=_hook_failure_result,
     )
-    return path.aggregate(
-        rows_json,
+    return Scoring(
+        path=path,
         benchmark_id=benchmark_id,
-        benchmark_revision=benchmark_revision,
-        selected_cases=selection,
-        grading_material=lambda case_id: rubrics.get(case_id),
+        revision=benchmark_revision,
+        selected=selection,
+        material=lambda case_id: rubrics.get(case_id),
         scorer=draco_scorer,
     )
 
