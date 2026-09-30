@@ -98,10 +98,16 @@ local-stack-notebooks:
         missing+=("--bundle" "$bundle")
     done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
 
+    # Gated datasets (xstest_safe, OME-1269) need a Hugging Face token: HF_TOKEN, or a
+    # `huggingface-cli login`, from an account that accepted the dataset's terms. With
+    # neither, the preparer skips those boards with a warning (they stay unfinished and
+    # are retried next time) instead of stopping every bundle after them. Set
+    # SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=0 to make a missing token fail instead.
     if [ ${#missing[@]} -gt 0 ]; then
         echo "==> downloading $((${#missing[@]} / 2)) benchmark dataset(s) into {{ assets }} — slow, once"
         ( cd "{{ engine_dir }}" \
-            && "$UV" run python -m screamingface_engine.benchmarks.prepare \
+            && SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN="${SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN:-1}" \
+                "$UV" run python -m screamingface_engine.benchmarks.prepare \
                 --root "{{ assets }}" "${missing[@]}" )
     fi
 

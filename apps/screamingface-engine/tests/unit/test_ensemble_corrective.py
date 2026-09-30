@@ -3,7 +3,7 @@
 FEATURE: benchmark-independent corrective loop (OME-796 / OME-827).
 STORY: as a client, a compiled `sf.CorrectiveLoop` candidate drives its rounds
 through benchmark-neutral endpoints against ANY benchmark that
-advertises a check surface — no benchmark-specific loop code anywhere.
+advertises a draft-feedback offer — no benchmark-specific loop code anywhere.
 
 The check-surface port record replaces both the old "PASSED" feedback sentinel
 (structured `passed` bool) and the IFEval-private `_strict_satisfaction` call
@@ -26,7 +26,7 @@ from screamingface_engine.benchmarks.contract import (
 )
 from screamingface_engine.benchmarks.ensemble.policy import (
     ANSWER_ROUTE,
-    CHECK_SURFACE_SCHEMA,
+    DRAFT_FEEDBACK_SCHEMA,
     GATE_ROUTE,
     MEMBER_LABEL_SCHEME,
     SELECT_ROUTE,
@@ -52,7 +52,7 @@ def _record(
 ) -> dict[str, object]:
     invocation = encode_candidate_invocation(answer, "stop", None)
     return {
-        "schema": CHECK_SURFACE_SCHEMA,
+        "schema": DRAFT_FEEDBACK_SCHEMA,
         "passed": passed,
         "satisfaction": satisfaction,
         "feedback": feedback,

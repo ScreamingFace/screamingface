@@ -1,4 +1,4 @@
-"""Bake the ContractEval (CUAD test) assets: the public questions and the private gold spans.
+"""Prepare the ContractEval (CUAD test) assets: the public questions and the private gold spans.
 
     <out>/cases.json          [{id, input}]                 — public, the Candidate-facing text
     <out>/answers/<id>.json   {source_id, title, question,  — private, read by aggregate.py
@@ -23,14 +23,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.contracteval.pins import (
+from screamingface_engine.benchmarks.contracteval.prompts import render_case_input
+from screamingface_engine.benchmarks.contracteval.revision_inputs import (
     DATASET,
     DATASET_REVISION,
     DATASET_SPLIT,
     EXPECTED_CASES,
     MAX_CONTEXT_TOKENS,
 )
-from screamingface_engine.benchmarks.contracteval.prompts import render_case_input
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 
 # WHY 4 and not a tokenizer: `tiktoken` is not an engine dependency and this guard exists to
@@ -41,7 +41,7 @@ _CHARS_PER_TOKEN = 4
 
 
 class PrepareError(BenchmarkAssetPreparationError):
-    """One ContractEval row could not be baked — the build stops rather than shipping it."""
+    """One ContractEval row could not be prepared — the build stops rather than shipping it."""
 
 
 def _text(value: object, case_id: int, field: str) -> str:
@@ -74,15 +74,15 @@ def case_records(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
         if len(context) // _CHARS_PER_TOKEN > MAX_CONTEXT_TOKENS:
             raise PrepareError(
                 f"case {case_id}: contract exceeds the context budget of "
-                f"{MAX_CONTEXT_TOKENS} tokens — refusing to bake it rather than truncate"
+                f"{MAX_CONTEXT_TOKENS} tokens — refusing to prepare it rather than truncate"
             )
         spans = _gold_spans(row, case_id)
         cases.append({"id": case_id, "input": render_case_input(context, question)})
         answers[case_id] = {
             # WHY validated and not `row.get(...)` (review, PR #984): a renamed upstream column
             # would write `null` into every private record and kill traceability silently, while
-            # the bake still reported success. `source_id` is the only link back to the dataset
-            # row, so it fails the build closed like `context` and `question` do.
+            # the prepare step still reported success. `source_id` is the only link back to the
+            # dataset row, so it fails the build closed like `context` and `question` do.
             "source_id": _text(row.get("id"), case_id, "id"),
             "title": _text(row.get("title"), case_id, "title"),
             "question": question,
@@ -133,9 +133,9 @@ def load_rows() -> list[dict[str, Any]]:
         ) from exc
     loaded = datasets_mod.load_dataset(DATASET, revision=DATASET_REVISION, split=DATASET_SPLIT)
     rows = [dict(row) for row in loaded]
-    # INVARIANT: the pinned split holds exactly the exam this board declares. Without this the
-    # bake succeeds on a resized split while the expression still declares EXPECTED_CASES, and
-    # every coverage percentage divides by a denominator nobody verified.
+    # INVARIANT: the pinned split holds exactly the benchmark this benchmark declares. Without this
+    # the prepare step succeeds on a resized split while the expression still declares
+    # EXPECTED_CASES, and every coverage percentage divides by a denominator nobody verified.
     if len(rows) != EXPECTED_CASES:
         raise PrepareError(
             f"pinned split holds {len(rows)} rows, but this board is built for "
@@ -145,7 +145,7 @@ def load_rows() -> list[dict[str, Any]]:
 
 
 def prepare(out: Path) -> dict[str, Any]:
-    """Bake the ContractEval assets into ``out``, returning the audit summary."""
+    """Prepare the ContractEval assets into ``out``, returning the audit summary."""
 
     return emit(load_rows(), out)
 

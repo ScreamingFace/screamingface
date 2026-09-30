@@ -1,9 +1,9 @@
-"""MedXpertQA's grading hooks — everything this board still writes to be graded.
+"""MedXpertQA's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
-contribution: its exact-match ``grade_case`` (committed letter vs the private key),
-its plain-accuracy scorer, its slice tags, and its own failure wording. The engine
-ships mechanisms; a benchmark ships semantics (folded in OME-1149 — this board was
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its exact-match ``grade_case`` (committed letter vs the
+private key), its plain-accuracy scorer, its slice tags, and its own failure wording. The engine
+ships mechanisms; a benchmark ships semantics (folded in OME-1149 — this benchmark was
 the "second non-rubric data point" its pre-fold docstring asked for).
 
 INVARIANT — an unparseable answer scores 0.0; it is NOT excluded. This is the official
@@ -11,10 +11,10 @@ harness's empty-prediction verdict, and it is what keeps two systems comparable:
 experimental run scored a model answering 77% of rows over that smaller, easier denominator,
 so its accuracy was not the same measurement as a model that answered all of them.
 
-AIDEV-NOTE: that is deliberately NOT the board's `failure_policy`. That axis governs a Case
-which never got a valid grade — an infrastructure failure — and those go through the spine's
-failure ladder into the shared `finalize_candidate_result`, which scores the gradeable subset
-and publishes coverage. Hence the board declares `coverage_declare`. An empty answer DOES get
+AIDEV-NOTE: that is deliberately NOT the benchmark's `failure_policy`. That axis governs a Case
+which never got a valid grade — an infrastructure failure — and those go through the shared grading
+code's failure ladder into the shared `finalize_candidate_result`, which scores the gradeable subset
+and publishes coverage. Hence the benchmark declares `coverage_declare`. An empty answer DOES get
 a grade here, of 0.0.
 
 INVARIANT — a failure to COMMIT and a failure to RUN are different facts. A model that replies
@@ -32,17 +32,20 @@ from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import CaseResult
-from screamingface_engine.benchmarks.medxpert.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.medxpert.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
-from screamingface_engine.benchmarks.spine.incremental import Scoring
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.scored import (
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
     CaseGradeOutcome,
     GradeRequest,
-    ScoredPath,
 )
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 
-# INVARIANT: failure wording is this board's published voice — no rubric-flavored
+# INVARIANT: failure wording is this benchmark's published voice — no rubric-flavored
 # codes ("missing_rubric_asset") may leak into an MCQ result.
 _FAILURE_MESSAGES = {
     "missing_answer_asset": "the baked answer record for this Case is missing or invalid",
@@ -69,7 +72,7 @@ def load_answer(root: Path, case_id: int) -> dict[str, Any] | None:
 
 
 def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
-    """The roll call from the baked ``cases.json``, in selected order."""
+    """The roll call from the prepared ``cases.json``, in selected order."""
 
     return read_selected_cases(
         root, case_ids, benchmark_label="MedXpertQA", error_type=AggregateError
@@ -77,7 +80,7 @@ def selected_cases(root: Path, case_ids: tuple[int, ...]) -> list[SelectedCase]:
 
 
 def aggregate(
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     benchmark_id: str,
@@ -86,7 +89,7 @@ def aggregate(
 ) -> dict[str, Any]:
     return scoring(
         root, benchmark_id=benchmark_id, benchmark_revision=benchmark_revision, case_ids=case_ids
-    ).aggregate(raw_rows)
+    ).aggregate(raw_case_grades)
 
 
 def scoring(
@@ -115,13 +118,13 @@ def scoring(
 
 
 def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
-    """Validate the envelope, then hoist attempt 1 into the spine's candidate shape.
+    """Validate the envelope, then hoist attempt 1 into the shared grading code's candidate shape.
 
     The committed letter, reasoning, and refusal all live on the first (only)
-    attempt; the spine reads the candidate's half of the row under ``case``.
+    attempt; the shared grading code reads the candidate's half of the row under ``case``.
     """
 
-    envelope = decode_case_evaluation(grading, expected_case_id)
+    envelope = decode_case_grade(grading, expected_case_id)
     attempt: Mapping[str, Any] = envelope["attempts"][0]
     metadata: object = attempt.get("metadata")
     fields: dict[str, Any] = dict(metadata) if isinstance(metadata, Mapping) else {}
@@ -145,7 +148,7 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
 
 
 async def _grade_case(request: GradeRequest) -> CaseGradeOutcome:
-    """Exact-match one committed letter against the private key — the whole exam rule.
+    """Exact-match one committed letter against the private key — the whole benchmark rule.
 
     INVARIANT: an unanswered Case scores 0.0, not None — the official empty-prediction
     verdict. It counts toward the denominator like any other answered Case.
@@ -196,7 +199,7 @@ def _slice_metadata(answer: Mapping[str, Any] | None) -> dict[str, Any]:
 def _match_evidence(committed: str, label: str, correct: bool) -> dict[str, Any]:
     """The exact-match verdict, as the report schema's Evidence record.
 
-    WHY it exists at all for a one-check MCQ Board: `Check.evidence` is required, and a
+    WHY it exists at all for a one-check MCQ Benchmark: `Check.evidence` is required, and a
     reader must be able to see WHAT was compared without re-deriving it from the score.
     `raw_output` carries the committed letter — "" when the reply named no choice.
     """
@@ -238,14 +241,14 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
     )
 
 
-# WHY bound at module bottom: the scored path lives in the spine; the hooks and the
-# failure-message wording stay board-owned so per-case output is byte-identical to the
+# WHY bound at module bottom: the scored path lives in the shared grading code; the hooks and the
+# failure-message wording stay benchmark-owned so per-case output is byte-identical to the
 # pre-fold copy (the medxpert unit suite pins every rung — no golden exists yet).
-_PATH = ScoredPath(
-    reader=RowReader(
+_PATH = BenchmarkAggregation(
+    reader=CaseGradeReader(
         benchmark_label="MedXpertQA",
         error_type=AggregateError,
-        decode_case_evaluation=_decode,
+        decode_case_grade=_decode,
     ),
     grade_case=_grade_case,
     failure_messages=_FAILURE_MESSAGES,

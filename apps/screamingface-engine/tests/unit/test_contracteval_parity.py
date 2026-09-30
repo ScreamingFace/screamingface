@@ -1,6 +1,6 @@
 """Our grading == the paper's grading, proved in CI over real CUAD gold spans.
 
-WHY this file exists (review of PR #984): the board claims its numbers are the paper's, and
+WHY this file exists (review of PR #984): the benchmark claims its numbers are the paper's, and
 before this the claim rested on a differential run done once in a scratchpad. That is not
 evidence: it could not be re-run from the repo, its row count drifted between runs (2,970 then
 2,742 for the same 400 rows), and a transcription typo in `SYSTEM_PROMPT` or a "tidy-up" of

@@ -4,8 +4,8 @@ import httpx
 import pytest
 from test_ifeval_provider_failure_stage import _aggregate, _collect_candidate_error
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.world.connector import _raise_for_status
 from url4.core.errors import ResolutionError
 from url4.dag.nodes._shared import _error_payload
@@ -47,7 +47,7 @@ def test_unmarked_code_never_claims_model_origin(code):
 
 @pytest.mark.asyncio
 async def test_protected_checker_wins_over_inner_model_call_origin():
-    row = case_execution_payload(
+    row = graded_answer_payload(
         153,
         encode_candidate_invocation("answer", "stop", None),
         [

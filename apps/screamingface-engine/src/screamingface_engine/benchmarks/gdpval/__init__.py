@@ -1,1 +1,1 @@
-"""The GDPval text-subset benchmark board."""
+"""The GDPval text-subset benchmark."""

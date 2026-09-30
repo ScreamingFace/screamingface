@@ -7,36 +7,36 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.case_selection import install_cases
-from screamingface_engine.benchmarks.ensemble.policy import CHECK_SURFACE_SCHEMA
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.evaluation import (
+from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error as _contract_error,
+)
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
+from screamingface_engine.benchmarks.grading_endpoints import (
     candidate_answer,
     compact_json,
     json_object,
 )
-from screamingface_engine.benchmarks.failure_classes import (
-    benchmark_contract_error as _contract_error,
-)
-from screamingface_engine.benchmarks.grading_activity import grading_activity
 from screamingface_engine.benchmarks.ifeval import grade, grading
-from screamingface_engine.benchmarks.ifeval.case_evaluation import bind_case_evaluation
+from screamingface_engine.benchmarks.ifeval.case_grade import build_case_grade
 from screamingface_engine.benchmarks.ifeval.definition import (
     AGGREGATE_ROUTE,
     CASE_COUNT,
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CASE_RESULT_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
-    CHECK_SURFACE_ROUTE,
+    DRAFT_FEEDBACK_ROUTE,
 )
 from screamingface_engine.benchmarks.ifeval.scoring import scoring as scoring_binding
-from screamingface_engine.benchmarks.spine.incremental_routes import (
+from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
     aggregate_result_endpoint,
     batch_result_endpoint,
     case_result_endpoint,
 )
-from screamingface_engine.benchmarks.stages import observe_stage
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -52,8 +52,8 @@ def install(node: Url4Node, root: Path) -> None:
 
     endpoints = (
         (CHECK_ROUTE, _check(root)),
-        (CHECK_SURFACE_ROUTE, _check_surface(root)),
-        (CASE_EVALUATION_ROUTE, _case_evaluation),
+        (DRAFT_FEEDBACK_ROUTE, _check_surface(root)),
+        (CASE_GRADE_ROUTE, _case_evaluation),
         (CASE_RESULT_ROUTE, case_result_endpoint(load, available_case_count=CASE_COUNT)),
         (
             AGGREGATE_ROUTE,
@@ -76,7 +76,7 @@ def install(node: Url4Node, root: Path) -> None:
 
 
 def _cases(root: Path):
-    @observe_stage(ActivityKind.CASE_LOADING)
+    @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
         return _read(root / "cases.json", "IFEval cases")
 
@@ -86,11 +86,11 @@ def _cases(root: Path):
 def _check(root: Path):
     """Authoritative per-Case Grading record consumed only by Aggregation."""
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     def check(request: Request) -> str:
         try:
             case_id, attempt = _case_and_attempt(request.intent)
-            grading_activity(case_id, "started")
+            report_case_grading(case_id, "started")
             candidate = candidate_answer(request.context)
             spec, result, violations = _verification(root, case_id, candidate.text)
         except (KeyError, TypeError, ValueError) as exc:
@@ -149,8 +149,8 @@ def _check_surface(root: Path):
     the port fields — never instruction ids, kwargs, or the raw grading record.
     """
 
-    @observe_stage(ActivityKind.GRADING)
-    def check_surface(request: Request) -> str:
+    @observe_phase(ActivityKind.GRADING)
+    def rubric_draft_feedback_endpoint(request: Request) -> str:
         if request.intent == "feedback":
             return _surface_feedback(request.context)
         if request.intent != "check":
@@ -181,7 +181,7 @@ def _check_surface(root: Path):
             described = " | ".join(str(item) for item in violations) or ("unspecified requirement")
             feedback = f"The answer failed these requirements: {described}"
         record = {
-            "schema": CHECK_SURFACE_SCHEMA,
+            "schema": DRAFT_FEEDBACK_SCHEMA,
             "passed": passed,
             "satisfaction": satisfaction,
             "feedback": feedback,
@@ -190,7 +190,7 @@ def _check_surface(root: Path):
         }
         return compact_json(record)
 
-    return check_surface
+    return rubric_draft_feedback_endpoint
 
 
 def _surface_verification(
@@ -211,9 +211,9 @@ def _surface_feedback(record_json: object) -> str:
     """Extract the sanitized feedback text from one check-surface record."""
 
     record = json_object(record_json, "IFEval check-surface feedback")
-    if record.get("schema") != CHECK_SURFACE_SCHEMA:
+    if record.get("schema") != DRAFT_FEEDBACK_SCHEMA:
         raise _contract_error(
-            f"feedback input must be a {CHECK_SURFACE_SCHEMA} check-surface record"
+            f"feedback input must be a {DRAFT_FEEDBACK_SCHEMA} check-surface record"
         )
     feedback = record.get("feedback")
     if not isinstance(feedback, str):
@@ -242,7 +242,7 @@ def _case_by_input(root: Path, prompt: str) -> int:
     return _positive_int(matches[0], "case id")
 
 
-@observe_stage(ActivityKind.GRADING)
+@observe_phase(ActivityKind.GRADING)
 def _case_evaluation(request: Request) -> str:
     """Pack exact attempt records into one authoritative per-Case envelope."""
 
@@ -263,7 +263,7 @@ def _case_evaluation(request: Request) -> str:
             if not isinstance(decoded, dict):
                 raise ValueError(f"IFEval Case evaluation {field} must decode to an object")
             attempts.append(decoded)
-        result = bind_case_evaluation(case_id, attempts)
+        result = build_case_grade(case_id, attempts)
     except (TypeError, ValueError) as exc:
         raise _contract_error(str(exc)) from exc
     return compact_json(result)

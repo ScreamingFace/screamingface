@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("inspect_ai.scorer")
 
-from test_inspect_gsm8k_board import GSM8K_BOARD, _node, _row  # noqa: E402
+from test_inspect_gsm8k_benchmark import GSM8K_BENCHMARK, _node, _row  # noqa: E402
 
 from screamingface_engine.activity.observer import ActivityObserver  # noqa: E402
 from screamingface_engine.observations import RunObservations  # noqa: E402
@@ -33,7 +33,7 @@ async def test_imported_aggregate_publishes_prefix_score_and_preserves_final(tmp
                 weight=0.0,
             ),
             RelExpr(
-                path=GSM8K_BOARD.aggregate_route, context="$payload", intent=Text("aggregate:2")
+                path=GSM8K_BENCHMARK.aggregate_route, context="$payload", intent=Text("aggregate:2")
             ),
             intent=Text(""),
         )

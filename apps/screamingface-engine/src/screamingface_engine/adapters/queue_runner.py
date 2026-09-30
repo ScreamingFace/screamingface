@@ -50,11 +50,13 @@ from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.run_evidence import adopt_or_mint_traceparent, log_scheduled
 from screamingface_engine.runner_queue import (
+    BROKER_UNAVAILABLE_ERRORS,
     DEFAULT_CALLER_INFLIGHT_CAP,
     DEFAULT_DEPTH_CEILING,
     DEFAULT_IO_CONCURRENCY,
     DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
+    RunQueueUnavailable,
     caller_key,
     encode_message,
 )
@@ -287,8 +289,17 @@ class QueueJobRunner(IdentityAwareJobRunner):
         Raises:
             JobRunnerAtCapacity: the queue is at its depth ceiling, or the caller has too
                 many runs in flight (503 + `Retry-After` at the REST edge).
+            RunQueueUnavailable: the broker was unreachable on the admission read or the
+                publish (503 + a constant `Retry-After` at the REST edge). Any other broker
+                error propagates unchanged (a 500): it would fail the same way on retry.
         """
-        reservation = await self._admit_or_raise(identity, topic)
+        try:
+            reservation = await self._admit_or_raise(identity, topic)
+        except BROKER_UNAVAILABLE_ERRORS as exc:
+            # WHY translated here and not at the REST edge: the route must not learn the
+            # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
+            # reserves only after its last broker read — so there is nothing to release.
+            raise RunQueueUnavailable("the run queue could not be read at admission") from exc
         # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
         # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
         # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
@@ -314,7 +325,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             log_scheduled(
                 logger, topic=topic, traceparent=run_traceparent, job_name=job_name(topic)
             )
-        except BaseException:
+        except BaseException as exc:
             # WHY BaseException and not Exception: a task cancelled mid-publish (a client
             # disconnect, an upstream timeout) raises `CancelledError`, which since 3.8 is
             # NOT an Exception — the release below was skipped and the reservation leaked
@@ -330,6 +341,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # FIRST, still-running admission too, under-counting the caller from then on.
             # The release removes exactly the reservation this attempt minted.
             await self._release_reservation(topic, caller_key(identity), reservation)
+            if isinstance(exc, BROKER_UNAVAILABLE_ERRORS):
+                # AFTER the release, so the translation can never skip it (a leaked
+                # reservation refuses the caller's next run for a run that never queued).
+                raise RunQueueUnavailable("the run could not be durably queued") from exc
             raise
         self._scheduled_at[topic] = self._clock()
         return job_name(topic)
@@ -478,6 +493,22 @@ class QueueJobRunner(IdentityAwareJobRunner):
         the uncached counterpart the admission path's cached snapshot is measured against.
         """
         return await self._queue.depth()
+
+    def accepted_ages(self) -> dict[str, float]:
+        """Seconds since this replica durably accepted each run it still remembers.
+
+        FEATURE: warn the client about an unclaimed queued run (under OME-1086) — the
+        unclaimed-run warner's input. It is the schedule-time record the capability-validity
+        boundary already keeps (`_scheduled_at`), read on the same clock, so "when was it
+        accepted" has ONE answer in this process. A run appears only after its publish was
+        acknowledged, and leaves when `_prune` drops it at capability expiry.
+
+        It says nothing about whether the run STARTED — that is `status()`'s stream read,
+        which the warner makes only for the runs this snapshot shows past its grace. A copy,
+        so the caller cannot mutate the runner's record.
+        """
+        now = self._clock()
+        return {topic: (now - at).total_seconds() for topic, at in self._scheduled_at.items()}
 
     @property
     def publisher(self) -> _Publisher:

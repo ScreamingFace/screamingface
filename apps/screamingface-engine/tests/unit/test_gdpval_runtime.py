@@ -1,6 +1,6 @@
-"""GDPval runtime handlers — baked assets are parsed once, not once per call.
+"""GDPval runtime handlers — prepared assets are parsed once, not once per call.
 
-INVARIANT under test: baked assets are immutable for the process lifetime, and cases.json is
+INVARIANT under test: prepared assets are immutable for the process lifetime, and cases.json is
 multi-MB (it embeds the flattened text of all 85 reference documents). A handler must read it
 from disk at most once per closure — ~204 re-reads per 102-case run is pure waste, and any
 observable difference between the first call and a later one would mean the cache lies.
@@ -15,10 +15,10 @@ from screamingface_engine.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL, JUDGE_PARAMS
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL, JUDGE_PARAMS
 from screamingface_engine.benchmarks.gdpval.runtime import (
     _cases,
-    _rubric_tasks,
+    _rubric_judge_requests,
     _rubric_verdict,
 )
 from screamingface_engine.grading_accounting import capture_grading_requests
@@ -90,7 +90,7 @@ def _count_reads(monkeypatch, reads: list[Path]) -> None:
     monkeypatch.setattr(Path, "read_text", counting)
 
 
-def test_the_cases_route_reads_the_baked_file_once(tmp_path, monkeypatch) -> None:
+def test_the_cases_route_reads_the_prepared_file_once(tmp_path, monkeypatch) -> None:
     _write_assets(tmp_path)
     reads: list[Path] = []
     _count_reads(monkeypatch, reads)
@@ -102,12 +102,12 @@ def test_the_cases_route_reads_the_baked_file_once(tmp_path, monkeypatch) -> Non
     assert reads.count(tmp_path / "cases.json") == 1
 
 
-def test_rubric_tasks_read_the_baked_assets_once_per_case(tmp_path, monkeypatch) -> None:
+def test_rubric_tasks_read_the_prepared_assets_once_per_case(tmp_path, monkeypatch) -> None:
     _write_assets(tmp_path)
     reads: list[Path] = []
     _count_reads(monkeypatch, reads)
 
-    handler = _rubric_tasks(tmp_path, _CASE_IDS, "gdpval-text")
+    handler = _rubric_judge_requests(tmp_path, _CASE_IDS, "gdpval-text")
     context = encode_candidate_invocation("the deliverable", "stop", None)
     first = handler(Request(path="/t", context=context, intent="1", params={}))
     second = handler(Request(path="/t", context=context, intent="1", params={}))
@@ -119,7 +119,7 @@ def test_rubric_tasks_read_the_baked_assets_once_per_case(tmp_path, monkeypatch)
 
 def test_rubric_verdict_retains_its_exact_request_accounting(tmp_path: Path) -> None:
     _write_assets(tmp_path)
-    tasks = _rubric_tasks(tmp_path, _CASE_IDS, "gdpval-text")
+    tasks = _rubric_judge_requests(tmp_path, _CASE_IDS, "gdpval-text")
     verdict = _rubric_verdict("gdpval-text")
 
     with capture_request_accounting():

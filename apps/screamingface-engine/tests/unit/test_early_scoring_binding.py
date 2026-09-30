@@ -3,10 +3,10 @@
 import json
 
 import pytest
-from test_spine_scored import _envelope, _grading, _Hook, _path, _selected
+from test_shared_grading_aggregation import _envelope, _grading, _Hook, _path, _selected
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore
-from screamingface_engine.benchmarks.spine.incremental import Scoring
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 
 
 @pytest.mark.asyncio

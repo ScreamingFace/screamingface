@@ -10,7 +10,7 @@ What runs side by side, over all 541 official rows × a fixed response corpus:
 - REFERENCE: vendor/evaluation.py test_instruction_following (verbatim fork code)
 
 INVARIANT — verdict vectors must be IDENTICAL, not close. A single flipped bool is a
-different exam. The four global metrics must match the reference formulas exactly,
+different benchmark. The four global metrics must match the reference formulas exactly,
 modulo our aggregate's presentational round(…, 4).
 
 Carve-out (owner decision 2026-08-10): keys 1122 (`letter: '#'`) and 1129

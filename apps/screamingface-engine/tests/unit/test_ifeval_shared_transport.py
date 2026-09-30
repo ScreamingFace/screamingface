@@ -44,7 +44,7 @@ async def test_shared_binding_matches_batch_without_regrading(tmp_path, monkeypa
 
 @pytest.mark.asyncio
 async def test_public_case_result_uses_canonical_ifeval_grader():
-    path = grade.scored_path(_SPECS)
+    path = grade.aggregation(_SPECS)
     selected = grade.selected_cases(_SPECS, [2, 1], 2)[0]
     indexed = path.reader.index(json.dumps([_evaluation(2, [True], [True])]), (2,))
     result = await path.case_result(selected, 0, indexed, _SPECS.get, None)

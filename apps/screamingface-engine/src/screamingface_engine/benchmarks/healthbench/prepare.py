@@ -1,17 +1,17 @@
 """Download the pinned HealthBench Professional dataset and emit its runtime assets.
 
-Think of this as printing the exam papers AND the answer key before exam day: the
+Think of this as printing the benchmark papers AND the answer key before benchmark day: the
 question booklet (``cases.json``) goes where students can see it; the marking
 scheme (``rubrics/``) stays locked in the teachers' room.
 
-NOTE — this bakes ALL 525 rows, not just the 157-row worst-30% subset. The subset
+NOTE — this prepares ALL 525 rows, not just the 157-row worst-30% subset. The subset
 is a serve-time SELECTION (``runtime._select_cases`` over ``WORST30_CASE_IDS``),
 never a build-time fork, because:
 
-1. Engine Case ids are positions in the FULL file — baking only the subset would
+1. Engine Case ids are positions in the FULL file — preparing only the subset would
    force a renumbering layer, exactly the silent answer-key drift this build
    refuses to allow.
-2. The assets cover every professional row, so the served exam stays a pure
+2. The assets cover every professional row, so the served benchmark stays a pure
    filter over one immutable answer key.
 3. 525 conversations of JSON is cheap; a filter is simpler than a fork.
 
@@ -55,7 +55,7 @@ from typing import Any
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 from screamingface_engine.benchmarks.healthbench.definition import PROFESSIONAL_CASE_COUNT
-from screamingface_engine.benchmarks.healthbench.pins import DATASET, DATASET_REVISION
+from screamingface_engine.benchmarks.healthbench.revision_inputs import DATASET, DATASET_REVISION
 from screamingface_engine.benchmarks.healthbench.subset import WORST30_CASE_IDS, WORST30_HF_IDS
 
 
@@ -140,7 +140,7 @@ def envelope(messages: list[dict[str, str]]) -> str:
 
     WHY not ``chat_input()``: that helper renders a url4 STRUCT for authoring inline
     expressions; a struct only becomes JSON when the expression resolves it. A value
-    baked into ``cases.json`` is substituted into the Candidate call VERBATIM as data,
+    written into ``cases.json`` is substituted into the Candidate call VERBATIM as data,
     so it must already be the JSON the Runner's envelope decoder ``json.loads``es.
     """
 
@@ -177,18 +177,18 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
     ``subset.WORST30_CASE_IDS`` froze "the worst-30% rows sit at THESE 1-based
     positions in the HF file". If the dataset gained/lost/reordered rows since,
     position 42 is no longer the conversation the challenge means by Case 42 —
-    so the build refuses to bake a silently different answer key.
+    so the build refuses to prepare a silently different answer key.
     """
 
-    # The professional board declares exactly this many Cases, so the file must hold
+    # The professional benchmark declares exactly this many Cases, so the file must hold
     # exactly this many rows. WHY its own check: the frozen-position assertion below only
     # proves the worst-30% rows did not MOVE — a row appended at the END passes it, and the
-    # image would bake a 526-Case exam under a 525-Case identity.
+    # image would prepare a 526-Case benchmark under a 525-Case identity.
     if len(rows) != PROFESSIONAL_CASE_COUNT:
         raise PrepareError(
             f"{DATASET}@{DATASET_REVISION} holds {len(rows)} rows, but the professional "
-            f"board declares {PROFESSIONAL_CASE_COUNT} Cases; refusing to bake a "
-            "differently-sized exam under that identity"
+            f"board declares {PROFESSIONAL_CASE_COUNT} Cases; refusing to prepare a "
+            "differently-sized benchmark under that identity"
         )
     # Where does each frozen HF row id sit in TODAY'S file? (1-based position)
     positions = {
@@ -205,7 +205,7 @@ def emit(rows: list[dict[str, Any]], out: Path) -> tuple[int, int]:
     if frozen != WORST30_CASE_IDS:
         raise PrepareError(
             "the HF row order no longer matches subset.WORST30_CASE_IDS — the dataset "
-            "moved under the frozen mapping; refusing to bake a different answer key"
+            "moved under the frozen mapping; refusing to prepare a different answer key"
         )
     rubric_dir = out / "rubrics"
     rubric_dir.mkdir(parents=True, exist_ok=True)
@@ -231,17 +231,17 @@ def _prepare(out: Path) -> dict[str, Any]:
     emit(load_rows(), out)
     # INVARIANT: count what LANDED, not what was declared. `emit` already refuses any row
     # count but PROFESSIONAL_CASE_COUNT, so echoing its inputs would restate a constant the
-    # build enforced rather than report this bake — a record that can never differ is not
+    # build enforced rather than report this prepare — a record that can never differ is not
     # evidence. Reading the written bundle back is the only observation available here.
     # WHY not also count `rubrics/`: `emit` writes one rubric per Case and never clears the
-    # directory, so that count equals this one on a fresh bake and is inflated by leftovers on a
+    # directory, so that count equals this one on a fresh prepare and is inflated by leftovers on a
     # re-prepare — redundant when accurate, misleading when not. `cases.json` is rewritten whole,
-    # so reading it back is both a count of THIS bake and proof the file landed intact.
+    # so reading it back is both a count of THIS prepare and proof the file landed intact.
     cases = json.loads((out / "cases.json").read_text(encoding="utf-8"))
     return {
         "professional_cases": len(cases),
-        # The worst-30% board is a serve-time SELECTION over frozen ids (see the module
-        # docstring), never its own bake. Named `declared_` so an operator reading the build
+        # The worst-30% benchmark is a serve-time SELECTION over frozen ids (see the module
+        # docstring), never its own prepare. Named `declared_` so an operator reading the build
         # log cannot mistake a compile-time constant for something this run produced.
         "declared_worst30_cases": len(WORST30_CASE_IDS),
         "out": str(out),
@@ -249,7 +249,7 @@ def _prepare(out: Path) -> dict[str, Any]:
 
 
 def prepare(out: Path) -> dict[str, Any]:
-    """Prepare the complete HealthBench assets shared by both registered boards."""
+    """Prepare the complete HealthBench assets shared by both registered benchmarks."""
 
     return _prepare(out)
 
@@ -264,8 +264,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"healthbench prepare failed: {exc}", file=sys.stderr)
         return 1
     print(
-        f"healthbench: baked {summary['professional_cases']} cases into {args.out} "
-        f"— the professional board serves all {summary['professional_cases']}, "
+        f"healthbench: prepared {summary['professional_cases']} cases into {args.out} "
+        f"— the professional benchmark serves all {summary['professional_cases']}, "
         f"worst30 serves {summary['declared_worst30_cases']}"
     )
     return 0

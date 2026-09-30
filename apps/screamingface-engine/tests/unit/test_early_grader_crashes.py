@@ -36,7 +36,9 @@ async def test_grader_crash_fails_real_execution(tmp_path, monkeypatch, error):
 
 @pytest.mark.asyncio
 async def test_case_endpoint_preserves_cancellation():
-    from screamingface_engine.benchmarks.spine.incremental_routes import case_result_endpoint
+    from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
+        case_result_endpoint,
+    )
     from url4.peer.server import Request
 
     def cancel(count):
@@ -49,11 +51,13 @@ async def test_case_endpoint_preserves_cancellation():
 
 @pytest.mark.asyncio
 async def test_corrupt_final_grade_is_contract_error():
-    from test_spine_scored import _Hook, _path, _selected
+    from test_shared_grading_aggregation import _Hook, _path, _selected
 
     from screamingface_engine.benchmarks.aggregation import CandidateScore
-    from screamingface_engine.benchmarks.spine.incremental import Scoring
-    from screamingface_engine.benchmarks.spine.incremental_routes import aggregate_result_endpoint
+    from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
+    from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
+        aggregate_result_endpoint,
+    )
     from url4.core.errors import ResolutionError
     from url4.peer.server import Request
 

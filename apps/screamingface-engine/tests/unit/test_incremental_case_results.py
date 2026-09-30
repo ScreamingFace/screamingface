@@ -4,7 +4,15 @@ import asyncio
 import json
 
 import pytest
-from test_spine_scored import BoardError, _aggregate, _envelope, _grading, _Hook, _path, _selected
+from test_shared_grading_aggregation import (
+    BenchmarkError,
+    _aggregate,
+    _envelope,
+    _grading,
+    _Hook,
+    _path,
+    _selected,
+)
 
 
 def test_first_result_does_not_wait_for_or_start_second_grade() -> None:
@@ -51,7 +59,7 @@ def test_bad_later_row_is_rejected_before_any_grading() -> None:
             selected_cases=_selected(1, 2),
             grading_material=lambda _: (5, -3),
         )
-        with pytest.raises(BoardError):
+        with pytest.raises(BenchmarkError):
             await anext(stream)
         assert hook.requests == []
 
@@ -81,7 +89,7 @@ def test_failed_case_is_yielded_without_calling_grader() -> None:
 def test_omitted_case_stays_finalizers_responsibility() -> None:
     async def run() -> None:
         hook = _Hook()
-        path = _path(hook, missing_row_result=lambda *_: None)
+        path = _path(hook, missing_case_result=lambda *_: None)
         assert [
             result
             async for result in path.iter_case_results(

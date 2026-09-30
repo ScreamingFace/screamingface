@@ -1,1 +1,1 @@
-"""The MedXpertQA (Text) exact-match MCQ board."""
+"""The MedXpertQA (Text) exact-match MCQ benchmark."""

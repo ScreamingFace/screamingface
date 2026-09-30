@@ -26,10 +26,10 @@ from typing import cast
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks.rubric_check import (
+from screamingface_engine.benchmarks.rubric_draft_feedback import (
     CHECK_ATTEMPTS,
-    RubricCheck,
-    RubricShape,
+    RubricDraftFeedback,
+    RubricFileLayout,
     _judged,
 )
 from screamingface_engine.world.config import ModelSpec
@@ -132,11 +132,11 @@ async def test_content_filter_still_wins_over_length() -> None:
 # ── seam 2: the check judge's failure names its budget and the policy that pins it ────────
 
 
-_CHECK = RubricCheck(
+_CHECK = RubricDraftFeedback(
     label="DRACO",
     criterion="draco-pass.v1",
     threshold=0.7,
-    shape=RubricShape(
+    shape=RubricFileLayout(
         layout="flat",
         items="items",
         id_field="id",

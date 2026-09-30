@@ -5,7 +5,7 @@ import json
 from dataclasses import replace
 
 import pytest
-from test_spine_scored import _envelope, _grading, _Hook, _path, _selected
+from test_shared_grading_aggregation import _envelope, _grading, _Hook, _path, _selected
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.aggregation import CandidateScore

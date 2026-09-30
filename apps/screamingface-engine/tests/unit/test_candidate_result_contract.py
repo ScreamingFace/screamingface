@@ -14,12 +14,12 @@ from screamingface_engine.benchmarks.contract import (
     CaseGrade,
     CaseResult,
     Check,
-    CorrectiveExecution,
+    CorrectiveLoopOutcome,
     Evidence,
     EvidenceProducer,
     Failure,
-    decode_candidate_execution,
     decode_candidate_invocation,
+    decode_loop_outcome,
     encode_candidate_invocation,
 )
 
@@ -224,11 +224,11 @@ def test_candidate_invocation_rejects_an_answer_and_refusal_together() -> None:
 
 
 def test_candidate_invocation_round_trips_typed_corrective_execution() -> None:
-    execution = CorrectiveExecution(stop_reason="passed", rounds_executed=2)
+    execution = CorrectiveLoopOutcome(stop_reason="passed", rounds_executed=2)
 
     encoded = encode_candidate_invocation("answer", "stop", None, execution)
 
-    assert decode_candidate_execution(encoded) == execution
+    assert decode_loop_outcome(encoded) == execution
 
 
 def test_candidate_invocation_rejects_unversioned_corrective_execution() -> None:
@@ -236,13 +236,13 @@ def test_candidate_invocation_rejects_unversioned_corrective_execution() -> None
         "answer",
         "stop",
         None,
-        CorrectiveExecution(stop_reason="passed", rounds_executed=1),
+        CorrectiveLoopOutcome(stop_reason="passed", rounds_executed=1),
     )
     payload = json.loads(encoded)
     del payload["execution"]["schema"]
 
     with pytest.raises(ValueError, match="shape or schema"):
-        decode_candidate_execution(json.dumps(payload))
+        decode_loop_outcome(json.dumps(payload))
 
 
 def test_case_execution_fields_are_atomic_and_strict() -> None:

@@ -5,24 +5,24 @@
 # these imports type-check normally.
 """The pin generator — turn one inspect eval into this plugin's three row diffs.
 
-Think of it as a customs officer for imported exams: the eval declares what it is
+Think of it as a customs officer for imported benchmarks: the eval declares what it is
 (the importer READS the task — never re-types it), the officer stamps what it
 observed (revision sha, row count, license — facts no eval file carries), and the
-paperwork lands as an in-place edit to pins.py / prepare.py / boards.py so that
+paperwork lands as an in-place edit to pins.py / prepare.py / benchmarks.py so that
 ``git diff`` IS the review artifact. Import time is the ONLY trust window (see
 pins.py's lockfile docstring), so a human reviews that diff before anything merges.
 
 Stages, in execution order (``main``):
 
-    Stage 1 — introspect: import the eval's task module, replace its ``hf_dataset``
+    Stage 1 — read the task: import the eval's task module, replace its ``hf_dataset``
               binding with a recorder that returns a stub dataset, call the task
               function, and read the recorded kwargs (dataset path/config/split,
               ``record_to_sample``, an upstream revision pin if the eval has one)
               plus the Task's solver/scorer registry metadata. No network.
-    Stage 2 — capture: the observations the eval cannot provide — resolve the HF
+    Stage 2 — capture: the Hub dataset facts the eval cannot provide — resolve the HF
               revision sha (upstream pin wins when present), count the rows at that
               sha, read the dataset license. Network, build-side only.
-    Stage 3 — emit: render the three row fragments and insert each at its file's
+    Stage 3 — emit: render the three generated rows and insert each at its file's
               anchor comment. An unlisted license WARNS but still emits (owner
               decision 2026-09-16): the human review of the diff is the gate.
 
@@ -32,7 +32,7 @@ Run from ``apps/screamingface-engine``::
         inspect_evals.arc.arc:arc_easy --key arc_easy
 
 (gsm8k, the original example, now refuses: its hf_dataset call passes
-``data_dir``, which the bake does not reproduce — its merged row was
+``data_dir``, which the prepare step does not reproduce — its merged row was
 hand-verified before the refusal existed.)
 
 STORY: onboarding is AI-first — an agent runs the command, writes the catalogue
@@ -50,7 +50,7 @@ import json
 import re
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -62,17 +62,19 @@ CLEARED_DATASET_LICENSES: frozenset[str] = frozenset(
     {"mit", "apache-2.0", "cc0-1.0", "cc-by-4.0", "cc-by-sa-4.0", "odc-by"}
 )
 
-#: Solvers whose render the bake reproduces outright (prepare.py's templated/MCQ/raw
-#: prompt paths). Anything else — including prompt settings the bake would silently
+#: Solvers whose render the prepare step reproduces outright (prepare.py's templated/MCQ/raw
+#: prompt paths). Anything else — including prompt settings the prepare step would silently
 #: drop, like system instructions or a custom choice template — earns a review flag
 #: in the facts rather than a guess (review finding on PR 965).
-_FULLY_BAKED_SOLVERS: frozenset[str] = frozenset({"prompt_template", "generate", "multiple_choice"})
+_FULLY_REPRODUCED_SOLVERS: frozenset[str] = frozenset(
+    {"prompt_template", "generate", "multiple_choice"}
+)
 
-# The insertion contract: each generated fragment lands immediately ABOVE its
+# The insertion contract: each generated row lands immediately ABOVE its
 # file's anchor comment. The anchors live in the three files themselves.
 _PINS_ANCHOR = "# --- importer: generated pin rows land above this line ---"
-_SNAPSHOTS_ANCHOR = "# --- importer: generated SnapshotSpec rows land above this line ---"
-_BOARDS_ANCHOR = "# --- importer: generated BoardSpec rows land above this line ---"
+_BENCHMARK_CASES_ANCHOR = "# --- importer: generated CasesSpec rows land above this line ---"
+_BENCHMARKS_ANCHOR = "# --- importer: generated BenchmarkSpec rows land above this line ---"
 
 _PINS_IMPORT_HEADER = "from screamingface_engine_inspect.pins import ("
 
@@ -82,8 +84,8 @@ class ImporterError(Exception):
 
 
 @dataclass(frozen=True)
-class TaskFacts:
-    """What the eval's own task DECLARES — read by introspection, never re-typed."""
+class InspectTaskFacts:
+    """What the eval's own task DECLARES — read by running it, never re-typed."""
 
     task_ref: str
     dataset: str
@@ -95,73 +97,89 @@ class TaskFacts:
     mcq: bool
     scorer: str
     scorer_kwargs: Mapping[str, Any]
-    custom_solvers: tuple[str, ...]
+    unreproduced_solvers: tuple[str, ...]
     #: The eval's own multiple_choice template when it overrides the default AND
     #: resolves to one module attribute — captured as a fact instead of flagged
     #: (the family renderer, OME-1116 milestone C).
     choice_template: str | None = None
     #: The eval's system instruction when it lives in a module-level constant —
-    #: captured as a fact the row POINTS at; the bake delivers it as leading
+    #: captured as a fact the row POINTS at; the prepare step delivers it as leading
     #: input text (a benchmark cannot address a candidate's system role — the
     #: contracteval named-deviation pattern, owner-approved on OME-1253). An
     #: inline-literal system message still earns the review flag instead.
     system_message: str | None = None
-    #: The eval shuffles its exam order (hf_dataset shuffle=True). Without a seed
+    #: The eval shuffles its question order (hf_dataset shuffle=True). Without a seed
     #: the upstream order is random per run, so an import must pin one order —
     #: the upstream seed when the eval has one, else a --shuffle-seed policy seed.
     upstream_shuffle: bool = False
     upstream_shuffle_seed: int | None = None
     #: The eval shuffles each case's CHOICE order (hf_dataset shuffle_choices).
-    #: Same conservation story as the row shuffle, one level down: unseeded
+    #: Same reproduction story as the row shuffle, one level down: unseeded
     #: (True) is random per run, so the import must pin one choice order —
     #: the upstream seed when shuffle_choices is an int, else a
     #: --choice-shuffle-seed policy seed (OME-1264).
     upstream_shuffle_choices: bool = False
     upstream_choice_shuffle_seed: int | None = None
     #: hf_dataset's data_files selection, forwarded to datasets.load_dataset —
-    #: conserved as a literal dict[str, str] (infinite_bench's
+    #: reproduced as a literal dict[str, str] (infinite_bench's
     #: {"passkey": "passkey.jsonl"}); any other shape refuses (OME-1264 ext 2).
     data_files: dict[str, str] | None = None
     #: hf_dataset's Features schema as a dotted POINTER at the eval's own
     #: module constant (infinite_bench's constants:ft) — the row points, never
-    #: copies; resolved and type-checked at bake time (OME-1264 ext 2).
+    #: copies; resolved and type-checked at prepare time (OME-1264 ext 2).
     features: str | None = None
+    #: The eval drops questions after loading — a ``.filter()`` on the benchmark load
+    #: other than inspect_evals' duplicate-id remover (OME-1269). The row then
+    #: names the task function, so the prepare step lets the eval's own filter pick.
+    filters_after_load: bool = False
+    #: The args the import ran the task with; a question-filter row forwards them at
+    #: prepare time because they can change what the filter keeps (xstest's subset).
+    task_args: Mapping[str, Any] = field(default_factory=dict)
+    #: The eval's own ``Task(metrics=...)`` by registry name (xstest's
+    #: refusal_rate). An imported benchmark always reports the MEAN per-case score, so a
+    #: custom metric is a deviation the benchmark must name (review on PR #1112).
+    custom_metrics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
-class Observations:
+class HubDatasetFacts:
     """What the importer OBSERVED at import time — the lockfile's captured rows."""
 
     revision: str
     case_count: int
     license: str | None
+    #: The Hub's gate on the dataset (dataset_info.gated is "auto"/"manual" when set):
+    #: the prepare step then needs a token from an account that accepted its terms (OME-1269).
+    needs_hf_token: bool = False
 
 
 @dataclass(frozen=True)
-class Fragments:
-    """The three rendered row fragments plus the pin names prepare.py must import."""
+class GeneratedRows:
+    """The three generated rows plus the pin names prepare.py must import."""
 
     pins: str
-    snapshot: str
-    board: str
+    cases: str
+    benchmark: str
     import_names: tuple[str, ...]
 
 
 # ---------------------------------------------------------------------------
-# Stage 1 — introspect
+# Stage 1 — read the task
 # ---------------------------------------------------------------------------
 
 
-def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -> TaskFacts:
+def read_inspect_task(
+    task_ref: str, task_args: Mapping[str, Any] | None = None
+) -> InspectTaskFacts:
     """Read one eval task's declarations by running it against a recording stub.
 
     ``task_ref`` is a dotted ``"module:attr"`` reference to the task function
     (e.g. ``"inspect_evals.gsm8k.gsm8k:gsm8k"``); ``task_args`` are forwarded to
     it (e.g. ``fewshot=0``). The module's ``hf_dataset`` binding is replaced for
-    the duration of the call, so nothing is downloaded.
+    the duration of the call, so nothing is downloaded. Each stub it returns
+    records the eval's ``.filter()`` predicates instead of running them, which is
+    how a task that drops questions after loading is spotted (OME-1269).
     """
-
-    from inspect_ai.dataset import MemoryDataset, Sample
 
     module_name, _, attribute = task_ref.partition(":")
     if not module_name or not attribute:
@@ -171,16 +189,17 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     if not hasattr(module, "hf_dataset"):
         raise ImporterError(
             f"{module_name} has no hf_dataset binding — the importer only reads evals "
-            "that load their exam from the HuggingFace Hub"
+            "that load their questions from the HuggingFace Hub"
         )
 
     recorded: list[tuple[dict[str, Any], Any]] = []
+    filters: list[tuple[Any, Any]] = []
     # WHY bind against the REAL signature: 17 of 80 inspect_evals call sites pass
     # path (some also split) positionally — a kwargs-only recorder would drop them.
-    signature: _inspect.Signature = _binding_signature(module.hf_dataset)
+    signature: _inspect.Signature = _hf_dataset_signature(module.hf_dataset)
 
     def recorder(*args: Any, **kwargs: Any) -> Any:
-        stub = MemoryDataset([Sample(input="stub", target="A", choices=["a", "b"])])
+        stub: Any = _filter_recording_stub(filters)
         recorded.append((_bound_call_arguments(signature, args, kwargs), stub))
         return stub
 
@@ -191,14 +210,20 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
     finally:
         module.hf_dataset = original  # type: ignore[attr-defined]
 
-    kwargs: dict[str, Any] = _exam_dataset_kwargs(task, recorded, task_ref)
+    kwargs, cases_load_stub = _question_dataset_kwargs(task, recorded, task_ref)
     _refuse_irreproducible_dataset_kwargs(kwargs, task_ref)
-    sample_fields: Any = _module_level_row_rule(kwargs.get("sample_fields"), task_ref)
-    scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
-    template_ref, choice_template_ref, system_message_ref, custom_solvers, uses_multiple_choice = (
-        _solver_facts(task, module, task_ref)
+    sample_fields: Any = _require_module_level_record_to_sample(
+        kwargs.get("sample_fields"), task_ref
     )
-    return TaskFacts(
+    scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
+    (
+        template_ref,
+        choice_template_ref,
+        system_message_ref,
+        unreproduced_solvers,
+        uses_multiple_choice,
+    ) = _solver_facts(task, module, task_ref)
+    return InspectTaskFacts(
         task_ref=task_ref,
         dataset=str(kwargs["path"]),
         config=str(kwargs.get("name") or ""),
@@ -213,22 +238,125 @@ def introspect_task(task_ref: str, task_args: Mapping[str, Any] | None = None) -
         mcq=uses_multiple_choice or scorer_name == "choice",
         scorer=scorer_ref,
         scorer_kwargs=scorer_kwargs,
-        custom_solvers=custom_solvers,
+        unreproduced_solvers=unreproduced_solvers,
         choice_template=choice_template_ref,
         system_message=system_message_ref,
         upstream_shuffle=bool(kwargs.get("shuffle")),
         upstream_shuffle_seed=kwargs.get("seed") if kwargs.get("shuffle") else None,
         upstream_shuffle_choices=_shuffles_choices(kwargs.get("shuffle_choices")),
         upstream_choice_shuffle_seed=_choice_shuffle_seed_fact(kwargs.get("shuffle_choices")),
-        data_files=_conserved_data_files(kwargs.get("data_files"), task_ref),
+        data_files=_reproducible_data_files(kwargs.get("data_files"), task_ref),
         features=_features_reference(module, kwargs.get("features"), task_ref),
+        filters_after_load=_drops_questions_after_load(
+            cases_load_stub, filters, len(recorded), kwargs, task_ref
+        ),
+        task_args=dict(task_args or {}),
+        custom_metrics=_custom_metrics(task),
     )
 
 
-def _conserved_data_files(raw: Any, task_ref: str) -> dict[str, str] | None:
-    """data_files in a shape the bake reproduces verbatim, or a named refusal.
+def _custom_metrics(task: Any) -> tuple[str, ...]:
+    """The eval's own ``metrics=`` by registry name — empty when it uses the scorer's."""
 
-    Only the shape seen upstream is conserved: a dict of str split names to str
+    from inspect_ai._util.registry import registry_info
+
+    metrics: Any = getattr(task, "metrics", None)
+    if not metrics:
+        return ()
+    # WHY the fallback: inspect also takes metric GROUPS (a dict of name → metrics),
+    # which carry no registry entry; the review flag only needs a readable name.
+    listed: list[Any] = list(metrics) if isinstance(metrics, list) else [metrics]
+    names: list[str] = []
+    for metric in listed:
+        try:
+            names.append(str(registry_info(metric).name))
+        except Exception:  # noqa: BLE001 — any unregistered shape still gets flagged
+            names.append(repr(metric))
+    return tuple(names)
+
+
+def _filter_recording_stub(filters: list[tuple[Any, Any]]) -> Any:
+    """The probe's one-question dataset, which records ``.filter()`` calls instead
+    of running them.
+
+    WHY keep the dummy: an eval that filters after loading (pubmedqa keeps its
+    test ids; onet_m6 keeps answerable single-answer questions) rejects the
+    dummy, since it has no id and no metadata, and inspect then refuses the empty
+    Task before the importer can read it. Returning the stub itself keeps the Task
+    buildable and its identity intact; the real filter runs at prepare time
+    (OME-1269). Each call is recorded as ``(dataset, predicate)`` so only filters
+    on the benchmark load count.
+    """
+
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    class _FilterRecordingDataset(MemoryDataset):
+        def filter(self, predicate: Any, name: str | None = None) -> Any:
+            filters.append((self, predicate))
+            return self
+
+    return _FilterRecordingDataset([Sample(input="stub", target="A", choices=["a", "b"])])
+
+
+#: inspect_evals' duplicate-id remover, by module + qualname. It is the one post-load
+#: filter the prepare step does NOT send through its task: six live benchmarks run it (wmdp x3,
+#: mmlu, race_h, winogrande), and sending them through their task would move their published
+#: revisions. The wmdp rows carry a hand-verified note that it is a no-op at their pins.
+_DEDUPE_FILTER = "inspect_evals.utils.deps_utils:filter_duplicate_ids.<locals>.is_unique_id"
+
+
+def _drops_questions_after_load(
+    cases_load_stub: Any,
+    filters: list[tuple[Any, Any]],
+    load_count: int,
+    kwargs: Mapping[str, Any],
+    task_ref: str,
+) -> bool:
+    """Whether the eval drops benchmark questions after loading — then the prepare step must run
+    its task (OME-1269). Filters on other loads (a fewshot pool) change no benchmark.
+
+    Three combinations refuse by name, because the question filter could not reproduce them:
+    a second load (the prepare step hands the pinned Samples to every load the task
+    makes); ``auto_id`` (inspect numbers the rows 1..N at load, the prepare step's swapped
+    loader does not, so a filter that reads ids would keep different questions);
+    and an upstream-seeded choice shuffle (upstream draws each case's choice order
+    over every row before its filter, the prepare step over the kept rows).
+    """
+
+    question_filters: list[str] = [
+        f"{getattr(predicate, '__module__', '')}:{getattr(predicate, '__qualname__', '')}"
+        for dataset, predicate in filters
+        if dataset is cases_load_stub
+    ]
+    if all(name == _DEDUPE_FILTER for name in question_filters):
+        return False
+    if load_count != 1:
+        raise ImporterError(
+            f"{task_ref}: the eval drops questions after loading and loads {load_count} "
+            "datasets — the question-filter step hands the pinned questions to every load, "
+            "so it cannot reproduce these questions; import it by hand"
+        )
+    if kwargs.get("auto_id"):
+        raise ImporterError(
+            f"{task_ref}: the eval drops questions after loading and numbers its rows "
+            "with auto_id — the question-filter step hands the task samples without those "
+            "ids, so a filter that reads them would keep different questions; import it "
+            "by hand"
+        )
+    if _choice_shuffle_seed_fact(kwargs.get("shuffle_choices")) is not None:
+        raise ImporterError(
+            f"{task_ref}: the eval drops questions after loading and pins its own "
+            "choice-shuffle seed — upstream draws each case's choice order over every "
+            "row before its filter, the prepare step over the kept rows, so the same seed "
+            "would prepare different questions; import it by hand"
+        )
+    return True
+
+
+def _reproducible_data_files(raw: Any, task_ref: str) -> dict[str, str] | None:
+    """data_files in a shape the prepare step reproduces verbatim, or a named refusal.
+
+    Only the shape seen upstream is reproduced: a dict of str split names to str
     file names (infinite_bench's {"passkey": "passkey.jsonl"}). Everything else
     — a bare str, lists, nested mappings, Path objects — refuses by name rather
     than guessing how it round-trips through a generated literal (YAGNI: extend
@@ -243,7 +371,7 @@ def _conserved_data_files(raw: Any, task_ref: str) -> dict[str, str] | None:
         return dict(raw)
     raise ImporterError(
         f"{task_ref}: hf_dataset data_files has a shape the importer does not conserve "
-        f"({type(raw).__name__}) — only a dict of str to str is reproduced by the bake; "
+        f"({type(raw).__name__}) — only a dict of str to str is reproduced by the prepare step; "
         "extend the importer for this family"
     )
 
@@ -286,18 +414,18 @@ def _choice_shuffle_seed_fact(raw: Any) -> int | None:
     return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
 
 
-def _binding_signature(binding: Any) -> _inspect.Signature:
+def _hf_dataset_signature(binding: Any) -> _inspect.Signature:
     """The signature the recorded call arguments bind against.
 
     WHY the substitution: inspect_evals ≥0.20 routes hf_dataset through a fully
     variadic retry shim (``def hf_dataset(*args, **kwargs)`` in
     utils/huggingface.py). Binding against the shim buries every real kwarg in
-    the VAR_KEYWORD bucket, and the conserved-kwargs guard then refuses the
+    the VAR_KEYWORD bucket, and the kwarg-reproduction guard then refuses the
     whole family as "kwarg(s) kwargs" (OME-1238). That ONE shim — checked by
     identity, never by shape — borrows the real hf_dataset's parameter names,
     because it is verified pass-through (it only injects ``retry=False``). Any
     other fully variadic wrapper is refused: a wrapper that renamed or mutated
-    kwargs before forwarding would make the conserved-kwargs guard reason about
+    kwargs before forwarding would make the kwarg-reproduction guard reason about
     arguments the real load never sees (review finding on PR 1009).
     """
 
@@ -326,9 +454,9 @@ def _bound_call_arguments(
     """One recorded hf_dataset call as ``{parameter name: value}``, with any
     VAR_KEYWORD bucket flattened so extra kwargs keep their own names.
 
-    WHY: the conserved-kwargs guard judges kwargs BY NAME — a bucket entry like
+    WHY: the kwarg-reproduction guard judges kwargs BY NAME — a bucket entry like
     ``kwargs={'limit': 500}`` would be judged as one opaque kwarg called
-    'kwargs' instead of the ``limit`` that actually changes the exam.
+    'kwargs' instead of the ``limit`` that actually changes the benchmark.
     """
 
     try:
@@ -347,7 +475,7 @@ def _bound_call_arguments(
     return arguments
 
 
-def _module_level_row_rule(sample_fields: Any, task_ref: str) -> Any:
+def _require_module_level_record_to_sample(sample_fields: Any, task_ref: str) -> Any:
     """Refuse a row rule the emitted dotted reference could never resolve."""
 
     if not callable(sample_fields):
@@ -367,25 +495,29 @@ def _module_level_row_rule(sample_fields: Any, task_ref: str) -> Any:
     return sample_fields
 
 
-def _exam_dataset_kwargs(
+def _question_dataset_kwargs(
     task: Any, recorded: list[tuple[dict[str, Any], Any]], task_ref: str
-) -> dict[str, Any]:
-    """The hf_dataset call whose result the Task holds — fewshot loads are not the exam."""
+) -> tuple[dict[str, Any], Any]:
+    """The hf_dataset call whose result the Task holds — fewshot loads are not the benchmark.
+
+    Returns that call's kwargs plus the stub it returned (the benchmark stub, whose
+    recorded filters are the ones that drop benchmark questions).
+    """
 
     if not recorded:
         raise ImporterError(f"{task_ref}: the task never called hf_dataset")
     for kwargs, stub in recorded:
         if task.dataset is stub:
-            return kwargs
+            return kwargs, stub
     if len(recorded) == 1 and _dataset_holds_the_stub(task.dataset):
         # WHY the fallback: some evals wrap the loaded dataset (shuffle/slice), so
         # identity breaks — but the wrapped dataset still CONTAINS the stub sample.
-        # A single HF call whose stub never reached the Task (a json exam with HF
-        # fewshots) must refuse: that call is not the exam (review round 2026-09-17).
-        return recorded[0][0]
+        # A single HF call whose stub never reached the Task (a json benchmark with HF
+        # fewshots) must refuse: that call is not the benchmark (review round 2026-09-17).
+        return recorded[0]
     raise ImporterError(
         f"{task_ref}: {len(recorded)} hf_dataset call(s) and none is the Task's dataset — "
-        "cannot tell the exam load apart; pass task args that disable the extras"
+        "cannot tell the question load apart; pass task args that disable the extras"
     )
 
 
@@ -399,9 +531,9 @@ def _dataset_holds_the_stub(dataset: Any) -> bool:
         return False
 
 
-#: hf_dataset parameters the bake either reproduces (path/name/split/revision/
+#: hf_dataset parameters the prepare step either reproduces (path/name/split/revision/
 #: sample_fields; shuffle and shuffle_choices via a pinned seed each) or that
-#: cannot change the exam's content (auto_id renumbers ids the bake reassigns
+#: cannot change the benchmark's content (auto_id renumbers ids the prepare step reassigns
 #: anyway; trust/cached/retry only affect how loading happens).
 _REPRODUCED_DATASET_KWARGS: frozenset[str] = frozenset(
     {
@@ -421,10 +553,10 @@ _BENIGN_DATASET_KWARGS: frozenset[str] = frozenset({"auto_id", "trust", "cached"
 
 
 def _refuse_irreproducible_dataset_kwargs(kwargs: dict[str, Any], task_ref: str) -> None:
-    """Every hf_dataset kwarg is conserved: reproduced, benign, or a refusal.
+    """Every hf_dataset kwarg is reproduced: reproduced, benign, or a refusal.
 
-    WHY: dropped kwargs are exam identity vanishing silently — an eval with
-    ``limit=500`` imported as the full split publishes a different exam with
+    WHY: dropped kwargs are benchmark identity vanishing silently — an eval with
+    ``limit=500`` imported as the full split publishes a different benchmark with
     every guard green (review blocker, 2026-09-17).
     """
 
@@ -438,7 +570,7 @@ def _refuse_irreproducible_dataset_kwargs(kwargs: dict[str, Any], task_ref: str)
     if dropped:
         raise ImporterError(
             f"{task_ref}: hf_dataset kwarg(s) {', '.join(dropped)} are not reproduced "
-            "by the bake — importing would silently change the exam; add the row by "
+            "by the prepare step — importing would silently change the exam; add the row by "
             "hand or extend the importer for this family"
         )
 
@@ -474,9 +606,9 @@ def _solver_facts(
     task: Any, module: Any, task_ref: str
 ) -> tuple[str | None, str | None, str | None, tuple[str, ...], bool]:
     """The template references (prompt_template / custom multiple_choice / module-level
-    system message) + unknowns + whether the chain declares an MCQ exam."""
+    system message) + unknowns + whether the chain declares an MCQ benchmark."""
 
-    from inspect_ai._util.registry import registry_info, registry_params
+    from inspect_ai._util.registry import registry_info
 
     # WHY setup first (OME-1272): inspect always runs Task(setup=...) before the
     # solver chain, so anything there reaches the candidate too — a walk of
@@ -502,26 +634,18 @@ def _solver_facts(
         elif name == "system_message":
             system_solvers.append(solver)
         elif name == "multiple_choice":
-            # WHY the flag: MCQ-ness is the exam's SHAPE (options + letter answer),
+            # WHY the flag: MCQ-ness is the benchmark's SHAPE (options + letter answer),
             # and this solver is one of its two witnesses (the other is the choice
             # scorer — see the mcq fact). The solver witness covers an eval grading
             # MCQ with its own scorer (lab_bench's precision_choice), which must
-            # still be refused the check surface (OME-796); the scorer witness
+            # still be refused the draft-feedback offer (OME-796); the scorer witness
             # covers an eval hiding multiple_choice inside a custom @solver
             # wrapper (mmlu's mmlu_multiple_choice), invisible to this walk.
             uses_multiple_choice = True
-            if registry_params(solver).get("template") is not None:
-                # A custom choice template the bake CAN reproduce — when it resolves
-                # to one module attribute the row points at (the family renderer,
-                # OME-1116 milestone C); an unresolvable one still earns the flag.
-                choice_template_ref = _resolved_or_flagged(
-                    module,
-                    solver,
-                    task_ref,
-                    custom,
-                    f"{registry_name} (custom choice template is not baked)",
-                )
-        elif name not in _FULLY_BAKED_SOLVERS:
+            choice_template_ref = _choice_template_fact(
+                module, solver, registry_name, task_ref, custom
+            )
+        elif name not in _FULLY_REPRODUCED_SOLVERS:
             custom.append(registry_name)
     template_ref: str | None = _prompt_template_fact(module, template_solvers, task_ref)
     system_message_ref: str | None = _system_message_fact(module, system_solvers, task_ref, custom)
@@ -532,6 +656,45 @@ def _solver_facts(
         tuple(custom),
         uses_multiple_choice,
     )
+
+
+#: inspect's own chain-of-thought choice template — what ``multiple_choice(cot=True)``
+#: renders when the eval passes no template. AIDEV-NOTE: a private-module constant
+#: (inspect_ai.solver._multiple_choice), like prepare.mcq_prompt's formatter — safe
+#: under the exact == pin; re-verify on any pin bump.
+_COT_CHOICE_TEMPLATE = "inspect_ai.solver._multiple_choice:SINGLE_ANSWER_TEMPLATE_COT"
+
+
+def _choice_template_fact(
+    module: Any, solver: Any, registry_name: str, task_ref: str, custom: list[str]
+) -> str | None:
+    """The row's ``choice_template`` pointer for one multiple_choice solver — None
+    means inspect's default render; anything the prepare step cannot render earns a flag."""
+
+    from inspect_ai._util.registry import registry_params
+
+    params: dict[str, Any] = registry_params(solver)
+    if params.get("template") is not None:
+        # A custom choice template the prepare step CAN reproduce — when it resolves
+        # to one module attribute the row points at (the family renderer,
+        # OME-1116 milestone C); an unresolvable one still earns the flag.
+        return _resolved_or_flagged(
+            module,
+            solver,
+            task_ref,
+            custom,
+            f"{registry_name} (custom choice template is not prepared)",
+        )
+    # WHY (OME-1269): cot=True swaps in inspect's "Think step by step" template;
+    # ignoring the flag prepared the plain wording, a different benchmark (onet_m6).
+    # Answer parsing is the same for both templates, so grading is unchanged.
+    cot_template: str | None = _COT_CHOICE_TEMPLATE if params.get("cot") else None
+    if cot_template is not None and params.get("multiple_correct"):
+        # The prepare step renders single-answer MCQ only; guessing the multi-answer
+        # CoT wording would change the benchmark silently.
+        custom.append(f"{registry_name} (cot with multiple_correct is not prepared)")
+        cot_template = None
+    return cot_template
 
 
 def _solver_list(solvers: Any) -> list[Any]:
@@ -559,7 +722,7 @@ def _reads_a_file(template: Any) -> bool:
 def _refuse_file_template(template: Any, task_ref: str) -> None:
     """A prompt_template read from a file refuses by name (OME-1272).
 
-    WHY refuse, not flag: the bake formats the constant's own text, and a path
+    WHY refuse, not flag: the prepare step formats the constant's own text, and a path
     has no {prompt} slot — every case would become the path string. That
     matches how an unresolvable prompt template already refuses.
     """
@@ -567,7 +730,7 @@ def _refuse_file_template(template: Any, task_ref: str) -> None:
     if _reads_a_file(template):
         raise ImporterError(
             f"{task_ref}: prompt_template reads its template from a file ({template}) — "
-            "the bake formats the constant's own text, so every case would become the "
+            "the prepare step formats the constant's own text, so every case would become the "
             "path; add the row by hand or extend the importer for this family"
         )
 
@@ -577,9 +740,9 @@ def _prompt_template_fact(module: Any, solvers: list[Any], task_ref: str) -> str
 
     inspect applies every prompt_template in turn, each wrapping the previous
     one's output ("Think carefully.\\n\\n{prompt}" around "Solve: {prompt}"); the
-    row points at one template and the bake applies only it. So two or more
+    row points at one template and the prepare step applies only it. So two or more
     refuse (OME-1272), as does a file-path template or one with no single module
-    attribute to point at — the bake cannot reproduce any of them.
+    attribute to point at — the prepare step cannot reproduce any of them.
     """
 
     from inspect_ai._util.registry import registry_params
@@ -587,7 +750,7 @@ def _prompt_template_fact(module: Any, solvers: list[Any], task_ref: str) -> str
     if len(solvers) > 1:
         raise ImporterError(
             f"{task_ref}: the task applies {len(solvers)} prompt templates — inspect wraps "
-            "each around the previous one's output, the bake applies only one; add the "
+            "each around the previous one's output, the prepare step applies only one; add the "
             "row by hand or extend the importer for this family"
         )
     if not solvers:
@@ -602,12 +765,12 @@ def _system_message_fact(
 ) -> str | None:
     """Point the row at THE system-message constant, or record why it cannot.
 
-    A module-level system instruction the bake CAN deliver — as leading input
+    A module-level system instruction the prepare step CAN deliver — as leading input
     text (a benchmark cannot address a candidate's system role; contracteval
     named-deviation pattern, owner-approved on OME-1253). The row holds ONE
     pointer, so a chain sending two or more system messages flags (inspect
     sends them all; OME-1272). An inline literal has no module attribute for
-    the row to POINT at, and the importer never copies exam text, so it stays
+    the row to POINT at, and the importer never copies benchmark text, so it stays
     flagged too.
     """
 
@@ -617,13 +780,13 @@ def _system_message_fact(
         return None
     registry_name: str = registry_info(solvers[0]).name
     rewrite: str | None = (
-        f"the task sends {len(solvers)} system messages; the bake delivers only one"
+        f"the task sends {len(solvers)} system messages; the prepare step delivers only one"
         if len(solvers) > 1
-        else _system_message_rewrite(solvers[0])
+        else _system_message_mismatch_reason(solvers[0])
     )
     if rewrite is not None:
-        # WHY no fact at all (OME-1272): the bake delivers ONE constant's text
-        # verbatim, so any other text inspect sends would bake a different exam
+        # WHY no fact at all (OME-1272): the prepare step delivers ONE constant's text
+        # verbatim, so any other text inspect sends would prepare a different benchmark
         # with every guard green.
         custom.append(f"{registry_name} ({rewrite})")
         return None
@@ -632,14 +795,14 @@ def _system_message_fact(
         solvers[0],
         task_ref,
         custom,
-        f"{registry_name} (system instructions are not baked)",
+        f"{registry_name} (system instructions are not prepared)",
     )
 
 
-def _system_message_rewrite(solver: Any) -> str | None:
+def _system_message_mismatch_reason(solver: Any) -> str | None:
     """Why the text inspect SENDS would differ from the template constant, or None.
 
-    Think of the constant as a letter the bake photocopies. inspect does not post
+    Think of the constant as a letter the prepare step photocopies. inspect does not post
     the letter as written: ``system_message(template, **params)`` (1) READS it
     through ``resource()`` — a path or URL becomes that file's contents — then
     (2) runs ``str.format`` over it with the params plus the sample's metadata and
@@ -663,7 +826,7 @@ def _system_message_rewrite(solver: Any) -> str | None:
     if params:
         reason = f"fills params {', '.join(sorted(params))} into the template at run time"
     elif not isinstance(template, str):
-        # Not text at all: _template_attribute still points at it, and the bake
+        # Not text at all: _template_attribute still points at it, and the prepare step
         # refuses a non-text resolution by name (prepare._resolved_system_text).
         reason = None
     elif _reads_a_file(template):
@@ -738,13 +901,13 @@ def _is_literal(value: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def capture_observations(
-    facts: TaskFacts,
+def read_hub_dataset_facts(
+    facts: InspectTaskFacts,
     *,
     dataset_info: Callable[[str, str | None], Any] | None = None,
-    count_rows: Callable[[TaskFacts, str], int] | None = None,
-) -> Observations:
-    """Record the import-time observations: revision sha, row count, license.
+    count_rows: Callable[[InspectTaskFacts, str], int] | None = None,
+) -> HubDatasetFacts:
+    """Record the import-time Hub dataset facts: revision sha, row count, license.
 
     An upstream revision pin (from the eval's own hf_dataset call) wins — but it
     is RESOLVED through the Hub to the commit sha it names, so a mutable ref like
@@ -755,17 +918,18 @@ def capture_observations(
     """
 
     info_of: Callable[[str, str | None], Any] = dataset_info or _hub_dataset_info
-    counter: Callable[[TaskFacts, str], int] = count_rows or _hub_count_rows
+    counter: Callable[[InspectTaskFacts, str], int] = count_rows or _hub_count_rows
     info: Any = info_of(facts.dataset, facts.pinned_revision)
     revision: str = str(info.sha)
     card: Any = getattr(info, "card_data", None) or {}
     license_value: Any = card.get("license") if hasattr(card, "get") else None
     if isinstance(license_value, list):
         license_value = ", ".join(str(item) for item in license_value)
-    return Observations(
+    return HubDatasetFacts(
         revision=revision,
         case_count=int(counter(facts, revision)),
         license=None if license_value is None else str(license_value),
+        needs_hf_token=bool(getattr(info, "gated", False)),
     )
 
 
@@ -778,8 +942,39 @@ def _hub_dataset_info(dataset: str, revision: str | None) -> Any:
     return HfApi().dataset_info(dataset, revision=revision)
 
 
-def _hub_count_rows(facts: TaskFacts, revision: str) -> int:
-    """Row count at the pinned revision — the bake's drift guard, observed once."""
+def _hub_count_rows(facts: InspectTaskFacts, revision: str) -> int:
+    """Row count at the pinned revision — the prepare step's drift guard, observed once.
+
+    A question-filter row counts the questions the eval KEEPS instead (pubmedqa: 500 of
+    1,000 rows), by running the prepare step's own question filter over the pinned rows (OME-1269).
+    """
+
+    if facts.filters_after_load:
+        from screamingface_engine_inspect.prepare import (
+            CasesSpec,
+            PrepareError,
+            count_kept_cases,
+        )
+
+        # case_count=0: unknown yet — this call is what measures it.
+        filter_spec: CasesSpec = CasesSpec(
+            dataset=facts.dataset,
+            config=facts.config,
+            split=facts.split,
+            dataset_revision=revision,
+            case_count=0,
+            record_to_sample=facts.record_to_sample,
+            data_files=facts.data_files,
+            features=facts.features,
+            question_filter_task=facts.task_ref,
+            question_filter_task_args=dict(facts.task_args),
+        )
+        try:
+            return count_kept_cases(filter_spec)
+        except PrepareError as exc:
+            raise ImporterError(
+                f"{facts.task_ref}: counting the kept questions failed ({exc})"
+            ) from exc
 
     import datasets
 
@@ -795,31 +990,31 @@ def _hub_count_rows(facts: TaskFacts, revision: str) -> int:
 
 
 def _pin_prefix(key: str) -> str:
-    """The board key's constant stem (``foo-bar`` → ``FOO_BAR``) — refused unless it
+    """The benchmark key's constant stem (``foo-bar`` → ``FOO_BAR``) — refused unless it
     is a valid Python identifier, so the generated pins always load."""
 
     prefix: str = "".join(ch if ch.isalnum() else "_" for ch in key).upper()
     if not prefix.isidentifier():
         raise ImporterError(
-            f"board key {key!r} derives the constant stem {prefix!r}, which is not a "
+            f"benchmark key {key!r} derives the constant stem {prefix!r}, which is not a "
             "valid Python identifier — start the key with a letter (e.g. "
             f"'wiki_{key}' instead of a leading digit)"
         )
     return prefix
 
 
-def render_fragments(
+def render_generated_rows(
     key: str,
-    facts: TaskFacts,
-    observations: Observations,
+    facts: InspectTaskFacts,
+    hub_facts: HubDatasetFacts,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
-) -> Fragments:
-    """Render the three row fragments in the target files' own style."""
+) -> GeneratedRows:
+    """Render the three generated rows in the target files' own style."""
 
     prefix: str = _pin_prefix(key)
     today: str = _datetime.date.today().isoformat()
-    license_note: str = observations.license or "UNKNOWN"
+    license_note: str = hub_facts.license or "UNKNOWN"
 
     pin_lines: list[str] = [
         # WHY two lines: a long task_ref must never push a generated line past
@@ -827,12 +1022,12 @@ def render_fragments(
         f"# {key} — generated by the importer on {today} from",
         f"#   {facts.task_ref};",
         f"# license: {license_note}. Review before merge — import time is the trust window.",
-        f"# https://huggingface.co/datasets/{facts.dataset}/tree/{observations.revision}",
+        f"# https://huggingface.co/datasets/{facts.dataset}/tree/{hub_facts.revision}",
         f'{prefix}_DATASET = "{facts.dataset}"',
         f'{prefix}_CONFIG = "{facts.config}"',
         f'{prefix}_SPLIT = "{facts.split}"',
-        f'{prefix}_DATASET_REVISION = "{observations.revision}"',
-        f"{prefix}_CASE_COUNT = {observations.case_count}",
+        f'{prefix}_DATASET_REVISION = "{hub_facts.revision}"',
+        f"{prefix}_CASE_COUNT = {hub_facts.case_count}",
     ]
     import_names: list[str] = [
         f"{prefix}_CASE_COUNT",
@@ -841,19 +1036,19 @@ def render_fragments(
         f"{prefix}_DATASET_REVISION",
         f"{prefix}_SPLIT",
     ]
-    selection_pins, selection_imports, selection_snapshot_lines = _dataset_selection_fragments(
+    selection_pins, selection_imports, selection_cases_lines = _dataset_selection_parts(
         prefix, facts
     )
     pin_lines.extend(selection_pins)
     import_names.extend(selection_imports)
-    seed_pins, seed_imports, seed_snapshot_lines = _seed_fragments(
+    seed_pins, seed_imports, seed_cases_lines = _seed_parts(
         prefix, shuffle_seed, choice_shuffle_seed
     )
     pin_lines.extend(seed_pins)
     import_names.extend(seed_imports)
 
-    snapshot_lines: list[str] = [
-        f'    "{key}": SnapshotSpec(',
+    cases_lines: list[str] = [
+        f'    "{key}": CasesSpec(',
         f"        dataset={prefix}_DATASET,",
         f"        config={prefix}_CONFIG,",
         f"        split={prefix}_SPLIT,",
@@ -863,42 +1058,44 @@ def render_fragments(
         f"        #   {facts.task_ref};\n        # verify against the eval's task.",
         f'        record_to_sample="{facts.record_to_sample}",',
     ]
-    snapshot_lines.extend(selection_snapshot_lines)
+    cases_lines.extend(selection_cases_lines)
     if facts.prompt_template is not None:
-        snapshot_lines.append(f'        prompt_template="{facts.prompt_template}",')
+        cases_lines.append(f'        prompt_template="{facts.prompt_template}",')
     if facts.choice_template is not None:
-        snapshot_lines.append(f'        choice_template="{facts.choice_template}",')
+        cases_lines.append(f'        choice_template="{facts.choice_template}",')
     if facts.system_message is not None:
-        snapshot_lines.append(
+        cases_lines.append(
             "        # Named deviation: the eval sends this as a SYSTEM message; the"
         )
-        snapshot_lines.append(
-            "        # bake delivers it as leading input text (a benchmark cannot"
+        cases_lines.append(
+            "        # prepare delivers it as leading input text (a benchmark cannot"
         )
-        snapshot_lines.append("        # address a candidate's system role).")
-        snapshot_lines.append(f'        system_message="{facts.system_message}",')
-    snapshot_lines.extend(seed_snapshot_lines)
-    for solver_name in facts.custom_solvers:
-        snapshot_lines.append(
+        cases_lines.append("        # address a candidate's system role).")
+        cases_lines.append(f'        system_message="{facts.system_message}",')
+    cases_lines.extend(
+        [*seed_cases_lines, *_question_filter_lines(facts), *_hf_token_lines(hub_facts)]
+    )
+    for solver_name in facts.unreproduced_solvers:
+        cases_lines.append(
             f"        # TODO(review): solver {solver_name} is not reproduced by "
-            "the bake — verify the baked prompt matches the eval's render."
+            "the prepare step — verify the prepared prompt matches the eval's render."
         )
-    snapshot_lines.append("    ),")
+    cases_lines.append("    ),")
 
-    return Fragments(
+    return GeneratedRows(
         pins="\n".join(pin_lines) + "\n",
-        snapshot="\n".join(snapshot_lines) + "\n",
-        board="\n".join(_board_lines(key, facts, license_note)) + "\n",
+        cases="\n".join(cases_lines) + "\n",
+        benchmark="\n".join(_benchmark_lines(key, facts, license_note)) + "\n",
         import_names=tuple(import_names),
     )
 
 
-def _dataset_selection_fragments(
-    prefix: str, facts: TaskFacts
+def _dataset_selection_parts(
+    prefix: str, facts: InspectTaskFacts
 ) -> tuple[list[str], list[str], list[str]]:
-    """Fragment lines for the two conditional dataset-selection facts.
+    """Generated lines for the two conditional dataset-selection facts.
 
-    Returns (pin lines, import names, SnapshotSpec kwarg lines). ``data_files``
+    Returns (pin lines, import names, CasesSpec kwarg lines). ``data_files``
     becomes a pin constant (a literal, like the dataset pins — json.dumps keeps
     double quotes for the format gate); ``features`` stays an inline dotted
     pointer (like ``record_to_sample``), so there is no pin for it.
@@ -906,30 +1103,30 @@ def _dataset_selection_fragments(
 
     pin_lines: list[str] = []
     import_names: list[str] = []
-    snapshot_lines: list[str] = []
+    cases_lines: list[str] = []
     if facts.data_files is not None:
         constant: str = f"{prefix}_DATA_FILES"
         pin_lines.append(f"{constant} = {json.dumps(facts.data_files, sort_keys=True)}")
         import_names.append(constant)
-        snapshot_lines.append(f"        data_files={constant},")
+        cases_lines.append(f"        data_files={constant},")
     if facts.features is not None:
-        snapshot_lines.append(f'        features="{facts.features}",')
-    return pin_lines, import_names, snapshot_lines
+        cases_lines.append(f'        features="{facts.features}",')
+    return pin_lines, import_names, cases_lines
 
 
-def _seed_fragments(
+def _seed_parts(
     prefix: str, shuffle_seed: int | None, choice_shuffle_seed: int | None
 ) -> tuple[list[str], list[str], list[str]]:
-    """The two conditional exam-identity seeds' fragment lines, in one place.
+    """The two conditional benchmark-identity seeds' generated lines, in one place.
 
-    Returns (pin lines, import names, SnapshotSpec kwarg lines) — each seed
+    Returns (pin lines, import names, CasesSpec kwarg lines) — each seed
     contributes to all three lists or to none, so the pin-name contract
     (imported ⇔ referenced) cannot drift per seed.
     """
 
     pin_lines: list[str] = []
     import_names: list[str] = []
-    snapshot_lines: list[str] = []
+    cases_lines: list[str] = []
     for constant_stem, seed in (
         ("SHUFFLE_SEED", shuffle_seed),
         ("CHOICE_SHUFFLE_SEED", choice_shuffle_seed),
@@ -938,15 +1135,49 @@ def _seed_fragments(
             constant: str = f"{prefix}_{constant_stem}"
             pin_lines.append(f"{constant} = {seed}")
             import_names.append(constant)
-            snapshot_lines.append(f"        {constant_stem.lower()}={constant},")
-    return pin_lines, import_names, snapshot_lines
+            cases_lines.append(f"        {constant_stem.lower()}={constant},")
+    return pin_lines, import_names, cases_lines
 
 
-def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
-    """The BoardSpec fragment — prose as TODOs, provenance as wrapped comments."""
+def _hf_token_lines(hub_facts: HubDatasetFacts) -> list[str]:
+    """The CasesSpec line marking a dataset gated on the Hub (none otherwise)."""
 
-    board_lines: list[str] = [
-        "    BoardSpec(",
+    if not hub_facts.needs_hf_token:
+        return []
+    return [
+        "        # Gated on the Hub: the prepare step needs HF_TOKEN from an account that",
+        "        # accepted the dataset's terms (OME-1269).",
+        "        needs_hf_token=True,",
+    ]
+
+
+def _question_filter_lines(facts: InspectTaskFacts) -> list[str]:
+    """The CasesSpec kwarg lines that run a benchmark's questions through its task (OME-1269).
+
+    Empty for every other row, so rows imported before the question filter render unchanged.
+    """
+
+    if not facts.filters_after_load:
+        return []
+    lines: list[str] = [
+        "        # The eval drops questions after loading; the prepare step runs its task over",
+        "        # the pinned questions and keeps exactly what it keeps (OME-1269).",
+        f'        question_filter_task="{facts.task_ref}",',
+    ]
+    if facts.task_args:
+        rendered_args: str = ", ".join(
+            f"{json.dumps(name)}: {_python_literal_source(value)}"
+            for name, value in sorted(facts.task_args.items())
+        )
+        lines.append(f"        question_filter_task_args={{{rendered_args}}},")
+    return lines
+
+
+def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> list[str]:
+    """The BenchmarkSpec row — prose as TODOs, provenance as wrapped comments."""
+
+    benchmark_lines: list[str] = [
+        "    BenchmarkSpec(",
         f'        key="{key}",',
         "        # TODO(review): title/description/focus are catalogue prose — the",
         "        # importing agent writes them from the eval's own docs; the human",
@@ -972,41 +1203,53 @@ def _board_lines(key: str, facts: TaskFacts, license_note: str) -> list[str]:
         # repr's. Names are registry_params keys — identifiers in practice, but
         # a **kwargs-taking scorer could carry arbitrary upstream strings.
         rendered_kwargs: str = ", ".join(
-            f"{json.dumps(name)}: {_scorer_kwarg_literal(value)}"
+            f"{json.dumps(name)}: {_python_literal_source(value)}"
             for name, value in sorted(facts.scorer_kwargs.items())
         )
-        board_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+        benchmark_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    for metric_name in facts.custom_metrics:
+        benchmark_lines.append(
+            f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
+        )
+        benchmark_lines.append(
+            "        # benchmark reports the mean per-case score — name that deviation (and how"
+        )
+        benchmark_lines.append(
+            "        # to convert between the two) in the benchmark's description."
+        )
     judged: bool = _is_judged(facts)
     if judged:
         # OME-1240: a judged row must never land silently — the TODO model is
         # refused at assembly by name, so an unreviewed judge cannot ship.
-        board_lines.append(
+        benchmark_lines.append(
             "        # TODO(review): this scorer grades with an LLM judge. Pin the judge"
         )
-        board_lines.append("        # through our gateway: replace the judge-model kwarg with")
-        board_lines.append(
+        benchmark_lines.append("        # through our gateway: replace the judge-model kwarg with")
+        benchmark_lines.append(
             '        # "screamingface/<gateway-model-id>" and declare the SAME id (plus'
         )
-        board_lines.append("        # pinned params) here — both join the board's exam identity.")
-        board_lines.append("        # If the scorer dispatches on sample metadata, also set")
-        board_lines.append("        # keep_sample_metadata=True on the SnapshotSpec row.")
-        board_lines.append('        judge=JudgeSpec(model="TODO"),')
+        benchmark_lines.append(
+            "        # pinned params) here — both join the benchmark's identity."
+        )
+        benchmark_lines.append("        # If the scorer dispatches on sample metadata, also set")
+        benchmark_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
+        benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
     if not facts.mcq and not judged:
-        board_lines.append(
+        benchmark_lines.append(
             "        # Free-form answers make mid-run feedback legitimate (spec §4);"
         )
-        board_lines.append("        # MCQ boards must NOT set this (OME-796).")
-        board_lines.append("        with_check_surface=True,")
-    board_lines.append("    ),")
-    return board_lines
+        benchmark_lines.append("        # MCQ benchmarks must NOT set this (OME-796).")
+        benchmark_lines.append("        with_check_surface=True,")
+    benchmark_lines.append("    ),")
+    return benchmark_lines
 
 
 #: Kwarg names evals use to take their judge model — mirrored by the assembly
-#: guard's _JUDGE_MODEL_KWARGS in boards.py; the two lists move together.
+#: guard's _JUDGE_MODEL_KWARGS in benchmarks.py; the two lists move together.
 _JUDGE_MODEL_KWARG_NAMES = frozenset({"model", "grader_model", "judge_model", "scorer_model"})
 
 
-def _is_judged(facts: TaskFacts) -> bool:
+def _is_judged(facts: InspectTaskFacts) -> bool:
     """A row is judged when its scorer takes a judge — by builtin NAME or by KWARG.
 
     WHY the kwarg check: a custom eval-module scorer (frontierscience) carries its
@@ -1021,64 +1264,64 @@ def _is_judged(facts: TaskFacts) -> bool:
     return any(name in _JUDGE_MODEL_KWARG_NAMES for name in facts.scorer_kwargs)
 
 
-def _scorer_kwarg_literal(value: Any) -> str:
+def _python_literal_source(value: Any) -> str:
     """One scorer kwarg value as source text the emitted file's gates accept."""
 
     return json.dumps(value) if isinstance(value, str) else repr(value)
 
 
-def generate_rows(
+def write_generated_rows(
     key: str,
-    facts: TaskFacts,
-    observations: Observations,
+    facts: InspectTaskFacts,
+    hub_facts: HubDatasetFacts,
     *,
     engine_src: Path,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
-) -> Fragments:
-    """Insert one board's generated rows into the three files, in place.
+) -> GeneratedRows:
+    """Insert one benchmark's generated rows into the three files, in place.
 
     Refuses an already-imported key; warns (but emits) on an uncleared license.
-    ``engine_src`` is the directory holding pins.py / prepare.py / boards.py.
+    ``engine_src`` is the directory holding pins.py / prepare.py / benchmarks.py.
     """
 
     pins_path: Path = engine_src / "pins.py"
     prepare_path: Path = engine_src / "prepare.py"
-    boards_path: Path = engine_src / "boards.py"
+    benchmarks_path: Path = engine_src / "benchmarks.py"
     texts: dict[Path, str] = {
-        path: path.read_text() for path in (pins_path, prepare_path, boards_path)
+        path: path.read_text() for path in (pins_path, prepare_path, benchmarks_path)
     }
     _refuse_existing_rows(key, _pin_prefix(key), texts)
-    _refuse_injectable_text(facts, observations)
-    license_name: str = (observations.license or "UNKNOWN").lower()
+    _refuse_injectable_text(facts, hub_facts)
+    license_name: str = (hub_facts.license or "UNKNOWN").lower()
     if license_name not in CLEARED_DATASET_LICENSES:
         print(
-            f"WARNING: dataset license {observations.license or 'UNKNOWN'!s} is not on the "
+            f"WARNING: dataset license {hub_facts.license or 'UNKNOWN'!s} is not on the "
             f"cleared list ({', '.join(sorted(CLEARED_DATASET_LICENSES))}) — emitting anyway; "
             "the diff review is the gate.",
             file=sys.stderr,
         )
-    fragments: Fragments = render_fragments(
-        key, facts, observations, shuffle_seed, choice_shuffle_seed
+    rows: GeneratedRows = render_generated_rows(
+        key, facts, hub_facts, shuffle_seed, choice_shuffle_seed
     )
     # WHY compute-then-write: every insertion point is validated while building the
     # new texts, so a broken anchor refuses the WHOLE import — never a half-imported
     # tree that a retry then rejects as "already exists" (review finding on PR 966).
     new_texts: dict[Path, str] = {
-        pins_path: _with_fragment(texts[pins_path], _PINS_ANCHOR, fragments.pins + "\n", "pins.py"),
-        prepare_path: _with_fragment(
-            _with_import_names(texts[prepare_path], fragments.import_names),
-            _SNAPSHOTS_ANCHOR,
-            fragments.snapshot,
+        pins_path: _with_generated_row(texts[pins_path], _PINS_ANCHOR, rows.pins + "\n", "pins.py"),
+        prepare_path: _with_generated_row(
+            _with_import_names(texts[prepare_path], rows.import_names),
+            _BENCHMARK_CASES_ANCHOR,
+            rows.cases,
             "prepare.py",
         ),
-        boards_path: _with_fragment(
-            texts[boards_path], _BOARDS_ANCHOR, fragments.board, "boards.py"
+        benchmarks_path: _with_generated_row(
+            texts[benchmarks_path], _BENCHMARKS_ANCHOR, rows.benchmark, "benchmarks.py"
         ),
     }
     for path, text in new_texts.items():
         _write_verified_python(path, text)
-    return fragments
+    return rows
 
 
 #: Character sets for text that gets interpolated into GENERATED PYTHON. The Hub
@@ -1091,7 +1334,7 @@ _LICENSE_CHARSET = re.compile(r"^[A-Za-z0-9.,+\- ]*\Z")
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 
 
-def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> None:
+def _refuse_injectable_text(facts: InspectTaskFacts, hub_facts: HubDatasetFacts) -> None:
     """Refuse any Hub-controlled string that could escape the generated rows."""
 
     references: dict[str, str | None] = {
@@ -1123,39 +1366,66 @@ def _refuse_injectable_text(facts: TaskFacts, observations: Observations) -> Non
                 f"data_files entry {text!r} contains characters that cannot be written "
                 "into generated code — refusing (injection guard)"
             )
-    if observations.license is not None and not _LICENSE_CHARSET.match(observations.license):
+    _refuse_injectable_task_args(facts)
+    if hub_facts.license is not None and not _LICENSE_CHARSET.match(hub_facts.license):
         raise ImporterError(
-            f"dataset license {observations.license!r} contains characters that cannot "
+            f"dataset license {hub_facts.license!r} contains characters that cannot "
             "be written into generated code — refusing (injection guard)"
         )
-    if not _COMMIT_SHA.match(observations.revision):
+    if not _COMMIT_SHA.match(hub_facts.revision):
         raise ImporterError(
-            f"captured revision {observations.revision!r} is not a 40-hex commit sha — "
+            f"captured revision {hub_facts.revision!r} is not a 40-hex commit sha — "
             "the Hub client returned a mutable ref or nothing; refusing at the tool"
         )
 
 
+def _refuse_injectable_task_args(facts: InspectTaskFacts) -> None:
+    """A question-filter row writes its task args into a generated dict literal — same
+    sink as data_files, so names must be identifiers and values plain literals."""
+
+    if not facts.filters_after_load:
+        return
+    for name, value in facts.task_args.items():
+        if not isinstance(value, str | int | float | bool | None):
+            # WHY a separate message: a list arg (mmlu_0_shot's subjects) is not an
+            # injection attempt; the row format just has no place for it yet.
+            raise ImporterError(
+                f"task arg {name} is a {type(value).__name__} — a question-filter row only "
+                "carries str, int, float, bool or None args; import this eval by hand"
+            )
+        safe_value: bool = (
+            bool(_REFERENCE_CHARSET.match(value))
+            if isinstance(value, str)
+            else isinstance(value, int | float | bool | None) and _is_literal(value)
+        )
+        if not name.isidentifier() or not safe_value:
+            raise ImporterError(
+                f"task arg {name}={value!r} cannot be written into generated code — "
+                "refusing (injection guard)"
+            )
+
+
 def _refuse_existing_rows(key: str, prefix: str, texts: Mapping[Path, str]) -> None:
-    """Never double a board — by key, OR by the constant stem two keys can share.
+    """Never double a benchmark — by key, OR by the constant stem two keys can share.
 
     WHY the prefix check: ``foo-bar`` and ``foo_bar`` are different keys but derive
     the same ``FOO_BAR_*`` constants; the second import would silently shadow the
-    first board's dataset/revision/count (review finding on PR 966).
+    first benchmark's dataset/revision/count (review finding on PR 966).
     """
 
-    needles: tuple[str, ...] = (f'"{key}": SnapshotSpec(', f'key="{key}"')
+    needles: tuple[str, ...] = (f'"{key}": CasesSpec(', f'key="{key}"')
     for path, text in texts.items():
         if any(needle in text for needle in needles):
-            raise ImporterError(f"board key {key!r} already exists in {path.name}")
+            raise ImporterError(f"benchmark key {key!r} already exists in {path.name}")
         if path.name == "pins.py" and f"{prefix}_DATASET" in text:
             raise ImporterError(
-                f"pin constants {prefix}_* already exist in pins.py — another board key "
+                f"pin constants {prefix}_* already exist in pins.py — another benchmark key "
                 f"derives the same constant stem as {key!r}; pick a distinct key"
             )
 
 
-def _with_fragment(text: str, anchor: str, fragment: str, filename: str) -> str:
-    """The whole insertion contract: the fragment lands immediately above the anchor.
+def _with_generated_row(text: str, anchor: str, row_text: str, filename: str) -> str:
+    """The whole insertion contract: the generated row lands immediately above the anchor.
 
     Pure text→text so callers can validate EVERY insertion before writing ANY file.
     """
@@ -1167,7 +1437,7 @@ def _with_fragment(text: str, anchor: str, fragment: str, filename: str) -> str:
             f"{filename}: expected exactly one anchor line {anchor!r}, found {len(positions)} — "
             "the insertion contract is broken; restore the anchor comment"
         )
-    lines.insert(positions[0], fragment)
+    lines.insert(positions[0], row_text)
     return "".join(lines)
 
 
@@ -1197,7 +1467,7 @@ def _write_verified_python(path: Path, text: str) -> None:
     except SyntaxError as exc:
         raise ImporterError(
             f"{path.name}: the composed file does not parse ({exc.msg}, line {exc.lineno}) — "
-            "refusing to write; the generated fragment is malformed"
+            "refusing to write; the generated row is malformed"
         ) from exc
     path.write_text(text)
 
@@ -1211,16 +1481,16 @@ def main(
     argv: list[str] | None = None,
     *,
     dataset_info: Callable[[str, str | None], Any] | None = None,
-    count_rows: Callable[[TaskFacts, str], int] | None = None,
+    count_rows: Callable[[InspectTaskFacts, str], int] | None = None,
 ) -> int:
     """Stage 1 → 2 → 3, then tell the dev to review the diff."""
 
     parser = argparse.ArgumentParser(
         prog="python -m screamingface_engine_inspect.importer",
-        description="Generate one imported board's row diffs from an inspect task.",
+        description="Generate one imported benchmark's row diffs from an inspect task.",
     )
     parser.add_argument("task_ref", help="dotted task reference, e.g. inspect_evals.mod.mod:task")
-    parser.add_argument("--key", required=True, help="the board key (catalogue id suffix)")
+    parser.add_argument("--key", required=True, help="the benchmark key (catalogue id suffix)")
     parser.add_argument(
         "--task-arg",
         action="append",
@@ -1245,19 +1515,19 @@ def main(
         "--engine-src",
         type=Path,
         default=Path(__file__).resolve().parent,
-        help="directory holding pins.py/prepare.py/boards.py (default: this package)",
+        help="directory holding pins.py/prepare.py/benchmarks.py (default: this package)",
     )
     args = parser.parse_args(argv)
 
     try:
-        facts: TaskFacts = introspect_task(args.task_ref, _parse_task_args(args.task_arg))
+        facts: InspectTaskFacts = read_inspect_task(args.task_ref, _parse_task_args(args.task_arg))
         # WHY: shuffle=True without a seed means the upstream order is random per
         # run — the import must pin ONE order. An explicit --shuffle-seed (policy)
         # wins; otherwise the eval's own seed is pinned AS EXAM IDENTITY.
         # AIDEV-NOTE: pinning upstream's seed does NOT reproduce upstream's row
-        # order — the bake shuffles with random.Random, upstream with HF's
+        # order — the prepare step shuffles with random.Random, upstream with HF's
         # Dataset.shuffle (different algorithm, same seed). Harmless while rows
-        # are the only shuffle (any pinned order is a valid exam); combined with
+        # are the only shuffle (any pinned order is a valid benchmark); combined with
         # a choice shuffle it is refused below (review blocker on PR #1031).
         shuffle_seed: int | None = (
             args.shuffle_seed if args.shuffle_seed is not None else facts.upstream_shuffle_seed
@@ -1267,18 +1537,18 @@ def main(
                 f"{args.task_ref}: the eval shuffles its exam order with no seed — "
                 "pass --shuffle-seed to pin one order as exam identity"
             )
-        # Same conservation one level down (choice order); the full refusal
+        # Same reproduction one level down (choice order); the full refusal
         # matrix lives in the helper's docstring.
         choice_shuffle_seed: int | None = _resolved_choice_shuffle_seed(
             args.task_ref, facts, args.choice_shuffle_seed, shuffle_seed
         )
-        observations: Observations = capture_observations(
+        hub_facts: HubDatasetFacts = read_hub_dataset_facts(
             facts, dataset_info=dataset_info, count_rows=count_rows
         )
-        generate_rows(
+        write_generated_rows(
             args.key,
             facts,
-            observations,
+            hub_facts,
             engine_src=args.engine_src,
             shuffle_seed=shuffle_seed,
             choice_shuffle_seed=choice_shuffle_seed,
@@ -1288,8 +1558,8 @@ def main(
         return 1
     print(
         f"Rows for {args.key!r} written into {args.engine_src} "
-        f"(revision {observations.revision}, {observations.case_count} cases, "
-        f"license {observations.license or 'UNKNOWN'}).\n"
+        f"(revision {hub_facts.revision}, {hub_facts.case_count} cases, "
+        f"license {hub_facts.license or 'UNKNOWN'}).\n"
         "Onboarding is AI-first: agent, now fill the TODO catalogue prose and resolve "
         "every TODO(review), then run the gates — a human must review the diff before merge."
     )
@@ -1297,23 +1567,23 @@ def main(
 
 
 def _resolved_choice_shuffle_seed(
-    task_ref: str, facts: TaskFacts, flag_seed: int | None, row_shuffle_seed: int | None
+    task_ref: str, facts: InspectTaskFacts, flag_seed: int | None, row_shuffle_seed: int | None
 ) -> int | None:
-    """The one pinned choice-order seed this import bakes with, or None.
+    """The one pinned choice-order seed this import prepares with, or None.
 
     The policy flag exists for exactly one situation: the eval shuffles choices
     UNSEEDED, so someone must pick the order. Everywhere else the flag would
-    silently deviate from the exam upstream defines, so it refuses by name —
+    silently deviate from the benchmark upstream defines, so it refuses by name —
     over a seeded upstream (upstream already picked ONE order; review finding
     on PR #1031) and over an eval that does not shuffle choices at all. An
-    unseeded shuffle with no flag refuses too: conserved, never dropped.
+    unseeded shuffle with no flag refuses too: reproduced, never dropped.
 
     One more cell refuses (review blocker on PR #1031): a choice shuffle
-    COMBINED with a row shuffle when upstream seeded either one. The bake's row
+    COMBINED with a row shuffle when upstream seeded either one. The prepare step's row
     shuffle is Python's, upstream's is HF's ``Dataset.shuffle`` — same seed,
     different order — and the choice shuffle draws each case's permutation from
-    one stream in row order, so the upstream-seeded exam cannot be reproduced.
-    With both seeds OURS (lab_bench) there is no fixed upstream exam to miss,
+    one stream in row order, so the upstream-seeded benchmark cannot be reproduced.
+    With both seeds OURS (lab_bench) there is no fixed upstream benchmark to miss,
     so the combination stays importable as pinned policy.
     """
 
@@ -1322,7 +1592,7 @@ def _resolved_choice_shuffle_seed(
             raise ImporterError(
                 f"{task_ref}: the eval pins its own choice-shuffle seed "
                 f"({facts.upstream_choice_shuffle_seed}) — --choice-shuffle-seed would "
-                "bake a different exam than upstream ever produces; drop the flag"
+                "prepare a different exam than upstream ever produces; drop the flag"
             )
         if flag_seed is None and facts.upstream_choice_shuffle_seed is None:
             raise ImporterError(
@@ -1335,16 +1605,16 @@ def _resolved_choice_shuffle_seed(
         ):
             raise ImporterError(
                 f"{task_ref}: upstream seeds its shuffle, and a row shuffle combined "
-                "with a choice shuffle cannot reproduce that exam — the bake's row "
+                "with a choice shuffle cannot reproduce that exam — the prepare step's row "
                 "shuffle is not HF's algorithm, and each case's choice order depends "
-                "on its row position; import this eval by hand or extend the bake to "
+                "on its row position; import this eval by hand or extend the prepare step to "
                 "replay HF's row permutation"
             )
         return flag_seed if flag_seed is not None else facts.upstream_choice_shuffle_seed
     if flag_seed is not None:
         raise ImporterError(
             f"{task_ref}: --choice-shuffle-seed was passed but the eval does not "
-            "shuffle choices — the policy seed would bake a different exam; drop the flag"
+            "shuffle choices — the policy seed would prepare a different exam; drop the flag"
         )
     return None
 

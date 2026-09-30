@@ -4,9 +4,8 @@
  * omits url4_expression, so the top "Run Locally" link is built from the most
  * recent submission's score detail via GET /v1/scores/{submissions[0].id}
  * (submissions are newest-first). That id is the same Score UUID the scores
- * route accepts, so no backend change is needed. Per task line 41 this link
- * intentionally uses the NEWEST submission, which may differ from the
- * best-per-spec url4 shown on the leaderboard row.
+ * route accepts. This link intentionally uses the newest submission, which may
+ * differ from the best-per-spec url4 shown on the leaderboard row.
  */
 (function (P) {
   "use strict";

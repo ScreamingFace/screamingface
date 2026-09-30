@@ -4,12 +4,12 @@ import json
 
 import pytest
 from test_ifeval_incremental_proof import _call
-from test_spine_scored import _envelope, _grading, _Hook, _path, _selected
+from test_shared_grading_aggregation import _envelope, _grading, _Hook, _path, _selected
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.aggregation import CandidateScore
-from screamingface_engine.benchmarks.spine.incremental import Scoring
-from screamingface_engine.benchmarks.spine.incremental_routes import case_result_endpoint
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import case_result_endpoint
 from screamingface_engine.observations import RunObservations
 from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node

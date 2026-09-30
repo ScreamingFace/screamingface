@@ -11,16 +11,16 @@ from typing import Any
 import pytest
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase, finalize_candidate_result
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import CaseResult, encode_candidate_invocation
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 from screamingface_engine.benchmarks.ifeval import grade, grading
 from screamingface_engine.benchmarks.ifeval.definition import (
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CHECK_ROUTE,
     REVISION,
 )
 from screamingface_engine.benchmarks.ifeval.runtime import install
-from screamingface_engine.benchmarks.spine.scored import GradeRequest
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import GradeRequest
 from url4 import RelExpr, Text, expr, render, src
 from url4.peer.server import Request, Url4Node
 
@@ -60,7 +60,7 @@ class _Execution:
 
     def __init__(self, root: Path, first_answer: str, monkeypatch: pytest.MonkeyPatch) -> None:
         self.specs = _assets(root)
-        path = grade.scored_path(self.specs)
+        path = grade.aggregation(self.specs)
         self.original_grade = path.grade_case
         self.original_check = grading.check_case
         self.checks: list[str] = []
@@ -101,11 +101,11 @@ class _Execution:
             record = await _call(self.node, CHECK_ROUTE, invocation, f"{case.case_id}:1")
             evaluation = await _call(
                 self.node,
-                CASE_EVALUATION_ROUTE,
+                CASE_GRADE_ROUTE,
                 json.dumps({"attempt_1": record}),
                 str(case.case_id),
             )
-            row = case_execution_payload(case.case_id, invocation, [evaluation])
+            row = graded_answer_payload(case.case_id, invocation, [evaluation])
             self.rows.append(row)
             async for result in self.path.iter_case_results(
                 json.dumps([row]),

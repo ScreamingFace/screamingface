@@ -70,12 +70,28 @@ COPY --from=ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de5
 #
 # This stage is thrown away — the runtime image below is `FROM ${BASE}` again, so the readers
 # never ship. `inspect-ai`/`inspect-evals` DO ship, because the base image installs `--extra
-# inspect`: a deployed Engine needs them to register the imported boards at all. If that extra
+# inspect`: a deployed Engine needs them to register the imported benchmarks at all. If that extra
 # is ever dropped from the base, this build keeps succeeding and silently ships an image missing
-# ten boards' assets — so the two belong in step.
+# ten benchmarks' assets — so the two belong in step.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra benchmarks
-RUN /app/apps/screamingface-engine/.venv/bin/python \
+# Gated datasets (xstest, OME-1269) download only with a Hugging Face token from an account that
+# accepted their terms. The token arrives as an OPTIONAL BuildKit secret (`id=hf_token`), read into
+# this one RUN's environment: a secret mount is never written into a layer, and the token is never
+# a build arg (build args are recorded in the image history). Without a token the prepare step refuses the
+# gated benchmark by name, so a main or release image can never ship missing one. PR builds, which get
+# no secret from forks or Dependabot, pass SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1 to skip those
+# benchmarks with a loud warning instead. Local build with the token:
+#   docker build --secret id=hf_token,env=HF_TOKEN -f apps/screamingface-engine/Dockerfile.benchmark .
+ARG SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=
+# WHY: a secret mount is NOT part of the build cache key, so a PR build re-run after the secret
+# was added would reuse the cached, gated-benchmark-skipped layer. PR builds pass whether a token was
+# present ("true"/"false"); a change of this ARG misses the cache for the RUN below. Never the token.
+ARG SCREAMINGFACE_HF_TOKEN_PRESENT=
+RUN --mount=type=secret,id=hf_token,required=false \
+    if [ -s /run/secrets/hf_token ]; then HF_TOKEN="$(cat /run/secrets/hf_token)"; export HF_TOKEN; fi; \
+    SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN="$SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN" \
+    /app/apps/screamingface-engine/.venv/bin/python \
       -m screamingface_engine.benchmarks.prepare --root /opt/benchmarks
 
 # --- runtime: the base image + the prepared assets -------------------------------------------

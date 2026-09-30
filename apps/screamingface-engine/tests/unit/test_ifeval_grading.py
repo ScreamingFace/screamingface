@@ -41,7 +41,7 @@ def test_no_comma_fails_a_response_containing_a_comma() -> None:
 
 def test_word_count_boundary_is_inclusive_for_at_least() -> None:
     # INVARIANT: "at least N" passes at exactly N — the verifier's relation semantics are
-    # the exam; an off-by-one here silently shifts every length-constrained score.
+    # the benchmark; an off-by-one here silently shifts every length-constrained score.
     kwargs = [{"relation": "at least", "num_words": 5}]
 
     exactly_five = check_case(
@@ -145,7 +145,7 @@ _HASH_KWARGS = [{"let_relation": "at least", "letter": "#", "let_frequency": 4}]
 
 
 def test_nonalpha_letter_kwarg_is_graded_literally_not_randomized() -> None:
-    # INVARIANT: the dataset's pinned letter IS the exam — a response with four '#' and no
+    # INVARIANT: the dataset's pinned letter IS the benchmark — a response with four '#' and no
     # occurrences of any ascii letter can only pass if '#' itself is being counted.
     result = check_case(
         instruction_id_list=["keywords:letter_frequency"],

@@ -1,14 +1,14 @@
-"""Pure HealthBench scoring primitives — the per-Case math, and BOTH exam-level metrics.
+"""Pure HealthBench scoring primitives — the per-Case math, and BOTH benchmark-level metrics.
 
 Mirrors the reference ``calculate_score`` (simple-evals ``healthbench_eval.py``): a Case
 score is achieved points over the sum of POSITIVE points, negatives subtract, and the
-per-Case value is UNCLAMPED. That half is shared by every HealthBench board.
+per-Case value is UNCLAMPED. That half is shared by every HealthBench benchmark.
 
-The exam-level reduction is where the two boards part, and each picks its own here:
+The benchmark-level reduction is where the two benchmarks part, and each picks its own here:
 
 - ``clipped_mean`` — the OFFICIAL metric (``np.clip(mean, 0, 1)``), used by the full
-  525-case professional board so its number is comparable to published figures.
-- ``unclipped_mean`` — the challenge metric, used by the worst-30% board. It DIVERGES
+  525-case professional benchmark so its number is comparable to published figures.
+- ``unclipped_mean`` — the challenge metric, used by the worst-30% benchmark. It DIVERGES
   from the reference deliberately: on that subset every serious baseline mean is
   negative, so the official clip would flatten the whole leaderboard to 0.00. Never
   present an unclipped score as an official HealthBench score.
@@ -85,11 +85,11 @@ def unclipped_mean(values: Sequence[float]) -> float | None:
 
 
 def clipped_mean(values: Sequence[float]) -> float | None:
-    """The OFFICIAL HealthBench exam metric — the reference's ``np.clip(mean, 0, 1)``.
+    """The OFFICIAL HealthBench benchmark metric — the reference's ``np.clip(mean, 0, 1)``.
 
     A Case score can be negative (enough safety penalties make an answer worse than an
     empty one), so the plain average of a rough run can be negative too. Published
-    HealthBench figures never are: the reference floors the exam-level average at 0.
+    HealthBench figures never are: the reference floors the benchmark-level average at 0.
 
     Worked example — two Cases scoring ``[0.8, -1.4]``::
 
@@ -105,7 +105,7 @@ def clipped_mean(values: Sequence[float]) -> float | None:
 
     Returns:
         The clipped mean, or ``None`` when nothing was gradeable — "we could not score
-        this" is a different fact from "the exam scored zero" (see ``case_score``).
+        this" is a different fact from "the benchmark scored zero" (see ``case_score``).
     """
 
     if not values:

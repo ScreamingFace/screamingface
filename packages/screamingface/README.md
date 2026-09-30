@@ -395,7 +395,7 @@ version that originally generated cached model answers.
 Each entry in `CandidateResult.operations` is a public immutable `sf.OperationInfo` value.
 
 Authentication, validation, transport, execution, protocol, and invalid-result failures raise
-typed exceptions. Partial-result reporting remains a later Engine/Report contract.
+typed exceptions.
 
 Expected SDK failures inherit from `ScreamingFaceError` and always carry a stable error code, plus
 an optional HTTP status, structured details, remediation hint, and `permanent`/`retryable`
@@ -406,6 +406,36 @@ classification. The public classes reflect distinct recovery actions:
 - `PlanningError`: change the Candidate, Benchmark, Model, or evaluation configuration.
 - `ExecutionError`: inspect or retry a Run that failed after reaching the Engine.
 - `ProviderConnectionError`: change a provider credential or provider connection.
+
+These classes arrive directly when the failure happens before any Candidate runs — for example
+while the Client loads the Benchmark or the Model catalogue — and when an Evaluation has one
+Candidate. A multi-Candidate Evaluation is different once its Candidates run: one failed
+Candidate does not stop the others. They run to their end, the progress output marks the failed
+row at once, and then the Evaluation raises `ExecutionError` with `code="candidates_failed"`:
+
+- `error.details["failed"]` maps each failed Candidate's name to its error code, for example
+  `websocket_disconnected`, `engine_at_capacity`, `authentication_failed` or
+  `engine_unreachable` (`unexpected_error` when the failure had no SDK code);
+- `error.__cause__` is the first failure itself, so an `AuthenticationError` or
+  `EngineUnavailableError` from a running Candidate is found there, not raised directly;
+- `error.partial_report` is a `Report` of the Candidates that succeeded, or `None` when none
+  did. It holds nothing for a failed Candidate.
+
+To keep the paid results, export the Partial Report; `details["failed"]` names the Candidates to run again:
+
+```python
+try:
+    report = sf.evaluate(candidates, benchmark="draco")
+except sf.ExecutionError as error:
+    if error.code != "candidates_failed":
+        raise
+    if error.partial_report is not None:
+        error.partial_report.export("partial-report.json")
+    failed = error.details["failed"]  # {candidate name: code}
+```
+
+Ctrl-C, task cancellation, and an exception raised by your own `on_event` callback still stop
+every Run of the Evaluation and re-raise that exception unchanged.
 
 IPython and Jupyter render these failures as a concise message, hint, and code instead of exposing
 dependency tracebacks. Notebook panels render the same safe text inline. Programmatic callers can

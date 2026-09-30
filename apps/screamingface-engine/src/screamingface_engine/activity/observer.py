@@ -15,10 +15,10 @@ from screamingface_engine.benchmarks.case_context import (
     current_case_position,
     is_answer_recording,
 )
+from screamingface_engine.benchmarks.case_grading_report import GradingState
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
-from screamingface_engine.benchmarks.grading_activity import GradingState
+from screamingface_engine.benchmarks.phases import PhaseScope
 from screamingface_engine.benchmarks.progress import ScoreCases
-from screamingface_engine.benchmarks.stages import StageScope
 from screamingface_engine.grading_call_scope import current_grading_case
 from screamingface_engine.observations import LogEmitter, ModelObservation, Scalar
 
@@ -51,10 +51,10 @@ class ActivityObserver:
             operation(emit=emit, kind=ActivityKind.MODEL_CALL, model_id=model_id, **_case_facts()),
         )
 
-    def stage(self, stage: ActivityKind, emit: LogEmitter | None) -> StageScope | None:
+    def phase(self, phase: ActivityKind, emit: LogEmitter | None) -> PhaseScope | None:
         if self.session is None or not self.session.active or emit is None:
             return None
-        return ActivityStage(self, operation(emit=emit, kind=stage, **_case_facts()))
+        return ActivityPhase(self, operation(emit=emit, kind=phase, **_case_facts()))
 
     def case_grading(self, case_id: CaseId, state: GradingState, emit: LogEmitter | None) -> None:
         emit_case_grading(self.session, emit, case_id, state, self._grading)
@@ -89,8 +89,8 @@ class ActivityObserver:
         }
 
 
-class ActivityStage:
-    """Track stage resources alongside calls so run cleanup also joins abandoned stages."""
+class ActivityPhase:
+    """Track phase resources alongside calls so run cleanup also joins abandoned phases."""
 
     def __init__(self, owner: ActivityObserver, scope: Operation) -> None:
         self._owner, self._scope = owner, scope
@@ -116,7 +116,7 @@ class ActivityStage:
             self._owner._calls.discard(self._scope)
 
 
-class ActivityModelCall(ActivityStage):
+class ActivityModelCall(ActivityPhase):
     async def start(self) -> None:
         await self.__aenter__()
 

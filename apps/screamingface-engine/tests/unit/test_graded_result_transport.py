@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from test_spine_scored import _aggregate, _envelope, _grading, _Hook, _path, _selected
+from test_shared_grading_aggregation import _aggregate, _envelope, _grading, _Hook, _path, _selected
 
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.graded_results import decode_results, encode_result

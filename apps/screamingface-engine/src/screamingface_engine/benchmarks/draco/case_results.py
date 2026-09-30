@@ -1,10 +1,10 @@
 """Build auditable DRACO grading material from Engine-bound checks and evidence.
 
-Since OME-1100 the shared spine (``spine/scored.py``) assembles draco's typed Case
-Results; this module supplies what stays draco's: the multi-pass verdict handling
-(``group_runs`` / ``valid_verdicts``), the per-Case grade blocks the ``grade_case``
+Since OME-1100 the shared grading (``shared_grading/benchmark_aggregation.py``) assembles draco's
+typed Case Results; this module supplies what stays draco's: the multi-pass verdict handling
+(``group_by_judge_pass`` / ``valid_verdicts``), the per-Case grade blocks the ``grade_case``
 hook returns (``scored_grade`` / ``incomplete_grade``), the check/evidence audit
-projection, and the one typed-result builder draco's board-owned failure hooks
+projection, and the one typed-result builder draco's benchmark-owned failure hooks
 still need (``_case_result`` / ``ungraded_case_result``).
 """
 
@@ -27,10 +27,10 @@ from screamingface_engine.benchmarks.draco.errors import AggregateError
 from screamingface_engine.benchmarks.draco.scoring import flatten_criteria, score_case
 from screamingface_engine.benchmarks.draco.validation import optional_integer
 from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
-from screamingface_engine.benchmarks.spine.scored import CaseGradeOutcome
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import CaseGradeOutcome
 
 
-def group_runs(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
+def group_by_judge_pass(verdicts: Sequence[Mapping[str, Any]]) -> list[dict[str, bool]]:
     """Split flat verdicts into one dict per judge pass, in sequence order.
 
     INVARIANT: the paper scores each pass independently and then means the passes. Majority-voting
@@ -83,11 +83,11 @@ def scored_grade(
     verdicts: Sequence[Mapping[str, Any]],
     judge_passes: int,
 ) -> CaseGradeOutcome:
-    """Score one Case's judge passes into the grade block the spine's hook returns."""
+    """Score one Case's judge passes into the grade block the shared grading code's hook returns."""
     case_id, criteria_expected = _expected_criteria(case_record, rubric)
     expected = criteria_expected * judge_passes
     accepted = len(verdicts)
-    scored = score_case(rubric, group_runs(verdicts), criteria_expected=criteria_expected)
+    scored = score_case(rubric, group_by_judge_pass(verdicts), criteria_expected=criteria_expected)
     coverage = (accepted / expected) if expected else 0.0
     metrics = {
         "normalized_score_sd": scored["normalized_score_sd"],

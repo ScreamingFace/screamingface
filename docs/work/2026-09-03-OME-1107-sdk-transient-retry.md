@@ -1,9 +1,9 @@
 ---
 ticket: OME-1107
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-03
-finished:
+finished: 2026-09-09
 ---
 
 # OME-1107 — retry replay-safe SDK requests on transient edge failures

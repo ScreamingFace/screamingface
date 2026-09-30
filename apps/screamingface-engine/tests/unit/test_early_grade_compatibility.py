@@ -81,10 +81,12 @@ def _verify_scoring(monkeypatch):
             assert scorer(cases) == scorer(tuple(scoring_projection(c) for c in cases))
 
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.spine.incremental.completed_case", verify_projection
+        "screamingface_engine.benchmarks.shared_grading.incremental.completed_case",
+        verify_projection,
     )
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.spine.scored.completed_case", verify_projection
+        "screamingface_engine.benchmarks.shared_grading.benchmark_aggregation.completed_case",
+        verify_projection,
     )
 
 
@@ -98,8 +100,8 @@ def _install_calls(node, calls):
         return '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
 
     from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco
-    from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL as gdpval
-    from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL as health
+    from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as gdpval
+    from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as health
 
     for model in {draco, gdpval, health}:
         node.endpoint("/" + model)(judge)

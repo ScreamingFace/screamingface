@@ -11,6 +11,7 @@
     "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
   },
   "$defs": {
+    "model_id": {"type": "string", "maxLength": 512},
     "count": {
       "type": "integer",
       "minimum": 0,
@@ -207,8 +208,8 @@
         "dispatch_index": {"type": "integer", "minimum": 1},
         "attempt_index": {"type": "integer", "minimum": 1},
         "provider": {"type": "string", "minLength": 1, "maxLength": 64},
-        "requested_model": {"oneOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]},
-        "response_model": {"oneOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]},
+        "requested_model": {"oneOf": [{"$ref": "#/$defs/model_id"}, {"type": "null"}]},
+        "response_model": {"oneOf": [{"$ref": "#/$defs/model_id"}, {"type": "null"}]},
         "provider_response_id": {"oneOf": [{"type": "string", "maxLength": 256}, {"type": "null"}]},
         "transport": {"enum": ["litellm_async_http", "provider_owned_http", "provider_owned_process"]},
         "outcome": {"enum": ["succeeded", "provider_error", "transport_error", "conversion_error", "indeterminate"]},
@@ -261,7 +262,9 @@
               "oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]
             }
           }
-        }
+        },
+        "response_model": {"$ref": "#/$defs/model_id", "minLength": 1},
+        "observed_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"}
       }
     },
     "usage_accounting": {

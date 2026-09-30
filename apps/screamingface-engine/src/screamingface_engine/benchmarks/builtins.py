@@ -19,14 +19,14 @@ from screamingface_engine.benchmarks.draco.definition import (
 )
 from screamingface_engine.benchmarks.draco.definition import DRACO, DRACO_3PASS
 from screamingface_engine.benchmarks.gdpval.definition import GDPVAL_TEXT
-from screamingface_engine.benchmarks.gdpval.exam import (
+from screamingface_engine.benchmarks.gdpval.variant import (
     ASSET_BUNDLE_ID as GDPVAL_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.healthbench.definition import (
     HEALTHBENCH_PROFESSIONAL,
     HEALTHBENCH_WORST30,
 )
-from screamingface_engine.benchmarks.healthbench.exam import (
+from screamingface_engine.benchmarks.healthbench.variant import (
     ASSET_BUNDLE_ID as HEALTHBENCH_ASSET_BUNDLE_ID,
 )
 from screamingface_engine.benchmarks.ifeval.definition import (
@@ -91,9 +91,9 @@ HEALTHBENCH_ASSETS = BenchmarkAssetBundle(
 )
 
 # WHY: this composition is the single source for both runtime discovery and image construction.
-# Boards that read one physical asset set intentionally share a bundle and the deployment
-# prepares it once: the two HealthBench boards are independent identities over one baked
-# answer key, and the two DRACO boards re-run the same archived case/rubric assets with
+# Benchmarks that read one physical asset set intentionally share a bundle and the deployment
+# prepares it once: the two HealthBench benchmarks are independent identities over one prepared
+# answer key, and the two DRACO benchmarks re-run the same archived case/rubric assets with
 # different judge-pass counts.
 BUILTIN_REGISTRATIONS = (
     BenchmarkRegistration(benchmark=DRACO, asset_bundle=DRACO_ASSETS),

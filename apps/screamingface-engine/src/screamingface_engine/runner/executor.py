@@ -803,7 +803,7 @@ class Url4Executor(Executor):
         # run starts so a malformed value fails INSIDE the run (a Terminated frame) rather than
         # taking down the scheduling caller with nothing on the stream — the same reason the
         # world itself is resolved lazily. `None` is a direct-IO executor (tests, the local
-        # spine): it binds nothing and relies on an outer producer's scope.
+        # shared-grading): it binds nothing and relies on an outer producer's scope.
         self._request_scope_factory = request_scope_factory
         # FEATURE (OME-908): the run's downstream admission policy, injected as data.
         # `io_wrap` is the LOCAL shape — one wrapper binding this run into the process's

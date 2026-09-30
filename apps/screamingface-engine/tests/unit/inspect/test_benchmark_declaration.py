@@ -1,9 +1,9 @@
 """OME-1039: the declared grading contract every Benchmark must register.
 
 INVARIANT: `failure_policy` and `interaction` are explicit, required, per-benchmark
-parameters — never a spine-level default. A policy nobody can see from the manifest is a
+parameters — never a shared-grading-level default. A policy nobody can see from the manifest is a
 policy nobody can approve, and a default that flips silently changes published-score
-semantics for every board at once.
+semantics for every benchmark at once.
 """
 
 from __future__ import annotations
@@ -64,10 +64,10 @@ def test_declaration_refuses_an_unknown_interaction_by_name() -> None:
     # the contract refuses the unknown one before any paid request.
     #
     # AIDEV-NOTE: this test used to name `multi_turn` as its unknown value. OME-1126 (MedXpertQA)
-    # added it as a real value: that board invokes the Candidate twice per Case (reason, then
+    # added it as a real value: that benchmark invokes the Candidate twice per Case (reason, then
     # commit against a bare trigger), so it could not register while `single_shot` was the only
     # option. The guard itself is unchanged in strength — it still proves an unknown value is
-    # refused by name. Agentic/tool-environment shapes remain unknown until a board needs them.
+    # refused by name. Agentic/tool-environment shapes remain unknown until a benchmark needs them.
     with pytest.raises(ValueError, match="interaction"):
         BenchmarkDeclaration(
             failure_policy="withhold",
@@ -98,7 +98,7 @@ def test_declaration_refuses_an_unknown_difficulty_by_name() -> None:
 
 
 def test_declaration_requires_difficulty_with_no_default() -> None:
-    # INVARIANT: a defaulted tier is a tier nobody assigned — every board's difficulty is a
+    # INVARIANT: a defaulted tier is a tier nobody assigned — every benchmark's difficulty is a
     # reviewed judgment call, so the field is required exactly like its two siblings (OME-1257).
     with pytest.raises(TypeError):
         BenchmarkDeclaration(  # type: ignore[call-arg]
@@ -139,15 +139,15 @@ def test_resource_names_every_declared_value() -> None:
     assert resource["difficulty"] == "easy"
 
 
-def test_every_builtin_board_declares_its_actual_policy() -> None:
-    # INVARIANT: the declaration tells the truth about the code. Every board reduces through the
+def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
+    # INVARIANT: the declaration tells the truth about the code. Every benchmark reduces through the
     # shared `finalize_candidate_result`, which scores exactly the gradeable subset and publishes
-    # coverage — coverage_declare behavior. A board may only declare `withhold` once its aggregate
-    # actually withholds, and may only declare an interaction it actually performs.
+    # coverage — coverage_declare behavior. A benchmark may only declare `withhold` once its
+    # aggregate actually withholds, and may only declare an interaction it actually performs.
     #
-    # AIDEV-NOTE: an explicit per-board table rather than a blanket assertion. A new board must
-    # add its row deliberately, and a board that CHANGES its declaration trips here — which a
-    # loop over "all single_shot" could not catch once a second shape existed (OME-1126).
+    # AIDEV-NOTE: an explicit per-benchmark table rather than a blanket assertion. A new benchmark
+    # must add its row deliberately, and a benchmark that CHANGES its declaration trips here — which
+    # a loop over "all single_shot" could not catch once a second shape existed (OME-1126).
     expected = {
         # ContractEval answers each Case once; a reply quoting the wrong sentences is GRADED
         # (0.0, and it keeps its cell in the confusion matrix), so only never-graded Cases
@@ -158,7 +158,7 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         # a new row in a registry table from an edited assertion. Recorded here because the
         # next reader of THIS file will not open the work ledger (OME-1148).
         # OME-1257 third element: the hand-assigned difficulty tier. The rationale for
-        # each assignment lives as a comment at the board's own declaration site; this
+        # each assignment lives as a comment at the benchmark's own declaration site; this
         # table pins the reviewed outcome so a silent tier change trips loudly.
         "contracteval": ("coverage_declare", "single_shot", "medium"),
         "draco": ("coverage_declare", "single_shot", "hard"),
@@ -172,13 +172,13 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         # coverage_declare.
         "medxpert": ("coverage_declare", "multi_turn", "hard"),
     }
-    # Plugin-contributed boards (OME-1115) are present only when their extra is
-    # installed; their rows are still explicit, so a new imported board — or a changed
+    # Plugin-contributed benchmarks (OME-1115) are present only when their extra is
+    # installed; their rows are still explicit, so a new imported benchmark — or a changed
     # declaration — trips here exactly like a home-grown one.
     expected_plugin = {
         "inspect-gsm8k": ("coverage_declare", "single_shot", "easy"),
         "inspect-mmlu": ("coverage_declare", "single_shot", "medium"),
-        # OME-1116 milestone C: the eight generated boards, every one single-shot
+        # OME-1116 milestone C: the eight generated benchmarks, every one single-shot
         # through the shared row machine.
         "inspect-arc_easy": ("coverage_declare", "single_shot", "easy"),
         "inspect-arc_challenge": ("coverage_declare", "single_shot", "medium"),
@@ -188,7 +188,7 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-race_h": ("coverage_declare", "single_shot", "easy"),
         "inspect-paws": ("coverage_declare", "single_shot", "easy"),
         "inspect-boolq": ("coverage_declare", "single_shot", "easy"),
-        # OME-1240: the judged proof board — frontier-research material, hard tier.
+        # OME-1240: the judged proof benchmark — frontier-research material, hard tier.
         "inspect-frontierscience": ("coverage_declare", "single_shot", "hard"),
         # OME-1238 landed these two mid-stack; tiers assigned in the OME-1257 rebase.
         "inspect-aime24": ("coverage_declare", "single_shot", "medium"),
@@ -207,6 +207,12 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         "inspect-lab_bench_protocolqa": ("coverage_declare", "single_shot", "hard"),
         "inspect-lab_bench_seqqa": ("coverage_declare", "single_shot", "hard"),
         "inspect-lab_bench_cloning_scenarios": ("coverage_declare", "single_shot", "hard"),
+        # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
+        "inspect-onet_m6": ("coverage_declare", "single_shot", "medium"),
+        # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).
+        "inspect-pubmedqa": ("coverage_declare", "single_shot", "medium"),
+        # OME-1269: over-refusal of harmless prompts, LLM-judged (gated dataset).
+        "inspect-xstest_safe": ("coverage_declare", "single_shot", "easy"),
     }
     actual = {
         benchmark.id: (
@@ -216,33 +222,37 @@ def test_every_builtin_board_declares_its_actual_policy() -> None:
         )
         for benchmark in BUILTIN_BENCHMARKS
     }
-    plugin_actual = {board: row for board, row in actual.items() if board.startswith("inspect-")}
-    core_actual = {board: row for board, row in actual.items() if board not in plugin_actual}
+    plugin_actual = {
+        benchmark: row for benchmark, row in actual.items() if benchmark.startswith("inspect-")
+    }
+    core_actual = {
+        benchmark: row for benchmark, row in actual.items() if benchmark not in plugin_actual
+    }
     assert core_actual == expected
-    # Every registered imported board must have its explicit row (subset, not equality:
-    # which plugin boards are present depends on the installed extra and, mid-stack, on
-    # how many board PRs have landed).
-    assert plugin_actual == {board: expected_plugin[board] for board in plugin_actual}
+    # Every registered imported benchmark must have its explicit row (subset, not equality:
+    # which plugin benchmarks are present depends on the installed extra and, mid-stack, on
+    # how many benchmark PRs have landed).
+    assert plugin_actual == {benchmark: expected_plugin[benchmark] for benchmark in plugin_actual}
 
 
-def test_each_board_aggregate_reduces_through_the_shared_finalizer() -> None:
-    # WHY: the coverage_declare pins above are only TRUE while every board funnels its
+def test_each_benchmark_aggregate_reduces_through_the_shared_finalizer() -> None:
+    # WHY: the coverage_declare pins above are only TRUE while every benchmark funnels its
     # cases through the shared finalizer (score over the gradeable subset + published
-    # coverage). This asserts the mechanism, not just the literal: a board that stops
+    # coverage). This asserts the mechanism, not just the literal: a benchmark that stops
     # importing the shared finalize_candidate_result (hand-rolling its own reduction,
     # or shadowing the name) trips here and must revisit its declaration.
     # AIDEV-NOTE: import identity, not call-path proof — the e2e goldens' coverage rung
-    # proves the call path; full closure lands when the spine itself consumes
+    # proves the call path; full closure lands when the shared grading code itself consumes
     # failure_policy (`OME-1097`+) and the policy stops being prose entirely.
     from screamingface_engine.benchmarks import aggregation
-    from screamingface_engine.benchmarks.spine import scored
+    from screamingface_engine.benchmarks.shared_grading import benchmark_aggregation
 
-    # These boards funnel through the spine's shared scored path (OME-1097; ifeval
+    # These benchmarks funnel through the shared BenchmarkAggregation path (OME-1097; ifeval
     # folded in OME-1101, draco in OME-1100), which itself reduces through the
     # shared finalizer — same mechanism, one hop up.
-    assert scored.finalize_candidate_result is aggregation.finalize_candidate_result
+    assert benchmark_aggregation.finalize_candidate_result is aggregation.finalize_candidate_result
     for family in ("draco", "gdpval", "healthbench", "ifeval"):
         module = importlib.import_module(f"screamingface_engine.benchmarks.{family}.grade")
-        assert module.ScoredPath is scored.ScoredPath, (
+        assert module.BenchmarkAggregation is benchmark_aggregation.BenchmarkAggregation, (
             f"{family} no longer reduces through the shared scored path"
         )

@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from test_medxpert_aggregate import _case_execution, _root, _rows
+from test_medxpert_aggregate import _graded_answer_route, _root, _rows
 
 from screamingface_engine.benchmarks.medxpert.aggregate import scoring
 from screamingface_engine.benchmarks.medxpert.definition import BENCHMARK_ID, REVISION
@@ -19,7 +19,7 @@ def _binding(tmp_path):
 
 
 def _failed():
-    return _case_execution(1, {"error": {"message": "checker failed", "kind": "ValueError"}})
+    return _graded_answer_route(1, {"error": {"message": "checker failed", "kind": "ValueError"}})
 
 
 @pytest.mark.asyncio

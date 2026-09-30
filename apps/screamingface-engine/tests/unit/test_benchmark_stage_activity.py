@@ -8,7 +8,7 @@ import pytest
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.activity.scope import current_operation
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.observations import ModelCall, RunObservations
 
 
@@ -26,9 +26,9 @@ def capture():
 )
 def test_sync_stages_preserve_values_and_only_emit_safe_lifecycle(monkeypatch, stage):
     records, emit = capture()
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
     sentinel = object()
-    wrapped = observe_stage(stage)(lambda: sentinel)
+    wrapped = observe_phase(stage)(lambda: sentinel)
     with RunObservations((ActivityObserver,)).bind():
         assert wrapped() is sentinel
     assert not inspect.iscoroutinefunction(wrapped)
@@ -49,7 +49,7 @@ def test_sync_stages_preserve_values_and_only_emit_safe_lifecycle(monkeypatch, s
 @pytest.mark.asyncio
 async def test_async_stage_owns_nested_model_and_preserves_exception(monkeypatch):
     records, emit = capture()
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
     observer = ActivityObserver()
     failure = ValueError("private prompt must never be logged")
 
@@ -58,7 +58,7 @@ async def test_async_stage_owns_nested_model_and_preserves_exception(monkeypatch
             await asyncio.sleep(0)
             raise failure
 
-    wrapped = observe_stage(ActivityKind.ANSWERING)(answer)
+    wrapped = observe_phase(ActivityKind.ANSWERING)(answer)
     assert inspect.iscoroutinefunction(wrapped)
     run = RunObservations((lambda: observer,))
     with run.bind(), pytest.raises(ValueError) as caught:
@@ -75,7 +75,7 @@ async def test_async_stage_owns_nested_model_and_preserves_exception(monkeypatch
 @pytest.mark.asyncio
 async def test_stage_cancellation_joins_timer(monkeypatch):
     records, emit = capture()
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
     entered = asyncio.Event()
     observer = ActivityObserver()
 
@@ -85,7 +85,7 @@ async def test_stage_cancellation_joins_timer(monkeypatch):
 
     run = RunObservations((lambda: observer,))
     with run.bind():
-        task = asyncio.create_task(observe_stage(ActivityKind.ANSWERING)(answer)())
+        task = asyncio.create_task(observe_phase(ActivityKind.ANSWERING)(answer)())
         await entered.wait()
         operations = tuple(observer._calls)
         task.cancel()
@@ -101,12 +101,12 @@ async def test_stage_cancellation_joins_timer(monkeypatch):
 @pytest.mark.parametrize("factories", [(), (lambda: ActivityObserver(enabled=False),)])
 async def test_empty_or_off_inner_run_cannot_inherit_outer_activity(monkeypatch, factories):
     records, emit = capture()
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
     outer = RunObservations((ActivityObserver,))
     inner = RunObservations(factories)
     with outer.bind():
         with inner.bind():
-            assert observe_stage(ActivityKind.GRADING)(lambda: "ok")() == "ok"
+            assert observe_phase(ActivityKind.GRADING)(lambda: "ok")() == "ok"
             assert current_operation() is None
         assert records == []
     await inner.aclose()
@@ -116,7 +116,7 @@ async def test_empty_or_off_inner_run_cannot_inherit_outer_activity(monkeypatch,
 @pytest.mark.asyncio
 async def test_concurrent_stage_instances_never_share_parent_or_occurrence(monkeypatch):
     records, emit = capture()
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
 
     async def answer():
         await asyncio.sleep(0)
@@ -126,7 +126,7 @@ async def test_concurrent_stage_instances_never_share_parent_or_occurrence(monke
     with run.bind():
         assert (
             await asyncio.gather(
-                *(observe_stage(ActivityKind.ANSWERING)(answer)() for _ in range(3))
+                *(observe_phase(ActivityKind.ANSWERING)(answer)() for _ in range(3))
             )
             == ["same output"] * 3
         )
@@ -137,10 +137,10 @@ async def test_concurrent_stage_instances_never_share_parent_or_occurrence(monke
 
 def test_stage_observer_fault_does_not_replace_execution_error(monkeypatch, caplog):
     records, emit = capture()
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
 
     class Broken(ActivityObserver):
-        def stage(self, stage, emit):
+        def phase(self, phase, emit):
             raise RuntimeError("private observer detail")
 
     def fail():
@@ -149,7 +149,7 @@ def test_stage_observer_fault_does_not_replace_execution_error(monkeypatch, capl
     with RunObservations((Broken,)).bind():
         for _ in range(2):
             with pytest.raises(ValueError, match="original"):
-                observe_stage(ActivityKind.GRADING)(fail)()
+                observe_phase(ActivityKind.GRADING)(fail)()
     assert len(caplog.records) == 1
     assert "private" not in caplog.text
     assert records == []
@@ -174,14 +174,14 @@ async def test_stage_heartbeat_is_fixed_and_run_cleanup_joins_abandoned_scope(mo
     monkeypatch.setattr(scope, "_sleep", sleep)
     observer = ActivityObserver()
     with observer.bind():
-        stage = observer.stage(ActivityKind.GRADING, emit)
-        assert stage is not None
-        await stage.__aenter__()
+        phase = observer.phase(ActivityKind.GRADING, emit)
+        assert phase is not None
+        await phase.__aenter__()
         await first_tick.wait()
         operations = tuple(observer._calls)
         await observer.aclose()
         assert all(op._task is not None and op._task.done() for op in operations)
-        await stage.__aexit__(None, None, None)
+        await phase.__aexit__(None, None, None)
     assert delays == [60.0, 60.0]
     assert [r["sf.activity.state"] for r in records] == ["started", "running"]
     assert not observer._calls
@@ -190,10 +190,10 @@ async def test_stage_heartbeat_is_fixed_and_run_cleanup_joins_abandoned_scope(mo
 @pytest.mark.asyncio
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_observer_teardown_cannot_suppress_original_failure(monkeypatch, asynchronous):
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: None)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: None)
 
     class Observer(ActivityObserver):
-        def stage(self, stage, emit):
+        def phase(self, phase, emit):
             return Suppressor()
 
     def fail():
@@ -205,9 +205,9 @@ async def test_observer_teardown_cannot_suppress_original_failure(monkeypatch, a
     run = RunObservations((Observer,))
     with run.bind(), pytest.raises(ValueError, match="original"):
         if asynchronous:
-            await observe_stage(ActivityKind.GRADING)(async_fail)()
+            await observe_phase(ActivityKind.GRADING)(async_fail)()
         else:
-            observe_stage(ActivityKind.GRADING)(fail)()
+            observe_phase(ActivityKind.GRADING)(fail)()
     await run.aclose()
 
 
@@ -229,7 +229,7 @@ class Suppressor:
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_cleanup_interruption_unwinds_all_observers(monkeypatch, asynchronous):
     records, emit = capture()
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
     activity = ActivityObserver()
 
     class Interrupt(Suppressor):
@@ -240,7 +240,7 @@ async def test_cleanup_interruption_unwinds_all_observers(monkeypatch, asynchron
             raise asyncio.CancelledError()
 
     class Observer(ActivityObserver):
-        def stage(self, stage, emit):
+        def phase(self, phase, emit):
             return Interrupt()
 
     async def answer():
@@ -250,9 +250,9 @@ async def test_cleanup_interruption_unwinds_all_observers(monkeypatch, asynchron
     with run.bind():
         with pytest.raises(asyncio.CancelledError):
             if asynchronous:
-                await observe_stage(ActivityKind.ANSWERING)(answer)()
+                await observe_phase(ActivityKind.ANSWERING)(answer)()
             else:
-                observe_stage(ActivityKind.ANSWERING)(lambda: "ok")()
+                observe_phase(ActivityKind.ANSWERING)(lambda: "ok")()
         assert current_operation() is None
         assert not activity._calls
     await run.aclose()

@@ -1,9 +1,9 @@
-"""HealthBench's grading hooks — everything this board still writes to be graded.
+"""HealthBench's grading hooks — everything this benchmark still writes to be graded.
 
-The spine owns the marking room (``spine/scored.py``); this module is the board's
-contribution: its failure wording, its judge's identity, its private rubric reader, and
-the reference per-Case formula bound into the shared rubric ``grade_case``. The exam
-``mean`` stays a caller choice because it is the ONLY place the two HealthBench boards
+The shared grading code owns the marking room (``shared_grading/benchmark_aggregation.py``); this
+module is the benchmark's contribution: its failure wording, its judge's identity, its private
+rubric reader, and the reference per-Case formula bound into the shared rubric ``grade_case``. The
+benchmark ``mean`` stays a caller choice because it is the ONLY place the two HealthBench benchmarks
 differ: ``scoring.clipped_mean`` for the official professional number,
 ``scoring.unclipped_mean`` for the worst-30% challenge metric.
 
@@ -19,13 +19,18 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.healthbench.case_evaluation import decode_case_evaluation
+from screamingface_engine.benchmarks.healthbench.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.healthbench.scoring import case_score
-from screamingface_engine.benchmarks.spine.exam import exam_scorer
-from screamingface_engine.benchmarks.spine.incremental import Scoring
-from screamingface_engine.benchmarks.spine.rows import RowReader, read_selected_cases
-from screamingface_engine.benchmarks.spine.rubric import rubric_grade_case
-from screamingface_engine.benchmarks.spine.scored import ScoredPath
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
+    BenchmarkAggregation,
+)
+from screamingface_engine.benchmarks.shared_grading.case_grades import (
+    CaseGradeReader,
+    read_selected_cases,
+)
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
+from screamingface_engine.benchmarks.shared_grading.mean_scorer import mean_scorer
+from screamingface_engine.benchmarks.shared_grading.rubric import rubric_grade_case
 
 _FAILURE_MESSAGES = {
     "missing_rubric_asset": "the baked rubric asset for this Case is missing or invalid",
@@ -73,7 +78,7 @@ def _points_from(decoded: object) -> list[int] | None:
 
 
 def aggregate(
-    raw_rows: str,
+    raw_case_grades: str,
     root: Path,
     *,
     benchmark_id: str,
@@ -87,7 +92,7 @@ def aggregate(
         benchmark_revision=benchmark_revision,
         case_ids=case_ids,
         mean=mean,
-    ).aggregate(raw_rows)
+    ).aggregate(raw_case_grades)
 
 
 def scoring(
@@ -106,7 +111,7 @@ def scoring(
     Reference counterpart: the metric aggregation in ``HealthBenchEval``
     (https://github.com/openai/simple-evals/blob/main/healthbench_eval.py) —
     matching it on the clip when ``mean`` is ``clipped_mean``, and deliberately
-    diverging on spread (sample stdev, see ``spine.exam.sample_stdev``).
+    diverging on spread (sample stdev, see ``shared_grading.mean_scorer.sample_stdev``).
     """
 
     return Scoring(
@@ -117,18 +122,18 @@ def scoring(
             root, case_ids, benchmark_label="HealthBench", error_type=AggregateError
         ),
         material=lambda case_id: load_rubric_points(root, case_id),
-        scorer=exam_scorer(mean),
+        scorer=mean_scorer(mean),
     )
 
 
-# WHY bound at module bottom: the scored path lives in the spine (OME-1097); the hooks
-# and the failure-message wording stay board-owned so per-case failure output is
+# WHY bound at module bottom: the scored path lives in the shared grading code (OME-1097); the hooks
+# and the failure-message wording stay benchmark-owned so per-case failure output is
 # byte-identical to the pre-extraction copies (the goldens pin every failure code).
-_PATH = ScoredPath(
-    reader=RowReader(
+_PATH = BenchmarkAggregation(
+    reader=CaseGradeReader(
         benchmark_label="HealthBench",
         error_type=AggregateError,
-        decode_case_evaluation=decode_case_evaluation,
+        decode_case_grade=decode_case_grade,
     ),
     grade_case=rubric_grade_case(case_score=case_score, judge_producer_id="healthbench/judge"),
     failure_messages=_FAILURE_MESSAGES,

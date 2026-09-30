@@ -67,7 +67,7 @@ class _SpendingExecutor(Executor):
             await asyncio.sleep(0.01)
 
 
-def _spine(
+def _shared_grading(
     *, grace_s: float, max_concurrent_runs: int = 32
 ) -> Iterator[tuple[TestClient, _SpendingExecutor]]:
     """A local-mode App whose run never ends by itself, assembled as `create_local_app` does."""
@@ -94,17 +94,17 @@ def _spine(
 
 @pytest.fixture
 def abandoned() -> Iterator[tuple[TestClient, _SpendingExecutor]]:
-    yield from _spine(grace_s=SHORT_GRACE_S)
+    yield from _shared_grading(grace_s=SHORT_GRACE_S)
 
 
 @pytest.fixture
 def patient() -> Iterator[tuple[TestClient, _SpendingExecutor]]:
-    yield from _spine(grace_s=LONG_GRACE_S)
+    yield from _shared_grading(grace_s=LONG_GRACE_S)
 
 
 @pytest.fixture
 def single_slot() -> Iterator[tuple[TestClient, _SpendingExecutor]]:
-    yield from _spine(grace_s=SHORT_GRACE_S, max_concurrent_runs=1)
+    yield from _shared_grading(grace_s=SHORT_GRACE_S, max_concurrent_runs=1)
 
 
 def _cap(token: str) -> dict[str, str]:

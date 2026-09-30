@@ -14,7 +14,7 @@ from pathlib import Path
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.contracteval.definition import (
     AGGREGATE_ROUTE,
-    CASE_EVALUATION_ROUTE,
+    CASE_GRADE_ROUTE,
     CASES_ROUTE,
     CHECK_ROUTE,
     REVISION,
@@ -24,7 +24,7 @@ from screamingface_engine.benchmarks.contracteval.prepare import emit
 from screamingface_engine.benchmarks.contracteval.runtime import _cases, _check
 from url4.peer.server import Request
 
-# Captured 2026-09-21 from the pre-migration board (base of this branch).
+# Captured 2026-09-21 from the pre-migration benchmark (base of this branch).
 _GOLDEN_REVISION = "f9a076a10a6ae4c6"
 
 _GOLD_SPAN = "This Agreement is governed by Delaware law."
@@ -42,7 +42,7 @@ def _root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_revision_is_byte_identical_to_the_pre_migration_exam() -> None:
+def test_revision_is_byte_identical_to_the_pre_migration_benchmark() -> None:
     assert REVISION == _GOLDEN_REVISION
 
 
@@ -50,7 +50,7 @@ def test_routes_resolve_at_the_recorded_addresses() -> None:
     assert ROUTE_PREFIX == f"/benchmarks/contracteval/{_GOLDEN_REVISION}"
     assert CASES_ROUTE == f"{ROUTE_PREFIX}/cases"
     assert CHECK_ROUTE == f"{ROUTE_PREFIX}/check"
-    assert CASE_EVALUATION_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
+    assert CASE_GRADE_ROUTE == f"{ROUTE_PREFIX}/case-evaluation"
     assert AGGREGATE_ROUTE == f"{ROUTE_PREFIX}/aggregate"
 
 

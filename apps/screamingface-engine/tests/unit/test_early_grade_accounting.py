@@ -4,13 +4,13 @@ import json
 
 import pytest
 from test_grading_accounting import _accounting
-from test_spine_scored import _envelope, _grading, _Hook, _path, _selected
+from test_shared_grading_aggregation import _envelope, _grading, _Hook, _path, _selected
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.contract import CandidateResult
-from screamingface_engine.benchmarks.spine.incremental import Scoring
-from screamingface_engine.benchmarks.spine.scored import CaseGradeOutcome
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import CaseGradeOutcome
+from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 from screamingface_engine.grading_accounting import (
     GradingEvidenceOwner,
     accounting_for_grading_evidence,

@@ -96,7 +96,7 @@ flowchart TD
 
 `world/config.py` is the single parser for the DECLARED model world. The control plane uses it to
 project discovery and the run mode uses it to build routes, so the two cannot disagree.
-`url4.toml` ships in the image at `/etc/url4/url4.toml`, baked from
+`url4.toml` ships in the image at `/etc/url4/url4.toml`, prepared from
 `apps/screamingface-engine/url4.toml`.
 
 ### Run-mode call sequence (one run)

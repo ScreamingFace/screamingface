@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.evaluation import async_aggregate_endpoint
+from screamingface_engine.benchmarks.grading_endpoints import async_aggregate_endpoint
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 

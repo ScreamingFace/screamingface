@@ -5,12 +5,16 @@ on:
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
+      # the gateway-owned cache-hit fixture that tests/unit/test_cache_hit_contract.py consumes
+      - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       - ".github/workflows/screamingface-engine-tests.yml"
   pull_request:
     paths:
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
+      # the gateway-owned cache-hit fixture that tests/unit/test_cache_hit_contract.py consumes
+      - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       - ".github/workflows/screamingface-engine-tests.yml"
   workflow_dispatch:
 
@@ -178,8 +182,14 @@ jobs:
           file: apps/screamingface-engine/Dockerfile.benchmark
           build-contexts: |
             screamingface-engine-ci=docker-image://screamingface-engine:ci
+          # PR builds from forks and Dependabot get no Actions secret, so a gated board is
+          # skipped with a warning instead of failing the build (OME-1269).
           build-args: |
             BASE=screamingface-engine-ci
+            SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1
+            SCREAMINGFACE_HF_TOKEN_PRESENT=${{ secrets.HF_TOKEN_BENCHMARKS != '' }}
+          secrets: |
+            hf_token=${{ secrets.HF_TOKEN_BENCHMARKS }}
           push: false
           load: true
           tags: screamingface-engine-benchmark:ci

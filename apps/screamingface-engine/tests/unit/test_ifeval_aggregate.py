@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.ifeval.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
-    bind_case_evaluation,
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.ifeval.case_grade import (
+    CASE_GRADE_SCHEMA,
+    build_case_grade,
 )
 from screamingface_engine.benchmarks.ifeval.definition import REVISION as IFEVAL_REVISION
 from screamingface_engine.benchmarks.ifeval.grade import (
@@ -71,14 +71,14 @@ def _rows(*rows: object) -> str:
 
 
 def _evaluation(case_id: int, strict: list[bool], loose: list[bool]) -> dict[str, object]:
-    return _case_execution(
+    return _graded_answer_route(
         case_id,
-        bind_case_evaluation(case_id, [_record(case_id, strict, loose)]),
+        build_case_grade(case_id, [_record(case_id, strict, loose)]),
     )
 
 
-def _case_execution(case_id: int, grading: object) -> dict[str, object]:
-    return case_execution_payload(
+def _graded_answer_route(case_id: int, grading: object) -> dict[str, object]:
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(f"Answer {case_id}", "stop", None),
         [grading],
@@ -232,7 +232,7 @@ def test_one_flake_at_realistic_size_publishes_partial_score_and_coverage() -> N
             "loose": [passed],
             "violations": [],
         }
-        return _case_execution(case_id, bind_case_evaluation(case_id, [record]))
+        return _graded_answer_route(case_id, build_case_grade(case_id, [record]))
 
     rows = [evaluation(case_id, passed=case_id <= 4) for case_id in range(1, 10)]
     rows.append({"error": {"kind": "ResolutionError", "message": "provider flake"}})
@@ -268,13 +268,13 @@ def test_canonical_contract_metrics_are_published_for_every_scored_aggregate() -
 def test_a_record_for_an_unknown_case_id_aborts() -> None:
     stray = dict(_record(2, [True], [True]), case_id=99)
     stray_evaluation = {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": 2,
         "attempts": [stray],
     }
     payload = _rows(
         _evaluation(1, [True, True], [True, True]),
-        _case_execution(2, stray_evaluation),
+        _graded_answer_route(2, stray_evaluation),
     )
 
     with pytest.raises(AggregateError, match="position 1"):
