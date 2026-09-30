@@ -187,6 +187,27 @@ both. A count mismatch, an unknown benchmark or a private board exits 2 and dele
 Private boards go through `purge_private_benchmark` instead. The backup is evidence, not a restore
 file: recreating a score means resubmitting it.
 
+### Backfill system names
+
+OME-1307 (E14) gives each public head a system name and a revision. Heads that were stored before
+E14 have no system revision. This operator module registers the `spec_id` of each such head as a
+system name and links the head to its revision. It never changes `spec_id`, the score, the content
+hash or any ranked column, and it never merges two heads. It skips heads on private boards.
+
+Always do the dry run first. It writes nothing and prints one line for each action, then a count
+for each action. The apply run writes the claims and the links. You can run it again: it skips
+heads that are already linked.
+
+```bash
+# 1. dry run: prints "DRY RUN — nothing written", then what the apply run would do
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.backfill_systems --dry-run
+# 2. read the report (look at every clash, name_mismatch and duplicate_head), then apply:
+kubectl -n sf-scoreboard exec deploy/scoreboard -- python -m scoreboard.backfill_systems --apply
+```
+
+A head with no `submitted_by` (it was stored while the scoreboard ran in `disabled` auth mode) is
+reported as `no_owner` and stays unlinked. The registry has no verified owner for it.
+
 ## Smoke Checks
 
 Run the Helm test and check public health:
