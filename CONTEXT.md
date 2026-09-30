@@ -197,9 +197,19 @@ in Grading. A Case graded only by a Judge prompt may carry no answer key.
 _Avoid_: Target, answer, ground truth
 
 **Case Preparation**:
-The image-build step that downloads a Benchmark's Cases at a pinned dataset revision and freezes
+The image-build step that downloads a Benchmark's Cases from its pinned Case Sources and freezes
 them, with their Grading Material, into the Benchmark image.
 _Avoid_: Bake, snapshot
+
+**Case Source**:
+One pinned upstream place Case Preparation fetches Cases from: a Hugging Face dataset revision, a
+URL with a commit or sha256, or a file inside the Inspect package.
+_Avoid_: Dataset, data file
+
+**Case Digest**:
+The sha256 of an Imported Benchmark's prepared Cases, fixed at import and checked at every Case
+Preparation. A different digest means different Cases, so none are served.
+_Avoid_: Snapshot hash, checksum
 
 **Coverage**:
 The share of a Benchmark's Cases that received a valid Case Grade, reported beside the score.
