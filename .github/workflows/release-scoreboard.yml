@@ -86,7 +86,9 @@ jobs:
             --namespace scoreboard >/tmp/scoreboard.yaml
           helm template scoreboard apps/scoreboard/charts/scoreboard \
             --namespace scoreboard \
-            --values apps/scoreboard/charts/scoreboard/values-prod.yaml >/tmp/scoreboard-prod.yaml
+            --values apps/scoreboard/charts/scoreboard/values-prod.yaml \
+            --set 'networkPolicy.clientPodNames[0]=ci-placeholder-envoy' \
+            --set networkPolicy.clientNamespace=ci-placeholder-envoy-ns >/tmp/scoreboard-prod.yaml
       - name: Package Helm chart
         env:
           VERSION: ${{ needs.verify.outputs.version }}

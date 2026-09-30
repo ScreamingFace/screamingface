@@ -1,4 +1,23 @@
 {{- if .Values.networkPolicy.enabled -}}
+{{- /*
+INVARIANT: one `from` element pairs the namespace and the pod selector (ANDed). Two separate
+elements would be ORed, and admit the whole namespace OR that label in every namespace.
+INVARIANT: in `cloudflare_headers` this policy is the authentication boundary (the app trusts
+X-User-Email because only these peers can send it), and a rule with no `from:` admits every source.
+*/ -}}
+{{- $ns := .Values.networkPolicy.clientNamespace | default .Release.Namespace -}}
+{{- $peers := list -}}
+{{- range .Values.networkPolicy.clientPodNames -}}
+{{- $peers = append $peers (dict
+      "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $ns))
+      "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" .))) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.ingressCIDRs -}}
+{{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) -}}
+{{- end -}}
+{{- if and (not $peers) (eq .Values.config.authMode "cloudflare_headers") -}}
+{{- fail "networkPolicy.enabled=true with config.authMode=cloudflare_headers but no peers — in this mode the NetworkPolicy is the authentication boundary (the app trusts X-User-Email because only these peers can send it), and a rule with no `from:` admits every source. Name the Envoy data plane in networkPolicy.clientPodNames (and networkPolicy.clientNamespace)." -}}
+{{- end -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,12 +35,9 @@ spec:
     - ports:
         - protocol: TCP
           port: {{ .Values.config.port }}
-      {{- if .Values.networkPolicy.ingressCIDRs }}
+      {{- if $peers }}
       from:
-        {{- range .Values.networkPolicy.ingressCIDRs }}
-        - ipBlock:
-            cidr: {{ . | quote }}
-        {{- end }}
+        {{- toYaml $peers | nindent 8 }}
       {{- end }}
   egress:
     - {}

@@ -1,6 +1,7 @@
 {{- include "aigateway.validateAuth" . -}}
 {{- include "aigateway.validatePodLabels" . -}}
 {{- include "aigateway.validateSnapshot" . -}}
+{{- include "aigateway.validateCacheVersions" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -52,6 +53,18 @@ data:
   {{- end }}
   AIGW_CACHE_SNAPSHOT_S3_BUCKET: {{ .Values.snapshot.storage.bucket | quote }}
   AIGW_CACHE_SNAPSHOT_S3_REGION: {{ .Values.snapshot.storage.region | quote }}
+  # E14 (OME-1307) reproducible submissions. INVARIANT: no key is in this ConfigMap; the receipt
+  # signing key and the archive writer key travel by Secret (`secret-cache-versions.yaml`).
+  # WHY always emitted: the code default is off (X-12); the chart states the posture.
+  AIGW_CACHE_VERSIONS_ENABLED: {{ .Values.config.cacheVersions.enabled | quote }}
+  # WHY JSON: the settings field is a dict. Public keys only.
+  AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS: {{ .Values.config.cacheVersions.replayGrantPublicKeys | toJson | quote }}
+  AIGW_CACHE_VERSION_ARCHIVE_BACKEND: {{ .Values.config.cacheVersions.archive.backend | quote }}
+  {{- if eq .Values.config.cacheVersions.archive.backend "s3" }}
+  AIGW_CACHE_VERSION_S3_ENDPOINT_URL: {{ include "aigateway.cacheVersionsEndpoint" . | quote }}
+  AIGW_CACHE_VERSION_S3_BUCKET: {{ .Values.config.cacheVersions.archive.bucket | quote }}
+  AIGW_CACHE_VERSION_S3_REGION: {{ .Values.config.cacheVersions.archive.region | quote }}
+  {{- end }}
   {{- if .Values.tracing.enabled }}
   {{- if not .Values.tracing.endpoint }}
   {{- fail "tracing.enabled requires tracing.endpoint — an enabled exporter with no endpoint starts a pod that silently exports nothing, and that state has no runtime symptom" }}

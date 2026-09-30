@@ -140,6 +140,32 @@ config:
   # Callers can opt a single request out with the `use-cache=false` cache control.
   requestCache:
     enabled: true
+  # Reproducible submissions (E14, OME-1307): capture, freeze and replay of a traced run.
+  cacheVersions:
+    # E14 kill switch (GW-capture). On: traced calls are captured, freeze and replay answer.
+    # Needs the receipt signing key (a Secret) - the chart cannot mint it, because the
+    # scoreboard must hold its public half.
+    enabled: false # AIGW_CACHE_VERSIONS_ENABLED
+    # C6 verifier keys: {kid: base64 of the raw 32-byte Ed25519 public key}. Public.
+    replayGrantPublicKeys: {} # AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS (JSON)
+    archive:
+      backend: none # none | s3 (AIGW_CACHE_VERSION_ARCHIVE_BACKEND); filesystem is local-runtime only
+      endpointUrl: "" # empty + bundled snapshot Garage => that Garage Service
+      bucket: screamingface-cache-versions # the objects live under cache-versions/<vid>/ (erd 3.5)
+      region: garage
+      # Extra NetworkPolicyPeer entries appended to the bundled Garage :3900 ingress - the
+      # scoreboard reader (PB-D8). Raw peers, like networkPolicy.allowFrom. The scoreboard runs
+      # in its own namespace, so ONE entry must carry BOTH selectors (ANDed), e.g.
+      #   - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: scoreboard}}
+      #     podSelector: {matchLabels: {app.kubernetes.io/name: scoreboard}}
+      # Two separate entries would admit the whole namespace OR that label anywhere.
+      readerPeers: []
+    # Keys in the Secret are the env names: AIGATEWAY_RECEIPT_SIGNING_KEY,
+    # AIGW_CACHE_VERSION_S3_ACCESS_KEY, AIGW_CACHE_VERSION_S3_SECRET_KEY.
+    existingSecret: "" # RECOMMENDED
+    receiptSigningKey: "" # DEV ONLY inline
+    archiveAccessKey: "" # DEV ONLY inline
+    archiveSecretKey: "" # DEV ONLY inline
 
 # Only meaningful for the browser-facing OAuth flows, which are unreachable while the gateway is
 # internal-only (see `ingress` below). Kept so a deployment that re-exposes the gateway has it.

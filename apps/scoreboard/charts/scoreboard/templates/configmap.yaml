@@ -1,3 +1,5 @@
+{{- include "scoreboard.validateAuth" . -}}
+{{- include "scoreboard.validateE14" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -16,3 +18,27 @@ data:
   SCOREBOARD_ALLOWED_NETWORKS: {{ .Values.config.allowedNetworks | quote }}
   SCOREBOARD_DB_POOL_MINSIZE: {{ .Values.config.dbPoolMinsize | quote }}
   SCOREBOARD_DB_POOL_MAXSIZE: {{ .Values.config.dbPoolMaxsize | quote }}
+  # E14 (OME-1307). INVARIANT: no private value is in this ConfigMap; the keys are in the Secret.
+  # WHY always emitted: an empty list is the safe default (the admin API answers 503), and the
+  # comma list is what the NoDecode field reads.
+  SCOREBOARD_ADMIN_EMAILS: {{ join "," .Values.config.adminEmails | quote }}
+  # WHY always emitted: the code default is off (X-12); the chart turns clustering on.
+  SCOREBOARD_CLUSTERING_ENABLED: {{ .Values.config.clustering.enabled | quote }}
+  # WHY JSON: the settings field is a dict. Public keys only.
+  SCOREBOARD_RECEIPT_PUBLIC_KEYS: {{ .Values.config.receiptPublicKeys | toJson | quote }}
+  # WHY always emitted: the code default is on, and a worker with no GitHub App has nothing to do.
+  SCOREBOARD_PUBLISH_WORKER_ENABLED: {{ .Values.config.publish.enabled | quote }}
+  {{- if .Values.config.publish.enabled }}
+  # WHY the GitHub keys only with publish on: the app refuses a partial github_app_* set at start,
+  # and the App private key (a Secret) is one of that set.
+  SCOREBOARD_GITHUB_APP_ID: {{ .Values.config.publish.githubAppId | quote }}
+  SCOREBOARD_GITHUB_APP_INSTALLATION_ID: {{ .Values.config.publish.githubAppInstallationId | quote }}
+  SCOREBOARD_GITHUB_REPO: {{ .Values.config.publish.githubRepo | quote }}
+  SCOREBOARD_PUBLIC_BASE_URL: {{ .Values.config.publish.publicBaseUrl | quote }}
+  SCOREBOARD_ARCHIVE_BACKEND: "s3"
+  SCOREBOARD_ARCHIVE_S3_ENDPOINT_URL: {{ .Values.config.publish.archive.endpointUrl | quote }}
+  SCOREBOARD_ARCHIVE_S3_BUCKET: {{ .Values.config.publish.archive.bucket | quote }}
+  SCOREBOARD_ARCHIVE_S3_REGION: {{ .Values.config.publish.archive.region | quote }}
+  {{- else }}
+  SCOREBOARD_ARCHIVE_BACKEND: "none"
+  {{- end }}

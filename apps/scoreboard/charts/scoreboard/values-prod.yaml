@@ -1,5 +1,24 @@
 replicaCount: 3
 
+config:
+  # D5: production identity is the verified X-User-Email of the Cloudflare Access + Envoy edge.
+  # PRECONDITION (ops, apps/scoreboard/DEPLOYMENT.md "E14 deploy wiring", item 1): the host is
+  # routed through that edge. Do not deploy this file before that.
+  authMode: cloudflare_headers
+  # The same private ranges as the aigateway chart default. NARROW to the Envoy Pod CIDR.
+  allowedNetworks: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10"
+  # uvicorn's own loopback default: disjoint from allowedNetworks, never "*" (main.py guard).
+  forwardedAllowIps: "127.0.0.1"
+  adminEmails: [] # set at install time (--set-string), never committed
+  clustering:
+    enabled: true
+  receiptPublicKeys: {} # set at install time from keygen stdout (DEPLOYMENT.md item 2)
+  publish:
+    enabled: false # turn on after DEPLOYMENT.md items 3 and 4
+
+e14Secret:
+  existingSecret: scoreboard-e14 # created out of band (item 2); the pod does not start without it
+
 cors:
   origins:
     - https://screamingface.ai
@@ -8,23 +27,15 @@ database:
   existingSecret: scoreboard-db
   existingSecretKey: database-url
 
+# The public route is the Envoy edge (DEPLOYMENT.md item 1). A direct Traefik Ingress would let
+# any caller forge X-User-Email (the chart refuses the pair, scoreboard.validateAuth).
 ingress:
-  enabled: true
-  className: traefik
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - host: scoreboard.screamingface.ai
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: scoreboard-tls
-      hosts:
-        - scoreboard.screamingface.ai
+  enabled: false
 
 networkPolicy:
   enabled: true
+  clientNamespace: "" # set at install time: the Envoy data-plane namespace
+  clientPodNames: [] # set at install time: the Envoy data-plane pod name
 
 resources:
   requests:

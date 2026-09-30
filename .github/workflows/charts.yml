@@ -22,6 +22,11 @@ on:
       # a renamed field has to re-run it. Without this line the rename lands green here and the
       # pod runs on the field's default — which for AUTH_MODE is authentication disabled.
       - "apps/report-intake/src/report_intake/config.py"
+      # E14 (OME-1307): the verifier renders the scoreboard chart and asserts its ConfigMap and
+      # the gateway's against these two settings classes, for the same reason as the line above.
+      - "apps/scoreboard/charts/**"
+      - "apps/scoreboard/src/scoreboard/config.py"
+      - "apps/aigateway/src/aigateway/config.py"
       - "apps/analytics/charts/**"
       - "apps/screamingface-engine/deploy/helm/**"
       - "apps/scoreboard/charts/scoreboard/**"
@@ -33,6 +38,7 @@ on:
       # comparison. `dev-build-*` is a glob because the cache-scope check spans all of them.
       - ".github/workflows/release-aigateway-ui.yml"
       - ".github/workflows/release-report-intake.yml"
+      - ".github/workflows/release-scoreboard.yml"
       - ".github/workflows/release-screamingface-engine.yml"
       - ".github/workflows/dev-build-*.yml"
       # The verifier asserts release-report-intake.yml's tag filter against the component and
@@ -49,6 +55,11 @@ on:
       # a renamed field has to re-run it. Without this line the rename lands green here and the
       # pod runs on the field's default — which for AUTH_MODE is authentication disabled.
       - "apps/report-intake/src/report_intake/config.py"
+      # E14 (OME-1307): the verifier renders the scoreboard chart and asserts its ConfigMap and
+      # the gateway's against these two settings classes, for the same reason as the line above.
+      - "apps/scoreboard/charts/**"
+      - "apps/scoreboard/src/scoreboard/config.py"
+      - "apps/aigateway/src/aigateway/config.py"
       - "apps/analytics/charts/**"
       - "apps/screamingface-engine/deploy/helm/**"
       - "apps/scoreboard/charts/scoreboard/**"
@@ -60,6 +71,7 @@ on:
       # comparison. `dev-build-*` is a glob because the cache-scope check spans all of them.
       - ".github/workflows/release-aigateway-ui.yml"
       - ".github/workflows/release-report-intake.yml"
+      - ".github/workflows/release-scoreboard.yml"
       - ".github/workflows/release-screamingface-engine.yml"
       - ".github/workflows/dev-build-*.yml"
       # The verifier asserts release-report-intake.yml's tag filter against the component and
@@ -96,6 +108,8 @@ jobs:
           helm lint apps/aigateway/charts/db
           helm lint apps/aigateway-ui/charts/aigateway-ui
           helm lint apps/report-intake/charts/report-intake
+          helm lint apps/scoreboard/charts/scoreboard
+          helm lint apps/scoreboard/charts/db
           helm lint apps/screamingface-engine/deploy/helm
 
       # Renders the charts and asserts on parsed output, including the cross-chart console/gateway
@@ -137,6 +151,21 @@ jobs:
             --set turnstile.existingSecret=ci-placeholder-turnstile \
             --set database.existingSecret=ci-placeholder-db \
             --set 'config.allowedNetworks[0]=10.42.0.0/16' \
+            --set 'networkPolicy.clientPodNames[0]=ci-placeholder-envoy' \
+            --set networkPolicy.clientNamespace=ci-placeholder-envoy-ns > /dev/null
+
+      # The scoreboard prod posture (D5, E14): `cloudflare_headers` behind the Envoy edge. The prod
+      # values file cannot know the Envoy data plane, and the chart refuses to render without it
+      # (the NetworkPolicy is the authentication boundary), so this step passes placeholders.
+      #
+      # AIDEV-NOTE: release-scoreboard.yml renders the same file and needs the SAME --set keys. It
+      # runs only on a release tag, so it cannot notice when a newly-required value has left it
+      # unable to render. `verify_chart_wiring.py` asserts the two lanes carry an identical set,
+      # keyed off THIS step.
+      - name: Render the scoreboard prod values
+        run: |
+          helm template scoreboard apps/scoreboard/charts/scoreboard \
+            --values apps/scoreboard/charts/scoreboard/values-prod.yaml \
             --set 'networkPolicy.clientPodNames[0]=ci-placeholder-envoy' \
             --set networkPolicy.clientNamespace=ci-placeholder-envoy-ns > /dev/null
 

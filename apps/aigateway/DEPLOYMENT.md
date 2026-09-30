@@ -718,3 +718,86 @@ catalog snapshot, held per process (see the replica note below). Default **on**.
 - The Helm chart enables the global response cache by default; it stores plaintext responses and
   has no expiry. Set `config.requestCache.enabled=false` to opt out (see The Global Response Cache).
 - CNPG, backups, PodMonitor, and SigNoz/Prometheus integration are follow-up infrastructure work.
+
+## E14 deploy wiring
+
+This section wires the E14 features (capture, freeze and replay of traced runs, OME-1307) into the
+chart. It applies decisions D6 (flags and deploy wiring) and D7 (key forms). The scoreboard side is
+in `apps/scoreboard/DEPLOYMENT.md`, section "E14 deploy wiring". The ops checklist is there too.
+
+**Create `Secret/aigw-cache-versions` BEFORE you deploy `values-prod.yaml`.** The production values
+set `config.cacheVersions.enabled: true`, and the Deployment then reads that Secret at Pod start
+(`envFrom`, not optional). With the Secret missing, the Pods stay in `CreateContainerConfigError`.
+This stops the WHOLE gateway (every model call of the platform), not only E14.
+
+### Variables and Secret keys
+
+| Variable | Where in the chart | Chart value |
+|---|---|---|
+| `AIGW_CACHE_VERSIONS_ENABLED` | ConfigMap | `config.cacheVersions.enabled` (`false`; prod `true`) |
+| `AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS` | ConfigMap (JSON) | `config.cacheVersions.replayGrantPublicKeys` |
+| `AIGW_CACHE_VERSION_ARCHIVE_BACKEND` | ConfigMap | `config.cacheVersions.archive.backend` (`none` or `s3`) |
+| `AIGW_CACHE_VERSION_S3_ENDPOINT_URL`, `_BUCKET`, `_REGION` | ConfigMap (s3 only) | `archive.endpointUrl` (or the bundled Garage), `archive.bucket`, `archive.region` |
+| `AIGATEWAY_RECEIPT_SIGNING_KEY` | Secret | `config.cacheVersions.existingSecret` or `receiptSigningKey` (dev) |
+| `AIGW_CACHE_VERSION_S3_ACCESS_KEY`, `AIGW_CACHE_VERSION_S3_SECRET_KEY` | Secret | `existingSecret` or `archiveAccessKey`, `archiveSecretKey` (dev) |
+
+The chart does not emit `AIGW_CACHE_VERSION_ARCHIVE_DIR` (the filesystem archive is for
+`screamingface up` only), the limit and poll settings (`AIGW_CACHE_VERSION_MAX_ENTRIES`,
+`_MAX_ARCHIVE_BYTES`, `_S3_TIMEOUT_S`, `_EXPORT_POLL_S`), or `AIGW_REPLAY_GRANT_CACHE_TTL_S` (code
+defaults). It does not set `AIGW_REQUEST_CACHE_ENABLED`: capture works with the live cache off.
+
+The production Secret is `aigw-cache-versions`. Its keys are the env var names, because `envFrom`
+cannot rename a key: `AIGATEWAY_RECEIPT_SIGNING_KEY`, `AIGW_CACHE_VERSION_S3_ACCESS_KEY` and
+`AIGW_CACHE_VERSION_S3_SECRET_KEY`. A key that a feature does not use yet can be absent.
+
+**The chart never mints a receipt key.** The scoreboard must hold its public half, so a key made
+inside the chart could never be verified there. Make the keys with the helper in
+`apps/scoreboard/DEPLOYMENT.md` ("Make the keys"), and put the `replay-grant` stdout JSON into
+`config.cacheVersions.replayGrantPublicKeys` (`--set-json`). Rotation rules are in the same file.
+
+### Archive backends
+
+- `none` (default): freeze and replay work without a bucket. Nothing is exported.
+- `s3`: the gateway exports the archive of a frozen version to the bucket under
+  `cache-versions/<vid>/`. It needs `enabled: true`, an endpoint and a key pair (`existingSecret`, or
+  both inline keys for dev). The chart refuses an `s3` backend without them.
+- `filesystem` is for `screamingface up` only. A per-Pod directory is not shared across replicas, so
+  the chart refuses it.
+
+With `snapshot.enabled` and `snapshot.garage.enabled`, the endpoint defaults to the bundled Garage
+Service (`http://<fullname>-garage:3900`). To let the scoreboard read the bucket, add its Pods to
+`config.cacheVersions.archive.readerPeers`. One entry must carry BOTH selectors (they are ANDed):
+
+```yaml
+config:
+  cacheVersions:
+    archive:
+      readerPeers:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: scoreboard}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: scoreboard}}
+```
+
+### Bucket steps (ops)
+
+Garage `--default-bucket` creates only the snapshot bucket, so the cache-version bucket and its keys
+are ops steps. Key rights are per bucket, not per prefix, so the bucket holds only `cache-versions/`.
+Check the syntax with `garage --help` of the running version first.
+
+```bash
+garage bucket create screamingface-cache-versions
+garage key create aigw-cache-versions-writer
+garage bucket allow --read --write screamingface-cache-versions --key aigw-cache-versions-writer
+garage key create scoreboard-cache-versions-reader
+garage bucket allow --read screamingface-cache-versions --key scoreboard-cache-versions-reader
+```
+
+On the bundled Garage, run these in the Garage Pod:
+`kubectl -n <gateway-ns> exec -it statefulset/<release>-aigateway-garage -- /garage ...`.
+Encryption at rest (C8a): Garage has no SSE-S3, so use an encrypted volume or an S3 service with SSE,
+and record the choice. Put the writer pair into `aigw-cache-versions` (files
+`AIGW_CACHE_VERSION_S3_ACCESS_KEY` and `AIGW_CACHE_VERSION_S3_SECRET_KEY`) and the reader pair into
+the scoreboard `scoreboard-e14` Secret, with the one-file-per-key recipe of the scoreboard section.
+Then set `archive.backend: s3` and the endpoint.
+
+`config.cacheVersions.enabled: true` stores the prompts and answers of traced runs (a data posture,
+like the global response cache).

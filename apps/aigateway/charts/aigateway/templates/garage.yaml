@@ -188,5 +188,9 @@ spec:
             matchLabels:
               {{- include "aigateway.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: {{ include "aigateway.componentLabel" . }}
+        {{- with .Values.config.cacheVersions.archive.readerPeers }}
+        # E14: the scoreboard reader of the cache-version archive (PB-D8). Raw peers.
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
 {{- end }}
 {{- end }}

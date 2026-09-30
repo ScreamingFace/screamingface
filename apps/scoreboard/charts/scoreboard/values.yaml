@@ -45,6 +45,38 @@ config:
   # reserved for /readyz, so the budget is replicas x (dbPoolMaxsize + 1). Ignored for SQLite.
   dbPoolMinsize: 1
   dbPoolMaxsize: 5
+  # Who may use the /v1/admin surface (withdraw, redistributable). Comma-joined into
+  # SCOREBOARD_ADMIN_EMAILS. EMPTY IS THE SAFE DEFAULT: the admin API answers 503.
+  # Works only with authMode: cloudflare_headers (D5).
+  adminEmails: []
+  clustering:
+    enabled: true # SCOREBOARD_CLUSTERING_ENABLED
+  # C3 verifier keys: {kid: base64 of the raw 32-byte Ed25519 public key}. Public; current
+  # plus previous during a rotation. From `keygen --purpose receipt` stdout.
+  receiptPublicKeys: {} # SCOREBOARD_RECEIPT_PUBLIC_KEYS (JSON)
+  publish:
+    enabled: false # SCOREBOARD_PUBLISH_WORKER_ENABLED and the GitHub/archive keys
+    githubAppId: ""
+    githubAppInstallationId: ""
+    githubRepo: ScreamingFace/screamingface-cache-versions
+    publicBaseUrl: https://scoreboard.screamingface.ai
+    archive:
+      endpointUrl: ""
+      bucket: screamingface-cache-versions
+      region: garage
+
+# E14 key material. Keys in the Secret are the env var names (envFrom cannot rename):
+#   SCOREBOARD_REPLAY_GRANT_SIGNING_KEY, SCOREBOARD_REPLAY_GRANT_SIGNING_KID,
+#   SCOREBOARD_GITHUB_APP_PRIVATE_KEY, SCOREBOARD_ARCHIVE_S3_ACCESS_KEY_ID,
+#   SCOREBOARD_ARCHIVE_S3_SECRET_ACCESS_KEY.
+e14Secret:
+  existingSecret: "" # RECOMMENDED for prod: created out of band (apps/scoreboard/DEPLOYMENT.md)
+  # DEV ONLY - inline values render a chart Secret. No `lookup` reuse (secret-e14.yaml WHY).
+  replayGrantSigningKey: ""
+  replayGrantSigningKid: ""
+  githubAppPrivateKey: ""
+  archiveAccessKeyId: ""
+  archiveSecretAccessKey: ""
 
 cors:
   origins:
@@ -145,6 +177,8 @@ seedBenchmarks:
   benchmarks: []
 networkPolicy:
   enabled: false
+  clientNamespace: "" # empty => this release's namespace
+  clientPodNames: [] # app.kubernetes.io/name of the mesh (Envoy) data plane
   ingressCIDRs: []
 
 nodeSelector: {}

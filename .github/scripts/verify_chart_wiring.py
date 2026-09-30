@@ -27,6 +27,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -176,26 +177,34 @@ def _selects(selector: dict, labels: dict) -> bool:
     return all(labels.get(k) == v for k, v in selector.items())
 
 
-def settings_fields() -> list[tuple[str, ast.expr]]:
-    """Every `Settings` field as (environment name, annotation node), read with `ast`.
+def settings_statements(path: Path, class_name: str) -> list[ast.AnnAssign]:
+    """The annotated field statements of a settings class (`model_config` excluded), by ast.
 
     WHY parsed rather than imported: this script runs on a bare runner with pyyaml and nothing
     else, and installing report-intake's whole dependency tree to read a list of attribute names
     would make the check cost a `uv sync` per chart edit. The parse is also immune to an import
     error somewhere else in the package turning these assertions into a skip.
     """
-    module = ast.parse(INTAKE_SETTINGS.read_text())
+    module = ast.parse(path.read_text())
     settings = next(
         node
         for node in module.body
-        if isinstance(node, ast.ClassDef) and node.name == "Settings"
+        if isinstance(node, ast.ClassDef) and node.name == class_name
     )
     return [
-        (f"REPORT_INTAKE_{statement.target.id.upper()}", statement.annotation)
+        statement
         for statement in settings.body
         if isinstance(statement, ast.AnnAssign)
         and isinstance(statement.target, ast.Name)
         and statement.target.id != "model_config"
+    ]
+
+
+def settings_fields() -> list[tuple[str, ast.expr]]:
+    """Every report-intake `Settings` field as (environment name, annotation node)."""
+    return [
+        (f"REPORT_INTAKE_{statement.target.id.upper()}", statement.annotation)
+        for statement in settings_statements(INTAKE_SETTINGS, "Settings")
     ]
 
 
@@ -1499,7 +1508,16 @@ check(
 # WHY both values files: values-prod.yaml is what release-scoreboard.yml renders, and an override of
 # either probe there would silently undo the split in the only deployment that matters.
 print("\nscoreboard")
-SCOREBOARD_PROD_ARGS = ("--values", str(SCOREBOARD_CHART / "values-prod.yaml"))
+# Install-time values that values-prod.yaml cannot know (the Envoy data plane). Placeholders, not
+# deployment values. charts.yml and release-scoreboard.yml pass the SAME set (CH-7).
+SCOREBOARD_PROD_ARGS = (
+    "--values",
+    str(SCOREBOARD_CHART / "values-prod.yaml"),
+    "--set",
+    "networkPolicy.clientPodNames[0]=ci-placeholder-envoy",
+    "--set",
+    "networkPolicy.clientNamespace=ci-placeholder-envoy-ns",
+)
 for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
     scoreboard_docs = render(SCOREBOARD_CHART, SCOREBOARD_RELEASE, *extra)
     scoreboard_container = containers_of(find(scoreboard_docs, "Deployment"))[0]
@@ -1523,6 +1541,528 @@ for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
         f"scoreboard ({label} values): the ConfigMap sets the DB pool bounds explicitly as "
         f"integers with 0 <= min <= max and max >= 1 (got {pool_bounds})",
     )
+
+# ---------------------------------------------------------------------------------------------
+# E14 (OME-1307, WIRING): the scoreboard and aigateway deploy wiring of the reproducible-submission
+# features. FEATURE: every E14 variable the apps read must reach the Pod under the exact name the
+# settings class reads; a renamed field would leave the Pod on the code default (flags off, no
+# keys, publish off) and every other check here would stay green.
+# ---------------------------------------------------------------------------------------------
+SCOREBOARD_SETTINGS = REPO / "apps/scoreboard/src/scoreboard/config.py"
+GATEWAY_SETTINGS = REPO / "apps/aigateway/src/aigateway/config.py"
+E14_SCOREBOARD_SECRET_KEYS = frozenset(
+    {
+        "SCOREBOARD_REPLAY_GRANT_SIGNING_KEY",
+        "SCOREBOARD_REPLAY_GRANT_SIGNING_KID",
+        "SCOREBOARD_GITHUB_APP_PRIVATE_KEY",
+        "SCOREBOARD_ARCHIVE_S3_ACCESS_KEY_ID",
+        "SCOREBOARD_ARCHIVE_S3_SECRET_ACCESS_KEY",
+    }
+)
+E14_GATEWAY_SECRET_KEYS = frozenset(
+    {
+        "AIGATEWAY_RECEIPT_SIGNING_KEY",
+        "AIGW_CACHE_VERSION_S3_ACCESS_KEY",
+        "AIGW_CACHE_VERSION_S3_SECRET_KEY",
+    }
+)
+
+
+def pydantic_env_names(path: Path, class_name: str, *, prefix: str) -> set[str]:
+    """Env names of a pydantic-settings class, by ast (no import; same WHY as settings_fields).
+
+    A field with Field(validation_alias="X") gives "X"; else prefix + NAME.upper().
+    """
+    names: set[str] = set()
+    for statement in settings_statements(path, class_name):
+        alias = None
+        if isinstance(statement.value, ast.Call):
+            for keyword in statement.value.keywords:
+                if keyword.arg == "validation_alias" and isinstance(
+                    keyword.value, ast.Constant
+                ):
+                    alias = keyword.value.value
+        names.add(alias or f"{prefix}{statement.target.id.upper()}")
+    return names
+
+
+def configmap_data(docs: list[dict]) -> dict[str, str]:
+    return find(docs, "ConfigMap").get("data", {})
+
+
+def secret_refs(deployment: dict) -> list[str]:
+    """Names of the `envFrom` secretRef entries of the Deployment's first container."""
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    return [
+        entry["secretRef"]["name"]
+        for entry in container.get("envFrom", [])
+        if "secretRef" in entry
+    ]
+
+
+def docs_of_kind(docs: list[dict], kind: str) -> list[dict]:
+    return [doc for doc in docs if doc.get("kind") == kind]
+
+
+def secret_named(docs: list[dict], name: str) -> dict:
+    """The Secret `name`, or {} when absent: a missing object is a FAIL line, not a traceback."""
+    for doc in docs_of_kind(docs, "Secret"):
+        if doc["metadata"]["name"] == name:
+            return doc
+    return {}
+
+
+def refused_message(chart: Path, release: str, *args: str) -> str:
+    """The error text of a REFUSED render, or "" when the render unexpectedly succeeds."""
+    return render_fails(chart, release, *args) or ""
+
+
+print("scoreboard chart (E14)")
+sb_default = render(SCOREBOARD_CHART, SCOREBOARD_RELEASE)
+sb_default_data = configmap_data(sb_default)
+check(
+    sb_default_data.get("SCOREBOARD_CLUSTERING_ENABLED") == "true"
+    and sb_default_data.get("SCOREBOARD_ADMIN_EMAILS") == ""
+    and sb_default_data.get("SCOREBOARD_RECEIPT_PUBLIC_KEYS") == "{}"
+    and sb_default_data.get("SCOREBOARD_ARCHIVE_BACKEND") == "none"
+    and sb_default_data.get("SCOREBOARD_PUBLISH_WORKER_ENABLED") == "false"
+    and not [key for key in sb_default_data if key.startswith("SCOREBOARD_GITHUB_")]
+    and not docs_of_kind(sb_default, "Secret")
+    and not secret_refs(find(sb_default, "Deployment"))
+    and sb_default_data.get("SCOREBOARD_AUTH_MODE") == "disabled",
+    "scoreboard default render: clustering on, empty admin list, empty receipt key map, archive "
+    "none, publish off, no GitHub key, no Secret, no secretRef, auth mode still disabled",
+)
+
+sb_prod = render(SCOREBOARD_CHART, SCOREBOARD_RELEASE, *SCOREBOARD_PROD_ARGS)
+sb_prod_data = configmap_data(sb_prod)
+SB_FULL_SET = (
+    "--set",
+    "config.publish.enabled=true",
+    "--set",
+    "config.publish.githubAppId=1",
+    "--set",
+    "config.publish.githubAppInstallationId=2",
+    "--set",
+    "config.publish.archive.endpointUrl=http://s3.example:3900",
+)
+# A placeholder text, not a key: two lines, to prove a multi-line App key keeps its newline.
+with tempfile.NamedTemporaryFile("w", suffix=".txt") as sb_tmp_pem:
+    sb_tmp_pem.write("line1\nline2")
+    sb_tmp_pem.flush()
+    sb_full = render(
+        SCOREBOARD_CHART,
+        SCOREBOARD_RELEASE,
+        *SCOREBOARD_PROD_ARGS,
+        "--set",
+        "e14Secret.existingSecret=",
+        *SB_FULL_SET,
+        "--set",
+        "e14Secret.replayGrantSigningKey=ci-placeholder-key",
+        "--set",
+        "e14Secret.replayGrantSigningKid=ci-placeholder-kid",
+        "--set-file",
+        f"e14Secret.githubAppPrivateKey={sb_tmp_pem.name}",
+        "--set",
+        "e14Secret.archiveAccessKeyId=ci-placeholder-id",
+        "--set",
+        "e14Secret.archiveSecretAccessKey=ci-placeholder-secret",
+        "--set",
+        "config.receiptPublicKeys.k1=cHVi",
+    )
+sb_full_data = configmap_data(sb_full)
+sb_full_secret = secret_named(sb_full, "scoreboard-scoreboard-e14")
+sb_settings_names = pydantic_env_names(
+    SCOREBOARD_SETTINGS, "Settings", prefix="SCOREBOARD_"
+)
+sb_rendered_names = {
+    key
+    for data in (sb_default_data, sb_prod_data, sb_full_data)
+    for key in data
+    if key.startswith("SCOREBOARD_")
+} | set(sb_full_secret.get("stringData", {}))
+check(
+    not (sb_rendered_names - sb_settings_names)
+    and E14_SCOREBOARD_SECRET_KEYS <= sb_settings_names,
+    "every SCOREBOARD_* key of the ConfigMap and of the E14 Secret is a field of the scoreboard "
+    f"Settings class (unknown: {sorted(sb_rendered_names - sb_settings_names)}) — a renamed field "
+    "would leave the Pod on the code default",
+)
+
+sb_prod_policy = find(sb_prod, "NetworkPolicy")
+sb_prod_from = [
+    element
+    for rule in sb_prod_policy["spec"]["ingress"]
+    for element in rule.get("from", [])
+]
+check(
+    sb_prod_data.get("SCOREBOARD_AUTH_MODE") == "cloudflare_headers"
+    and bool(sb_prod_data.get("SCOREBOARD_ALLOWED_NETWORKS"))
+    and sb_prod_data.get("FORWARDED_ALLOW_IPS") != "*"
+    and cidr_overlap(
+        sb_prod_data["FORWARDED_ALLOW_IPS"], sb_prod_data["SCOREBOARD_ALLOWED_NETWORKS"]
+    )
+    is None
+    and not docs_of_kind(sb_prod, "Ingress")
+    and peer_names(sb_prod_policy, "ingress") == {"ci-placeholder-envoy"}
+    and [
+        element["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
+        for element in sb_prod_from
+    ]
+    == ["ci-placeholder-envoy-ns"]
+    and "scoreboard-e14" in secret_refs(find(sb_prod, "Deployment")),
+    "scoreboard prod render: cloudflare_headers, allowed networks set, FORWARDED_ALLOW_IPS neither "
+    "'*' nor inside them, no Ingress, ONE `from` element pairs the Envoy namespace and pod, and "
+    "the Pod reads the scoreboard-e14 Secret",
+)
+
+sb_refused_cases = (
+    ("config.allowedNetworks", ("--set", "config.allowedNetworks=")),
+    ("config.forwardedAllowIps", ("--set", "config.forwardedAllowIps=*")),
+    ("ingress.enabled", ("--set", "ingress.enabled=true")),
+    ("config.authMode", ("--set", "config.authMode=other")),
+    (
+        "config.publish.enabled",
+        # WHY the full set: every other publish rule is met, so only the auth rule can refuse.
+        (*SB_FULL_SET, "--set", "config.authMode=disabled"),
+    ),
+    (
+        "config.publish.githubAppId",
+        (
+            "--set",
+            "config.publish.enabled=true",
+            "--set",
+            "config.publish.githubAppInstallationId=1",
+            "--set",
+            "config.publish.archive.endpointUrl=http://s3.example:3900",
+        ),
+    ),
+    (
+        "e14Secret.existingSecret",
+        (*SB_FULL_SET, "--set", "e14Secret.existingSecret="),
+    ),
+    ("e14Secret.githubAppPrivateKey", ("--set", "e14Secret.githubAppPrivateKey=x")),
+    (
+        "e14Secret.replayGrantSigningKid",
+        ("--set", "e14Secret.replayGrantSigningKey=x"),
+    ),
+)
+sb_refusals = {
+    path: refused_message(
+        SCOREBOARD_CHART, SCOREBOARD_RELEASE, *SCOREBOARD_PROD_ARGS, *overrides
+    )
+    for path, overrides in sb_refused_cases
+}
+sb_refusals["networkPolicy.clientPodNames"] = refused_message(
+    SCOREBOARD_CHART,
+    SCOREBOARD_RELEASE,
+    "--values",
+    str(SCOREBOARD_CHART / "values-prod.yaml"),
+)
+check(
+    all(path in message for path, message in sb_refusals.items()),
+    "scoreboard renders that are unsafe on their face are REFUSED and the message names the value "
+    "to set (checked: "
+    + ", ".join(sorted(sb_refusals))
+    + "); failing here: "
+    + ", ".join(
+        sorted(path for path, message in sb_refusals.items() if path not in message)
+    ),
+)
+
+check(
+    sb_full_secret.get("stringData", {}).keys() == E14_SCOREBOARD_SECRET_KEYS
+    and sb_full_secret.get("stringData", {}).get("SCOREBOARD_GITHUB_APP_PRIVATE_KEY")
+    == "line1\nline2"
+    and not (set(sb_full_data) & E14_SCOREBOARD_SECRET_KEYS)
+    and json.loads(sb_full_data.get("SCOREBOARD_RECEIPT_PUBLIC_KEYS", "null"))
+    == {"k1": "cHVi"}
+    and sb_full_data.get("SCOREBOARD_ARCHIVE_BACKEND") == "s3"
+    and sb_full_data.get("SCOREBOARD_ARCHIVE_S3_ENDPOINT_URL")
+    == "http://s3.example:3900"
+    and sb_full_data.get("SCOREBOARD_ARCHIVE_S3_BUCKET")
+    == "screamingface-cache-versions"
+    and sb_full_data.get("SCOREBOARD_ARCHIVE_S3_REGION") == "garage"
+    and "scoreboard-scoreboard-e14" in secret_refs(find(sb_full, "Deployment")),
+    "scoreboard full render: the chart Secret holds exactly the five E14 keys, a multi-line App "
+    "key keeps its newline, none of them is in the ConfigMap, the archive is s3, and the Pod reads "
+    "that Secret",
+)
+
+
+def pod_checksum(docs: list[dict]) -> str | None:
+    template = find(docs, "Deployment")["spec"]["template"]
+    return template["metadata"].get("annotations", {}).get("checksum/config")
+
+
+sb_flag_off = render(
+    SCOREBOARD_CHART, SCOREBOARD_RELEASE, "--set", "config.clustering.enabled=false"
+)
+check(
+    bool(pod_checksum(sb_default))
+    and pod_checksum(sb_default) != pod_checksum(sb_flag_off),
+    "the scoreboard Pod template carries a checksum/config annotation that changes with the "
+    "ConfigMap, so a flag flip rolls the Pods (envFrom is read once, at container start)",
+)
+
+
+def lane_flags(workflow: str, job: str, step_name: str) -> set[str]:
+    """`cloud_render_flags`, or an empty set when the step is missing (a FAIL, not a traceback)."""
+    try:
+        return cloud_render_flags(workflow, job, step_name)
+    except StopIteration:
+        return set()
+
+
+charts_scoreboard_flags = lane_flags(
+    "charts.yml", "render", "Render the scoreboard prod values"
+)
+check(
+    bool(charts_scoreboard_flags)
+    and charts_scoreboard_flags
+    == lane_flags("release-scoreboard.yml", "chart", "Lint and render charts")
+    and charts_scoreboard_flags
+    == {
+        SCOREBOARD_PROD_ARGS[index + 1].split("=", 1)[0]
+        for index, value in enumerate(SCOREBOARD_PROD_ARGS)
+        if value == "--set"
+    },
+    "the release lane renders the scoreboard values-prod.yaml with the SAME placeholders "
+    "charts.yml does — a lane that runs only on a release tag cannot notice that a newly-required "
+    "value has left it unable to render",
+)
+
+sb_admins = render(
+    SCOREBOARD_CHART,
+    SCOREBOARD_RELEASE,
+    "--set-string",
+    "config.adminEmails[0]=a@example.com",
+    "--set-string",
+    "config.adminEmails[1]=b@example.com",
+)
+check(
+    configmap_data(sb_admins).get("SCOREBOARD_ADMIN_EMAILS")
+    == "a@example.com,b@example.com",
+    "config.adminEmails renders as the comma list SCOREBOARD_ADMIN_EMAILS reads (the field is "
+    "NoDecode, so a JSON list would be one bad address)",
+)
+
+print("\naigateway chart (E14)")
+GW_CV = "config.cacheVersions"
+GW_SECRET_NAME = f"{GATEWAY_RELEASE}-aigateway-cache-versions"
+gw_e14_default = render(GATEWAY_CHART, GATEWAY_RELEASE)
+gw_e14_default_data = configmap_data(gw_e14_default)
+check(
+    gw_e14_default_data.get("AIGW_CACHE_VERSIONS_ENABLED") == "false"
+    and gw_e14_default_data.get("AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS") == "{}"
+    and gw_e14_default_data.get("AIGW_CACHE_VERSION_ARCHIVE_BACKEND") == "none"
+    and not [
+        key for key in gw_e14_default_data if key.startswith("AIGW_CACHE_VERSION_S3_")
+    ]
+    and not secret_named(gw_e14_default, GW_SECRET_NAME)
+    and not [
+        name
+        for name in secret_refs(find(gw_e14_default, "Deployment"))
+        if name.endswith("cache-versions")
+    ],
+    "gateway default render: cache versions off, empty grant key map, archive none, no S3 key, no "
+    "cache-versions Secret, no cache-versions secretRef",
+)
+
+GW_S3_ARGS = (
+    "--set",
+    f"{GW_CV}.enabled=true",
+    "--set",
+    f"{GW_CV}.archive.backend=s3",
+    "--set",
+    f"{GW_CV}.archive.endpointUrl=http://s3.example:3900",
+)
+gw_e14_external = render(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    *GW_S3_ARGS,
+    "--set",
+    f"{GW_CV}.existingSecret=aigw-cache-versions",
+)
+GW_BUNDLED_ARGS = (
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    f"{GW_CV}.enabled=true",
+    "--set",
+    f"{GW_CV}.receiptSigningKey=ci-placeholder-key",
+    "--set",
+    f"{GW_CV}.archive.backend=s3",
+    "--set",
+    f"{GW_CV}.archiveAccessKey=ci-placeholder-id",
+    "--set",
+    f"{GW_CV}.archiveSecretKey=ci-placeholder-secret",
+    "--set",
+    # Helm needs a literal backslash before each dot of a label key. No shell runs here.
+    f"{GW_CV}.archive.readerPeers[0].podSelector.matchLabels.app\\.kubernetes\\.io/name=scoreboard",
+)
+gw_e14_bundled = render(GATEWAY_CHART, GATEWAY_RELEASE, *GW_BUNDLED_ARGS)
+gw_e14_prod = render(
+    GATEWAY_CHART, GATEWAY_RELEASE, "--values", str(GATEWAY_CHART / "values-prod.yaml")
+)
+gw_e14_names = {
+    key
+    for docs in (gw_e14_default, gw_e14_external, gw_e14_bundled, gw_e14_prod)
+    for key in configmap_data(docs)
+    if key.startswith("AIGW_CACHE_VERSION")
+    or key == "AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS"
+} | set(secret_named(gw_e14_bundled, GW_SECRET_NAME).get("stringData", {}))
+gw_settings_names = pydantic_env_names(GATEWAY_SETTINGS, "Settings", prefix="AIGW_")
+check(
+    not (gw_e14_names - gw_settings_names)
+    and E14_GATEWAY_SECRET_KEYS <= gw_settings_names,
+    "every E14 key the gateway chart renders (cache-version ConfigMap keys, the grant key map, the "
+    f"Secret keys) is a field of the gateway Settings class (unknown: "
+    f"{sorted(gw_e14_names - gw_settings_names)})",
+)
+
+gw_e14_external_data = configmap_data(gw_e14_external)
+check(
+    gw_e14_external_data.get("AIGW_CACHE_VERSIONS_ENABLED") == "true"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_ARCHIVE_BACKEND") == "s3"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_S3_ENDPOINT_URL")
+    == "http://s3.example:3900"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_S3_BUCKET")
+    == "screamingface-cache-versions"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_S3_REGION") == "garage"
+    and not (set(gw_e14_external_data) & E14_GATEWAY_SECRET_KEYS)
+    and "aigw-cache-versions" in secret_refs(find(gw_e14_external, "Deployment"))
+    and not secret_named(gw_e14_external, GW_SECRET_NAME),
+    "gateway with an existing Secret and the s3 archive: endpoint, bucket and region in the "
+    "ConfigMap, no key in the ConfigMap, the Pod reads the operator's Secret, and the chart "
+    "renders no Secret of its own",
+)
+
+GW_REFUSED_CASES = (
+    (f"{GW_CV}.existingSecret", ("--set", f"{GW_CV}.enabled=true")),
+    (
+        f"{GW_CV}.archive.endpointUrl",
+        (
+            "--set",
+            f"{GW_CV}.enabled=true",
+            "--set",
+            f"{GW_CV}.existingSecret=x",
+            "--set",
+            f"{GW_CV}.archive.backend=s3",
+        ),
+    ),
+    (
+        f"{GW_CV}.archiveAccessKey",
+        (
+            "--set",
+            f"{GW_CV}.receiptSigningKey=x",
+            *GW_S3_ARGS,
+        ),
+    ),
+    (
+        f"{GW_CV}.archive.backend",
+        ("--set", f"{GW_CV}.archive.backend=filesystem"),
+    ),
+    (
+        f"{GW_CV}.enabled",
+        (
+            "--set",
+            f"{GW_CV}.archive.backend=s3",
+            "--set",
+            f"{GW_CV}.archive.endpointUrl=http://s3.example:3900",
+            "--set",
+            f"{GW_CV}.existingSecret=x",
+        ),
+    ),
+)
+gw_refusals = {
+    path: refused_message(GATEWAY_CHART, GATEWAY_RELEASE, *overrides)
+    for path, overrides in GW_REFUSED_CASES
+}
+check(
+    all(path in message for path, message in gw_refusals.items()),
+    "gateway cache-version renders that the app would refuse (or that hide a mistake) are REFUSED "
+    "and the message names the value to set; failing here: "
+    + ", ".join(
+        sorted(path for path, message in gw_refusals.items() if path not in message)
+    ),
+)
+
+gw_bundled_data = configmap_data(gw_e14_bundled)
+gw_bundled_secret = secret_named(gw_e14_bundled, GW_SECRET_NAME)
+gw_garage_from = [
+    element
+    for doc in docs_of_kind(gw_e14_bundled, "NetworkPolicy")
+    if doc["metadata"]["name"] == f"{GATEWAY_RELEASE}-aigateway-garage"
+    for rule in doc["spec"]["ingress"]
+    for element in rule.get("from", [])
+]
+check(
+    gw_bundled_data.get("AIGW_CACHE_VERSION_S3_ENDPOINT_URL")
+    == f"http://{GATEWAY_RELEASE}-aigateway-garage:3900"
+    and any(
+        element.get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/name")
+        == "scoreboard"
+        for element in gw_garage_from
+    )
+    and any(
+        element.get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/component")
+        == "gateway"
+        for element in gw_garage_from
+    )
+    and set(gw_bundled_secret.get("stringData", {})) == E14_GATEWAY_SECRET_KEYS,
+    "gateway with the bundled Garage: the endpoint defaults to the Garage Service, the Garage "
+    "NetworkPolicy admits the gateway AND the scoreboard reader peer, and the inline Secret holds "
+    "exactly the three E14 keys",
+)
+
+gw_prod_data = configmap_data(gw_e14_prod)
+check(
+    gw_prod_data.get("AIGW_CACHE_VERSIONS_ENABLED") == "true"
+    and gw_prod_data.get("AIGW_AUTH_MODE") == "cloudflare_headers"
+    and gw_prod_data.get("AIGW_CACHE_VERSION_ARCHIVE_BACKEND") == "none"
+    and "aigw-cache-versions" in secret_refs(find(gw_e14_prod, "Deployment"))
+    and "aigateway-ui" in peer_names(find(gw_e14_prod, "NetworkPolicy"), "ingress"),
+    "gateway prod render: cache versions on, auth mode unchanged, archive none until the bucket "
+    "exists, the Pod reads aigw-cache-versions, and the console is still admitted",
+)
+
+
+def charts_workflow_paths(event: str) -> set[str]:
+    spec = yaml.safe_load((REPO / ".github/workflows/charts.yml").read_text())
+    # PyYAML reads the bare key `on` as the boolean True (YAML 1.1).
+    triggers = spec.get("on") or spec.get(True) or {}
+    return set(triggers.get(event, {}).get("paths", []))
+
+
+charts_lint_step = next(
+    (
+        step
+        for step in yaml.safe_load((REPO / ".github/workflows/charts.yml").read_text())[
+            "jobs"
+        ]["render"]["steps"]
+        if step.get("name") == "Lint"
+    ),
+    {},
+)
+E14_CHART_PATHS = {
+    "apps/scoreboard/charts/**",
+    "apps/scoreboard/src/scoreboard/config.py",
+    "apps/aigateway/src/aigateway/config.py",
+    ".github/workflows/release-scoreboard.yml",
+}
+check(
+    E14_CHART_PATHS <= charts_workflow_paths("push")
+    and E14_CHART_PATHS <= charts_workflow_paths("pull_request")
+    and "helm lint apps/scoreboard/charts/scoreboard" in charts_lint_step.get("run", "")
+    and "helm lint apps/scoreboard/charts/db" in charts_lint_step.get("run", ""),
+    "charts.yml runs on a change to the scoreboard chart, to either settings class the verifier "
+    "reads, and to the scoreboard release lane, and its Lint step covers both scoreboard charts",
+)
 
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:
