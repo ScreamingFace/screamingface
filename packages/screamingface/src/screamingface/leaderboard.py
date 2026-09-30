@@ -141,6 +141,9 @@ class LeaderboardScore:
     # Public Scoreboard JSON strips domains; full author emails never enter this read model.
     authors: tuple[str, ...] | None = None
     ranking_notice: LeaderboardRankingNotice | None = None
+    paper_url: str | None = None
+    # None means the Scoreboard did not send it (a board before E14a).
+    metadata_revision: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -163,6 +166,7 @@ class LeaderboardScore:
             "client_version",
             "client_platform",
             "scoreboard_url",
+            "paper_url",
         )
         for name in optional_fields:
             object.__setattr__(
@@ -200,6 +204,7 @@ class LeaderboardScore:
             "ranking_notice",
             _optional_ranking_notice(self.ranking_notice),
         )
+        _optional_positive_int(self.metadata_revision, "Leaderboard score metadata_revision")
 
     def __repr__(self) -> str:
         # WHY custom: the dataclass auto-repr printed the ENTIRE compiled url4
@@ -303,6 +308,11 @@ def _optional_text(value: object, label: str) -> str | None:
 def _positive_int(value: object, label: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{label} must be a positive integer")
+
+
+def _optional_positive_int(value: object, label: str) -> None:
+    if value is not None:
+        _positive_int(value, label)
 
 
 def _nonnegative_int(value: object, label: str) -> None:

@@ -529,6 +529,13 @@ submission = sf.leaderboards.submit(
     authors=["alice@example.com", "bob@example.org"],
 )
 same_submission = sf.leaderboards.get_score(submission.id)
+
+# Edit a submission: pass the revision you last saw. `None` clears a field.
+edited = sf.leaderboards.update_submission(
+    submission.id,
+    expected_revision=same_submission.metadata_revision or 1,
+    paper_url="https://arxiv.org/abs/2609.01234",
+)
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
 ```

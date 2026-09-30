@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import math
 import platform
 import re
@@ -14,7 +15,7 @@ from importlib.metadata import PackageNotFoundError, version
 # parameter named `json`, so the module name is shadowed inside exactly the functions most
 # likely to want it. Importing the one callable under its own name removes the trap.
 from json import dumps as _json_dumps
-from typing import NoReturn
+from typing import Final, NoReturn
 from urllib.parse import quote
 from uuid import UUID
 
@@ -52,6 +53,40 @@ _MAX_AUTHOR_LENGTH = 255
 _MAX_MODELS = 32
 _MAX_MODEL_LENGTH = 255
 _MAX_MODELS_BYTES = 4096
+# FEATURE: OME-1307 (E14) editable submission metadata. Contract C5 fixes a 15 s SDK timeout for
+# the PATCH and one re-send after a connection error.
+_METADATA_EDIT_OPERATION = "edit the submission metadata on"
+_METADATA_EDIT_TIMEOUT_S = 15.0
+_METADATA_EDIT_TRANSPORT_RETRIES = 1
+_SUBMIT_OPERATION = "submit a score to"
+_SUBMIT_CODES: Final[Mapping[int, str]] = {
+    400: "invalid_score_submission",
+    401: "scoreboard_authentication_required",
+    403: "score_submission_forbidden",
+    409: "score_submission_conflict",
+    422: "invalid_score_submission",
+}
+# WHY a status fallback beside the coded body (D7 X-8): a proxy or a board before E14a can send a
+# status with no `{"detail": {"code": ...}}` body, and the SDK must still give a typed code.
+_METADATA_EDIT_CODES: Final[Mapping[int, str]] = {
+    401: "identity_not_verified",
+    403: "not_submission_owner",
+    404: "unknown_score",
+    412: "metadata_revision_conflict",
+    422: "invalid_submission_metadata",
+    428: "precondition_required",
+}
+_STATUS_CODES_BY_OPERATION: Final[Mapping[str, Mapping[int, str]]] = {
+    _SUBMIT_OPERATION: _SUBMIT_CODES,
+    _METADATA_EDIT_OPERATION: _METADATA_EDIT_CODES,
+}
+
+
+class _Unset(enum.Enum):
+    UNSET = "UNSET"
+
+
+UNSET: Final = _Unset.UNSET
 
 
 class Leaderboards:
@@ -92,8 +127,9 @@ class Leaderboards:
         candidate_result: CandidateResult,
         *,
         authors: Sequence[str] | None = None,
+        paper_url: str | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors)
+        payload = _submission(candidate_result, authors=authors, paper_url=paper_url)
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -121,6 +157,34 @@ class Leaderboards:
                 "GET",
                 f"{_SCORES_PATH}/{selected}",
                 replay_safe=True,
+                missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            ),
+        )
+
+    def update_submission(
+        self,
+        score_id: UUID | str,
+        *,
+        expected_revision: int,
+        authors: Sequence[str] | None | _Unset = UNSET,
+        paper_url: str | None | _Unset = UNSET,
+    ) -> LeaderboardScore:
+        selected = _score_id(score_id)
+        revision = _expected_revision(expected_revision)
+        body = _metadata_patch(authors, paper_url)
+        return _decode_score(
+            scoreboard_url=self._scoreboard_url,
+            payload=_sync_json(
+                self._request,
+                self._scoreboard_url,
+                "PATCH",
+                f"{_SCORES_PATH}/{selected}",
+                json=body,
+                headers={"If-Match": f'"{revision}"'},
+                replay_safe=True,
+                timeout=_METADATA_EDIT_TIMEOUT_S,
+                transport_retries=_METADATA_EDIT_TRANSPORT_RETRIES,
+                operation=_METADATA_EDIT_OPERATION,
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
             ),
         )
@@ -168,8 +232,9 @@ class AsyncLeaderboards:
         candidate_result: CandidateResult,
         *,
         authors: Sequence[str] | None = None,
+        paper_url: str | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors)
+        payload = _submission(candidate_result, authors=authors, paper_url=paper_url)
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -201,6 +266,34 @@ class AsyncLeaderboards:
             ),
         )
 
+    async def update_submission(
+        self,
+        score_id: UUID | str,
+        *,
+        expected_revision: int,
+        authors: Sequence[str] | None | _Unset = UNSET,
+        paper_url: str | None | _Unset = UNSET,
+    ) -> LeaderboardScore:
+        selected = _score_id(score_id)
+        revision = _expected_revision(expected_revision)
+        body = _metadata_patch(authors, paper_url)
+        return _decode_score(
+            scoreboard_url=self._scoreboard_url,
+            payload=await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "PATCH",
+                f"{_SCORES_PATH}/{selected}",
+                json=body,
+                headers={"If-Match": f'"{revision}"'},
+                replay_safe=True,
+                timeout=_METADATA_EDIT_TIMEOUT_S,
+                transport_retries=_METADATA_EDIT_TRANSPORT_RETRIES,
+                operation=_METADATA_EDIT_OPERATION,
+                missing=("unknown_score", f"Score {str(selected)!r} was not found"),
+            ),
+        )
+
 
 def _sync_json(
     request: Callable[..., httpx.Response],
@@ -214,19 +307,29 @@ def _sync_json(
     headers: Mapping[str, str] | None = None,
     missing: tuple[str, str] | None = None,
     operation: str = "load",
+    timeout: float | None = None,
+    transport_retries: int = 0,
 ) -> object:
-    try:
-        response = request(
-            method,
-            path,
-            params=params,
-            json=json,
-            headers=headers,
-            replay_safe=replay_safe,
-        )
-    except httpx.HTTPError as exc:
-        _unreachable(scoreboard_url, exc)
-    return _response_json(response, scoreboard_url, missing, operation)
+    retries_left = transport_retries
+    while True:
+        try:
+            response = request(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                replay_safe=replay_safe,
+                **_timeout_argument(timeout),
+            )
+        except httpx.TransportError as exc:
+            if retries_left < 1:
+                _unreachable(scoreboard_url, exc)
+            retries_left -= 1
+            continue
+        except httpx.HTTPError as exc:
+            _unreachable(scoreboard_url, exc)
+        return _response_json(response, scoreboard_url, missing, operation)
 
 
 async def _async_json(
@@ -241,19 +344,35 @@ async def _async_json(
     headers: Mapping[str, str] | None = None,
     missing: tuple[str, str] | None = None,
     operation: str = "load",
+    timeout: float | None = None,
+    transport_retries: int = 0,
 ) -> object:
-    try:
-        response = await request(
-            method,
-            path,
-            params=params,
-            json=json,
-            headers=headers,
-            replay_safe=replay_safe,
-        )
-    except httpx.HTTPError as exc:
-        _unreachable(scoreboard_url, exc)
-    return _response_json(response, scoreboard_url, missing, operation)
+    retries_left = transport_retries
+    while True:
+        try:
+            response = await request(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                replay_safe=replay_safe,
+                **_timeout_argument(timeout),
+            )
+        except httpx.TransportError as exc:
+            if retries_left < 1:
+                _unreachable(scoreboard_url, exc)
+            retries_left -= 1
+            continue
+        except httpx.HTTPError as exc:
+            _unreachable(scoreboard_url, exc)
+        return _response_json(response, scoreboard_url, missing, operation)
+
+
+def _timeout_argument(timeout: float | None) -> dict[str, float]:
+    # WHY only when given: the default call shape must not change, so the client's own timeout
+    # still applies to every call that does not name one.
+    return {} if timeout is None else {"timeout": timeout}
 
 
 def _response_json(
@@ -274,11 +393,11 @@ def _response_json(
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
-        submission_conflict = response.status_code == 409 and operation == "submit a score to"
+        submission_conflict = response.status_code == 409 and operation == _SUBMIT_OPERATION
         raise LeaderboardError(
             f"Could not {operation} the Scoreboard: HTTP {response.status_code}{suffix}",
             scoreboard_url=scoreboard_url,
-            code=_status_code(response.status_code, operation),
+            code=_error_code(details, response.status_code, operation),
             status=response.status_code,
             permanent=(
                 response.status_code < 500
@@ -304,16 +423,23 @@ def _error_details(response: httpx.Response) -> object:
     return payload
 
 
+def _error_code(details: object, status: int, operation: str) -> str:
+    if operation == _METADATA_EDIT_OPERATION:
+        coded = _coded_detail(details)
+        if coded is not None:
+            return coded
+    return _status_code(status, operation)
+
+
+def _coded_detail(details: object) -> str | None:
+    """The `detail.code` of a coded error body (D7 X-8), or None when the body has none."""
+    detail = details.get("detail") if isinstance(details, Mapping) else None
+    code = detail.get("code") if isinstance(detail, Mapping) else None
+    return code.strip() if isinstance(code, str) and code.strip() else None
+
+
 def _status_code(status: int, operation: str) -> str:
-    if operation != "submit a score to":
-        return "scoreboard_contract_error"
-    return {
-        400: "invalid_score_submission",
-        401: "scoreboard_authentication_required",
-        403: "score_submission_forbidden",
-        409: "score_submission_conflict",
-        422: "invalid_score_submission",
-    }.get(status, "scoreboard_contract_error")
+    return _STATUS_CODES_BY_OPERATION.get(operation, {}).get(status, "scoreboard_contract_error")
 
 
 def _unreachable(scoreboard_url: str, exc: httpx.HTTPError) -> NoReturn:
@@ -394,6 +520,10 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             scoreboard_url=scoreboard_url,
             authors=_decode_authors(root.get("authors"), "Leaderboard score authors"),
             ranking_notice=_decode_ranking_notice(root),
+            paper_url=_optional_text(root.get("paper_url"), "Leaderboard score paper_url"),
+            metadata_revision=_optional_integer(
+                root.get("metadata_revision"), "Leaderboard score metadata_revision"
+            ),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
@@ -469,10 +599,12 @@ def _submission(
     candidate_result: CandidateResult,
     *,
     authors: Sequence[str] | None = None,
+    paper_url: str | None = None,
 ) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
     selected_authors = _submission_authors(authors)
+    selected_paper_url = None if paper_url is None else _paper_url_text(paper_url)
     payload: dict[str, object] = {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
@@ -503,6 +635,10 @@ def _submission(
     # list is exact. Never send null or auto-add an identity the caller did not name.
     if selected_authors is not None:
         payload["authors"] = list(selected_authors)
+    # INVARIANT (E14a, C4): like `authors`, absent means "not given". A board before E14a is
+    # `extra="forbid"`, so sending null would 422 a normal submit.
+    if selected_paper_url is not None:
+        payload["paper_url"] = selected_paper_url
     # INVARIANT (OME-1326, OME-1251 D5): sent beside the spend, never added to it; the board sums
     # the two at the point of use. Omitted when absent rather than sent as null, so an uncached
     # run's payload is unchanged and a board that predates the field 422s only cached runs.
@@ -561,6 +697,50 @@ def _submission_authors(authors: Sequence[str] | None) -> tuple[str, ...] | None
         if len(author) > _MAX_AUTHOR_LENGTH or _AUTHOR_EMAIL.fullmatch(author) is None:
             raise ValueError("each author must be a valid email address of at most 255 characters")
     return selected
+
+
+def _expected_revision(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("expected_revision must be an integer")
+    if value < 1:
+        raise ValueError("expected_revision must be positive")
+    return value
+
+
+def _paper_url_text(value: object) -> str:
+    # WHY the type is the only rule: the Scoreboard is the one validator of paper URLs (MD-E5),
+    # so the SDK never drifts from it.
+    if not isinstance(value, str):
+        raise TypeError("paper_url must be a string or None")
+    selected = value.strip()
+    if not selected:
+        raise ValueError("paper_url must be non-blank text or None")
+    return selected
+
+
+def _metadata_patch(
+    authors: Sequence[str] | None | _Unset,
+    paper_url: str | None | _Unset,
+) -> dict[str, object]:
+    """The C5 body: only the fields the caller gave.
+
+    INVARIANT: `None` is a value here (it clears the field, MD-E7) and is sent as JSON null.
+    "Not given" is the `UNSET` sentinel, which sends no key. This differs from `submit`, where
+    `authors=None` means "do not send the key".
+    """
+    if authors is _Unset.UNSET and paper_url is _Unset.UNSET:
+        raise ValueError("update_submission needs authors or paper_url")
+    body: dict[str, object] = {}
+    if authors is not _Unset.UNSET:
+        if authors is None:
+            body["authors"] = None
+        else:
+            selected = _submission_authors(authors)
+            assert selected is not None
+            body["authors"] = list(selected)
+    if paper_url is not _Unset.UNSET:
+        body["paper_url"] = None if paper_url is None else _paper_url_text(paper_url)
+    return body
 
 
 def _score_value(candidate_result: CandidateResult) -> float:

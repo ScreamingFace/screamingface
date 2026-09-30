@@ -10,6 +10,7 @@
 
   **Engines that send the mark need this release first.** An older SDK refuses the run result of a flipped Benchmark ("unsupported field `inverted_grade`"); every other Benchmark is unaffected.
 * **screamingface:** show the refusal-rate mark where researchers look. `Benchmark.inverted_grade` carries it from the catalogue (absent means `false`); a flipped Benchmark gets an "inverted grade" chip in `sf.benchmarks` listings, a "grading" line on its card, and one line under the notebook report view's header — all saying "each Case scores 1 − the eval's grade, so higher is still better". Every other Benchmark renders exactly as before.
+* **screamingface:** edit a submission's authors or paper URL with `sf.leaderboards.update_submission(score_id, expected_revision=..., authors=..., paper_url=...)` (also `client.leaderboards`, sync and async), and pass `paper_url` to `submit`. `LeaderboardScore` gains `paper_url` and `metadata_revision`. The call sends `PATCH /v1/scores/{id}` with `If-Match` and only the fields you give (`None` clears a field), raises typed codes (`metadata_revision_conflict`, `not_submission_owner`, ...), and re-sends once after a connection error. **Requires a Scoreboard with the E14a metadata routes:** an older board answers `422` to `paper_url` and `405` to the `PATCH`.
 
 * **screamingface:** preserve Engine-observed caller version as `CandidateResult.client_version` and in report JSON; unavailable provenance remains null.
 
