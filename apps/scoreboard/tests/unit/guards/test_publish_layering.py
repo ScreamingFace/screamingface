@@ -8,6 +8,7 @@ module is not a violation. The one text scan (`api.github.com`) reads string con
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 from tests.unit.guards.test_scoreboard_layering import (
@@ -21,6 +22,10 @@ ADAPTERS = SRC / "adapters"
 CORE_PUBLISH = SRC / "core" / "publish"
 CORE_ADMIN = SRC / "core" / "auth" / "admin.py"
 MAIN = SRC / "main.py"
+# WHY a regex: the check looks for the GitHub API host as a whole name inside any string constant.
+# A bare substring test would also match a longer host such as `api.github.com.evil`, and CodeQL
+# flags that form (py/incomplete-url-substring-sanitization).
+GITHUB_HOST = re.compile(r"(?<![\w.-])api\.github\.com(?![\w.-])")
 
 # WHY these two: they imported `httpx` before E14 (`git grep -l httpx` at the merge base with
 # `e14-reproducible-submission-spec`). `seed.py` reads the engine catalogue over HTTP.
@@ -68,7 +73,7 @@ def test_the_github_host_is_named_only_in_config() -> None:
             for node in ast.walk(ast.parse(path.read_text()))
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         ]
-        if any("api.github.com" in value for value in constants):
+        if any(GITHUB_HOST.search(value) for value in constants):
             hits.append(path.name)
 
     assert hits == ["config.py"]
