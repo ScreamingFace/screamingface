@@ -64,6 +64,13 @@ pytestmark = pytest.mark.anyio
 # authorise, and a board flipped a second after it runs is caught by the next run. Revalidating
 # would only narrow a window that has nothing on the other side of it.
 #   check_rollback_safety.private_boards / format_verdict / running_version
+#   backfill_systems._public_unlinked_heads — reads which heads are public so the one-shot command
+#   never touches a private head; a board flipped a second later is caught by the next run.
+#
+# REGISTRY INPUT — visibility arrives as an argument (`board_visibility`) that the caller read; the
+# registry takes no decision from a stored copy. The caller (SB-submit) owns the revalidation of the
+# board; this function only receives the value it was given.
+#   service.py::resolve_for_submit (core/registry)
 #
 # QUERY BUILDER — returns an unevaluated locking query, not visibility data or a decision. Its
 # caller awaits the query and refuses immediately unless the freshly locked row is private; the
@@ -97,6 +104,9 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("check_rollback_safety.py::format_verdict", "Return"): 2,
     ("check_rollback_safety.py::running_version", "Return"): 2,
     ("purge_private_benchmark.py::_purge_visibility_query", "Return"): 1,
+    ("backfill_systems.py::_public_unlinked_heads", "Return"): 1,
+    ("service.py::resolve_for_submit", "Return"): 3,
+    ("service.py::resolve_for_submit", "Raise"): 1,
 }
 
 
