@@ -1,7 +1,7 @@
 ---
 id: OME-942
 linear_url: https://linear.app/openmined/issue/OME-942/sweep-engine-dead-observability-config-log-level-chart-readyz-rbac
-status: backlog
+status: in_review
 type: improvement
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
