@@ -10,6 +10,20 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 AuthMode = Literal["jwt", "cloudflare_headers", "disabled"]
 
 
+def _missing_s3_settings(
+    prefix: str, endpoint: str | None, access: SecretStr | None, secret: SecretStr | None
+) -> list[str]:
+    """The names of the unset (or blank) endpoint and key settings of one ``<prefix>_*`` bucket."""
+    missing: list[str] = []
+    if not (endpoint or "").strip():
+        missing.append(f"{prefix}_ENDPOINT_URL")
+    if access is None or not (access.get_secret_value() or "").strip():
+        missing.append(f"{prefix}_ACCESS_KEY")
+    if secret is None or not (secret.get_secret_value() or "").strip():
+        missing.append(f"{prefix}_SECRET_KEY")
+    return missing
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AIGW_",
@@ -150,6 +164,55 @@ class Settings(BaseSettings):
     # runtime, not inherited from a code default.
     cache_versions_enabled: bool = Field(
         default=False, validation_alias="AIGW_CACHE_VERSIONS_ENABLED"
+    )
+
+    # FEATURE: OME-1307 (E14, GW-freeze) - freeze, signed receipt and bucket archive.
+    # AIDEV-NOTE: a missing signing key does NOT refuse startup. Capture must keep working with the
+    # flag on and no key (the GW-capture tests do exactly that). Wiring logs a WARNING and leaves
+    # the freezer off, and the freeze route answers `503 capture_disabled`. The key CONTENT is not
+    # validated here either (same rule as `secret_key`): `Ed25519ReceiptSigner.from_base64` does it
+    # at wiring time and never echoes the value.
+    receipt_signing_key: SecretStr | None = Field(
+        default=None, validation_alias="AIGATEWAY_RECEIPT_SIGNING_KEY"
+    )
+    cache_version_max_entries: int = Field(
+        default=20_000, gt=0, validation_alias="AIGW_CACHE_VERSION_MAX_ENTRIES"
+    )
+    cache_version_max_archive_bytes: int = Field(
+        default=1_500_000_000, gt=0, validation_alias="AIGW_CACHE_VERSION_MAX_ARCHIVE_BYTES"
+    )
+    cache_version_archive_backend: Literal["none", "s3", "filesystem"] = Field(
+        default="none", validation_alias="AIGW_CACHE_VERSION_ARCHIVE_BACKEND"
+    )
+    cache_version_archive_dir: str | None = Field(
+        default=None, validation_alias="AIGW_CACHE_VERSION_ARCHIVE_DIR"
+    )
+    cache_version_s3_endpoint_url: str | None = Field(
+        default=None, validation_alias="AIGW_CACHE_VERSION_S3_ENDPOINT_URL"
+    )
+    cache_version_s3_bucket: str = Field(
+        default="screamingface-cache-versions", validation_alias="AIGW_CACHE_VERSION_S3_BUCKET"
+    )
+    cache_version_s3_region: str = Field(
+        default="garage", validation_alias="AIGW_CACHE_VERSION_S3_REGION"
+    )
+    cache_version_s3_access_key: SecretStr | None = Field(
+        default=None, validation_alias="AIGW_CACHE_VERSION_S3_ACCESS_KEY"
+    )
+    cache_version_s3_secret_key: SecretStr | None = Field(
+        default=None, validation_alias="AIGW_CACHE_VERSION_S3_SECRET_KEY"
+    )
+    cache_version_s3_timeout_s: float = Field(
+        default=120.0,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_CACHE_VERSION_S3_TIMEOUT_S",
+    )
+    cache_version_export_poll_s: float = Field(
+        default=30.0,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="AIGW_CACHE_VERSION_EXPORT_POLL_S",
     )
 
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
@@ -387,19 +450,12 @@ class Settings(BaseSettings):
             )
         if not self.cache_snapshot_enabled:
             return self
-        missing: list[str] = []
-        if not (self.cache_snapshot_s3_endpoint_url or "").strip():
-            missing.append("AIGW_CACHE_SNAPSHOT_S3_ENDPOINT_URL")
-        if (
-            self.cache_snapshot_s3_access_key is None
-            or not (self.cache_snapshot_s3_access_key.get_secret_value() or "").strip()
-        ):
-            missing.append("AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY")
-        if (
-            self.cache_snapshot_s3_secret_key is None
-            or not (self.cache_snapshot_s3_secret_key.get_secret_value() or "").strip()
-        ):
-            missing.append("AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY")
+        missing = _missing_s3_settings(
+            "AIGW_CACHE_SNAPSHOT_S3",
+            self.cache_snapshot_s3_endpoint_url,
+            self.cache_snapshot_s3_access_key,
+            self.cache_snapshot_s3_secret_key,
+        )
         if missing:
             raise ValueError(
                 "cache snapshot export is enabled but its storage is not configured: "
@@ -431,5 +487,34 @@ class Settings(BaseSettings):
                 f"AIGW_CACHE_UPLOAD_MAX_BYTES ({self.cache_upload_max_bytes}) — a published "
                 "snapshot must stay restorable through the admin upload path; raise both "
                 "together or lower the export cap"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_cache_versions(self) -> Settings:
+        """Refuse an archive backend whose storage settings are missing (fail-fast at startup).
+
+        NEVER echoes a value: the message lists variable NAMES only.
+        """
+        if self.cache_version_archive_backend == "s3":
+            missing = _missing_s3_settings(
+                "AIGW_CACHE_VERSION_S3",
+                self.cache_version_s3_endpoint_url,
+                self.cache_version_s3_access_key,
+                self.cache_version_s3_secret_key,
+            )
+            if missing:
+                raise ValueError(
+                    "cache version archive backend is 's3' but its storage is not configured: "
+                    + ", ".join(missing)
+                    + " - set the variables or use another AIGW_CACHE_VERSION_ARCHIVE_BACKEND"
+                )
+        elif (
+            self.cache_version_archive_backend == "filesystem"
+            and not (self.cache_version_archive_dir or "").strip()
+        ):
+            raise ValueError(
+                "cache version archive backend is 'filesystem' but "
+                "AIGW_CACHE_VERSION_ARCHIVE_DIR is not set"
             )
         return self

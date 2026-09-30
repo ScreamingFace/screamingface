@@ -13,6 +13,9 @@ exception, no red test, just a cache that never hit.
 INVARIANT: every exported entry point runs the json-safety guard. There is deliberately
 no way to reach the formatter without it, because the guard is what stops two DIFFERENT
 requests from collapsing onto one entry (see `_require_json_safe`).
+The ONE documented exception is `canonical_compose` (INTERNAL, not exported): it guards its
+`values` and splices member texts that the caller proves are already canonical output, so the
+archive writer need not parse and re-render a large body it already holds in canonical form.
 
 AIDEV-NOTE: this module has no dependency on anything else in the package — that is the
 point. A lane, or an out-of-repo tool that needs to compute a key, imports this and
@@ -128,3 +131,29 @@ def canonical_material_and_digest(mapping: Mapping[str, Any]) -> tuple[str, str]
     """
     material = canonical_material(mapping)
     return material, _sha256(material)
+
+
+def canonical_compose(values: Mapping[str, Any], rendered: Mapping[str, str]) -> str:
+    """``canonical_material({**values, **{k: json.loads(t)}})`` without parsing ``rendered``.
+
+    INTERNAL: for the archive writer, which holds large bodies as canonical text already. Not in
+    ``__all__``. The sort order, separators and key escaping are spelled in this module only.
+
+    PRECONDITION: each text in ``rendered`` is `canonical_material` output (or a proven byte copy
+    of it). It is spliced as is and NEVER checked, so a non-canonical text gives non-canonical
+    bytes. Nested values render exactly as they do alone, so joining the members sorted by key
+    equals one `canonical_material` call over the whole mapping.
+
+    Raises:
+        CanonicalizationError: a key is in both mappings, a ``rendered`` key is not a string, or
+            ``values`` fails the json-safety guard.
+    """
+    _require_json_safe(values, depth=0)
+    if any(not isinstance(key, str) for key in rendered):
+        raise CanonicalizationError("key material holds a non-string object key")
+    if values.keys() & rendered.keys():
+        raise CanonicalizationError("key material names one object key twice")
+    members = [(key, _canonical_json(nested)) for key, nested in values.items()]
+    members.extend(rendered.items())
+    members.sort(key=lambda member: member[0])
+    return "{" + ",".join(f"{_canonical_json(key)}:{text}" for key, text in members) + "}"

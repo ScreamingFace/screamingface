@@ -369,6 +369,67 @@ names, and it runs unchanged on SQLite and PostgreSQL:
 DELETE FROM request_cache_prompt WHERE NOT EXISTS (SELECT 1 FROM cache_capture_entry c WHERE c.key_hash = request_cache_prompt.key_hash) AND NOT EXISTS (SELECT 1 FROM request_cache_entries e WHERE e.key_hash = request_cache_prompt.key_hash)
 ```
 
+### Cache versions: freeze, receipt, archive
+
+`POST /v1/cache-versions` freezes one traced run. The body is `{"trace_id": "<32 lowercase hex>"}`.
+The caller must be logged in. The gateway freezes only the calls of the caller's own account. It
+copies the full request and the full response of each call into `cache_version_entry` and
+`cache_version_blob`. A version never changes after it is written.
+
+The route answers with a receipt (a signed JWS) and the counts of the version. A first freeze gives
+`201`. A repeated freeze of the same trace gives `200` with the same version id and the same
+`archive_sha256`. The receipt can differ (its `iat` claim).
+
+| Status | `detail.code` | Meaning |
+|---|---|---|
+| 404 | `trace_not_captured` | The account has no captured call for this trace. |
+| 413 | `cache_version_too_large` | The trace passes a cap. `detail.limit` is `entries` or `archive_bytes`. Nothing is written. |
+| 503 | `capture_disabled` | `AIGW_CACHE_VERSIONS_ENABLED` is off, or `AIGATEWAY_RECEIPT_SIGNING_KEY` is not set. |
+| 422 | (validation list) | The body is not valid. |
+
+A call that failed (outcome `error`), and a call whose live cache row is pruned or has expired, is
+not copied. It is counted in `missing_count`, and `coverage_status` is `partial`.
+
+Settings:
+
+| Variable | Default | Use |
+|---|---|---|
+| `AIGATEWAY_RECEIPT_SIGNING_KEY` | unset | The Ed25519 private key that signs receipts. Without it, capture runs and freeze answers `503`. The gateway logs one warning at start. |
+| `AIGW_CACHE_VERSION_MAX_ENTRIES` | `20000` | Most entries in one version. |
+| `AIGW_CACHE_VERSION_MAX_ARCHIVE_BYTES` | `1500000000` | Most compressed bytes of one archive. |
+| `AIGW_CACHE_VERSION_ARCHIVE_BACKEND` | `none` | `none`, `s3` or `filesystem`. With `none`, no archive is written and versions stay `frozen`. |
+| `AIGW_CACHE_VERSION_ARCHIVE_DIR` | unset | The root directory. Required for `filesystem`. |
+| `AIGW_CACHE_VERSION_S3_ENDPOINT_URL` | unset | The S3 origin. Required for `s3`. |
+| `AIGW_CACHE_VERSION_S3_BUCKET` | `screamingface-cache-versions` | The bucket. |
+| `AIGW_CACHE_VERSION_S3_REGION` | `garage` | The signing region. |
+| `AIGW_CACHE_VERSION_S3_ACCESS_KEY` | unset | The write key id. Required for `s3`. |
+| `AIGW_CACHE_VERSION_S3_SECRET_KEY` | unset | The write secret. Required for `s3`. |
+| `AIGW_CACHE_VERSION_S3_TIMEOUT_S` | `120` | The timeout of one bucket request. |
+| `AIGW_CACHE_VERSION_EXPORT_POLL_S` | `30` | The pause between export passes (a freeze wakes the exporter at once). |
+
+The gateway does not start with backend `s3` and a missing endpoint, access key or secret key. It
+does not start with backend `filesystem` and no directory.
+
+Key form. The private key is the standard base64 of the raw 32 bytes of an Ed25519 private key. The
+public key is the standard base64 of the raw 32 bytes of the public key. The receipt header has
+`kid = sha256(raw public key).hexdigest()[:16]`. The scoreboard holds a JSON map
+`{"<kid>": "<base64 public key>"}`. To rotate, add the new public key to that map first, then change
+the private key here. Do not put the key in a log, in `credential_blobs`, or in a chart value. For
+the key helper and the chart values, see the WIRING unit of E14 (`docs/plan/2026-09-29-e14-reproducible-submission/WIRING.md`).
+
+Archive. A version with status `frozen` is written to the archive by a background task. The task
+writes two objects, in this order: `cache-versions/<version id>/entries.jsonl.gz` and
+`cache-versions/<version id>/manifest.json`. Then it sets the status to `archived`. The task rebuilds
+the entries from the database rows and checks that their sha256 is `archive_sha256`. If the hash
+differs, the task does not upload, and it counts a digest mismatch. Objects are written once: the
+gateway checks with a signed `HEAD` and never overwrites an object that exists. While the bucket is
+down, versions stay `frozen`, the task retries with a growing pause (1 s, then 2 s, 4 s, up to 5
+minutes), and the database rows stay complete. Server-side encryption of the bucket is a bucket
+setting, not a request header.
+
+The freeze and export counters stay in the process (no metrics library): `freezes` by result,
+`missing_total`, `export_pending`, `export_failures` and `export_digest_mismatches`.
+
 ### Plaintext storage boundary
 
 Global response rows are readable to anyone with database, replica, snapshot or backup access. If a

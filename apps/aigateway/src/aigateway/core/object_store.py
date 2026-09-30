@@ -7,9 +7,9 @@ an explicit `Content-Length` and a full-payload sha256 — plain transfer, no aw
 encoding, so the signer stays inside the bound `sigv4` documents (chunked payload SIGNING
 would be the signal to take a real client).
 
-WHY PUT-only: retention is keep-all and expiry is a bucket lifecycle rule (locked decision
-3) — there is no LIST, DELETE or GET in this store, so the SigV4 slice never grows past the
-one operation that is cheap to sign correctly.
+WHY PUT-only (plus the empty-payload HEAD of the E14 write-once archive): retention is keep-all
+and expiry is a bucket lifecycle rule (locked decision 3) — there is no LIST, DELETE or GET in
+this store, so the SigV4 slice never grows past the operations that are cheap to sign correctly.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import httpx
 
-from .sigv4 import Credentials, authorization_header
+from .sigv4 import EMPTY_PAYLOAD_SHA256, Credentials, authorization_header
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class _FileStream(httpx.AsyncByteStream):
 
 
 class S3ObjectStore:
-    """PUT a single object to one S3-compatible bucket, signed in full."""
+    """PUT (or HEAD) a single object in one S3-compatible bucket, signed in full."""
 
     def __init__(
         self,
@@ -158,10 +158,27 @@ class S3ObjectStore:
                 f"{response.text[:200]}"
             )
 
+    async def head(self, key: str) -> int:
+        """The status code of a signed HEAD of object `key`. A redirect is never followed.
+
+        Raises :class:`S3StorageError` when the store cannot be reached; the message carries the
+        exception type only, never a credential.
+        """
+        headers = self._signed_headers(key, sha256_hex=EMPTY_PAYLOAD_SHA256, method="HEAD")
+        url = f"{self._config.endpoint_url.rstrip('/')}/{self._config.bucket}/{key}"
+        try:
+            async with self._client_factory() as client:
+                response = await client.head(url, headers=headers)
+        except httpx.HTTPError as exc:
+            raise S3StorageError(
+                f"HEAD {key} could not reach object storage ({type(exc).__name__})"
+            ) from None
+        return response.status_code
+
     def _url_path(self, key: str) -> str:
         return f"/{self._config.bucket}/{key}"
 
-    def _signed_headers(self, key: str, *, sha256_hex: str) -> dict[str, str]:
+    def _signed_headers(self, key: str, *, sha256_hex: str, method: str = "PUT") -> dict[str, str]:
         host = httpx.URL(self._config.endpoint_url).netloc.decode("ascii")
         now = datetime.now(UTC)
         headers = {
@@ -173,7 +190,7 @@ class S3ObjectStore:
         # gets sent — so the SignedHeaders list and the wire headers cannot drift apart.
         headers["Authorization"] = authorization_header(
             credentials=self._config.credentials,
-            method="PUT",
+            method=method,
             path=self._url_path(key),
             query="",
             headers=headers,

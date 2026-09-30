@@ -17,3 +17,11 @@ from dataclasses import dataclass, field
 class CaptureStats:
     rows: collections.Counter[str] = field(default_factory=collections.Counter)  # by outcome
     failures: int = 0
+    # FEATURE: OME-1307 (E14, GW-freeze) - freeze and export counters, in process like the above.
+    freezes: collections.Counter[str] = field(
+        default_factory=collections.Counter
+    )  # by created / reused / not_found / too_large
+    missing_total: int = 0
+    export_pending: int = 0
+    export_failures: int = 0
+    export_digest_mismatches: int = 0
