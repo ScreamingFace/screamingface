@@ -90,3 +90,16 @@ def test_the_sdk_copy_matches_the_engine_copy() -> None:
     # be byte-identical to the engine's, not merely accept the same happy cases
     # (a widened SDK regex would otherwise stay green).
     assert _AIGATEWAY_HTTP_CODE.pattern == engine_family == r"aigateway_http_[1-5][0-9]{2}"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "provider_queue_timeout",
+        "provider_execution_timeout",
+        "caller_deadline_exceeded",
+        "aigateway_deadline_exceeded",
+    ],
+)
+def test_provider_phase_timeout_codes_are_accepted(code: str) -> None:
+    assert _failure(code).code == code
