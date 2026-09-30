@@ -24,12 +24,20 @@ Stages of ``replay_stack``, in execution order:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._local_proc import ManagedProcess, clean_env, free_port, repo_root, sync_project, venv_bin
+from ._local_proc import (
+    ManagedProcess,
+    clean_env,
+    free_port,
+    refuse_secret_env,
+    repo_root,
+    sync_project,
+    venv_bin,
+)
 from .ports import ReplayBackend
 
 
@@ -45,9 +53,17 @@ class ReplayStack:
 class EngineProcess:
     """The engine's local mode as a supervised subprocess on a free loopback port."""
 
-    def __init__(self, *, work_dir: Path, assets_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        work_dir: Path,
+        assets_dir: Path | None = None,
+        extra_env: Mapping[str, str] | None = None,
+    ) -> None:
+        refuse_secret_env(extra_env)
         self._work_dir = work_dir
         self._assets_dir = assets_dir
+        self._extra_env = dict(extra_env or {})
         self._process: ManagedProcess | None = None
 
     def start(self, aigateway_base_url: str) -> str:
@@ -68,6 +84,7 @@ class EngineProcess:
         )
         if self._assets_dir is not None:
             env["URL4_BENCHMARK_ASSETS"] = str(self._assets_dir)
+        env.update(self._extra_env)
         self._process = ManagedProcess(
             name="screamingface-engine",
             command=[
