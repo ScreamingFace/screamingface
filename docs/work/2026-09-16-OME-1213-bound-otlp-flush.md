@@ -143,3 +143,48 @@ message — each must kill a test.
   - **Not verified against a real collector.** Nothing here has failed to export to a live SigNoz.
     The behaviour is proven through the SDK's own contract and a stub; the deployed proof needs
     the platform to open the network path (see `OME-1211`).
+
+## Review follow-up (2026-09-30)
+
+A review against the installed SDK found that this unit's two headline behaviours did nothing.
+
+- **Finding.** In opentelemetry-sdk 1.44, `BatchSpanProcessor.force_flush` ignores
+  `timeout_millis` and returns True unless the processor is already shut down
+  (`sdk/_shared_internal/__init__.py`, a TODO for upstream opentelemetry-python#4568).
+  `BatchProcessor._export` discards the exporter's `FAILURE`. Measured through this unit's
+  `close()` against an unreachable collector: 7.8 s for 1 span, 21.6 s for 1100, and no warning.
+  D4's premise was wrong. A real processor never returns False, so the stub tested a branch that
+  production never takes.
+- **D7 — the sink enforces the bound.** `close()` runs flush-then-shutdown on a daemon thread and
+  joins it for `FLUSH_TIMEOUT_MS`. A stalled flush is abandoned with a WARNING. The thread still
+  shuts the exporter down once the export returns, and as a daemon it never holds the exiting
+  process open. The timeout is still passed to `force_flush`, for an SDK that honours it.
+- **D8 — the exporter gives the verdict.** `CountingSpanExporter` wraps `OTLPSpanExporter` and
+  counts every span in a batch that returned `FAILURE` or raised. `close()` warns with that count.
+  This also catches fast failures such as a 401, a 404 or a refused connection, which
+  `force_flush` reports as success.
+- **D9 — the endpoint is resolved once and handed to the exporter.** `_endpoint()` appends
+  `/v1/traces` to the generic variable the way OTel does, and `sink_from_env` passes the result
+  to `OTLPSpanExporter(endpoint=...)`. Before this, the log printed the raw generic variable, a URL
+  that nothing posted to.
+- **Files:** `tracing/otlp.py`, and the new `tests/unit/test_otlp_close.py` (10 tests, all through
+  the real `BatchSpanProcessor`, no stub). `test_otlp_sink.py` is untouched and its tests still
+  pass.
+- **Verification:**
+  - `run_gates.py screamingface-engine` **ALL GATES GREEN**.
+  - Five mutations, five killed: the bound ignored, the count ignored, `FAILURE` not counted,
+    the raw generic endpoint logged, the counter not wired into `sink_from_env`.
+  - Re-measured with the production wiring against an unreachable collector: 5.0 s for both
+    1 and 1100 spans, one WARNING naming `http://127.0.0.1:9/v1/traces`.
+  - `import screamingface_engine.runner.main` still loads 0 `opentelemetry` modules.
+  - End to end, as a separate run process against a collector that accepts the connection and
+    never answers, on Python 3.12 and on 3.13 (the image's version): `close()` returned in 5.0 s,
+    and the process exited with code 0 right after, with nothing on stderr. The abandoned daemon
+    thread does not hold the process open.
+  - opentelemetry-sdk 1.45.0 has the same `force_flush`. Upstream #4568 is still open, and its
+    fix PR (#4982) was closed unmerged, so an SDK upgrade would not fix this on its own.
+- **Known limit:** if more than 2048 spans queue up while the collector is down, the SDK drops
+  them on `emit`, before any export. The counter never sees those. The warning still fires, but
+  its count understates the loss.
+- **Still not verified against a live collector**, as above.
+- **Commit:** `b796c4ada fix(engine): enforce the OTLP close bound and count refused spans`.
