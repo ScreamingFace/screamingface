@@ -60,7 +60,9 @@ package fails the moment the copy drifts.
   each; GREEN after the pin change, 7 passed each. SDK inspect-export tests
   (`tests/test_inspect_log_write.py`) 7 passed on 0.3.263. `audit_dependabot_ignores.py` exit 0.
   Relock moved only inspect-ai 0.3.270 → 0.3.263 plus the aioboto3/aiofiles pair it needs.
-  `run_gates.py` for both stacks: GATES_PENDING.
+  `run_gates.py screamingface` and `run_gates.py screamingface-engine`: ALL GATES GREEN
+  (ruff, format, pyright, full suites with coverage, notebooks, build, distribution, layering;
+  first run failed on `ruff format` only, fixed).
 - **Deviations:** the two scope additions above. `datasets` and `inspect-evals` stay out of
   scope (Engine-only); the wider "`datasets` is not in any Benchmark Revision" gap is recorded
   on OME-1410.
