@@ -71,3 +71,29 @@ class IdentityAwareJobRunner(JobRunner):
         client_version: str | None = None,
         shape: RunShape = "expression",
     ) -> str: ...
+
+
+class ReplayAwareJobRunner(IdentityAwareJobRunner):
+    """A runner whose `schedule` also carries the run's opaque cache-version replay grant.
+
+    WHY a sub-port and not a new parameter on `IdentityAwareJobRunner`: the append-only test
+    gate protects six existing test fakes that override `schedule` with an explicit list.
+    Both production adapters implement this port; the REST edge requires it only for a run
+    that carries a grant."""
+
+    @abstractmethod
+    async def schedule(
+        self,
+        topic: str,
+        url4: str,
+        deadline_s: int,
+        *,
+        traceparent: str | None = None,
+        credential: str | None = None,
+        identity: Mapping[str, str] | None = None,
+        cache: CachePolicy | None = None,
+        answer_seed: int | None = None,
+        client_version: str | None = None,
+        shape: RunShape = "expression",
+        replay_grant: str | None = None,
+    ) -> str: ...

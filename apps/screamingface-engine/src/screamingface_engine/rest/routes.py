@@ -38,7 +38,7 @@ from screamingface_engine.error_text import (
     ENGINE_ERROR_CODES,
     public_message,
 )
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, ReplayAwareJobRunner
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
@@ -64,6 +64,8 @@ _logger = logging.getLogger(__name__)
 # INVARIANT: every "broker down" 503 (unreadable queue tail, unavailable queue at schedule time)
 # uses THIS value; the capacity 503 keeps its drain estimate.
 QUEUE_UNAVAILABLE_RETRY_AFTER_S = 5
+
+CACHE_REPLAY_HEADER = "X-SF-Cache-Replay"
 
 _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "failed": (502, "Bad Gateway", "the run failed"),
@@ -206,6 +208,58 @@ def _parse_answer_seed(raw: str | None) -> int | None:
         ) from None
 
 
+def _parse_replay_grant(request: Request) -> str | None:
+    """Read the caller's opaque cache-version replay grant off the start request (E14, RP-D2).
+
+    INVARIANT: the value is opaque. It is neither stripped nor decoded here — the gateway is the
+    only party that verifies it. Every refusal happens at the edge, before anything is scheduled:
+    a replay must never become a live run in silence.
+    """
+    values = [v for v in request.headers.getlist(CACHE_REPLAY_HEADER) if v.strip()]
+    if not values:
+        return None
+    if len(values) > 1:
+        raise ProblemException(
+            status=400,
+            title="Bad Request",
+            detail="send one X-SF-Cache-Replay header",
+            code="replay_grant_ambiguous",
+        )
+    value = values[0]
+    if len(value.encode("utf-8")) > job_env.MAX_REPLAY_GRANT_BYTES:
+        raise ProblemException(
+            status=431,
+            title="Request Header Fields Too Large",
+            detail="the X-SF-Cache-Replay header exceeds 2048 bytes",
+            code="replay_grant_too_large",
+        )
+    return value
+
+
+def _checked_replay_grant(request: Request, deps: _Deps) -> str | None:
+    """The request's replay grant, refused (503) when this Engine cannot replay.
+
+    INVARIANT: the refusal comes BEFORE `_refuse_existing` and before any hold.
+    """
+    grant = _parse_replay_grant(request)
+    if grant is not None:
+        _replay_runner(deps)
+    return grant
+
+
+def _replay_runner(deps: _Deps) -> ReplayAwareJobRunner:
+    """The job runner as a replay-aware one, or a 503 when this Engine's runner cannot carry a
+    grant."""
+    if isinstance(deps.job_runner, ReplayAwareJobRunner):
+        return deps.job_runner
+    raise ProblemException(
+        status=503,
+        title="Service Unavailable",
+        detail="this Engine's runner cannot carry a cache-version replay",
+        code="replay_unsupported",
+    )
+
+
 def _require_q(q: str | None) -> str:
     """Return the url4 expression, or raise 400 if the ``q`` query parameter is missing/empty."""
     if not q:
@@ -266,6 +320,7 @@ async def _schedule(
     client_version: str | None = None,
     shape: job_env.RunShape = "expression",
     deadline_s: int | None = None,
+    replay_grant: str | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -282,17 +337,34 @@ async def _schedule(
     and the port cannot represent a selector, so every run this Engine schedules is selector-less.
     """
     try:
-        await deps.job_runner.schedule(
-            topic,
-            url4,
-            deps.settings.job_deadline_s if deadline_s is None else deadline_s,
-            traceparent=traceparent,
-            identity=identity,
-            cache=cache,
-            answer_seed=answer_seed,
-            client_version=client_version,
-            shape=shape,
-        )
+        deadline = deps.settings.job_deadline_s if deadline_s is None else deadline_s
+        # WHY the plain call when there is no grant: a runner that is not replay-aware (the test
+        # fakes) must keep working for every plain run. The grant is never logged.
+        if replay_grant is None:
+            await deps.job_runner.schedule(
+                topic,
+                url4,
+                deadline,
+                traceparent=traceparent,
+                identity=identity,
+                cache=cache,
+                answer_seed=answer_seed,
+                client_version=client_version,
+                shape=shape,
+            )
+        else:
+            await _replay_runner(deps).schedule(
+                topic,
+                url4,
+                deadline,
+                traceparent=traceparent,
+                identity=identity,
+                cache=cache,
+                answer_seed=answer_seed,
+                client_version=client_version,
+                shape=shape,
+                replay_grant=replay_grant,
+            )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
         _logger.info(
@@ -596,11 +668,19 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     400: _problem(
         "The url4 expression query parameter `q` is required, or the request states the "
-        "unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+        "unsupported `X-Profile` header (`code: x_profile_unsupported`), or states more than "
+        "one `X-SF-Cache-Replay` header (`code: replay_grant_ambiguous`)."
     ),
     409: _problem("A run already exists for this topic (single-shot)."),
     428: _problem("Attach a WebSocket to the topic before starting the run."),
+    431: _problem(
+        "The X-SF-Cache-Replay header exceeds 2048 bytes (`code: replay_grant_too_large`)."
+    ),
     502: _problem("The run failed."),
+    503: _problem(
+        "This Engine's runner cannot carry a cache-version replay (`code: replay_unsupported`), "
+        "or the runner is at capacity."
+    ),
     504: _problem("The run exceeded its 16 h deadline."),
 }
 _STOP_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -677,6 +757,16 @@ async def start_run(
             "Absent, the run's requests are byte-identical to an unseeded run's.",
         ),
     ] = None,
+    # Documents the header in OpenAPI; `_parse_replay_grant` reads it off the request.
+    _x_sf_cache_replay: Annotated[
+        str | None,
+        Header(
+            alias="X-SF-Cache-Replay",
+            description="Optional opaque cache-version replay grant (at most 2048 bytes). The "
+            "Engine never reads its content; it carries it to AI Gateway on every chat call of "
+            "the run.",
+        ),
+    ] = None,
     # DECLARED HERE, RESOLVED IN `_converge_cache`. The run's cache intent has two carriers — this
     # header and the WS attach frame — and the header wins when both speak. Reading it into a
     # policy is therefore not this handler's business alone: `cache_intent.parse_cache_control`
@@ -718,6 +808,7 @@ async def start_run(
         # an empty mapping meaning it.
         identity = job_env.identity_from_headers(request.headers) or None
         answer_seed = _parse_answer_seed(x_answer_seed)
+        replay_grant = _checked_replay_grant(request, deps)
         clock = getattr(request.app.state, "clock", default_clock)
         client_version = (
             parse_user_agent(request.headers.get("User-Agent"))
@@ -738,6 +829,7 @@ async def start_run(
                 cache=_converge_cache(deps, topic, cache_control, clock),
                 answer_seed=answer_seed,
                 client_version=client_version,
+                replay_grant=replay_grant,
             )
             # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
             # hold is not accept latency, and counting it would hide the queue-wait gap.

@@ -19,7 +19,7 @@ from functools import partial
 
 from screamingface_engine import job_env
 from screamingface_engine.client_provenance import ProvenanceExecutor
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import ReplayAwareJobRunner
 from screamingface_engine.run_evidence import (
     TerminalWatch,
     adopt_or_mint_traceparent,
@@ -72,7 +72,7 @@ def _map_status(task: asyncio.Task[None] | None) -> JobStatus:
     return _terminal_status(task)
 
 
-class InProcessJobRunner(IdentityAwareJobRunner):
+class InProcessJobRunner(ReplayAwareJobRunner):
     """`JobRunner` backed by a `dict[str, asyncio.Task]`, one task per run.
 
     Differs from the queue-backed runner in two ways that follow from the substrate rather
@@ -169,6 +169,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,
         shape: job_env.RunShape = "expression",
+        replay_grant: str | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -207,6 +208,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # one caller's sitting onto the next caller's run, corrupting both records (OME-1038).
         env.pop(job_env.ANSWER_SEED, None)
         env.update(job_env.answer_seed_to_env(answer_seed))
+        # INVARIANT: same reset as the seed — a grant left in `_base_env` would replay one caller's
+        # version onto another caller's run.
+        env.pop(job_env.CACHE_REPLAY_GRANT, None)
+        env.update(job_env.replay_grant_to_env(replay_grant))
         # INVARIANT (OME-908): local mode's downstream bound is the shared fair-share gate,
         # NEVER this env — a copy exported in the operator's shell would stack a per-run
         # `BoundedIOLayer` UNDER the gate and re-introduce exactly the static bound local
@@ -235,6 +240,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: job_env.RunShape = "expression",
+        replay_grant: str | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -262,6 +268,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             cache,
             answer_seed=answer_seed,
             shape=shape,
+            replay_grant=replay_grant,
         )
         # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
         # that raised now would take down the caller's request with nothing on the stream, where a

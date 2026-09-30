@@ -140,6 +140,17 @@ connector then adds NO seed param at all — egress stays byte-identical to an u
 which is what keeps every request-keyed replay fixture valid.
 """
 
+CACHE_REPLAY_GRANT = "URL4_CLOUD_CACHE_REPLAY_GRANT"
+"""The run's opaque cache-version replay grant (E14, contracts C1). Per-run, App-written.
+INVARIANT: opaque — the engine never decodes it (RP-D2). Never logged.
+LIMIT (D4): the grant lives 12 h from issue. The job deadline (57,600 s) plus the queue wait
+can be longer. A grant that expires mid-run makes the gateway answer 403
+replay_grant_invalid reason=expired, and the run fails with that typed error (RP-14). There
+is no refresh."""
+
+MAX_REPLAY_GRANT_BYTES = 2048
+"""C1: a grant longer than this (UTF-8 bytes) is refused with 431 at the REST edge."""
+
 CACHE_MAX_AGE_S = "URL4_CLOUD_CACHE_MAX_AGE_S"
 """The caller's freshness bound in whole seconds, when they stated one.
 
@@ -292,6 +303,23 @@ def answer_seed_from_env(env: Mapping[str, str]) -> int | None:
         return int(raw)
     except ValueError as exc:
         raise ValueError(f"{ANSWER_SEED} must be an integer, got {raw!r}") from exc
+
+
+def replay_grant_to_env(replay_grant: str | None) -> dict[str, str]:
+    """None renders NOTHING, so a plain run's env is unchanged."""
+    return {} if replay_grant is None else {CACHE_REPLAY_GRANT: replay_grant}
+
+
+def replay_grant_from_env(env: Mapping[str, str]) -> str | None:
+    """Absent or blank → None. Raises ValueError when longer than MAX_REPLAY_GRANT_BYTES
+    (the App refuses that at the edge, so a longer value here is a bug; the loud answer is
+    the safe one, as for the answer seed). The value is returned as written, not stripped."""
+    raw = env.get(CACHE_REPLAY_GRANT)
+    if raw is None or not raw.strip():
+        return None
+    if len(raw.encode("utf-8")) > MAX_REPLAY_GRANT_BYTES:
+        raise ValueError(f"{CACHE_REPLAY_GRANT} exceeds {MAX_REPLAY_GRANT_BYTES} bytes")
+    return raw
 
 
 def io_concurrency_from_env(env: Mapping[str, str]) -> int | None:
@@ -516,6 +544,7 @@ WRITTEN_BY_APP = frozenset(
         STREAM_GRACE_S,
         TRACEPARENT,
         ANSWER_SEED,
+        CACHE_REPLAY_GRANT,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
         EXTRA_MODELS,
@@ -567,6 +596,7 @@ __all__ = [
     "BRIDGE_MEMORY_BUDGET_BYTES",
     "CACHE_MAX_AGE_S",
     "CACHE_PARTICIPATE",
+    "CACHE_REPLAY_GRANT",
     "DEFAULT_ARTIFACTS_DIR",
     "DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES",
     "DEFAULT_NATS_URL",
@@ -587,6 +617,7 @@ __all__ = [
     "IDENTITY_HEADER_ENV",
     "IO_CONCURRENCY",
     "JOB_DEADLINE_S",
+    "MAX_REPLAY_GRANT_BYTES",
     "NATS_URL",
     "REQUIRED",
     "RESULT_HARD_CAP_BYTES",
@@ -607,4 +638,6 @@ __all__ = [
     "identity_for_forwarding",
     "identity_to_env",
     "number_from_env",
+    "replay_grant_from_env",
+    "replay_grant_to_env",
 ]

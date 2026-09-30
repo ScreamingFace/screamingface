@@ -32,6 +32,7 @@ from screamingface_engine.artifacts import (
 from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
+from screamingface_engine.replay_outcomes import replay_outcome_scope
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCostTotals
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
@@ -678,6 +679,22 @@ class _RunState:
         return "mixed", "mixed"
 
 
+def _raise_if_grant_rejected(counters: RunCacheCounters) -> None:
+    """Fail the RUN when the gateway rejected its replay grant.
+
+    FEATURE (E14, RP-E6): the run fails even when a benchmark collected the failed call as a
+    failed case. It never becomes a live run in silence. `execute` turns this into
+    `Terminated(status="failed")` with the code.
+    """
+    rejection = counters.grant_rejection_reason
+    if rejection is not None:
+        raise ResolutionError(
+            f"the replay grant was rejected by aigateway (reason={rejection})",
+            code="replay_grant_invalid",
+            permanent=True,
+        )
+
+
 def _closing_logs(bridge: _Bridge, counters: RunCacheCounters) -> list[Traced]:
     """The log frames a run emits about ITSELF, after its last span and before `Completed`.
 
@@ -934,7 +951,11 @@ class Url4Executor(Executor):
             # malformed scope value raising outside it would leave the consumer's `drain`
             # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
             try:
-                with run_trace_scope(trace), self._scope_context():
+                with (
+                    run_trace_scope(trace),
+                    self._scope_context(),
+                    replay_outcome_scope(state.cache_counters),
+                ):
                     return await self._evaluate(url4, trace, bridge)
             finally:
                 bridge.close()
@@ -945,6 +966,7 @@ class Url4Executor(Executor):
                 for frame in state.map(ev):
                     yield frame
             eval_result = await task
+            _raise_if_grant_rejected(state.cache_counters)
             for frame in _closing_logs(bridge, state.cache_counters):
                 yield frame
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap

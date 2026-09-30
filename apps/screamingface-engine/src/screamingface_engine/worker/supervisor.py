@@ -214,6 +214,8 @@ def cold_child_env(
     env = job_env.without_retired_keys(environ)
     # INVARIANT: only this queue message may declare its Client version.
     env.pop(CLIENT_VERSION_ENV, None)
+    # INVARIANT (E14): only this queue message may carry a replay grant.
+    env.pop(job_env.CACHE_REPLAY_GRANT, None)
     env.update(run_env)
     env[job_env.IO_CONCURRENCY] = str(io_concurrency)
     return env

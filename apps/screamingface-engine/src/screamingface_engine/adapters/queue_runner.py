@@ -47,7 +47,7 @@ from nats.errors import NoRespondersError
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import ReplayAwareJobRunner
 from screamingface_engine.run_evidence import adopt_or_mint_traceparent, log_scheduled
 from screamingface_engine.runner_queue import (
     BROKER_UNAVAILABLE_ERRORS,
@@ -163,7 +163,7 @@ class ControlClient:
             await self._nc.close()
 
 
-class QueueJobRunner(IdentityAwareJobRunner):
+class QueueJobRunner(ReplayAwareJobRunner):
     """Implements `JobRunner` over the durable run queue and the run's own event stream.
 
     ``queue``, ``publisher`` and ``control`` are injected (the factory builds the real
@@ -273,6 +273,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: job_env.RunShape = "expression",
+        replay_grant: str | None = None,
     ) -> str:
         """Publish the run to the queue and return its job name.
 
@@ -316,6 +317,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 io_concurrency=self._io_concurrency,
                 extra_models=() if self._extra_models is None else self._extra_models(),
                 shape=shape,
+                replay_grant=replay_grant,
             )
             await self._queue.publish(message, identity=identity)
             # AFTER the publish: a line claiming a run was scheduled when the publish then

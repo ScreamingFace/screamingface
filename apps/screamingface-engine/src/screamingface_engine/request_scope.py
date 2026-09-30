@@ -109,6 +109,9 @@ class RequestScope:
     # tell whether one more attempt still fits the budget, and the wrapper that owns the budget
     # cannot see the retry. A retry the wrapper then cuts off is billed and useless (NT-H1).
     deadline: float | None = None
+    # FEATURE (E14, RP-D2): the run's opaque replay grant. The connector writes it as its
+    # gateway-owned replay header, last. `repr=False`: it must never reach a log.
+    replay_grant: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         # INVARIANT (FX-65): the scope OWNS what it holds. `frozen` stops a write to the scope's

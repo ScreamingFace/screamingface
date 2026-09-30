@@ -28,7 +28,9 @@ Enforced structurally rather than by review: :meth:`RunCacheCounters.record` acc
 a status and a reason and nothing else, so there is no slot a key could occupy. The
 gateway's entry key IS parsed, one seam upstream
 (:class:`screamingface_engine.world.cache_readback.CacheOutcome`), and deliberately
-stops there.
+stops there. The one exception is :meth:`RunCacheCounters.record_version` (E14): the entry key also
+reaches it, only to find a repeated version hit in memory; it is never published, logged, or used
+as a label.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, localcontext
 from typing import Literal
 
+from screamingface_engine.replay_outcomes import GrantRejectionReason, VersionOutcome
 from screamingface_engine.world.accounting import AMOUNT_PRECISION
 from screamingface_engine.world.cache_readback import CacheStatus
 
@@ -53,6 +56,9 @@ type uses, defined at the engine boundary so no url4 import is needed. Change bo
 CACHE_HITS = "cache.hits"
 CACHE_MISSES = "cache.misses"
 CACHE_BYPASSES = "cache.bypasses"
+VERSION_HITS = "cache.version.hits"
+VERSION_MISSES = "cache.version.misses"
+VERSION_REPEATED_KEY_COLLAPSES = "cache.version.repeated_key_collapses"
 SAVED_COST_USD = "cache.saved_cost_usd"
 SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
 SAVED_COST_REPORTED_HITS = "cache.saved_cost.reported_hits"
@@ -201,6 +207,11 @@ class RunCacheCounters(SavedCostTotals):
     reported_hits: int = 0
     archive_hits: int = 0
     unpriced_hits: int = 0
+    version_hits: int = 0
+    version_misses: int = 0
+    version_repeated_key_collapses: int = 0
+    grant_rejection_reason: str | None = None
+    _version_hit_keys: set[str] = field(default_factory=set)
     _bypass_reasons: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -213,7 +224,7 @@ class RunCacheCounters(SavedCostTotals):
         stream that says only that the feature exists, which trains a reader to skip the line on
         the runs where it says something.
         """
-        return bool(self.hits or self.misses or self.bypasses)
+        return bool(self.hits or self.misses or self.bypasses or self.version_observed)
 
     @property
     def bypass_reasons(self) -> Mapping[str, int]:
@@ -252,6 +263,29 @@ class RunCacheCounters(SavedCostTotals):
         else:
             self.unpriced_hits += 1
 
+    @property
+    def version_observed(self) -> bool:
+        return bool(self.version_hits or self.version_misses)
+
+    def record_version(self, outcome: VersionOutcome, key: str | None) -> None:
+        """A hit whose key this run already served from the version is a repeated-key collapse
+        (RP-D5, CV-D6). A hit with no key counts as a hit and never as a collapse. The key stays
+        in memory only; it is never published (spec §7)."""
+        if outcome == "hit":
+            self.version_hits += 1
+            if key:
+                if key in self._version_hit_keys:
+                    self.version_repeated_key_collapses += 1
+                else:
+                    self._version_hit_keys.add(key)
+        elif outcome == "miss":
+            self.version_misses += 1
+
+    def record_grant_rejection(self, reason: GrantRejectionReason) -> None:
+        """First rejection wins; later ones state nothing new."""
+        if self.grant_rejection_reason is None:
+            self.grant_rejection_reason = reason
+
     def record(self, status: CacheStatus | None, reason: str | None) -> None:
         """Tally one gateway round trip's reported outcome.
 
@@ -288,6 +322,10 @@ class RunCacheCounters(SavedCostTotals):
         }
         for reason, count in self._bypass_reasons.items():
             attributes[f"{BYPASS_REASON_PREFIX}{reason}"] = count
+        if self.version_observed:
+            attributes[VERSION_HITS] = self.version_hits
+            attributes[VERSION_MISSES] = self.version_misses
+            attributes[VERSION_REPEATED_KEY_COLLAPSES] = self.version_repeated_key_collapses
         if self.saved_cost_observed:
             # Counts first, so a reader always has the coverage beside any total. Each total is
             # published only when its own provenance was observed — an absent key says "no such
@@ -313,6 +351,11 @@ class RunCacheCounters(SavedCostTotals):
         body = (
             f"gateway response cache: {self.hits} hit, {self.misses} miss, {self.bypasses} bypass"
         )
+        if self.version_observed:
+            body += (
+                f"; cache version: {self.version_hits} hit, {self.version_misses} miss, "
+                f"{self.version_repeated_key_collapses} repeated-key collapse"
+            )
         if self.saved_cost_observed:
             # Labelled COUNTERFACTUAL wherever it is rendered (PRD S5): this is what the hits
             # would have cost, not what the run paid, and the two separate totals keep the
@@ -352,5 +395,8 @@ __all__ = [
     "SavedCostProvenance",
     "SavedCostTotals",
     "UNSTATED_REASON",
+    "VERSION_HITS",
+    "VERSION_MISSES",
+    "VERSION_REPEATED_KEY_COLLAPSES",
     "RunCacheCounters",
 ]

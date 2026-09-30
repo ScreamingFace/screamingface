@@ -85,11 +85,13 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
             refusal `job_env.answer_seed_from_env` always produced — a run silently executed
             without its declared seed would publish a score claiming a sitting it never had.
-            Also an unknown ``RUN_SHAPE``, and a malformed ``JOB_DEADLINE_S`` on a direct run.
+            Also a ``CACHE_REPLAY_GRANT`` over its byte limit (the message never echoes the grant),
+            an unknown ``RUN_SHAPE``, and a malformed ``JOB_DEADLINE_S`` on a direct run.
     """
 
     try:
         answer_seed = job_env.answer_seed_from_env(env)
+        replay_grant = job_env.replay_grant_from_env(env)
         direct = job_env.run_shape_from_env(env) == "direct"
     except ValueError as exc:
         raise RunnerConfigError(str(exc)) from exc
@@ -105,6 +107,7 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         cache=job_env.cache_policy_from_env(env),
         origin="sync" if direct else "run",
         deadline=None if job_deadline is None else time.monotonic() + job_deadline,
+        replay_grant=replay_grant,
     )
 
 
