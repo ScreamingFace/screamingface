@@ -234,6 +234,9 @@ ledger is CV-E1.
 
 - Capture: ≤ 5 ms p99 added per chat request, for both writes (the prompt upsert and the
   run-index insert) `[proposed]`.
+  The two writes run in one transaction, so each call gives one commit (`ans:Q31`). The CI bench
+  runs Postgres with durable commit off (`fsync`, `synchronous_commit` and `full_page_writes` off). It measures the
+  capture cost, not the host disk. Production commit latency is a deploy property of the database.
 - Replay hit: ≤ 30 ms p99 (grant cache plus one indexed lookup), with no provider call
   `[proposed]`.
 - Freeze: ≤ 10 s for 5,000 entries `[proposed]`. The HTTP timeout is 60 s (`contracts.md` C2).
