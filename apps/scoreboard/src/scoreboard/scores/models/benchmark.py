@@ -49,6 +49,9 @@ class BaseBenchmark(BaseScoreboardModel):
     # value on every write, and a NULL from a pre-migration row reads as public, which is exactly
     # what the backfill asserts. Readers coerce via benchmark_to_schema.
     visibility = fields.CharField(max_length=16, default="public", null=True)
+    # INVARIANT (E14): fail-closed. Only `true` lets a public board publish to GitHub or serve
+    # replay to a non-owner (erd.md §2.7).
+    redistributable = fields.BooleanField(default=False, db_default=False)
     created_at = fields.DatetimeField(auto_now_add=True)
 
 

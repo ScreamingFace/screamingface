@@ -47,6 +47,25 @@ class BaseScore(BaseScoreboardModel):
     # trend at `submitted_at`. Deliberately not backfilled: no earlier enrichment time survives.
     # Only `_apply_replay_updates` writes it; authors and metadata do not move it.
     enriched_at = fields.DatetimeField(null=True)
+    # FEATURE: OME-1307 (E14a) — editable citation link. Owner-editable; http(s) only (SB-meta).
+    paper_url = fields.CharField(max_length=2048, null=True)
+    # INVARIANT (E14a): the optimistic-concurrency token for metadata edits. Starts at 1.
+    # WHY db_default: an old pod that does not know this column omits it on INSERT during a
+    # rolling rollout; the database default keeps the NOT NULL column valid (DEPLOYMENT.md).
+    metadata_revision = fields.IntField(default=1, db_default=1)
+    metadata_updated_at = fields.DatetimeField(null=True)
+    # FEATURE: OME-1307 (E14) — the system revision this head clusters under. NULL on legacy and
+    # private-board rows (erd.md §2.4).
+    # WHY a plain UUID column and not a ForeignKeyField: a ForeignKeyField adds the key
+    # `system_revision` to `Score._meta.fields_map`, and the append-only CHAR guard
+    # `test_every_score_field_reaches_at_least_one_read_dto` then fails (OD-S1). PostgreSQL gets a
+    # real FK constraint from migration 0018; SQLite (tests, local runtime) does not.
+    # WHY no db_index: Tortoise 1.1.8 `AddField` does not create the index of a `db_index=True`
+    # field (`tortoise/migrations/schema_editor/base.py:501-555` has no index step), so the model
+    # state would claim an index the database lacks. The I-S1 partial unique index
+    # (`partial_indexes.py`) already covers the lookup
+    # `(benchmark_id, benchmark_revision, system_revision_id)`.
+    system_revision_id = fields.UUIDField(null=True)
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
     correct_questions = fields.IntField(null=True)

@@ -82,3 +82,13 @@ async def tortoise_db(request: pytest.FixtureRequest) -> AsyncGenerator[None, No
         app_label="models",
     ):
         yield
+
+
+@pytest_asyncio.fixture
+async def partial_unique_indexes(tortoise_db: None) -> None:
+    """The two E14 partial unique indexes, which `generate_schemas` cannot create."""
+    from tortoise import Tortoise
+
+    from scoreboard.scores.models.partial_indexes import create_partial_unique_indexes
+
+    await create_partial_unique_indexes(Tortoise.get_connection("default"))
