@@ -1822,6 +1822,223 @@ check(
     "NoDecode, so a JSON list would be one bad address)",
 )
 
+print("\naigateway chart (E14)")
+GW_CV = "config.cacheVersions"
+GW_SECRET_NAME = f"{GATEWAY_RELEASE}-aigateway-cache-versions"
+gw_e14_default = render(GATEWAY_CHART, GATEWAY_RELEASE)
+gw_e14_default_data = configmap_data(gw_e14_default)
+check(
+    gw_e14_default_data.get("AIGW_CACHE_VERSIONS_ENABLED") == "false"
+    and gw_e14_default_data.get("AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS") == "{}"
+    and gw_e14_default_data.get("AIGW_CACHE_VERSION_ARCHIVE_BACKEND") == "none"
+    and not [
+        key for key in gw_e14_default_data if key.startswith("AIGW_CACHE_VERSION_S3_")
+    ]
+    and not secret_named(gw_e14_default, GW_SECRET_NAME)
+    and not [
+        name
+        for name in secret_refs(find(gw_e14_default, "Deployment"))
+        if name.endswith("cache-versions")
+    ],
+    "gateway default render: cache versions off, empty grant key map, archive none, no S3 key, no "
+    "cache-versions Secret, no cache-versions secretRef",
+)
+
+GW_S3_ARGS = (
+    "--set",
+    f"{GW_CV}.enabled=true",
+    "--set",
+    f"{GW_CV}.archive.backend=s3",
+    "--set",
+    f"{GW_CV}.archive.endpointUrl=http://s3.example:3900",
+)
+gw_e14_external = render(
+    GATEWAY_CHART,
+    GATEWAY_RELEASE,
+    *GW_S3_ARGS,
+    "--set",
+    f"{GW_CV}.existingSecret=aigw-cache-versions",
+)
+GW_BUNDLED_ARGS = (
+    "--set",
+    "snapshot.enabled=true",
+    "--set",
+    f"{GW_CV}.enabled=true",
+    "--set",
+    f"{GW_CV}.receiptSigningKey=ci-placeholder-key",
+    "--set",
+    f"{GW_CV}.archive.backend=s3",
+    "--set",
+    f"{GW_CV}.archiveAccessKey=ci-placeholder-id",
+    "--set",
+    f"{GW_CV}.archiveSecretKey=ci-placeholder-secret",
+    "--set",
+    # Helm needs a literal backslash before each dot of a label key. No shell runs here.
+    f"{GW_CV}.archive.readerPeers[0].podSelector.matchLabels.app\\.kubernetes\\.io/name=scoreboard",
+)
+gw_e14_bundled = render(GATEWAY_CHART, GATEWAY_RELEASE, *GW_BUNDLED_ARGS)
+gw_e14_prod = render(
+    GATEWAY_CHART, GATEWAY_RELEASE, "--values", str(GATEWAY_CHART / "values-prod.yaml")
+)
+gw_e14_names = {
+    key
+    for docs in (gw_e14_default, gw_e14_external, gw_e14_bundled, gw_e14_prod)
+    for key in configmap_data(docs)
+    if key.startswith("AIGW_CACHE_VERSION")
+    or key == "AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS"
+} | set(secret_named(gw_e14_bundled, GW_SECRET_NAME).get("stringData", {}))
+gw_settings_names = pydantic_env_names(GATEWAY_SETTINGS, "Settings", prefix="AIGW_")
+check(
+    not (gw_e14_names - gw_settings_names)
+    and E14_GATEWAY_SECRET_KEYS <= gw_settings_names,
+    "every E14 key the gateway chart renders (cache-version ConfigMap keys, the grant key map, the "
+    f"Secret keys) is a field of the gateway Settings class (unknown: "
+    f"{sorted(gw_e14_names - gw_settings_names)})",
+)
+
+gw_e14_external_data = configmap_data(gw_e14_external)
+check(
+    gw_e14_external_data.get("AIGW_CACHE_VERSIONS_ENABLED") == "true"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_ARCHIVE_BACKEND") == "s3"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_S3_ENDPOINT_URL")
+    == "http://s3.example:3900"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_S3_BUCKET")
+    == "screamingface-cache-versions"
+    and gw_e14_external_data.get("AIGW_CACHE_VERSION_S3_REGION") == "garage"
+    and not (set(gw_e14_external_data) & E14_GATEWAY_SECRET_KEYS)
+    and "aigw-cache-versions" in secret_refs(find(gw_e14_external, "Deployment"))
+    and not secret_named(gw_e14_external, GW_SECRET_NAME),
+    "gateway with an existing Secret and the s3 archive: endpoint, bucket and region in the "
+    "ConfigMap, no key in the ConfigMap, the Pod reads the operator's Secret, and the chart "
+    "renders no Secret of its own",
+)
+
+GW_REFUSED_CASES = (
+    (f"{GW_CV}.existingSecret", ("--set", f"{GW_CV}.enabled=true")),
+    (
+        f"{GW_CV}.archive.endpointUrl",
+        (
+            "--set",
+            f"{GW_CV}.enabled=true",
+            "--set",
+            f"{GW_CV}.existingSecret=x",
+            "--set",
+            f"{GW_CV}.archive.backend=s3",
+        ),
+    ),
+    (
+        f"{GW_CV}.archiveAccessKey",
+        (
+            "--set",
+            f"{GW_CV}.receiptSigningKey=x",
+            *GW_S3_ARGS,
+        ),
+    ),
+    (
+        f"{GW_CV}.archive.backend",
+        ("--set", f"{GW_CV}.archive.backend=filesystem"),
+    ),
+    (
+        f"{GW_CV}.enabled",
+        (
+            "--set",
+            f"{GW_CV}.archive.backend=s3",
+            "--set",
+            f"{GW_CV}.archive.endpointUrl=http://s3.example:3900",
+            "--set",
+            f"{GW_CV}.existingSecret=x",
+        ),
+    ),
+)
+gw_refusals = {
+    path: refused_message(GATEWAY_CHART, GATEWAY_RELEASE, *overrides)
+    for path, overrides in GW_REFUSED_CASES
+}
+check(
+    all(path in message for path, message in gw_refusals.items()),
+    "gateway cache-version renders that the app would refuse (or that hide a mistake) are REFUSED "
+    "and the message names the value to set; failing here: "
+    + ", ".join(
+        sorted(path for path, message in gw_refusals.items() if path not in message)
+    ),
+)
+
+gw_bundled_data = configmap_data(gw_e14_bundled)
+gw_bundled_secret = secret_named(gw_e14_bundled, GW_SECRET_NAME)
+gw_garage_from = [
+    element
+    for doc in docs_of_kind(gw_e14_bundled, "NetworkPolicy")
+    if doc["metadata"]["name"] == f"{GATEWAY_RELEASE}-aigateway-garage"
+    for rule in doc["spec"]["ingress"]
+    for element in rule.get("from", [])
+]
+check(
+    gw_bundled_data.get("AIGW_CACHE_VERSION_S3_ENDPOINT_URL")
+    == f"http://{GATEWAY_RELEASE}-aigateway-garage:3900"
+    and any(
+        element.get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/name")
+        == "scoreboard"
+        for element in gw_garage_from
+    )
+    and any(
+        element.get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/component")
+        == "gateway"
+        for element in gw_garage_from
+    )
+    and set(gw_bundled_secret.get("stringData", {})) == E14_GATEWAY_SECRET_KEYS,
+    "gateway with the bundled Garage: the endpoint defaults to the Garage Service, the Garage "
+    "NetworkPolicy admits the gateway AND the scoreboard reader peer, and the inline Secret holds "
+    "exactly the three E14 keys",
+)
+
+gw_prod_data = configmap_data(gw_e14_prod)
+check(
+    gw_prod_data.get("AIGW_CACHE_VERSIONS_ENABLED") == "true"
+    and gw_prod_data.get("AIGW_AUTH_MODE") == "cloudflare_headers"
+    and gw_prod_data.get("AIGW_CACHE_VERSION_ARCHIVE_BACKEND") == "none"
+    and "aigw-cache-versions" in secret_refs(find(gw_e14_prod, "Deployment"))
+    and "aigateway-ui" in peer_names(find(gw_e14_prod, "NetworkPolicy"), "ingress"),
+    "gateway prod render: cache versions on, auth mode unchanged, archive none until the bucket "
+    "exists, the Pod reads aigw-cache-versions, and the console is still admitted",
+)
+
+
+def charts_workflow_paths(event: str) -> set[str]:
+    spec = yaml.safe_load((REPO / ".github/workflows/charts.yml").read_text())
+    # PyYAML reads the bare key `on` as the boolean True (YAML 1.1).
+    triggers = spec.get("on") or spec.get(True) or {}
+    return set(triggers.get(event, {}).get("paths", []))
+
+
+charts_lint_step = next(
+    (
+        step
+        for step in yaml.safe_load((REPO / ".github/workflows/charts.yml").read_text())[
+            "jobs"
+        ]["render"]["steps"]
+        if step.get("name") == "Lint"
+    ),
+    {},
+)
+E14_CHART_PATHS = {
+    "apps/scoreboard/charts/**",
+    "apps/scoreboard/src/scoreboard/config.py",
+    "apps/aigateway/src/aigateway/config.py",
+    ".github/workflows/release-scoreboard.yml",
+}
+check(
+    E14_CHART_PATHS <= charts_workflow_paths("push")
+    and E14_CHART_PATHS <= charts_workflow_paths("pull_request")
+    and "helm lint apps/scoreboard/charts/scoreboard" in charts_lint_step.get("run", "")
+    and "helm lint apps/scoreboard/charts/db" in charts_lint_step.get("run", ""),
+    "charts.yml runs on a change to the scoreboard chart, to either settings class the verifier "
+    "reads, and to the scoreboard release lane, and its Lint step covers both scoreboard charts",
+)
+
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:
     print("\nFAILED:")

@@ -44,6 +44,17 @@ config:
   # `values.yaml`.
   requestCache:
     enabled: true
+  # Reproducible submissions (E14, OME-1307): capture, freeze and replay in production.
+  # DATA POSTURE: this stores the prompts and answers of traced runs (like the global cache above).
+  # PRECONDITION (ops, apps/aigateway/DEPLOYMENT.md "E14 deploy wiring", item 2): the Secret below
+  # exists BEFORE this file is deployed. Missing, the WHOLE gateway stops (every model call of the
+  # platform), not only E14, because the Pod reads the Secret at start.
+  cacheVersions:
+    enabled: true
+    replayGrantPublicKeys: {} # set at install time from `keygen --purpose replay-grant` stdout
+    archive:
+      backend: none # switch to s3 after DEPLOYMENT.md item 3 (bucket and keys exist)
+    existingSecret: aigw-cache-versions # created out of band (item 2)
 
 extraEnv:
   # OME-921: finite headroom above Engine's ~32-call fan-out; never set this to 0 in prod.
