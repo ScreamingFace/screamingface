@@ -84,7 +84,9 @@ def _get_or_create_semaphore(app: Any, provider: str, limit: int) -> asyncio.Sem
 
 
 @asynccontextmanager
-async def provider_slot(app: Any, provider: str, limit: int) -> AsyncIterator[None]:
+async def provider_slot(
+    app: Any, provider: str, limit: int, *, timeout_s: float | None = None
+) -> AsyncIterator[None]:
     """Acquire a concurrency slot for ``provider`` for the duration of the block.
 
     With ``limit <= 0`` the guardrail is disabled and entry is immediate.
@@ -95,5 +97,17 @@ async def provider_slot(app: Any, provider: str, limit: int) -> AsyncIterator[No
     if limit <= 0:
         yield
         return
-    async with _get_or_create_semaphore(app, provider, limit):
+    sem = _get_or_create_semaphore(app, provider, limit)
+    # Only admission consumes this deadline. Cancellation during acquire is handled
+    # by asyncio.Semaphore; a successfully acquired slot is always released below.
+    async with asyncio.timeout(timeout_s) as admission:
+        await sem.acquire()
+    try:
+        # WHY: a semaphore wakeup may run before an overdue timeout callback.
+        # Refuse expired admission even then, while still releasing the acquired slot.
+        deadline = admission.when()
+        if deadline is not None and asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError
         yield
+    finally:
+        sem.release()

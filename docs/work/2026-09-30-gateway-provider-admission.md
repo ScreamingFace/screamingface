@@ -1,0 +1,39 @@
+---
+ticket: OME-1162
+stack: aigateway
+status: done
+started: 2026-09-30
+finished: 2026-09-30
+---
+
+# gateway-provider-admission
+
+## Intent
+
+Split PR #1151 into independent draft PRs based on main, as requested by the owner.
+Check monotonic admission/caller deadlines after acquiring capacity. Run dispatch in the request task and let the disconnect watcher cancel that task immediately. Preserve classified errors, logging, and slot cleanup.
+
+## Planned changes
+
+- Import only apps/aigateway changes from reviewed commit 09a0379e.
+- Add regression coverage for the reviewed behavior and record the component contract.
+- Retain the existing OME-1162 child under OME-886; no duplicate tickets.
+
+## Test plan
+
+Run regression tests first, then stack lint, format, type, architecture, full offline
+coverage suite, and Python 3.12/3.13 race checks for Gateway. No paid provider calls.
+
+## Acceptance
+
+Component-only implementation diff; draft PR based on main; Gateway precedes Engine.
+No expired/disconnected queued call dispatches; independent timeout phases and bounded retries.
+
+## Outcome
+
+- **Actual files:** Gateway-only runtime/configuration, provider-admission contract, tests, and component SDLC records. Added seven race/classification regression cases.
+- **Commit:** `fix(gateway): bound provider phases and prevent stale waiter dispatch`.
+- **RED:** Original implementation failed four race cases (queue expiry, caller expiry, and immediate/suspended provider dispatch after disconnect). An additional overlapping-budget test exposed lost caller-deadline classification before the final fix.
+- **Gates:** `PYTEST_ADDOPTS='-m "not live and not needs_postgres"' uv run .claude/scripts/run_gates.py aigateway --base 09a0379e`: ALL GATES GREEN (lint, format, Pyright, enterprise import guard, full offline coverage suite). Focused admission plus external review/socket tests: 33 passed on each of Python 3.12 and 3.13.
+- **Deviations:** Append-only baseline is the previously reviewed PR head; the original 504 timeout-status assertion is retained because timeout classification is the intended contract. Live/Postgres tests are excluded as in offline CI; no paid calls.
+- **Wisdom review:** Absolute deadline checks release already-acquired slots; dispatch stays in its request task, eliminating the cancellation coordination gap. No new dependencies, credential changes, or Engine runtime in this PR. Deploy before Engine #1152.
