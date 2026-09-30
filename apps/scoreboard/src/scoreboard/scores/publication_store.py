@@ -20,11 +20,13 @@ from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from scoreboard.core.publish.backoff import MAX_ATTEMPTS
+from scoreboard.core.publish.eligibility import publish_refusal
 from scoreboard.core.publish.ports import ReleaseRef
 from scoreboard.core.publish.release_body import ReleaseFacts
 from scoreboard.core.publish.state import State, apply
 
 from .models import (
+    Benchmark,
     CacheVersionPublication,
     ReportedResult,
     Score,
@@ -227,6 +229,31 @@ class PublicationStore:
             withdrawn_at__lte=now - timedelta(hours=1),
         ).count()
         return {str(entry["state"]): int(entry["n"]) for entry in by_state}, pending
+
+    async def revalidate_publishable(self, result_id: UUID) -> str | None:
+        """Re-read the board of the head and return the refusal code, or None when it may go public.
+
+        The codes are those of `publish_refusal`: `private_board` or `not_redistributable`.
+
+        INVARIANT: read fresh at the time the job runs, never from the request. A request can wait
+        for hours (backoff, lease) after the route checked the board, and the worker then copies
+        the cache to a PUBLIC repository (PRD Q6, OME-894). A head or a benchmark that cannot be
+        found is refused as a private board (fail closed).
+        """
+        result = await ReportedResult.get(id=result_id)
+        head = await Score.get_or_none(id=cast(UUID, getattr(result, "head_id")))
+        benchmark = (
+            None
+            if head is None
+            else await Benchmark.get_or_none(id=cast(str, getattr(head, "benchmark_id")))
+        )
+        return publish_refusal(
+            board_visibility=None if benchmark is None else benchmark.visibility,
+            redistributable=benchmark is not None and benchmark.redistributable,
+            has_version=True,
+            state="requested",
+            last_error=None,
+        )
 
     async def release_facts(self, result_id: UUID, published_at: datetime) -> ReleaseFacts:
         """The facts of the release body, in the published (local-part) forms of the read API.

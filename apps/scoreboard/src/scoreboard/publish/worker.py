@@ -4,6 +4,9 @@ FEATURE: OME-1307 (E14), STORY: as the owner of a result, I ask once and the rel
 GitHub, even if the worker crashed half way.
 
 INVARIANT (PB-3): no GitHub call happens before the archive digest matches the receipt.
+INVARIANT (PRD Q6): the board is re-read when the job runs, before the archive and before any GitHub
+call. A request can wait for hours, and a board that turned private or a benchmark that lost
+`redistributable` since then must not reach the public repository.
 INVARIANT (PB-D1): the release tag is a pure function of the cache version id, so a retry finds the
 release by its tag and never makes a second one; an existing asset with other bytes stops the job.
 INVARIANT (PB-D3): the state is re-read under the row lock before `published` is written, so a
@@ -96,6 +99,13 @@ class PublishWorker:
         return job is not None
 
     async def _publish(self, job: PublishJob, now: datetime) -> None:
+        refusal = await self._store.revalidate_publishable(job.result_id)
+        if refusal is not None:
+            # WHY record_failed and not an integrity failure: the owner may ask again once the
+            # board is publishable (PB-E5 blocks only integrity errors).
+            await self._store.record_failed(job, error=refusal, now=now)
+            self._metrics.publish_attempts.labels(result="error").inc()
+            return
         try:
             # INVARIANT (PB-3): the digest check comes first; the publisher is not even built
             # before it passes.
@@ -177,9 +187,22 @@ class PublishWorker:
                 await publisher.delete_release(release.id)
             await publisher.delete_tag(job.release_tag)
         except PublisherError as err:
-            await self._on_error(job, err, now)
+            await self._retry_cleanup(job, err, now)
             return
         await self._store.finish_cleanup(job)
+
+    async def _retry_cleanup(self, job: PublishJob, err: PublisherError, now: datetime) -> None:
+        """Back off after EVERY error of a cleanup, retryable or not.
+
+        WHY not `_on_error`: for a withdrawn row `record_failed` only schedules the cleanup again
+        at `now` and records nothing, so a 401 or 403 that no retry fixes made a loop with no
+        sleep, and the same row kept every other job from being leased. `record_retry` has no cap
+        for a cleanup, counts the attempt and keeps `last_error`.
+        """
+        delay = next_delay_s(job.attempts + 1, retry_after_s=err.retry_after_s, jitter=self._rng())
+        await self._store.record_retry(job, error=err.message[:_ERROR_MAX], delay_s=delay, now=now)
+        result = "retry" if err.retryable else "error"
+        self._metrics.publish_attempts.labels(result=result).inc()
 
     async def _on_error(self, job: PublishJob, err: PublisherError, now: datetime) -> None:
         error = err.message[:_ERROR_MAX]

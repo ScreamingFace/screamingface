@@ -18,7 +18,7 @@ from httpx import AsyncClient
 from scoreboard.core.publish.ports import ArchivePair, PublisherError
 from scoreboard.core.publish.release_body import render_release_body
 from scoreboard.publish.worker import PublishWorker
-from scoreboard.scores.models import CacheVersionPublication
+from scoreboard.scores.models import Benchmark, CacheVersionPublication
 from tests.unit.publish._fakes import NOW, Clock, FakeArchiveReader, FakeReleasePublisher, Seeded
 from tests.unit.submissions._receipts import ANA, as_user
 
@@ -368,3 +368,133 @@ async def test_an_unexpected_error_is_logged_and_the_worker_reports_no_job(
     # instead of hammering a database that is down.
     assert handled is False
     assert "publish worker job failed" in caplog.text
+
+
+async def _withdrawn_after_publish(
+    client: AsyncClient,
+    app: FastAPI,
+    seed_result: Seed,
+    build_worker: Build,
+    clock: Clock,
+) -> tuple[Seeded, PublishWorker]:
+    seeded = await _requested(client, seed_result)
+    worker = build_worker(seeded)
+    await worker.run_once()
+    await app.state.publication_store.withdraw(
+        seeded.result_uuid, actor="admin@x.org", reason="license", now=clock()
+    )
+    return seeded, worker
+
+
+@pytest.mark.parametrize("mint_fails", [False, True], ids=["delete-refused", "token-mint-refused"])
+async def test_a_final_error_in_a_cleanup_backs_off_and_records_the_error(
+    publish_client: AsyncClient,
+    publish_app: FastAPI,
+    seed_result: Seed,
+    build_worker: Build,
+    fake_publisher: FakeReleasePublisher,
+    clock: Clock,
+    mint_fails: bool,
+) -> None:
+    """A 401 or 403 that no retry fixes must not turn the cleanup into a loop with no sleep.
+
+    INVARIANT: after any `PublisherError` a cleanup job waits (`next_attempt_at > now`), counts the
+    attempt and keeps `last_error`, so `run_once` returns False until the delay is over and an
+    operator can see why the cleanup is stuck.
+    """
+    seeded, worker = await _withdrawn_after_publish(
+        publish_client, publish_app, seed_result, build_worker, clock
+    )
+    assert f"cv-{seeded.version_id}" in fake_publisher.releases
+    refusal = PublisherError("HTTP 403: Resource not accessible by integration", retryable=False)
+    if mint_fails:
+
+        async def no_token() -> FakeReleasePublisher:
+            raise refusal
+
+        worker = PublishWorker(
+            store=publish_app.state.publication_store,
+            publisher_factory=no_token,
+            archive_reader=FakeArchiveReader({}),
+            facts_loader=publish_app.state.publication_store.release_facts,
+            metrics=publish_app.state.metrics,
+            clock=clock,
+            rng=lambda: 0.0,
+        )
+    else:
+        fake_publisher.fail_methods["delete_release"] = refusal
+    fake_publisher.calls.clear()
+
+    assert await worker.run_once() is True
+
+    row = await _row(seeded)
+    assert row.state == "withdrawn"
+    assert row.attempts == 1
+    assert row.next_attempt_at == clock() + timedelta(seconds=60)
+    assert row.last_error == "HTTP 403: Resource not accessible by integration"
+    assert row.lease_until is None
+    calls_after_first = len(fake_publisher.calls)
+    # The clock is held still: nothing is due, so the loop of `main` sleeps.
+    assert await worker.run_once() is False
+    assert len(fake_publisher.calls) == calls_after_first
+
+
+async def _turn_board(seeded: Seeded, **fields: object) -> None:
+    del seeded
+    await Benchmark.filter(id="pub").update(**fields)
+
+
+@pytest.mark.parametrize(
+    ("fields", "error"),
+    [
+        pytest.param({"visibility": "private"}, "private_board", id="turned-private"),
+        pytest.param({"redistributable": False}, "not_redistributable", id="not-redistributable"),
+    ],
+)
+async def test_a_board_that_stops_being_publishable_after_the_request_is_not_published(
+    publish_client: AsyncClient,
+    seed_result: Seed,
+    build_worker: Build,
+    fake_publisher: FakeReleasePublisher,
+    fields: dict[str, object],
+    error: str,
+) -> None:
+    """PRD Q6: private-board and gated-benchmark versions never go to the public repo.
+
+    INVARIANT: the worker re-reads the board when the job runs, because a request can wait for
+    hours (backoff and lease) after the route checked it. The check comes before the archive read
+    (the reader here is empty: a read first would fail as `archive_missing`) and before any GitHub
+    call.
+    """
+    seeded = await _requested(publish_client, seed_result)
+    await _turn_board(seeded, **fields)
+
+    handled = await build_worker(seeded, FakeArchiveReader({})).run_once()
+
+    assert handled is True
+    row = await _row(seeded)
+    assert (row.state, row.last_error, row.lease_until) == ("failed", error, None)
+    assert fake_publisher.calls == []
+    assert fake_publisher.releases == {}
+
+
+async def test_the_owner_can_publish_again_when_the_board_is_publishable_again(
+    publish_client: AsyncClient,
+    seed_result: Seed,
+    build_worker: Build,
+    fake_publisher: FakeReleasePublisher,
+) -> None:
+    """A refusal of the worker is not an integrity failure: PB-E5 lets the owner retry it."""
+    seeded = await _requested(publish_client, seed_result)
+    await _turn_board(seeded, visibility="private")
+    await build_worker(seeded).run_once()
+    await _turn_board(seeded, visibility="public")
+
+    again = await publish_client.post(
+        f"/v1/results/{seeded.result_id}/publish", headers=as_user(ANA)
+    )
+    await build_worker(seeded).run_once()
+
+    assert again.status_code == 202
+    assert (await _row(seeded)).state == "published"
+    assert f"cv-{seeded.version_id}" in fake_publisher.releases
