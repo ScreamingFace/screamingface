@@ -83,7 +83,7 @@ unchanged. Provider-access rejection itself stays covered by Client preflight te
 
 ## E14 spines (OME-1307)
 
-Five end-to-end flows of the reproducible-submission work, on a real local stack: the real
+Four end-to-end flows of the reproducible-submission work, on a real local stack: the real
 gateway, the real engine and the real scoreboard (three processes, two Postgres containers). The
 model answers come from the committed `ifeval` snapshot, so a cache miss is a loud failure and
 nothing is ever spent. The scoreboard and the gateway run the production auth mode
@@ -95,7 +95,6 @@ allowed network, so the two-user flows use real identities.
 | SC-23 | `test_e14_cluster.py` | two users run one system: one leaderboard row, two results, the original ranks |
 | RP-21 | `test_e14_replay.py` | a second user replays a submitted run from its cache version: all hits, zero cost, labelled a replay |
 | MD-21 | `test_e14_submit_edit.py` | submit, edit the paper link and authors, read them on the leaderboard |
-| RP-22 | `test_e14_replay.py` | a changed recipe pinned by date: partial hits. SKIPPED until a zero-spend fixture exists (a new fixture needs a paid owner run) |
 | PB-22 | `test_e14_publish_nightly.py` | submit, publish to a sandbox GitHub repo, download, the asset digest matches the version. Nightly only |
 
 ```sh

@@ -60,8 +60,7 @@ final-check fixes are merged too. The table gives the merge commit of each unit 
   `run_gates.py` ALL GATES GREEN against `origin/main`. The append-only check flags only the
   approved exceptions (below) and the drift of `main`.
 - `verify_chart_wiring.py`: 128/128 checks pass.
-- Docker E2E lane on the e14 branch: 15 passed, 2 skipped. RP-22 skips (no zero-spend fixture).
-  PB-22 skips (nightly only).
+- Docker E2E lane on the e14 branch: 15 passed, 1 skipped. PB-22 skips (nightly only). RP-22 is dropped (Q30).
 - No paid provider call was made.
 
 **Open items for the owner.** Each item has the question, the default that the code uses now,
@@ -69,7 +68,7 @@ and where it is recorded.
 
 | # | Question | Default now in the code | Recorded in |
 |---|---|---|---|
-| 1 | RP-22 needs a zero-spend fixture for a changed recipe (a paid owner run). | The test is skipped with a reason. | `E2E.md` §9 OD-4; `docs/work/2026-09-29-e14-e2e.md` "Open items"; `tests/e2e/test_e14_replay.py` |
+| ~~1~~ | ~~RP-22 needs a zero-spend fixture for a changed recipe (a paid owner run).~~ | **Dropped (owner, 2026-09-30, Q30):** no paid run is used as a test. The RP-22 test is removed. | `E2E.md` §9 OD-4; `docs/work/2026-09-29-e14-e2e.md` |
 | 2 | PB-22 needs a sandbox GitHub repo, a GitHub App, the secrets `E14_SANDBOX_APP_ID`, `E14_SANDBOX_APP_PRIVATE_KEY`, `E14_SANDBOX_APP_INSTALLATION_ID`, and the variable `E14_SANDBOX_REPO`. | The test skips until they exist. | `E2E.md` §9 OD-5; E2E ledger D-7 and "Open items"; `tests/e2e/test_e14_publish_nightly.py` |
 | 3 | D5 ops precondition: route the prod scoreboard host through the Cloudflare Access/Envoy edge before the `values-prod.yaml` `cloudflare_headers` switch ships. | Not code. The prod archive is `none` and publish is off until it is done. | `WIRING.md` §9 item 1; §8 "Ops" below; `apps/scoreboard/DEPLOYMENT.md` "E14 deploy wiring" |
 | 4 | RP-X1: must a grant call with NO HTTP response (transport failure) also count as a version miss? | **Decided (user, 2026-09-30, Q26):** not counted. No code change. | `docs/work/2026-09-30-e14-final-apps-screamingface-engine.md` "Deviations" |
@@ -144,11 +143,11 @@ dependencies:
 | SB-publish | W4 | `apps/scoreboard` | SB-submit, SB-meta (and so SB-schema) | PB-1..PB-20 | `SB-publish.md` |
 | SDK-replay | W4 | `packages/screamingface` | SDK-submit (and so SDK-meta) | RP-16..RP-20, PB-21 | `SDK-replay.md` |
 | WIRING | W5 | scoreboard + aigateway charts, `apps/scoreboard` admin route, `packages/screamingface/_runtime`, chart CI | SB-schema, SB-submit, SB-grants, SB-publish, GW-capture, GW-freeze, GW-replay, SDK-replay | WR-1..WR-9, KG-1..KG-7, LR-1..LR-6, CH-1..CH-15 (plan-local) | `WIRING.md` |
-| E2E | W5 | `packages/screamingface/tests/e2e` + workflows | all W1..W4 units; WIRING (as built: direct import) | MD-21, SC-23, RP-21, RP-22, PB-22 | `E2E.md` |
+| E2E | W5 | `packages/screamingface/tests/e2e` + workflows | all W1..W4 units; WIRING (as built: direct import) | MD-21, SC-23, RP-21, PB-22 | `E2E.md` |
 
 ## 4. Test-id coverage
 
-All 136 PRD ids have exactly one owner (counted from the `prd/*.md` §7 tables):
+All 135 PRD ids have exactly one owner (RP-22 is dropped, Q30) (counted from the `prd/*.md` §7 tables):
 
 | Prefix | PRD count | Owners |
 |---|---|---|
@@ -156,7 +155,7 @@ All 136 PRD ids have exactly one owner (counted from the `prd/*.md` §7 tables):
 | CV | 28 | GW-capture 1-6, 24, 26, 28 (9); GW-freeze 7-15, 22, 23, 25, 27 (13); GW-replay 16-21 (6) |
 | MD | 21 | SB-meta 1-18, 20 (19); SDK-meta 19; E2E 21 |
 | SC | 23 | SB-submit 1-17, 22 (18); SDK-submit 18-20 (3); ENG-freeze 21; E2E 23 |
-| RP | 22 | SB-grants 1-4, 6-10 (9); GW-replay 5; ENG-replay 11-15 (5); SDK-replay 16-20 (5); E2E 21-22 |
+| RP | 21 | SB-grants 1-4, 6-10 (9); GW-replay 5; ENG-replay 11-15 (5); SDK-replay 16-20 (5); E2E 21 |
 | PB | 22 | SB-publish 1-20; SDK-replay 21; E2E 22 |
 
 SR-5 has one owner (URL4-fp, the url4 half). The scoreboard half is the plan-local id SR-5-SB in
@@ -304,7 +303,7 @@ that the implementer uses if nobody answers.
 | G4 | SB-submit §9 | Backfill `0019` takes `run_id` from the raw `metadata.run_id`; on a private board the key should be the scoped `sfp-` token, so a pre-E14 private resend can make a duplicate result | keep `0019` as written; record the limit in the SB-submit ledger |
 | OD-6 | SB-publish §9 | No unit adds `publication_state` to the leaderboard row or the portal "Published"/"Withdrawn" markers | not in E14: the state is in the results-list JSON (SB-submit) and the SDK return value (SDK-replay); no portal change |
 | X-9 | URL4-fp, SDK-submit §9 | erd §2.3.2 says the SDK also calls the fingerprint; the SDK sends no fingerprint, so no SDK half of SR-5 exists | no SDK half; parity is url4 half + SR-5-SB on the shared vectors file |
-| OD-4 (X-24) | E2E §9 | RP-22 needs a zero-spend fixture with a changed recipe | Step 6 probes `max_rounds - 1`; if a check fails, STOP; a new fixture needs an owner paid run |
+| OD-4 (X-24) | E2E §9 | RP-22 needed a zero-spend fixture with a changed recipe | Dropped (owner, 2026-09-30, Q30): no paid run is used as a test |
 | OD-5 (X-24) | E2E §9 | PB-22 needs a sandbox repo, a GitHub App and the secrets `E14_SANDBOX_APP_ID`, `E14_SANDBOX_APP_PRIVATE_KEY`, variable `E14_SANDBOX_REPO` | PB-22 skips cleanly until they exist |
 | NFR | URL4-fp §1.2, SB-registry §1.2 | The fingerprint NFR (64 KB in ≤ 50 ms) has no test; the 32,000-char cap (X-22) makes a 64 KB input impossible | no timing test |
 | Ops | WIRING §9 | Not code: route the prod scoreboard host through the Cloudflare Access/Envoy edge before the new `values-prod.yaml` (see `docs/work/2026-08-03-OME-404-authenticated-leaderboard-submissions.md:94-98`); keys, bucket, GitHub App, admins | the ops checklist in WIRING §9; production archive `none` and publish off until done (OD-W3) |

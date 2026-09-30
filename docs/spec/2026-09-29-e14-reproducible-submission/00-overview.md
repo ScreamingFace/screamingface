@@ -45,7 +45,7 @@ The scoreboard and the gateway never call each other. Trust goes through signed 
 3. `prd/cache-version-store.md` (component): capture, freeze, replay lookup, archive. 25 scenarios, 28 TDD cases.
 4. `prd/edit-metadata.md` (E14a, can ship first): 22 scenarios, 21 TDD cases.
 5. `prd/submit-and-cluster.md`: 22 scenarios, 23 TDD cases.
-6. `prd/replay-pinned-run.md`: 22 scenarios, 22 TDD cases.
+6. `prd/replay-pinned-run.md`: 22 scenarios, 21 TDD cases (RP-22 is dropped, Q30).
 7. `prd/publish-and-takedown.md`: 20 scenarios, 22 TDD cases.
 8. `contracts.md`: connections C1–C12, the coded error body, and the decision records DR-1 to DR-4.
 9. `test-plan.md`: the risk register, the component split, the not-tested list.
@@ -99,6 +99,7 @@ They override older text in this spec set.
 | Q27 | (Final check X-SEC-1.) Must `pinned_baseline_result_id` equal `replay.result_id`? | No. Keep the rule as built: the baseline must be on the same board and pass the same replay access rules (C4 "Trust"). | answered 2026-09-30 |
 | Q28 | (Final check MRA-1/MRA-2.) A durable admin audit table, or a log line? | A log line (`admin_action`, `admin_change`, C10). | answered 2026-09-30 |
 | Q29 | (Final check RP-X2.) Is a coded `503 replay_unsupported` permanent in the SDK? | No. It is transient (the `status >= 500` rule). | answered 2026-09-30 |
+| Q30 | Must RP-22 run on a zero-spend fixture made by a paid run? | No. We will not use a paid run as a test. RP-22 is dropped. | answered 2026-09-30 |
 
 ## 5. Deferred questions
 

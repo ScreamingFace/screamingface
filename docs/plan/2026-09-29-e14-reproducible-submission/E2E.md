@@ -4,8 +4,8 @@
 > then commit). Do the steps in order. Each step uses checkbox (`- [ ]`) syntax. When a step
 > says **STOP**, do not continue. Report to the orchestrator.
 
-**Goal:** Prove the five E14 flow spines end to end, on a real local stack (real gateway, real
-engine, real scoreboard), with zero provider spend: MD-21, SC-23, RP-21, RP-22 in the E2E replay
+**Goal:** Prove the four E14 flow spines end to end, on a real local stack (real gateway, real
+engine, real scoreboard), with zero provider spend: MD-21, SC-23 and RP-21 in the E2E replay
 lane, and PB-22 nightly against a sandbox GitHub repo.
 
 **Delivery (D1):** this unit lands on the one branch `e14-reproducible-submission-spec`. There
@@ -35,7 +35,7 @@ a cache miss is a loud `404 profile_not_found`, never spend
 
 **Spec (the rubric):** `docs/spec/2026-09-29-e14-reproducible-submission/` —
 `prd/edit-metadata.md` (MD-21), `prd/submit-and-cluster.md` (SC-23),
-`prd/replay-pinned-run.md` (RP-21, RP-22), `prd/publish-and-takedown.md` (PB-22),
+`prd/replay-pinned-run.md` (RP-21), `prd/publish-and-takedown.md` (PB-22),
 `contracts.md` (C1–C10), `test-plan.md` §1, §4, §6.
 
 ## Global constraints
@@ -78,7 +78,7 @@ a cache miss is a loud `404 profile_not_found`, never spend
 | MD-21 | `test_submit_then_edit_then_read_on_leaderboard` | `prd/edit-metadata.md:222`, MD-D5 |
 | SC-23 | `test_two_users_same_system_one_row_two_results_original_ranks` | `prd/submit-and-cluster.md:239`, SC-H2, SC-H3 |
 | RP-21 | `test_submit_then_other_user_replays_all_hits_zero_cost_then_submit_labelled_replay` | `prd/replay-pinned-run.md:243`, RP-H1, RP-D9 |
-| RP-22 | `test_changed_recipe_pin_by_date_partial_hits` | `prd/replay-pinned-run.md:244`, RP-H3 |
+| ~~RP-22~~ | ~~`test_changed_recipe_pin_by_date_partial_hits`~~ | Dropped (owner, 2026-09-30, Q30): no paid run is used as a test |
 | PB-22 | `test_submit_publish_download_asset_digest_matches_version` | `prd/publish-and-takedown.md:221` (nightly, sandbox repo) |
 
 **Out of scope** (other units own them; do not test them here):
@@ -110,19 +110,19 @@ a cache miss is a loud `404 profile_not_found`, never spend
   superseded.
 - **Contracts consumed (black box, over HTTP and the SDK):**
   - C1 (SDK → engine run with `X-SF-Cache-Replay` on the start request `GET /?q=`, D7 X-5):
-    RP-21, RP-22.
-  - C2a/C2b (freeze through the engine): all five tests, through `client.leaderboards.submit`.
+    RP-21.
+  - C2a/C2b (freeze through the engine): all four tests, through `client.leaderboards.submit`.
   - C3 (receipt, gateway → scoreboard; `sub` is the verified email, and the scoreboard checks
-    it in `cloudflare_headers` mode): all five tests.
-  - C4 (submit with `paper_url`, `revision_of`, receipt, `replay` block): all five tests.
+    it in `cloudflare_headers` mode): all four tests.
+  - C4 (submit with `paper_url`, `revision_of`, receipt, `replay` block): all four tests.
   - C5 (metadata `PATCH` and read; owner check on the verified email): MD-21.
-  - C6 (replay grant; `sub` is the verified email): RP-21, RP-22.
+  - C6 (replay grant; `sub` is the verified email): RP-21.
   - C7 (GitHub releases): PB-22 only.
   - C8a/C8b (archive, gateway writes and scoreboard reads): PB-22.
   - C9 (chat call with the grant header, `X-AIGW-Cache-Version`; the gateway checks the grant
-    `sub` against the caller): RP-21, RP-22 (seen through the report counters).
-  - C10 (results list, publish): SC-23, RP-21, RP-22, PB-22.
-  - The engine counter frame (D7 X-7), through the SDK report: RP-21, RP-22.
+    `sub` against the caller): RP-21 (seen through the report counters).
+  - C10 (results list, publish): SC-23, RP-21, PB-22.
+  - The engine counter frame (D7 X-7), through the SDK report: RP-21.
 - **Implements no contract.** This unit adds no product code.
 
 ### 2.1 Integration notes
@@ -193,7 +193,7 @@ the encoding. Do not guess an encoding.
 | `packages/screamingface/tests/e2e/conftest.py` | change: add the E14 fixtures | same file, `:23-39` (`synthetic_gateway`) |
 | `packages/screamingface/tests/e2e/test_e14_submit_edit.py` | create (MD-21) | `tests/e2e/test_boards.py:110-150` |
 | `packages/screamingface/tests/e2e/test_e14_cluster.py` | create (SC-23) | `tests/e2e/test_boards.py:110-150` |
-| `packages/screamingface/tests/e2e/test_e14_replay.py` | create (RP-21, RP-22) | `tests/e2e/test_boards.py:110-150` |
+| `packages/screamingface/tests/e2e/test_e14_replay.py` | create (RP-21) | `tests/e2e/test_boards.py:110-150` |
 | `packages/screamingface/tests/e2e/test_e14_publish_nightly.py` | create (PB-22) | `tests/e2e/test_boards.py:110-150` |
 | `packages/screamingface/tests/e2e/test_e14_harness_contracts.py` | create (harness self-tests, no stack) | `tests/e2e/test_harness_contracts.py` |
 | `packages/screamingface/pyproject.toml` | change: add marker `e2e_github` next to `e2e` and `paid` | same file, `:132-140` |
@@ -429,7 +429,7 @@ scoreboard reads). No MinIO container is needed.
 - `e14_golden() -> GoldenReport` (session): `load_golden(GOLDENS_DIR / "ifeval.golden.json")`.
 - `e14` (**function** scope, `tmp_path` as `work_dir`): `require_e2e_stack()`, then
   `with e14_stack(work_dir=tmp_path, assets_dir=e14_assets) as stack: yield stack`.
-  WHY function scope: RP-21, SC-23 and RP-22's recipe `B` all use the same recipe
+  WHY function scope: RP-21 and SC-23 use the same recipe
   (`build_candidate(golden)`), so on a shared stack one test's head would absorb the next
   test's submit (it would cluster, or get `system_already_named`) and the result depends on
   test order. One stack per test removes that. INVARIANT: no test reads rows that another test
@@ -440,21 +440,14 @@ scoreboard reads). No MinIO container is needed.
 - Board: `"ifeval"`. Candidate: `build_candidate(e14_golden)` (`harness/goldens.py:313-343`),
   `limit=e14_golden.limit` (50), `progress=False`.
 - Users (verified emails set by the edge): `"ana@e2e.example"`, `"bruno@e2e.example"`,
-  `"kevin@e2e.example"`, `"carol@e2e.example"` (RED proofs only). The published local parts
-  are `"ana"`, `"bruno"`, `"kevin"` (`schemas.py:179-230`).
+  `"carol@e2e.example"` (RED proofs only). The published local parts
+  are `"ana"`, `"bruno"` (`schemas.py:179-230`).
 - `paper_url` values: `"https://arxiv.org/abs/2609.01234"`, then `"https://doi.org/10.1234/abc"`
   (MD-H1, MD-H3).
 - Every SDK client is `with edge_client(stack, user) as client:` (§4.2).
 - Raw reads of public data (`GET /v1/leaderboard/ifeval`, `GET /v1/scores/{id}`,
   `GET /v1/scores/{id}/results`, metadata history) use `edge_http(stack.scoreboard_url, None)`
   (anonymous, as a public reader). A read that needs the owner uses the owner's email.
-- RP-22 recipes (both carry the same name, so the name is not the difference):
-  `A = sf.CorrectiveLoop([spec_model(s) for s in golden.member_specs],
-  judge=spec_model(golden.judge_spec), max_rounds=golden.max_rounds - 1, name="e2e-kevins-best")`
-  and `B` = the same call with `max_rounds=golden.max_rounds`. `spec_model` is
-  `harness/goldens.py:286-290`; the `name=` kwarg is `CorrectiveLoop.__init__`
-  (`packages/screamingface/src/screamingface/corrective.py:43-60`). Do not change
-  `loop_candidate` (it has no `name` parameter, `goldens.py:293-310`).
 - Find a head's leaderboard entry by `entry["url4_expression"] == str(candidate_result.url4)`.
   WHY: the entry has no `id` field (`apps/scoreboard/src/scoreboard/scores/schemas.py:763-784`),
   and `score_id` is set only for heads with 2 or more results (SB-submit §4.10).
@@ -631,47 +624,13 @@ There are no CHAR rows in this unit.
   `edge_client(e14, "bruno@e2e.example")`. Expected failure: step 2 raises
   `code == "not_submission_owner"` (`403`).
 
-- [ ] **Step 6 — RP-22 feasibility probe (STOP gate).** RP-22 needs a **changed recipe**
-  (a different fingerprint) whose calls overlap the pinned version, and whose other calls are
-  in the seeded snapshot (else they fail as `profile_not_found`). No committed fixture is
-  known to give this. Probe this one variant, in a scratch test that you do not commit:
-  - Version recipe `A` and changed recipe `B` exactly as §4.7 defines them (both named
-    `e2e-kevins-best`; `A` has `max_rounds = golden.max_rounds - 1`, `B` has the recorded
-    `golden.max_rounds`).
-  - Check 0: run `B` with `limit=50` and no replay. No case failure has code
-    `profile_not_found`. (So the `name=` kwarg does not change any model request.)
-  - Check 1: run `A` with `limit=50`. Every case is terminal, and no case failure has code
-    `profile_not_found`. (So `A`'s calls are a subset of the recording.)
-  - Check 2: `A` and `B` render different `url4` text (so the fingerprints differ).
-  - Check 3: submit `A`, then run `B` with `replay=f"result:{A_result_id}"`. The report has
-    `hits > 0` **and** `misses > 0`, and no `profile_not_found`.
-  WHY a version miss is free here: on a version miss the gateway goes on to the normal path
-  (CV-16 "STAGE 0 before STAGE 1"), and the seeded global cache serves the call.
-  **If all four pass**, go to Step 7 with `A` and `B`. **If one fails, STOP.** Report which
-  check failed. Do not try other variants. Do not record a new fixture (that needs an owner
-  paid run, `tests/e2e/README.md` step ③). See OD-4.
+- **Step 6 — RP-22 feasibility probe. Dropped (Q30).** The owner decided (2026-09-30) that no
+  paid run is used as a test. There is no probe and no fixture. The step number stays, so the
+  other step numbers stay stable.
 
-- [ ] **Step 7 — RP-22 (M×M).** In `tests/e2e/test_e14_replay.py`,
-  `test_changed_recipe_pin_by_date_partial_hits`.
-  1. Kevin (`edge_client(e14, "kevin@e2e.example")`) runs `A` and submits it. The SDK
-     sends `spec_id = candidate_result.name = "e2e-kevins-best"`
-     (`packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:453`). Assert
-     `r1.spec_id == "e2e-kevins-best"` and `r1.reported_result.is_original is True`. Keep `r1`
-     (head) and `x1 = r1.reported_result.id`.
-  2. `t = r1.submitted_at` (from the raw `GET /v1/scores/{r1.id}`), as an ISO-8601 string with
-     a UTC offset (the pin grammar rejects a time with no offset on both sides, D7 X-21). WHY equal-T: a result with `submitted_at == T` is included (RP-D7), so the pin is
-     deterministic with no clock control and no sleep.
-  3. Kevin runs `B` with `replay=f"e2e-kevins-best@{t}"`.
-  4. Assert `replay.pinned_baseline_result_id == x1`, `replay.result_id == x1`,
-     `hits > 0`, `misses > 0`, `coverage == "partial"`.
-  5. Kevin submits `B` with `revision_of="e2e-kevins-best"`. Assert a **new** head (id is not
-     `r1.id`), with `spec_id == "e2e-kevins-best"` and `reported_result.is_original is True`
-     (SC-H5, SR-H4).
-  6. Assert the only results-list item of the new head has
-     `replay.pinned_baseline_result_id == x1`, `replay.replayed_from_result_id == x1`, and
-     `replay.hits` and `replay.misses` equal to step 4.
-  **RED proof:** pin with `t` minus one day. Expected failure: step 3 raises the SDK error for
-  `404 replay_pin_not_found` before the run starts (RP-E1).
+- **Step 7 — RP-22. Dropped (Q30).** No test is built. The behavior stays covered by RP-6 and
+  RP-7 (pin by date), CV-17 and RP-13 (a miss falls through and is counted), and RP-21 (the E2E
+  replay spine).
 
 - [ ] **Step 8 — PB-22 (H×M, nightly).** File `tests/e2e/test_e14_publish_nightly.py`,
   `test_submit_publish_download_asset_digest_matches_version`. Marks: `pytest.mark.e2e` and
@@ -712,11 +671,11 @@ There are no CHAR rows in this unit.
      `"e2e_github: nightly E14 publish spine against a sandbox GitHub repo (secrets + docker)"`.
   2. `screamingface-e2e-replay.yml`: add `"apps/scoreboard/**"` to the `push` and
      `pull_request` `paths:` lists; set `timeout-minutes: 60`. WHY: the E14 spines break when
-     the scoreboard changes, and they add four stack boots (each with two Postgres
-     containers) and seven 50-case runs (SC-23 2, RP-21 2, MD-21 1, RP-22 2). With D1 there is
+     the scoreboard changes, and they add three stack boots (each with two Postgres
+     containers) and five 50-case runs (SC-23 2, RP-21 2, MD-21 1). With D1 there is
      no unit PR: the lane runs on the push of the e14 branch after the wave-5 integration, and
      the integrator also runs it locally (§8). The existing
-     `pytest tests/e2e -rs -v` step runs MD-21, SC-23, RP-21, RP-22. PB-22 skips there (no
+     `pytest tests/e2e -rs -v` step runs MD-21, SC-23, RP-21. PB-22 skips there (no
      `SCREAMINGFACE_TEST_E2E_GITHUB`).
   3. Create `screamingface-e14-publish-nightly.yml`:
      - `on: schedule: - cron: "17 3 * * *"` and `workflow_dispatch`.
@@ -738,7 +697,7 @@ There are no CHAR rows in this unit.
        `SCREAMINGFACE_E2E_ASSETS`, `E14_SANDBOX_REPO: ${{ vars.E14_SANDBOX_REPO }}`,
        `E14_SANDBOX_TOKEN: ${{ steps.<id>.outputs.token }}`, and the scoreboard App variables
        mapped from the same secrets.
-  4. README: add an "E14 spines" section: what the five tests prove, how to run them
+  4. README: add an "E14 spines" section: what the four tests prove, how to run them
      (`SCREAMINGFACE_TEST_E2E=1 uv run pytest tests/e2e -k e14 -rs`), and the nightly secrets.
 
 ## 7. Edge cases and what not to do
@@ -771,7 +730,7 @@ There are no CHAR rows in this unit.
   `X-Forwarded-For` pass the peer check.
 - **Grant life (D4).** The grant lives 12 h. E2E runs take minutes. Do not add a test that
   waits for an expiry; SDK-replay row 25 and ENG-replay RP-14 cover the expiry path.
-- **Do not** add a sleep between submits. Use the equal-T rule (Step 7.2).
+- **Do not** add a sleep between submits. Do not build a pin-by-date E2E test (RP-22 is dropped, Q30).
 - **Do not** weaken an assertion to fit the result. If an assertion fails, classify it
   (product defect, test defect, environment, flake). Report a product defect to the
   orchestrator with the owning unit id (D1: the fix goes on that unit's branch or on the e14
@@ -802,11 +761,11 @@ SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_TEST_E2E_GITHUB=1 E14_SANDBOX_REPO=<owner
 
 **Done when:**
 
-1. MD-21, SC-23, RP-21, RP-22 pass locally on `unit/E2E`. (As built: RP-22 is skipped, OD-4.)
+1. MD-21, SC-23 and RP-21 pass locally on `unit/E2E`. (RP-22 is dropped, Q30.)
 2. **As built:** after the integrator merges WIRING and then E2E into the e14 branch, the
    stack tests pass again on the e14 branch, and the Step 1.2 tests of the direct hook import
    pass (there is no `env_source` and no fallback). Result on the e14 branch (2026-09-30):
-   docker E2E lane 15 passed, 2 skipped (RP-22: no zero-spend fixture; PB-22: nightly only),
+   docker E2E lane 15 passed, 1 skipped (PB-22: nightly only),
    no paid calls. The `ScreamingFace E2E Replay` workflow is green on the push of the e14 branch.
 3. PB-22 skips cleanly with no secrets (local and nightly), and passes once through
    `workflow_dispatch` of the nightly workflow after OD-5 is done. Its release is deleted
@@ -825,10 +784,9 @@ SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_TEST_E2E_GITHUB=1 E14_SANDBOX_REPO=<owner
 
 Still open (they need the owner; they do not block Steps 0 to 5):
 
-- **OD-4 — RP-22 fixture.** No committed fixture is known to give a changed recipe with
-  overlapping calls and zero spend. Step 6 probes one variant (`max_rounds - 1`). If the probe
-  fails, somebody must record a new E14 fixture with a paid owner run (`tests/e2e/README.md`
-  step ③, `just e2e-bless-fresh`). That is a spend decision for the owner.
+- ~~**OD-4 — RP-22 fixture.**~~ **Dropped (owner, 2026-09-30, Q30).** The owner said: "We will
+  not use a paid run as a test." RP-22 is dropped. It is not deferred, and no fixture is
+  planned.
 - **OD-5 — Nightly GitHub sandbox.** Somebody must create the sandbox repo and a GitHub App
   installed only on it, and add the secrets `E14_SANDBOX_APP_ID`,
   `E14_SANDBOX_APP_PRIVATE_KEY` and the variable `E14_SANDBOX_REPO`. Until then PB-22 skips

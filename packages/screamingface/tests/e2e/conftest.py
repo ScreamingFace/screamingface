@@ -68,7 +68,7 @@ def e14_golden() -> GoldenReport:
 def e14(tmp_path: Path, e14_assets: Path) -> Iterator[E14Stack]:
     """One full E14 stack for ONE test (function scope, ``tmp_path`` as the work dir).
 
-    WHY function scope: SC-23, RP-21 and RP-22's recipe B all use the same recipe, so on a shared
+    WHY function scope: SC-23 and RP-21 use the same recipe, so on a shared
     stack one test's head would absorb the next test's submit (it would cluster, or get
     ``system_already_named``) and the result would depend on the test order.
     INVARIANT: no test reads rows that another test wrote.
