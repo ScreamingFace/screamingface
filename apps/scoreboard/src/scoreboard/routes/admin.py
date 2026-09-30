@@ -16,8 +16,9 @@ attempt from outside the allowlist looks like, and it is invisible if only succe
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, cast
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -67,19 +68,37 @@ async def require_admin(request: Request) -> AdminPrincipal:
     return AdminPrincipal(email=actor)
 
 
+def _audit_target(path_params: Mapping[str, str]) -> str:
+    """'result_id=<id>' or 'benchmark_id=<id>'; '<none>' when neither is there.
+
+    INVARIANT: the value is caller text (Starlette percent-decodes it, and the audit line is
+    written before the `Path` length rule runs), so it is percent-encoded and cut before it is
+    logged. A newline or a space cannot forge a second line or a second field. A UUID and an
+    ordinary benchmark id stay byte-for-byte the same.
+    """
+    for name in ("result_id", "benchmark_id"):
+        if name in path_params:
+            return f"{name}={quote(str(path_params[name]), safe='')[:_REASON_LOG_MAX]}"
+    return "<none>"
+
+
 def _audit(request: Request, outcome: int) -> None:
-    """One INFO line per attempt: actor, result id, reason, outcome (PRD section 4)."""
+    """One INFO line per attempt: actor, target, reason, outcome, and the change (PRD section 4)."""
     actor = getattr(request.state, "admin_actor", None)
-    reason = getattr(request.state, "withdraw_reason", None)
+    reason = getattr(request.state, "admin_reason", None)
+    change = getattr(request.state, "admin_change", None)
     # INVARIANT: the reason is caller text. It is escaped (no control character survives, so it
     # cannot forge a second line) and cut, before it reaches the log.
     shown = escape_markdown(reason)[:_REASON_LOG_MAX] if reason is not None else "<none>"
+    # WHY the change comes last and only when set: the withdraw line stays byte-for-byte the same.
+    suffix = f" change={change}" if change is not None else ""
     logger.info(
-        "admin_action actor=%s result_id=%s reason=%s outcome=%d",
+        "admin_action actor=%s %s reason=%s outcome=%d%s",
         actor if actor is not None else "<unidentified>",
-        request.path_params.get("result_id"),
+        _audit_target(request.path_params),
         shown,
         outcome,
+        suffix,
     )
 
 
@@ -121,7 +140,7 @@ async def withdraw_result(
     admin: AdminPrincipal = Depends(require_admin),
 ) -> PublishStateResponse:
     """Withdraw the publication of a result. The row and the head stay, with the marker (PB-H4)."""
-    request.state.withdraw_reason = body.reason
+    request.state.admin_reason = body.reason
     if await ReportedResult.get_or_none(id=result_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="result not found")
     if await CacheVersionPublication.get_or_none(result_id=result_id) is None:
