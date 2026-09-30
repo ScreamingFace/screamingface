@@ -54,6 +54,7 @@ testpaths = ["tests", "src/aigateway"]
 markers = [
     "live: tests hitting real upstream providers (skipped in CI)",
     "needs_postgres: tests requiring Postgres/testcontainers",
+    "needs_postgres_bench: load-sensitive Postgres timing benches, run alone and never with needs_postgres",
 ]
 filterwarnings = [
     "error::DeprecationWarning:aigateway",
