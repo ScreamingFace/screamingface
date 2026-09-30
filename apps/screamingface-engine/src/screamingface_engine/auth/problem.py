@@ -19,10 +19,18 @@ class Problem(BaseModel):
     status: int
     detail: str | None = None
     instance: str | None = None
-    # An RFC 9457 §3.2 extension member: a stable, machine-readable refusal code a client can
-    # branch on without parsing ``detail``. Unset on every problem that predates it, so those
-    # bodies are byte-for-byte unchanged on the wire.
+    # RFC 9457 §3.2 extension members. Optional, so `exclude_none=True` drops them and every
+    # problem raised without them stays byte-identical on the wire.
     code: str | None = None
+    """A stable, machine-readable code a client can branch on without parsing ``detail`` — a
+    refusal code, or (OME-941) the run's error code, which is ALWAYS an engine-authored one.
+    Whoever fills this is responsible for the allowlisting; the model cannot tell an engine
+    code from an adapter's."""
+    permanent: bool | None = None
+    """Whether retrying this request could ever succeed."""
+    trace_id: str | None = None
+    """W3C trace id of the run, so the caller can find it in the trace store. NOT the topic —
+    the topic is a bearer capability and never belongs in a response body."""
 
 
 class ProblemException(Exception):
@@ -38,8 +46,18 @@ class ProblemException(Exception):
         type_: str = "about:blank",
         headers: dict[str, str] | None = None,
         code: str | None = None,
+        permanent: bool | None = None,
+        trace_id: str | None = None,
     ) -> None:
-        self.problem = Problem(type=type_, title=title, status=status, detail=detail, code=code)
+        self.problem = Problem(
+            type=type_,
+            title=title,
+            status=status,
+            detail=detail,
+            code=code,
+            permanent=permanent,
+            trace_id=trace_id,
+        )
         self.headers = headers
         super().__init__(title)
 
