@@ -23,11 +23,13 @@ from screamingface.errors import (
     LeaderboardError,
     PlanningError,
     ProviderConnectionError,
+    ReplayUnavailable,
     ScreamingFaceError,
 )
 from screamingface.events import Event
 from screamingface.fusion import Fusion
 from screamingface.leaderboard import (
+    CacheVersionPublication,
     Leaderboard,
     LeaderboardBaseline,
     LeaderboardCacheVersion,
@@ -53,6 +55,7 @@ from screamingface.report import (
     MemberResult,
     OperationAccounting,
     OperationCache,
+    ReplayProvenance,
     Report,
     Usage,
 )
@@ -68,6 +71,7 @@ __all__ = [
     "AuthenticationError",
     "Benchmark",
     "BenchmarkInfo",
+    "CacheVersionPublication",
     "CaseGrade",
     "CaseResult",
     "CandidateResult",
@@ -114,6 +118,8 @@ __all__ = [
     "Pipeline",
     "ProviderConnectionError",
     "Recipe",
+    "ReplayProvenance",
+    "ReplayUnavailable",
     "Report",
     "ScreamingFaceError",
     "SelfCorrective",

@@ -12,6 +12,7 @@ from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, cast, overload
+from uuid import UUID
 
 from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
@@ -171,6 +172,12 @@ class _CaseResults(Sequence[CaseResult]):
             raise KeyError(f"unknown Case id {selected!r}") from None
 
 
+def _replay(value: object) -> ReplayProvenance | None:
+    if value is not None and not isinstance(value, ReplayProvenance):
+        raise TypeError("Candidate replay must be an sf.ReplayProvenance or None")
+    return value
+
+
 def _answer_seed(value: object) -> int | None:
     """Validate the declared sitting: any integer or None; bool is not a sitting."""
     if value is None:
@@ -178,6 +185,59 @@ def _answer_seed(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("Candidate answer_seed must be an integer or None")
     return value
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayProvenance:
+    """Which cache version a pinned run replayed, and how much of it matched.
+
+    FEATURE: OME-1307 (E14). A count is `None` when the Engine reported no counters: that is not
+    zero, so `coverage` is then `unknown` and `submit` refuses the run as a replay.
+    """
+
+    result_id: UUID
+    cache_version_id: UUID
+    hits: int | None
+    misses: int | None
+    repeated_key_collapses: int | None
+    pinned_baseline_result_id: UUID | None
+
+    def __post_init__(self) -> None:
+        for name in ("result_id", "cache_version_id"):
+            if not isinstance(getattr(self, name), UUID):
+                raise TypeError(f"Replay {name} must be a UUID")
+        if self.pinned_baseline_result_id is not None and not isinstance(
+            self.pinned_baseline_result_id, UUID
+        ):
+            raise TypeError("Replay pinned_baseline_result_id must be a UUID or None")
+        for name in ("hits", "misses", "repeated_key_collapses"):
+            _replay_count(getattr(self, name), f"Replay {name}")
+
+    @property
+    def coverage(self) -> Literal["complete", "partial", "unknown"]:
+        """`complete` when no call fell through to the live provider (ans:Q13)."""
+        if self.hits is None or self.misses is None or self.repeated_key_collapses is None:
+            return "unknown"
+        return "complete" if self.misses == 0 else "partial"
+
+    def to_dict(self) -> dict[str, object]:
+        baseline = self.pinned_baseline_result_id
+        return {
+            "result_id": str(self.result_id),
+            "cache_version_id": str(self.cache_version_id),
+            "hits": self.hits,
+            "misses": self.misses,
+            "repeated_key_collapses": self.repeated_key_collapses,
+            "coverage": self.coverage,
+            "pinned_baseline_result_id": None if baseline is None else str(baseline),
+        }
+
+
+def _replay_count(value: object, label: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer or None")
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -212,6 +272,7 @@ class CandidateResult:
     #
     # None means nothing priceable was observed, which is not zero.
     cache_saved_cost_usd: Decimal | None
+    replay: ReplayProvenance | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
 
     def __init__(
@@ -238,6 +299,7 @@ class CandidateResult:
         trace_id: str | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        replay: ReplayProvenance | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
@@ -303,6 +365,7 @@ class CandidateResult:
             "usage": _usage(usage, "Candidate"),
             "run_cost_status": selected_status,
             "cache_saved_cost_usd": selected_saving,
+            "replay": _replay(replay),
             "_metric_items": metric_items,
         }
         for attribute, value in values.items():
@@ -355,6 +418,9 @@ class CandidateResult:
             "cache_saved_cost_usd": (
                 None if self.cache_saved_cost_usd is None else str(self.cache_saved_cost_usd)
             ),
+            # INVARIANT (OME-1307): emitted, never conditional (null for a plain run), for the same
+            # reason as `answer_seed`: the key set of a serialized record is stable.
+            "replay": None if self.replay is None else self.replay.to_dict(),
         }
 
 
@@ -817,5 +883,6 @@ __all__ = [
     "OperationCache",
     "OperationInfo",
     "Report",
+    "ReplayProvenance",
     "Usage",
 ]
