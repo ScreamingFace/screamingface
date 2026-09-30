@@ -219,6 +219,8 @@ def cold_child_env(
     # carries the field (work accepted before producer-off) still sets it from `run_env` below,
     # and is honoured until the drain.
     env.pop(job_env.AIGATEWAY_PROFILE, None)
+    # INVARIANT (E14): only this queue message may carry a replay grant.
+    env.pop(job_env.CACHE_REPLAY_GRANT, None)
     env.update(run_env)
     env[job_env.IO_CONCURRENCY] = str(io_concurrency)
     return env
