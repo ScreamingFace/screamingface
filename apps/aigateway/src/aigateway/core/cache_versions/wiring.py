@@ -17,7 +17,14 @@ from .archive_store import FilesystemVersionArchiveStore, S3VersionArchiveStore
 from .exporter import CacheVersionExporter
 from .freeze import FreezeService
 from .freeze_store import TortoiseFreezeStore
-from .ports import CacheVersionFreezer, VersionArchiveStore
+from .grant import Ed25519ReplayGrantVerifier
+from .lookup import TortoiseCacheVersionLookup
+from .ports import (
+    CacheVersionFreezer,
+    CacheVersionLookup,
+    ReplayGrantVerifier,
+    VersionArchiveStore,
+)
 from .receipt import Ed25519ReceiptSigner
 from .stats import CaptureStats
 
@@ -28,6 +35,10 @@ logger = logging.getLogger(__name__)
 class CacheVersionServices:
     freezer: CacheVersionFreezer | None
     exporter: CacheVersionExporter | None
+    # FEATURE: OME-1307 (E14, GW-replay) - the replay half. The lookup is always built; the grant
+    # verifier is None when the flag is off or no public key is configured.
+    grant_verifier: ReplayGrantVerifier | None
+    lookup: CacheVersionLookup
 
 
 def _archive_store(settings: Settings) -> VersionArchiveStore | None:
@@ -55,20 +66,22 @@ def _archive_store(settings: Settings) -> VersionArchiveStore | None:
     return None
 
 
-def build_cache_version_services(settings: Settings, stats: CaptureStats) -> CacheVersionServices:
-    """Build the freezer and the exporter. Either can be ``None``.
+def _build_freeze_services(
+    settings: Settings, stats: CaptureStats
+) -> tuple[CacheVersionFreezer | None, CacheVersionExporter | None]:
+    """The GW-freeze half: the freezer and the exporter. Either can be ``None``.
 
     INVARIANT: capture never depends on this. A missing signing key turns freeze off (the route
     answers 503) and leaves capture running.
     """
     if not settings.cache_versions_enabled:
-        return CacheVersionServices(freezer=None, exporter=None)
+        return None, None
     key = settings.receipt_signing_key
     if key is None or not key.get_secret_value().strip():
         logger.warning(
             "cache versions: capture on, freeze off (AIGATEWAY_RECEIPT_SIGNING_KEY is not set)"
         )
-        return CacheVersionServices(freezer=None, exporter=None)
+        return None, None
     signer = Ed25519ReceiptSigner.from_base64(key)
     logger.info("cache version receipts ready kid=%s", signer.kid)
 
@@ -92,4 +105,24 @@ def build_cache_version_services(settings: Settings, stats: CaptureStats) -> Cac
         max_archive_bytes=settings.cache_version_max_archive_bytes,
         on_frozen=exporter.notify if exporter is not None else None,
     )
-    return CacheVersionServices(freezer=freezer, exporter=exporter)
+    return freezer, exporter
+
+
+def build_cache_version_services(settings: Settings, stats: CaptureStats) -> CacheVersionServices:
+    """Build the freezer, the exporter, the lookup and the grant verifier.
+
+    INVARIANT: the replay half does NOT depend on the receipt key. A gateway can replay with no
+    signing key, and a gateway with a signing key can run with no grant public key.
+    """
+    freezer, exporter = _build_freeze_services(settings, stats)
+    lookup = TortoiseCacheVersionLookup()
+    verifier: ReplayGrantVerifier | None = None
+    if settings.cache_versions_enabled and settings.replay_grant_public_keys:
+        verifier = Ed25519ReplayGrantVerifier.from_config(
+            settings.replay_grant_public_keys,
+            lookup=lookup,
+            cache_ttl_s=settings.replay_grant_cache_ttl_s,
+        )
+    return CacheVersionServices(
+        freezer=freezer, exporter=exporter, grant_verifier=verifier, lookup=lookup
+    )
