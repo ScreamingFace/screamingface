@@ -33,6 +33,7 @@ prompts; the answer key stays in the image.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -304,6 +305,33 @@ SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV = "SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF
 #: Written into a skipped gated bundle, so the runtime can say WHY the benchmark has no
 #: questions instead of a bare "cases are unavailable" (review on PR #1112).
 SKIPPED_MARKER = "SKIPPED"
+
+#: One prepared Case as the writer writes it: the public ``case`` row of ``cases.json``
+#: and its private ``grading_material`` record (``targets/<id>.json``).
+type PreparedCase = dict[str, dict[str, Any]]
+
+
+def case_digest(prepared: Sequence[PreparedCase]) -> str:
+    """Fingerprint the prepared Cases: the sha256 of exactly what the writer writes (OME-1273).
+
+    Think of it as a seal on the envelope of Cases: any change to any Case's id, input or
+    Grading Material, or to their order, breaks the seal. Canonical JSON (sorted keys, no
+    whitespace, UTF-8 without escapes) keeps the seal independent of dict order.
+
+    Example: the two Cases in ``test_case_digest.py`` seal to ``765b3955…``; changing one
+    target from "4" to "5" gives a different digest.
+
+    Args:
+        prepared: the prepared Cases in the order they are served.
+
+    Returns:
+        64 lowercase hex characters.
+    """
+
+    canonical: str = json.dumps(
+        list(prepared), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 #: Every imported benchmark's prepare. Importing another eval = one more entry here
@@ -793,11 +821,13 @@ def emit_cases(
                   via inspect's own ``MemoryDataset.shuffle_choices`` over the WHOLE
                   dataset at once — upstream draws every case's permutation from one
                   random stream, so a per-case shuffle would pin a different benchmark.
-        Stage 5 — per Sample: cross the one validated boundary (non-empty input/target,
+        Stage 5 — per Sample, via :func:`case_records`: cross the one validated boundary
+                  (non-empty input/target,
                   target letter within the choices for MCQ benchmarks), then render the
                   prompt from the Sample's own shape: choices → the MCQ formatter; a
                   template reference → its substitution; neither → the raw input.
-        Stage 6 — write the booklet (prompts only) and the private Grading Material records.
+        Stage 6 — write the booklet (prompts only) and the private Grading Material records
+                  (:func:`_write_cases`).
 
     Args:
         spec: the benchmark's prepare declaration.
@@ -811,16 +841,36 @@ def emit_cases(
     """
 
     require_commit_sha(spec.dataset_revision)
+    samples: list[Sample] = _pinned_samples(spec, rows, expected_cases)
+    if spec.choice_shuffle_seed is not None:
+        _shuffle_choices(samples, spec.choice_shuffle_seed)
+    prepared: list[PreparedCase] = case_records(samples, spec)
+    _write_cases(prepared, out)
+    return {"cases": len(prepared), "dataset_revision": spec.dataset_revision, "out": str(out)}
+
+
+def case_records(samples: Sequence[Sample], spec: CasesSpec) -> list[PreparedCase]:
+    """Stage 5 — turn Samples into prepared Cases: the rendered input plus its Grading Material.
+
+    Shared by both preparation paths (OME-1273), so a Hugging Face Benchmark and a
+    Task-replay Benchmark can never drift on how a Case is written. Per Sample: cross the one
+    validated boundary, render the prompt from the Sample's own shape, prepend the system
+    text, and build the private record.
+
+    Args:
+        samples: the Benchmark's Samples, in the order they are served.
+        spec: the declaration whose prompt fields and writer options apply.
+
+    Returns:
+        One prepared Case per Sample, numbered from 1.
+    """
+
     template: str | None = None if spec.prompt_template is None else _resolve(spec.prompt_template)
     choice_template: str | None = (
         None if spec.choice_template is None else _resolve(spec.choice_template)
     )
     system_text: str | None = _resolved_system_text(spec)
-    samples: list[Sample] = _pinned_samples(spec, rows, expected_cases)
-    if spec.choice_shuffle_seed is not None:
-        _shuffle_choices(samples, spec.choice_shuffle_seed)
-    cases: list[dict[str, Any]] = []
-    targets: dict[int, dict[str, Any]] = {}
+    prepared: list[PreparedCase] = []
     for case_id, sample in enumerate(samples, start=1):
         target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
         input_text: str = _prompt(sample, choices, template, choice_template)
@@ -828,23 +878,21 @@ def emit_cases(
             # Named deviation (contracteval pattern): the eval's SYSTEM
             # instruction becomes the input's leading text, render untouched.
             input_text = f"{system_text}\n\n{input_text}"
-        # WHY "case_id" beside "id": the benchmark's url4 protocol template reads
-        # $item.case_id per Case (the transport contract's string spelling);
-        # "id" is the integer that cases.json rows and the targets/ files key on.
-        cases.append(
-            {
-                "id": case_id,
-                "case_id": str(case_id),
-                "input": input_text,
-            }
-        )
         record: dict[str, Any] = (
             {"target": target} if choices is None else {"target": target, "choices": choices}
         )
         if spec.keep_sample_metadata and sample.metadata:
             record["metadata"] = _validated_metadata(sample.metadata, case_id)
-        targets[case_id] = record
-    return _emit(cases, targets, out, dataset_revision=spec.dataset_revision)
+        # WHY "case_id" beside "id": the benchmark's url4 protocol template reads
+        # $item.case_id per Case (the transport contract's string spelling);
+        # "id" is the integer that cases.json rows and the targets/ files key on.
+        prepared.append(
+            {
+                "case": {"id": case_id, "case_id": str(case_id), "input": input_text},
+                "grading_material": record,
+            }
+        )
+    return prepared
 
 
 def _pinned_samples(
@@ -1220,13 +1268,9 @@ def _require_case_count(count: int, expected: int | None, source: str, unit: str
         raise PrepareError(f"{source} {count} {unit}, pinned case count is {expected}")
 
 
-def _emit(
-    cases: list[dict[str, Any]],
-    targets: dict[int, dict[str, Any]],
-    out: Path,
-    *,
-    dataset_revision: str,
-) -> dict[str, Any]:
+def _write_cases(prepared: Sequence[PreparedCase], out: Path) -> None:
+    """Stage 6 — write the public booklet and the private Grading Material records."""
+
     grading_material_dir: Path = out / "targets"
     # WHY refuse a dirty out: a re-prepare into a used directory would leave orphan
     # targets/*.json from a previous, larger prepare — the image build always starts
@@ -1236,14 +1280,15 @@ def _emit(
     ):
         raise PrepareError(f"refusing to prepare into non-empty directory {out}")
     grading_material_dir.mkdir(parents=True, exist_ok=True)
-    for case_id, record in targets.items():
-        (grading_material_dir / f"{case_id}.json").write_text(
-            json.dumps(record, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+    for item in prepared:
+        (grading_material_dir / f"{item['case']['id']}.json").write_text(
+            json.dumps(item["grading_material"], ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
         )
     (out / "cases.json").write_text(
-        json.dumps(cases, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+        json.dumps([item["case"] for item in prepared], ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
     )
-    return {"cases": len(cases), "dataset_revision": dataset_revision, "out": str(out)}
 
 
 def _available_hf_token() -> str | None:
@@ -1288,6 +1333,9 @@ __all__ = [
     "PrepareError",
     "BENCHMARK_CASES",
     "CasesSpec",
+    "PreparedCase",
+    "case_digest",
+    "case_records",
     "count_kept_cases",
     "emit_cases",
     "mcq_prompt",
