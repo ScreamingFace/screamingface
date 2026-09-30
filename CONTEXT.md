@@ -234,8 +234,9 @@ _Avoid_: inspect or introspect as a verb in our identifiers (say read or check),
 name always means the framework; Sample, Target, Solver and Scorer for our own concepts
 
 **Imported Benchmark**:
-A Benchmark copied from inspect_evals whose Cases are exactly the questions inspect itself would
-run, apart from any Named Deviation.
+A Benchmark generated from an external eval catalogue, whose Cases are exactly the items the
+upstream eval would run (apart from any Named Deviation) and whose Grading is the upstream eval's
+own grading code. Today the only source is Inspect.
 _Avoid_: Board, inspect board
 
 **Named Deviation**:
