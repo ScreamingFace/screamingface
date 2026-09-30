@@ -93,7 +93,7 @@ one recipe, one cache version" `[stated prompt]` maps to one `ReportedResult` an
 | `head_id` | `UUID NOT NULL` FK → `Score.id`, `ON DELETE CASCADE` | The head. The FK attribute is `head`; the column has the Tortoise native name `head_id` (D8, `ans:Q25`). |
 | `is_original` | `BOOL NOT NULL` | Exactly one `true` per `head_id` (partial unique index `uidx_reported_result_one_original` on `("head_id") WHERE "is_original"`). |
 | `reporter` | `VARCHAR(255) NULL` | Verified submitter of this run. Same source as `Score.submitted_by` `[existing apps/scoreboard/src/scoreboard/routes/scores.py:87]`: in production, the `X-User-Email` identity of `cloudflare_headers` mode (`ans:Q22`). NULL only in the `disabled` dev and local fallback. |
-| `run_id` | `VARCHAR(128) NULL UNIQUE` | From `Idempotency-Key` `[existing packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:106]`. Unique, so a resend never makes a second row. |
+| `run_id` | `VARCHAR(255) NULL UNIQUE` | From `Idempotency-Key` `[existing packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:106]`. Unique, so a resend never makes a second row. As wide as `IdempotencyKey.key`, so a key that the legacy path accepts is accepted here too (FS-1). |
 | `trace_id` | `CHAR(32) NULL` | From the report `[existing packages/screamingface/src/screamingface/report.py:189]`. |
 | `score`, `total_questions`, `correct_questions` | as `Score` | This run's numbers. |
 | `run_cost_usd`, `run_cost_status`, `cache_saved_cost_usd` | as `Score` | This run's cost. |
