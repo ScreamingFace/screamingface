@@ -2,12 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** At image build, prepare a Task-replay Imported Benchmark by re-running the eval's own
-task in a child process, and serve its Cases only when their Case Digest matches the pinned one.
+**Goal:** At image build, prepare a Task-replay Imported Benchmark by calling the eval's own
+task function in a child process (never inspect's `eval()`: no solver, scorer or model runs), and serve its Cases only when their Case Digest matches the pinned one.
 
 **Architecture:** `prepare.py` gains the shared Case writer, the Case Digest and a second
 declaration type (`TaskReplayCasesSpec`, own registry `TASK_REPLAY_CASES`). A new
-`task_replay.py` runs the task in a child process with empty caches and turns a mismatch into a
+`task_replay.py` calls the task function in a child process with empty caches and turns a mismatch into a
 `SKIPPED` marker. `benchmarks.py` assembles either declaration type. The core prepare CLI fails
 at the end when `SCREAMINGFACE_FAIL_ON_CHANGED_CASES=1` and any bundle was skipped for changed
 Cases; only the PR image job sets it.
@@ -244,8 +244,9 @@ git commit -m "feat(screamingface-engine): share the Case writer and add the Cas
 class TaskReplayCasesSpec:
     """One Task-replay Imported Benchmark's Case Preparation, as pure data (OME-1273).
 
-    The Cases come from running the eval's own task (``task``, a ``"module:attr"``
-    reference, called with ``task_args``), so no dataset pin applies. ``case_count`` and
+    The Cases come from calling the eval's own task function (``task``, a ``"module:attr"``
+    reference, called with ``task_args``); building its Task loads the dataset. No
+    evaluation runs: no solver, scorer or model, so no dataset pin applies. ``case_count`` and
     ``case_digest`` are CAPTURED at import; Case Preparation serves nothing unless both
     match. The prompt fields mean exactly what they mean on :class:`CasesSpec`.
     """
@@ -387,11 +388,12 @@ Expected: FAIL with `ImportError: cannot import name 'TaskReplayCasesSpec'`.
 # pyright: reportMissingImports=false
 # WHY file-level: the child half imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""Task replay: fetch an Imported Benchmark's Cases by running the eval's own task (OME-1273).
+"""Task replay: fetch an Imported Benchmark's Cases by calling the eval's own task function (OME-1273).
 
-Think of it as asking the eval to set its own exam paper, in a clean room: the eval's task
-runs in a fresh child process with empty caches, exactly as inspect would run it, and hands
-back the prepared Cases through a file. Stages, in execution order:
+Think of it as asking the eval to print its question booklet in a clean room, not to run the
+test: the eval's task function is called in a fresh child process with empty caches, which
+makes it load its dataset exactly as inspect would, and the prepared Cases come back through
+a file. It never calls inspect's ``eval()``: no solver, scorer, model or Judge runs. Stages, in execution order:
 
     Stage 1 — parent: write the declaration to a temp file; build the child's environment
               with its own empty inspect_evals and Hugging Face caches (a cache hit would

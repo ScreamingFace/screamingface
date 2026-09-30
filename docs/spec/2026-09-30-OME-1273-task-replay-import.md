@@ -27,9 +27,12 @@ build.** The importer refuses 34 packages because it can't see where their Cases
 - several fetches happen and none is clearly the Cases, or a converter is written inside the task (chembench, DROP, pre_flight)
 - an upstream bug at 0.20.0 gets in the way (bbh)
 
-The change: we fetch the Cases the way Inspect does, by running the eval's own task. We record
-every place it fetched from (a **Case Source**) and fingerprint what it produced (the **Case
-Digest**). Every image build runs the task again and serves nothing if the fingerprint differs.
+The change: we fetch the Cases the way Inspect does, by calling the eval's own task function.
+Building its Task makes the eval load its dataset, which is the fetch we want. **This never runs
+an evaluation:** no solver, scorer, model or Judge runs, and nothing is paid for. We record every
+place the task fetched from (a **Case Source**) and fingerprint what it produced (the **Case
+Digest**). Every image build calls the task function again and serves nothing if the fingerprint
+differs.
 **It never serves Cases nobody reviewed.** No existing Imported Benchmark changes. Up to 14
 packages become Benchmarks here. The Judge-graded rest become fetchable, ready for the Judge
 tickets.
@@ -60,6 +63,19 @@ Click the diagram for full size.
 Files are relative to `apps/screamingface-engine/src/screamingface_engine_inspect/`.
 `task_replay.py` is a proposed new module; the rest exist on main.
 
+**What Task replay runs, and what it never runs.** Think of it as asking the eval to print its
+question booklet, not to run the test.
+
+| | What happens |
+| -- | -- |
+| **Runs** | The eval's `@task` function, called with its task args (`mgsm(languages=["en"])`). To build its `Task`, the function loads its dataset: mgsm downloads its TSV and checks upstream's sha256; agieval downloads a JSONL at a pinned GitHub commit. |
+| **Taken** | `task.dataset` only: the Samples after the eval's own filtering and conversion. Our shared Case writer then renders each prompt and writes the Grading Material, as on the Hugging Face path. |
+| **Never runs** | inspect's `eval()`. The solver (no `generate()`), the scorer, and every model and Judge. No API call is made and nothing is paid for. |
+
+This is not new ground: the importer already calls task functions today, and so does the
+question filter (OME-1269). Both swap `hf_dataset` for a stand-in; Task replay lets the real
+fetch happen.
+
 - **Choose the preparation path.** The Hugging Face reader runs first, because existing
   Benchmarks must keep their revisions. Only its four "can't see the fetch" refusals route
   onward (R1); every other refusal is a real mismatch, not blindness.
@@ -76,7 +92,7 @@ Files are relative to `apps/screamingface-engine/src/screamingface_engine_inspec
 - **The generated declaration splits review from enforcement.** Case Sources go in as comments
   (COPIED); the Case count and Case Digest go in as constants (CAPTURED). The reviewer judges
   *where* the Cases come from; the code enforces *what* they are.
-- **Task-replay Case Preparation runs the eval's own code, not a copy of it,** because
+- **Task-replay Case Preparation calls the eval's own loading code, not a copy of it,** because
   re-implementing each loader script by hand is exactly where silent mismatches come from. It
   shares prompt rendering and the writer with the Hugging Face path, so the two paths can't
   drift on how a Case is written.
@@ -125,8 +141,9 @@ Files are relative to `apps/screamingface-engine/src/screamingface_engine_inspec
   - `record_to_sample` is defined inside the task function (:491).
 
   Every existing import produces byte-identical generated code.
-- **R2. Task replay.** It calls the eval's task function with the declared task args in a child
-  process whose `INSPECT_EVALS_CACHE_DIR` and Hugging Face cache point at a fresh, empty
+- **R2. Task replay.** It calls the eval's task function with the declared task args, and only
+  that: it never calls inspect's `eval()`, so no solver, scorer or model runs. The call happens
+  in a child process whose `INSPECT_EVALS_CACHE_DIR` and Hugging Face cache point at a fresh, empty
   directory. The Samples are the Task's dataset after the task's own filtering, shuffling and
   conversion, as inspect would run them.
 - **R3. Case Source recorder.** A pass-through wrap on each fetch primitive below records one
@@ -166,7 +183,7 @@ Files are relative to `apps/screamingface-engine/src/screamingface_engine_inspec
 
 ### Image side
 
-- **R9. Task-replay Case Preparation.** It re-runs the task in a child process (R2), renders
+- **R9. Task-replay Case Preparation.** It calls the task function again in a child process (R2), renders
   prompts with the same code as the Hugging Face path, then checks the Case count and the Case
   Digest before writing anything.
 - **R10. Mismatch.** A different Case Digest, a different count, or a failed fetch writes the
