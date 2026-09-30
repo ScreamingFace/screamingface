@@ -140,6 +140,8 @@ markers = [
     # OME-1275: spends real money through a real OpenRouter key. Never a merge gate —
     # gated on SCREAMINGFACE_TEST_PAID=1 + OPENROUTER_API_KEY + docker, or it skips loudly.
     "paid: paid smoke of every imported benchmark against the real provider (opt-in)",
+    # OME-1307 (E14) E2E: the nightly publish spine (PB-22) against a sandbox GitHub repo.
+    "e2e_github: nightly E14 publish spine against a sandbox GitHub repo (secrets + docker)",
 ]
 
 [tool.coverage.run]
