@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from tortoise import fields
 
-from .base import BaseScoreboardModel
+from .base import IDEMPOTENCY_KEY_MAX_LEN, BaseScoreboardModel
 
 
 class BaseIdempotencyKey(BaseScoreboardModel):
     class Meta:
         abstract = True
 
-    key = fields.CharField(max_length=255, primary_key=True)
+    key = fields.CharField(max_length=IDEMPOTENCY_KEY_MAX_LEN, primary_key=True)
     expires_at = fields.DatetimeField(db_index=True)
     # FEATURE: OME-894 — which code wrote this mapping. NULL means "written by a replica that did
     # not know about this column", which is exactly what an old pod serving through a rollout does.

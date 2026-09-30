@@ -161,3 +161,63 @@ async def test_a_withdrawn_result_cannot_be_replayed_by_another_user(
 
     assert refused.status_code == 422
     assert owner.status_code == 201
+
+
+# X-SEC-1 — the baseline is checked like the replayed result: same board, and a result this caller
+# could replay. INVARIANT: a stranger's row must not name a result it may not see, because the
+# `pinned_baseline_result_id` FK is NO ACTION (D8) and would block the owner's delete or purge.
+
+
+async def _private_result(client: AsyncClient) -> str:
+    response = await post_score(client, user=ANA, benchmark_id="priv", key="ana-private")
+    assert response.status_code == 201, response.text
+    return response.json()["reported_result"]["id"]
+
+
+async def _other_board_result(client: AsyncClient) -> str:
+    response = await post_score(client, user=ANA, benchmark_id="gated", key="ana-gated")
+    assert response.status_code == 201, response.text
+    return response.json()["reported_result"]["id"]
+
+
+@pytest.mark.parametrize("board", ["private", "gated"])
+async def test_a_baseline_the_caller_may_not_replay_is_invalid_and_stores_nothing(
+    clustered_cf_client: AsyncClient, sign_receipt: Callable[..., str], board: str
+) -> None:
+    result_id, vid = await _original(clustered_cf_client, sign_receipt)
+    baseline_id = (
+        await _private_result(clustered_cf_client)
+        if board == "private"
+        else await _other_board_result(clustered_cf_client)
+    )
+    before = await ReportedResult.all().count()
+
+    response = await post_score(
+        clustered_cf_client,
+        user=BRUNO,
+        score=0.7,
+        replay=_claim(result_id, vid, pinned_baseline_result_id=baseline_id),
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "invalid_replay_claim"
+    assert await ReportedResult.all().count() == before
+
+
+async def test_a_baseline_the_caller_owns_on_a_private_board_is_still_refused_on_a_public_board(
+    clustered_cf_client: AsyncClient, sign_receipt: Callable[..., str]
+) -> None:
+    # WHY: even the owner of a private result cannot pin it as the baseline of a run on ANOTHER
+    # board; the board rule comes first (a grant never crosses boards, C6/RP-E4).
+    result_id, vid = await _original(clustered_cf_client, sign_receipt)
+    own_private = await _private_result(clustered_cf_client)
+
+    response = await post_score(
+        clustered_cf_client,
+        user=ANA,
+        score=0.7,
+        replay=_claim(result_id, vid, pinned_baseline_result_id=own_private),
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "invalid_replay_claim"

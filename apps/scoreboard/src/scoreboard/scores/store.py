@@ -853,7 +853,8 @@ class ScoreStore:
     async def set_redistributable(self, benchmark_id: str, value: bool) -> bool | None:
         """Set an EXISTING benchmark's redistributable flag, touching nothing else.
 
-        None: no such benchmark. True: the value changed. False: it already had the value.
+        None: no such benchmark. Otherwise the value it had BEFORE this call (the admin audit
+        record needs it, C10 MRA-2); the caller compares it with `value` to know if it changed.
         FEATURE: OME-1307 (E14) D6 — the audited admin route is the only writer.
         AIDEV-NOTE: `register_benchmark` must never write this column. The seed job runs on every
         deploy, and it must not reset an admin decision. No row lock: two admins who write at once
@@ -862,10 +863,10 @@ class ScoreStore:
         row = await Benchmark.get_or_none(id=benchmark_id)
         if row is None:
             return None
-        if row.redistributable == value:
-            return False
-        await Benchmark.filter(id=benchmark_id).update(redistributable=value)
-        return True
+        before = row.redistributable
+        if before != value:
+            await Benchmark.filter(id=benchmark_id).update(redistributable=value)
+        return before
 
     async def list_benchmarks(self) -> list[BenchmarkSchema]:
         rows = await Benchmark.all().order_by("id")

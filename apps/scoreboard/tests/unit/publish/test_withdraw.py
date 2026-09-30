@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 
+from scoreboard import cli
+from scoreboard.cli import configure_logging
 from scoreboard.core.replay_access import replay_access
 from scoreboard.routes.scores import UNTRUSTED_PEER_DETAIL
 from scoreboard.scores.models import CacheVersionPublication
@@ -238,3 +240,147 @@ async def test_an_unexpected_error_is_audited_as_a_500(
     (line,) = _audit_lines(caplog)
     assert "actor=admin@x.org" in line
     assert "outcome=500" in line
+
+
+# MRA-1 and MRA-2 — the admin audit record reaches the log in production, and it holds the value
+# before the change. The `admin_action` line above is pinned by prior tests, so the change record is
+# a SECOND line on the same logger, written only when an attempt succeeded.
+
+
+def _change_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == _AUDIT and record.getMessage().startswith("admin_change ")
+    ]
+
+
+async def test_withdraw_of_a_private_row_records_before_and_after(
+    publish_client: AsyncClient, seed_result: Seed, caplog: pytest.LogCaptureFixture
+) -> None:
+    seeded = await seed_result(publish_client, board="pub")
+    caplog.set_level(logging.INFO, logger=_AUDIT)
+
+    await _withdraw(publish_client, seeded.result_id, reason="licence")
+
+    (line,) = _change_lines(caplog)
+    assert line == (
+        f"admin_change actor=admin@x.org result_id={seeded.result_id} "
+        "before=private after=withdrawn reason=licence"
+    )
+
+
+async def test_withdraw_of_a_published_row_records_the_state_it_left(
+    publish_client: AsyncClient,
+    seed_result: Seed,
+    build_worker: Build,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    seeded = await seed_result(publish_client, board="pub")
+    await publish_client.post(f"/v1/results/{seeded.result_id}/publish", headers=as_user(ANA))
+    await build_worker(seeded).run_once()
+    caplog.set_level(logging.INFO, logger=_AUDIT)
+
+    await _withdraw(publish_client, seeded.result_id)
+    await _withdraw(publish_client, seeded.result_id)
+
+    first, again = _change_lines(caplog)
+    assert "before=published after=withdrawn" in first
+    # A repeat is a no-op, and the record says so: the value did not change.
+    assert "before=withdrawn after=withdrawn" in again
+
+
+async def test_a_refused_or_failed_withdraw_writes_no_change_record(
+    publish_client: AsyncClient, seed_result: Seed, caplog: pytest.LogCaptureFixture
+) -> None:
+    seeded = await seed_result(publish_client, board="pub")
+    caplog.set_level(logging.INFO, logger=_AUDIT)
+
+    refused = await _withdraw(publish_client, seeded.result_id, BRUNO)
+    missing = await _withdraw(publish_client, "00000000-0000-4000-8000-000000000000")
+
+    assert (refused.status_code, missing.status_code) == (403, 404)
+    assert _change_lines(caplog) == []
+
+
+async def test_redistributable_records_the_value_before_the_change(
+    publish_client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=_AUDIT)
+    url = "/v1/admin/benchmarks/gated/redistributable"
+    body = {"redistributable": True, "reason": "CC-BY"}
+
+    flip = await publish_client.put(url, json=body, headers=as_user(ADMIN))
+    repeat = await publish_client.put(url, json=body, headers=as_user(ADMIN))
+    denied = await publish_client.put(url, json=body, headers=as_user(BRUNO))
+    missing = await publish_client.put(
+        "/v1/admin/benchmarks/nope/redistributable", json=body, headers=as_user(ADMIN)
+    )
+
+    assert [r.json().get("changed") for r in (flip, repeat)] == [True, False]
+    assert (denied.status_code, missing.status_code) == (403, 404)
+    flipped, repeated = _change_lines(caplog)
+    assert flipped == (
+        "admin_change actor=admin@x.org benchmark_id=gated before=false after=true reason=CC\\-BY"
+    )
+    assert "before=true after=true" in repeated
+
+
+@pytest.fixture
+def scoreboard_logger() -> Iterator[logging.Logger]:
+    """The `scoreboard` logger, put back the way it was: the tests below configure it for real."""
+    logger = logging.getLogger("scoreboard")
+    level, handlers, propagate = logger.level, list(logger.handlers), logger.propagate
+    yield logger
+    logger.setLevel(level)
+    logger.handlers[:] = handlers
+    logger.propagate = propagate
+
+
+async def test_the_audit_line_reaches_stderr_without_forcing_a_level(
+    publish_client: AsyncClient,
+    seed_result: Seed,
+    scoreboard_logger: logging.Logger,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # INVARIANT (MRA-1): uvicorn configures only its own loggers, so a process that starts through
+    # the CLI has root at WARNING and no handler. `configure_logging` is what makes the INFO audit
+    # line visible. This test does NOT call `caplog.set_level`, which is what hid the bug.
+    scoreboard_logger.handlers.clear()
+    scoreboard_logger.setLevel(logging.NOTSET)
+    seeded = await seed_result(publish_client, board="pub")
+
+    configure_logging("info")
+    await _withdraw(publish_client, seeded.result_id)
+
+    err = capsys.readouterr().err
+    assert f"admin_action actor=admin@x.org result_id={seeded.result_id}" in err
+    assert "admin_change actor=admin@x.org" in err
+    assert "INFO" in err
+
+
+def test_configure_logging_honours_the_level_and_adds_one_handler(
+    scoreboard_logger: logging.Logger,
+) -> None:
+    scoreboard_logger.handlers.clear()
+
+    configure_logging("warning")
+    configure_logging("warning")
+
+    assert scoreboard_logger.level == logging.WARNING
+    assert len(scoreboard_logger.handlers) == 1
+    assert not logging.getLogger("scoreboard.routes.admin").isEnabledFor(logging.INFO)
+
+
+def test_the_cli_configures_logging_before_it_starts_uvicorn(
+    scoreboard_logger: logging.Logger, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scoreboard_logger.handlers.clear()
+    scoreboard_logger.setLevel(logging.NOTSET)
+    seen: list[int] = []
+    monkeypatch.setenv("SCOREBOARD_LOG_LEVEL", "debug")
+    monkeypatch.setattr(cli.uvicorn, "run", lambda *a, **k: seen.append(scoreboard_logger.level))
+
+    cli.main()
+
+    assert seen == [logging.DEBUG]

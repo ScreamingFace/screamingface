@@ -212,20 +212,29 @@ class ClusterStore:
     async def _check_replay(self, call: _Call, replay: ReplayClaim) -> None:
         """Rule R (C4 trust rule): the claim names a result this caller may replay."""
         target = await self.load_replay_target(replay.result_id)
-        if target is None or not self._replay_allowed(call, target, replay):
+        # WHY the version is compared for the replayed result only: the baseline is a result of its
+        # own, so the claimed version is not compared with it.
+        if (
+            target is None
+            or target.result.cache_version_id != replay.cache_version_id
+            or not self._replay_allowed(call, target)
+        ):
             raise InvalidReplayClaim
+        # INVARIANT (X-SEC-1): the baseline is held to the same board and access rules as the
+        # replayed result. The FK is NO ACTION (D8), so a baseline that names a result this caller
+        # may not see would block its owner's delete or purge, and the 201/422 split would tell the
+        # caller that the id exists.
         baseline = replay.pinned_baseline_result_id
-        if baseline is not None and not await ReportedResult.exists(id=baseline):
-            raise InvalidReplayClaim
+        if baseline is not None:
+            named = await self.load_replay_target(baseline)
+            if named is None or not self._replay_allowed(call, named):
+                raise InvalidReplayClaim
 
     @staticmethod
-    def _replay_allowed(call: _Call, target: ReplayTarget, replay: ReplayClaim) -> bool:
+    def _replay_allowed(call: _Call, target: ReplayTarget) -> bool:
         # INVARIANT: the claim names a result of THIS board (C4 trust rule). A grant across
         # boards is refused too (C6/RP-E4), so no grant could have produced such a claim.
-        if (
-            target.result.cache_version_id != replay.cache_version_id
-            or target.benchmark.id != call.submission.benchmark_id
-        ):
+        if target.benchmark.id != call.submission.benchmark_id:
             return False
         access = replay_access(
             board_visibility=target.benchmark.visibility,
@@ -343,11 +352,22 @@ class ClusterStore:
             .using_db(conn)
             .order_by("submitted_at", "id")
         )
-        head = next((row for row in candidates if self._same_system(row, fingerprint)), None)
+        head = next(
+            (
+                row
+                for row in candidates
+                if self._same_system(row, submission.url4_expression, fingerprint)
+            ),
+            None,
+        )
         metadata = {**(submission.metadata or {}), "system_fingerprint": fingerprint}
         return _Placement(head, submission, None, metadata, [])
 
-    def _same_system(self, row: Score, fingerprint: str) -> bool:
+    def _same_system(self, row: Score, expression: str, fingerprint: str) -> bool:
+        # WHY the shortcut: the same expression has the same fingerprint, and identify is costly
+        # under the board lock.
+        if row.url4_expression == expression:
+            return True
         try:
             return self._registry.identify(row.url4_expression).fingerprint == fingerprint
         except (InvalidUrl4, Url4TooLarge):

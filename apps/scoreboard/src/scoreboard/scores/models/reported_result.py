@@ -4,7 +4,7 @@ import uuid
 
 from tortoise import fields
 
-from .base import BaseScoreboardModel
+from .base import IDEMPOTENCY_KEY_MAX_LEN, BaseScoreboardModel
 
 
 class BaseReportedResult(BaseScoreboardModel):
@@ -20,7 +20,9 @@ class BaseReportedResult(BaseScoreboardModel):
     id = fields.UUIDField(primary_key=True, default=uuid.uuid4)
     is_original = fields.BooleanField()
     reporter = fields.CharField(max_length=255, null=True)
-    run_id = fields.CharField(max_length=128, null=True, unique=True)
+    # INVARIANT (FS-1): as wide as `IdempotencyKey.key`. A public key is stored as sent and is the
+    # run id, so a narrower column made a 129 to 255 character key a 500 with clustering on.
+    run_id = fields.CharField(max_length=IDEMPOTENCY_KEY_MAX_LEN, null=True, unique=True)
     trace_id = fields.CharField(max_length=32, null=True)
     score = fields.FloatField()
     total_questions = fields.IntField()

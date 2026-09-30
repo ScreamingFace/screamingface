@@ -110,7 +110,7 @@ class Migration(migrations.Migration):
                 ),
                 ("is_original", fields.BooleanField()),
                 ("reporter", fields.CharField(null=True, max_length=255)),
-                ("run_id", fields.CharField(null=True, unique=True, max_length=128)),
+                ("run_id", fields.CharField(null=True, unique=True, max_length=255)),
                 ("trace_id", fields.CharField(null=True, max_length=32)),
                 ("score", fields.FloatField()),
                 ("total_questions", fields.IntField()),

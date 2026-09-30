@@ -19,6 +19,11 @@ from scoreboard.routes.errors import coded_error
 from scoreboard.scores.schemas import RedistributableRequest, RedistributableResponse
 from scoreboard.scores.store import ScoreStore
 
+
+def _flag(value: bool) -> str:
+    return "true" if value else "false"
+
+
 router = APIRouter(
     prefix="/v1/admin/benchmarks",
     tags=["Admin"],
@@ -36,11 +41,15 @@ async def set_benchmark_redistributable(
     """Set the flag. The same value again is 200 with `changed: false` (idempotent)."""
     # WHY before the store call: a 404 must also log the reason and the change.
     request.state.admin_reason = body.reason
-    request.state.admin_change = f"redistributable={'true' if body.redistributable else 'false'}"
+    request.state.admin_change = f"redistributable={_flag(body.redistributable)}"
     store = cast(ScoreStore, request.app.state.score_store)
-    changed = await store.set_redistributable(benchmark_id, body.redistributable)
-    if changed is None:
+    before = await store.set_redistributable(benchmark_id, body.redistributable)
+    if before is None:
         raise coded_error(404, "benchmark_not_found", "benchmark not found")
+    request.state.admin_before = _flag(before)
+    request.state.admin_after = _flag(body.redistributable)
     return RedistributableResponse(
-        benchmark_id=benchmark_id, redistributable=body.redistributable, changed=changed
+        benchmark_id=benchmark_id,
+        redistributable=body.redistributable,
+        changed=before != body.redistributable,
     )
