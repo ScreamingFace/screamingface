@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from scoreboard.classification.openness import Openness, classify_entry
+from scoreboard.classification.openness import EntryVerdict, Openness, classify_entry
 
 from .pareto import ParetoEntry, compute_pareto_frontier_ids
 from .schemas import FrontierPoint, FrontierResult
@@ -81,11 +81,14 @@ class _Split:
         return self.open_count / classified if classified else None
 
 
-_Verdict = tuple[str, tuple[str, ...]]
+_Verdict = tuple[EntryVerdict, tuple[str, ...]]
 
 
-def _verdicts(members: Mapping[str, FrontierMember]) -> dict[str, _Verdict]:
-    """Classify every member ONCE (review round 1, 2026-09-26).
+def classify_members(members: Mapping[str, FrontierMember]) -> dict[str, _Verdict]:
+    """Classify every member ONCE (review round 1, 2026-09-26), and log the misses together.
+
+    Shared by the "N% open" card and the table's per-row verdict, so the two cannot disagree and
+    neither can log per route.
 
     WHY: the trend visits the same members at every step. Classifying per visit repeated the
     work and logged each unrecognised route once per step, a log flood a crafted board could
@@ -255,7 +258,7 @@ def compute_frontier_openness(
             trend=[],
         )
     frontier = compute_pareto_frontier_ids(current)
-    verdicts = _verdicts(members)
+    verdicts = classify_members(members)
     split = _split(frontier, verdicts)
     return FrontierResult(
         frontier_available=True,
