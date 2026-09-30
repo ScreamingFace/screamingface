@@ -218,6 +218,12 @@
       // deliberately "highest score", not "state of the art": this row may be
       // unverified.
       if (isLeader) specTd.appendChild(P.el("span", "sr-only", " (highest score)"));
+      // A row that stands for two or more reported runs links to the list of those runs.
+      var results = window.SFReportedResults.reportedResultsLink(entry);
+      if (results !== null) {
+        specTd.appendChild(P.el("span", null, " "));
+        specTd.appendChild(P.link("mono", results.href, results.text));
+      }
       tr.appendChild(specTd);
 
       // The entry's open/closed verdict rides in this cell as a second line. With the

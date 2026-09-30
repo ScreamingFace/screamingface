@@ -8,6 +8,11 @@ dependencies = [
     # WHY a runtime dependency, not a dev one: the seed job reads the Engine benchmark catalogue
     # over HTTP inside the production image, which is built with `uv sync --frozen --no-dev`.
     "httpx>=0.28.1",
+    # FEATURE: OME-1307 (E14) — the gateway cache-version receipt is an EdDSA JWS (C3). `[crypto]`
+    # brings `cryptography` for the Ed25519 public key. Same pin as packages/screamingface.
+    "pyjwt[crypto]==2.15.0",
+    # WHY: the per-app counters of the clustered submit (`scoreboard/metrics.py`).
+    "prometheus-client>=0.26.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "tortoise-orm[asyncpg]==1.1.8",
