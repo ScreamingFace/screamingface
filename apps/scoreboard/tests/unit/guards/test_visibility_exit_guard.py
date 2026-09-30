@@ -106,6 +106,21 @@ pytestmark = pytest.mark.anyio
 #   results.py::_readable_head Return    CALLER-GUARANTEED — `list_results` re-checks with
 #                                        `turned_private` before a public answer
 #   store.py::readable_by                READS IT FRESH — delegates to `_readable_by`
+#
+# REPLAY GRANTS (E14, SB-grants) — a user-approved exception, recorded in
+# docs/work/2026-09-29-e14-sb-grants.md. `POST /v1/replay-grants` decides from ONE read of the
+# board row (`ReplayPinResolver.resolve`) and then signs a grant, which carries only ids.
+#   replay_resolver.py::resolve Raise x1    RESTRICTIVE — an unknown board answers PinNotFound, the
+#                                           same 404 as an unknown pin
+#   replay_resolver.py::resolve Return x2   ACCEPTED STALE WINDOW — the two returns hand ids to the
+#                                           route. The board row is read once per request, so a
+#                                           public -> private flip inside that one request can
+#                                           still give a non-owner a grant. It is NOT re-checked:
+#                                           the grant is bound to the caller (`sub`), names one
+#                                           cache version, and the gateway serves that version
+#                                           only. Approved as an exception, not as a guard.
+#   replay_resolver.py::_access Return      PURE — a decision over values the caller loaded
+#                                           (`benchmark`, the row's `reporter`, the state)
 EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::_private_leaderboard", "Return"): 1,
     ("leaderboard.py::get_leaderboard", "Return"): 1,
@@ -146,6 +161,9 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("results.py::_readable_head", "Raise"): 3,
     ("results.py::_readable_head", "Return"): 1,
     ("store.py::readable_by", "Return"): 1,
+    ("replay_resolver.py::resolve", "Raise"): 1,
+    ("replay_resolver.py::resolve", "Return"): 2,
+    ("replay_resolver.py::_access", "Return"): 1,
 }
 
 
