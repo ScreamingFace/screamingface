@@ -10,11 +10,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 from screamingface import events
 from screamingface._client_provenance import valid_client_version
-from screamingface._core.ports import _ResultArtifact, _RunOutcome
+from screamingface._core.ports import _ReplayCounts, _ResultArtifact, _RunOutcome
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 
@@ -34,6 +34,10 @@ _UNSEQUENCED_TYPES = frozenset({"ai.url4.heartbeat", "ai.url4.error"})
 # design" and "the broker dropped the sequence" are indistinguishable on the wire. The
 # durable fix is a distinct server-side CloudEvent type for advisory notices.
 _ADVISORY_TYPES = frozenset({"ai.url4.log"})
+# FEATURE (OME-1307, C12, D7 X-7): the replay counters of the root cache-summary log frame.
+_REPLAY_HITS = "cache.version.hits"
+_REPLAY_MISSES = "cache.version.misses"
+_REPLAY_COLLAPSES = "cache.version.repeated_key_collapses"
 _UNSEQUENCED_LABELS = {"ai.url4.heartbeat": "heartbeat"}
 
 
@@ -61,6 +65,7 @@ class _RunState:
         self._saved_cost_archive_usd: Decimal | None = None
         self._client_version: str | None = None
         self._version_conflict = False
+        self._replay_counts: _ReplayCounts | None = None
         self._last_sequence = 0
         self._event_ids: OrderedDict[str, int] = OrderedDict()
         self._event_id_bytes = 0
@@ -196,6 +201,10 @@ class _RunState:
             if self._client_version is not None and self._client_version != version:
                 self._version_conflict = True
             self._client_version = version
+        if envelope["source"] == self._root_source:
+            # INVARIANT: never raises. A telemetry defect must not end a paid run, so a bad or
+            # partial set keeps the last valid counts (or None).
+            self._replay_counts = _replay_counts(event.attributes) or self._replay_counts
         return _Accepted(event=event)
 
     def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
@@ -271,8 +280,23 @@ class _RunState:
                 cache_saved_cost_archive_usd=self._saved_cost_archive_usd,
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
+                replay_counts=self._replay_counts,
             ),
         )
+
+
+def _is_count(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _replay_counts(attributes: Mapping[str, object]) -> _ReplayCounts | None:
+    """The three C12 counters when all are present, each a natural number; else None."""
+    hits = attributes.get(_REPLAY_HITS)
+    misses = attributes.get(_REPLAY_MISSES)
+    collapses = attributes.get(_REPLAY_COLLAPSES)
+    if _is_count(hits) and _is_count(misses) and _is_count(collapses):
+        return _ReplayCounts(hits, misses, collapses)
+    return None
 
 
 def _advisory_error(data: Mapping[str, object]) -> tuple[str, str]:
