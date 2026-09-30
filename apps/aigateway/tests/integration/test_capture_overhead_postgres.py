@@ -64,8 +64,10 @@ def migrated_postgres() -> Generator[str, None, None]:
     if os.environ.get("AIGW_TEST_PG") != "1":
         pytest.skip("AIGW_TEST_PG=1 not set")
     # WHY: durable commit off, so a slow shared-runner disk does not decide the p99 (OME-1434).
+    # autovacuum off, so a background ANALYZE cannot take a transaction id inside the window of
+    # the one-commit-per-call count. This database lives only for this module.
     container = PostgresContainer("postgres:16-alpine", driver=None).with_command(
-        "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
+        "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c autovacuum=off"
     )
     with container as postgres:
         database_url = (
