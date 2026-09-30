@@ -1,12 +1,12 @@
 ---
 id: OME-962
 linear_url: https://linear.app/openmined/issue/OME-962/test-that-provider-failures-land-where-each-benchmarks-failure-policy
-status: backlog
+status: done
 type: feature
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-24
-closed:
+closed: 2026-08-26
 ---
 
 # Test that provider failures land where each benchmark's failure policy says

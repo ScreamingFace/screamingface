@@ -1,12 +1,12 @@
 ---
 id: OME-994
 linear_url: https://linear.app/openmined/issue/OME-994/ship-the-missing-dependencies-so-a-fresh-install-works-first-try
-status: backlog
+status: done
 type: bug
 priority: 2
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-26
-closed:
+closed: 2026-08-26
 ---
 
 # Ship the missing dependencies so a fresh install works first try

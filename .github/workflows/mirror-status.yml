@@ -1,0 +1,43 @@
+# Mirror <-> ledger status drift.
+#
+# WHY ITS OWN WORKFLOW rather than a job in `repo-checks.yml`: GitHub's `paths:` filter is
+# WORKFLOW-level, not job-level. Adding `docs/tasks/**` to repo-checks would run the preview
+# contract, the SHARED-LOOP parity check and the Dependabot ignore audit on every docs-only PR
+# too — none of which have anything to say about a ledger. `charts.yml` exists for precisely this
+# reason and is the precedent followed here.
+#
+# The whole gate is stdlib `python3`: no setup-uv, no setup-python, no network, no credential.
+# That is deliberate. Linear remains the status authority, but a quality gate that needs a token
+# is red on every fork PR, so this one asserts only what the ledgers in the checkout can prove.
+name: Mirror status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/tasks/**"
+      - "docs/work/**"
+      - ".claude/scripts/check_mirror_status.py"
+      - ".claude/scripts/tests/test_check_mirror_status.py"
+      - ".github/workflows/mirror-status.yml"
+  pull_request:
+    paths:
+      - "docs/tasks/**"
+      - "docs/work/**"
+      - ".claude/scripts/check_mirror_status.py"
+      - ".claude/scripts/tests/test_check_mirror_status.py"
+      - ".github/workflows/mirror-status.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  mirror-status:
+    name: Mirror <-> ledger status
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate tests
+        run: python3 .claude/scripts/tests/test_check_mirror_status.py
+      - name: Mirror status gate
+        run: python3 .claude/scripts/check_mirror_status.py
