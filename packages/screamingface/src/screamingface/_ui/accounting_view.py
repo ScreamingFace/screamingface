@@ -71,12 +71,17 @@ def run_accounting_note(candidate: CandidateResult) -> str:
     return f'<p class="sf-run-accounting-note">{escape(text)}</p>'
 
 
-def case_accounting(candidate: CandidateResult) -> dict[CaseId, str]:
+def case_accounting(
+    candidate: CandidateResult, *, case_ids: set[CaseId] | None = None
+) -> dict[CaseId, str]:
     """Group once per Candidate, retaining only the selected Case's actual owners."""
     view = candidate.accounting
-    groups: dict[CaseId, list[AccountingRow]] = {case.case_id: [] for case in candidate.cases}
+    groups: dict[CaseId, list[AccountingRow]] = {
+        case.case_id: [] for case in candidate.cases if case_ids is None or case.case_id in case_ids
+    }
     for row in view.rows:
-        groups[row.case_id].append(row)
+        if row.case_id in groups:
+            groups[row.case_id].append(row)
     return {
         case_id: (
             "".join(_activity(row) for row in rows)

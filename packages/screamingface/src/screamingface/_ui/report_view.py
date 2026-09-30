@@ -8,8 +8,10 @@ import re
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from html import escape
+from itertools import islice
 from typing import TYPE_CHECKING, Any
 
+from screamingface._report_export import inline_json
 from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
@@ -200,27 +202,27 @@ _STYLE = (
 )
 
 
-def report_html(report: Report) -> str:
+def report_html(report: Report, *, cases: bool = True, download: bool = True) -> str:
     """Render a completed Report as one self-contained panel."""
 
     cards = "".join(_card_html(item, report) for item in report.candidates)
     return (
         f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
         "aria-label='ScreamingFace evaluation report'>"
-        f"{_head_html(report)}"
+        f"{_head_html(report, download=download)}"
         f"{_strip_html(report)}"
         f"{cards}"
         f"{_failures_html(report)}"
-        f"{_cases_html(report)}</div>"
+        f"{_cases_html(report) if cases else ''}</div>"
     )
 
 
-def _head_html(report: Report) -> str:
+def _head_html(report: Report, *, download: bool = True) -> str:
     return (
         "<div class='sf-report__head-row'><div>"
         "<div class='sf-report__title'>Report</div>"
         f"<div class='sf-report__sub'>Benchmark · {escape(str(report.benchmark.id))}</div>"
-        f"</div>{_download_html(report)}</div>"
+        f"</div>{_download_html(report) if download else ''}</div>"
     )
 
 
@@ -228,12 +230,15 @@ def _download_html(report: Report) -> str:
     """Export the portable artifact as a real file.
 
     A `data:` URI on a download anchor, because notebook HTML is routinely stripped of
-    <script> — a JS-built Blob would render as a dead button. The whole Report is
-    base64'd inline, so this grows the saved .ipynb by roughly 4/3 of the JSON size.
+    <script> — a JS-built Blob would render as a dead button. Only artifacts up to
+    64 KiB are embedded. Larger exports stay on disk;
+    serializing them into notebook output would recreate OME-1422.
     """
 
     try:
-        payload = report.to_json()
+        payload = inline_json(report)
+        if payload is None:
+            return "<span>Full export: <code>report.export('report.json')</code></span>"
     except Exception:
         # Export is a convenience; a Report that cannot serialise must still render.
         return ""
@@ -529,6 +534,14 @@ def _failures_html(report: Report) -> str:
     """
 
     failures = report.failures
+    if (
+        len(failures) > 25
+        or sum(len(json.dumps(failure.to_dict())) for failure in failures) > 16000
+    ):
+        return (
+            f"<div class='sf-report__warn'>{len(failures):,} failures. "
+            "Browse failed cases or export the report for all failure details.</div>"
+        )
     if not failures:
         return ""
     candidates = getattr(report, "candidates", ())
@@ -611,14 +624,23 @@ def _cases_html(report: Report) -> str:
     routinely sanitised of <script>, so a JS-driven widget would silently render dead.
     """
 
-    entries = [(candidate, case) for candidate in report.candidates for case in candidate.cases]
+    entries = list(
+        islice(
+            ((candidate, case) for candidate in report.candidates for case in candidate.cases), 25
+        )
+    )
     if not entries:
         return ""
     # Group name must be unique per rendered Report, or two reports in one notebook would
     # share a radio group and fight over the selection. Candidate run IDs are unique.
     group = f"sf-case-{_group_key(report)}"
     inputs, rail, panes = [], [], []
-    costs = {id(candidate): case_accounting(candidate) for candidate in report.candidates}
+    costs = {
+        id(candidate): case_accounting(
+            candidate, case_ids={case.case_id for owner, case in entries if owner is candidate}
+        )
+        for candidate in report.candidates
+    }
     for index, (candidate, case) in enumerate(entries):
         item = f"{group}-{index}"
         checked = " checked" if index == 0 else ""
@@ -626,15 +648,43 @@ def _cases_html(report: Report) -> str:
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )
         rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1))
-        panes.append(_pane_html(candidate, case, costs[id(candidate)][case.case_id]))
+        panes.append(bounded_pane(candidate, case, costs[id(candidate)][case.case_id]))
     total = len(entries)
-    label = f"{total} case result" + ("" if total == 1 else "s")
+    count = sum(len(candidate.cases) for candidate in report.candidates)
+    label = f"{count} case result" + ("" if count == 1 else "s")
+    if count > total:
+        label += f" · preview of first {total}; display report in a live notebook to browse all"
     return (
         f"<details class='sf-report__det' open><summary>{escape(label)}</summary>"
         f"{_selection_css(group, total)}"
         f"<div class='sf-master'>{''.join(inputs)}"
         f"<div class='sf-rail'>{''.join(rail)}</div>"
         f"<div class='sf-detail'>{''.join(panes)}</div></div></details>"
+    )
+
+
+def bounded_pane(candidate: CandidateResult, case: CaseResult, cost_html: str) -> str:
+    """Large individual Cases are read through the widget's paged full-content view."""
+    encoded = json.JSONEncoder(ensure_ascii=False).iterencode(case.to_dict())
+    size = 0
+    for chunk in encoded:
+        size += len(chunk)
+        if size > 32000:
+            return _large_pane(candidate, case)
+    pane = _pane_html(candidate, case, cost_html)
+    return pane if len(pane.encode("utf-8")) <= 24000 else _large_pane(candidate, case)
+
+
+def _large_pane(candidate: CandidateResult, case: CaseResult) -> str:
+    return (
+        "<div class='sf-pane'><div class='sf-pane__h'>"
+        f"<b>Case {escape(_clip(str(case.case_id), 80))} · "
+        f"{escape(_clip(candidate.name, 80))}</b> · {_case_state(case)}</div>"
+        "<p>Preview · open Full content to read every field, or export the complete report.</p>"
+        "<div class='sf-detail__k'>Input</div>"
+        f"<pre class='sf-report__pre'>{escape(_clip(case.display_input, 2000))}</pre>"
+        "<div class='sf-detail__k'>Answer</div>"
+        f"<pre class='sf-report__pre'>{escape(_clip(case.output, 2000))}</pre></div>"
     )
 
 

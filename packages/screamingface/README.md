@@ -385,7 +385,27 @@ report.export("runs/draco.json")
 `Report.export(...)` writes the exact complete JSON document returned by `to_json()`, creates
 parent directories, replaces an existing selected file for deterministic reruns, and returns its
 `Path`. A Report remains one JSON document even when it contains multiple Candidates; JSONL is
-reserved for a future collection of independent Reports.
+reserved for a future collection of independent Reports. JSON export streams one Case at a time
+and replaces the destination only after the new file is complete.
+
+In a live notebook, displaying `report` opens a searchable Case browser with 25 results per page.
+Candidate, outcome and available category filters apply to the whole Report. Selecting a Case
+loads its detail; **Full content** provides paged access to its complete input, output and Case
+JSON. The summary always describes the original Evaluation, including partial coverage.
+
+Before displaying the browser, the Client saves a lossless snapshot to
+`screamingface-reports/<unique-id>/report.json` under the notebook's working directory. The JSON
+link downloads this complete snapshot; **Export all CSV** and **Export filtered CSV** write
+separate analysis files, including exact Case JSON in each CSV record. Retain that directory
+alongside the notebook when moving results. If the notebook host cannot serve local downloads,
+the browser shows the saved path instead. Read-only directories show a save error while leaving
+the in-memory Report available for `report.export()` to another location.
+
+Interactive controls require `screamingface[notebook]` and a live kernel. Static HTML is a bounded
+preview of the first 25 Case Results; full programmatic access and export remain available. Small
+static reports retain their inline download, capped at 64 KiB. For an offline large-report trial,
+run `scripts/report_browser_demo.py` in a notebook, then display `demo_report()`; it contains only
+synthetic data and makes no model calls.
 
 `CandidateResult.client_version` records the caller-reported Client version retained by the
 Engine for that run. It is also present in each candidate in `report.json`; missing or ambiguous

@@ -324,6 +324,9 @@ class CandidateResult:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
     def to_dict(self) -> dict[str, object]:
+        return self._export_fields(cases=[case.to_dict() for case in self.cases])
+
+    def _export_fields(self, *, cases: object) -> dict[str, object]:
         return {
             # INVARIANT: the two case_count values in a serialized Report mean different
             # things, and both are load-bearing. This candidate block carries the COMPLETE
@@ -344,7 +347,7 @@ class CandidateResult:
             "score": self.score,
             "coverage": self.coverage,
             "metrics": thaw_mapping(dict(self._metric_items)),
-            "cases": [case.to_dict() for case in self.cases],
+            "cases": cases,
             "members": [member.to_dict() for member in self.members],
             "failures": [failure.to_dict() for failure in self.failures],
             "duration_ms": self.duration_ms,
@@ -441,12 +444,17 @@ class Report:
         )
 
     def to_dict(self) -> dict[str, object]:
+        return self._export_fields(
+            candidates=[candidate.to_dict() for candidate in self.candidates]
+        )
+
+    def _export_fields(self, *, candidates: object) -> dict[str, object]:
         return {
             "schema": "screamingface.report.v1",
             "started_at": _timestamp_text(self.started_at),
             "completed_at": _timestamp_text(self.completed_at),
             "benchmark": self.benchmark._result_dict(self.case_count),
-            "candidates": [candidate.to_dict() for candidate in self.candidates],
+            "candidates": candidates,
             "usage": self.usage.to_dict(),
         }
 
@@ -518,12 +526,26 @@ class Report:
         if selected.suffix.lower() != ".json":
             raise ValueError("Report export path must be a .json file")
         selected.parent.mkdir(parents=True, exist_ok=True)
-        selected.write_text(self.to_json(), encoding="utf-8")
+        from screamingface._report_export import write_report
+
+        write_report(self, selected)
         return selected
 
     def __repr__(self) -> str:
         candidates = ", ".join(repr(candidate.name) for candidate in self.candidates)
         return f"Report(benchmark={self.benchmark.id!r}, candidates=[{candidates}], ok={self.ok})"
+
+    def _ipython_display_(self) -> None:
+        from IPython.display import HTML, display
+
+        try:
+            from screamingface._ui.report_browser import ReportBrowser
+
+            browser = ReportBrowser(self)
+        except ImportError:
+            display(HTML(self._repr_html_()))
+            return
+        display(browser.widget)
 
     def _repr_html_(self) -> str:
         from screamingface._ui.report_view import report_html
