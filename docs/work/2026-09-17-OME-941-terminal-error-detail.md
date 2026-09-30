@@ -272,3 +272,21 @@ because it is the same shape as the `repr()` bug `OME-1132` shipped: an assertio
   smuggled in here.
 - **Not verified against a live run.** The leak is demonstrated by constructing each real
   exception class the way its real raise site constructs it, not by driving a failing benchmark.
+
+## Review follow-up (2026-09-30, after the rebase onto main)
+
+Two findings from a pre-merge review, both confirmed before fixing:
+
+- **R-A — four security tests had become vacuous.** The cap, traceback+path, marker-only and
+  credential tests still used `malformed_source`, which round 3 removed from the allowlist. Their
+  messages were scrubbed by AUTHORSHIP, so the content screen was never reached: replacing
+  `public_message(...)` with the raw message in `_sanitized_error` failed only 1 of 40 tests.
+  Fixed by moving them to `unknown_identity` (still vouched, echoes caller input) and asserting the
+  code survived the authorship screen. The same mutant now fails 5 tests.
+- **R-B — control-plane terminals read `internal_error`.** The supervisor ends runs with its own
+  constants (`cancelled`, `queue_expired`, `deadline_exceeded`, `spawn_failed`) via
+  `ErrorInfo(code, message)`. None was allowlisted, so a cancelled or expired run was reported as
+  an engine fault. New `CONTROL_PLANE_TERMINAL_CODES` in `error_text.py`: the code crosses, the
+  message never does (`spawn_failed` carries `str(exc)`). `ENGINE_RESERVED_CODES` (both sets) is
+  what `_raise_for_status` now refuses from upstream. The set is pinned to the raisers' own
+  constants by a test. Mutants for both the route branch and the connector guard fail 4 tests each.

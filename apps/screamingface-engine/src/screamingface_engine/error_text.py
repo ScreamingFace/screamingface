@@ -24,7 +24,13 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["ENGINE_ERROR_CODES", "public_identifier", "public_message"]
+__all__ = [
+    "CONTROL_PLANE_TERMINAL_CODES",
+    "ENGINE_ERROR_CODES",
+    "ENGINE_RESERVED_CODES",
+    "public_identifier",
+    "public_message",
+]
 
 # Codes whose message is authored by url4 core or the engine's own control plane ABOUT THE
 # CALLER'S OWN EXPRESSION or the engine's own limits, and whose raise sites interpolate no value
@@ -68,6 +74,22 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         "result_too_large",
     }
 )
+
+CONTROL_PLANE_TERMINAL_CODES: frozenset[str] = frozenset(
+    {"cancelled", "queue_expired", "deadline_exceeded", "spawn_failed"}
+)
+"""Terminal codes the engine's control plane (supervisor, warm pool, queue runner) ends a run with.
+
+The CODE is public: each is an engine-authored constant naming why the run ended, and reporting a
+cancelled or expired run as ``internal_error`` mislabels a real terminal reason as an engine fault.
+The MESSAGE is not: ``spawn_failed`` carries ``str(exc)``. Disjoint from
+:data:`ENGINE_ERROR_CODES`, which vouches for the message too. Pinned to the raisers' own
+constants by ``test_the_control_plane_set_is_exactly_the_supervisors_own_constants``.
+"""
+
+ENGINE_RESERVED_CODES: frozenset[str] = ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES
+"""Every code a public boundary reads as engine-authored. No upstream may mint one of these
+(``world/connector.py::_raise_for_status``), or it could borrow the engine's voice."""
 
 
 def public_identifier(value: object) -> str | None:

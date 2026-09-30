@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
-from screamingface_engine.error_text import ENGINE_ERROR_CODES
+from screamingface_engine.error_text import ENGINE_RESERVED_CODES
 from screamingface_engine.world.config import ModelSpec, WorldConfigError
 from screamingface_engine.world.connector import (
     AigatewayConfig,
@@ -1068,7 +1068,7 @@ async def test_truncation_never_splits_a_multibyte_character() -> None:
     out.encode("utf-8").decode("utf-8")  # must not raise
 
 
-@pytest.mark.parametrize("reserved", sorted(ENGINE_ERROR_CODES))
+@pytest.mark.parametrize("reserved", sorted(ENGINE_RESERVED_CODES))
 async def test_an_upstream_cannot_mint_an_engine_reserved_error_code(reserved: str) -> None:
     """OME-941 review round 2: `detail.code` is UPSTREAM input, so it may not name an engine code.
 
@@ -1090,7 +1090,7 @@ async def test_an_upstream_cannot_mint_an_engine_reserved_error_code(reserved: s
         _raise_for_status(resp)
 
     assert caught.value.code == "aigateway_http_401"
-    assert caught.value.code not in ENGINE_ERROR_CODES
+    assert caught.value.code not in ENGINE_RESERVED_CODES
 
 
 async def test_an_upstream_code_outside_the_reserved_set_is_still_adopted() -> None:

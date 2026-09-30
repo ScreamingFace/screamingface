@@ -28,7 +28,7 @@ from httpx import ASGITransport
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
-from screamingface_engine.error_text import ENGINE_ERROR_CODES
+from screamingface_engine.error_text import CONTROL_PLANE_TERMINAL_CODES, ENGINE_ERROR_CODES
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world.connector import _raise_for_status
 from url4.core.errors import CollectionError, RenderError, ResolutionError
@@ -404,24 +404,33 @@ async def test_an_upstream_message_under_an_allowlisted_code_never_reaches_the_r
 
 @pytest.mark.asyncio
 async def test_an_allowlisted_message_is_capped_rather_than_echoed_unbounded() -> None:
-    """`malformed_source` embeds `{token!r}` of the caller's expression with no bound of its own."""
+    """`unknown_identity` embeds `{identity!r}` of the caller's own expression with no bound of
+    its own, so a vouched message still needs the cap.
+
+    WHY a still-allowlisted code (review of the rebased PR): this test used `malformed_source`,
+    which round 3 removed from the allowlist — the message was then scrubbed by AUTHORSHIP and the
+    cap was never reached, so deleting `public_message` from the HTTP path survived it.
+    """
     topic = "topic-unbounded-detail"
     resp = await _get_terminal(
         topic,
         _terminated(
             topic,
             "failed",
-            error=ErrorInfo(code="malformed_source", message="x" * 5_000, permanent=True),
+            error=ErrorInfo(code="unknown_identity", message="x" * 5_000, permanent=True),
         ),
     )
 
-    detail = resp.json()["detail"]
-    assert len(detail) <= 200
+    body = resp.json()
+    assert body["code"] == "unknown_identity", "must pass the authorship screen to reach the cap"
+    assert body["detail"].startswith("xxx"), "a vouched message is shown, not replaced"
+    assert len(body["detail"]) <= 200
 
 
 @pytest.mark.asyncio
 async def test_an_allowlisted_message_carrying_an_internal_marker_is_withheld() -> None:
-    """The same screen the benchmark surface applies — one policy module, not two."""
+    """The same screen the benchmark surface applies — one policy module, not two. The code is a
+    still-allowlisted one, so only the CONTENT screen can withhold the message."""
     topic = "topic-marker-detail"
     resp = await _get_terminal(
         topic,
@@ -429,7 +438,7 @@ async def test_an_allowlisted_message_carrying_an_internal_marker_is_withheld() 
             topic,
             "failed",
             error=ErrorInfo(
-                code="malformed_source",
+                code="unknown_identity",
                 message='Traceback (most recent call last): File "/srv/engine/runner.py", line 9',
                 permanent=True,
             ),
@@ -437,6 +446,7 @@ async def test_an_allowlisted_message_carrying_an_internal_marker_is_withheld() 
     )
 
     body = resp.json()
+    assert body["code"] == "unknown_identity", "vouched: only the CONTENT screen may withhold"
     assert body["detail"] == "the run failed"
     assert "/srv/engine" not in resp.content.decode()
 
@@ -493,7 +503,7 @@ async def test_a_marker_only_allowlisted_message_is_withheld_with_no_path_to_hel
             topic,
             "failed",
             error=ErrorInfo(
-                code="malformed_source",
+                code="unknown_identity",
                 message="Traceback (most recent call last): line 9 in handler",
                 permanent=True,
             ),
@@ -501,6 +511,7 @@ async def test_a_marker_only_allowlisted_message_is_withheld_with_no_path_to_hel
     )
 
     body = resp.json()
+    assert body["code"] == "unknown_identity", "vouched: only the CONTENT screen may withhold"
     assert body["detail"] == "the run failed"
     assert "handler" not in resp.content.decode()
 
@@ -509,8 +520,8 @@ async def test_a_marker_only_allowlisted_message_is_withheld_with_no_path_to_hel
 async def test_an_allowlisted_message_carrying_a_credential_is_withheld() -> None:
     """A vouched author is not a guarantee of vouched CONTENT.
 
-    `malformed_source` is raised about the caller's own expression, and an expression can embed
-    a key. The credential screen runs on an allowlisted message too — no code exempts it.
+    `unknown_identity` echoes an identity from the caller's own expression, and an expression can
+    embed a key. The credential screen runs on an allowlisted message too — no code exempts it.
     """
     topic = "topic-credential-detail"
     resp = await _get_terminal(
@@ -519,7 +530,7 @@ async def test_an_allowlisted_message_carrying_a_credential_is_withheld() -> Non
             topic,
             "failed",
             error=ErrorInfo(
-                code="malformed_source",
+                code="unknown_identity",
                 message=f"unexpected token {PROVIDER_SECRET!r} at position 12",
                 permanent=True,
             ),
@@ -527,6 +538,7 @@ async def test_an_allowlisted_message_carrying_a_credential_is_withheld() -> Non
     )
 
     body = resp.json()
+    assert body["code"] == "unknown_identity", "vouched: only the CONTENT screen may withhold"
     assert body["detail"] == "the run failed"
     assert PROVIDER_SECRET not in resp.content.decode()
 
@@ -611,3 +623,47 @@ async def test_a_real_raise_site_carrying_remote_text_never_reaches_the_response
     assert REMOTE_TEXT not in resp.content.decode(), (
         f"{code} echoed a message its raise site interpolated from remote data"
     )
+
+
+# --- the control plane's own terminal codes (review of the rebased PR) --------------------------
+#
+# WHY: the supervisor ends runs with its own constants — `cancelled`, `queue_expired`,
+# `deadline_exceeded`, `spawn_failed` — and publishes `ErrorInfo(code, message)`. Those codes were
+# not allowlisted, so a cancelled or expired run read `code: "internal_error"` on the HTTP path: a
+# real terminal reason relabelled as an engine fault. The CODE is an engine-authored constant with
+# no provider text, so it may cross; the MESSAGE may not (`spawn_failed` carries `str(exc)`).
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", sorted(CONTROL_PLANE_TERMINAL_CODES))
+async def test_a_control_plane_terminal_code_is_reported_as_itself(code: str) -> None:
+    topic = f"topic-control-plane-{code}"
+    secret_text = f"spawn failed: /srv/engine/pool.py {PROVIDER_SECRET}"
+    resp = await _get_terminal(
+        topic,
+        _terminated(topic, "failed", error=ErrorInfo(code=code, message=secret_text)),
+    )
+
+    body = resp.json()
+    assert body["code"] == code, "a supervisor terminal is not an internal error"
+    assert body["detail"] == "the run failed", "the control plane's MESSAGE never crosses"
+    raw = resp.content.decode()
+    assert "/srv/engine" not in raw
+    assert PROVIDER_SECRET not in raw
+
+
+def test_the_control_plane_set_is_exactly_the_supervisors_own_constants() -> None:
+    """One list, pinned to its raisers: adding a supervisor terminal code without deciding whether
+    it may cross the boundary fails here rather than silently reading `internal_error`."""
+    from screamingface_engine.adapters import queue_runner
+    from screamingface_engine.worker import supervisor, warm_pool
+
+    raised = {
+        supervisor.CANCELLED,
+        supervisor.QUEUE_EXPIRED,
+        supervisor.DEADLINE_EXCEEDED,
+        warm_pool.SPAWN_FAILED,
+        queue_runner.CANCELLED,
+    }
+    assert raised == CONTROL_PLANE_TERMINAL_CODES
+    assert not (CONTROL_PLANE_TERMINAL_CODES & ENGINE_ERROR_CODES), "a code has one policy, not two"

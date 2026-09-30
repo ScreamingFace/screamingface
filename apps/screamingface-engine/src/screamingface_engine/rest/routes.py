@@ -32,7 +32,11 @@ from screamingface_engine.auth import (
 from screamingface_engine.cache_intent import parse_cache_control
 from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
-from screamingface_engine.error_text import ENGINE_ERROR_CODES, public_message
+from screamingface_engine.error_text import (
+    CONTROL_PLANE_TERMINAL_CODES,
+    ENGINE_ERROR_CODES,
+    public_message,
+)
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
@@ -88,6 +92,10 @@ def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, b
        An engine-authored message is not automatically a *bounded* one — ``malformed_source``
        embeds ``{token!r}`` of the caller's expression with no limit of its own.
 
+    A code in :data:`CONTROL_PLANE_TERMINAL_CODES` (the supervisor's own ``cancelled``,
+    ``queue_expired``, ``deadline_exceeded``, ``spawn_failed``) is reported as itself, with its
+    message withheld.
+
     An unvouched or withheld message yields ``None``, and the caller falls back to the fixed
     table detail for the status. NOTE that ``_SCRUBBED_CODE`` is the genuine ``internal_error``
     code, not a distinct sentinel: a withheld body is therefore INDISTINGUISHABLE from a real
@@ -98,7 +106,11 @@ def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, b
         return None, None, None
     if error.code in ENGINE_ERROR_CODES:
         return error.code, public_message(error.message, default=""), error.permanent
-    return _SCRUBBED_CODE, None, error.permanent
+    # The control plane's own terminal reason keeps its code — a cancelled or expired run is not
+    # an engine fault — but, like every unvouched code, never its message (`spawn_failed` carries
+    # `str(exc)`). Anything else is scrubbed to `internal_error`.
+    code = error.code if error.code in CONTROL_PLANE_TERMINAL_CODES else _SCRUBBED_CODE
+    return code, None, error.permanent
 
 
 @dataclass(frozen=True)

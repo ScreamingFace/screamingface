@@ -20,7 +20,7 @@ import httpx
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
-from screamingface_engine.error_text import ENGINE_ERROR_CODES
+from screamingface_engine.error_text import ENGINE_RESERVED_CODES
 from screamingface_engine.grading_call_scope import grading_call_log_suffix
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.observations import ModelCall, current_model_call
@@ -1116,7 +1116,7 @@ def _raise_for_status(resp: httpx.Response) -> None:
     eligible for retry upstream.
 
     INVARIANT (OME-941): `detail.code` is UPSTREAM input and may never name a code in
-    `ENGINE_ERROR_CODES`. Public boundaries — the HTTP problem body, the benchmark result
+    `ENGINE_RESERVED_CODES`. Public boundaries — the HTTP problem body, the benchmark result
     contract — read those codes as evidence that the engine itself authored the accompanying
     message, and the message here is upstream text. So an upstream (or a proxy in front of
     aigateway, which this module already treats as an assumed threat) that answers
@@ -1143,7 +1143,7 @@ def _raise_for_status(resp: httpx.Response) -> None:
         detail = payload.get("detail")
         if isinstance(detail, dict):
             upstream_code = detail.get("code")
-            if isinstance(upstream_code, str) and upstream_code not in ENGINE_ERROR_CODES:
+            if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
                 code = upstream_code
             message = detail.get("message", message)
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
