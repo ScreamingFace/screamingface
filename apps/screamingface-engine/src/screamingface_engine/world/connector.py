@@ -259,7 +259,9 @@ class AigatewayConfig:
 
     def __post_init__(self) -> None:
         for value in (self.timeout_s, self.queue_timeout_s):
-            if value is not None and (not math.isfinite(value) or value <= 0):
+            if isinstance(value, bool) or (
+                value is not None and (not math.isfinite(value) or value <= 0)
+            ):
                 raise WorldConfigError("Gateway timeout budgets must be finite and positive")
 
     @property
@@ -432,7 +434,10 @@ async def build_aigateway_world(
     http_client = (
         client
         if client is not None
-        else httpx.AsyncClient(base_url=cfg.base_url, timeout=cfg.transport_timeout_s)
+        else httpx.AsyncClient(
+            base_url=cfg.base_url,
+            timeout=httpx.Timeout(cfg.timeout_s, read=cfg.transport_timeout_s),
+        )
     )
     routes = routes_for(cfg.models)
 
@@ -656,9 +661,7 @@ async def _post_completion(
                 await _retry_transport(attempt, deadline, configured, exc)
             continue
         if _queue_timeout(response) and attempt < _TRANSPORT_RETRIES:
-            delay = _queue_retry_delay(response, attempt)
-            if deadline is None or _retry_fits(deadline, delay, configured):
-                await _wait_to_retry(attempt, delay)
+            if await _retry_queue(response, attempt, deadline, configured):
                 continue
         return response, last is not None
     assert last is not None
@@ -694,6 +697,9 @@ async def _post_attempt(
             raise _deadline_exceeded(None)
         attempt_headers["x-aigw-remaining-timeout-s"] = str(remaining)
     limit = configured if timeout is None else timeout
+    # Queueing extends the read allowance, not connection/pool/write limits.
+    transport_timeout = httpx.Timeout(client.timeout)
+    transport_timeout.read = limit
     try:
         # Also bound transports without HTTPX timeout enforcement and trickling replies.
         async with asyncio.timeout(limit):
@@ -701,7 +707,7 @@ async def _post_attempt(
                 _COMPLETIONS_PATH,
                 headers=attempt_headers,
                 json=body,
-                timeout=limit if limit is not None else httpx.USE_CLIENT_DEFAULT,
+                timeout=transport_timeout,
             )
     except TimeoutError as exc:
         raise httpx.ReadTimeout("Gateway transport budget expired") from exc
@@ -714,6 +720,20 @@ async def _retry_transport(
     if deadline is not None and not _retry_fits(deadline, delay, configured):
         raise _deadline_exceeded(exc) from exc
     await _wait_to_retry(attempt, delay)
+    if deadline is not None and not _retry_fits(deadline, 0, configured):
+        raise _deadline_exceeded(exc) from exc
+
+
+async def _retry_queue(
+    response: httpx.Response, attempt: int, deadline: float | None, configured: float | None
+) -> bool:
+    delay = _queue_retry_delay(response, attempt)
+    if deadline is not None and not _retry_fits(deadline, delay, configured):
+        return False
+    await _wait_to_retry(attempt, delay)
+    # A delayed wakeup must not turn a full-budget retry into a partial attempt.
+    # Preserve the known queue refusal when a retry no longer fits.
+    return deadline is None or _retry_fits(deadline, 0, configured)
 
 
 async def _wait_to_retry(attempt: int, delay: float) -> None:
