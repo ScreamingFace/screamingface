@@ -287,6 +287,13 @@ the time. Re-check that assumption before releasing it.
 `0006_benchmark_native_scores` (OME-866, renaming `accuracy` to `score` and making
 `correct_questions` nullable) is the second. Same reasoning, same rollout options as above.
 
+`0018` to `0020` (OME-1307, E14) are expand-only and safe for a rolling rollout. They add columns
+that have a database default or allow `NULL` (`metadata_revision` and `redistributable` use
+`db_default`, so an old pod that omits them on `INSERT` still writes a valid row), add five new
+tables and two partial unique indexes, and add one original `reported_result` row for each existing
+score. They rename nothing and drop nothing, so old pods keep working against the new schema while
+the rollout runs.
+
 ### Private boards and rollback — run the preflight first
 
 **Once any benchmark is private, `helm rollback` below the release that introduced private boards

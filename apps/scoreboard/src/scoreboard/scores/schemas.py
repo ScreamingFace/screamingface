@@ -764,6 +764,20 @@ class ScoreSchema(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    # FEATURE: OME-1307 (E14) — the four score columns E14 adds, INERT in this unit.
+    #
+    # INVARIANT: each is EXCLUDED AT ITS DEFAULT, for exactly the reason `models` above records
+    # (the `OME-1181` Q2 trap): this schema feeds the private JSONL export whose bytes authorize a
+    # purge, so a legacy row must not gain a key. They exist here so every stored Score column
+    # reaches a read DTO (`test_every_score_field_reaches_at_least_one_read_dto`).
+    paper_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    # AIDEV-NOTE: excluded at 1 in this unit only. SB-meta makes it always present in API
+    # responses and moves the "drop at 1" rule into the private export (see SB-meta plan).
+    metadata_revision: int = Field(default=1, exclude_if=lambda value: value == 1)
+    metadata_updated_at: datetime | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    system_revision_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
     # mismatch supplied by POST remains visible and documented in the shared schema.

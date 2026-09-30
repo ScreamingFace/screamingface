@@ -172,6 +172,7 @@ jobs:
             tests/unit/scores/test_read_snapshot_postgres.py \
             tests/unit/test_delete_scores_postgres.py \
             tests/unit/test_readyz_pool_postgres.py \
+            tests/unit/test_migration_e14_postgres.py \
             -v
 
   cost:
