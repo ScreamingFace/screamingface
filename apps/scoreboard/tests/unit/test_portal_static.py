@@ -189,7 +189,7 @@ def test_pareto_chart_shell_is_bounded_provenanced_and_loaded_before_its_caller(
     assert 'aria-label="Pareto Frontier (cost/score) chart, horizontally scrollable"' in html
     assert 'id="pareto-chart"' in html
     assert 'aria-hidden="true"' in html
-    assert "Costs are self-reported, not verified by re-running." in html
+    assert "Costs are self-reported, not verified by re-running." not in html
     assert "Frontier membership considers the full board" in html
     assert "plots only the submissions shown on this page" in html
 
@@ -219,10 +219,6 @@ def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
     INVARIANT: heading and `aria-label` are renamed as one. Only the label was previously
     asserted, so a rename that touched the heading alone — or the label alone — would leave the
     page describing itself two ways, silently, to two different audiences.
-
-    INVARIANT: the disclaimer assertion below is not incidental. OME-1146 also asks to delete it,
-    and this unit deliberately does not. Nothing else in the suite pins "renamed but still
-    disclaimed", which is exactly the state this unit ships.
     """
     portal = Path(__file__).resolve().parents[2] / "portal"
     html = (portal / "benchmark.html").read_text(encoding="utf-8")
@@ -230,7 +226,21 @@ def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
     assert "<h2>Pareto Frontier (cost/score)</h2>" in html
     assert 'aria-label="Pareto Frontier (cost/score) chart, horizontally scrollable"' in html
     assert "Score for cost" not in html
-    assert "Costs are self-reported, not verified by re-running." in html
+
+
+def test_pareto_chart_disclaimer_is_folded_into_the_read_this_first_note() -> None:
+    """FEATURE (OME-1146 part 2): the disclaimer is gone; its job moves into the shared note.
+
+    INVARIANT: this is a folded caveat, not a silent drop. The page must still tell a reader to
+    verify cost, just via the same instruction it already gives for score, rather than a
+    cost-specific line living apart from it.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    html = (portal / "benchmark.html").read_text(encoding="utf-8")
+
+    assert "Costs are self-reported, not verified by re-running." not in html
+    assert "costs are self-reported, not verified by re-running" not in html
+    assert "rerun any claim, score, or cost, before trusting it" in html
 
 
 def test_portal_index_filters_private_boards_through_the_shared_logic_module() -> None:
