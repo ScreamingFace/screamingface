@@ -13,6 +13,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    StrictBool,
     field_validator,
     model_validator,
 )
@@ -1176,3 +1177,22 @@ class WithdrawRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: Annotated[str, Field(min_length=1, max_length=512)]
+
+
+# FEATURE: OME-1307 (E14) D6 — the admin route that sets `Benchmark.redistributable` (WIRING).
+# Appended at the END of the file, after the SB-publish block.
+class RedistributableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # WHY StrictBool: the string "yes" or the number 1 must be a 422, not a silent true (a licence
+    # decision).
+    redistributable: StrictBool
+    reason: Annotated[str, Field(min_length=1, max_length=512)]
+
+
+class RedistributableResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    benchmark_id: str
+    redistributable: bool
+    changed: bool

@@ -850,6 +850,23 @@ class ScoreStore:
         updated = await Benchmark.filter(id=benchmark_id).update(visibility=visibility)
         return bool(updated)
 
+    async def set_redistributable(self, benchmark_id: str, value: bool) -> bool | None:
+        """Set an EXISTING benchmark's redistributable flag, touching nothing else.
+
+        None: no such benchmark. True: the value changed. False: it already had the value.
+        FEATURE: OME-1307 (E14) D6 — the audited admin route is the only writer.
+        AIDEV-NOTE: `register_benchmark` must never write this column. The seed job runs on every
+        deploy, and it must not reset an admin decision. No row lock: two admins who write at once
+        each get an audited answer, and the last write wins.
+        """
+        row = await Benchmark.get_or_none(id=benchmark_id)
+        if row is None:
+            return None
+        if row.redistributable == value:
+            return False
+        await Benchmark.filter(id=benchmark_id).update(redistributable=value)
+        return True
+
     async def list_benchmarks(self) -> list[BenchmarkSchema]:
         rows = await Benchmark.all().order_by("id")
         return [benchmark_to_schema(benchmark) for benchmark in rows]

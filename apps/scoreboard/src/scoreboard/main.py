@@ -29,6 +29,7 @@ from .portal import register_portal
 from .publish.worker import PublishWorker
 from .routes import (
     admin,
+    admin_benchmarks,
     health,
     leaderboard,
     publish,
@@ -318,6 +319,8 @@ def _wire_publish(app: FastAPI, settings: Settings) -> None:
         )
     app.include_router(publish.router)
     app.include_router(admin.router)
+    # FEATURE: OME-1307 (E14) D6 — the audited `redistributable` route, before `register_portal`.
+    app.include_router(admin_benchmarks.router)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
