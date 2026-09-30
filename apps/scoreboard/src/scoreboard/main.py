@@ -8,7 +8,9 @@ from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_add
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .adapters.url4_fingerprinter import Url4Fingerprinter
 from .config import Settings
+from .core.registry import RegistryService
 from .db import close_db, init_db
 from .logs import configure as configure_logging
 from .portal import register_portal
@@ -16,6 +18,7 @@ from .routes import health, leaderboard, score_metadata, scores
 from .scores.baseline_store import BaselineStore
 from .scores.metadata_store import ScoreMetadataStore
 from .scores.store import ScoreStore
+from .scores.system_registry_store import TortoiseSystemRepository
 
 # WHY read directly from os.environ, not a Settings field: this is uvicorn's own env var
 # (FORWARDED_ALLOW_IPS, no SCOREBOARD_ prefix — see charts/scoreboard/values.yaml's
@@ -188,6 +191,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.baseline_store = BaselineStore()
     # FEATURE: OME-1307 (E14a) — the store behind PATCH /v1/scores/{id}.
     app.state.metadata_store = ScoreMetadataStore()
+    # FEATURE: OME-1307 (E14) — the system registry. SB-submit calls it from `POST /v1/scores`.
+    app.state.system_registry = RegistryService(TortoiseSystemRepository(), Url4Fingerprinter())
 
     if settings.cors_origins:
         app.add_middleware(

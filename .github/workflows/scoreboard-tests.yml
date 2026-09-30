@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "apps/scoreboard/**"
+      - "packages/url4/**"
       - ".github/workflows/scoreboard-tests.yml"
   pull_request:
     paths:
       - "apps/scoreboard/**"
+      - "packages/url4/**"
       - ".github/workflows/scoreboard-tests.yml"
   workflow_dispatch:
 
@@ -174,6 +176,7 @@ jobs:
             tests/unit/test_delete_scores_postgres.py \
             tests/unit/test_readyz_pool_postgres.py \
             tests/unit/test_migration_e14_postgres.py \
+            tests/unit/registry/test_system_registry_postgres.py \
             -v
 
   cost:
