@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import enum
+import logging
 import math
 import platform
+import random
 import re
+import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
@@ -21,6 +27,13 @@ from uuid import UUID
 
 import httpx
 
+from screamingface._core.ports import (
+    AsyncCacheVersionFreezer,
+    SyncCacheVersionFreezer,
+    _FreezeOutcome,
+    _FreezeUnavailable,
+    _FrozenCacheVersion,
+)
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
     prepare_submission_notice,
@@ -30,13 +43,18 @@ from screamingface.errors import LeaderboardError
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
+    LeaderboardCacheVersion,
     LeaderboardEntry,
     LeaderboardInfo,
+    LeaderboardNotice,
     LeaderboardRankingNotice,
+    LeaderboardReportedResult,
     LeaderboardScore,
 )
 from screamingface.report import CandidateResult
 from screamingface.url4 import Url4
+
+_logger = logging.getLogger(__name__)
 
 _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
@@ -59,6 +77,16 @@ _METADATA_EDIT_OPERATION = "edit the submission metadata on"
 _METADATA_EDIT_TIMEOUT_S = 15.0
 _METADATA_EDIT_TRANSPORT_RETRIES = 1
 _SUBMIT_OPERATION = "submit a score to"
+# FEATURE: OME-1307 (E14) contract C4: a 30 s timeout and two re-sends with backoff after a
+# connection error or a 5xx. The idempotency key (`run_id`) makes a re-send safe.
+_SUBMIT_TIMEOUT_S = 30.0
+_SUBMIT_RESENDS = 2
+_SUBMIT_BACKOFF_BASE_S = 0.5
+# WHY bounded: a long notebook session submits many runs, and the receipt cache must not grow
+# without end. The freeze is idempotent (CV-D3), so a cache that dropped an entry only costs one
+# more freeze call.
+_RECEIPT_CACHE_SIZE = 32
+_CACHE_VERSION_WARNING = "cache_version_unavailable"
 _SUBMIT_CODES: Final[Mapping[int, str]] = {
     400: "invalid_score_submission",
     401: "scoreboard_authentication_required",
@@ -76,6 +104,9 @@ _METADATA_EDIT_CODES: Final[Mapping[int, str]] = {
     422: "invalid_submission_metadata",
     428: "precondition_required",
 }
+# WHY these two: their boards send `{"detail": {"code": ...}}` (D7 X-8). The other operations keep
+# the status map only, as before.
+_CODED_OPERATIONS: Final = frozenset({_SUBMIT_OPERATION, _METADATA_EDIT_OPERATION})
 _STATUS_CODES_BY_OPERATION: Final[Mapping[str, Mapping[int, str]]] = {
     _SUBMIT_OPERATION: _SUBMIT_CODES,
     _METADATA_EDIT_OPERATION: _METADATA_EDIT_CODES,
@@ -92,9 +123,19 @@ UNSET: Final = _Unset.UNSET
 class Leaderboards:
     """Synchronous public Leaderboards bound to one Client."""
 
-    def __init__(self, request: Callable[..., httpx.Response], scoreboard_url: str) -> None:
+    def __init__(
+        self,
+        request: Callable[..., httpx.Response],
+        scoreboard_url: str,
+        freezer: SyncCacheVersionFreezer | None = None,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._request = request
         self._scoreboard_url = scoreboard_url
+        self._freezer = freezer
+        self._sleep = sleep
+        self._receipts: OrderedDict[tuple[str, str], _FrozenCacheVersion] = OrderedDict()
 
     def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
@@ -128,24 +169,55 @@ class Leaderboards:
         *,
         authors: Sequence[str] | None = None,
         paper_url: str | None = None,
+        revision_of: str | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors, paper_url=paper_url)
+        payload = _submission(
+            candidate_result, authors=authors, paper_url=paper_url, revision_of=revision_of
+        )
         notebook_notice = prepare_submission_notice(candidate_result)
+        # WHY here: after the input checks and the partial-submission advisory, so `-W error`
+        # still aborts before any engine call, as before.
+        warning = _attach_cache_version(
+            payload, candidate_result, self._cache_version(candidate_result)
+        )
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
-            payload=_sync_json(
-                self._request,
-                self._scoreboard_url,
-                "POST",
-                _SCORES_PATH,
-                json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
-                replay_safe=True,
-                operation="submit a score to",
-            ),
+            payload=self._submit_with_retries(payload, candidate_result.run_id),
         )
         display_submission_notice(notebook_notice)
-        return score
+        return _with_warning(score, warning)
+
+    def _cache_version(self, candidate_result: CandidateResult) -> _FreezeOutcome:
+        trace_id = candidate_result.trace_id
+        if trace_id is None or self._freezer is None:
+            return _FreezeUnavailable("no_trace" if trace_id is None else "freeze_unconfigured")
+        key = (candidate_result.run_id, trace_id)
+        outcome: _FreezeOutcome | None = self._receipts.get(key)
+        if outcome is None:
+            outcome = self._freezer.freeze(trace_id)
+            _remember_receipt(self._receipts, key, outcome)
+        return outcome
+
+    def _submit_with_retries(self, payload: Mapping[str, object], run_id: str) -> object:
+        resend = 0
+        while True:
+            try:
+                return _sync_json(
+                    self._request,
+                    self._scoreboard_url,
+                    "POST",
+                    _SCORES_PATH,
+                    json=payload,
+                    headers={"Idempotency-Key": run_id},
+                    replay_safe=True,
+                    timeout=_SUBMIT_TIMEOUT_S,
+                    operation=_SUBMIT_OPERATION,
+                )
+            except LeaderboardError as exc:
+                if resend >= _SUBMIT_RESENDS or not _resendable(exc):
+                    raise
+                resend += 1
+                self._sleep(_submit_backoff(resend))
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -197,9 +269,15 @@ class AsyncLeaderboards:
         self,
         request: Callable[..., Awaitable[httpx.Response]],
         scoreboard_url: str,
+        freezer: AsyncCacheVersionFreezer | None = None,
+        *,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._request = request
         self._scoreboard_url = scoreboard_url
+        self._freezer = freezer
+        self._sleep = sleep
+        self._receipts: OrderedDict[tuple[str, str], _FrozenCacheVersion] = OrderedDict()
 
     async def list(self) -> Sequence[LeaderboardInfo]:
         return _decode_list(
@@ -233,24 +311,55 @@ class AsyncLeaderboards:
         *,
         authors: Sequence[str] | None = None,
         paper_url: str | None = None,
+        revision_of: str | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors, paper_url=paper_url)
+        payload = _submission(
+            candidate_result, authors=authors, paper_url=paper_url, revision_of=revision_of
+        )
         notebook_notice = prepare_submission_notice(candidate_result)
+        # WHY here: after the input checks and the partial-submission advisory, so `-W error`
+        # still aborts before any engine call, as before.
+        warning = _attach_cache_version(
+            payload, candidate_result, await self._cache_version(candidate_result)
+        )
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
-            payload=await _async_json(
-                self._request,
-                self._scoreboard_url,
-                "POST",
-                _SCORES_PATH,
-                json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
-                replay_safe=True,
-                operation="submit a score to",
-            ),
+            payload=await self._submit_with_retries(payload, candidate_result.run_id),
         )
         display_submission_notice(notebook_notice)
-        return score
+        return _with_warning(score, warning)
+
+    async def _cache_version(self, candidate_result: CandidateResult) -> _FreezeOutcome:
+        trace_id = candidate_result.trace_id
+        if trace_id is None or self._freezer is None:
+            return _FreezeUnavailable("no_trace" if trace_id is None else "freeze_unconfigured")
+        key = (candidate_result.run_id, trace_id)
+        outcome: _FreezeOutcome | None = self._receipts.get(key)
+        if outcome is None:
+            outcome = await self._freezer.freeze(trace_id)
+            _remember_receipt(self._receipts, key, outcome)
+        return outcome
+
+    async def _submit_with_retries(self, payload: Mapping[str, object], run_id: str) -> object:
+        resend = 0
+        while True:
+            try:
+                return await _async_json(
+                    self._request,
+                    self._scoreboard_url,
+                    "POST",
+                    _SCORES_PATH,
+                    json=payload,
+                    headers={"Idempotency-Key": run_id},
+                    replay_safe=True,
+                    timeout=_SUBMIT_TIMEOUT_S,
+                    operation=_SUBMIT_OPERATION,
+                )
+            except LeaderboardError as exc:
+                if resend >= _SUBMIT_RESENDS or not _resendable(exc):
+                    raise
+                resend += 1
+                await self._sleep(_submit_backoff(resend))
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -293,6 +402,55 @@ class AsyncLeaderboards:
                 missing=("unknown_score", f"Score {str(selected)!r} was not found"),
             ),
         )
+
+
+def _remember_receipt(
+    receipts: OrderedDict[tuple[str, str], _FrozenCacheVersion],
+    key: tuple[str, str],
+    outcome: _FreezeOutcome,
+) -> None:
+    """Keep a frozen version for a resubmit of the same run (SC-20), never an unavailable one."""
+    if not isinstance(outcome, _FrozenCacheVersion):
+        return
+    receipts[key] = outcome
+    while len(receipts) > _RECEIPT_CACHE_SIZE:
+        receipts.popitem(last=False)
+
+
+def _attach_cache_version(
+    payload: dict[str, object],
+    candidate_result: CandidateResult,
+    outcome: _FreezeOutcome,
+) -> str | None:
+    """Put the receipt on the payload, or return the local warning when there is none (SC-E1).
+
+    INVARIANT: `trace_id` rides ONLY with a receipt. `ScoreSubmission` is `extra="forbid"`, so a
+    plain submit must not carry a key that an older board would refuse.
+    INVARIANT: no trace id, receipt or author reaches the log line. The reason is a token.
+    WHY not `warnings.warn`: it comes before the POST, and under `-W error` it would raise and
+    stop a submit that SC-E1 says must go on. The field and the log line give both signals.
+    """
+    if isinstance(outcome, _FrozenCacheVersion):
+        payload["cache_version_receipt"] = outcome.receipt
+        payload["trace_id"] = candidate_result.trace_id
+        return None
+    warning = f"{_CACHE_VERSION_WARNING}: {outcome.reason}"
+    _logger.warning("%s (run_id=%s)", warning, candidate_result.run_id)
+    return warning
+
+
+def _with_warning(score: LeaderboardScore, warning: str | None) -> LeaderboardScore:
+    return score if warning is None else replace(score, cache_version_warning=warning)
+
+
+def _resendable(error: LeaderboardError) -> bool:
+    """C4: re-send after a connection error or a 5xx, never after a 4xx (SC-E2)."""
+    return error.code == "scoreboard_unreachable" or (error.status or 0) >= 500
+
+
+def _submit_backoff(resend: int) -> float:
+    """0.5 s before the first re-send and 1 s before the second, each with up to 25% jitter."""
+    return _SUBMIT_BACKOFF_BASE_S * 2 ** (resend - 1) * (1 + 0.25 * random.random())
 
 
 def _sync_json(
@@ -393,7 +551,13 @@ def _response_json(
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
-        submission_conflict = response.status_code == 409 and operation == _SUBMIT_OPERATION
+        # WHY a coded 409 is a fixed fact (`system_name_taken`, `cache_version_already_bound`): the
+        # board sends an uncoded 409 for a transient race, and only that one gets the retry hint.
+        submission_conflict = (
+            response.status_code == 409
+            and operation == _SUBMIT_OPERATION
+            and _coded_detail(details) is None
+        )
         raise LeaderboardError(
             f"Could not {operation} the Scoreboard: HTTP {response.status_code}{suffix}",
             scoreboard_url=scoreboard_url,
@@ -424,7 +588,7 @@ def _error_details(response: httpx.Response) -> object:
 
 
 def _error_code(details: object, status: int, operation: str) -> str:
-    if operation == _METADATA_EDIT_OPERATION:
+    if operation in _CODED_OPERATIONS:
         coded = _coded_detail(details)
         if coded is not None:
             return coded
@@ -524,9 +688,58 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             metadata_revision=_optional_integer(
                 root.get("metadata_revision"), "Leaderboard score metadata_revision"
             ),
+            reported_result=_decode_reported_result(root.get("reported_result")),
+            reported_results_count=_optional_integer(
+                root.get("reported_results_count"), "Leaderboard score reported_results_count"
+            ),
+            notices=_decode_notices(root.get("notices")),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _decode_reported_result(value: object) -> LeaderboardReportedResult | None:
+    if value is None:
+        return None
+    root = _mapping(value, "Leaderboard reported result")
+    version = root.get("cache_version")
+    return LeaderboardReportedResult(
+        id=UUID(_text(root.get("id"), "Leaderboard reported result id")),
+        is_original=_boolean(root.get("is_original"), "Leaderboard reported result is_original"),
+        reporter=_optional_text(root.get("reporter"), "Leaderboard reported result reporter"),
+        cache_version=None if version is None else _decode_cache_version(version),
+        publication_state=_optional_text(
+            root.get("publication_state"), "Leaderboard reported result publication_state"
+        ),
+    )
+
+
+def _decode_cache_version(value: object) -> LeaderboardCacheVersion:
+    root = _mapping(value, "Leaderboard cache version")
+    coverage = _text(root.get("coverage_status"), "Leaderboard cache version coverage_status")
+    if coverage not in ("complete", "partial"):
+        _invalid("Leaderboard cache version coverage_status must be complete or partial")
+    return LeaderboardCacheVersion(
+        id=UUID(_text(root.get("id"), "Leaderboard cache version id")),
+        sha256=_text(root.get("sha256"), "Leaderboard cache version sha256"),
+        entry_count=_integer(root.get("entry_count"), "Leaderboard cache version entry_count"),
+        call_count=_integer(root.get("call_count"), "Leaderboard cache version call_count"),
+        coverage_status="complete" if coverage == "complete" else "partial",
+    )
+
+
+def _decode_notices(value: object) -> tuple[LeaderboardNotice, ...]:
+    if value is None:
+        return ()
+    return tuple(_decode_notice(item) for item in _array(value, "Leaderboard score notices"))
+
+
+def _decode_notice(value: object) -> LeaderboardNotice:
+    root = _mapping(value, "Leaderboard notice")
+    return LeaderboardNotice(
+        code=_text(root.get("code"), "Leaderboard notice code"),
+        details={key: item for key, item in root.items() if key != "code"},
+    )
 
 
 def _decode_ranking_notice(root: Mapping[str, object]) -> LeaderboardRankingNotice | None:
@@ -600,11 +813,13 @@ def _submission(
     *,
     authors: Sequence[str] | None = None,
     paper_url: str | None = None,
+    revision_of: str | None = None,
 ) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
     selected_authors = _submission_authors(authors)
     selected_paper_url = None if paper_url is None else _paper_url_text(paper_url)
+    selected_revision_of = None if revision_of is None else _revision_of_text(revision_of)
     payload: dict[str, object] = {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
@@ -639,6 +854,10 @@ def _submission(
     # `extra="forbid"`, so sending null would 422 a normal submit.
     if selected_paper_url is not None:
         payload["paper_url"] = selected_paper_url
+    # INVARIANT (E14, C4): like `paper_url`, absent means "not given", and a board before E14
+    # refuses an unknown key.
+    if selected_revision_of is not None:
+        payload["revision_of"] = selected_revision_of
     # INVARIANT (OME-1326, OME-1251 D5): sent beside the spend, never added to it; the board sums
     # the two at the point of use. Omitted when absent rather than sent as null, so an uncached
     # run's payload is unchanged and a board that predates the field 422s only cached runs.
@@ -715,6 +934,17 @@ def _paper_url_text(value: object) -> str:
     selected = value.strip()
     if not selected:
         raise ValueError("paper_url must be non-blank text or None")
+    return selected
+
+
+def _revision_of_text(value: object) -> str:
+    # WHY the type and blankness are the only rules: the registry owns the name grammar (SR-E2),
+    # so the SDK never drifts from it.
+    if not isinstance(value, str):
+        raise TypeError("revision_of must be a string or None")
+    selected = value.strip()
+    if not selected:
+        raise ValueError("revision_of must be non-blank text or None")
     return selected
 
 

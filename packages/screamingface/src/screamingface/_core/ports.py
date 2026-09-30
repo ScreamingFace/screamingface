@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from uuid import UUID
 
 if TYPE_CHECKING:
     from screamingface._evaluation.model import Candidate
@@ -126,6 +127,50 @@ class AsyncRunTransport(Protocol):
     async def cancel_active(self) -> None: ...
 
     async def close(self) -> None: ...
+
+
+# FEATURE: OME-1307 (E14) the freeze port. The core owns it; `_engine/cache_versions.py` is the
+# adapter and `client.py` joins them, so `_scoreboard/leaderboards.py` sees only these types.
+@dataclass(frozen=True, slots=True)
+class _FrozenCacheVersion:
+    """A version the gateway froze for one trace (contracts.md C2a).
+
+    INVARIANT: `receipt` is an opaque JWS. The SDK never decodes, verifies or logs it.
+    """
+
+    receipt: str
+    cache_version_id: UUID
+    entry_count: int
+    call_count: int
+    missing_count: int
+    coverage_status: Literal["complete", "partial"]
+    archive_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FreezeUnavailable:
+    """Why no version rides this submit (prd/submit-and-cluster.md SC-E1).
+
+    INVARIANT: `reason` is a token that matches `^[a-z0-9_]{1,64}$`, never untrusted text,
+    because it goes into a log line and a user-visible warning.
+    """
+
+    reason: str
+
+
+type _FreezeOutcome = _FrozenCacheVersion | _FreezeUnavailable
+
+
+class SyncCacheVersionFreezer(Protocol):
+    """Freeze the cache version of one trace."""
+
+    def freeze(self, trace_id: str) -> _FreezeOutcome: ...
+
+
+class AsyncCacheVersionFreezer(Protocol):
+    """Asynchronous counterpart of :class:`SyncCacheVersionFreezer`."""
+
+    async def freeze(self, trace_id: str) -> _FreezeOutcome: ...
 
 
 __all__: list[str] = []

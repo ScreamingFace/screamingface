@@ -530,6 +530,13 @@ submission = sf.leaderboards.submit(
 )
 same_submission = sf.leaderboards.get_score(submission.id)
 
+# submit freezes the run's cache version and sends its receipt with the score. When no version
+# could be frozen the score is still submitted, and the reason is on the returned score.
+if submission.cache_version_warning:
+    print(submission.cache_version_warning)  # e.g. "cache_version_unavailable: trace_not_captured"
+# Report a run under an existing system name with revision_of=.
+# sf.leaderboards.submit(report, revision_of="kevins-best")
+
 # Edit a submission: pass the revision you last saw. `None` clears a field.
 edited = sf.leaderboards.update_submission(
     submission.id,

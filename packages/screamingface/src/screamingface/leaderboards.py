@@ -28,6 +28,7 @@ def submit(
     *,
     authors: Sequence[str] | None = None,
     paper_url: str | None = None,
+    revision_of: str | None = None,
 ) -> LeaderboardScore:
     """Publish one evaluated Candidate Result to its registered Leaderboard."""
 
@@ -36,6 +37,8 @@ def submit(
     given: dict[str, str] = {}
     if paper_url is not None:
         given["paper_url"] = paper_url
+    if revision_of is not None:
+        given["revision_of"] = revision_of
     return default_client().leaderboards.submit(candidate_result, authors=authors, **given)
 
 

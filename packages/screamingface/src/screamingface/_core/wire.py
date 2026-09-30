@@ -33,4 +33,12 @@ def text(value: object, label: str, invalid: _Invalid) -> str:
     return cast(str, value).strip()
 
 
+def detail_code(body: object) -> str | None:
+    """Return the stripped, non-blank `detail.code` of a coded error body, else None (D7 X-8)."""
+
+    detail = body.get("detail") if isinstance(body, Mapping) else None
+    code = detail.get("code") if isinstance(detail, Mapping) else None
+    return code.strip() if isinstance(code, str) and code.strip() else None
+
+
 __all__: list[str] = []

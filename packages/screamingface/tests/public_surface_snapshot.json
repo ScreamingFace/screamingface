@@ -24,10 +24,13 @@
       "Fusion",
       "Leaderboard",
       "LeaderboardBaseline",
+      "LeaderboardCacheVersion",
       "LeaderboardEntry",
       "LeaderboardError",
       "LeaderboardInfo",
+      "LeaderboardNotice",
       "LeaderboardRankingNotice",
+      "LeaderboardReportedResult",
       "LeaderboardScore",
       "MemberResult",
       "Model",
@@ -380,6 +383,17 @@
           "source_url": "field"
         }
       },
+      "LeaderboardCacheVersion": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'UUID', sha256: 'str', entry_count: 'int', call_count: 'int', coverage_status: \"Literal['complete', 'partial']\") -> None",
+          "call_count": "field",
+          "coverage_status": "field",
+          "entry_count": "field",
+          "id": "field",
+          "sha256": "field"
+        }
+      },
       "LeaderboardEntry": {
         "kind": "class",
         "members": {
@@ -419,6 +433,14 @@
           "id": "field"
         }
       },
+      "LeaderboardNotice": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, code: 'str', details: 'Mapping[str, object]') -> None",
+          "code": "field",
+          "details": "field"
+        }
+      },
       "LeaderboardRankingNotice": {
         "kind": "class",
         "members": {
@@ -428,12 +450,24 @@
           "submitted_benchmark_revision": "field"
         }
       },
+      "LeaderboardReportedResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'UUID', is_original: 'bool', reporter: 'str | None', cache_version: 'LeaderboardCacheVersion | None', publication_state: 'str | None') -> None",
+          "cache_version": "field",
+          "id": "field",
+          "is_original": "field",
+          "publication_state": "field",
+          "reporter": "field"
+        }
+      },
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_revision: 'int | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_revision: 'int | None' = None, reported_result: 'LeaderboardReportedResult | None' = None, reported_results_count: 'int | None' = None, notices: 'tuple[LeaderboardNotice, ...]' = (), cache_version_warning: 'str | None' = None) -> None",
           "authors": "field",
           "benchmark_id": "field",
+          "cache_version_warning": "field",
           "client_name": "field",
           "client_platform": "field",
           "client_version": "field",
@@ -441,10 +475,13 @@
           "id": "field",
           "metadata": "field",
           "metadata_revision": "field",
+          "notices": "field",
           "paper_url": "field",
           "ran_at_local": "field",
           "ran_with_providers": "field",
           "ranking_notice": "field",
+          "reported_result": "field",
+          "reported_results_count": "field",
           "score": "field",
           "scoreboard_url": "field",
           "spec_id": "field",
@@ -982,7 +1019,7 @@
       },
       "submit": {
         "kind": "function",
-        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None, paper_url: 'str | None' = None) -> 'LeaderboardScore'"
+        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None, paper_url: 'str | None' = None, revision_of: 'str | None' = None) -> 'LeaderboardScore'"
       },
       "update_submission": {
         "kind": "function",

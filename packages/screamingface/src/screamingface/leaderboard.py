@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 from urllib.parse import urlsplit
@@ -114,6 +115,84 @@ class LeaderboardRankingNotice:
         )
 
 
+# FEATURE: OME-1307 (E14) the cache version a reported result carries.
+_PUBLICATION_STATES = frozenset({"private", "requested", "published", "failed", "withdrawn"})
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardCacheVersion:
+    """The frozen cache version behind a reported result."""
+
+    id: UUID
+    sha256: str
+    entry_count: int
+    call_count: int
+    coverage_status: Literal["complete", "partial"]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, UUID):
+            raise TypeError("Leaderboard cache version id must be a UUID")
+        if not isinstance(self.sha256, str) or _SHA256.fullmatch(self.sha256) is None:
+            raise ValueError("Leaderboard cache version sha256 must be 64 lowercase hex characters")
+        _nonnegative_int(self.entry_count, "Leaderboard cache version entry_count")
+        _nonnegative_int(self.call_count, "Leaderboard cache version call_count")
+        if self.coverage_status not in ("complete", "partial"):
+            raise ValueError(
+                "Leaderboard cache version coverage_status must be complete or partial"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardReportedResult:
+    """One reported result of a system, as the Scoreboard stored it."""
+
+    id: UUID
+    is_original: bool
+    reporter: str | None
+    cache_version: LeaderboardCacheVersion | None
+    publication_state: str | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, UUID):
+            raise TypeError("Leaderboard reported result id must be a UUID")
+        if not isinstance(self.is_original, bool):
+            raise TypeError("Leaderboard reported result is_original must be a boolean")
+        object.__setattr__(
+            self,
+            "reporter",
+            _optional_text(self.reporter, "Leaderboard reported result reporter"),
+        )
+        if self.cache_version is not None and not isinstance(
+            self.cache_version, LeaderboardCacheVersion
+        ):
+            raise TypeError(
+                "Leaderboard reported result cache_version must be LeaderboardCacheVersion or None"
+            )
+        if self.publication_state is not None and self.publication_state not in _PUBLICATION_STATES:
+            raise ValueError("Leaderboard reported result publication_state is not supported")
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardNotice:
+    """Information the Scoreboard attached to a stored submission.
+
+    INVARIANT: any non-blank `code` is accepted. A notice is information, and an unknown code
+    must not break a submit that the board already stored.
+    """
+
+    code: str
+    details: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", _text(self.code, "Leaderboard notice code"))
+        object.__setattr__(
+            self,
+            "details",
+            freeze_mapping(self.details, "Leaderboard notice details"),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class LeaderboardScore:
     """One persisted candidate score returned by the public Scoreboard."""
@@ -144,6 +223,13 @@ class LeaderboardScore:
     paper_url: str | None = None
     # None means the Scoreboard did not send it (a board before E14a).
     metadata_revision: int | None = None
+    # FEATURE: OME-1307 (E14) the C4 block. Absent keys give these defaults, so a board before
+    # E14 still decodes.
+    reported_result: LeaderboardReportedResult | None = None
+    reported_results_count: int | None = None
+    notices: tuple[LeaderboardNotice, ...] = ()
+    # WHY compare=False: local, never from the wire. Two reads of one stored score stay equal.
+    cache_version_warning: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -205,6 +291,7 @@ class LeaderboardScore:
             _optional_ranking_notice(self.ranking_notice),
         )
         _optional_positive_int(self.metadata_revision, "Leaderboard score metadata_revision")
+        _check_submit_fields(self)
 
     def __repr__(self) -> str:
         # WHY custom: the dataclass auto-repr printed the ENTIRE compiled url4
@@ -366,6 +453,21 @@ def _authors(values: object, label: str) -> tuple[str, ...]:
     return selected
 
 
+def _check_submit_fields(score: LeaderboardScore) -> None:
+    """Validate the E14 fields of a score (kept out of `__post_init__` for its size)."""
+    if score.reported_result is not None and not isinstance(
+        score.reported_result, LeaderboardReportedResult
+    ):
+        raise TypeError(
+            "Leaderboard score reported_result must be a LeaderboardReportedResult or None"
+        )
+    _optional_positive_int(score.reported_results_count, "Leaderboard score reported_results_count")
+    notices = _instances(score.notices, LeaderboardNotice, "Leaderboard score notices")
+    object.__setattr__(score, "notices", notices)
+    warning = _optional_text(score.cache_version_warning, "Leaderboard score cache_version_warning")
+    object.__setattr__(score, "cache_version_warning", warning)
+
+
 def _optional_ranking_notice(value: object) -> LeaderboardRankingNotice | None:
     if value is None:
         return None
@@ -388,8 +490,11 @@ def _instances[T](values: object, kind: type[T], label: str) -> tuple[T, ...]:
 __all__ = [
     "Leaderboard",
     "LeaderboardBaseline",
+    "LeaderboardCacheVersion",
     "LeaderboardEntry",
     "LeaderboardInfo",
+    "LeaderboardNotice",
     "LeaderboardRankingNotice",
+    "LeaderboardReportedResult",
     "LeaderboardScore",
 ]

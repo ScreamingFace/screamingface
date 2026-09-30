@@ -57,6 +57,7 @@ class Client:
             _client_caller_auth,
         )
         from screamingface._engine.benchmark import BenchmarkResources
+        from screamingface._engine.cache_versions import EngineCacheVersions
         from screamingface._engine.catalog import Benchmarks, Models
         from screamingface._engine.connections import Connections
         from screamingface._engine.transport import Url4CloudTransport
@@ -101,6 +102,7 @@ class Client:
         self.leaderboards: Leaderboards = Leaderboards(
             self._scoreboard_request,
             self._scoreboard_url,
+            freezer=EngineCacheVersions(self._http_request),
         )
 
     @property
@@ -346,9 +348,15 @@ class Client:
         path: str,
         *,
         json: Any = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
-        return self._http.request(method, path, json=json, extensions={_REPLAY_SAFE: True})
+        # FEATURE: OME-1307 (E14) the freeze names its own 60 s timeout (C2a). Every other engine
+        # call keeps the client's timeout, so the default call shape does not change.
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        return self._http.request(
+            method, path, json=json, extensions={_REPLAY_SAFE: True}, **options
+        )
 
     def _scoreboard_request(
         self,
@@ -393,6 +401,7 @@ class AsyncClient:
             _client_caller_auth,
         )
         from screamingface._engine.benchmark import AsyncBenchmarkResources
+        from screamingface._engine.cache_versions import AsyncEngineCacheVersions
         from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels
         from screamingface._engine.connections import AsyncConnections
         from screamingface._engine.transport import AsyncUrl4CloudTransport
@@ -437,6 +446,7 @@ class AsyncClient:
         self.leaderboards: AsyncLeaderboards = AsyncLeaderboards(
             self._scoreboard_request,
             self._scoreboard_url,
+            freezer=AsyncEngineCacheVersions(self._http_request),
         )
 
     @property
@@ -666,9 +676,13 @@ class AsyncClient:
         path: str,
         *,
         json: Any = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         self._require_open()
-        return await self._http.request(method, path, json=json, extensions={_REPLAY_SAFE: True})
+        options: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        return await self._http.request(
+            method, path, json=json, extensions={_REPLAY_SAFE: True}, **options
+        )
 
     async def _scoreboard_request(
         self,
