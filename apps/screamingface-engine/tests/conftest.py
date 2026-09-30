@@ -83,19 +83,32 @@ class _CaplogBridge(logging.Handler):
             self._target.handle(record)
 
 
+# WHY a baseline taken at IMPORT time rather than "as each test found it": a module- or
+# session-scoped fixture that builds an App (e.g. `test_selector_openapi.py`'s `schema`) is set
+# up BEFORE this function-scoped fixture, so "as found" would already be the configured state
+# (`propagate = False` plus the App's handler) and would be restored as if it were pristine —
+# leaking into every later module. The conftest is imported before any App exists.
+_BASELINE_HANDLERS = list(logging.getLogger(APP_LOGGER).handlers)
+_BASELINE_LEVEL = logging.getLogger(APP_LOGGER).level
+_BASELINE_PROPAGATE = logging.getLogger(APP_LOGGER).propagate
+
+
+def _restore_baseline(logger: logging.Logger) -> None:
+    logger.handlers.clear()
+    logger.handlers.extend(_BASELINE_HANDLERS)
+    logger.setLevel(_BASELINE_LEVEL)
+    logger.propagate = _BASELINE_PROPAGATE
+
+
 @pytest.fixture(autouse=True)
 def _isolate_app_logger(caplog: pytest.LogCaptureFixture) -> Iterator[None]:
-    """Leave the `screamingface_engine` logger exactly as each test found it, and keep
-    `caplog` able to see it after an App is built."""
+    """Start every test from the unconfigured `screamingface_engine` logger, leave it that way,
+    and keep `caplog` able to see it after an App is built."""
     logger = logging.getLogger(APP_LOGGER)
-    handlers = list(logger.handlers)
-    level, propagate = logger.level, logger.propagate
+    _restore_baseline(logger)
     bridge = _CaplogBridge(caplog.handler, logger)
     logger.addHandler(bridge)
     try:
         yield
     finally:
-        logger.handlers.clear()
-        logger.handlers.extend(handlers)
-        logger.setLevel(level)
-        logger.propagate = propagate
+        _restore_baseline(logger)
