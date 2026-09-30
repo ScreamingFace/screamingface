@@ -117,6 +117,23 @@ pytestmark = pytest.mark.anyio
 #                                           (`ResolvedReplay.via_owner` is False)
 #   replay_resolver.py::_access Return      PURE — a decision over values the caller loaded
 #                                           (`benchmark`, the row's `reporter`, the state)
+#
+# PUBLISH PATH (E14, SB-publish) — `POST /v1/results/{id}/publish` reads the board visibility to
+# decide who may publish. The decision is re-checked before it acts: `publish_result` calls
+# `turned_private` after the checks and before `request_publish`, so the state changes only for a
+# board that is still public. That function has no row (the guard recognises the call).
+#   eligibility.py::publish_refusal Return  PURE — `next(...)` over values the caller read; an
+#                                           unknown visibility is refused (fail closed)
+#   publish.py::_load Return x3             CALLER-GUARANTEED — hands the loaded rows to
+#                                           `publish_result`, which re-checks with `turned_private`
+#                                           before `request_publish`
+#   publish.py::_check_owner Return x1 / Raise x2
+#                                           RESTRICTIVE — the 404 of a private result of another
+#                                           caller and the 403 of a non-owner; going stale can only
+#                                           mean the board OPENED, so the caller learns less
+#   publish.py::_check_publishable Return x1 / Raise x3
+#                                           RESTRICTIVE — the 409 refusals; a stale read can only
+#                                           refuse a result whose board has since opened
 EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::_private_leaderboard", "Return"): 1,
     ("leaderboard.py::get_leaderboard", "Return"): 1,
@@ -160,6 +177,12 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("replay_resolver.py::resolve", "Raise"): 1,
     ("replay_resolver.py::resolve", "Return"): 2,
     ("replay_resolver.py::_access", "Return"): 1,
+    ("eligibility.py::publish_refusal", "Return"): 1,
+    ("publish.py::_load", "Return"): 3,
+    ("publish.py::_check_owner", "Return"): 1,
+    ("publish.py::_check_owner", "Raise"): 2,
+    ("publish.py::_check_publishable", "Return"): 1,
+    ("publish.py::_check_publishable", "Raise"): 3,
 }
 
 
