@@ -73,6 +73,13 @@ spec:
             - secretRef:
                 name: {{ if .Values.snapshot.storage.existingSecret }}{{ .Values.snapshot.storage.existingSecret }}{{ else }}{{ include "aigateway.snapshotSecretName" . }}{{ end }}
             {{- end }}
+            {{- if .Values.config.cacheVersions.enabled }}
+            # E14 receipt signing key and the archive writer key (WIRING). Not optional:
+            # validateCacheVersions guarantees a source when enabled, and a missing prod Secret
+            # must stop the Pod loudly.
+            - secretRef:
+                name: {{ include "aigateway.cacheVersionsSecretName" . }}
+            {{- end }}
           env:
             - name: AIGATEWAY_DATABASE_URL
               valueFrom:

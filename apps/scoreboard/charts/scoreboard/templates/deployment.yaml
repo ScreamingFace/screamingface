@@ -16,10 +16,13 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
       annotations:
+        # Roll the Pods when the ConfigMap changes (a flag flip must reach the Pods; envFrom is
+        # read once at container start). Same guard as the aigateway chart.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
     spec:
       # These Pods read no Kubernetes service-link variables, and the injected
       # SCOREBOARD_* names collide with this app's own SCOREBOARD_ config prefix.
@@ -47,6 +50,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "scoreboard.fullname" . }}
+            {{- if include "scoreboard.e14HasSecret" . }}
+            # E14 key material (grant signing key and kid, GitHub App key, archive read key).
+            # Not optional: a missing prod Secret must stop the Pod loudly (DEPLOYMENT.md).
+            - secretRef:
+                name: {{ include "scoreboard.e14SecretName" . }}
+            {{- end }}
           env:
             - name: SCOREBOARD_DATABASE_URL
               valueFrom:

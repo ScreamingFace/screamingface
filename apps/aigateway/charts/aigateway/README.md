@@ -118,3 +118,13 @@ helm install aigw oci://ghcr.io/screamingface/screamingface/charts/aigateway \
   --version 0.2.0 \
   --namespace aigw
 ```
+
+## Cache versions (E14)
+
+The `config.cacheVersions` block turns on capture, freeze and replay of traced runs
+(`AIGW_CACHE_VERSIONS_ENABLED`, default `false`; `values-prod.yaml` sets it to `true`). It takes the
+receipt signing key and the archive writer key from a Secret (`config.cacheVersions.existingSecret`,
+recommended), and the scoreboard's replay-grant public keys as a JSON map
+(`config.cacheVersions.replayGrantPublicKeys`). `config.cacheVersions.archive.backend` is `none` or
+`s3`; `archive.readerPeers` admits the scoreboard to the bundled Garage. The chart never mints a
+key. See `apps/aigateway/DEPLOYMENT.md`, section "E14 deploy wiring".
