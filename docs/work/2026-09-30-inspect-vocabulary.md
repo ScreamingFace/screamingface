@@ -1,9 +1,9 @@
 ---
-ticket: unfiled
+ticket: OME-1420
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-30
-finished:
+finished: 2026-09-30
 ---
 
 # inspect-vocabulary — our words for our concepts, inspect's words only for inspect's objects
@@ -14,7 +14,7 @@ The inspect plugin borrows inspect_ai's vocabulary (Sample, Target, Solver, Scor
 concepts, so a reader can't tell whether "the target" is inspect's `Target` object or our Grading
 Material. This unit adds an **Inspect** glossary entry that maps each inspect word to ours, and applies
 its rule: inspect's words name only inspect's own objects, in the plugin code that calls inspect;
-everything else uses our word. Stacked on the OME-1404 glossary rename (#1139).
+everything else uses our word. Follows the OME-1404 glossary rename (#1139, merged).
 
 ## Planned changes
 
@@ -42,7 +42,20 @@ everything else uses our word. Stacked on the OME-1404 glossary rename (#1139).
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** `CONTEXT.md`, 8 engine source/test files and the imported-benchmark guide, this
+  ledger and the task mirror.
+- **Commits:** `docs: extend the Inspect entry to map inspect's words onto ours` · the identifier
+  renames · the by-hand prose pass.
+- **Gates:** ruff, ruff format, pyright 0 errors, layering OK; full suite 4647 passed with the inspect
+  extra. 35-benchmark fingerprint and served OpenAPI/AsyncAPI documents byte-identical to `main`.
 - **Deviations:**
+  - #1139 merged with a short Inspect entry, so the first commit extends it instead of adding it.
+  - The prose pass was split across three parallel agents by disjoint files, each given the same rule
+    and worked examples; every change was reviewed here before commit. The core-and-guide pass found
+    nothing to change (all hits were statistics, temperature sampling, route targets or HealthBench's
+    own `grade_sample`).
+  - Kept on purpose: the public failure code `missing_target_asset`, the hashed pin strings
+    `keep_sample_metadata=1` / `excluded_sample_ids=` (a WHY comment now sits on each), the `targets/`
+    directory, and judge "tasks" (one judge job per rubric item, not inspect's Task).
+  - Two wording slips the glossary rename left in the judged-benchmark tests are fixed here.
+- **Owner-verify:** merge.
