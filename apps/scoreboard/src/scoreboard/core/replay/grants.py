@@ -63,3 +63,6 @@ class ResolvedReplay:
     result_id: UUID
     score_id: UUID
     cache_version_id: UUID
+    # WHY: an owner may replay her own run on a private board; every other caller's answer rests on
+    # a public board, which the route must re-prove before it signs (OME-894).
+    via_owner: bool

@@ -25,7 +25,7 @@ from scoreboard.core.registry import (
 )
 from scoreboard.core.replay.grants import PinBenchmarkMismatch, PinWithdrawn, ResolvedReplay
 from scoreboard.core.replay.pins import ReplayPin, ResultPin, ScorePin
-from scoreboard.core.replay_access import Access, replay_access
+from scoreboard.core.replay_access import Access, is_owner, replay_access
 
 from .cluster_store import ClusterStore
 from .models import Benchmark, ReportedResult
@@ -85,7 +85,7 @@ class ReplayPinResolver:
             raise PinWithdrawn(ask.raw_pin)
         if getattr(target.head, "benchmark_id") != ask.benchmark.id:
             raise PinBenchmarkMismatch(ask.raw_pin)
-        return _resolved(target.result)
+        return _resolved(target.result, ask)
 
     async def _original_of(self, pin: ScorePin, ask: _Ask) -> UUID:
         original = await ReportedResult.filter(head_id=pin.score_id, is_original=True).first()
@@ -132,7 +132,7 @@ class ReplayPinResolver:
                 if access == "withdrawn":
                     raise PinWithdrawn(ask.raw_pin)
                 if access == "allow":
-                    return _resolved(row)
+                    return _resolved(row, ask)
             if len(page) < _PAGE:
                 raise PinNotFound(ask.raw_pin)
             offset += _PAGE
@@ -151,10 +151,11 @@ def _access(
     )
 
 
-def _resolved(row: ReportedResult) -> ResolvedReplay:
+def _resolved(row: ReportedResult, ask: _Ask) -> ResolvedReplay:
     # `cache_version_id` is not None here: the filters and the direct check both require it.
     return ResolvedReplay(
         result_id=row.id,
         score_id=cast(UUID, getattr(row, "head_id")),
         cache_version_id=cast(UUID, row.cache_version_id),
+        via_owner=is_owner(ask.caller, row.reporter, identity_verified=ask.identity_verified),
     )

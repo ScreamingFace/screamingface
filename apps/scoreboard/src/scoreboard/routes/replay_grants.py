@@ -6,6 +6,8 @@ gateway accepts for exactly that cache version, so my replay costs no provider c
 INVARIANT (OME-894): every 404 has the same body and the same headers, whatever the cause (unknown
 name, unknown id, a private result of another user, a gated result, no version, unknown board). The
 answer never confirms that a private result exists.
+INVARIANT (OME-894): a grant for a non-owner is a public-derived answer, so `turned_private` is the
+LAST await before `signer.sign`; the resolver's single board read may be stale by then.
 INVARIANT: `signer.sign` runs only after the resolver returned. Nothing is minted for a pin that
 does not resolve, and the route writes nothing.
 INVARIANT: every response, errors included, carries `PRIVATE_CACHE_HEADERS`: the answer depends on
@@ -27,11 +29,12 @@ from scoreboard.core.replay.grants import (
     GrantSigner,
     PinBenchmarkMismatch,
     PinWithdrawn,
+    ResolvedReplay,
     build_grant_claims,
 )
-from scoreboard.core.replay.pins import parse_replay_pin
+from scoreboard.core.replay.pins import ReplayPin, parse_replay_pin
 from scoreboard.metrics import Metrics
-from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS
+from scoreboard.routes.dependencies import PRIVATE_CACHE_HEADERS, turned_private
 from scoreboard.routes.errors import coded_error
 from scoreboard.routes.scores import STORE_UNAVAILABLE_DETAIL, identity_is_verified
 from scoreboard.routes.write_identity import write_identity
@@ -114,6 +117,29 @@ def _resolution_error(metrics: Metrics, exc: Exception) -> HTTPException:
     )
 
 
+async def _resolve(
+    state: Any, body: ReplayGrantRequest, pin: ReplayPin, identity: str | None, metrics: Metrics
+) -> ResolvedReplay:
+    """Resolve the pin once, then re-prove a non-owner's public board (OME-894)."""
+    settings = cast(Settings, state.settings)
+    try:
+        resolved = await cast(ReplayPinResolver, state.replay_resolver).resolve(
+            pin,
+            body.pin,
+            benchmark_id=body.benchmark_id,
+            caller=identity,
+            identity_verified=identity_is_verified(settings.auth_mode),
+        )
+        # WHY inside the try: a refusal and a store failure map as the resolver's do (404 / 503).
+        if not resolved.via_owner and await turned_private(body.benchmark_id):
+            raise PinNotFound(body.pin)
+    except (PinNotFound, PinWithdrawn, PinBenchmarkMismatch) as exc:
+        raise _resolution_error(metrics, exc) from exc
+    except OperationalError as exc:
+        raise HTTPException(503, STORE_UNAVAILABLE_DETAIL, headers=PRIVATE_CACHE_HEADERS) from exc
+    return resolved
+
+
 @router.post(
     "/replay-grants",
     response_model=ReplayGrantResponse,
@@ -140,20 +166,8 @@ async def issue_replay_grant(
         raise _refusal(
             metrics, "invalid", coded_error(_UNPROCESSABLE, exc.code, exc.message)
         ) from exc
-    settings = cast(Settings, state.settings)
     now = cast(datetime, state.clock())
-    try:
-        resolved = await cast(ReplayPinResolver, state.replay_resolver).resolve(
-            pin,
-            body.pin,
-            benchmark_id=body.benchmark_id,
-            caller=identity,
-            identity_verified=identity_is_verified(settings.auth_mode),
-        )
-    except (PinNotFound, PinWithdrawn, PinBenchmarkMismatch) as exc:
-        raise _resolution_error(metrics, exc) from exc
-    except OperationalError as exc:
-        raise HTTPException(503, STORE_UNAVAILABLE_DETAIL, headers=PRIVATE_CACHE_HEADERS) from exc
+    resolved = await _resolve(state, body, pin, identity, metrics)
     claims = build_grant_claims(
         subject=identity,
         cache_version_id=resolved.cache_version_id,
