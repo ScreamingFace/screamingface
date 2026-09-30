@@ -7,6 +7,11 @@ FEATURE: OME-1307 (E14) - capture runs on the chat request path, so its cost is 
 latency.
 INVARIANT: the measured cost is the WORST case, a distinct key on every call, so every call writes
 a prompt row and a capture row on PostgreSQL. Half of the calls also carry a 4 KB inline body.
+INVARIANT: the bench measures what capture itself costs (the statements, one transaction, the round
+trips), not the host disk. So its Postgres runs with durable commit off (``fsync``,
+``synchronous_commit`` and ``full_page_writes`` off): a stalled fsync on a shared runner disk would
+hide the capture cost. Production commit latency is a deploy property of the database (see
+`prd/cache-version-store.md` section 4).
 
 Run with: ``AIGW_TEST_PG=1 uv run pytest -m needs_postgres_bench`` (a separate gate step; the
 ``-m needs_postgres`` step does not select it)
@@ -54,7 +59,11 @@ _BODY = {"id": "resp", "choices": [{"message": {"content": "x" * 4_000}, "finish
 def migrated_postgres() -> Generator[str, None, None]:
     if os.environ.get("AIGW_TEST_PG") != "1":
         pytest.skip("AIGW_TEST_PG=1 not set")
-    with PostgresContainer("postgres:16-alpine", driver=None) as postgres:
+    # WHY: durable commit off, so a slow shared-runner disk does not decide the p99 (OME-1434).
+    container = PostgresContainer("postgres:16-alpine", driver=None).with_command(
+        "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
+    )
+    with container as postgres:
         database_url = (
             f"postgres://{postgres.username}:{quote(postgres.password, safe='')}"
             f"@{postgres.get_container_host_ip()}:{postgres.get_exposed_port(5432)}"

@@ -124,7 +124,7 @@ SB-grants, SB-publish) before a release of the SDK, because `ScoreSubmission` is
 
 | Check | Budget | How |
 |---|---|---|
-| Capture overhead | ≤ 5 ms p99 per chat call | A micro-benchmark in gateway CI: 1,000 calls with and without capture, compared at p99 |
+| Capture overhead | ≤ 5 ms p99 per chat call | A micro-benchmark in gateway CI: 1,000 calls with and without capture, compared at p99. Postgres runs with durable commit off (`fsync` and `synchronous_commit` off). One transaction per call gives one commit (`ans:Q31`) |
 | Replay hit latency | ≤ 30 ms p99 | The same harness, grant cache warm |
 | Freeze time | ≤ 10 s for 5,000 entries | An integration test with a seeded ledger |
 | Results list | ≤ 200 ms p99 at 10,000 results | A seeded Postgres test |
