@@ -8,6 +8,7 @@ other. SQLite implements no row lock; the lock is proven by rendering the SQL (P
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -148,8 +149,19 @@ class PublicationStore:
                 row.last_error = error
             await row.save(using_db=conn)
 
-    async def withdraw(self, result_id: UUID, *, actor: str, reason: str, now: datetime) -> State:
+    async def withdraw(
+        self,
+        result_id: UUID,
+        *,
+        actor: str,
+        reason: str,
+        now: datetime,
+        on_previous: Callable[[State], None] | None = None,
+    ) -> State:
         """Apply `admin_takedown` under the row lock. Returns the new state.
+
+        `on_previous` gets the state that the row held under the lock, before the takedown. The
+        admin audit record (C10, MRA-2) needs it, and only this read cannot be stale.
 
         On a change: withdrawn_at/by/reason, attempts=0, and next_attempt_at=now when a release
         can exist (the previous state was requested, published or failed: cleanup pending, PB-D4),
@@ -162,6 +174,8 @@ class PublicationStore:
         async with in_transaction() as conn:
             row = await self._locked(result_id, conn)
             previous = cast(State, row.state)
+            if on_previous is not None:
+                on_previous(previous)
             if apply(previous, "admin_takedown").changed:
                 row.state = "withdrawn"
                 row.withdrawn_at = now
