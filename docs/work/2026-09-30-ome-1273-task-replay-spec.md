@@ -44,5 +44,6 @@ entries it introduces (Case Source, Case Digest) plus the Case Preparation amend
 - **Deviations:** the ticket says three refusals route to Task replay; there are four (the
   task-local `record_to_sample` one also blocks chembench, DROP and pre_flight). The ticket's
   PR 3 is split, with scorer lookup in helper files moved to its own PR, to stay under the
-  500-line cap. The strict image-job switch (R11) is a CI change and waits for owner approval.
+  500-line cap. The owner approved all three on the PR (2026-09-30), plus the
+  strict job's cost (every Engine PR fails while an upstream source is broken).
   Owner-verify: approve the spec before any plan or code.

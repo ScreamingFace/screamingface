@@ -1,6 +1,9 @@
 # Spec — import the Benchmarks whose Cases the importer can't see, by replaying the eval's own task
 
 - Status: draft for owner review. Design decisions: owner, 2026-09-30 (recorded on the ticket).
+  Settled on this PR (owner, 2026-09-30): four refusals route to Task replay (R1), the strict
+  image-job switch is approved (R11), the code ships as five PRs (Delivery), and the strict
+  job's cost below is accepted.
 - Component: `apps/screamingface-engine` (`screamingface_engine_inspect`).
 - Ticket: [OME-1273](https://linear.app/openmined/issue/OME-1273/import-the-single-turn-benchmarks-the-importer-still-refuses). Parent epic: OME-1299.
 - Ledger: `docs/work/2026-09-30-ome-1273-task-replay-spec.md`.
@@ -87,8 +90,14 @@ Files are relative to `apps/screamingface-engine/src/screamingface_engine_inspec
   Benchmark dark (SKIPPED) until someone re-imports it. Accepted: it fails loudly, never with
   different Cases.
 - **An upstream change fails every Engine PR's image job until it is fixed.** The strict job
-  checks all Task-replay Benchmarks, not just the ones a PR touched. Accepted: the fix is one
-  re-import, and a silent pass would let the drift reach a deployed image.
+  checks all Task-replay Benchmarks, not just the ones a PR touched, and the job has no build
+  cache, so every run fetches every Case Source again. Accepted: the fix is one re-import, and a
+  silent pass would let the drift reach a deployed image. Real drift should be rare: most of the
+  14 fetch from a dataset revision, a commit or an upstream sha256, which can vanish but can't
+  change. piqa's unpinned URLs are the known exception; the import's recorder lists any other. The likelier failure is a host
+  that's briefly down. The Hugging Face path already carries that risk on every PR today, and
+  Inspect's download helpers retry. If flakes show up, the fix is retrying the fetch, not
+  loosening the check.
 - **A fetch we don't wrap can't be imported.** An eval that downloads through plain `requests`
   or `urllib` produces Cases with no recorded Case Source, and is refused. It stays refused
   until upstream moves to an Inspect helper or we add its primitive to the recorder.
@@ -166,8 +175,8 @@ Files are relative to `apps/screamingface-engine/src/screamingface_engine_inspec
   with the existing benchmark-unavailable error, carrying that reason.
 - **R11. Strict image job.** With `SCREAMINGFACE_FAIL_ON_CHANGED_CASES=1`, Case Preparation
   still writes every marker, then exits non-zero and lists every Benchmark it skipped for R10.
-  Only the PR image job (`screamingface-engine-tests.yml`, job `image`) sets it. This is a CI
-  change, so it ships only with owner approval.
+  Only the PR image job (`screamingface-engine-tests.yml`, job `image`) sets it (owner-approved,
+  2026-09-30).
 - **R12. Benchmark Revision.** The task reference, its args and the Case Digest join a
   Benchmark's revision pins only on a Task-replay Benchmark. All 17 published revisions stay
   byte-identical.
@@ -219,7 +228,7 @@ Files are relative to `apps/screamingface-engine/src/screamingface_engine_inspec
 
 1. This spec and the glossary entries. Docs only.
 2. Image side: the declaration type, Task-replay Case Preparation, the Case Digest check, SKIPPED
-   and the strict switch, the revision pins (R5, R9-R12). Tested with a hand-written declaration.
+   and the strict switch with its one CI line, the revision pins (R5, R9-R12). Tested with a hand-written declaration.
 3. Import side: routing, the recorder, the double run, the generated declaration and the licence
    gate (R1-R7).
 4. Scorer lookup in helper files (R8), split out so PR 3 stays under the cap.
