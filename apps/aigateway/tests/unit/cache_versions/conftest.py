@@ -12,7 +12,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import time
+from typing import Any
+from unittest.mock import patch
+from uuid import UUID
 
+import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -21,6 +26,13 @@ from fastapi.testclient import TestClient
 from aigateway.core.cache_versions.models import CacheCaptureEntry, RequestCachePrompt
 from aigateway.core.request_cache.canonical import canonical_material
 from aigateway.core.request_cache.models import RequestCacheEntry
+from tests.unit.test_chat_global_cache_route import (
+    _CHAT_PATH,
+    _PATCH_TARGET,
+    _arrange_account,
+    _chat_body,
+    _DispatchCounter,
+)
 
 
 def traceparent(trace_id: str) -> str:
@@ -122,3 +134,78 @@ async def seed_stored_calls(
         batch_size=500,
     )
     return keys
+
+
+# --- FEATURE: OME-1307 (E14, GW-replay) - the replay route arrangement (appended) ---------------
+
+REPLAY_TRACE = "b2" * 16
+BODY_H = _chat_body(messages=[{"role": "user", "content": "H: primes below 100?"}])
+BODY_S = _chat_body(messages=[{"role": "user", "content": "S: primes below 200?"}])
+BODY_B = _chat_body(
+    messages=[{"role": "user", "content": "B: primes below 300?"}], cache={"use-cache": False}
+)
+BODY_NEW = _chat_body(messages=[{"role": "user", "content": "N: primes below 400?"}])
+
+
+def raw_public_b64(key: Ed25519PrivateKey) -> str:
+    """Standard base64 of the raw 32-byte public key: the value form of the grant key map."""
+    raw = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return base64.b64encode(raw).decode()
+
+
+@pytest.fixture
+def grant_key() -> Ed25519PrivateKey:
+    return Ed25519PrivateKey.generate()
+
+
+@pytest.fixture
+def _replay_env(
+    monkeypatch: pytest.MonkeyPatch, grant_key: Ed25519PrivateKey, _freeze_env: None
+) -> None:
+    monkeypatch.setenv(
+        "AIGATEWAY_REPLAY_GRANT_PUBLIC_KEYS", json.dumps({"test-kid": raw_public_b64(grant_key)})
+    )
+
+
+@pytest.fixture
+def replay_client(_replay_env: None, client: TestClient) -> TestClient:
+    return login_admin(client)
+
+
+def mint_grant(
+    key: Ed25519PrivateKey,
+    *,
+    sub: str,
+    vid: UUID | str,
+    rid: str = "res-1",
+    ttl_s: int = 43_200,
+    aud: str = "aigateway",
+    iss: str = "scoreboard",
+    kid: str = "test-kid",
+    now: float | None = None,
+) -> str:
+    """A compact JWS of the C6 shape. ``now`` is the issue time (epoch seconds)."""
+    issued = int(time.time() if now is None else now)
+    claims: dict[str, Any] = {
+        "iss": iss,
+        "aud": aud,
+        "sub": sub,
+        "vid": str(vid),
+        "rid": rid,
+        "iat": issued,
+        "exp": issued + ttl_s,
+    }
+    return jwt.encode(claims, key, algorithm="EdDSA", headers={"kid": kid})
+
+
+def frozen_version(client: TestClient, credential_blobs: Any, trace: str = REPLAY_TRACE) -> UUID:
+    """Trace calls H, S and B through the chat route, freeze the trace, return the version id."""
+    _arrange_account(client, credential_blobs)
+    counter = _DispatchCounter()
+    with patch(_PATCH_TARGET, counter):
+        for body in (BODY_H, BODY_S, BODY_B):
+            resp = client.post(_CHAT_PATH, json=body, headers={"traceparent": traceparent(trace)})
+            assert resp.status_code == 200, resp.text
+    frozen = client.post("/v1/cache-versions", json={"trace_id": trace})
+    assert frozen.status_code == 201, frozen.text
+    return UUID(frozen.json()["cache_version_id"])
