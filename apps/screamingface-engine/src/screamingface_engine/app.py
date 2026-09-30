@@ -29,6 +29,8 @@ from screamingface_engine.artifacts.wiring import s3_config_from_values
 from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.cache_versions import build_cache_versions
+from screamingface_engine.cache_versions.port import CacheVersions
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import ModelParameterSource
@@ -56,6 +58,7 @@ from screamingface_engine.rest import (
     SubscriberGate,
     artifact_router,
     benchmark_router,
+    cache_version_router,
     catalog_router,
     connection_router,
 )
@@ -81,6 +84,7 @@ _ROUTERS = (
     benchmark_router,
     catalog_router,
     connection_router,
+    cache_version_router,
     ws_router,
     ops_router,
 )
@@ -108,6 +112,7 @@ def create_app(
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    cache_versions: CacheVersions | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
 ) -> FastAPI:
     """Build the App instance.
@@ -122,7 +127,9 @@ def create_app(
     app.state.job_runner = job_runner
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
-    app.state.connections = connections
+    # WHY one statement: `create_app` sits at the PLR0915 statement limit, and both are DI seams
+    # of the same kind (the AI Gateway proxy ports).
+    app.state.connections, app.state.cache_versions = connections, cache_versions
     app.state.benchmarks = benchmarks
     app.state.metrics = build_metrics()
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
@@ -627,6 +634,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     # gateway publishes it (`GET /v1/provider-access`); this Engine owns none of it and refuses
     # every mutation (D15). The provider catalogue describes capability, not what this caller holds.
     connections = build_connections(settings, mutable=False)
+    cache_versions = build_cache_versions(settings)
     app = create_app(
         settings,
         stream=stream,
@@ -634,6 +642,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
+        cache_versions=cache_versions,
         benchmarks=BUILTIN_BENCHMARKS,
     )
     # The App owns the configured limits: declare the shared events stream (and apply a
@@ -651,6 +660,8 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
+    if cache_versions is not None:
+        app.router.on_shutdown.append(cache_versions.aclose)
     # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
     # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(

@@ -38,6 +38,29 @@ class Caller:
     traceparent: str | None = None
     profile: str | None = None
 
+    def upstream_headers(self) -> dict[str, str]:
+        """The upstream headers for one caller-scoped request: identity, then what we own.
+
+        INVARIANT: the gateway-owned headers are written LAST, the same rule
+        ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. `identity` is
+        built from inbound request headers, and although the mesh guarantees the identity header
+        itself is not forged, nothing guarantees the mapping holds ONLY that key — so a caller
+        cannot displace this request's own trace or routing profile by sending their own.
+
+        FEATURE (OME-1119): before this, `/v1/providers` and every other connections call went
+        out with identity alone — no `traceparent`, and no `X-Profile` either, which was the
+        same header-assembly gap in the same place.
+
+        Absent values are OMITTED, never sent blank: an empty `X-Profile` is not "no profile" to
+        a gateway that parses it, and a zero traceparent parses everywhere while joining nothing.
+        """
+        headers = dict(self.identity)
+        if self.profile is not None:
+            headers["X-Profile"] = self.profile
+        if self.traceparent is not None:
+            headers["traceparent"] = self.traceparent
+        return headers
+
 
 @dataclass(frozen=True, slots=True)
 class Connection:
