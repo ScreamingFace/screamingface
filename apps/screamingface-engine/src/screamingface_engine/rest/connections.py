@@ -3,68 +3,44 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Coroutine
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Request, Response
-from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, SecretStr
 
-from screamingface_engine import job_env
-from screamingface_engine.auth import PROBLEM_MEDIA_TYPE, ProblemException
+from screamingface_engine.auth import ProblemException
 from screamingface_engine.connections.port import (
     AuthMethod,
-    Caller,
     Connection,
     ConnectionError,
     Connections,
     ConnectionStatus,
     OAuthAuthorization,
 )
-from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
-from url4.streaming.trace import valid_traceparent
+from screamingface_engine.rest.boundary import (
+    boundary_route_class,
+    declare_x_profile,
+    mark_private,
+    problem_responses,
+)
+
+# `_caller` stays importable from here: the traceparent tests exercise it through this module.
+from screamingface_engine.rest.boundary import caller as _caller
 
 logger = logging.getLogger(__name__)
 
 
-class _SecretSafeRoute(APIRoute):
-    """The connection routes' boundary: refuse a stated selector before anything else, then
-    replace FastAPI's input-bearing validation errors at the credential boundary."""
-
-    def get_route_handler(
-        self,
-    ) -> Callable[[Request], Coroutine[Any, Any, Response]]:
-        route_handler = super().get_route_handler()
-
-        async def secret_safe_route_handler(request: Request) -> Response:
-            # INVARIANT (OME-1381): refused BEFORE `route_handler`, which is where FastAPI reads,
-            # parses and validates the body and resolves dependencies — so a stated `X-Profile`
-            # is answered 400 ahead of any 422, and ahead of the endpoint's 503 for an
-            # unconfigured service. No connection is listed, written, authorized or removed for
-            # a request that named a selector.
-            refuse_selector(request.headers)
-            try:
-                return await route_handler(request)
-            except RequestValidationError:
-                logger.info("provider connection request validation failed")
-                raise ProblemException(
-                    status=422,
-                    title="Unprocessable Content",
-                    detail="the provider connection request is invalid",
-                ) from None
-
-        return secret_safe_route_handler
-
-
-def _declare_x_profile(_x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None) -> None:
-    """Document the retired header on every connection route; `_SecretSafeRoute` refuses it."""
+_SecretSafeRoute = boundary_route_class(
+    logger=logger,
+    log_message="provider connection request validation failed",
+    detail="the provider connection request is invalid",
+)
 
 
 router = APIRouter(
     tags=["Connections"],
     route_class=_SecretSafeRoute,
-    dependencies=[Depends(_declare_x_profile)],
+    dependencies=[Depends(declare_x_profile)],
 )
 
 
@@ -126,16 +102,6 @@ _ERROR_DESCRIPTIONS = {
 }
 
 
-def _error_responses() -> dict[int | str, dict[str, Any]]:
-    return {
-        status: {
-            "description": description,
-            "content": {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}},
-        }
-        for status, description in _ERROR_DESCRIPTIONS.items()
-    }
-
-
 def _serialize(connection: Connection) -> ConnectionResponse:
     return ConnectionResponse(
         provider=connection.provider,
@@ -155,21 +121,6 @@ def _serialize_oauth(authorization: OAuthAuthorization) -> OAuthAuthorizationRes
     )
 
 
-def _caller(request: Request) -> Caller:
-    # INVARIANT (OME-1381): selector-less. `_SecretSafeRoute` has already refused a stated
-    # `X-Profile`, so the `Caller` built below never carries one.
-    # WHY `valid_traceparent` and not the raw header (OME-1119): this value is forwarded to
-    # aigateway, and a malformed one is worse than none — it would be rejected or, worse,
-    # parsed into a trace joining nothing. Same rule the run path applies at
-    # `adapters/k8s.py:591`, so a caller cannot get a different answer depending on which
-    # Engine surface they entered through. Invalid degrades to absent, never to an error:
-    # a bad trace header must not fail an otherwise valid connections request.
-    return Caller(
-        job_env.identity_from_headers(request.headers),
-        traceparent=valid_traceparent(request.headers.get("traceparent")),
-    )
-
-
 def _service(request: Request) -> Connections:
     service = getattr(request.app.state, "connections", None)
     if service is None:
@@ -186,24 +137,19 @@ def _problem(exc: ConnectionError) -> ProblemException:
     return ProblemException(status=exc.status, title=exc.title, detail=exc.detail)
 
 
-def _mark_private(response: Response) -> None:
-    response.headers["Cache-Control"] = "private, no-store"
-    response.headers["Vary"] = "X-User-Email"
-
-
 @router.get(
     "/v1/connections",
     summary="List provider connections",
     description="Return the safe connection state exposed to the ScreamingFace Client.",
     response_model=ConnectionListResponse,
-    responses=_error_responses(),
+    responses=problem_responses(_ERROR_DESCRIPTIONS),
 )
 async def list_connections(request: Request, response: Response) -> ConnectionListResponse:
     try:
         rows = await _service(request).list(_caller(request))
     except ConnectionError as exc:
         raise _problem(exc) from exc
-    _mark_private(response)
+    mark_private(response)
     return ConnectionListResponse(data=tuple(_serialize(row) for row in rows))
 
 
@@ -211,7 +157,7 @@ async def list_connections(request: Request, response: Response) -> ConnectionLi
     "/v1/connections/{provider}",
     summary="Connect or replace a provider API key",
     response_model=ConnectionResponse,
-    responses=_error_responses(),
+    responses=problem_responses(_ERROR_DESCRIPTIONS),
 )
 async def connect_provider(
     request: Request,
@@ -227,7 +173,7 @@ async def connect_provider(
         )
     except ConnectionError as exc:
         raise _problem(exc) from exc
-    _mark_private(response)
+    mark_private(response)
     return _serialize(connection)
 
 
@@ -236,7 +182,7 @@ async def connect_provider(
     status_code=201,
     summary="Start provider OAuth authorization",
     response_model=OAuthAuthorizationResponse,
-    responses=_error_responses(),
+    responses=problem_responses(_ERROR_DESCRIPTIONS),
 )
 async def start_provider_oauth(
     request: Request,
@@ -247,7 +193,7 @@ async def start_provider_oauth(
         authorization = await _service(request).start_oauth(_caller(request), provider)
     except ConnectionError as exc:
         raise _problem(exc) from exc
-    _mark_private(response)
+    mark_private(response)
     return _serialize_oauth(authorization)
 
 
@@ -255,7 +201,7 @@ async def start_provider_oauth(
     "/v1/connections/{provider}",
     summary="Disconnect a provider",
     response_model=ConnectionResponse,
-    responses=_error_responses(),
+    responses=problem_responses(_ERROR_DESCRIPTIONS),
 )
 async def disconnect_provider(
     request: Request,
@@ -266,7 +212,7 @@ async def disconnect_provider(
         connection = await _service(request).disconnect(_caller(request), provider)
     except ConnectionError as exc:
         raise _problem(exc) from exc
-    _mark_private(response)
+    mark_private(response)
     return _serialize(connection)
 
 

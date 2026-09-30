@@ -48,6 +48,7 @@ from screamingface_engine.benchmarks import (
     BenchmarkRegistry,
 )
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.cache_versions import build_cache_versions
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
@@ -470,6 +471,9 @@ def create_local_app(
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
+        # WHY built inline: `create_local_app` sits at the PLR0915 statement limit; the App keeps
+        # the port on `app.state`, which is where the shutdown loop below reads it.
+        cache_versions=build_cache_versions(settings),
         benchmarks=benchmarks,
     )
     register_fair_share_metrics(app.state.metrics, lambda: io_gate)
@@ -485,7 +489,7 @@ def create_local_app(
     # the runner/gate shutdown hooks whose ordering it depends on. `install_node_route` asserts
     # the route order rather than trusting it — a development shape, never a deployment option.
     _install_local_node(app, holder=holder, run_env=run_env, benchmarks=benchmarks)
-    for adapter in (catalog, connections):
+    for adapter in (catalog, connections, app.state.cache_versions):
         if adapter is not None:
             app.router.on_shutdown.append(adapter.aclose)
     return app

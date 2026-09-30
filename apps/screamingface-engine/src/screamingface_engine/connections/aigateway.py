@@ -11,7 +11,6 @@ from uuid import UUID
 
 import httpx
 
-from screamingface_engine import job_env
 from screamingface_engine.connections.port import (
     AuthMethod,
     Caller,
@@ -31,6 +30,7 @@ from screamingface_engine.connections.provider_access_availability import (
 )
 from screamingface_engine.connections.provider_id import is_provider_id
 from screamingface_engine.connections.upstream_errors import raise_for_status
+from screamingface_engine.connections.uuid_text import is_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -349,7 +349,7 @@ def _decode_oauth_authorization(
     connection_id = body.get("connection_id")
     state = body.get("state")
     if (
-        not _is_uuid(connection_id)
+        not is_uuid(connection_id)
         or not isinstance(state, str)
         or not state.strip()
         or not isinstance(authorize_url, str)
@@ -376,31 +376,9 @@ def _is_https_url(value: str) -> bool:
     )
 
 
-def _is_uuid(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        UUID(value)
-    except ValueError:
-        return False
-    return True
-
-
 def _headers(caller: Caller) -> dict[str, str]:
-    """The upstream headers for one caller-scoped request: identity, then trace context.
-
-    INVARIANT: the gateway-owned headers are written LAST, the same rule
-    ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. `caller.identity` is
-    built from inbound request headers, and although the mesh guarantees the identity header
-    itself is not forged, nothing guarantees the mapping holds ONLY that key — so a caller
-    cannot displace this request's own trace by sending their own.
-
-    A zero traceparent is omitted rather than sent: it parses everywhere while joining nothing.
-    """
-    headers = job_env.identity_for_forwarding(caller.identity)
-    if caller.traceparent is not None:
-        headers["traceparent"] = caller.traceparent
-    return headers
+    """The upstream headers for one caller-scoped request (rule and invariant: see the method)."""
+    return caller.upstream_headers()
 
 
 def _decode_object(response: httpx.Response) -> dict[str, Any]:
@@ -423,7 +401,7 @@ def _validate_row(value: object) -> _ConnectionRow:
     auth_type = value.get("auth_type")
     if (
         not isinstance(connection_id, str)
-        or not _is_uuid(connection_id)
+        or not is_uuid(connection_id)
         or not is_provider_id(provider)
         or not isinstance(label, str)
         or not label.strip()

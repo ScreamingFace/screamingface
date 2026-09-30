@@ -85,6 +85,11 @@ CONTROL_PLANE = {
     "schemas",
     "ws",
     "adapters.factory",
+    # WHY named for the same reason as `reaper` (OME-1307, E14): an unlisted top-level package is a
+    # SHARED LEAF by this gate's own definition, importable by both halves. The freeze proxy is a
+    # control-plane port and adapter that talk to AI Gateway from the serving process; a Runner
+    # Job must not import it.
+    "cache_versions",
 }
 RUN_MODE = {"runner"}
 WORKER_MODE = {"worker"}

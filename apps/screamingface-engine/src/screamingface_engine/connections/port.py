@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
+from screamingface_engine import job_env
+
 AuthMethod = Literal["api_key", "oauth"]
 ConnectionStatus = Literal[
     "not_connected",
@@ -36,6 +38,22 @@ class Caller:
 
     identity: Mapping[str, str] = field(default_factory=dict)
     traceparent: str | None = None
+
+    def upstream_headers(self) -> dict[str, str]:
+        """The upstream headers for one caller-scoped request: identity, then trace context.
+
+        INVARIANT: the gateway-owned headers are written LAST, the same rule
+        ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. `identity` is
+        built from inbound request headers, and although the mesh guarantees the identity header
+        itself is not forged, nothing guarantees the mapping holds ONLY that key — so a caller
+        cannot displace this request's own trace by sending their own.
+
+        A zero traceparent is omitted rather than sent: it parses everywhere while joining nothing.
+        """
+        headers = job_env.identity_for_forwarding(self.identity)
+        if self.traceparent is not None:
+            headers["traceparent"] = self.traceparent
+        return headers
 
 
 @dataclass(frozen=True, slots=True)
