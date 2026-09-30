@@ -34,7 +34,8 @@ entries it introduces (Case Source, Case Digest) plus the Case Preparation amend
 
 - **Actual files:** `docs/spec/2026-09-30-OME-1273-task-replay-import.md`, `CONTEXT.md`,
   `docs/diagrams/2026-09-30-OME-1273-{before-after,architecture}.{drawio,png}`,
-  `docs/tasks/2026-09-23-OME-1273-task-replay-import.md` (the ticket had no mirror yet), this ledger.
+  `docs/tasks/2026-09-23-OME-1273-task-replay-import.md` (the ticket had no mirror yet), this ledger,
+  and, after the spec's approval, the PR 2 plan `docs/plan/2026-09-30-OME-1273-task-replay-image-side.md`.
 - **Commits:** one docs commit on `OME-1273-task-replay-spec`.
 - **Gates:** docs only, no code gates. Every symbol the spec names was checked against main
   `42baa988`: the four routed refusals (`importer.py` :190, :491, :508, :518), `CasesSpec`,
