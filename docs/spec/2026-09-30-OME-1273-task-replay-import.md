@@ -114,6 +114,12 @@ fetch happen.
   that's briefly down. The Hugging Face path already carries that risk on every PR today, and
   Inspect's download helpers retry. If flakes show up, the fix is retrying the fetch, not
   loosening the check.
+- **Per-PR preview environments allow internet access; dev, staging and prod don't.** Engine
+  run pods reach only DNS, the AI gateway and in-cluster services in dev, staging and prod,
+  but previews allow outbound ports 80 and 443 (infrastructure repo,
+  `kubernetes/apps/sf-preview/templates/networkpolicies.yaml`). A scorer that downloads
+  something therefore passes in a preview and fails in dev. Accepted: R17's no-network grading
+  test is the check that catches it, and it runs in CI before any environment.
 - **A fetch we don't wrap can't be imported.** An eval that downloads through plain `requests`
   or `urllib` produces Cases with no recorded Case Source, and is refused. It stays refused
   until upstream moves to an Inspect helper or we add its primitive to the recorder.
