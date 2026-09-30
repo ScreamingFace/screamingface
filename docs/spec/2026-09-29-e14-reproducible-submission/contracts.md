@@ -168,7 +168,10 @@ with PyJWT EdDSA behind its `ReceiptSigner` port; the scoreboard verifies behind
   Safe, because of the idempotency key.
 - **Trust.** The replay block is a client claim. The scoreboard checks that the result id
   exists, that the claimed `cache_version_id` belongs to it, and that the caller could have
-  gotten a grant for it. Otherwise `422 invalid_replay_claim`. The hit and miss counts are
+  gotten a grant for it. A non-null `pinned_baseline_result_id` gets the same checks as the
+  result id: it must exist, be on the same board, and pass the same replay access rules (as
+  built, X-SEC-1, 2026-09-30; it does not have to equal the result id). Otherwise
+  `422 invalid_replay_claim`. The hit and miss counts are
   stored as reported, and are labelled "reported by client" in the results list.
 - **Contract tests.** SC-3 to SC-16, SC-18.
 
@@ -288,7 +291,10 @@ PUT  /v1/admin/benchmarks/{benchmark_id}/redistributable {"redistributable": tru
 
 - **Admin checks.** The withdraw route and the `redistributable` route use one admin
   allowlist over the verified `cloudflare_headers` identity (`ans:Q22`). Both write an audit
-  record (actor, time, before, after, reason). The WIRING unit owns the `redistributable`
+  record (actor, time, before, after, reason). As built (MRA-1, MRA-2, 2026-09-30), the record
+  is two log lines on the `scoreboard` logger: `admin_action` (each attempt and its outcome) and
+  `admin_change` (a successful attempt, with the before and after values). There is no durable
+  audit table. The WIRING unit owns the `redistributable`
   route (`ans:Q23`, `erd.md` §2.7). The exact path is `[proposed]`; the WIRING plan fixes it.
 - **`disabled` fallback.** Publish and withdraw answer `503` (there is no verified owner or
   admin). This is dev and local behaviour only.
