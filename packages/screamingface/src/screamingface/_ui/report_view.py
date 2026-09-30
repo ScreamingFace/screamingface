@@ -10,6 +10,8 @@ from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING, Any
 
+from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
+from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
@@ -27,6 +29,7 @@ _REASONING_PREVIEW = 400
 
 _STYLE = (
     STYLE
+    + ACCOUNTING_STYLE
     + f"""<style>
 .sf-report{{padding:4px 14px 14px}}
 .sf-report__head-row{{display:flex;align-items:flex-start;gap:12px}}
@@ -326,6 +329,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
+        f"{run_accounting_note(candidate)}"
         f"{_recipe_html(candidate)}</div>"
     )
 
@@ -614,6 +618,7 @@ def _cases_html(report: Report) -> str:
     # share a radio group and fight over the selection. Candidate run IDs are unique.
     group = f"sf-case-{_group_key(report)}"
     inputs, rail, panes = [], [], []
+    costs = {id(candidate): case_accounting(candidate) for candidate in report.candidates}
     for index, (candidate, case) in enumerate(entries):
         item = f"{group}-{index}"
         checked = " checked" if index == 0 else ""
@@ -621,7 +626,7 @@ def _cases_html(report: Report) -> str:
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )
         rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1))
-        panes.append(_pane_html(candidate, case))
+        panes.append(_pane_html(candidate, case, costs[id(candidate)][case.case_id]))
     total = len(entries)
     label = f"{total} case result" + ("" if total == 1 else "s")
     return (
@@ -686,7 +691,7 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
     )
 
 
-def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
+def _pane_html(candidate: CandidateResult, case: CaseResult, cost_html: str) -> str:
     state = _case_state(case)
     # WHY (OME-793): tri-state verdict — "failed" (warning) is neither correct nor
     # incorrect; the case was never graded, and the badge must say so.
@@ -742,12 +747,12 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
             "<div class='sf-pane__q'>input unavailable — "
             "the case failed before it was recorded</div>"
         )
+    body = f"{answer_html}{refusal_html}{_case_failures_html(case)}{checks_head}{checks}"
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
         f"<span class='sf-report__case-id'>case {escape(str(case.case_id))} · "
         f"{escape(candidate.name)}</span>{verdict}{finish_html}{rounds_html}</div>{tags_html}"
-        f"{question}{answer_html}{refusal_html}{_case_failures_html(case)}"
-        f"{checks_head}{checks}</div>"
+        f"{question}{case_tabs(body, cost_html)}</div>"
     )
 
 
@@ -920,15 +925,18 @@ def _score_text(value: float | None) -> str:
 def _tokens_total(usage: Any) -> str:
     """One figure for the cell — the in/out split is carried by the receipt strip."""
 
-    if usage.input_tokens is None and usage.output_tokens is None:
+    # INVARIANT: a partial observation is not a total, even when the known half is zero.
+    if usage.input_tokens is None or usage.output_tokens is None:
         return "—"
-    return _compact((usage.input_tokens or 0) + (usage.output_tokens or 0))
+    return _compact(usage.input_tokens + usage.output_tokens)
 
 
 def _tokens(usage: Any) -> str:
     if usage.input_tokens is None and usage.output_tokens is None:
         return "—"
-    return f"{_compact(usage.input_tokens or 0)} / {_compact(usage.output_tokens or 0)}"
+    input_tokens = "—" if usage.input_tokens is None else _compact(usage.input_tokens)
+    output_tokens = "—" if usage.output_tokens is None else _compact(usage.output_tokens)
+    return f"{input_tokens} / {output_tokens}"
 
 
 def _compact(value: int) -> str:

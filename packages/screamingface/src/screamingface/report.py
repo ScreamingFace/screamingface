@@ -28,6 +28,7 @@ from screamingface._report_primitives import (
     _nonblank,
     _usage,
 )
+from screamingface.accounting import AccountingBreakdown, accounting_breakdown
 from screamingface.case_result import (
     CaseGrade,
     CaseResult,
@@ -56,8 +57,9 @@ type RunCostStatus = Literal["complete", "partial", "unavailable"]
 class MemberResult:
     """Compact outcome for one direct Fusion member.
 
-    Runtime fields are ``None`` until the Engine attributes spans to this member's stable
-    operation ID. An empty Usage or Failure collection means attribution was available and
+    Usage is derived only from retained accounting uniquely attributed to this member's
+    operation ID in every Case; unsupported ownership remains ``None``.
+    An empty Usage or Failure collection means attribution was available and
     observed no activity or failures; it must not stand in for unavailable attribution.
     """
 
@@ -307,6 +309,11 @@ class CandidateResult:
         }
         for attribute, value in values.items():
             object.__setattr__(self, attribute, value)
+
+    @property
+    def accounting(self) -> AccountingBreakdown:
+        """Derived operation, stage, model, member and Case accounting views."""
+        return accounting_breakdown(self)
 
     @property
     def metrics(self) -> Mapping[str, object]:
