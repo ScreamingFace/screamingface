@@ -8,13 +8,16 @@ from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_add
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .adapters.jws_receipt_verifier import Ed25519ReceiptVerifier
 from .adapters.url4_fingerprinter import Url4Fingerprinter
 from .config import Settings
 from .core.registry import RegistryService
 from .db import close_db, init_db
+from .metrics import build_metrics
 from .portal import register_portal
-from .routes import health, leaderboard, score_metadata, scores
+from .routes import health, leaderboard, results, score_metadata, scores
 from .scores.baseline_store import BaselineStore
+from .scores.cluster_store import ClusterStore
 from .scores.metadata_store import ScoreMetadataStore
 from .scores.store import ScoreStore
 from .scores.system_registry_store import TortoiseSystemRepository
@@ -105,6 +108,19 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await close_db()
+
+
+def _wire_clustered_submit(app: FastAPI, settings: Settings) -> None:
+    """FEATURE: OME-1307 (E14) — what `POST /v1/scores` needs when clustering is on, and the
+    results list route.
+
+    The verifier is built at `create_app`, so a bad receipt key fails at startup. The results router
+    is included BEFORE `register_portal`, which mounts `/` last.
+    """
+    app.state.receipt_verifier = Ed25519ReceiptVerifier.from_config(settings.receipt_public_keys)
+    app.state.metrics = build_metrics()
+    app.state.cluster_store = ClusterStore(app.state.score_store, app.state.system_registry)
+    app.include_router(results.router)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -202,6 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(scores.router)
     # FEATURE: OME-1307 (E14a) — edit authors / paper_url, and read the edit history.
     app.include_router(score_metadata.router)
+    _wire_clustered_submit(app, settings)
     register_portal(app, settings)
     return app
 
