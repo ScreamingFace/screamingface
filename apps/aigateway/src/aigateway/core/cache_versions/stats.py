@@ -25,3 +25,5 @@ class CaptureStats:
     export_pending: int = 0
     export_failures: int = 0
     export_digest_mismatches: int = 0
+    # FEATURE: OME-1307 (E14, GW-replay) - replay lookups by result: hit / miss / invalid_grant.
+    replay_lookups: collections.Counter[str] = field(default_factory=collections.Counter)

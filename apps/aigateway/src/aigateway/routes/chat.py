@@ -39,6 +39,7 @@ from litellm.exceptions import (
 )
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.cache_versions import VersionHit
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
@@ -53,6 +54,7 @@ from ..core.provider_access import (
     provider_access_for,
 )
 from ..core.registry import ProviderRegistry
+from ..core.request_cache.entry_metadata import CacheEntryMetadata
 from ..core.request_cache.global_controls import parse_global_cache_controls
 from ..core.request_hardening import chat_body_shape_error, strip_dispatch_controls
 from .chat_accounting import (
@@ -73,7 +75,7 @@ from .chat_cache_stage import (
     set_global_cache_headers,
     store_global_response,
 )
-from .chat_capture_stage import begin_capture, record_capture
+from .chat_capture_stage import CaptureContext, begin_capture, record_capture
 from .chat_dispatch import (
     _dispatch_with_backpressure,
     _litellm_http_exception,
@@ -82,6 +84,7 @@ from .chat_dispatch import (
     _unknown_provider_exception,
     convert_provider_response,
 )
+from .chat_replay_stage import ReplayOutcome, replay_caller, replay_headers, resolve_replay
 from .provider_access_http import refusals_as_http
 
 logger = logging.getLogger(__name__)
@@ -241,6 +244,82 @@ async def _dispatch_and_finalize_accounting(
     return result
 
 
+def _classify_and_validate_body(
+    body: dict[str, Any], *, plugin: Any, provider: str, model: str, auth_mode: AuthMode
+) -> dict[str, Any]:
+    """Classify and project the caller's parameters, then check the cross-field combination.
+
+    # AIDEV-NOTE: moved out of `chat_completions` UNCHANGED (OME-1307, GW-replay): the route sat one
+    # statement under the ruff `max-statements` limit, so STAGE 0 needed room. Same order, same
+    # refusals, same bodies.
+    """
+    rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
+    try:
+        body = classify_and_project_chat_parameters(
+            body,
+            rules=rules,
+            auth_mode=auth_mode,
+        )
+    except UnsupportedParametersError as exc:
+        # Every classified path is the caller's own (OME-1323, D2), so the rejection is
+        # reported whole. Reason codes only — the classifier never carries raw values.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_parameters",
+                "provider": provider,
+                "rejected": exc.rejected,
+                "message": (
+                    "one or more parameters are not enabled for this model; "
+                    "see the model parameter contract"
+                ),
+            },
+        ) from None
+
+    # OME-640: a per-path rule cannot say "these two accepted fields cannot travel
+    # together on THIS model under THIS auth mode", so the provider gets one seam
+    # to say it — on the projected body, still ahead of provider preparation,
+    # cache planning, credential access and dispatch. The default accepts
+    # everything, so a provider that states no cross-field constraint is unaffected.
+    try:
+        plugin.validate_chat_parameter_combination(body, model=model, auth_mode=auth_mode)
+    except IncompatibleParametersError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "incompatible_parameters",
+                "provider": provider,
+                "conflict": list(exc.paths),
+                "message": exc.reason,
+            },
+        ) from None
+    return body
+
+
+async def _serve_version_hit(
+    request: Request,
+    response: Response,
+    replay: ReplayOutcome,
+    hit: VersionHit,
+    *,
+    capture: CaptureContext | None,
+    accounting: Any,
+    plugin: Any,
+) -> Any:
+    """STAGE 0 hit: serve the frozen answer. No credential read, no dispatch (CV-H4)."""
+    response.headers.update(replay_headers(replay))
+    if accounting is not None:
+        accounting.cache_status = "hit"
+    served = request.app.state.taxonomy_plugin.sanitize_provider_response(hit.response)
+    await record_capture(request, capture, "version_hit", response=served)
+    return attach_hit_metadata(
+        served,
+        accounting,
+        plugin=plugin,
+        entry_metadata=(CacheEntryMetadata.parse(hit.metadata_json) if hit.metadata_json else None),
+    )
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
     try:
@@ -334,6 +413,32 @@ async def chat_completions(request: Request, response: Response, current: Curren
 
     try:
         # ==================================================================
+        # STAGE 0 — replay from a frozen cache version, BEFORE the global cache.
+        # ==================================================================
+        # FEATURE: OME-1307 (E14) — a call that carries a replay grant is answered from the
+        # frozen version when the version holds its key. An invalid grant is a 403 here and
+        # never falls through to a live call (CV-E4).
+        # INVARIANT: STAGE 0 runs before STAGE 1 and before any credential is resolved; a version
+        # hit reads no credential and dispatches nothing (CV-H4).
+        replay = await resolve_replay(
+            request,
+            caller=replay_caller(request.app.state.settings, current),
+            body=body,
+            plugin=plugin,
+            capture_key=capture.key if capture is not None else None,
+        )
+        if replay is not None and replay.hit is not None:
+            return await _serve_version_hit(
+                request,
+                response,
+                replay,
+                replay.hit,
+                capture=capture,
+                accounting=accounting,
+                plugin=plugin,
+            )
+
+        # ==================================================================
         # STAGE 1 — the global cache, BEFORE any CREDENTIAL is resolved.
         # ==================================================================
         # INVARIANT (the ticket's central inversion): no auth mode, no provider credential
@@ -371,6 +476,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
             # "This exact call" is the caller's own body (OME-1323, D2): no stored Profile
             # default is merged, so the key describes everything the provider is asked.
             set_global_cache_headers(response, cache_outcome)
+            response.headers.update(replay_headers(replay))
             # OME-303: a hit dispatched nothing, so `attempts` is empty and
             # `observed_new_attempts` is 0. Limited cached-final-response evidence is
             # explicitly not current spend. Metadata goes on a COPY:
@@ -405,46 +511,9 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # cache planning, and (crucially) credential injection — so unknown, disabled,
         # wrong-auth, malformed and duplicate-channel parameters fail closed with
         # HTTP-safe paths before any credential is read or any provider is dispatched.
-        rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
-        try:
-            body = classify_and_project_chat_parameters(
-                body,
-                rules=rules,
-                auth_mode=auth_mode,
-            )
-        except UnsupportedParametersError as exc:
-            # Every classified path is the caller's own (OME-1323, D2), so the rejection is
-            # reported whole. Reason codes only — the classifier never carries raw values.
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "unsupported_parameters",
-                    "provider": provider,
-                    "rejected": exc.rejected,
-                    "message": (
-                        "one or more parameters are not enabled for this model; "
-                        "see the model parameter contract"
-                    ),
-                },
-            ) from None
-
-        # OME-640: a per-path rule cannot say "these two accepted fields cannot travel
-        # together on THIS model under THIS auth mode", so the provider gets one seam
-        # to say it — on the projected body, still ahead of provider preparation,
-        # cache planning, credential access and dispatch. The default accepts
-        # everything, so a provider that states no cross-field constraint is unaffected.
-        try:
-            plugin.validate_chat_parameter_combination(body, model=model, auth_mode=auth_mode)
-        except IncompatibleParametersError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "incompatible_parameters",
-                    "provider": provider,
-                    "conflict": list(exc.paths),
-                    "message": exc.reason,
-                },
-            ) from None
+        body = _classify_and_validate_body(
+            body, plugin=plugin, provider=provider, model=model, auth_mode=auth_mode
+        )
 
         # INVARIANT: provider
         # reconstruction failures precede ALL cache planning. Stage 1 runs BEFORE
@@ -480,7 +549,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
             return StreamingResponse(
                 _stream(plugin, body),
                 media_type="text/event-stream",
-                headers=global_cache_headers(cache_outcome),
+                headers={**global_cache_headers(cache_outcome), **replay_headers(replay)},
             )
 
         # OME-303: inject the gateway's observed LiteLLM client for an accounted request
@@ -511,6 +580,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
                 request, outcome=cache_outcome, result=result, accounting=accounting
             )
         set_global_cache_headers(response, cache_outcome, write_status=write_status)
+        response.headers.update(replay_headers(replay))
         # FEATURE: OME-1307 (E14) — capture the outcome of this call. `result` is passed BEFORE
         # `attach_success_metadata`: the provider-compatible form that the cache stores.
         # WHY `race_lost` is `unstored`: the live row then holds the OTHER caller's answer.
