@@ -1,5 +1,5 @@
 ---
-ticket: unfiled
+ticket: OME-1436   # E14 leaf under epic OME-1307 (filed at PR-open, 2026-09-30)
 stack: screamingface
 status: done
 started: 2026-09-30

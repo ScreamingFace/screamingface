@@ -33,7 +33,7 @@ There is no gate before RED.
 
 ### 1.2 Out of scope
 
-- RP-1 to RP-15, RP-21, RP-22 (scoreboard, gateway, engine, E2E).
+- RP-1 to RP-15, RP-21 (scoreboard, gateway, engine, E2E). RP-22 is dropped (Q30).
 - Decoding or verifying the grant. The SDK carries it as an opaque string (RP-D2).
 - A grant refresh during a long run (Decided: D4, no refresh).
 - SDK methods for the results list or the metadata history.
