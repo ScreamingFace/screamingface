@@ -174,6 +174,30 @@ class LeaderboardReportedResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CacheVersionPublication:
+    """Where the publication of one result's cache version stands (contract C10).
+
+    FEATURE: OME-1307 (E14) `publish_cache_version`. `release_url` is set only once the version
+    is `published`; the portal button and its markers are not part of this value.
+    """
+
+    result_id: UUID
+    state: Literal["requested", "published"]
+    release_url: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.result_id, UUID):
+            raise TypeError("Cache version publication result_id must be a UUID")
+        if self.state not in ("requested", "published"):
+            raise ValueError("Cache version publication state must be requested or published")
+        object.__setattr__(
+            self,
+            "release_url",
+            _optional_text(self.release_url, "Cache version publication release_url"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LeaderboardNotice:
     """Information the Scoreboard attached to a stored submission.
 
@@ -488,6 +512,7 @@ def _instances[T](values: object, kind: type[T], label: str) -> tuple[T, ...]:
 
 
 __all__ = [
+    "CacheVersionPublication",
     "Leaderboard",
     "LeaderboardBaseline",
     "LeaderboardCacheVersion",

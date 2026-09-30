@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from threading import Lock
-from typing import TYPE_CHECKING, Literal, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
 
@@ -101,6 +101,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    replay: None = None,
 ) -> Report: ...
 
 
@@ -113,6 +114,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    replay: str | None = None,
 ) -> Report: ...
 
 
@@ -124,6 +126,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
+    replay: str | None = None,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
@@ -145,6 +148,9 @@ def evaluate(
             on_event=on_event,
             progress=progress,
             answer_seed=answer_seed,
+            # WHY passed on and typed as None: the Client owns the refusal of a pin with a raw
+            # URL4 (`TypeError`, OME-1307 OD-9), and its overload types `replay` as None there.
+            replay=cast(None, replay),
         )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
@@ -155,6 +161,7 @@ def evaluate(
         on_event=on_event,
         progress=progress,
         answer_seed=answer_seed,
+        replay=replay,
     )
 
 

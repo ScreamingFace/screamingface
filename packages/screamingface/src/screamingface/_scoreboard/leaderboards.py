@@ -33,14 +33,17 @@ from screamingface._core.ports import (
     _FreezeOutcome,
     _FreezeUnavailable,
     _FrozenCacheVersion,
+    _ReplayBinding,
 )
+from screamingface._scoreboard.replay_pin import _ReplayPin
 from screamingface._scoreboard.submission_notice import (
     display_submission_notice,
     prepare_submission_notice,
 )
 from screamingface._ui.leaderboard_view import LeaderboardCatalog
-from screamingface.errors import LeaderboardError
+from screamingface.errors import LeaderboardError, ReplayUnavailable
 from screamingface.leaderboard import (
+    CacheVersionPublication,
     Leaderboard,
     LeaderboardBaseline,
     LeaderboardCacheVersion,
@@ -51,7 +54,7 @@ from screamingface.leaderboard import (
     LeaderboardReportedResult,
     LeaderboardScore,
 )
-from screamingface.report import CandidateResult
+from screamingface.report import CandidateResult, ReplayProvenance
 from screamingface.url4 import Url4
 
 _logger = logging.getLogger(__name__)
@@ -59,6 +62,7 @@ _logger = logging.getLogger(__name__)
 _BENCHMARKS_PATH = "/v1/benchmarks"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 _SCORES_PATH = "/v1/scores"
+_RESULTS_PATH = "/v1/results"
 _AUTHOR_EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 _MAX_AUTHORS = 10
 _MAX_AUTHOR_LENGTH = 255
@@ -104,12 +108,37 @@ _METADATA_EDIT_CODES: Final[Mapping[int, str]] = {
     422: "invalid_submission_metadata",
     428: "precondition_required",
 }
-# WHY these two: their boards send `{"detail": {"code": ...}}` (D7 X-8). The other operations keep
+# FEATURE: OME-1307 (E14) contract C6: a 10 s timeout, no re-send, no fallback. A grant has no side
+# effect, so the request is replay-safe, but a retry would only delay the caller's error (RP-19).
+_REPLAY_GRANTS_PATH = "/v1/replay-grants"
+_REPLAY_GRANT_OPERATION = "request a replay grant from"
+_REPLAY_GRANT_TIMEOUT_S = 10.0
+# INVARIANT: mirrors the engine and gateway limit of C1 (2,048 UTF-8 bytes), so the SDK refuses a
+# grant that the engine would refuse, before the run and its spend.
+_MAX_GRANT_BYTES = 2048
+_REPLAY_GRANT_CODES: Final[Mapping[int, str]] = {
+    404: "replay_pin_not_found",
+    410: "cache_version_withdrawn",
+    422: "invalid_replay_pin",
+}
+# FEATURE: OME-1307 (E14) contract C10: the owner publishes the cache version of a result. The
+# request is idempotent (PB-D5), so it is replay-safe.
+_PUBLISH_OPERATION = "publish the cache version on"
+_PUBLISH_CODES: Final[Mapping[int, str]] = {
+    403: "not_result_owner",
+    409: "not_publishable",
+    503: "publish_unavailable",
+}
+# WHY these four: their boards send `{"detail": {"code": ...}}` (D7 X-8). The other operations keep
 # the status map only, as before.
-_CODED_OPERATIONS: Final = frozenset({_SUBMIT_OPERATION, _METADATA_EDIT_OPERATION})
+_CODED_OPERATIONS: Final = frozenset(
+    {_SUBMIT_OPERATION, _METADATA_EDIT_OPERATION, _REPLAY_GRANT_OPERATION, _PUBLISH_OPERATION}
+)
 _STATUS_CODES_BY_OPERATION: Final[Mapping[str, Mapping[int, str]]] = {
     _SUBMIT_OPERATION: _SUBMIT_CODES,
     _METADATA_EDIT_OPERATION: _METADATA_EDIT_CODES,
+    _REPLAY_GRANT_OPERATION: _REPLAY_GRANT_CODES,
+    _PUBLISH_OPERATION: _PUBLISH_CODES,
 }
 
 
@@ -261,6 +290,41 @@ class Leaderboards:
             ),
         )
 
+    def _replay_grant(self, pin: _ReplayPin, benchmark_id: str) -> _ReplayBinding:
+        """C6: the grant for one pinned run. Unreachable, slow or 5xx is `ReplayUnavailable`."""
+        try:
+            payload = _sync_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                _REPLAY_GRANTS_PATH,
+                json={"pin": pin.text, "benchmark_id": benchmark_id},
+                replay_safe=True,
+                timeout=_REPLAY_GRANT_TIMEOUT_S,
+                transport_retries=0,
+                operation=_REPLAY_GRANT_OPERATION,
+            )
+        except LeaderboardError as exc:
+            if _scoreboard_down(exc):
+                raise _replay_unavailable(self._scoreboard_url, exc) from exc
+            raise
+        return _decode_replay_binding(payload, pin, self._scoreboard_url)
+
+    def publish_cache_version(self, result_id: UUID | str) -> CacheVersionPublication:
+        selected = _result_id(result_id)
+        return _decode_publication(
+            selected,
+            _sync_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                f"{_RESULTS_PATH}/{selected}/publish",
+                replay_safe=True,
+                operation=_PUBLISH_OPERATION,
+                missing=("unknown_result", f"Result {str(selected)!r} was not found"),
+            ),
+        )
+
 
 class AsyncLeaderboards:
     """Asynchronous public Leaderboards bound to one AsyncClient."""
@@ -403,6 +467,40 @@ class AsyncLeaderboards:
             ),
         )
 
+    async def _replay_grant(self, pin: _ReplayPin, benchmark_id: str) -> _ReplayBinding:
+        try:
+            payload = await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                _REPLAY_GRANTS_PATH,
+                json={"pin": pin.text, "benchmark_id": benchmark_id},
+                replay_safe=True,
+                timeout=_REPLAY_GRANT_TIMEOUT_S,
+                transport_retries=0,
+                operation=_REPLAY_GRANT_OPERATION,
+            )
+        except LeaderboardError as exc:
+            if _scoreboard_down(exc):
+                raise _replay_unavailable(self._scoreboard_url, exc) from exc
+            raise
+        return _decode_replay_binding(payload, pin, self._scoreboard_url)
+
+    async def publish_cache_version(self, result_id: UUID | str) -> CacheVersionPublication:
+        selected = _result_id(result_id)
+        return _decode_publication(
+            selected,
+            await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                f"{_RESULTS_PATH}/{selected}/publish",
+                replay_safe=True,
+                operation=_PUBLISH_OPERATION,
+                missing=("unknown_result", f"Result {str(selected)!r} was not found"),
+            ),
+        )
+
 
 def _remember_receipt(
     receipts: OrderedDict[tuple[str, str], _FrozenCacheVersion],
@@ -451,6 +549,20 @@ def _resendable(error: LeaderboardError) -> bool:
 def _submit_backoff(resend: int) -> float:
     """0.5 s before the first re-send and 1 s before the second, each with up to 25% jitter."""
     return _SUBMIT_BACKOFF_BASE_S * 2 ** (resend - 1) * (1 + 0.25 * random.random())
+
+
+def _scoreboard_down(error: LeaderboardError) -> bool:
+    """C6 (RP-19): the board did not answer, or answered 5xx. Any other refusal is its verdict."""
+    return error.code == "scoreboard_unreachable" or (error.status or 0) >= 500
+
+
+def _replay_unavailable(scoreboard_url: str, error: LeaderboardError) -> ReplayUnavailable:
+    return ReplayUnavailable(
+        "Could not get a replay grant from the Scoreboard",
+        scoreboard_url=scoreboard_url,
+        status=error.status,
+        permanent=False,
+    )
 
 
 def _sync_json(
@@ -698,6 +810,63 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
         _invalid(str(exc), exc)
 
 
+def _decode_replay_binding(payload: object, pin: _ReplayPin, scoreboard_url: str) -> _ReplayBinding:
+    """C6 `200` body to a binding. A grant that breaks its limit is refused BEFORE the run."""
+    root = _mapping(payload, "Replay grant")
+    grant = _replay_grant_text(root.get("grant"), scoreboard_url)
+    try:
+        result_id = UUID(_text(root.get("result_id"), "Replay grant result_id"))
+        return _ReplayBinding(
+            grant=grant,
+            result_id=result_id,
+            score_id=UUID(_text(root.get("score_id"), "Replay grant score_id")),
+            cache_version_id=UUID(
+                _text(root.get("cache_version_id"), "Replay grant cache_version_id")
+            ),
+            expires_at=_timestamp(root.get("expires_at"), "Replay grant expires_at"),
+            # OD-8: only a `date` pin resolves to a baseline the caller did not name.
+            pinned_baseline_result_id=result_id if pin.kind == "date" else None,
+        )
+    except ValueError as exc:
+        _invalid(str(exc), exc)
+
+
+def _replay_grant_text(value: object, scoreboard_url: str) -> str:
+    """The opaque grant, trimmed of outer whitespace only.
+
+    INVARIANT: never decoded, verified or logged here (RP-D2).
+    """
+    if not isinstance(value, str) or not value.strip():
+        reason = "the grant must be non-blank text"
+    elif len(value.strip().encode()) > _MAX_GRANT_BYTES:
+        reason = f"the grant must be at most {_MAX_GRANT_BYTES} UTF-8 bytes"
+    else:
+        return value.strip()
+    raise LeaderboardError(
+        f"Invalid Scoreboard replay grant: {reason}",
+        scoreboard_url=scoreboard_url,
+        code="invalid_replay_grant",
+        permanent=True,
+    )
+
+
+def _decode_publication(result_id: UUID, payload: object) -> CacheVersionPublication:
+    root = _mapping(payload, "Cache version publication")
+    state = _text(root.get("state"), "Cache version publication state")
+    if state not in ("requested", "published"):
+        _invalid("Cache version publication state must be requested or published")
+    try:
+        return CacheVersionPublication(
+            result_id=result_id,
+            state="requested" if state == "requested" else "published",
+            release_url=_optional_text(
+                root.get("release_url"), "Cache version publication release_url"
+            ),
+        )
+    except (TypeError, ValueError) as exc:
+        _invalid(str(exc), exc)
+
+
 def _decode_reported_result(value: object) -> LeaderboardReportedResult | None:
     if value is None:
         return None
@@ -838,7 +1007,32 @@ def _submission(
     # run's payload is unchanged and a board that predates the field 422s only cached runs.
     if candidate_result.cache_saved_cost_usd is not None:
         payload["cache_saved_cost_usd"] = _cost_text(candidate_result.cache_saved_cost_usd)
+    # INVARIANT (E14, C4): absent for a plain run, and a board before E14 refuses an unknown key.
+    if candidate_result.replay is not None:
+        payload["replay"] = _replay_block(candidate_result.replay)
     return payload
+
+
+def _replay_block(replay: ReplayProvenance) -> dict[str, object]:
+    """The C4 `replay` block. A replay run with no counters is refused before any HTTP call.
+
+    WHY refuse (OD-10, SC-D7): a replay must never show as an independent result, and C4 needs
+    integer counts. Zeros would state a fact nobody measured.
+    """
+    if replay.hits is None or replay.misses is None or replay.repeated_key_collapses is None:
+        raise ValueError(
+            "this replay run has no replay counters from the SF Engine, "
+            "so it cannot be submitted as a replay"
+        )
+    baseline = replay.pinned_baseline_result_id
+    return {
+        "result_id": str(replay.result_id),
+        "cache_version_id": str(replay.cache_version_id),
+        "hits": replay.hits,
+        "misses": replay.misses,
+        "repeated_key_collapses": replay.repeated_key_collapses,
+        "pinned_baseline_result_id": None if baseline is None else str(baseline),
+    }
 
 
 def _submission_models(models: Sequence[str]) -> list[str]:
@@ -1135,14 +1329,22 @@ def _benchmark_id(value: object) -> str:
 
 
 def _score_id(value: object) -> UUID:
+    return _uuid_argument(value, "score_id")
+
+
+def _result_id(value: object) -> UUID:
+    return _uuid_argument(value, "result_id")
+
+
+def _uuid_argument(value: object, name: str) -> UUID:
     if isinstance(value, UUID):
         return value
     if not isinstance(value, str):
-        raise TypeError("score_id must be a UUID or string")
+        raise TypeError(f"{name} must be a UUID or string")
     try:
         return UUID(value)
     except ValueError as exc:
-        raise ValueError("score_id must be a valid UUID") from exc
+        raise ValueError(f"{name} must be a valid UUID") from exc
 
 
 def _top(value: object) -> int:
