@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
 from screamingface_engine.benchmarks.deployment import (
+    CHANGED_CASES_KEY,
     BenchmarkAssetPreparationError,
     BenchmarkAssetSummary,
 )
 from screamingface_engine.benchmarks.registry import DEFAULT_BENCHMARK_ASSETS_ROOT
+
+#: Set to "1" only by the PR image job: after every bundle is prepared, fail if any was skipped
+#: because its Cases changed, so the PR that changed them can't merge (OME-1273, spec R11).
+FAIL_ON_CHANGED_CASES_ENV = "SCREAMINGFACE_FAIL_ON_CHANGED_CASES"
 
 
 def prepare_builtin_assets(
@@ -99,11 +105,37 @@ def _prepare(root: Path, only: tuple[str, ...] | None) -> int:
         print(line, flush=True)
 
     try:
-        prepare_builtin_assets(root, emit, only=only)
+        prepared: dict[str, BenchmarkAssetSummary] = prepare_builtin_assets(root, emit, only=only)
     except BenchmarkAssetPreparationError as exc:
         print(f"benchmark asset preparation failed: {exc}", file=sys.stderr)
         return 1
+    if os.environ.get(FAIL_ON_CHANGED_CASES_ENV) == "1":
+        return _fail_on_changed_cases(prepared)
     return 0
+
+
+def _fail_on_changed_cases(prepared: dict[str, BenchmarkAssetSummary]) -> int:
+    """Strict mode: list every bundle skipped for changed Cases, and fail if there is any.
+
+    WHY after the loop, not inside the preparer: one run reports every changed bundle, so a
+    dependency bump that moves three Benchmarks shows all three in one CI log.
+    """
+
+    changed: dict[str, str] = {
+        bundle: str(summary[CHANGED_CASES_KEY])
+        for bundle, summary in prepared.items()
+        if CHANGED_CASES_KEY in summary
+    }
+    for bundle, reason in changed.items():
+        print(f"{bundle}: {reason}", file=sys.stderr)
+    if not changed:
+        return 0
+    print(
+        f"benchmark asset preparation failed: {len(changed)} bundle(s) have changed Cases "
+        f"({FAIL_ON_CHANGED_CASES_ENV}=1)",
+        file=sys.stderr,
+    )
+    return 1
 
 
 if __name__ == "__main__":  # pragma: no cover - process entrypoint

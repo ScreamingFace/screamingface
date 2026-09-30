@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -16,6 +17,7 @@ from screamingface_engine.benchmarks import prepare as prepare_module
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT, BUILTIN_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
 from screamingface_engine.benchmarks.deployment import (
+    CHANGED_CASES_KEY,
     BenchmarkAssetBundle,
     BenchmarkAssetPreparationError,
     BenchmarkAssetPreparerContractError,
@@ -680,3 +682,80 @@ def _without_comment_lines(text: str) -> str:
     """The file's code lines only — whole-line ``#`` comments dropped."""
 
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+# ── strict mode for changed Cases (OME-1273, spec R11) ───────────────────────
+
+
+def _prepare_with_changed_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two bundles skipped for changed Cases, one prepared normally."""
+
+    summaries: dict[str, object] = {
+        "inspect-agieval": {
+            "cases": 0,
+            CHANGED_CASES_KEY: "agieval: Case Digest aaa does not match bbb",
+        },
+        "inspect-gsm8k": {"cases": 1319},
+        "inspect-mgsm": {"cases": 0, CHANGED_CASES_KEY: "mgsm: replay timed out after 1800s"},
+    }
+
+    def prepare(
+        _root: Path,
+        on_prepared: Callable[[str, object], None] | None = None,
+        **_only: object,
+    ) -> dict[str, object]:
+        for bundle, summary in summaries.items():
+            if on_prepared is not None:
+                on_prepared(bundle, summary)
+        return summaries
+
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
+
+
+def test_strict_mode_fails_after_preparing_everything_and_names_every_changed_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The PR that changed Cases can't merge, and its log lists all of them at once."""
+
+    _prepare_with_changed_cases(monkeypatch)
+    monkeypatch.setenv(prepare_module.FAIL_ON_CHANGED_CASES_ENV, "1")
+
+    assert prepare_module.main(["--root", str(tmp_path)]) == 1
+
+    captured = capsys.readouterr()
+    # INVARIANT: every audit record is still printed before the failure.
+    assert len(captured.out.splitlines()) == 3
+    assert "inspect-agieval: agieval: Case Digest aaa does not match bbb" in captured.err
+    assert "inspect-mgsm: mgsm: replay timed out after 1800s" in captured.err
+
+
+def test_without_strict_mode_changed_cases_only_skip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deployed images keep every other Benchmark when one Case Source breaks."""
+
+    _prepare_with_changed_cases(monkeypatch)
+    monkeypatch.delenv(prepare_module.FAIL_ON_CHANGED_CASES_ENV, raising=False)
+
+    assert prepare_module.main(["--root", str(tmp_path)]) == 0
+
+
+def test_only_the_pr_image_job_runs_strict() -> None:
+    workflows = REPOSITORY_ROOT / ".github" / "workflows"
+    if not workflows.is_dir():
+        pytest.skip("engine checked out apart from the monorepo; the workflows are absent")
+
+    pr_job = (workflows / "screamingface-engine-tests.yml").read_text(encoding="utf-8")
+    assert "SCREAMINGFACE_FAIL_ON_CHANGED_CASES=1" in pr_job
+    for deployed in ("dev-build-screamingface-engine.yml", "release-screamingface-engine.yml"):
+        body = (workflows / deployed).read_text(encoding="utf-8")
+        assert "SCREAMINGFACE_FAIL_ON_CHANGED_CASES" not in body, deployed
+
+
+def test_benchmark_image_forwards_strict_mode_into_case_preparation() -> None:
+    body = (Path(__file__).parents[2] / "Dockerfile.benchmark").read_text(encoding="utf-8")
+
+    assert "ARG SCREAMINGFACE_FAIL_ON_CHANGED_CASES=" in body
+    assert 'SCREAMINGFACE_FAIL_ON_CHANGED_CASES="$SCREAMINGFACE_FAIL_ON_CHANGED_CASES"' in body
