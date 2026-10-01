@@ -161,6 +161,96 @@ def test_a_world_module_may_import_the_combine_core(
     assert not _flags(_offenders(tmp_path, monkeypatch), "world/combine.py")
 
 
+_DENIED = [
+    "socket", "ssl", "http", "urllib", "httpx", "requests", "subprocess", "os", "sys", "time",
+    "datetime", "random", "secrets", "uuid", "asyncio", "threading", "multiprocessing",
+    "concurrent", "io", "pathlib", "shutil", "tempfile", "logging",
+]  # fmt: skip
+
+
+def test_the_plugin_deny_list_is_the_agreed_set() -> None:
+    assert _layering().COMBINE_PLUGIN_DENY == set(_DENIED)
+
+
+@pytest.mark.parametrize("module", _DENIED)
+def test_a_plugin_importing_an_io_or_nondeterminism_module_fails(
+    module: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(_source_tree(tmp_path), "combine/operators/extract.py", f"import {module}\n")
+    assert _flags(_offenders(tmp_path, monkeypatch), "combine/operators/extract.py")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from concurrent.futures import ThreadPoolExecutor\n",
+        "from datetime import datetime\n",
+        "import os.path\n",
+        "from urllib.parse import quote\n",
+    ],
+    ids=["from-concurrent", "from-datetime", "dotted-os", "from-urllib"],
+)
+def test_a_plugin_deny_list_covers_from_imports_and_dotted_names(
+    source: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(_source_tree(tmp_path), "combine/operators/extract.py", source)
+    assert _flags(_offenders(tmp_path, monkeypatch), "combine/operators/extract.py")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import re\n",
+        "import json\n",
+        "from decimal import Decimal, localcontext\n",
+        "from collections.abc import Mapping\n",
+        "from types import MappingProxyType\n",
+        "from __future__ import annotations\n",
+    ],
+    ids=["re", "json", "decimal", "collections-abc", "types", "future"],
+)
+def test_a_plugin_may_import_the_pure_standard_library(
+    source: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(_source_tree(tmp_path), "combine/operators/extract.py", source)
+    assert not _flags(_offenders(tmp_path, monkeypatch), "combine/operators/extract.py")
+
+
+def test_the_core_may_use_logging_and_the_clock_free_stdlib(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The deny-list is for plugins; the core's endpoint logs."""
+    _write(_source_tree(tmp_path), "combine/endpoint.py", "import logging\nimport math\n")
+    assert not _flags(_offenders(tmp_path, monkeypatch), "combine/endpoint.py")
+
+
+@pytest.mark.parametrize(
+    ("relative", "source"),
+    [
+        ("combine/endpoint.py", "from url4.peer.server import Request\n"),
+        ("combine/spec.py", "import url4\n"),
+        ("combine/evidence.py", "from url4.core.errors import ResolutionError\n"),
+        ("combine/operators/extract.py", "from url4.core.errors import ResolutionError\n"),
+        ("combine/operators/select.py", "import url4\n"),
+        ("combine/builtins.py", "from url4 import RelExpr\n"),
+    ],
+    ids=["core-peer", "core-bare", "core-errors", "plugin-errors", "plugin-bare", "wiring"],
+)
+def test_nothing_under_combine_may_import_url4(
+    relative: str, source: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(_source_tree(tmp_path), relative, source)
+    assert _flags(_offenders(tmp_path, monkeypatch), relative)
+
+
+def test_a_world_module_may_import_url4(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The adapter lives in `world/`; only `combine/` is kept free of url4 here."""
+    _write(_source_tree(tmp_path), "world/combine.py", "from url4.peer.server import Request\n")
+    assert not _flags(_offenders(tmp_path, monkeypatch), "world/combine.py")
+
+
 def test_the_gate_tolerates_a_tree_without_combine(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
