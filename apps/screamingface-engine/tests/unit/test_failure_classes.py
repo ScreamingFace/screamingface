@@ -159,5 +159,10 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "benchmark_contract_error",
             "benchmark_definition_error",
             "upstream_error",
+            # combine endpoint codes declared by OME-1289 (E4a)
+            "combine_spec_invalid",
+            "combine_operator_unknown",
+            "combine_no_votes",
+            "combine_input_too_large",
         }
     )

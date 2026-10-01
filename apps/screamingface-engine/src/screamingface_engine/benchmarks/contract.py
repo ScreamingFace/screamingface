@@ -142,6 +142,11 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "benchmark_contract_error",
         "benchmark_definition_error",
         "upstream_error",
+        # combine endpoint codes (OME-1289 E4a); judge_reply_invalid is reused, not added
+        "combine_spec_invalid",
+        "combine_operator_unknown",
+        "combine_no_votes",
+        "combine_input_too_large",
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status
