@@ -71,5 +71,5 @@ reducer (H4). This unit closes all four with new tests and small source edits.
   `_require_known_operators` now refuses a bare operator name (for example `mode`) with a
   ValueError before the pinned-id check. Two new tests (sync, async) were RED first (the run
   transport was called), then GREEN. Commit: see `git log` (fix(sdk): refuse an unpinned operator
-  name in a replayed url4). Both gate runs were repeated; results below.
+  name in a replayed url4). Gate `screamingface` rerun: with append-only ALL GATES GREEN (no offenders), and with `--skip-append-only` ALL GATES GREEN.
 - **Deviations:** none from the spec.
