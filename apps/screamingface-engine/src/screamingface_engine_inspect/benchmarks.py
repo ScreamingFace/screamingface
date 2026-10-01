@@ -1059,15 +1059,16 @@ def _judge_prompt_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     return (f"judge_scorer={spec.scorer}", f"judge_kwargs={canonical_kwargs}")
 
 
-def _cases_declaration(key: str) -> CasesSpec | TaskReplayCasesSpec:
+def _cases_declaration(benchmark_key: str) -> CasesSpec | TaskReplayCasesSpec:
     """The one Case Preparation declaration for a Benchmark key, from the registry holding it."""
 
-    # INVARIANT: a key lives in exactly one registry — never silently pick one of two (OME-1273).
-    if key in BENCHMARK_CASES and key in TASK_REPLAY_CASES:
-        raise ValueError(f"{key}: declared in both BENCHMARK_CASES and TASK_REPLAY_CASES")
-    if key in TASK_REPLAY_CASES:
-        return TASK_REPLAY_CASES[key]
-    return BENCHMARK_CASES[key]
+    # INVARIANT: a Benchmark key lives in exactly one registry — never silently pick one of two
+    # (OME-1273).
+    if benchmark_key in BENCHMARK_CASES and benchmark_key in TASK_REPLAY_CASES:
+        raise ValueError(f"{benchmark_key}: declared in both BENCHMARK_CASES and TASK_REPLAY_CASES")
+    if benchmark_key in TASK_REPLAY_CASES:
+        return TASK_REPLAY_CASES[benchmark_key]
+    return BENCHMARK_CASES[benchmark_key]
 
 
 def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
