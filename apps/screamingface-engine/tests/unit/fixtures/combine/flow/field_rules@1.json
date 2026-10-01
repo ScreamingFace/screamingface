@@ -152,7 +152,7 @@
    }
   },
   {
-   "name": "majority without normalizer is exact",
+   "name": "majority without normalizer keeps case apart",
    "args": {
     "fields": [
      {
@@ -470,6 +470,261 @@
      }
     ],
     "text": "{\"x\":5}"
+   }
+  },
+  {
+   "name": "max compares a float with a 2-digit-plus exponent as a number",
+   "args": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "max"
+     }
+    ]
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{\"x\":3}",
+      "value": "{\"x\":3}",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "{\"x\":1e+100}",
+      "value": "{\"x\":1e+100}",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "max",
+      "values": {
+       "member_1": 3,
+       "member_2": 1e+100
+      },
+      "result": 1e+100
+     }
+    ],
+    "text": "{\"x\":1e+100}"
+   }
+  },
+  {
+   "name": "max compares a 71-digit integer as a number",
+   "args": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "max"
+     }
+    ]
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{\"x\":3}",
+      "value": "{\"x\":3}",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "{\"x\":10000000000000000000000000000000000000000000000000000000000000000000000}",
+      "value": "{\"x\":10000000000000000000000000000000000000000000000000000000000000000000000}",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "max",
+      "values": {
+       "member_1": 3,
+       "member_2": 10000000000000000000000000000000000000000000000000000000000000000000000
+      },
+      "result": 10000000000000000000000000000000000000000000000000000000000000000000000
+     }
+    ],
+    "text": "{\"x\":10000000000000000000000000000000000000000000000000000000000000000000000}"
+   }
+  },
+  {
+   "name": "max compares a tiny float with zero",
+   "args": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "max"
+     }
+    ]
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{\"x\":0}",
+      "value": "{\"x\":0}",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "{\"x\":1e-100}",
+      "value": "{\"x\":1e-100}",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "max",
+      "values": {
+       "member_1": 0,
+       "member_2": 1e-100
+      },
+      "result": 1e-100
+     }
+    ],
+    "text": "{\"x\":1e-100}"
+   }
+  },
+  {
+   "name": "majority key conflates the text true and the boolean true",
+   "args": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "majority",
+      "normalize": null
+     }
+    ]
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{\"x\":\"true\"}",
+      "value": "{\"x\":\"true\"}",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "{\"x\":true}",
+      "value": "{\"x\":true}",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "majority",
+      "values": {
+       "member_1": "true",
+       "member_2": true
+      },
+      "result": "true"
+     }
+    ],
+    "text": "{\"x\":\"true\"}"
+   }
+  },
+  {
+   "name": "union of empty lists is an empty list",
+   "args": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "union",
+      "normalize": null
+     }
+    ]
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{\"x\":[]}",
+      "value": "{\"x\":[]}",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "{\"x\":[]}",
+      "value": "{\"x\":[]}",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "union",
+      "values": {
+       "member_1": [],
+       "member_2": []
+      },
+      "result": []
+     }
+    ],
+    "text": "{\"x\":[]}"
+   }
+  },
+  {
+   "name": "union whose items the normalizer all rejects is an empty list",
+   "args": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "union",
+      "normalize": "text"
+     }
+    ]
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{\"x\":[\".\"]}",
+      "value": "{\"x\":[\".\"]}",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "union",
+      "values": {
+       "member_1": [
+        "."
+       ]
+      },
+      "result": []
+     }
+    ],
+    "text": "{\"x\":[]}"
    }
   },
   {

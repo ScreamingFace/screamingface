@@ -12,12 +12,14 @@ never reaches the gateway.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 import pytest
-from combine_support import spec_text, vote_spec
+from combine_fields_support import merge_spec, project_spec
+from combine_support import spec_text
 
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
@@ -40,6 +42,7 @@ _ANSWERS = {
 _PROJECTION = '{"member_1":"alpha reasons","member_2":"beta says 7","member_3":"gamma agrees"}'
 _WRITER_PROMPT = "Write."
 _WRITER_REPLY = "A short written summary."
+_COMBINE_LOGGER = "screamingface_engine.combine.endpoint"
 
 
 def _completion(content: str) -> httpx.Response:
@@ -80,10 +83,6 @@ def _fusion_context(*, with_signal: bool) -> str:
     return render(struct(body))
 
 
-def _step(op_id: str, **args: Any) -> dict[str, Any]:
-    return {"op": op_id, "args": args}
-
-
 def _combine(binding: str, spec: dict[str, Any], *, with_signal: bool) -> Any:
     return src(
         RelExpr(
@@ -107,27 +106,10 @@ def _expression() -> str:
         )
         for index, model in enumerate(_ANSWERS, start=1)
     ]
-    projection = vote_spec(
+    projection = project_spec(3, "summary")
+    merge = merge_spec(
         3,
-        reducer="project",
-        extract=_step("json_object@1"),
-        normalize=None,
-        reduce=_step("project_field@1", field="summary"),
-        select=_step("built@1"),
-    )
-    merge = vote_spec(
-        3,
-        reducer="merge",
-        extract=_step("json_object@1"),
-        normalize=None,
-        reduce=_step(
-            "field_rules@1",
-            fields=[
-                {"field": "confidence", "rule": "max"},
-                {"field": "summary", "rule": "model"},
-            ],
-        ),
-        select=_step("built@1"),
+        [{"field": "confidence", "rule": "max"}, {"field": "summary", "rule": "model"}],
     )
     writer = src(
         RelExpr(
@@ -181,8 +163,10 @@ async def test_writer_sees_only_the_projection() -> None:
 
     writer_calls = [body for body in seen if _is_writer_call(body)]
     assert len(writer_calls) == 1
-    user_messages = [m["content"] for m in writer_calls[0]["messages"] if m["role"] == "user"]
-    assert user_messages == [_PROJECTION]
+    assert writer_calls[0]["messages"] == [
+        {"role": "system", "content": _WRITER_PROMPT},
+        {"role": "user", "content": _PROJECTION},
+    ]
     assert decoded.output == '{"confidence":0.9,"summary":"A short written summary."}'
     # No gateway body carried the attribution-only param.
     assert all("binding" not in body for body in seen)
@@ -227,17 +211,24 @@ async def test_writer_on_a_member_route_keeps_every_operation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_writer_failure_fails_case_without_partial_object() -> None:
+async def test_writer_failure_fails_case_without_partial_object(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """PM-8: a writer route that answers HTTP 400 fails the case with its gateway code."""
+    caplog.set_level(logging.INFO, logger=_COMBINE_LOGGER)
     seen: list[dict[str, Any]] = []
     responder = _answering(lambda: httpx.Response(400, json={"error": {"message": "bad"}}), seen)
 
     with pytest.raises(ResolutionError) as caught:
         await _evaluate(responder)
 
-    assert caught.value.code is not None
-    assert caught.value.code.startswith("aigateway_")
+    assert caught.value.code == "aigateway_http_400"
     assert any(_is_writer_call(body) for body in seen)
+    # The projection ran; the final merge (synthesis_1) never did, so no partial object exists.
+    ran = [record.getMessage() for record in caplog.records if record.name == _COMBINE_LOGGER]
+    assert len(ran) == 1
+    assert "binding=synthesis_2 " in ran[0]
+    assert not any("binding=synthesis_1 " in line for line in ran)
 
 
 async def _get(app: Any, path: str) -> httpx.Response:

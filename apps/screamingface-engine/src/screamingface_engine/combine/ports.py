@@ -4,11 +4,12 @@ FEATURE: combine member answers without a synthesizer model, the same way on eve
 
 This module is the ONE meeting point of the combine core (``spec``, ``registry``, ``evidence``,
 ``endpoint``) and the operator plugins (``combine/operators/*``). A plugin imports this module
-and the pure standard library only (the url4-import guard treats ``url4.core`` as an engine
-import). The core never imports a plugin: ``combine/builtins.py`` is the one module that lists
-them, and the COMBINE_CORE rule in ``.claude/scripts/check_layering.py`` enforces both
-directions, bans every ``url4`` import under ``combine/``, and bans I/O and nondeterminism
-modules in plugins.
+and the pure standard library, and may import a sibling plugin's pure functions (never its
+``OPERATORS``); it imports no ``url4`` module and no other engine module (the url4-import guard
+treats ``url4.core`` as an engine import). The core never imports a plugin:
+``combine/builtins.py`` is the one module that lists them, and the COMBINE_CORE rule in
+``.claude/scripts/check_layering.py`` enforces both directions, bans every ``url4`` import under
+``combine/``, and bans I/O and nondeterminism modules in plugins.
 
 One combine call runs four stages over the members, always in author order:
 

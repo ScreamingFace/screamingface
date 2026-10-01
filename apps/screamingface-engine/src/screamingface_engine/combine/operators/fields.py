@@ -15,6 +15,10 @@ WHY the v1 normalizers by function: ``field_rules@1`` and ``by_field@1`` call ``
 ``text`` of the v1 normalize module directly, so a later ``text@2`` needs ``field_rules@2``.
 AIDEV-NOTE: the rule semantics (null is absent, the first holder wins a tie, union keeps the first
 spelling) are v1 behavior pinned by the golden fixtures. A change is a new ``@version``.
+AIDEV-NOTE: the comparison key conflates JSON types on purpose (v1): the text ``"true"`` and the
+boolean ``true`` share a key, so do ``"[1,2]"`` and ``[1,2]``, and ``text`` casefolds a whole
+object's canonical text, keys included. A JSON number is read as the number it is (max), never
+through the 64-char / 2-digit-exponent limits of ``numeric@1``; only a string goes through them.
 """
 
 from __future__ import annotations
@@ -59,8 +63,8 @@ _RULE_KEYS = MappingProxyType(
     }
 )
 _RULES_INVALID = 'field_rules@1 takes {"fields": [...]} with one valid rule per field'
-Rule = Mapping[str, Any]
-Objects = tuple[tuple[str, dict[str, object]], ...]
+_Rule = Mapping[str, Any]
+_Objects = tuple[tuple[str, dict[str, object]], ...]
 
 
 # --- shared helpers ---------------------------------------------------------------------------
@@ -70,6 +74,9 @@ def _object(value: str | None, op_id: str) -> dict[str, object]:
     """The member's extracted value as a JSON object; anything else is a spec error."""
     try:
         decoded = None if value is None else loads_bounded(value)
+        # WHY canonical_json here: a number like 1e999 decodes to inf, which json_object@1 never
+        # lets through, but another extractor can. Every rule may then call canonical_json.
+        canonical_json(decoded)
     except ValueError:
         decoded = None
     if not isinstance(decoded, dict):
@@ -77,14 +84,14 @@ def _object(value: str | None, op_id: str) -> dict[str, object]:
     return decoded
 
 
-def _objects(combine_input: CombineInput, op_id: str) -> Objects:
+def _objects(combine_input: CombineInput, op_id: str) -> _Objects:
     """Every voter's JSON object, in author order."""
     return tuple(
         (reading.member, _object(reading.value, op_id)) for reading in combine_input.voters
     )
 
 
-def _present(objects: Objects, field: str) -> tuple[tuple[str, object], ...]:
+def _present(objects: _Objects, field: str) -> tuple[tuple[str, object], ...]:
     """The members whose object has ``field`` with a value that is not null."""
     return tuple((member, obj[field]) for member, obj in objects if obj.get(field) is not None)
 
@@ -93,11 +100,11 @@ def _text_of(value: object) -> str:
     return value if isinstance(value, str) else canonical_json(value)
 
 
-def _key(value: object, normalize: object) -> str | None:
+def _key(value: object, normalize: str | None) -> str | None:
     """The comparison key of a field value: its text, normalized when asked; None if rejected."""
     if normalize is None:
         return _text_of(value)
-    return _NORMALIZERS[str(normalize)](_text_of(value), {}).value
+    return _NORMALIZERS[normalize](_text_of(value), {}).value
 
 
 def _no_usable(index: int) -> NoVotes:
@@ -175,9 +182,9 @@ def _by_extreme(voters: Sequence[MemberReading], order: object) -> Selection:
 def _target(args: OpArgs) -> str:
     """The value to match: as written, or in the declared normalizer's form."""
     value, normalize = str(args["value"]), args["normalize"]
-    if normalize is None:
+    if not isinstance(normalize, str):
         return value
-    target = _NORMALIZERS[str(normalize)](value, {}).value
+    target = _NORMALIZERS[normalize](value, {}).value
     if target is None:
         raise SpecInvalid("by_field@1 equals value does not normalize")
     return target
@@ -195,6 +202,10 @@ def by_field(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /)
     """The member whose field is the largest, the smallest, or equal to the target.
 
     The first member in author order wins a tie; ``agreement`` is always None.
+
+    INVARIANT: the voters' values are already normalized by the spec's normalize step, so that step
+    must be ``<normalize>@1`` matching the ``normalize`` arg (the SDK pairs them). The target is
+    normalized here once; a voter value is never normalized again (``text@1`` is not idempotent).
     """
     if args["order"] == "equals":
         return _by_equals(combine_input.voters, args)
@@ -205,7 +216,7 @@ def by_field(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /)
 
 
 def _majority(
-    rule: Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
+    rule: _Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
 ) -> object:
     """The value of the largest group of equal keys; the first group wins a tie."""
     counts: dict[str, int] = {}
@@ -220,23 +231,31 @@ def _majority(
     return firsts[max(counts, key=lambda key: counts[key])]
 
 
+def _number(value: object) -> Decimal | None:
+    """A JSON number as it is (finite: see ``_object``); a string through ``numeric@1``."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return Decimal(repr(value))
+    parsed = numeric(value, {}).value if isinstance(value, str) else None
+    return None if parsed is None else Decimal(parsed)
+
+
 def _maximum(
-    rule: Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
+    rule: _Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
 ) -> object:
     """The original value of the first holder of the largest number; non-numbers are skipped."""
     best: Decimal | None = None
     result: object = None
     for value in held.values():
-        number = numeric(_text_of(value), {}).value
-        if number is not None and (best is None or Decimal(number) > best):
-            best, result = Decimal(number), value
+        number = _number(value)
+        if number is not None and (best is None or number > best):
+            best, result = number, value
     if best is None:
         raise _no_usable(index)
     return result
 
 
 def _from_member(
-    rule: Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
+    rule: _Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
 ) -> object:
     """That member's value; null when it is not a voter or lacks the field."""
     member = rule["member"]
@@ -246,7 +265,7 @@ def _from_member(
 
 
 def _union(
-    rule: Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
+    rule: _Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
 ) -> object:
     """The items of every list value, each key once, as the first spelling, in author order."""
     lists = [value for value in held.values() if isinstance(value, list)]
@@ -263,7 +282,7 @@ def _union(
 
 
 def _model(
-    rule: Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
+    rule: _Rule, combine_input: CombineInput, held: Mapping[str, object], index: int
 ) -> object:
     """The writer model's text for this field, as it is."""
     writer = combine_input.signals.get(_WRITER_PREFIX + str(rule["field"]))

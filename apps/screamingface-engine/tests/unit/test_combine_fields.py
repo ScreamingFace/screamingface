@@ -13,9 +13,10 @@ import json
 from typing import Any
 
 import pytest
+from combine_fields_support import merge_spec, pick_spec, project_spec, step
 from combine_flow_support import find_builtin
 from combine_golden_support import stage
-from combine_support import context_text, run, spec_text, vote_spec
+from combine_support import context_text, run, spec_text
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.ports import NoVotes, SpecInvalid, canonical_json
@@ -37,43 +38,6 @@ _MERGE_RULES = [
     {"field": "source", "rule": "from_member", "member": "member_2"},
     {"field": "synonyms", "rule": "union", "normalize": "text"},
 ]
-
-
-def _step(op_id: str, **args: Any) -> dict[str, Any]:
-    return {"op": op_id, "args": args}
-
-
-def _pick_spec(count: int, select: dict[str, Any], *, normalize: str | None = "numeric@1") -> Any:
-    return vote_spec(
-        count,
-        reducer="pick",
-        extract=_step("json_field@1", path="confidence"),
-        normalize=None if normalize is None else _step(normalize),
-        reduce=_step("values@1", field="confidence"),
-        select=select,
-    )
-
-
-def _merge_spec(count: int, rules: list[dict[str, Any]]) -> Any:
-    return vote_spec(
-        count,
-        reducer="merge",
-        extract=_step("json_object@1"),
-        normalize=None,
-        reduce=_step("field_rules@1", fields=rules),
-        select=_step("built@1"),
-    )
-
-
-def _project_spec(count: int, field: str) -> Any:
-    return vote_spec(
-        count,
-        reducer="project",
-        extract=_step("json_object@1"),
-        normalize=None,
-        reduce=_step("project_field@1", field=field),
-        select=_step("built@1"),
-    )
 
 
 def _run(
@@ -129,12 +93,12 @@ def test_json_object_rejects_anything_that_is_not_one_object(text: str) -> None:
 
 
 def test_pick_max_min_equals_returns_member_json_byte_for_byte() -> None:
-    biggest = _run(_pick_spec(3, _step("by_field@1", order="max")), _PICK_TEXTS)
+    biggest = _run(pick_spec(3, step("by_field@1", order="max")), _PICK_TEXTS)
     assert biggest.output == '{"a": 2, "confidence": 0.9}'
-    smallest = _run(_pick_spec(3, _step("by_field@1", order="min")), _PICK_TEXTS)
+    smallest = _run(pick_spec(3, step("by_field@1", order="min")), _PICK_TEXTS)
     assert smallest.output == _PICK_TEXTS[0]
     equal = _run(
-        _pick_spec(3, _step("by_field@1", order="equals", value="0.7", normalize="numeric")),
+        pick_spec(3, step("by_field@1", order="equals", value="0.7", normalize="numeric")),
         _PICK_TEXTS,
     )
     assert equal.output == _PICK_TEXTS[2]
@@ -157,10 +121,10 @@ def test_pick_max_min_equals_returns_member_json_byte_for_byte() -> None:
 
 def test_non_json_member_is_skipped_and_reported() -> None:
     texts = [_PICK_TEXTS[0], 'Sure! Here it is: {"confidence": 1}', _PICK_TEXTS[2]]
-    picked = _run(_pick_spec(3, _step("by_field@1", order="max")), texts)
+    picked = _run(pick_spec(3, step("by_field@1", order="max")), texts)
     assert picked.output == _PICK_TEXTS[2]
     assert _evidence(picked)["members"][1]["status"] == "not_json"
-    merged = _run(_merge_spec(3, _MERGE_RULES[:2]), [_MERGE_TEXTS[0], texts[1], _MERGE_TEXTS[2]])
+    merged = _run(merge_spec(3, _MERGE_RULES[:2]), [_MERGE_TEXTS[0], texts[1], _MERGE_TEXTS[2]])
     assert json.loads(merged.output) == {"answer": "Paris.", "score": 3}
     assert _evidence(merged)["members"][1]["status"] == "not_json"
 
@@ -171,14 +135,14 @@ def test_non_json_member_is_skipped_and_reported() -> None:
 def test_all_members_unusable_fails_with_combine_no_votes() -> None:
     prose = ["Sure!", "Here it is.", "No JSON."]
     with pytest.raises(NoVotes):
-        _run(_pick_spec(3, _step("by_field@1", order="max")), prose)
+        _run(pick_spec(3, step("by_field@1", order="max")), prose)
     with pytest.raises(NoVotes):
-        _run(_merge_spec(3, _MERGE_RULES[:1]), prose)
+        _run(merge_spec(3, _MERGE_RULES[:1]), prose)
     # every member is JSON, but no member has the majority field
     with pytest.raises(NoVotes):
-        _run(_merge_spec(3, [{"field": "x", "rule": "majority", "normalize": None}]), _MERGE_TEXTS)
+        _run(merge_spec(3, [{"field": "x", "rule": "majority", "normalize": None}]), _MERGE_TEXTS)
     with pytest.raises(NoVotes):
-        _run(_pick_spec(3, _step("by_field@1", order="max")), ['{"a": 1}'] * 3)
+        _run(pick_spec(3, step("by_field@1", order="max")), ['{"a": 1}'] * 3)
 
 
 # --- PM-10 ------------------------------------------------------------------------------------
@@ -186,7 +150,7 @@ def test_all_members_unusable_fails_with_combine_no_votes() -> None:
 
 def test_pick_tie_goes_to_author_order() -> None:
     texts = ['{"confidence": 0.9, "n": 1}', '{"confidence": 0.5}', '{"confidence": 0.9, "n": 3}']
-    outcome = _run(_pick_spec(3, _step("by_field@1", order="max")), texts)
+    outcome = _run(pick_spec(3, step("by_field@1", order="max")), texts)
     assert outcome.output == texts[0]
     evidence = _evidence(outcome)
     assert evidence["tie"] is True
@@ -200,8 +164,8 @@ def test_pick_equals_uses_declared_normalizer() -> None:
     texts = ['{"confidence": "Yes."}', '{"confidence": "no"}']
 
     def pick(value: str, normalize: str | None, spec_normalize: str | None) -> Any:
-        select = _step("by_field@1", order="equals", value=value, normalize=normalize)
-        return _run(_pick_spec(2, select, normalize=spec_normalize), texts)
+        select = step("by_field@1", order="equals", value=value, normalize=normalize)
+        return _run(pick_spec(2, select, normalize=spec_normalize), texts)
 
     assert pick("yes", "text", "text@1").output == texts[0]
     assert pick("Yes.", "text", "text@1").output == texts[0]
@@ -218,7 +182,7 @@ _MERGED = (
 
 
 def test_merge_rules_majority_max_from_member_union() -> None:
-    outcome = _run(_merge_spec(3, _MERGE_RULES), _MERGE_TEXTS)
+    outcome = _run(merge_spec(3, _MERGE_RULES), _MERGE_TEXTS)
     assert outcome.output == _MERGED
     evidence = _evidence(outcome)
     assert (evidence["kind"], evidence["built"], evidence["chosen"]) == ("answer", True, [])
@@ -256,7 +220,7 @@ def test_merge_rules_majority_max_from_member_union() -> None:
 
 def test_merge_output_has_only_declared_fields() -> None:
     texts = [json.dumps({"keep": 1, "extra": "x", "other": [1]}), '{"keep": 2, "more": 0}']
-    outcome = _run(_merge_spec(2, [{"field": "keep", "rule": "max"}]), texts)
+    outcome = _run(merge_spec(2, [{"field": "keep", "rule": "max"}]), texts)
     assert outcome.output == '{"keep":2}'
 
 
@@ -266,7 +230,7 @@ def test_merge_output_has_only_declared_fields() -> None:
 def test_from_member_not_json_gives_null_field_and_reason() -> None:
     rules = [{"field": "source", "rule": "from_member", "member": "member_2"}]
     texts = [_MERGE_TEXTS[0], "Sure! not json", _MERGE_TEXTS[2]]
-    outcome = _run(_merge_spec(3, rules), texts)
+    outcome = _run(merge_spec(3, rules), texts)
     assert outcome.output == '{"source":null}'
     evidence = _evidence(outcome)
     assert evidence["fields"][0]["result"] is None
@@ -276,7 +240,7 @@ def test_from_member_not_json_gives_null_field_and_reason() -> None:
 def test_from_member_outside_the_spec_members_is_a_spec_error() -> None:
     rules = [{"field": "source", "rule": "from_member", "member": "member_9"}]
     with pytest.raises(SpecInvalid):
-        _run(_merge_spec(3, rules), _MERGE_TEXTS)
+        _run(merge_spec(3, rules), _MERGE_TEXTS)
 
 
 # --- PM-11 ------------------------------------------------------------------------------------
@@ -289,7 +253,7 @@ def test_merged_json_is_canonical() -> None:
         {"field": "a", "rule": "majority", "normalize": "text"},
         {"field": "b", "rule": "union", "normalize": None},
     ]
-    outputs = {_run(_merge_spec(2, rules), texts).output for _ in range(100)}
+    outputs = {_run(merge_spec(2, rules), texts).output for _ in range(100)}
     assert len(outputs) == 1
     (output,) = outputs
     assert output == canonical_json(json.loads(output))
@@ -301,7 +265,7 @@ def test_merged_json_is_canonical() -> None:
 
 def test_projection_returns_only_the_field_values() -> None:
     texts = ['{"summary":"a"}', '{"summary":"b","x":1}', '{"x":2}']
-    outcome = _run(_project_spec(3, "summary"), texts)
+    outcome = _run(project_spec(3, "summary"), texts)
     assert outcome.output == '{"member_1":"a","member_2":"b"}'
     evidence = _evidence(outcome)
     assert (evidence["kind"], evidence["reducer"]) == ("projection", "project")
@@ -317,7 +281,7 @@ def test_projection_returns_only_the_field_values() -> None:
 
 def test_projection_with_no_member_field_fails_with_no_votes() -> None:
     with pytest.raises(NoVotes):
-        _run(_project_spec(2, "summary"), ['{"x":1}', '{"summary":null}'])
+        _run(project_spec(2, "summary"), ['{"x":1}', '{"summary":null}'])
 
 
 # --- model field ------------------------------------------------------------------------------
@@ -326,12 +290,12 @@ def test_projection_with_no_member_field_fails_with_no_votes() -> None:
 def test_model_field_takes_the_writer_text() -> None:
     rules = [{"field": "answer", "rule": "majority", "normalize": "text"}]
     rules.append({"field": "summary", "rule": "model"})
-    outcome = _run(_merge_spec(3, rules), _MERGE_TEXTS, {"writer_summary": "S."})
+    outcome = _run(merge_spec(3, rules), _MERGE_TEXTS, {"writer_summary": "S."})
     assert outcome.output == '{"answer":"Paris.","summary":"S."}'
     summary = _evidence(outcome)["fields"][1]
     assert (summary["rule"], summary["result"]) == ("model", "S.")
     with pytest.raises(SpecInvalid):
-        _run(_merge_spec(3, rules), _MERGE_TEXTS)
+        _run(merge_spec(3, rules), _MERGE_TEXTS)
 
 
 # --- PM-D8 ------------------------------------------------------------------------------------
@@ -340,7 +304,7 @@ def test_model_field_takes_the_writer_text() -> None:
 def test_large_member_json_is_too_large_and_skipped() -> None:
     huge = '{"answer": "' + "x" * (2 * 1024 * 1024) + '"}'
     texts = [_MERGE_TEXTS[0], huge, _MERGE_TEXTS[1]]
-    outcome = _run(_merge_spec(3, [{"field": "score", "rule": "max"}]), texts)
+    outcome = _run(merge_spec(3, [{"field": "score", "rule": "max"}]), texts)
     assert outcome.output == '{"score":5}'
     assert _evidence(outcome)["members"][1]["status"] == "too_large"
 
@@ -359,13 +323,25 @@ def test_field_rules_takes_at_most_64_fields() -> None:
 def test_failures_name_the_rule_and_never_echo_values() -> None:
     texts = ['{"secretfield": "SECRET-TEXT"}']
     with pytest.raises(SpecInvalid) as no_signal:
-        _run(_merge_spec(1, [{"field": "secretfield", "rule": "model"}]), texts)
+        _run(merge_spec(1, [{"field": "secretfield", "rule": "model"}]), texts)
     with pytest.raises(NoVotes) as no_votes:
-        _run(_merge_spec(1, [{"field": "secretfield", "rule": "max"}]), texts)
+        _run(merge_spec(1, [{"field": "secretfield", "rule": "max"}]), texts)
     with pytest.raises(NoVotes) as no_match:
-        pick = _step("by_field@1", order="equals", value="SECRET-TARGET", normalize=None)
-        _run(_pick_spec(1, pick, normalize=None), ['{"confidence": "other"}'])
+        pick = step("by_field@1", order="equals", value="SECRET-TARGET", normalize=None)
+        _run(pick_spec(1, pick, normalize=None), ['{"confidence": "other"}'])
     for caught in (no_signal, no_votes, no_match):
         assert "SECRET" not in str(caught.value)
         assert "secretfield" not in str(caught.value)
     assert "field 1" in str(no_votes.value)
+
+
+def test_a_non_finite_number_from_another_extractor_is_a_spec_error() -> None:
+    # whole@1 hands the raw reply on, so an infinite number (1e999) reaches the field operator
+    for spec in (
+        merge_spec(1, [{"field": "x", "rule": "max"}], extract="whole@1"),
+        project_spec(1, "x"),
+    ):
+        spec["extract"] = step("whole@1")
+        with pytest.raises(SpecInvalid, match="needs JSON object values") as caught:
+            _run(spec, ['{"x": 1e999}'])
+        assert "1e999" not in str(caught.value)

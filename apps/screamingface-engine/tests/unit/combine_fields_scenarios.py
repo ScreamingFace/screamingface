@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from combine_support import context_text, run, spec_text, vote_spec
+from combine_fields_support import merge_spec, pick_spec, project_spec, step
+from combine_support import context_text, run, spec_text
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 
@@ -39,10 +40,6 @@ _RULES = [
 ]
 
 
-def _step(op_id: str, **args: Any) -> dict[str, Any]:
-    return {"op": op_id, "args": args}
-
-
 def _bytes_of(spec: dict[str, Any], signals: dict[str, str] | None = None) -> str:
     outcome = run(
         spec_text(spec),
@@ -54,41 +51,17 @@ def _bytes_of(spec: dict[str, Any], signals: dict[str, str] | None = None) -> st
 
 def merge_scenario() -> str:
     """Output and evidence JSON of a merge that uses all five rules."""
-    spec = vote_spec(
-        _COUNT,
-        reducer="merge",
-        extract=_step("json_object@1"),
-        normalize=None,
-        reduce=_step("field_rules@1", fields=_RULES),
-        select=_step("built@1"),
-    )
-    return _bytes_of(spec, {"writer_summary": "A summary \u00e9."})
+    return _bytes_of(merge_spec(_COUNT, _RULES), {"writer_summary": "A summary \u00e9."})
 
 
 def pick_scenario() -> str:
     """Output and evidence JSON of a pick with four members tied at the top."""
-    spec = vote_spec(
-        _COUNT,
-        reducer="pick",
-        extract=_step("json_field@1", path="confidence"),
-        normalize=_step("numeric@1"),
-        reduce=_step("values@1", field="confidence"),
-        select=_step("by_field@1", order="max"),
-    )
-    return _bytes_of(spec)
+    return _bytes_of(pick_spec(_COUNT, step("by_field@1", order="max")))
 
 
 def projection_scenario() -> str:
     """Output and evidence JSON of the projection a writer model would read."""
-    spec = vote_spec(
-        _COUNT,
-        reducer="project",
-        extract=_step("json_object@1"),
-        normalize=None,
-        reduce=_step("project_field@1", field="tags"),
-        select=_step("built@1"),
-    )
-    return _bytes_of(spec)
+    return _bytes_of(project_spec(_COUNT, "tags"))
 
 
 __all__ = [
