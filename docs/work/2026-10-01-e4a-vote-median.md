@@ -57,3 +57,12 @@ inspect lane.
   (`uv run --extra inspect pytest tests/unit/inspect/test_combine_gsm8k_check.py`): 1 passed. `repo`: ALL GREEN.
 - **Deviations:** none from the behavior spec. Tests import `Reducer` from `screamingface.reducer`
   (pyright rejects `sf.reducer`, as the submodule is not a declared attribute of `sf`).
+- **Review round 1 (coordinator ACCEPT-WITH-FIXES):** unit 4 CHANGELOG clause now points to the Vote/Median
+  bullet; the round-trip test execs `to_python()` and asserts the recompiled url4 is byte-identical (plus the
+  Median `_from_spec` equality); engine test reuses `_chat`, `_message_text` and `_TRIGGER_MARK` (the inspect
+  file keeps its own copy because its lane cannot import `tests/unit`); `reducer.py` uses `STAGES` from
+  `_evaluation/operators` (no import cycle) and one pattern for reading pinned ops (`_op_name` accepts None);
+  README names the real access path; CHANGELOG sentence split; helper comment fixed; EV-13 asserts 6 calls;
+  `_by_model` is typed and the combine runtime install sits inside the `try`.
+- **Known gap (no code):** `_spec_ops` does not check that a pinned op belongs to its stage. Only a hand-edited
+  url4 can show it, and the Engine rejects it.

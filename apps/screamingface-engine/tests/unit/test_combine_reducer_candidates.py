@@ -13,18 +13,20 @@ deliver the behavior, so they pass on their first run by design.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-from test_corrective_loop_e2e import _assets
+from test_corrective_loop_e2e import _assets, _chat
+from test_medxpert_protocol_turns import _TRIGGER_MARK, _message_text
 from test_medxpert_protocol_turns import _assets as _medxpert_assets
 
 from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
 from screamingface_engine.benchmarks.contract import (
     CandidateResult,
+    CaseResult,
     OperationOutput,
     decode_candidate_invocation_record,
 )
@@ -50,17 +52,9 @@ def _contract(name: str) -> str:
     return (_CONTRACT / name).read_text(encoding="utf-8").rstrip("\n")
 
 
-def _chat(content: str) -> httpx.Response:
-    return httpx.Response(
-        200,
-        json={
-            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 4, "completion_tokens": 2},
-        },
-    )
-
-
-def _by_model(replies: _Replies, seen: list[dict[str, Any]] | None = None):
+def _by_model(
+    replies: _Replies, seen: list[dict[str, Any]] | None = None
+) -> Callable[[httpx.Request], httpx.Response]:
     def respond(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         if seen is not None:
@@ -177,8 +171,8 @@ async def test_two_reducers_keep_separate_evidence() -> None:
         ),
         client=client,
     )
-    install_combine_runtime(world.node, BUILTIN_OPERATORS)
     try:
+        install_combine_runtime(world.node, BUILTIN_OPERATORS)
         encoded = await evaluate_candidate_recipe(
             world.node, _contract("two_reducers_candidate.url4"), "What is 6 + 6?"
         )
@@ -204,22 +198,34 @@ async def test_two_reducers_keep_separate_evidence() -> None:
     assert first.combine != second.combine
 
 
+_COMMIT_REPLIES = {"prov/member-a": "E is 1", "prov/member-b": "E is 2", "prov/member-c": "E is 2"}
+_REASONING_REPLIES = {
+    "prov/member-a": "reason 3",
+    "prov/member-b": "reason 3",
+    "prov/member-c": "reason 8",
+}
+
+
+def _assert_second_turn_evidence(case: CaseResult) -> None:
+    assert case.operations is not None
+    by_id = {operation.operation_id: operation for operation in case.operations}
+    evidence = by_id["op_synthesis_1"].combine
+    assert evidence is not None and evidence.tally is not None
+    values = [row.value for row in evidence.tally]
+    assert values == ["2", "1"]
+    assert "3" not in values
+    assert evidence.chosen == ["member_2"]
+    assert by_id["op_model_1"].output == "E is 1"
+
+
 async def test_multi_turn_case_keeps_second_turn_evidence(tmp_path: Path) -> None:
-    commit: dict[str, str] = {
-        "prov/member-a": "E is 1",
-        "prov/member-b": "E is 2",
-        "prov/member-c": "E is 2",
-    }
-    reasoning: dict[str, str] = {
-        "prov/member-a": "reason 3",
-        "prov/member-b": "reason 3",
-        "prov/member-c": "reason 8",
-    }
+    seen: list[dict[str, Any]] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        joined = "\n".join(str(m.get("content") or "") for m in body.get("messages", []))
-        return _chat((commit if "the answer is" in joined else reasoning)[body["model"]])
+        seen.append(body)
+        commit = _TRIGGER_MARK in _message_text(body)
+        return _chat((_COMMIT_REPLIES if commit else _REASONING_REPLIES)[body["model"]])
 
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(respond), base_url="http://aigateway.test"
@@ -243,13 +249,6 @@ async def test_multi_turn_case_keeps_second_turn_evidence(tmp_path: Path) -> Non
         await world.aclose()
         await client.aclose()
 
-    case = CandidateResult.model_validate(json.loads(result.text)).cases[0]
-    assert case.operations is not None
-    by_id = {operation.operation_id: operation for operation in case.operations}
-    evidence = by_id["op_synthesis_1"].combine
-    assert evidence is not None and evidence.tally is not None
-    values = [row.value for row in evidence.tally]
-    assert values == ["2", "1"]
-    assert "3" not in values
-    assert evidence.chosen == ["member_2"]
-    assert by_id["op_model_1"].output == "E is 1"
+    # 3 members x 2 turns: the reasoning turn ran too, so "second turn wins" is not vacuous.
+    assert len(seen) == 6
+    _assert_second_turn_evidence(CandidateResult.model_validate(json.loads(result.text)).cases[0])

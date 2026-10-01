@@ -95,15 +95,36 @@ def test_reprs_are_constructor_calls_that_rebuild_equal_values() -> None:
             hash(value)
 
 
+def _recompiled(url4: str) -> str:
+    """Run the generated Python (as a user would) and compile the candidate it builds."""
+
+    namespace: dict[str, Any] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    return _url4(namespace["candidate"])
+
+
 def test_url4_round_trip_rebuilds_vote_and_median() -> None:
     vote = sf.Vote(extract="last_number", normalize="numeric")
-    vote_python = sf.Url4(_url4(_fusion(vote))).to_python()
-    assert "synthesizer=sf.Vote(extract='last_number@1', normalize='numeric@1')" in vote_python
-    median_python = sf.Url4(_url4(_fusion(sf.Median(select="value")))).to_python()
-    assert "synthesizer=sf.Median(extract='last_number@1', select='value@1')" in median_python
+    median = sf.Median(select="value")
+    vote_url4 = _url4(_fusion(vote))
+    median_url4 = _url4(_fusion(median))
+    assert (
+        "synthesizer=sf.Vote(extract='last_number@1', normalize='numeric@1')"
+        in sf.Url4(vote_url4).to_python()
+    )
+    assert (
+        "synthesizer=sf.Median(extract='last_number@1', select='value@1')"
+        in sf.Url4(median_url4).to_python()
+    )
+    # The generated Python rebuilds a candidate that compiles to the very same url4.
+    assert _recompiled(vote_url4) == vote_url4
+    assert _recompiled(median_url4) == median_url4
 
     assert sf.Vote._from_spec(decode_combine_spec(_raw_intent(vote))) == sf.Vote(
         extract="last_number@1", normalize="numeric@1"
+    )
+    assert sf.Median._from_spec(decode_combine_spec(_raw_intent(median))) == sf.Median(
+        extract="last_number@1", select="value@1"
     )
 
     loop = sf.CorrectiveLoop([_fusion(vote), "provider/d"], judge="provider/j", max_rounds=2)

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, get_args
 
+from screamingface._evaluation.operators import STAGES
 from screamingface._immutable_json import freeze_mapping
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
@@ -86,11 +87,10 @@ _REDUCER_CLASSES: dict[str, type[Reducer]] = {}
 
 
 _MEDIAN_SELECTS: frozenset[str] = frozenset({"nearest", "value"})
-_STEP_STAGES = ("extract", "normalize", "reduce", "select")
 
 
-def _op_name(op: str) -> str:
-    return op.split("@", 1)[0]
+def _op_name(op: str | None) -> str | None:
+    return None if op is None else op.split("@", 1)[0]
 
 
 def _cannot_rebuild(name: str) -> ValueError:
@@ -101,7 +101,7 @@ def _spec_ops(spec: Mapping[str, object], name: str) -> dict[str, str | None]:
     """stage -> pinned op id (None for an absent step). Refuses step args: v1 takes none."""
 
     ops: dict[str, str | None] = {}
-    for stage in _STEP_STAGES:
+    for stage in STAGES:
         step = spec[stage]
         if step is None:
             ops[stage] = None
@@ -151,8 +151,8 @@ class Vote(Reducer):
         extract = ops["extract"]
         if (
             extract is None
-            or _op_name(str(ops["reduce"])) != "mode"
-            or _op_name(str(ops["select"])) != "first_holder"
+            or _op_name(ops["reduce"]) != "mode"
+            or _op_name(ops["select"]) != "first_holder"
             or spec["weights"] is not None
         ):
             raise _cannot_rebuild("vote")
@@ -204,10 +204,9 @@ class Median(Reducer):
         select = ops["select"]
         if (
             extract is None
-            or ops["normalize"] is None
-            or _op_name(ops["normalize"]) != "numeric"
-            or _op_name(str(ops["reduce"])) != "median"
             or select is None
+            or _op_name(ops["normalize"]) != "numeric"
+            or _op_name(ops["reduce"]) != "median"
             or _op_name(select) not in _MEDIAN_SELECTS
             or spec["weights"] is not None
         ):

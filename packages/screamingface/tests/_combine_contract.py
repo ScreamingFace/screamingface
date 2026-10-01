@@ -14,7 +14,8 @@ ENGINE_APP = REPO_ROOT / "apps" / "screamingface-engine"
 COMBINE_CONTRACT = ENGINE_APP / "tests" / "unit" / "data" / "combine_contract"
 ENGINE_GOLDEN_DIR = ENGINE_APP / "tests" / "unit" / "fixtures" / "combine"
 
-# The names the Engine registers today, all at version 1 (units 8-10 add more).
+# The names the Engine registers today, all at version 1. The Engine may register more; see the
+# subset check in test_vote_median_contract_fixtures.
 ENGINE_OPERATOR_NAMES: dict[str, tuple[str, ...]] = {
     "extract": ("boxed", "json_field", "last_line", "last_number", "whole"),
     "normalize": ("identity", "numeric", "text"),

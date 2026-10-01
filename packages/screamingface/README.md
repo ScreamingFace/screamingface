@@ -284,7 +284,7 @@ The combine step makes no model call. The answer is one member's text byte for b
 number itself for `select="value"`. A tie goes to the first member in author order and sets `tie`.
 A member with no usable value does not vote, and a run with no votes fails with
 `combine_no_votes`. The evidence (the reading per member, the tally, the agreement and the chosen
-member) is in `CaseOperation.combine`. This needs an Engine that serves `GET /v1/operators`.
+member) is in the `combine` field of each case's `operations` entry (`op_synthesis_1` for a single reducer). This needs an Engine that serves `GET /v1/operators`.
 
 ## Install
 
