@@ -7,6 +7,7 @@ import importlib.metadata
 import json
 import os
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -353,6 +354,7 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
         "control_url": f"http://127.0.0.1:{control.server_port}",
         "services": config.services,
         "log_path": str(config.log_path),
+        "artifacts_dir": str(config.effective_artifacts_dir(os.environ).resolve()),
         "source": runtime_source.state_record(runtime_source.resolve_source(os.environ)),
     }
     _write_state(config, state)
@@ -436,6 +438,36 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
     _up(config, foreground=foreground)
 
 
+def _artifacts_folder(config: RuntimeConfig, state: dict[str, object] | None) -> Path:
+    # WHY read from the state record (the OME-1169 pattern): only the serving child knows
+    # which folder its Engine was built with; this shell's env may differ. A record from an
+    # older build has no `artifacts_dir`, and then the default is the honest answer.
+    value = state.get("artifacts_dir") if state else None
+    return Path(value) if isinstance(value, str) and value else config.artifacts_dir
+
+
+def _artifacts_bytes(folder: Path) -> int | None:
+    # FEATURE (OME-1448): total size of the spilled results; 0 when the folder is missing,
+    # None when it cannot be listed (a folder the user chose, owned by someone else).
+    if not folder.is_dir():
+        return 0
+    try:
+        entries = tuple(folder.iterdir())
+    except PermissionError:
+        return None
+    total = 0
+    for path in entries:
+        try:
+            info = path.stat()
+        except FileNotFoundError:
+            # WHY: the Engine's hourly TTL sweep can delete a parcel between the listing and
+            # this stat; `status` counts what is left instead of crashing.
+            continue
+        if stat.S_ISREG(info.st_mode):
+            total += info.st_size
+    return total
+
+
 def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     state = _read_state(config)
     stored_services = _state_services(state)
@@ -443,6 +475,7 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     services = stored_services if state_valid and state else config.services
     health = _health(services)
     owned = bool(state_valid and state and _verify_owner(state))
+    artifacts = _artifacts_folder(config, state)
     if not state_valid:
         label, code = "invalid runtime state", 1
     elif owned and all(health.values()):
@@ -466,6 +499,8 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
                 name: {"url": url, "healthy": health[name]} for name, url in services.items()
             },
             "log_path": str(config.log_path),
+            "artifacts_dir": str(artifacts),
+            "artifacts_bytes": _artifacts_bytes(artifacts),
             "benchmarks": _benchmark_statuses(config),
         }
         print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
@@ -474,6 +509,8 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
     for name, ready in health.items():
         print(f"  {name:10} {'UP' if ready else 'down':4}  {services[name]}")
     print(f"  logs       {config.log_path}")
+    size = _artifacts_bytes(artifacts)
+    print(f"  artifacts  {artifacts}  ({'size unknown' if size is None else f'{size} bytes'})")
     return code
 
 

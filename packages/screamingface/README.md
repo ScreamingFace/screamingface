@@ -10,6 +10,12 @@ Evaluate composable Candidate Recipes against URL4-native research Benchmarks.
 
 ## Local notebook runtime
 
+Local Engine result artifacts live in the private `<data_dir>/artifacts` directory
+rather than temporary storage. Set `URL4_CLOUD_ARTIFACTS_DIR` to override it;
+`screamingface status` shows the absolute serving directory and its current size.
+The Engine's retention policy still applies. This configuration is independent of SDK
+report rendering, export and recovery APIs.
+
 Install the SDK, notebook tools, and local services together:
 
 ```bash
