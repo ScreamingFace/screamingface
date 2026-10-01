@@ -561,6 +561,57 @@ operator catalog has `json_field@1`,
 `json_object@1`, `values@1`, `by_field@1`, `field_rules@1`, `project_field@1` and `built@1`. Argmax
 needs `by_signal@1` and `best_holder@1`.
 
+### Rank and Concat selections
+
+A selection is a hand-off to the next stage. It is not an answer. `sf.Rank` keeps the top `k`
+original member texts. `sf.Concat` joins all the member texts. Neither one rewrites a text. A Fusion
+with a selection must be followed by another stage of a `sf.Pipeline`, and that stage receives the
+selection and nothing else.
+
+```python
+ranked = sf.Pipeline(
+    [
+        sf.Fusion(
+            routes,
+            synthesizer=sf.Rank(
+                k=2,
+                by=sf.Judge(
+                    "anthropic/claude-opus-5",
+                    returns="scores",
+                    rubric="Give a higher number to a more correct answer.",
+                ),
+            ),
+        ),
+        sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."),
+    ]
+)
+by_field = sf.Fusion(routes, synthesizer=sf.Rank(k=2, by_field="score"))  # members reply with JSON
+joined = sf.Fusion(routes, synthesizer=sf.Concat(separator="\n\n---\n\n", label=True))
+```
+
+`sf.Rank(k, by=sf.Judge(..., returns="scores"))` scores the members with a judge, and
+`sf.Rank(k, by_field="score")` reads a number from the JSON reply of each member (`by_field` is a
+field path like `score` or `result.score[0]`). The next stage receives this JSON, best member first:
+`{"selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`. A tie at the cut
+goes to the earlier member, and the evidence sets `tie`. `k` is from 1 to 256 and must not be more
+than the number of members. If fewer than `k` members have a usable score, the Case fails with
+`combine_no_votes`. The judge call and the scores of all the members stay in the report
+(`op_judge_1` and the `combine` evidence), also for the members that do not continue. A judge reply
+that is not valid fails the Case with `judge_reply_invalid`, as for `sf.Judge`.
+
+`sf.Concat(separator="\n\n---\n\n", label=True)` makes no model call. With `label=True`, each part
+starts with `[member_1]` on its own line. The parts are in author order, and an empty member text
+keeps its place. The separator is 1 to 1024 characters. If a member text contains the separator,
+the text is joined unchanged and the evidence sets `separator_collision`, because then the
+boundaries are not unique. A joined text of more than 8 MiB fails with `combine_input_too_large`.
+
+The compiler checks the place of a selection before any call. A Fusion with `Rank` or `Concat`
+cannot be the last step of a candidate, cannot be a member of another Fusion (also not through a
+`sf.Pipeline` that ends in one), and cannot be a member of a corrective loop. Each case raises
+`ValueError`. The next stage does not receive the original question or the other member texts, so
+put the task in the prompt of that stage. This needs an Engine whose operator catalog has `top_k@1`,
+`join@1` and `all@1`, and (for `by=`) the judge operators of `sf.Judge`.
+
 ## Install
 
 ```bash
