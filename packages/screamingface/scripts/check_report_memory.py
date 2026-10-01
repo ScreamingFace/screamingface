@@ -14,20 +14,46 @@ import shutil
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from screamingface import CaseGrade, CaseResult, Usage, reports
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
-from screamingface._evaluation.model import _compiled_candidate
+from screamingface._evaluation.model import _compiled_candidate, _member_projection
 from screamingface._results.store import ResultStore
+from screamingface.case_result import CaseOperation
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo
+from screamingface.operation_accounting import OperationAccounting, OperationCache
 
 
-def fixture(root: Path, candidate_count: int, case_count: int, prompt_bytes: int) -> str:
+def fixture(
+    root: Path, candidate_count: int, case_count: int, prompt_bytes: int, *, fusion: bool = False
+) -> str:
     root.mkdir(parents=True, exist_ok=True)
     source = root / "fixture.json"
     benchmark = BenchmarkInfo("contracteval", "memory-fixture", case_count)
+    operations = [OperationInfo(id="op", kind="model", label="answer")]
+    members = []
+    if fusion:
+        operations = [
+            OperationInfo(id="a", kind="model", label="A"),
+            OperationInfo(id="b", kind="model", label="B"),
+            OperationInfo(id="s", kind="synthesis", label="synthesis"),
+        ]
+        members = [
+            _member_projection(operation_id=op.id, name=op.label, kind="model", models=["fixture"])
+            for op in operations[:2]
+        ]
+    accounting = OperationAccounting(
+        provider="fixture",
+        response_model="fixture",
+        usage=Usage(input_tokens=10, output_tokens=2, cost_usd="0.1"),
+        cache=OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
+        request_model="fixture",
+        provider_latency_ms=1,
+        provider_attempts=1,
+    )
     metadata = {
         "schema": "screamingface.candidate-result.v1",
         "benchmark_id": benchmark.id,
@@ -49,6 +75,15 @@ def fixture(root: Path, candidate_count: int, case_count: int, prompt_bytes: int
                 failures=[],
                 metadata={},
                 grade=CaseGrade(method="deterministic", score=1.0, metrics={}, checks=[]),
+                operations=[
+                    CaseOperation(
+                        operation_id=op.id,
+                        output="answer",
+                        finish_reason="stop",
+                        accounting=accounting,
+                    )
+                    for op in operations
+                ],
             )
             stream.write(("," if index else "") + json.dumps(case.to_dict()))
         stream.write("]}")
@@ -64,10 +99,11 @@ def fixture(root: Path, candidate_count: int, case_count: int, prompt_bytes: int
     for index, name in enumerate(context["candidates"]):
         candidate = _compiled_candidate(
             name=name,
-            kind="model",
+            kind="fusion" if fusion else "model",
             models=["fixture"],
             url4="(@)!'memory fixture'",
-            operations=[OperationInfo(id="op", kind="model", label="answer")],
+            operations=operations,
+            members=members,
         )
         outcome = _RunOutcome(
             run_id=name,
@@ -75,7 +111,11 @@ def fixture(root: Path, candidate_count: int, case_count: int, prompt_bytes: int
             completed_at=datetime(2026, 10, 1, tzinfo=UTC),
             result_body=None,
             media_type="application/json",
-            root_usage=Usage(),
+            root_usage=Usage(
+                input_tokens=10 * len(operations) * case_count,
+                output_tokens=2 * len(operations) * case_count,
+                cost_usd=Decimal("0.1") * len(operations) * case_count,
+            ),
             artifact=_ResultArtifact(digest, source.stat().st_size, digest),
         )
         saved = store.record("http://127.0.0.1:1", candidate, outcome, context)
@@ -99,13 +139,24 @@ def main() -> None:
     parser.add_argument("--candidates", type=int, default=11)
     parser.add_argument("--cases", type=int, default=4182)
     parser.add_argument("--prompt-bytes", type=int, default=48000)
+    parser.add_argument(
+        "--fusion", action="store_true", help="Include fusion members and operation accounting"
+    )
     args = parser.parse_args()
-    key = fixture(args.directory, args.candidates, args.cases, args.prompt_bytes)
+    key = fixture(
+        args.directory, args.candidates, args.cases, args.prompt_bytes, fusion=args.fusion
+    )
     report = reports.get(key, directory=args.directory)
     assert len(report.candidates) == args.candidates
     for candidate in report.candidates:
         assert len(candidate.cases) == args.cases
         assert candidate.cases[-1].input == "x" * args.prompt_bytes
+        if args.fusion:
+            assert len(candidate.members) == 2
+            for member in candidate.members:
+                assert member.usage is not None
+                assert member.usage.input_tokens == 10 * args.cases
+                assert member.usage.cost_usd == Decimal("0.1") * args.cases
     destination = report.export(args.directory / "report.json")
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     peak_bytes = peak if sys.platform == "darwin" else peak * 1024

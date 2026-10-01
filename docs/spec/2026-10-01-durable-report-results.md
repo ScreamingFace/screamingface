@@ -126,3 +126,22 @@ behavior, and undownloaded artifacts remain subject to retention.
 Go-to resolves an exact string ID before trying its integer interpretation. If both a string and integer share the same displayed text, the exact string wins for typed text; clicking a row preserves its actual typed ID across candidate filters. Numeric fallback remains available when no exact string matches. Native notebook row clicks synchronize that identity through the ipyevents widget bridge without changing the CSS rail/detail presentation.
 
 Candidate report construction and progress callbacks have no lifecycle side effects. Final evaluation/handled-partial report boundaries and whole recovery boundaries own ready marking. Destination recovery retains lifecycle metadata and updates both copies deliberately. Per-candidate filesystem errors follow the SDK storage-error/partial-report contract. Static and widget-free rendering reuse the compact accounting projection instead of eagerly allocating accounting rows for all cases.
+
+
+## Derived-storage validation and handled failures
+
+A published case index has a versioned receipt binding its SQLite bytes and source
+JSON bytes with SHA-256. Missing, stale or damaged receipts/indices trigger an
+atomic rebuild from authoritative raw results, after artifact integrity verification.
+Reusing a valid receipt requires bounded streaming hashing, without decoding cases.
+Read-only legacy indices are compared row by row with a fresh temporary disk index;
+only an exact projection can be reused. Damaged read-only indices preserve raw data
+and expose the existing storage error/destination recovery guidance.
+
+Saved-list size sampling excludes unpublished hidden files and tolerates disappearing
+entries or directories. Fusion-member usage accumulates in one pass, retaining only
+nullable field totals; missing fields remain unknown and known zero remains zero.
+The memory fixture includes fusion members and retained per-operation accounting.
+A handled candidate failure finalizes the prepared evaluation marker even if no
+partial Report can be built. Cancellation keeps its interruption marker, and active
+presentation operations retain their existing lifecycle precedence.

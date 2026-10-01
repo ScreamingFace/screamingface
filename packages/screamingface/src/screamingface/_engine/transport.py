@@ -13,6 +13,7 @@ from asyncio import Event as _AsyncEvent
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as _dataclass_replace
+from pathlib import Path
 from threading import Event as _ThreadEvent
 from threading import Lock
 from typing import Protocol
@@ -183,7 +184,7 @@ class Url4CloudTransport:
         )
         return download_sync(self._http, saved, lambda: _mint_sync(self._http))
 
-    def prepare_results(self, evaluation, candidates) -> None:
+    def prepare_results(self, evaluation, candidates) -> Path | None:
         from screamingface._results.evaluation import prepare
 
         if self._result_store is not None:
@@ -191,6 +192,11 @@ class Url4CloudTransport:
             self._result_contexts.update(
                 {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
             )
+            from screamingface._results.lifecycle import evaluation_path
+
+            context = next(iter(contexts.values()))
+            return evaluation_path(self._result_store.directory, context["id"])
+        return None
 
     def finish_results(self, candidates) -> None:
         for candidate in candidates:
@@ -598,7 +604,7 @@ class AsyncUrl4CloudTransport:
         )
         return await download_async(self._http, saved, lambda: _mint_async(self._http))
 
-    def prepare_results(self, evaluation, candidates) -> None:
+    def prepare_results(self, evaluation, candidates) -> Path | None:
         from screamingface._results.evaluation import prepare
 
         if self._result_store is not None:
@@ -606,6 +612,11 @@ class AsyncUrl4CloudTransport:
             self._result_contexts.update(
                 {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
             )
+            from screamingface._results.lifecycle import evaluation_path
+
+            context = next(iter(contexts.values()))
+            return evaluation_path(self._result_store.directory, context["id"])
+        return None
 
     def finish_results(self, candidates) -> None:
         for candidate in candidates:

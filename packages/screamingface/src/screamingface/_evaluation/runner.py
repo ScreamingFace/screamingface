@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Event as ThreadEvent
 from threading import Lock
 from typing import TYPE_CHECKING, Protocol
@@ -813,16 +814,28 @@ def _evaluation_inputs(
 __all__: list[str] = []
 
 
-def _prepare_results(transport, evaluation, candidates) -> None:
+def _prepare_results(transport, evaluation, candidates) -> Path | None:
     if isinstance(transport, _ResultPersistence):
-        transport.prepare_results(evaluation, candidates)
+        return transport.prepare_results(evaluation, candidates)
+    return None
 
 
 @contextmanager
 def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
-    _prepare_results(transport, evaluation, candidates)
+    from screamingface._results.lifecycle import mark_evaluation
+    from screamingface.errors import ExecutionError
+
+    path = _prepare_results(transport, evaluation, candidates)
     try:
         yield
+    except ExecutionError as exc:
+        # INVARIANT: a handled failure is settled even when no Report can be decoded.
+        if path is not None and exc.code == "candidates_failed":
+            mark_evaluation(path, "ready")
+        raise
+    else:
+        if path is not None:
+            mark_evaluation(path, "ready")
     finally:
         _release_results(transport, candidates)
 

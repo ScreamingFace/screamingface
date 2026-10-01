@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import ijson
 from ijson.common import ObjectBuilder
 
 from screamingface._report_primitives import CaseId
+from screamingface._results.index_integrity import digest, matches, publish, reusable
 from screamingface._results.store import sync_directory
 from screamingface.case_result import CaseResult
 from screamingface.errors import ExecutionError
@@ -182,11 +184,52 @@ def _insert_cases(events: Iterator[Any], db: sqlite3.Connection) -> int:
 def index_result(source: Path) -> tuple[dict[str, object], DiskCases]:
     """Publish an index only after the entire JSON has parsed and validated."""
     target = source.with_suffix(".sqlite3")
-    # INVARIANT: only complete, atomically published indices are reusable after a crash.
-    if target.exists():
-        return _open_index(target)
-    with NamedTemporaryFile(dir=source.parent, prefix=".index-", delete=False) as handle:
+    source_digest = digest(source)
+    # INVARIANT: raw results are authoritative; even readable altered indices are rebuilt.
+    cached = _cached_index(target, source_digest)
+    if cached is not None:
+        return cached
+    try:
+        with NamedTemporaryFile(dir=source.parent, prefix=".index-", delete=False) as handle:
+            temporary = Path(handle.name)
+    except OSError as exc:
+        if exc.errno not in {errno.EACCES, errno.EPERM, errno.EROFS}:
+            raise
+        verified = _readonly_index(source, target, source_digest)
+        if verified is None:
+            raise
+        return verified
+    try:
+        _build_index(source, temporary)
+        _publish_index(source, temporary, target, source_digest)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return _open_index(target)
+
+
+def _cached_index(target: Path, source_digest: str):
+    if reusable(target, source_digest):
+        try:
+            return _open_index(target)
+        except (sqlite3.Error, ValueError, TypeError, IndexError):
+            pass
+    return None
+
+
+def _readonly_index(source: Path, target: Path, source_digest: str):
+    # WHY: old read-only caches need verification without writing to their saved directory.
+    with NamedTemporaryFile(prefix=".sf-index-", delete=False) as handle:
         temporary = Path(handle.name)
+    try:
+        _build_index(source, temporary)
+        if digest(source) == source_digest and matches(temporary, target):
+            return _open_index(target)
+        return None
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _build_index(source: Path, temporary: Path) -> None:
     try:
         with closing(sqlite3.connect(temporary)) as db:
             db.execute("PRAGMA cache_size=-2048")
@@ -197,17 +240,22 @@ def index_result(source: Path) -> tuple[dict[str, object], DiskCases]:
             metadata = _populate(source, db)
             db.execute("INSERT INTO metadata VALUES (?)", (_json(metadata),))
             db.commit()
-        with temporary.open("rb") as handle:
-            os.fsync(handle.fileno())
-        temporary.replace(target)
-        sync_directory(target.parent)
+
     except sqlite3.IntegrityError as exc:
         raise ExecutionError("duplicate Candidate Case Result id") from exc
     except (ijson.JSONError, StopIteration, ValueError) as exc:
         raise ExecutionError(f"Invalid result JSON: {exc}") from exc
-    finally:
-        temporary.unlink(missing_ok=True)
-    return _open_index(target)
+
+
+def _publish_index(source: Path, temporary: Path, target: Path, source_digest: str) -> None:
+    with temporary.open("rb") as handle:
+        os.fsync(handle.fileno())
+    if digest(source) != source_digest:
+        raise ExecutionError("Result changed while indexing", code="result_integrity_mismatch")
+    index_digest = digest(temporary)
+    temporary.replace(target)
+    sync_directory(target.parent)
+    publish(target, source_digest, index_digest)
 
 
 def _open_index(path: Path) -> tuple[dict[str, object], DiskCases]:

@@ -11,6 +11,7 @@ import builtins
 import hashlib
 import shutil
 import sqlite3
+import stat
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -60,15 +61,28 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
                 candidates=names,
                 directory=store.directory,
                 downloaded=set(names) <= downloaded,
-                size_bytes=sum(
-                    path.stat().st_size
-                    for run in runs
-                    for path in run.path.parent.iterdir()
-                    if path.is_file()
-                ),
+                size_bytes=sum(_directory_size(run.path.parent) for run in runs),
             )
         )
     return sorted(entries, key=lambda entry: entry.id)
+
+
+def _directory_size(directory: Path) -> int:
+    total = 0
+    try:
+        for path in directory.iterdir():
+            # WHY: unpublished downloads/indices are transient and not saved report storage.
+            if path.name.startswith("."):
+                continue
+            try:
+                info = path.stat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+    except FileNotFoundError:
+        pass  # WHY: explicit report deletion can also win after manifests were listed.
+    return total
 
 
 def _selected(store: ResultStore, report_id: str) -> SavedRun:
