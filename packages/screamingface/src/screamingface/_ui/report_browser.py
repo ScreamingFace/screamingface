@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from collections.abc import Sequence
 from html import escape
@@ -88,10 +89,11 @@ class ReportBrowser:
         self.w = widgets
         self.report = report
         self.entries = _Entries(report)
-        self.matches = range(len(self.entries))
+        self.matches: Sequence[int] = range(len(self.entries))
         self.page = 0
         self._exporting = False
         self._export_task = None
+        self._search_task = None
         self.directory = Path("screamingface-reports") / uuid4().hex
         self.snapshot = self.directory / "report.json"
         self.notice = widgets.HTML()
@@ -101,6 +103,12 @@ class ReportBrowser:
 
     def _controls(self) -> None:
         w = self.w
+        self.search = w.Text(
+            placeholder="Search cases…",
+            continuous_update=False,
+            layout=w.Layout(width="auto", min_width="140px", flex="1 1 180px"),
+        )
+        self.search.observe(self._search, names="value")
         self.previous = w.Button(description="Previous", icon="chevron-left")
         self.next = w.Button(description="Next", icon="chevron-right")
         self.count = w.Label()
@@ -131,14 +139,14 @@ class ReportBrowser:
         w = self.w
         self.case_title = w.Label(
             value="Case results",
-            layout=w.Layout(width="auto", margin="0 auto 0 0"),
+            layout=w.Layout(width="auto", margin="0 8px 0 0"),
         )
         self.case_title.add_class("sf-cases-title")
         self.previous.layout.width = "96px"
         self.next.layout.width = "76px"
         self.pagination = w.HBox([self.previous, self.next])
         self.case_header = w.HBox(
-            [self.case_title, self.count, self.pagination, self.export_slot],
+            [self.case_title, self.search, self.count, self.pagination, self.export_slot],
             layout=w.Layout(flex_flow="row wrap", align_items="center"),
         )
         self.case_header.add_class("sf-cases-header")
@@ -150,6 +158,57 @@ class ReportBrowser:
         if not self.snapshot.exists():
             return ""
         return download_link(self.snapshot, "Download")
+
+    def _matching_indices(self, query: str) -> list[int]:
+        # INVARIANT: only one case is decoded at a time; matches retain positions only.
+        entries = ((owner, case) for owner in self.entries.owners for case in owner.cases)
+        return [
+            index
+            for index, (owner, case) in enumerate(entries)
+            if query in owner.name.casefold()
+            or query in json.dumps(case.to_dict(), ensure_ascii=False).casefold()
+        ]
+
+    def _search(self, change: Any) -> None:
+        query = self.search.value.strip().casefold()
+        self.notice.value = ""
+        if not query:
+            self.matches = range(len(self.entries))
+            self.page = 0
+            self._render_page()
+            return
+        self.search.disabled = True
+        self.previous.disabled = self.next.disabled = True
+        self.count.value = "Searching…"
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                self._search_ready(self._matching_indices(query))
+            except (OSError, sqlite3.Error, ScreamingFaceError) as exc:
+                self._search_failed(exc)
+        else:
+            self._search_task = loop.create_task(self._search_async(query))
+
+    async def _search_async(self, query: str) -> None:
+        # WHY: scanning disk-backed cases must not block the notebook's widget loop.
+        try:
+            matches = await asyncio.to_thread(self._matching_indices, query)
+        except (OSError, sqlite3.Error, ScreamingFaceError) as exc:
+            self._search_failed(exc)
+        else:
+            self._search_ready(matches)
+
+    def _search_ready(self, matches: Sequence[int]) -> None:
+        self.matches = matches
+        self.page = 0
+        self.search.disabled = False
+        self._render_page()
+
+    def _search_failed(self, exc: Exception) -> None:
+        self.search.disabled = False
+        self._render_page()
+        self.notice.value = f'<p role="alert">Search failed: {escape(str(exc))}</p>'
 
     def _move(self, direction: int) -> None:
         last = max(0, (len(self.matches) - 1) // _PAGE_SIZE)

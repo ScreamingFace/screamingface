@@ -64,7 +64,7 @@ def test_browser_paginates_and_exports_losslessly(tmp_path, monkeypatch):
     source = large_report(60)
     browser = ReportBrowser(source)
     assert browser.count.value == "1–25 of 60"
-    assert not hasattr(browser, "search")
+    assert browser.search.value == ""
     assert not browser.snapshot.exists()
     browser.next.click()
     assert browser.count.value == "26–50 of 60"
@@ -314,6 +314,7 @@ def test_case_header_contains_actions_and_plain_title(tmp_path, monkeypatch):
     assert browser.case_box in browser.widget.children
     assert browser.case_header.children == (
         browser.case_title,
+        browser.search,
         browser.count,
         browser.pagination,
         browser.export_slot,
@@ -326,3 +327,61 @@ def test_case_header_contains_actions_and_plain_title(tmp_path, monkeypatch):
     assert browser.cases.layout.display != "none"
     browser.next.click()
     assert "26–50" in browser.count.value
+
+
+def test_search_all_cases_and_clear_preserves_full_export(tmp_path, monkeypatch):
+    import json
+
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.chdir(tmp_path)
+    source = large_report(60)
+    browser = ReportBrowser(source)
+    browser.next.click()
+    browser.search.value = "ANSWER 59"
+    assert browser.count.value == "1–1 of 1"
+    assert browser.page == 0
+    assert "answer 59" in browser.cases.value
+    browser.search.value = "clause 40"
+    assert browser.count.value == "1–1 of 1"
+    browser.search.value = "missing"
+    assert browser.count.value == "0–0 of 0"
+    assert browser.next.disabled and browser.previous.disabled
+    browser.search.value = ""
+    assert browser.count.value == "1–25 of 60"
+    browser.search.value = "model"
+    assert browser.count.value == "1–25 of 60"
+    browser.export.click()
+    assert json.loads(browser.snapshot.read_text()) == source.to_dict()
+
+
+@pytest.mark.asyncio
+async def test_search_scans_in_worker_and_restores_controls(tmp_path, monkeypatch):
+    import asyncio
+
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.chdir(tmp_path)
+    browser = ReportBrowser(large_report(60))
+    browser.search.value = "answer 59"
+    assert browser.search.disabled
+    assert browser.previous.disabled and browser.next.disabled
+    assert browser.count.value == "Searching…"
+    assert browser._search_task is not None
+    await browser._search_task
+    assert not browser.search.disabled
+    assert browser.count.value == "1–1 of 1"
+
+    def fail(query):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(browser, "_matching_indices", fail)
+    browser.search.value = "other"
+    assert browser._search_task is not None
+    await browser._search_task
+    assert not browser.search.disabled
+    assert browser.count.value == "1–1 of 1"
+    assert "Search failed" in browser.notice.value
+    browser.search.value = ""
+    await asyncio.sleep(0)
+    assert browser.count.value == "1–25 of 60"

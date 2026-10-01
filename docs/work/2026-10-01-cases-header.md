@@ -52,3 +52,20 @@ pass. Full SDK gates green. Notebook restart recovered the fixture and visibly s
 the plain title with inline actions; updated the PR screenshot. No persistence, public
 API or schema changes. Review: removing the callback is the smallest implementation;
 only the explicitly requested title interaction and labels changed.
+
+Owner follow-up: add only a search input between the plain title and compact range.
+Search all retained case fields and candidate names on submit; scan one case at a time
+in a worker when running in a notebook, disable navigation during the scan, reset to
+the first matching page, and keep export lossless for all cases. Clearing restores all
+positions without scanning. Test matches beyond the initial page and failure recovery.
+
+Outcome: added submitted search inline between title and range. Queries scan the
+streaming candidate case iterators, retain only matching positions, and run in a worker
+in the notebook. Blank search restores all positions without a scan. Errors preserve
+prior results and restore controls. No filter menus or alternate export scope added.
+All 16 focused browser tests and full SDK gates pass. Live notebook search for
+answer 4181 found 11 matches across the 46,002-case fixture; clearing restored the
+first page. Refreshed the saved notebook and PR screenshot. The initial browser
+verification used stale restored widgets; recreating them through native notebook
+input resolved it. Review: memory stays bounded to one case plus match indices;
+public APIs, persistence and JSON export remain unchanged.

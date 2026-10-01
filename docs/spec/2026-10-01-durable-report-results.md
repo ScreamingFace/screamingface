@@ -22,7 +22,9 @@ run times, trace, seed, and SDK version. Do not change Engine wire formats.
 Report UI reuses the original case rail and detail panes and paginates 25 cases.
 The case range, Previous/Next, and export/download control belong inline in the cases
 box header, with responsive wrapping and a plain Case results title. No added Case
-detail / Full content tabs or search/filter/sort controls. Preserve the
+detail / Full content tabs or filter/sort controls. A search input sits between the
+title and range; submitted queries scan retained case fields and candidate names one
+case at a time without blocking the notebook widget loop. Preserve the
 original text previews; complete JSON export retains every field. A single export control changes from Export to disabled/spinning Preparing… to
 Download. Duplicate requests are ignored. Failure restores enabled Export with
 a brief error; successful states have no separate status text or leftover export button. Persistence belongs to collection, not rendering.
