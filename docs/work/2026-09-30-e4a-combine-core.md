@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: blocked   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-30
 finished: 2026-10-01
 ---
@@ -26,7 +26,9 @@ twin codes) is already committed in caaa882dd.
 - New tests: `combine_support.py` (fakes), `test_combine_ports.py`, `test_combine_registry.py`,
   `test_combine_spec.py`, `test_combine_failure_codes.py`, `test_combine_endpoint.py`,
   `test_combine_determinism.py`, `test_layering_combine.py`.
-- Not touched: `ports.py` (base), `world/factory.py`, REST (unit 3), operators (unit 2).
+- `ports.py`: docstring edits only, approved under D-5 (a plugin imports only the ports and the
+  pure stdlib; the JSON-only rule on `FieldReading`). No code change. Not touched: `world/factory.py`,
+  REST (unit 3), operators (unit 2).
 
 ## Test plan
 
@@ -67,10 +69,24 @@ U1-21 `$` escape through url4 · U1-22 FW-3 hash-seed determinism · U1-23 FW-13
   over-reach). All other tests were seen RED first on an assertion, against a skeleton. The
   hash-seed and 100-run tests were mutation-checked. The refactor moved existing (new-in-branch)
   tests; their assertions were kept, and `test_the_combine_core_imports_no_url4_module` was added.
-- **Gates:** append-only vs 4eca379d1: exactly two offenders, both approved:
-  `test_failure_classes.py` (the base) and `test_url4_executor.py` (one allow-list line for
-  `world/combine.py`). `screamingface-engine --skip-append-only`: ALL GATES GREEN. `repo` and
-  `screamingface` (SDK, append-only vs 4eca379d1 clean): ALL GATES GREEN.
-- **Deviations:** U1-21 asserts the evidence tally value (`"$input"`), not the output text,
-  because the select step copies a member text. The handler class is public (`CombineRoute`), not
-  `_CombineRoute`, so tests can call it directly.
+- **Review round 1 (ACCEPT-WITH-FIXES), all applied:** weights capped at
+  `sys.float_info.max / MAX_MEMBERS` (`MAX_MEMBERS`, `MAX_WEIGHT` live in `spec.py`; the endpoint
+  imports them); `_finite` raises `SpecInvalid` for a score, weight or agreement no float can
+  hold; the plugin's tally is verified (never re-sorted) and a wrong one is a `RuntimeError`
+  naming the operator (Decimals compared, floats made after); `FieldReadingRecord.values/result`
+  are `JsonValue` and a non-JSON field reading is a `RuntimeError`; spec-order and judge-reducer
+  tests; fakes that fill every `Reduction` part; the url4 and plugin deny-list rules moved into
+  `check_combine` (the duplicate AST test was deleted); the context is parsed with unique keys;
+  error locations are clipped to 64 chars; a plugin exception logs `outcome=internal_error` and
+  re-raises unchanged; every operator is resolved before any args are checked;
+  `ReducerRule` has a `weights` column (vote only) and a `normalize_name` column (median ->
+  `numeric`); the determinism test compares the wire form; `OperationCall` docstring covers combine.
+- **Gates (last run):** append-only vs 4eca379d1: exactly `test_failure_classes.py` and
+  `test_url4_executor.py`. `screamingface-engine --skip-append-only`, `screamingface` and `repo`:
+  ALL GATES GREEN.
+- **Deviations:** (1) `ports.py` docstring edits (approved, D-5: plugins import only the ports and
+  the pure stdlib; the JSON-only `FieldReading` rule). (2) U1-21 asserts the evidence tally value
+  (`"$input"`), not the output text, because the select step copies a member text. (3) The handler
+  class is public (`CombineRoute`) so tests can call it directly. (4) `ReducerRule` gained two
+  defaulted/trailing columns (`weights`, `normalize_name`); `run` in `combine_support.py` is now
+  the pure core and `run_recorded` is the adapter path (added, nothing renamed).
