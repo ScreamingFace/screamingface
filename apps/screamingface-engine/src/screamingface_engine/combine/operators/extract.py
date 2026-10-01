@@ -125,6 +125,18 @@ def json_field(text: str, args: OpArgs, /) -> StageResult:
     return _field_text(value) if found else rejected("field_missing")
 
 
+def json_object(text: str, args: OpArgs, /) -> StageResult:
+    """The whole reply (or its last ```json block) as one JSON object, in canonical form."""
+    try:
+        decoded = decode_json_reply(text)
+        if not isinstance(decoded, dict):
+            raise ValueError("the JSON value is not an object")
+        # a JSON number too big for a float (1e999) decodes to inf: canonical_json raises
+        return accepted(canonical_json(decoded))
+    except ValueError:
+        return rejected("not_json")
+
+
 _REGEX_WINDOW = 1024  # characters; the scan reads text[-_REGEX_WINDOW:]
 _REGEX_MAX_PATTERN = 256
 _REGEX_MAX_PROGRAM = 5000  # RE2 program instructions; real answer patterns stay under 2000
@@ -286,6 +298,9 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
             }
         ),
         check_args=_check_json_field_args,
+    ),
+    OperatorDescriptor(
+        "json_object", 1, "extract", "The whole reply as one JSON object.", json_object
     ),
     OperatorDescriptor(
         "regex",

@@ -1,0 +1,159 @@
+{
+ "op": "json_object@1",
+ "stage": "extract",
+ "cases": [
+  {
+   "name": "plain object",
+   "input": "{\"a\": 1, \"b\": [2, 3]}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{\"a\":1,\"b\":[2,3]}"
+   }
+  },
+  {
+   "name": "trimmed, keys sorted",
+   "input": "  {\"b\": \"x\", \"a\": null}  ",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{\"a\":null,\"b\":\"x\"}"
+   }
+  },
+  {
+   "name": "fenced block",
+   "input": "Sure:\n```json\n{\"a\": 1}\n```",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{\"a\":1}"
+   }
+  },
+  {
+   "name": "last fence wins",
+   "input": "```json\n{\"a\": 1}\n```\nrather\n```json\n{\"a\": 2}\n```",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{\"a\":2}"
+   }
+  },
+  {
+   "name": "empty object",
+   "input": "{}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{}"
+   }
+  },
+  {
+   "name": "unicode kept",
+   "input": "{\"\u00e9\": \"\u00fc\"}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{\"\u00e9\":\"\u00fc\"}"
+   }
+  },
+  {
+   "name": "duplicate key keeps the last",
+   "input": "{\"a\":1,\"a\":2}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{\"a\":2}"
+   }
+  },
+  {
+   "name": "array is not an object",
+   "input": "[1, 2]",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "string is not an object",
+   "input": "\"text\"",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "number is not an object",
+   "input": "7",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "null is not an object",
+   "input": "null",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "prose before the object",
+   "input": "Sure! Here it is: {\"a\": 1}",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "empty text",
+   "input": "",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "NaN is not json",
+   "input": "{\"a\": NaN}",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "float overflow is not json",
+   "input": "{\"a\": 1e999}",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "depth 65 is not json",
+   "input": "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "array in a fence is not an object",
+   "input": "```json\n[1]\n```",
+   "args": {},
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  }
+ ]
+}

@@ -7,12 +7,13 @@ here and a golden fixture file for each operator id.
 
 from __future__ import annotations
 
-from screamingface_engine.combine.operators import extract, judge, normalize, reduce, select
+from screamingface_engine.combine.operators import extract, fields, judge, normalize, reduce, select
 from screamingface_engine.combine.ports import OperatorDescriptor
 from screamingface_engine.combine.registry import OperatorRegistry
 
 BUILTIN_REGISTRATIONS: tuple[OperatorDescriptor, ...] = (
     *extract.OPERATORS,
+    *fields.OPERATORS,
     *judge.OPERATORS,
     *normalize.OPERATORS,
     *reduce.OPERATORS,
