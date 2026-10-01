@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from url4 import Expression, Source, Text, build
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
-from screamingface._evaluation.combine_spec import (
-    COMBINE_MODEL,
-    decode_combine_spec,
-    spec_operator_pairs,
-)
+from screamingface._evaluation.combine_spec import COMBINE_MODEL
 from screamingface._evaluation.model import (
     Candidate,
     _candidate_kind,
@@ -24,7 +21,7 @@ from screamingface._evaluation.model import (
     _with_capture,
     _with_replay_frozen_copy,
 )
-from screamingface._evaluation.operators import _ID, Stage, _OperatorCatalog
+from screamingface._evaluation.operators import Stage, _OperatorCatalog
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
     _operation_shape,
@@ -38,7 +35,10 @@ from screamingface.events import Event
 from screamingface.operation import OperationInfo
 from screamingface.report import Report
 from screamingface.url4 import _calls as _url4_calls
-from screamingface.url4 import _validate_topology
+from screamingface.url4 import _combine_operator_pairs, _validate_topology
+
+if TYPE_CHECKING:
+    from screamingface._evaluation.runner import _AsyncOperatorLoading, _SyncOperatorLoading
 
 
 def evaluate_url4_sync(
@@ -49,7 +49,7 @@ def evaluate_url4_sync(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    load_operators: Callable[[], _OperatorCatalog] | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
@@ -99,7 +99,7 @@ async def evaluate_url4_async(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    load_operators: Callable[[], Awaitable[_OperatorCatalog]] | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
@@ -172,7 +172,11 @@ def _require_replay_statement(
 
 
 def _candidate_from_url4(value: str) -> Candidate:
-    """Recover the Candidate projection embedded by the ScreamingFace linker."""
+    """Recover the Candidate projection embedded by the ScreamingFace linker.
+
+    This is the recovery-only view of ``_replayed_url4``, kept for existing callers: it does not
+    expose the operators a replay must check.
+    """
 
     return _replayed_url4(value)[0]
 
@@ -203,33 +207,21 @@ def _replayed_url4(value: str) -> tuple[Candidate, tuple[tuple[Stage, str], ...]
         if topology.kind in {"corrective_loop", "self_corrective"}
         else _dependency_closure(final, calls)
     )
-    pinned = tuple(
-        dict.fromkeys(
-            pair
-            for call in parsed_calls.values()
-            if call.model == COMBINE_MODEL
-            for pair in spec_operator_pairs(decode_combine_spec(call.raw_intent))
-        )
-    )
+    pinned = _combine_operator_pairs(parsed_calls)
+    # No I/O here: the form check shares its message with the corrective-loop recompile.
+    _OperatorCatalog.from_pinned(pinned)
     return _candidate_from_topology(url4, topology, calls, selected), pinned
 
 
 def _require_known_operators(
     catalog: _OperatorCatalog, pinned: tuple[tuple[Stage, str], ...]
 ) -> None:
-    """Refuse a replay that names an unpinned operator or pins one this Engine lacks.
+    """Refuse a replay that pins an operator this Engine lacks (``pin`` names the id and stage).
 
-    INVARIANT: the compiler always writes ``name@version``, so a bare name is a hand edit and
-    ``pin`` (which would quietly pick the newest version) must not resolve it. For a pinned id,
-    ``pin`` names the id and stage when the catalog lacks it.
+    The pinned FORM is already checked in ``_replayed_url4``, so every id here is ``name@version``.
     """
 
     for stage, operator in pinned:
-        if _ID.fullmatch(operator) is None:
-            raise ValueError(
-                f"URL4 Candidate combine spec names operator {operator!r} without a version; "
-                "a replayed spec must pin name@version"
-            )
         catalog.pin(stage, operator)
 
 

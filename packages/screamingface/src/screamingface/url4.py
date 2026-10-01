@@ -34,7 +34,7 @@ from screamingface._evaluation.combine_spec import (
     decode_combine_spec,
     spec_operator_pairs,
 )
-from screamingface._evaluation.operators import _OperatorCatalog
+from screamingface._evaluation.operators import Stage, _OperatorCatalog
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
 from screamingface._evaluation.reducer_signals import _ProjectionReducer
 from screamingface._evaluation.topology import (
@@ -197,6 +197,19 @@ def _panel_dependencies(candidate: Expression) -> dict[str, tuple[str, ...]]:
                     references.extend(_REFERENCE.findall(slot.value.intent.value))
         panels[node.name] = tuple(references)
     return panels
+
+
+def _combine_operator_pairs(calls: Mapping[str, _Call]) -> tuple[tuple[Stage, str], ...]:
+    """The distinct (stage, operator) pairs the combine calls' specs use, in call and step order."""
+
+    return tuple(
+        dict.fromkeys(
+            pair
+            for call in calls.values()
+            if call.model == COMBINE_MODEL
+            for pair in spec_operator_pairs(decode_combine_spec(call.raw_intent))
+        )
+    )
 
 
 def _executable_nodes(value: Node):
@@ -423,12 +436,7 @@ def _require_recompiles(
 
     from screamingface._evaluation.candidate import compile_candidate
 
-    operators = _OperatorCatalog.from_pinned(
-        pair
-        for call in calls.values()
-        if call.model == COMBINE_MODEL
-        for pair in spec_operator_pairs(decode_combine_spec(call.raw_intent))
-    )
+    operators = _OperatorCatalog.from_pinned(_combine_operator_pairs(calls))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DuplicateMembersWarning)
         expected = compile_candidate(recipe, check_surface=check_surface, operators=operators).url4
