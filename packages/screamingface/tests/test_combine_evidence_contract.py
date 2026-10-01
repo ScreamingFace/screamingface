@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from _combine_contract import COMBINE_CONTRACT, requires_engine_app
 
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
@@ -45,9 +46,11 @@ def test_the_engine_fixture_holds_the_ten_scenarios() -> None:
 
 
 @requires_engine_app
-def test_every_engine_evidence_decodes_and_round_trips_exactly() -> None:
-    for name, wire in _cases().items():
-        decoded = decode_combine_evidence(wire, f"Engine evidence {name}")
+@pytest.mark.parametrize("name", sorted(_EXPECTED_NAMES))
+def test_an_engine_evidence_decodes_and_round_trips_exactly(name: str) -> None:
+    wire = _cases()[name]
 
-        assert isinstance(decoded, CombineEvidence), name
-        assert decoded.to_dict() == wire, name
+    decoded = decode_combine_evidence(wire, f"Engine evidence {name}")
+
+    assert isinstance(decoded, CombineEvidence)
+    assert decoded.to_dict() == wire

@@ -66,7 +66,7 @@ def _weighted_vote() -> CombineEvidence:
 
 
 def _median_value() -> CombineEvidence:
-    # The fourth member has no number, so it is reported as skipped and not counted.
+    # The fourth member has no number, so it is reported as empty and not counted.
     texts = ["I think 10", "20", "maybe 40", "no number here"]
     return _evidence(builtin_median_spec(len(texts), select_op="value@1"), texts)
 
@@ -173,7 +173,8 @@ def test_the_scenarios_cover_the_evidence_shapes() -> None:
 
     assert cases["vote_tie"].tie is True
     assert cases["vote_weighted"].tally is not None
-    assert [row.status for row in cases["median_value"].members][-1] != "voted"
+    assert [row.weight for row in cases["vote_weighted"].members] == [3.0, 3.0, 1.0, 1.0, 1.0]
+    assert [row.status for row in cases["median_value"].members][-1] == "empty"
     assert cases["median_value"].median is not None
     assert cases["judge_label"].judge is not None and cases["judge_label"].judge.returns == "label"
     assert (
@@ -188,17 +189,18 @@ def test_the_scenarios_cover_the_evidence_shapes() -> None:
     assert cases["concat_collision"].separator_collision is True
 
 
-def test_the_envelope_writes_each_evidence_as_the_fixture_encodes_it() -> None:
-    evidence = SCENARIOS["vote_tie"]()
+@pytest.mark.parametrize("name", sorted(SCENARIOS))
+def test_the_envelope_writes_each_evidence_as_the_fixture_encodes_it(name: str) -> None:
+    evidence = SCENARIOS[name]()
     operation = OperationOutput(
         operation_id="op_synthesis_1",
-        output="The answer is 9",
+        output="combined",
         finish_reason="stop",
         accounting=None,
         combine=evidence,
     )
 
-    envelope = encode_candidate_invocation("The answer is 9", "stop", None, operations=[operation])
+    envelope = encode_candidate_invocation("combined", "stop", None, operations=[operation])
 
     assert f'"combine":{canonical_evidence(evidence)}' in envelope
 
