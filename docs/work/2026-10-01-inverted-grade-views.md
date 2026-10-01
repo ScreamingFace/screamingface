@@ -42,7 +42,7 @@ result (the report view's header). Plain words, existing styles only.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned (`_engine/catalog_contract.py`, `_engine/catalog.py`,
+- **Actual files:** as planned (`CONTEXT.md`, `_engine/catalog_contract.py`, `_engine/catalog.py`,
   `discovery.py`, `_ui/cards.py`, `_ui/report_view.py`, snapshot, CHANGELOG), plus the new
   `tests/test_inverted_grade_views.py`; both OME-1400 and OME-1439 mirrors closed here (last PR).
 - **Commits** (hashes after the rebase onto PR 2's review fixes): `62874543d`
@@ -50,7 +50,8 @@ result (the report view's header). Plain words, existing styles only.
   OME-1400 stack) · `94e166439` docs(screamingface): say the catalogue mark needs both Engine
   changes deployed · then the review-fix commit: plain attribute access in the report view so
   pyright catches a rename, the catalogue decoder reads the shared `INVERTED_GRADE_KEY`, and its
-  docstring no longer names PRs by number.
+  docstring no longer names PRs by number · then the glossary commit: `CONTEXT.md` gains
+  **Inverted Grade**, the entry spec §5 promised, so OME-1400 closes with every spec line delivered.
 - **Gates:** `run_gates.py screamingface --skip-append-only` green (ruff, format, pyright,
   pytest + coverage ≥95%, notebooks, build, distribution). The skip is owner-approved for the
   regenerated public-surface snapshot (`Benchmark` gains a defaulted field). Visual check: the
