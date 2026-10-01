@@ -24,6 +24,7 @@ from screamingface._core.ports import (
     _RunOutcome,
 )
 from screamingface._evaluation.benchmark import _BenchmarkResource
+from screamingface._evaluation.candidate import recipes_need_operators
 from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
     Candidate,
@@ -34,6 +35,7 @@ from screamingface._evaluation.model import (
     _with_capture,
 )
 from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
+from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface._evaluation.outcome import (
     _CandidatesFailed,
     _Failed,
@@ -57,6 +59,8 @@ type _SyncModelDetailsLoading = Callable[[str], ModelDetails]
 type _AsyncModelDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
 type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
 type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
+type _SyncOperatorLoading = Callable[[], _OperatorCatalog]
+type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
 _logger = logging.getLogger(__name__)
@@ -74,6 +78,7 @@ def evaluate_sync(
     progress: bool | None,
     answer_seed: int | None = None,
     capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -85,7 +90,11 @@ def evaluate_sync(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
-    evaluation = compile_evaluation(values, resource, limit)
+    # INVARIANT: a Candidate without a reducer never requests `/v1/operators`.
+    operators = (
+        load_operators() if load_operators is not None and recipes_need_operators(values) else None
+    )
+    evaluation = compile_evaluation(values, resource, limit, operators=operators)
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
     # observer and the report all see the same objects.
@@ -136,6 +145,7 @@ async def evaluate_async(
     progress: bool | None,
     answer_seed: int | None = None,
     capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -147,7 +157,12 @@ async def evaluate_async(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = await load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
-    evaluation = compile_evaluation(values, resource, limit)
+    operators = (
+        await load_operators()
+        if load_operators is not None and recipes_need_operators(values)
+        else None
+    )
+    evaluation = compile_evaluation(values, resource, limit, operators=operators)
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
     selected_candidates = _captured_candidates(

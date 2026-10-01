@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import re
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import NoReturn
 from urllib.parse import quote
 
 import httpx
 
 from screamingface._benchmark_identity import benchmark_id as _benchmark_id
+from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.catalog_contract import (
     _BenchmarkCatalogData,
     _BenchmarkEntry,
@@ -17,10 +21,12 @@ from screamingface._engine.catalog_contract import (
     _ModelCatalogData,
 )
 from screamingface._engine.model_parameters import _decode_model_details
+from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
 from screamingface._ui.catalog import _BenchmarkCatalog
 from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
 from screamingface.errors import (
     AuthenticationError,
+    EngineCapabilityError,
     EngineUnavailableError,
     PlanningError,
     ProviderConnectionError,
@@ -29,6 +35,8 @@ from screamingface.errors import (
 _MODELS_PATH = "/v1/models"
 _MODEL_PARAMETERS_PATH = "/v1/model-parameters"
 _BENCHMARKS_PATH = "/v1/benchmarks"
+_OPERATORS_PATH = "/v1/operators"
+_MAX_AGE = re.compile(r"max-age=(\d+)")
 
 
 class Models:
@@ -331,6 +339,105 @@ def _raise_model_details_error(response: httpx.Response) -> None:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _CachedOperators:
+    catalog: _OperatorCatalog
+    etag: str | None
+    fresh_until: float
+
+
+class OperatorCatalogResource:
+    """Fetch and cache one Client's operator catalog: fresh within max-age, then If-None-Match.
+
+    INVARIANT: no stale fallback (``must-revalidate``) — a transport error is always
+    ``EngineUnavailableError`` even when an old copy is cached, and an unpinned name is
+    never submitted.
+    """
+
+    def __init__(self, http: httpx.Client, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self._http = http
+        self._clock = clock
+        self._cached: _CachedOperators | None = None
+
+    def load(self) -> _OperatorCatalog:
+        now = self._clock()
+        cached = self._cached
+        if cached is not None and now < cached.fresh_until:
+            return cached.catalog
+        try:
+            response = self._http.get(
+                _OPERATORS_PATH,
+                headers=_conditional(cached),
+                extensions={_REPLAY_SAFE: True},
+            )
+        except httpx.HTTPError as exc:
+            _unreachable(str(self._http.base_url).rstrip("/"), "operator catalog", exc)
+        self._cached = _next_cache(response, cached, now)
+        return self._cached.catalog
+
+
+class AsyncOperatorCatalogResource:
+    """Asynchronous twin of ``OperatorCatalogResource`` over an ``httpx.AsyncClient``."""
+
+    def __init__(
+        self, http: httpx.AsyncClient, *, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._http = http
+        self._clock = clock
+        self._cached: _CachedOperators | None = None
+
+    async def load(self) -> _OperatorCatalog:
+        now = self._clock()
+        cached = self._cached
+        if cached is not None and now < cached.fresh_until:
+            return cached.catalog
+        try:
+            response = await self._http.get(
+                _OPERATORS_PATH,
+                headers=_conditional(cached),
+                extensions={_REPLAY_SAFE: True},
+            )
+        except httpx.HTTPError as exc:
+            _unreachable(str(self._http.base_url).rstrip("/"), "operator catalog", exc)
+        self._cached = _next_cache(response, cached, now)
+        return self._cached.catalog
+
+
+def _conditional(cached: _CachedOperators | None) -> dict[str, str]:
+    return {} if cached is None or cached.etag is None else {"If-None-Match": cached.etag}
+
+
+def _max_age(response: httpx.Response) -> int:
+    match = _MAX_AGE.search(response.headers.get("Cache-Control", ""))
+    return 0 if match is None else int(match.group(1))
+
+
+def _next_cache(
+    response: httpx.Response, cached: _CachedOperators | None, now: float
+) -> _CachedOperators:
+    fresh_until = now + _max_age(response)
+    etag = response.headers.get("ETag")
+    if response.status_code == 304:
+        if cached is None:
+            raise PlanningError(
+                "SF Engine answered 304 for an operator catalog it never sent",
+                code="engine_contract_error",
+                status=304,
+                permanent=True,
+            )
+        return _CachedOperators(cached.catalog, etag or cached.etag, fresh_until)
+    if response.status_code == 404:
+        raise EngineCapabilityError(
+            "this SF Engine does not support reducers",
+            status=404,
+            permanent=True,
+            details={"path": _OPERATORS_PATH},
+            hint="Use an SF Engine that serves GET /v1/operators, or use a Model synthesizer.",
+        )
+    catalog = decode_operator_catalog(_response_json(response, "operator catalog"))
+    return _CachedOperators(catalog, etag, fresh_until)
+
+
 def _unreachable(engine_url: str, label: str, cause: Exception) -> NoReturn:
     raise EngineUnavailableError(
         f"Could not reach the SF Engine {label}",
@@ -338,4 +445,11 @@ def _unreachable(engine_url: str, label: str, cause: Exception) -> NoReturn:
     ) from cause
 
 
-__all__ = ["AsyncBenchmarks", "AsyncModels", "Benchmarks", "Models"]
+__all__ = [
+    "AsyncBenchmarks",
+    "AsyncModels",
+    "AsyncOperatorCatalogResource",
+    "Benchmarks",
+    "Models",
+    "OperatorCatalogResource",
+]

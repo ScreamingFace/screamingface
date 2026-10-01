@@ -15,6 +15,7 @@ from screamingface._evaluation.model import (
     _compiled_evaluation,
     _Evaluation,
 )
+from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface.recipe import Recipe
 
 
@@ -22,11 +23,14 @@ def compile_evaluation(
     recipes: Sequence[Recipe],
     resource: _BenchmarkResource,
     limit: int | None,
+    *,
+    operators: _OperatorCatalog | None = None,
 ) -> _Evaluation:
     """Compile all Candidates locally against one selected Benchmark."""
 
     compiled = tuple(
-        compile_candidate(recipe, check_surface=resource.check_surface) for recipe in recipes
+        compile_candidate(recipe, check_surface=resource.check_surface, operators=operators)
+        for recipe in recipes
     )
     # WHY: the Benchmark is identical for every Candidate — parse it once and bind
     # each compiler-produced (already canonical) Candidate expression into it.
