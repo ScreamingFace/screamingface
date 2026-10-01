@@ -74,3 +74,7 @@ adding a server protocol, a second Report schema, or a query/filter framework. R
 stores JSON metadata, no credentials or pickle. Downloads verify size/hash before atomic
 publication; index publication is also atomic. The tests exercise observable recovery and
 export behavior. The intentional public additions and lazy-case behavior are documented.
+
+Presentation follow-up: the owner rejected the added detail/full-content tabs.
+See `2026-10-01-report-presentation.md` for the restored original case layout and
+disabled asynchronous export state. Earlier text-page verification is historical.

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from test_report_panel import candidate
 
 from screamingface import Usage
@@ -70,8 +71,7 @@ def test_browser_paginates_and_exports_losslessly(tmp_path, monkeypatch):
     browser.next.click()
     assert browser.count.value.startswith("Showing 51–60 of 60")
     assert browser.next.disabled
-    browser.cases.value = 59
-    assert "answer 59" in browser.detail.value
+    assert "answer 59" in browser.cases.value
     browser._export_json()
     assert json.loads(browser.snapshot.read_text()) == source.to_dict()
 
@@ -90,9 +90,8 @@ def test_streaming_export_does_not_materialize_whole_report(tmp_path, monkeypatc
     assert source.export(tmp_path / "report.json").read_text() == expected
 
 
-def test_full_content_paging_and_escaping(tmp_path, monkeypatch):
+def test_original_case_panes_escape_content_and_export_full_input(tmp_path, monkeypatch):
     import json
-    from html import unescape
 
     from test_report_panel import report
 
@@ -109,19 +108,14 @@ def test_full_content_paging_and_escaping(tmp_path, monkeypatch):
         metadata={},
     )
     browser = ReportBrowser(report(candidate("model", 1.0, cases=(case,))))
-    assert "<script>" not in browser.detail.value
-    assert "Preview" in browser.detail.value
-    assert browser.text_page.max == 4
-    pieces = []
-    for page in range(1, browser.text_page.max + 1):
-        browser.text_page.value = page
-        pieces.append(unescape(browser.full.value.split(">", 1)[1].rsplit("</pre>", 1)[0]))
-    assert "".join(pieces) == case.input
-    browser.full_field.value = "Output"
-    assert "answer tail" in browser.full.value
-    assert browser.text_page.value == 1
-    browser.full_field.value = "Case JSON"
-    assert json.loads(browser._text) == case.to_dict()
+    assert "<script>" not in browser.cases.value
+    assert "&lt;script&gt;" in browser.cases.value
+    assert "sf-pane__q" in browser.cases.value
+    assert "answer tail" in browser.cases.value
+    browser._export_json()
+    assert (
+        json.loads(browser.snapshot.read_text())["candidates"][0]["cases"][0]["input"] == case.input
+    )
 
 
 def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
@@ -136,6 +130,8 @@ def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
     assert list(browser.matches) == [0, 1]
     browser._export_json()
     assert "Export failed" in browser.notice.value
+    assert not browser.export.disabled
+    assert browser.export.description == "Retry export"
     assert not browser.snapshot.exists()
     assert isinstance(browser.snapshot, Path)
 
@@ -154,13 +150,12 @@ def test_widget_state_does_not_contain_all_cases(tmp_path, monkeypatch):
             yield from states(child)
 
     payload = json.dumps(list(states(browser.widget)), default=str)
-    assert len(payload) < 100_000
+    assert len(payload) < 1_000_000
     assert "answer 4181" not in payload
-    assert len(browser.cases.options) == 25
+    assert browser.cases.value.count("class='sf-pane'") == 25
     browser.page = 4181 // 25
     browser._render_page()
-    browser.cases.value = 4181
-    assert "answer 4181" in browser.detail.value
+    assert "answer 4181" in browser.cases.value
 
 
 def test_file_links_use_server_base_url_and_download_endpoint(tmp_path, monkeypatch):
@@ -211,7 +206,83 @@ def test_pagination_keeps_shared_case_ids_distinct(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = report(candidate("first", 1.0), candidate("second", 0.0))
     browser = ReportBrowser(source)
-    browser.cases.value = 1
     assert browser.entries[1][0].name == "second"
-    browser.cases.value = 0
     assert browser.entries[0][0].name == "first"
+
+
+def test_original_case_presentation_has_no_new_tabs(tmp_path, monkeypatch):
+    import ipywidgets as widgets
+
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.chdir(tmp_path)
+    browser = ReportBrowser(large_report(60))
+    assert not any(isinstance(child, widgets.Tab) for child in browser.widget.children)
+    assert "sf-master" in browser.cases.value
+    assert "sf-rail__item" in browser.cases.value
+    assert "answer 24" in browser.cases.value
+    assert "answer 25" not in browser.cases.value
+    browser.next.click()
+    assert "answer 25" in browser.cases.value
+    assert "answer 0</pre>" not in browser.cases.value
+
+
+@pytest.mark.asyncio
+async def test_export_busy_state_prevents_duplicate_work(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.chdir(tmp_path)
+    browser = ReportBrowser(large_report(1))
+    started, release = threading.Event(), threading.Event()
+    original = Report.export
+    calls = []
+
+    def slow_export(report, path):
+        calls.append(path)
+        started.set()
+        assert release.wait(5)
+        return original(report, path)
+
+    monkeypatch.setattr(Report, "export", slow_export)
+    browser.export.click()
+    assert browser.export.disabled
+    assert browser.export.description == "Exporting…"
+    assert await asyncio.to_thread(started.wait, 5)
+    browser.export.click()
+    release.set()
+    assert browser._export_task is not None
+    await browser._export_task
+    browser.export.click()
+    assert len(calls) == 1
+    assert browser.export.disabled
+    assert browser.export.description == "Export ready"
+    assert "Download" in browser.exports.value
+
+
+@pytest.mark.asyncio
+async def test_async_export_failure_allows_retry(tmp_path, monkeypatch):
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.chdir(tmp_path)
+    browser = ReportBrowser(large_report(1))
+    original = Report.export
+
+    def fail(report, path):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Report, "export", fail)
+    browser.export.click()
+    assert browser._export_task is not None
+    await browser._export_task
+    assert not browser.export.disabled
+    assert "disk full" in browser.notice.value
+    monkeypatch.setattr(Report, "export", original)
+    browser.export.click()
+    assert browser._export_task is not None
+    await browser._export_task
+    assert browser.export.disabled
+    assert browser.export.description == "Export ready"
+    assert "Export failed" not in browser.notice.value

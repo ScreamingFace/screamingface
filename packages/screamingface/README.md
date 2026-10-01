@@ -389,13 +389,15 @@ reserved for a future collection of independent Reports. JSON export streams one
 and replaces the destination only after the new file is complete.
 
 In a live notebook, displaying `report` opens a Case browser with 25 results per page.
-Use **Previous** and **Next**, then select a Case to load its detail. **Full content** provides
-paged access to its complete input, output and Case JSON. The summary always describes the
-original Evaluation, including partial coverage.
+Use **Previous** and **Next**, then select a Case in the original report rail to view its
+detail. The existing presentation and text previews are preserved; full JSON export contains
+every field. The summary describes the original Evaluation, including partial coverage.
 
 **Export full JSON** writes the complete Report on demand to
 `screamingface-reports/<unique-id>/report.json` under the notebook's working directory and
-provides a download link. If the notebook host cannot serve local downloads, the browser shows
+provides a download link. While preparing the file, the button is disabled and shows
+**Exporting…** with a spinner; repeated clicks do not start another export. On success use the
+ready download link; an error enables **Retry export**. If the notebook host cannot serve local downloads, the browser shows
 the saved path instead. Export errors leave the saved source results available for recovery
 or `report.export()` to another location. Automatic result retention happens during collection,
 before decoding; it does not depend on displaying or exporting the Report.

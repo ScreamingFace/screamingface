@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
+import sqlite3
 from collections.abc import Sequence
 from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 from uuid import uuid4
 
-from screamingface._ui.accounting_view import case_accounting
 from screamingface._ui.report_files import download_link
-from screamingface._ui.report_view import _case_state, bounded_pane, report_html
+from screamingface._ui.report_view import cases_page_html, report_html
 from screamingface._ui.style import NO_MATH_CLASSES
+from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
     from screamingface.case_result import CaseResult
     from screamingface.report import CandidateResult, Report
 
 _PAGE_SIZE = 25
-_TEXT_PAGE = 12000
 _BROWSER_STYLE = """<style>
 .sf-report-browser .widget-button,.sf-report-browser input,.sf-report-browser select{
  border-radius:0!important;border:1px solid var(--sf-line-2)!important;
@@ -27,12 +27,10 @@ _BROWSER_STYLE = """<style>
 .sf-report-browser .widget-button:hover{background:var(--sf-surface)!important}
 .sf-report-browser .widget-button:focus-visible{outline:2px solid var(--sf-accent)}
 .sf-report-browser .widget-label{color:var(--sf-ink-2)}
-.sf-report-browser .sf-pane{display:block}
-.sf-report-browser .widget-select select{font-family:ui-monospace,monospace;font-size:12px}
-.sf-report-browser .sf-browser-links a{color:var(--sf-accent);margin-right:16px}
-.sf-report-browser .sf-browser-count{font-family:ui-monospace,monospace;font-size:12px}
-.sf-report-browser .sf-full-content{white-space:pre-wrap;overflow-wrap:anywhere;
- max-height:440px;overflow:auto;border:1px solid var(--sf-line);padding:12px}
+.sf-report-browser .widget-button:disabled{opacity:.55;cursor:default}
+.sf-report-browser .fa-spinner{animation:sf-export-spin 1s linear infinite}
+@keyframes sf-export-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.sf-report-browser .fa-spinner{animation:none}}
 </style>"""
 
 
@@ -76,8 +74,8 @@ class ReportBrowser:
         self.entries = _Entries(report)
         self.matches = range(len(self.entries))
         self.page = 0
-        self._updating = False
-        self._text = ""
+        self._exporting = False
+        self._export_task = None
         self.directory = Path("screamingface-reports") / uuid4().hex
         self.snapshot = self.directory / "report.json"
         self.notice = widgets.HTML()
@@ -90,31 +88,15 @@ class ReportBrowser:
         self.previous = w.Button(description="Previous", icon="chevron-left")
         self.next = w.Button(description="Next", icon="chevron-right")
         self.count = w.Label()
-        self.cases = w.Select(rows=10, layout=w.Layout(width="100%"))
-        self.detail = w.HTML()
+        self.cases = w.HTML()
         self.previous.on_click(lambda _: self._move(-1))
         self.next.on_click(lambda _: self._move(1))
-        self.cases.observe(self._select, names="value")
 
     def _assemble(self) -> None:
         w = self.w
-        self.full_field = w.Dropdown(
-            description="Full content", options=["Input", "Output", "Case JSON"]
-        )
-        self.text_page = w.BoundedIntText(description="Text page", min=1, max=1, value=1)
-        self.text_count = w.Label()
-        self.full = w.HTML()
-        self.full_field.observe(self._load_text, names="value")
-        self.text_page.observe(self._show_text, names="value")
         self.exports = w.HTML(value=self._snapshot_link())
-        export = w.Button(description="Export full JSON")
-        export.on_click(self._export_json)
-        full_box = w.VBox(
-            [self._row([self.full_field, self.text_page, self.text_count]), self.full]
-        )
-        details = w.Tab(children=[self.detail, full_box])
-        details.set_title(0, "Case detail")
-        details.set_title(1, "Full content")
+        self.export = w.Button(description="Export full JSON")
+        self.export.on_click(self._export_json)
         self.widget = w.VBox(
             [
                 w.HTML(
@@ -122,10 +104,9 @@ class ReportBrowser:
                 ),
                 self.notice,
                 self.exports,
-                export,
+                self.export,
                 self._row([self.previous, self.count, self.next]),
                 self.cases,
-                details,
             ]
         )
         for name in ("sf-ui", "sf-report-browser", *NO_MATH_CLASSES):
@@ -153,57 +134,51 @@ class ReportBrowser:
         )
         self.previous.disabled = self.page == 0
         self.next.disabled = start + _PAGE_SIZE >= len(self.matches)
-        self._updating = True
-        self.cases.options = [(self._label(index), index) for index in indices]
-        self.cases.value = indices[0] if indices else None
-        self._updating = False
-        self._select()
-
-    def _label(self, index: int) -> str:
-        owner, case = self.entries[index]
-        preview = case.prompt_preview[:70].replace("\n", " ")
-        return f"{str(case.case_id)[:40]} · {owner.name[:40]} · {_case_state(case)} · {preview}"
-
-    def _select(self, change: Any = None) -> None:
-        if self._updating:
-            return
-        if self.cases.value is None:
-            self.detail.value = "<p>No cases available.</p>"
-        else:
-            owner, case = self.entries[self.cases.value]
-            cost = case_accounting(owner, case_ids={case.case_id})[case.case_id]
-            self.detail.value = bounded_pane(owner, case, cost)
-        self._load_text()
-
-    def _load_text(self, change: Any = None) -> None:
-        self._text = ""
-        if self.cases.value is not None:
-            case = self.entries[self.cases.value][1]
-            self._text = self._case_text(case)
-        self.text_page.max = max(1, (len(self._text) + _TEXT_PAGE - 1) // _TEXT_PAGE)
-        self.text_page.value = 1
-        self._show_text()
-
-    def _case_text(self, case: CaseResult) -> str:
-        if self.full_field.value == "Input":
-            return case.display_input if case.input is not None else "Input unavailable"
-        if self.full_field.value == "Output":
-            return case.output or ""
-        return json.dumps(case.to_dict(), ensure_ascii=False, indent=2)
-
-    def _show_text(self, change: Any = None) -> None:
-        start = (self.text_page.value - 1) * _TEXT_PAGE
-        self.full.value = (
-            '<pre class="sf-full-content">'
-            + escape(self._text[start : start + _TEXT_PAGE])
-            + "</pre>"
-        )
-        self.text_count.value = f"of {self.text_page.max} · {len(self._text):,} characters"
+        self.cases.value = cases_page_html(self.report, [self.entries[index] for index in indices])
 
     def _export_json(self, change: Any = None) -> None:
+        # INVARIANT: queued clicks cannot start concurrent or repeated exports of this Report.
+        if self._exporting or self.snapshot.exists():
+            return
+        self._exporting = True
+        self.export.disabled = True
+        self.export.description = "Exporting…"
+        self.export.icon = "spinner"
+        self.notice.value = '<p role="status">Preparing download…</p>'
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._write_export()
+            return
+        self._export_task = loop.create_task(self._export_async())
+
+    async def _export_async(self) -> None:
+        # WHY: keep the kernel event loop processing widget state and duplicate clicks.
+        try:
+            await asyncio.to_thread(self.report.export, self.snapshot)
+        except (OSError, sqlite3.Error, ScreamingFaceError) as exc:
+            self._export_failed(exc)
+        else:
+            self._export_ready()
+
+    def _write_export(self) -> None:
         try:
             self.report.export(self.snapshot)
-        except OSError as exc:
-            self.notice.value = f'<p role="alert">Export failed: {escape(str(exc))}</p>'
-            return
+        except (OSError, sqlite3.Error, ScreamingFaceError) as exc:
+            self._export_failed(exc)
+        else:
+            self._export_ready()
+
+    def _export_failed(self, exc: Exception) -> None:
+        self._exporting = False
+        self.export.disabled = False
+        self.export.description = "Retry export"
+        self.export.icon = ""
+        self.notice.value = f'<p role="alert">Export failed: {escape(str(exc))}</p>'
+
+    def _export_ready(self) -> None:
         self.exports.value = self._snapshot_link()
+        self.notice.value = '<p role="status">Export ready. Use the download link.</p>'
+        self.export.description = "Export ready"
+        self.export.icon = "check"
+        self._exporting = False

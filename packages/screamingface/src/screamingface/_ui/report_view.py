@@ -644,6 +644,11 @@ def _cases_html(report: Report) -> str:
             ((candidate, case) for candidate in report.candidates for case in candidate.cases), 25
         )
     )
+    return cases_page_html(report, entries, preview=True)
+
+
+def cases_page_html(report: Report, entries: list, *, preview: bool = False) -> str:
+    """Use the original rail and detail panes for one bounded page of cases."""
     if not entries:
         return ""
     # Group name must be unique per rendered Report, or two reports in one notebook would
@@ -663,11 +668,12 @@ def _cases_html(report: Report) -> str:
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )
         rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1))
-        panes.append(bounded_pane(candidate, case, costs[id(candidate)][case.case_id]))
+        renderer = bounded_pane if preview else _pane_html
+        panes.append(renderer(candidate, case, costs[id(candidate)][case.case_id]))
     total = len(entries)
     count = sum(len(candidate.cases) for candidate in report.candidates)
     label = f"{count} case result" + ("" if count == 1 else "s")
-    if count > total:
+    if preview and count > total:
         label += f" · preview of first {total}; display report in a live notebook to browse all"
     return (
         f"<details class='sf-report__det' open><summary>{escape(label)}</summary>"
@@ -695,7 +701,7 @@ def _large_pane(candidate: CandidateResult, case: CaseResult) -> str:
         "<div class='sf-pane'><div class='sf-pane__h'>"
         f"<b>Case {escape(_clip(str(case.case_id), 80))} · "
         f"{escape(_clip(candidate.name, 80))}</b> · {_case_state(case)}</div>"
-        "<p>Preview · open Full content to read every field, or export the complete report.</p>"
+        "<p>Preview · export the complete report to read every field.</p>"
         "<div class='sf-detail__k'>Input</div>"
         f"<pre class='sf-report__pre'>{escape(_clip(case.display_input, 2000))}</pre>"
         "<div class='sf-detail__k'>Answer</div>"

@@ -19,8 +19,11 @@ export have bounded memory; explicit to_dict/to_json/list conversions can materi
 Keep summary calculations streaming. Preserve prompts, operations, accounting, recipe,
 run times, trace, seed, and SDK version. Do not change Engine wire formats.
 
-Report UI retains existing styling and paginates 25 cases, with details and complete
-export. Remove search/filter/sort UI. Persistence belongs to collection, not rendering.
+Report UI reuses the original case rail and detail panes and paginates 25 cases.
+No added Case detail / Full content tabs or search/filter/sort controls. Preserve the
+original text previews; complete JSON export retains every field. Export disables
+immediately with a busy state, rejects duplicate requests, exposes the completed download,
+and allows retry after failure. Persistence belongs to collection, not rendering.
 
 ## Verification
 
