@@ -7,3 +7,14 @@
 5. Publish as a draft PR targeting main, linked to the existing component issue.
 
 No database, dependencies, credentials, or deployment settings change.
+
+## PR #1153 review fixes (2026-10-01)
+
+1. Add real-socket ERROR-level logging regressions for queue/execution disconnects
+   with both middleware paths, plus shutdown/concurrent cancellation coverage.
+2. Mark disconnect-owned cancellation before cancelling the request task; consume
+   only that cancellation at the HTTP dispatch boundary and return HTTP 499.
+3. Add an optional Helm queue-timeout value, render its environment variable only
+   when configured, and test the rendered configuration through Gateway Settings.
+4. Document how to configure a queue timeout below existing Engine transport limits.
+5. Run the existing offline component gates and chart checks, then push to PR #1153.

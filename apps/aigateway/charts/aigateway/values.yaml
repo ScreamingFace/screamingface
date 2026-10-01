@@ -90,6 +90,11 @@ config:
   # caller by case alone.
   adminEmails: []
   jwtTtlSeconds: 86400
+  # Optional finite positive seconds waiting for provider capacity. Null preserves
+  # the app default: use the effective execution allowance (normally 600s).
+  # Existing Engine clients time out after 600s and start their timer first; set
+  # a shorter value (e.g. 30) to receive 503/provider_queue_timeout before disconnect.
+  providerQueueTimeoutS: null
   # Provider plugins whose deployment availability is declared by the chart.
   #
   # WHY this is here at all: the ConfigMap emits a FIXED key set and the Deployment has no

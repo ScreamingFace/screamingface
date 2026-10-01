@@ -12,6 +12,7 @@ helpers cannot participate in its key or storage lifecycle.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -144,11 +145,27 @@ async def _dispatch_with_backpressure(
     # `middleware/call_id.py` was written to undo for the correlation ids. One extra clock read
     # is the cheaper of the two costs.
     with provider_span(provider):
-        return await dispatch_with_budgets(
-            request,
-            provider,
-            lambda: with_overload_retry(_attempt, policy=RetryPolicy.from_settings(settings)),
-        )
+        try:
+            return await dispatch_with_budgets(
+                request,
+                provider,
+                lambda: with_overload_retry(_attempt, policy=RetryPolicy.from_settings(settings)),
+            )
+        except asyncio.CancelledError:
+            if not getattr(request.state, "provider_disconnect_cancelled", False):
+                raise
+            work = asyncio.current_task()
+            assert work is not None
+            # INVARIANT: consume only the watcher's cancellation. Concurrent server
+            # shutdown or caller cancellation must still propagate to the ASGI server.
+            if work.uncancel():
+                raise
+            # WHY: a normal HTTP response lets middleware unwind without an ASGI
+            # ERROR traceback; the client has gone and cannot receive this response.
+            raise HTTPException(
+                status_code=499,
+                detail={"code": "client_disconnected", "message": "The client disconnected."},
+            ) from None
 
 
 # WHY (FINDING B): the client-facing message is gateway-authored per machine

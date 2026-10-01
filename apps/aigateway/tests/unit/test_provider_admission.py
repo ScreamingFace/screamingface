@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 
 from aigateway.core.admission import dispatch_with_budgets
 from aigateway.core.concurrency import provider_slot
+from aigateway.routes.chat_dispatch import _dispatch_with_backpressure
 
 
 def request(*, execution=1.0, queue=None, headers=None, app=None):
@@ -351,3 +352,52 @@ async def test_execution_header_cannot_extend_operator_limit():
     assert error.value.status_code == 504
     assert cast(dict[str, str], error.value.detail)["code"] == "provider_execution_timeout"
     assert await dispatch_with_budgets(req, "openrouter", answer) == "answer"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", ["disconnect", "shutdown", "both"])
+async def test_http_dispatch_consumes_only_disconnect_cancellation(cancel):
+    from aigateway.config import Settings
+
+    req, disconnect = request()
+    req.app.state.settings = Settings(provider_max_concurrency=1)
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+    receive = req.receive
+
+    async def receive_with_shutdown():
+        message = await receive()
+        # INVARIANT: a simultaneous shutdown cancellation must survive disconnect handling.
+        task.cancel("shutdown")
+        return message
+
+    if cancel == "both":
+        req._receive = receive_with_shutdown
+
+    async def provider(body):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    task = asyncio.create_task(
+        _dispatch_with_backpressure(req, SimpleNamespace(chat_completion=provider), "fake", {})
+    )
+    await asyncio.wait_for(entered.wait(), 1)
+    if cancel == "shutdown":
+        task.cancel("shutdown")
+    else:
+        disconnect.set()
+    if cancel == "disconnect":
+        with pytest.raises(HTTPException) as error:
+            await task
+        assert error.value.status_code == 499
+        assert task.cancelling() == 0
+    else:
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task.cancelling() == 1
+    assert cancelled.is_set()
+    async with provider_slot(req.app, "fake", 1, timeout_s=0.1):
+        pass

@@ -1,6 +1,7 @@
 """Real localhost disconnects and timeout responses; no upstream provider calls."""
 
 import asyncio
+import logging
 import socket
 from contextlib import AsyncExitStack, asynccontextmanager
 from types import SimpleNamespace
@@ -135,3 +136,32 @@ async def test_socket_wire_contract(phase, expected, code):
             assert "x-aigw-trace-id" in r.headers
         async with provider_slot(app, "fake", 1, timeout_s=0.1):
             pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["queue", "execution"])
+@pytest.mark.parametrize("local_only_middleware", [False, True])
+async def test_socket_disconnect_does_not_log_asgi_error(
+    phase, local_only_middleware, monkeypatch, caplog
+):
+    config = uvicorn.Config
+    error_logger = logging.getLogger("uvicorn.error")
+
+    def error_level_config(*args, **kwargs):
+        kwargs["log_level"] = "error"
+        configured = config(*args, **kwargs)
+        # WHY: uvicorn configures a non-propagating logger; capture its actual errors.
+        error_logger.addHandler(caplog.handler)
+        return configured
+
+    monkeypatch.setattr(uvicorn, "Config", error_level_config)
+    try:
+        with caplog.at_level("INFO", logger="aigateway.core.admission"):
+            await test_socket_disconnect_frees_capacity(phase, local_only_middleware)
+        assert not any("Exception in ASGI application" in r.getMessage() for r in caplog.records)
+        assert any(
+            getattr(r, "outcome", None) == "cancelled" and r.levelno == logging.INFO
+            for r in caplog.records
+        )
+    finally:
+        error_logger.removeHandler(caplog.handler)

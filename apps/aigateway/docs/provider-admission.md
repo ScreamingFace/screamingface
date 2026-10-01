@@ -14,6 +14,8 @@ below describe the shared wire contract implemented by that follow-up.
 - `AIGW_PROVIDER_EXECUTION_TIMEOUT_S`: finite positive seconds, default 600.
 - `AIGW_PROVIDER_QUEUE_TIMEOUT_S`: optional finite positive seconds. When absent,
   admission uses the effective execution allowance.
+- Helm `config.providerQueueTimeoutS` sets `AIGW_PROVIDER_QUEUE_TIMEOUT_S`; its
+  default is `null`, which leaves the environment variable unset.
 - Engine `[aigateway].timeout_s` declares execution seconds. Its new optional
   `queue_timeout_s` declares admission seconds and defaults to `timeout_s`.
 - Engine sends `x-aigw-execution-timeout-s` and `x-aigw-queue-timeout-s`. Gateway
@@ -35,6 +37,15 @@ begins allowing the larger combined transport interval. Existing Gateway clients
 without the new headers use the operator defaults. The concurrency settings are
 unchanged: repository default four slots; Helm overrides OpenRouter to fifty. Limits
 are per provider per Gateway process, shared across callers, not cluster-global.
+
+Before Engine's phase-budget integration (#1152), its HTTP transport timeout is
+600 seconds and starts before Gateway's queue timer. With both allowances at 600,
+Engine normally disconnects before Gateway can return `provider_queue_timeout`.
+Choose a shorter queue allowance explicitly, for example
+`--set config.providerQueueTimeoutS=30`, to return a classified 503 after 30 seconds
+of saturation. Execution still receives its independent allowance after admission.
+For later Engine clients, keep the transport allowance above queue + execution;
+an explicit caller deadline can still end a request sooner.
 
 ## Failures and retry ownership
 
@@ -58,6 +69,10 @@ Expired or cancelled queued calls never dispatch upstream.
 Admission checks absolute deadlines after acquiring a slot, even if an event-loop
 stall delays the timeout callback. Disconnect observation cancels the request task
 immediately, including when capacity returns in the same event-loop turn.
+The HTTP dispatch boundary consumes only the disconnect watcher's cancellation
+and raises a safe 499 / `client_disconnected` response so middleware can finish
+without an ASGI ERROR traceback. Its existing INFO log retains `outcome=cancelled`.
+Shutdown and concurrent external cancellation still propagate.
 
 ## Observation and scope
 

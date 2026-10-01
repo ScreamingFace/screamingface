@@ -154,6 +154,7 @@ async def dispatch_with_budgets(
 
     work = asyncio.current_task()
     assert work is not None
+    request.state.provider_disconnect_cancelled = False
 
     async def disconnected() -> None:
         while True:
@@ -161,6 +162,7 @@ async def dispatch_with_budgets(
             if message["type"] == "http.disconnect":
                 # INVARIANT: cancel at observation, before a queued semaphore
                 # wakeup can dispatch. A separate coordinating task is too late.
+                request.state.provider_disconnect_cancelled = True
                 work.cancel()
                 return
 
