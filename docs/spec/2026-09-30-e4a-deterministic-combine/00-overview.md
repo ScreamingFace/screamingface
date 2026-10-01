@@ -125,3 +125,35 @@ code follows this list. Each item names the PRD it corrects.
 | E13 | answer-operators.md | `last_number@1` reads a grouped number | it returns the whole digit-and-comma run; `numeric@1` marks bad grouping `not_numeric` | a bad grouping must not become a silent wrong vote |
 | E14 | weighted-vote.md | weights are positive and finite | also at most `sys.float_info.max / 256`, in the SDK and the engine | the summed score must stay finite |
 | E15 | majority-vote-and-median.md | median accepts any normalizer | a median spec must use a normalizer named `numeric` | the median of non-canonical text is undefined |
+| E16 | contracts.md K4 | p99 ≤ 50 ms at the cap | p99 ≤ 50 ms for 64 members of 64 KiB (measured 10–20 ms); a 64 MiB context takes 170–340 ms and blocks the worker loop, because the handler is sync | the PRD budget is met; the cap case is slower |
+| E17 | judge-pick.md | `judge_reply_invalid` is the existing code | the combine path raises it permanent (a pure step gives the same result on retry); the grading path raises it retryable | different callers, different retry advice |
+
+### 8.1 Orchestrator decisions taken during the build (2026-10-01)
+
+These decisions were taken while the user was away. They follow from the PRDs, the code, or the
+reviews. The user can reverse any of them.
+
+- The SDK does not export `sf.Reducer`. An existing guard test keeps a legacy name of that kind off
+  `sf`, and the PRD export list names only the concrete reducers.
+- The combine core verifies a plugin's tally order. It does not sort the tally again.
+- Weights are only for `vote`. A plugin may import a sibling plugin's pure functions, but never its
+  `OPERATORS`.
+- `DuplicateMembersWarning` fires once for each Fusion in a compile. It is silent during url4
+  recovery, and it points at the user's line.
+- `to_python()` pins only what the reducer stores. The url4 keeps every pinned id, but a recompile
+  of the Python re-pins short names to the newest catalog version.
+- A union over only empty lists gives `[]`.
+- The EV-12 replay lane skips until the user records its fixtures.
+- Two existing tests were edited with the owner's approval (2026-09-30 and 2026-10-01):
+  `test_failure_classes.py` (the four new codes) and `test_url4_executor.py` (`world/combine.py`
+  may import url4).
+
+### 8.2 Open decisions for the user
+
+| # | Item | Default in the code | Options |
+|---|---|---|---|
+| U1 | `samples()` with run sittings (`answer_seed`): the call seed wins, so each sitting sends the same N requests, and a mean ± CI across sittings is falsely tight | the sample seeds are `0..n-1` in every sitting | derive the seed from (sitting, index); or warn or refuse when `answer_seed` and `samples()` meet; or document the limit |
+| U2 | Evidence size for Merge and projection: `json_object@1` puts each member's whole JSON in `raw` and in `value` | accepted for v1 | leave out `raw` when it equals `value`; or cap the evidence size (a schema change) |
+| U3 | Writer framing: the writer call gets no versioned framing (unlike `judge-template@1`) | no framing | add `writer-template@1` now (this changes the url4) or later |
+| U4 | EV-10: lift the operations of corrective members | not lifted (a CHAR test pins this) | a follow-up ticket |
+| U5 | EV-12 fixtures: a paid OpenRouter recording, under $0.10 | the lane skips | run `record`, then `bless` (see the e2e-replay ledger) |
