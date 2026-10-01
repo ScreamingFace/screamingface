@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
+from screamingface._runtime.log_redaction import redact, redacting_record_factory
+
 MAX_LOG_BYTES = 10 * 1024 * 1024
 LOG_BACKUPS = 5
 
@@ -118,7 +120,9 @@ class RuntimeLog(io.TextIOBase):
         self._stream.close()
 
     def _write_line(self, line: str) -> None:
-        rendered = f"{datetime.now(UTC).isoformat()} [{_service.get()}] {line}\n"
+        # INVARIANT (OME-1050): every line is redacted, whatever wrote it. print, warnings and
+        # tracebacks never create a LogRecord, so this is the only place that sees them.
+        rendered = f"{datetime.now(UTC).isoformat()} [{_service.get()}] {redact(line)}\n"
         if self._stream.tell() + len(rendered.encode()) > MAX_LOG_BYTES:
             self._rotate()
         self._stream.write(rendered)
@@ -147,7 +151,8 @@ def capture_runtime_log(path: Path, *, foreground: bool) -> Iterator[RuntimeLog]
     sys.stdout = runtime_log
     sys.stderr = runtime_log
     try:
-        yield runtime_log
+        with redacting_record_factory():
+            yield runtime_log
     finally:
         sys.stdout, sys.stderr = previous_stdout, previous_stderr
         runtime_log.close()
