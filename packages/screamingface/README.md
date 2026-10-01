@@ -634,6 +634,12 @@ uv run python scripts/check_distribution.py
 
 ### Recovering completed evaluations
 
+In notebooks, healthy evaluations show no recovery banner. When the SDK next opens after
+an interrupted evaluation, it can show an informational notice with the exact recovery call.
+It checks retained completion records and the previous process’s lifecycle markers; this
+automatic interruption detection currently uses POSIX process liveness. Existing saved
+reports and active evaluations stay quiet. Explicit recovery works independently of notices.
+
 Completed candidate results are saved automatically before Report decoding. The default
 location is `~/.screamingface/results` (under `SCREAMINGFACE_DATA_DIR` when configured).
 Set `SCREAMINGFACE_RESULTS_DIR` before creating a client to choose another disk. Saved

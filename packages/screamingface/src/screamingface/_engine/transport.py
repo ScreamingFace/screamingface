@@ -134,6 +134,10 @@ class Url4CloudTransport:
 
         self._result_store = ResultStore() if save_results else None
         self._result_contexts = {}
+        if self._result_store is not None:
+            from screamingface._results.recovery_notice import show_recoverable_results
+
+            show_recoverable_results(self._result_store, engine_url)
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -535,6 +539,10 @@ class AsyncUrl4CloudTransport:
 
         self._result_store = ResultStore() if save_results else None
         self._result_contexts = {}
+        if self._result_store is not None:
+            from screamingface._results.recovery_notice import show_recoverable_results
+
+            show_recoverable_results(self._result_store, engine_url)
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)

@@ -56,4 +56,12 @@ def write_report(report: Report, path: Path) -> None:
         for chunk in iter_report_json(report):
             stream.write(chunk.encode("utf-8"))
 
-    write_atomic(path, write)
+    from screamingface._results.lifecycle import mark_report
+
+    mark_report(report, "exporting")
+    try:
+        write_atomic(path, write)
+    finally:
+        # WHY: handled failures leave a usable Report; only abrupt death leaves the
+        # exporting marker pending for discovery in a later notebook process.
+        mark_report(report, "ready")

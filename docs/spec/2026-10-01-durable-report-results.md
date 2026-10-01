@@ -103,3 +103,23 @@ artifact path and bytes. This survives temporary-directory cleanup; it does not 
 Engine artifact retention/TTL or change hosted storage. SDK-downloaded results remain in
 our separate saved-results store. No recovery API or notice planned in #1211 is copied;
 our existing `sf.reports` API remains the recovery interface.
+
+## Recovery discoverability
+
+Healthy evaluations show no recovery banner. Preparation records the owning process PID
+and running state in the durable evaluation membership record. Successful report loading
+marks it ready. Report rendering and JSON export temporarily mark rendering/exporting;
+handled failures clear those markers, while abrupt kernel death leaves them pending.
+When a notebook next creates the Engine transport, completed candidate tickets from a
+pending evaluation whose owner is no longer running produce one shared informational
+ClientNotice with an exact recovery call, including the import, evaluation ID and directory.
+Explicit recovery marks the reopened report ready and suppresses future notices.
+
+The existing notebook notice renderer also serves partial-submission advisories; no new
+styles or report section are introduced. Active owners, ready evaluations, legacy records
+without lifecycle metadata, other Engines, headless use and save_results=False stay quiet.
+Discovery and lifecycle updates are best effort and never block evaluation or explicit
+recovery. POSIX liveness probing is conservative (including PID reuse and inaccessible
+owners); non-POSIX skips automatic interruption inference rather than using an unsafe
+os.kill probe. Completed tickets must exist; incomplete siblings retain partial-report
+behavior, and undownloaded artifacts remain subject to retention.

@@ -90,11 +90,15 @@ def report_from_outcomes(
     candidates = tuple(
         _candidate_result(evaluation, candidate, outcome) for candidate, outcome in outcomes
     )
-    return Report(
+    report = Report(
         benchmark=evaluation.benchmark,
         case_count=evaluation.case_count,
         candidates=candidates,
     )
+    from screamingface._results.lifecycle import mark_report
+
+    mark_report(report, "ready")
+    return report
 
 
 def report_from_url4_outcome(candidate: Candidate, outcome: _RunOutcome) -> Report:

@@ -1,5 +1,6 @@
 """Record evaluation membership before starting candidate runs."""
 
+import os
 from dataclasses import asdict
 from uuid import uuid4
 
@@ -12,6 +13,8 @@ def prepare(
 ) -> dict[int, dict]:
     context = {
         "id": uuid4().hex,
+        "state": "running",
+        "owner_pid": os.getpid(),
         "benchmark": asdict(evaluation.benchmark),
         "case_count": evaluation.case_count,
         "candidates": [c.name for c in candidates],
