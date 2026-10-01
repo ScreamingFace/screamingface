@@ -9,6 +9,8 @@ at the end of the file is the one exact-set check against the built-in registry.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from combine_golden_support import (
     FIXTURE_DIR,
@@ -53,7 +55,12 @@ def test_golden_case_matches_for_every_module_operator(op_id: str, case: dict[st
 
 def test_golden_outputs_match_for_every_registered_operator() -> None:
     """OP-1: the one exact-set check -- every fixture file is a built-in operator, and back."""
-    assert set(_FIXTURES) == {descriptor.id for descriptor in BUILTIN_OPERATORS}
+    # WHY rglob over the whole fixture tree: later units keep their goldens in subfolders
+    # (fixtures/combine/flow/), and this stays the ONE exact-set check over every built-in.
+    every_fixture = {
+        json.loads(path.read_text("utf-8"))["op"] for path in FIXTURE_DIR.rglob("*.json")
+    }
+    assert every_fixture == {descriptor.id for descriptor in BUILTIN_OPERATORS}
     for op_id, fixture in sorted(_FIXTURES.items()):
         descriptor = BUILTIN_OPERATORS.resolve(op_id, fixture["stage"])
         assert descriptor.stage == fixture["stage"], op_id
