@@ -1,0 +1,40 @@
+{
+  "export_exit_code": 74,
+  "normal": {
+    "candidates": 11,
+    "cases": 46002,
+    "export_bytes": 2219539264,
+    "export_sha256": "69faff615f1acf261a752a1916bf025f942005029df7c781603d7e29cb1ce173",
+    "peak_rss_bytes": 86130688,
+    "elapsed_seconds": 42.92448625000179
+  },
+  "decode_exit_code": 73,
+  "remote_recovery": {
+    "candidates": 11,
+    "cases": 46002,
+    "export_bytes": 2219539272,
+    "export_sha256": "4b0f88376fa26ed33a3e8f8cd2d126f5447ce877aed1909cc9460f9ced062bcb",
+    "peak_rss_bytes": 98533376,
+    "elapsed_seconds": 45.21658558299896
+  },
+  "offline_recovery": {
+    "candidates": 11,
+    "cases": 46002,
+    "export_bytes": 2219539272,
+    "export_sha256": "4b0f88376fa26ed33a3e8f8cd2d126f5447ce877aed1909cc9460f9ced062bcb",
+    "peak_rss_bytes": 60948480,
+    "elapsed_seconds": 17.644256792002125
+  },
+  "run_starts_before_recovery": 22,
+  "run_starts_after_recovery": 22,
+  "artifact_downloads": 33,
+  "source_bytes": 201892405,
+  "local_recovery": {
+    "candidates": 11,
+    "cases": 46002,
+    "export_bytes": 2219539272,
+    "export_sha256": "4b0f88376fa26ed33a3e8f8cd2d126f5447ce877aed1909cc9460f9ced062bcb",
+    "peak_rss_bytes": 68124672,
+    "elapsed_seconds": 41.13436470799934
+  }
+}
