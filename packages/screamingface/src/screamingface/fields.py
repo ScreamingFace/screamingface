@@ -21,6 +21,7 @@ from typing import Any, ClassVar, Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
+from screamingface._evaluation.topology import _writer_key
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
     _REDUCER_CLASSES,
@@ -38,7 +39,6 @@ from screamingface.reducer import (
 
 type FieldNormalizer = Literal["text", "numeric"]
 type _Rule = Literal["majority", "max", "from_member", "union", "model"]
-type _Order = Literal["max", "min"]
 
 _NORMALIZERS: tuple[str, ...] = ("text", "numeric")
 # INVARIANT: the Engine's field_rules@1 `_FIELD` and `_MEMBER` (operators/fields.py), copied; a name
@@ -47,7 +47,6 @@ _FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 _MEMBER_ID = re.compile(r"member_[1-9][0-9]*")
 _MAX_FIELDS = 64
 _MAX_PATH_CHARS = 256
-WRITER_KEY_PREFIX = "writer_"
 _RULE_KEYS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "majority": frozenset({"field", "rule", "normalize"}),
@@ -279,9 +278,7 @@ class Merge(Reducer):
             if rule.rule == "model":
                 assert rule.route is not None and rule.prompt is not None
                 signals.append(
-                    _ModelSignal(
-                        f"{WRITER_KEY_PREFIX}{field}", rule.route, rule.prompt, rule.params, field
-                    )
+                    _ModelSignal(_writer_key(field), rule.route, rule.prompt, rule.params, field)
                 )
         return tuple(signals)
 
@@ -306,8 +303,9 @@ class Merge(Reducer):
         fields: dict[str, FieldRule] = {}
         for entry in entries:
             field = _field_name(entry.get("field"))
-            key = f"{WRITER_KEY_PREFIX}{field}"
-            writer = writers.pop(key, None) if entry.get("rule") == "model" else None
+            if field in fields:
+                raise _cannot_rebuild("merge")
+            writer = writers.pop(_writer_key(field), None) if entry.get("rule") == "model" else None
             if writer is not None and writer.field != field:
                 raise ValueError(_INVALID_SIGNALS)
             fields[field] = FieldRule._from_wire(entry, writer)
@@ -370,6 +368,37 @@ def _target_text(value: object) -> str:
     raise TypeError("Pick equals must be a string, number or boolean")
 
 
+def _check_pick_field(field: object) -> None:
+    if not isinstance(field, str):
+        raise TypeError("Pick field must be a string")
+    if len(field) > _MAX_PATH_CHARS or FIELD_PATH.fullmatch(field) is None:
+        raise ValueError(
+            f"Pick field {field!r} must be a JSON path like 'confidence', 'a.b' or 'a[0].b' "
+            f"(at most {_MAX_PATH_CHARS} characters)"
+        )
+
+
+def _check_pick_mode(order: object, equals: object, normalize: object) -> str | None:
+    """Refuse a Pick the Engine would only refuse after the paid member calls; the target text."""
+
+    if order is not None and order not in ("max", "min"):
+        raise ValueError(f"Pick order must be 'max' or 'min', not {order!r}")
+    if order is not None and equals is not None:
+        raise ValueError("Pick takes order='max'|'min' or equals=<value>, not both")
+    if order is None and equals is None:
+        raise ValueError("Pick takes order='max'|'min' or equals=<value>")
+    if normalize is not None and equals is None:
+        raise ValueError("Pick normalize applies to equals only")
+    if equals is None:
+        return None
+    if isinstance(equals, bool) and normalize == "numeric":
+        raise ValueError("Pick equals=True or False cannot be compared with normalize='numeric'")
+    target = _target_text(equals)
+    if not target.strip():
+        raise ValueError("Pick equals must not be blank")
+    return target
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Pick(Reducer):
     """The member whose JSON field is the largest, the smallest or equal to a value, unchanged.
@@ -393,25 +422,12 @@ class Pick(Reducer):
         equals: str | int | float | bool | None = None,
         normalize: FieldNormalizer | None = None,
     ) -> None:
-        if not isinstance(field, str):
-            raise TypeError("Pick field must be a string")
-        if len(field) > _MAX_PATH_CHARS or FIELD_PATH.fullmatch(field) is None:
-            raise ValueError(
-                f"Pick field {field!r} must be a JSON path like 'confidence', 'a.b' or 'a[0].b' "
-                f"(at most {_MAX_PATH_CHARS} characters)"
-            )
-        if order is not None and order not in ("max", "min"):
-            raise ValueError(f"Pick order must be 'max' or 'min', not {order!r}")
-        if order is not None and equals is not None:
-            raise ValueError("Pick takes order='max'|'min' or equals=<value>, not both")
-        if order is None and equals is None:
-            raise ValueError("Pick takes order='max'|'min' or equals=<value>")
-        if normalize is not None and equals is None:
-            raise ValueError("Pick normalize applies to equals only")
+        _check_pick_field(field)
+        target = _check_pick_mode(order, equals, normalize)
         object.__setattr__(self, "name", "pick")
         object.__setattr__(self, "field", field)
         object.__setattr__(self, "order", order)
-        object.__setattr__(self, "equals", None if equals is None else _target_text(equals))
+        object.__setattr__(self, "equals", target)
         object.__setattr__(self, "normalize", _normalizer(normalize, "Pick"))
 
     @property
@@ -442,7 +458,7 @@ class Pick(Reducer):
         field, normalizer, args = _pick_parts(spec)
         order, value, chosen = args.get("order"), args.get("value"), args.get("normalize")
         if order in ("max", "min") and set(args) == {"order"} and normalizer == "numeric@1":
-            return cls(field, order=cast("_Order", order))
+            return cls(field, order=cast("Literal['max', 'min']", order))
         if (
             order == "equals"
             and set(args) == {"order", "value", "normalize"}

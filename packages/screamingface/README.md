@@ -497,8 +497,11 @@ member with the largest or smallest value, byte for byte. `sf.Pick(field, equals
 first member whose value is equal to `value`. `field` is a JSON path such as `confidence`, `a.b` or
 `a[0].b`. With `normalize="text"` or `normalize="numeric"`, the value of each member and `value`
 itself go through the same normalizer before the compare. A number or a boolean in `equals` is
-compared in its JSON spelling (`1` is not `1.0`), unless you use `normalize="numeric"`. A tie goes to
-the first member in author order and sets `tie`.
+compared in its JSON spelling (`1` is not `1.0`), unless you use `normalize="numeric"`.
+Because `json_field@1` returns the contents of a string without its quotes, `equals=7` also matches
+a member whose value is the string `"7"`. An empty `equals`, or `equals=True` with
+`normalize="numeric"`, raises `ValueError` before any call. A tie goes to the first member in author
+order and sets `tie`.
 
 `sf.Merge(fields={...})` builds one JSON object. The object has exactly the fields that you declare,
 in sorted key order. Each field has one rule:

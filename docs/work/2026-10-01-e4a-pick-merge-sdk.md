@@ -81,3 +81,24 @@ bytes unchanged.
   `test_judge_report.py` (existing practice), so no new helper file. (5) Extra checks beyond the spec: the
   writer call's context must be exactly `$<projection>` when a url4 is read back, and all projection specs are
   built before any source is appended (a catalog without `project_field` fails before state changes).
+
+## Review round 1 (coordinator, ACCEPT-WITH-FIXES)
+
+Applied: (1) `reducer._step_matches` / `_steps_match` / `_require_steps` (version-aware: same op name,
+exact id when the expected op is pinned, equal args; all four stages and no weights). Judge's matcher now
+uses it with no behavior change. `_ProjectionReducer._from_spec` reads its field and requires the spec to
+equal its own steps; `url4._projected_field` calls it, so a stray extract, arg, normalizer or select is
+refused (five new tamper cases). (2) `Reducer._from_spec` docstring now says short-named operators are
+pinned again on recompile. (3) `Merge._rebuild` refuses a duplicate field entry. (4) One writer-key rule:
+`topology._writer_key` / `_writer_field` used by `fields.py`, `reducer_signals.py`, `topology.py` and
+`url4.py`; `WRITER_KEY_PREFIX` removed. (5) `_signal_call_role` refuses a signal whose key and field
+disagree (tested with a hand-built bad `_ModelSignal`). (6) `_ProjectionReducer` is a frozen slotted
+dataclass; `_catalog()` inlined; `_signal_field` raises `ValueError` instead of asserting. (7) `_Order`
+alias removed; `"Pick"` placed before `"PlanningError"` in `__all__`. (8) Tests: parametrized ids replace
+the loop+`assert name` blocks, each `match=` is one expected message, the stdlib `json.dumps(1e20)`
+assert is gone, local imports moved to the top, and the conformance test binds `_RULE_KEYS`,
+`_FIELD_NAME` and `_MEMBER_ID` to the Engine's `operators/fields.py` (it SKIPS in this tree, where that
+file is absent; I ran its parsers by hand against the file in the `e4a-rank-concat-engine` worktree and
+they matched). (10) `Pick` refuses a blank `equals` and a bool `equals` with `normalize='numeric'` at
+build time. (11) README Pick paragraph states that `equals=7` also matches the string `"7"`.
+No deviations. Item 9 is absent from the coordinator's list; nothing was skipped.

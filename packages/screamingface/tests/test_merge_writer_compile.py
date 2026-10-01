@@ -10,7 +10,7 @@ import json
 from typing import Any
 
 import pytest
-from _combine_flow_fixtures import flow_operators, members3
+from _combine_flow_fixtures import FLOW_OPERATOR_WIRE, flow_operators, members3
 from _reducer_fixtures import evidence_wire
 from test_combine_evidence import _operation
 from test_judge_reducer import _calls_by_name, _context, _sources, _wrap
@@ -20,7 +20,10 @@ from url4 import RelExpr, Source, Text, src
 
 import screamingface as sf
 from screamingface._evaluation.candidate import _url4_text, compile_candidate
+from screamingface._evaluation.operators import decode_operator_catalog
+from screamingface._evaluation.topology import _signal_field, _writer_field, _writer_key
 from screamingface.operation import OperationInfo
+from screamingface.reducer import _ModelSignal
 from screamingface.url4 import _REFERENCE
 
 _COMBINE_PATH = "/ensemble/combine/v1"
@@ -271,12 +274,14 @@ def test_a_merge_after_another_fusion_numbers_each_prefix_on_its_own() -> None:
 
 
 def test_a_catalog_without_the_projection_operator_fails_before_any_source() -> None:
-    from screamingface._evaluation.operators import decode_operator_catalog
-
     catalog = decode_operator_catalog(
         {
             "object": "list",
-            "data": [entry for entry in flow_operators_wire() if entry["id"] != "project_field@1"],
+            "data": [
+                entry
+                for entry in FLOW_OPERATOR_WIRE["data"]  # type: ignore[attr-defined]
+                if entry["id"] != "project_field@1"
+            ],
         }
     )
 
@@ -284,10 +289,58 @@ def test_a_catalog_without_the_projection_operator_fails_before_any_source() -> 
         compile_candidate(sf.Fusion(members3(), synthesizer=_merge()), operators=catalog)
 
 
-def flow_operators_wire() -> list[dict[str, Any]]:
-    from _combine_flow_fixtures import FLOW_OPERATOR_WIRE
+class _MergeWithSignals(sf.Merge):
+    """A Merge whose signals are replaced, to hand the compiler a signal no Merge can make."""
 
-    return list(FLOW_OPERATOR_WIRE["data"])  # type: ignore[call-overload]
+    _replaced: tuple[_ModelSignal, ...] = ()
+
+    def _signals(self) -> tuple[_ModelSignal, ...]:
+        return self._replaced
+
+
+def _bad_signal(key: str, field: str | None) -> _ModelSignal:
+    return _ModelSignal(key, "provider/w", _WRITE, {}, field)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("signal", "message"),
+    [
+        (_bad_signal("writer_summary", None), "reducer signal key does not match its field"),
+        (_bad_signal("judge", "summary"), "reducer signal key does not match its field"),
+        (_bad_signal("writer_other", "summary"), "reducer signal key does not match its field"),
+        (_bad_signal("jury", None), "unsupported reducer signal"),
+        (_bad_signal("writer.summary", "summary"), "unsupported reducer signal"),
+    ],
+)
+def test_a_signal_whose_key_and_field_disagree_is_refused(
+    signal: _ModelSignal, message: str
+) -> None:
+    class Bad(_MergeWithSignals):
+        _replaced = (signal,)
+
+    merge = Bad(fields={"summary": sf.FieldRule.model("provider/w", prompt=_WRITE)})
+
+    with pytest.raises(ValueError, match=message):
+        compile_candidate(sf.Fusion(members3(), synthesizer=merge), operators=flow_operators())
+
+
+def test_the_writer_key_rule_is_one_pair_of_functions() -> None:
+    assert _writer_key("summary") == "writer_summary"
+    assert _writer_field("writer_summary") == "summary"
+    assert _writer_field("writer__x") == "_x"
+    for refused in (
+        "judge",
+        "writer_",
+        "writer_1a",
+        "writer.summary",
+        "Writer_a",
+        "writer_" + "a" * 65,
+    ):
+        assert _writer_field(refused) is None
+    assert _signal_field("writer_summary") == "summary"
+    for no_field in (None, "judge", "writer_1a"):
+        with pytest.raises(ValueError, match="needs a writer signal key"):
+            _signal_field(no_field)
 
 
 def _projection_evidence() -> dict[str, Any]:

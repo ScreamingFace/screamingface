@@ -9,16 +9,21 @@ from _combine_flow_fixtures import flow_operators, members3
 from test_judge_url4_round_trip import (
     _INVALID_REDUCER,
     _MODEL_CALLS,
+    _SURFACE,
     _compiled,
     _linked,
     _recovered,
 )
 
 import screamingface as sf
+from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface.reducer import _ModelSignal
 
+_CANNOT_REBUILD_PROJECT = "project spec this SDK version cannot rebuild"
+_CANNOT_REBUILD_MERGE = "merge spec this SDK version cannot rebuild"
+_CANNOT_REBUILD_PICK = "pick spec this SDK version cannot rebuild"
 _MERGE = (
     "sf.Merge(fields={'answer': sf.FieldRule.majority(normalize='text'), "
     "'summary': sf.FieldRule.model('provider/w', prompt='Write one summary.')})"
@@ -109,12 +114,12 @@ def test_to_python_writes_the_reducers_as_editable_code() -> None:
     assert "synthesizer=sf.Pick('confidence', order='max')," in pick
 
 
-def test_the_recovered_reducers_equal_the_originals_field_by_field() -> None:
-    originals = [
-        sf.Pick("n", equals=7),
-        sf.Pick("answer", equals="yes", normalize="text"),
-        sf.Pick("n", order="min"),
-        sf.Merge(
+def _originals() -> dict[str, sf.Pick | sf.Merge]:
+    return {
+        "pick equals number": sf.Pick("n", equals=7),
+        "pick equals text": sf.Pick("answer", equals="yes", normalize="text"),
+        "pick min": sf.Pick("n", order="min"),
+        "merge": sf.Merge(
             fields={
                 "z": sf.FieldRule.model(
                     "provider/w", prompt="Write.\n'x' $5", params={"temperature": 0, "seed": 7}
@@ -123,15 +128,21 @@ def test_the_recovered_reducers_equal_the_originals_field_by_field() -> None:
                 "a": sf.FieldRule.union(normalize="numeric"),
             }
         ),
-    ]
-    for original in originals:
-        rebuilt = _recovered(_compiled(sf.Fusion(members3(), synthesizer=original)).url4)
-        assert isinstance(rebuilt, sf.Fusion)
-        assert rebuilt.synthesizer == original
-        assert type(rebuilt.synthesizer) is type(original)
-        if isinstance(original, sf.Merge):
-            assert isinstance(rebuilt.synthesizer, sf.Merge)
-            assert list(rebuilt.synthesizer.fields) == list(original.fields)
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_originals()))
+def test_the_recovered_reducers_equal_the_originals_field_by_field(name: str) -> None:
+    original = _originals()[name]
+
+    rebuilt = _recovered(_compiled(sf.Fusion(members3(), synthesizer=original)).url4)
+
+    assert isinstance(rebuilt, sf.Fusion)
+    assert rebuilt.synthesizer == original
+    assert type(rebuilt.synthesizer) is type(original)
+    if isinstance(original, sf.Merge):
+        assert isinstance(rebuilt.synthesizer, sf.Merge)
+        assert list(rebuilt.synthesizer.fields) == list(original.fields)
 
 
 def test_corrective_replay_recompiles_a_merge_member() -> None:
@@ -140,10 +151,6 @@ def test_corrective_replay_recompiles_a_merge_member() -> None:
         judge="provider/x",
         max_rounds=2,
     )
-    from test_judge_url4_round_trip import _SURFACE
-
-    from screamingface._evaluation.candidate import compile_candidate
-
     compiled = compile_candidate(loop, check_surface=_SURFACE, operators=flow_operators())
 
     assert "synthesizer=" + _MERGE in sf.Url4(compiled.url4).to_python()
@@ -186,7 +193,36 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
         "projection operator swapped": (
             '"op":"project_field@1"',
             '"op":"values@1"',
-            _MODEL_CALLS,
+            _CANNOT_REBUILD_PROJECT,
+        ),
+        "projection extract is whole": (
+            '"extract":{"args":{},"op":"json_object@1"},"members":["member_1","member_2","member_3"],'
+            '"normalize":null,"reduce":{"args":{"field":"summary"}',
+            '"extract":{"args":{},"op":"whole@1"},"members":["member_1","member_2","member_3"],'
+            '"normalize":null,"reduce":{"args":{"field":"summary"}',
+            _CANNOT_REBUILD_PROJECT,
+        ),
+        "projection extract is null": (
+            '"extract":{"args":{},"op":"json_object@1"},"members":["member_1","member_2","member_3"],'
+            '"normalize":null,"reduce":{"args":{"field":"summary"}',
+            '"extract":null,"members":["member_1","member_2","member_3"],'
+            '"normalize":null,"reduce":{"args":{"field":"summary"}',
+            _CANNOT_REBUILD_PROJECT,
+        ),
+        "projection reduce has an extra arg": (
+            '"reduce":{"args":{"field":"summary"},"op":"project_field@1"}',
+            '"reduce":{"args":{"field":"summary","x":1},"op":"project_field@1"}',
+            _CANNOT_REBUILD_PROJECT,
+        ),
+        "projection has a normalizer": (
+            '"normalize":null,"reduce":{"args":{"field":"summary"}',
+            '"normalize":{"args":{},"op":"text@1"},"reduce":{"args":{"field":"summary"}',
+            _CANNOT_REBUILD_PROJECT,
+        ),
+        "projection select is first_holder": (
+            '"select":{"args":{},"op":"built@1"},"weights":null}\', writer_1',
+            '"select":{"args":{},"op":"first_holder@1"},"weights":null}\', writer_1',
+            _CANNOT_REBUILD_PROJECT,
         ),
         "writer without binding param": (
             "/provider/w?binding=writer_1&q=",
@@ -266,7 +302,7 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
         "spec of another reducer": (
             '"reduce":{"args":{"fields"',
             '"reduce":{"args":{"fieldz"',
-            "cannot rebuild|invalid combine spec|does not match",
+            _CANNOT_REBUILD_MERGE,
         ),
     }
 
@@ -300,13 +336,14 @@ def test_rebuild_refuses_signals_that_do_not_match_the_model_fields() -> None:
         sf.Merge._rebuild(spec, (judge,))
 
 
-def test_a_pick_spec_edited_by_hand_is_refused() -> None:
-    pick = sf.Pick("confidence", order="max")
-    spec: dict[str, Any] = dict(
-        decode_combine_spec(combine_spec_text(pick, member_count=3, operators=flow_operators()))
+def _spec_of(reducer: sf.Pick | sf.Merge) -> dict[str, Any]:
+    return dict(
+        decode_combine_spec(combine_spec_text(reducer, member_count=3, operators=flow_operators()))
     )
-    assert sf.Pick._from_spec(spec) == pick
-    edits = {
+
+
+def _pick_edits() -> dict[str, dict[str, Any]]:
+    return {
         "values field": {"reduce": {"op": "values@1", "args": {"field": "other"}}},
         "no extract": {"extract": None},
         "other normalizer": {"normalize": {"op": "text@1", "args": {}}},
@@ -315,47 +352,79 @@ def test_a_pick_spec_edited_by_hand_is_refused() -> None:
         "bad order": {"select": {"op": "by_field@1", "args": {"order": "best"}}},
         "equals without value": {"select": {"op": "by_field@1", "args": {"order": "equals"}}},
     }
-    for name, edit in edits.items():
-        with pytest.raises(ValueError, match="cannot rebuild"):
-            sf.Pick._from_spec({**spec, **edit})
-        assert name
 
 
-def test_a_merge_spec_edited_by_hand_is_refused() -> None:
+@pytest.mark.parametrize("name", sorted(_pick_edits()))
+def test_a_pick_spec_edited_by_hand_is_refused(name: str) -> None:
+    pick = sf.Pick("confidence", order="max")
+    spec = _spec_of(pick)
+    assert sf.Pick._from_spec(spec) == pick
+    assert pick._kind == "answer"
+
+    with pytest.raises(ValueError, match=_CANNOT_REBUILD_PICK):
+        sf.Pick._from_spec({**spec, **_pick_edits()[name]})
+
+
+def _rules(*rules: Any) -> dict[str, Any]:
+    return {"reduce": {"op": "field_rules@1", "args": {"fields": list(rules)}}}
+
+
+_FROM_MEMBER = {"field": "a", "rule": "from_member", "member": "member_2"}
+_MAJORITY = {"field": "b", "rule": "majority", "normalize": "text"}
+
+
+def _merge_edits() -> dict[str, tuple[dict[str, Any], str]]:
+    return {
+        "weights": (
+            {"weights": {"member_1": 1.0, "member_2": 1.0, "member_3": 1.0}},
+            _CANNOT_REBUILD_MERGE,
+        ),
+        "no extract": ({"extract": None}, _CANNOT_REBUILD_MERGE),
+        "other extract": ({"extract": {"op": "whole@1", "args": {}}}, _CANNOT_REBUILD_MERGE),
+        "normalizer": ({"normalize": {"op": "text@1", "args": {}}}, _CANNOT_REBUILD_MERGE),
+        "other select": ({"select": {"op": "first_holder@1", "args": {}}}, _CANNOT_REBUILD_MERGE),
+        "other reducer": ({"reduce": {"op": "mode@1", "args": {}}}, _CANNOT_REBUILD_MERGE),
+        "extra reduce arg": (
+            {"reduce": {"op": "field_rules@1", "args": {"fields": [], "x": 1}}},
+            _CANNOT_REBUILD_MERGE,
+        ),
+        "fields not a list": (
+            {"reduce": {"op": "field_rules@1", "args": {"fields": {}}}},
+            _CANNOT_REBUILD_MERGE,
+        ),
+        "rule not an object": (_rules("majority"), _CANNOT_REBUILD_MERGE),
+        "unknown rule": (_rules({"field": "a", "rule": "median"}), _CANNOT_REBUILD_MERGE),
+        "rule with a stray key": (
+            _rules({"field": "a", "rule": "max", "normalize": None}),
+            _CANNOT_REBUILD_MERGE,
+        ),
+        "member not an id": (_rules({**_FROM_MEMBER, "member": "2"}), _CANNOT_REBUILD_MERGE),
+        "member zero": (_rules({**_FROM_MEMBER, "member": "member_0"}), _CANNOT_REBUILD_MERGE),
+        "duplicate field": (_rules(_FROM_MEMBER, _MAJORITY, _FROM_MEMBER), _CANNOT_REBUILD_MERGE),
+        "bad normalize": (
+            _rules({"field": "a", "rule": "majority", "normalize": "lower"}),
+            "FieldRule normalize must be 'text' or 'numeric', not 'lower'",
+        ),
+        "bad field name": (
+            _rules({"field": "1a", "rule": "max"}),
+            "Merge field name '1a' must start with a letter",
+        ),
+        "no fields": (_rules(), "Merge needs at least one field"),
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_merge_edits()))
+def test_a_merge_spec_edited_by_hand_is_refused(name: str) -> None:
     merge = sf.Merge(
         fields={"a": sf.FieldRule.from_member(2), "b": sf.FieldRule.majority(normalize="text")}
     )
-    spec: dict[str, Any] = dict(
-        decode_combine_spec(combine_spec_text(merge, member_count=3, operators=flow_operators()))
-    )
+    spec = _spec_of(merge)
     assert sf.Merge._from_spec(spec) == merge
-    assert (merge._kind, sf.Pick("a", order="max")._kind) == ("answer", "answer")
+    assert merge._kind == "answer"
+    edit, message = _merge_edits()[name]
 
-    def fields(*rules: Any) -> dict[str, Any]:
-        return {"reduce": {"op": "field_rules@1", "args": {"fields": list(rules)}}}
-
-    from_member = {"field": "a", "rule": "from_member", "member": "member_2"}
-    edits = {
-        "weights": {"weights": {"member_1": 1.0, "member_2": 1.0, "member_3": 1.0}},
-        "no extract": {"extract": None},
-        "other extract": {"extract": {"op": "whole@1", "args": {}}},
-        "normalizer": {"normalize": {"op": "text@1", "args": {}}},
-        "other select": {"select": {"op": "first_holder@1", "args": {}}},
-        "extra reduce arg": {"reduce": {"op": "field_rules@1", "args": {"fields": [], "x": 1}}},
-        "fields not a list": {"reduce": {"op": "field_rules@1", "args": {"fields": {}}}},
-        "rule not an object": fields("majority"),
-        "unknown rule": fields({"field": "a", "rule": "median"}),
-        "rule with a stray key": fields({"field": "a", "rule": "max", "normalize": None}),
-        "member not an id": fields({**from_member, "member": "2"}),
-        "member zero": fields({**from_member, "member": "member_0"}),
-        "bad normalize": fields({"field": "a", "rule": "majority", "normalize": "lower"}),
-        "bad field name": fields({"field": "1a", "rule": "max"}),
-        "other reducer": {"reduce": {"op": "mode@1", "args": {}}},
-    }
-    for name, edit in edits.items():
-        with pytest.raises(ValueError, match="cannot rebuild|must be|Merge field name"):
-            sf.Merge._from_spec({**spec, **edit})
-        assert name
+    with pytest.raises(ValueError, match=message):
+        sf.Merge._from_spec({**spec, **edit})
 
 
 def test_a_writer_for_another_field_is_refused() -> None:

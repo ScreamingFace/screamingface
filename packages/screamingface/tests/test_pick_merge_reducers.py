@@ -7,17 +7,17 @@ build the Fusion, before any call is made.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
-from _combine_flow_fixtures import flow_operators, members3
+from _combine_flow_fixtures import FLOW_OPERATOR_WIRE, flow_operators, members3
 from test_judge_reducer import _calls_by_name, _sources
 from url4 import RelExpr, Text
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import decode_combine_spec
+from screamingface._evaluation.operators import decode_operator_catalog
 
 
 def _spec_of(recipe: sf.Recipe) -> dict[str, Any]:
@@ -120,14 +120,38 @@ def test_merge_and_pick_validate_arguments() -> None:
         sf.Merge(fields=[("a", majority)])  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Merge needs at least one field"):
         sf.Merge(fields={})
-    for bad in ("", "1a", "a b", "a.b", "a" * 65, "é"):
-        with pytest.raises(ValueError, match="Merge field name"):
-            sf.Merge(fields={bad: majority})
     with pytest.raises(ValueError, match="Merge takes at most 64 fields"):
         sf.Merge(fields={f"f{index}": majority for index in range(65)})
     assert len(sf.Merge(fields={f"f{index}": majority for index in range(64)}).fields) == 64
     with pytest.raises(TypeError, match="Merge field 'a' must be a FieldRule"):
         sf.Merge(fields={"a": "majority"})  # type: ignore[dict-item]
+
+
+@pytest.mark.parametrize("name", ["", "1a", "a b", "a.b", "a" * 65, "é"])
+def test_merge_refuses_a_bad_field_name(name: str) -> None:
+    with pytest.raises(ValueError, match="Merge field name .* must start with a letter"):
+        sf.Merge(fields={name: sf.FieldRule.majority()})
+
+
+@pytest.mark.parametrize("path", ["", "a.", ".a", "a[01]", "a b", "$a", "a" * 257])
+def test_pick_refuses_a_bad_field_path(path: str) -> None:
+    with pytest.raises(ValueError, match="Pick field .* must be a JSON path"):
+        sf.Pick(path, order="max")
+
+
+def test_pick_refuses_targets_the_engine_would_only_refuse_after_the_member_calls() -> None:
+    for blank in ("", "  ", "\n"):
+        with pytest.raises(ValueError, match="Pick equals must not be blank"):
+            sf.Pick("a", equals=blank)
+    with pytest.raises(ValueError, match="Pick equals must not be blank"):
+        sf.Pick("a", equals="", normalize="text")
+    for flag in (True, False):
+        with pytest.raises(ValueError, match="cannot be compared with normalize='numeric'"):
+            sf.Pick("a", equals=flag, normalize="numeric")
+    # a bool without the numeric normalizer, and a number with it, are fine
+    sf.Pick("a", equals=True)
+    sf.Pick("a", equals=True, normalize="text")
+    sf.Pick("a", equals=7, normalize="numeric")
 
 
 def test_pick_validates_its_arguments() -> None:
@@ -143,9 +167,6 @@ def test_pick_validates_its_arguments() -> None:
         sf.Pick("confidence", order="max", normalize="numeric")
     with pytest.raises(ValueError, match="Pick normalize must be 'text' or 'numeric'"):
         sf.Pick("confidence", equals="x", normalize="lower")  # type: ignore[arg-type]
-    for bad_path in ("", "a.", ".a", "a[01]", "a b", "$a", "a" * 257):
-        with pytest.raises(ValueError, match="Pick field"):
-            sf.Pick(bad_path, order="max")
     with pytest.raises(TypeError, match="Pick field must be a string"):
         sf.Pick(3, order="max")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="Pick equals must be a string, number or boolean"):
@@ -249,15 +270,10 @@ def test_pick_specs() -> None:
     for given, written in ((7, "7"), (1.5, "1.5"), (True, "true"), (False, "false")):
         selected = spec(sf.Pick("n", equals=given))["select"]
         assert selected["args"]["value"] == written
-    assert json.dumps(1e20) == "1e+20"
     assert spec(sf.Pick("n", equals=1e20))["select"]["args"]["value"] == "1e+20"
 
 
 def test_pick_pins_its_normalizer_even_when_the_catalog_has_a_newer_version() -> None:
-    from _combine_flow_fixtures import FLOW_OPERATOR_WIRE
-
-    from screamingface._evaluation.operators import decode_operator_catalog
-
     data = list(FLOW_OPERATOR_WIRE["data"])  # type: ignore[call-overload]
     newer = {**next(item for item in data if item["id"] == "numeric@1")}
     newer.update(id="numeric@2", version=2)
@@ -322,8 +338,6 @@ def test_merge_without_model_fields_is_one_combine_call() -> None:
 
 
 def test_a_catalog_without_the_field_operators_fails_before_any_call() -> None:
-    from screamingface._evaluation.operators import decode_operator_catalog
-
     empty = decode_operator_catalog({"object": "list", "data": []})
 
     with pytest.raises(ValueError, match="unknown extract operator 'json_field'"):
