@@ -62,9 +62,12 @@ jobs:
       - name: Typecheck
         run: uv run pyright
 
+      # `-n auto --dist worksteal`: same flags and same reason as the gate line in
+      # .claude/sdlc.local.md (OME-1444) — one worker per runner core.
       - name: Test and coverage
         run: |
           uv run pytest \
+            -n auto --dist worksteal \
             --tb=short \
             --junitxml=results.xml \
             --cov=screamingface \
