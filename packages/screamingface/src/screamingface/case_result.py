@@ -16,6 +16,7 @@ from screamingface._report_primitives import (
     _nonblank_text,
     _nonempty_text,
 )
+from screamingface.combine_evidence import CombineEvidence
 from screamingface.operation_accounting import OperationAccounting
 
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
@@ -294,6 +295,7 @@ class CaseOperation:
     output: str | None
     finish_reason: str | None
     accounting: OperationAccounting | None = None
+    combine: CombineEvidence | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -309,9 +311,11 @@ class CaseOperation:
             )
         if self.accounting is not None and not isinstance(self.accounting, OperationAccounting):
             raise TypeError("Case Operation accounting must be an sf.OperationAccounting or None")
+        if self.combine is not None and not isinstance(self.combine, CombineEvidence):
+            raise TypeError("Case Operation combine must be an sf.report.CombineEvidence or None")
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        selected: dict[str, object] = {
             "operation_id": self.operation_id,
             "output": self.output,
             "finish_reason": self.finish_reason,
@@ -319,6 +323,11 @@ class CaseOperation:
             # a reader can tell "no accounting retained" from "older payload".
             "accounting": None if self.accounting is None else self.accounting.to_dict(),
         }
+        # INVARIANT: absence stays absence — the Engine leaves `combine` out for every
+        # operation that is not a deterministic combine, so the export does too.
+        if self.combine is not None:
+            selected["combine"] = self.combine.to_dict()
+        return selected
 
 
 @dataclass(frozen=True, slots=True)

@@ -14,6 +14,7 @@
       "Connection",
       "ConnectionPanel",
       "CorrectiveLoop",
+      "EngineCapabilityError",
       "EngineUnavailableError",
       "EvaluationWarning",
       "Event",
@@ -280,6 +281,19 @@
           "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
         }
       },
+      "EngineCapabilityError": {
+        "catches_as": [
+          "PlanningError",
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, trace_id: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
       "EngineUnavailableError": {
         "catches_as": [
           "ScreamingFaceError",
@@ -368,7 +382,7 @@
       "Fusion": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe', quorum: \"int | Literal['all']\" = 'all', optional: 'bool' = False) -> 'None'",
+          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, synthesizer: 'str | Recipe | Reducer', quorum: \"int | Literal['all']\" = 'all', optional: 'bool' = False) -> 'None'",
           "members": "field",
           "name": "field",
           "optional": "field",
@@ -1084,6 +1098,7 @@
       "CaseGrade",
       "CaseResult",
       "Check",
+      "CombineEvidence",
       "Evidence",
       "EvidenceProducer",
       "Failure",
@@ -1180,6 +1195,28 @@
           "score": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "type": "field"
+        }
+      },
+      "CombineEvidence": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineMemberReading]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None) -> 'None'",
+          "agreement": "field",
+          "built": "field",
+          "chosen": "field",
+          "fields": "field",
+          "finish_reason": "field",
+          "judge": "field",
+          "kind": "field",
+          "median": "field",
+          "members": "field",
+          "operators": "field",
+          "presentation_order": "field",
+          "reducer": "field",
+          "separator_collision": "field",
+          "tally": "field",
+          "tie": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },
       "Evidence": {

@@ -49,7 +49,6 @@ from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
-from screamingface.reducer import Reducer
 from screamingface.report import (
     CandidateResult,
     CaseGrade,
@@ -122,7 +121,6 @@ __all__ = [
     "Pipeline",
     "ProviderConnectionError",
     "Recipe",
-    "Reducer",
     "Report",
     "Reproduction",
     "ReproductionOutcome",

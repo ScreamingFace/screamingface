@@ -10,6 +10,7 @@ from typing import Literal, cast
 
 from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY, SCORES_KEY
 from screamingface._core.ports import _RunOutcome
+from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._evaluation.operation_accounting import decode_operation_accounting
 from screamingface._report_primitives import CaseId
@@ -461,9 +462,11 @@ def _case_operation(value: object) -> CaseOperation:
     _keys(
         raw,
         required={"operation_id", "output", "finish_reason", "accounting"},
+        optional={"combine"},
         label="Case Operation",
     )
     finish_reason_value = raw.get("finish_reason")
+    combine = decode_combine_evidence(raw.get("combine"), "Case Operation combine")
     try:
         return CaseOperation(
             operation_id=_nonempty_text(raw.get("operation_id"), "Case Operation operation_id"),
@@ -476,6 +479,7 @@ def _case_operation(value: object) -> CaseOperation:
             accounting=decode_operation_accounting(
                 raw.get("accounting"), "Case Operation accounting"
             ),
+            combine=combine,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Operation is invalid: {exc}") from exc
