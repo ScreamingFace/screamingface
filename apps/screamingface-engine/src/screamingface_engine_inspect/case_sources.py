@@ -212,7 +212,9 @@ class CaseSourceRecorder:
         import inspect_evals
         from datasets.download.download_manager import DownloadManager
 
-        self._package_root = Path(inspect_evals.__file__).resolve().parent
+        # WHY the guard: a module's __file__ is typed str | None (a namespace package has none).
+        package_file: str | None = inspect_evals.__file__
+        self._package_root = Path(package_file).resolve().parent if package_file else None
         primitives: tuple[Primitive, ...] = (
             *PRIMITIVES,
             Primitive("inspect_ai._util.file", "file", self._describe_file),
