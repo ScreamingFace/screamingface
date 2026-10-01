@@ -176,6 +176,7 @@ def _candidate_result(
             # OME-1326: the REPORTED sum only, the same one the status above reads. Never the
             # archive sum, and never the two added (OME-1251 D3).
             cache_saved_cost_usd=outcome.cache_saved_cost_usd,
+            cache_hits=outcome.cache_hits,
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
