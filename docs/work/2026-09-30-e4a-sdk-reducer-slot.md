@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-09-30
-finished:
+finished: 2026-10-01
 ---
 
 # e4a-sdk-reducer-slot — SDK reducer slot, operator catalog client and combine evidence (OME-1289, unit 4)
@@ -39,7 +39,15 @@ on this branch (unit 3 widens the engine pattern).
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** (filled at the end)
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus nothing unlisted. The engine plain data file is
+  `two_reducers_candidate.url4`; `binding_names.json` is unchanged from the base.
+- **Commits:** see `git log caaa882dd..HEAD` on branch `e4a-sdk-reducer-slot`.
+- **Gates:** `run_gates.py screamingface --base caaa882dd` with the append-only check: the only offender is
+  `tests/public_surface_snapshot.json` (expected). `--skip-append-only`: ruff, format and pyright green;
+  pytest red only on `test_engine_binding_pattern_matches_the_shared_fixture` (expected until unit 3 widens the
+  engine `_BINDING`) plus one load-dependent flake (`test_evaluation_outcome.py::test_a_callback_exception_aborts...`,
+  passes 5/5 alone). The pytest step with that one test deselected: 2182 passed, 26 skipped, coverage 96%.
+  `check_notebooks.py` and `uv build` green. `run_gates.py repo`: all green.
+- **Deviations:** `sf.Reducer` is NOT exported: the existing `tests/test_public_surface.py` lists `Reducer` among
+  names that must stay absent from `sf` (legacy alias guard), and existing tests are append-only. Goldens and the engine
+  fixture are read with `.removesuffix("\n")` because the end-of-file hook appends a newline to data files.

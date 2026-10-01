@@ -305,9 +305,11 @@ def _optional_flag(value: object, label: str) -> bool | None:
 
 
 def _presentation_order(value: object) -> Literal["author"] | None:
-    if value is not None and value != "author":
+    if value is None:
+        return None
+    if value != "author":
         raise ValueError("Combine evidence presentation_order must be 'author' or None")
-    return value
+    return "author"
 
 
 def _typed_tuple[T](values: object, kind: type[T], label: str) -> tuple[T, ...]:

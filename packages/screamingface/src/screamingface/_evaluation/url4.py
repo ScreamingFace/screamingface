@@ -11,6 +11,7 @@ from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunO
 from screamingface._evaluation.combine_spec import COMBINE_MODEL
 from screamingface._evaluation.model import (
     Candidate,
+    _candidate_kind,
     _canonical_url4,
     _compiled_candidate,
     _compiled_operation,
@@ -205,7 +206,7 @@ def _candidate_from_topology(
             _member_projection(
                 operation_id=f"op_{member.binding}",
                 name=member.name,
-                kind=member.kind,
+                kind=_candidate_kind(member.kind),
                 models=_models(member.binding, calls),
             )
             for member in topology.members
@@ -220,7 +221,7 @@ def _candidate_from_topology(
     )
     return _compiled_candidate(
         name=topology.name,
-        kind=topology.kind,
+        kind=_candidate_kind(topology.kind),
         models=models,
         url4=url4,
         operations=operations,

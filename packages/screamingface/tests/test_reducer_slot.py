@@ -8,6 +8,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, NoReturn
 
 import httpx
 import pytest
@@ -47,7 +48,7 @@ _VOTE_SPEC = (
 class _NeverRuns:
     called = False
 
-    def run(self, candidate: object, on_event: object) -> None:
+    def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("a reducer outside a Fusion slot must fail before execution")
 
@@ -67,7 +68,7 @@ def _client() -> sf.Client:
 
 
 def _misplaced() -> dict[str, Callable[[sf.Client], object]]:
-    reducer = FixtureVote()
+    reducer: Any = FixtureVote()
     return {
         "pipeline stage": lambda client: sf.Pipeline([reducer]),
         "fusion member": lambda client: sf.Fusion([reducer, "p/a"], synthesizer="p/s"),
@@ -86,7 +87,7 @@ def _sources(url4: str) -> dict[str, RelExpr]:
     return {
         node.name: node.value
         for node in root.sources
-        if isinstance(node, Source) and isinstance(node.value, RelExpr)
+        if isinstance(node, Source) and node.name is not None and isinstance(node.value, RelExpr)
     }
 
 
