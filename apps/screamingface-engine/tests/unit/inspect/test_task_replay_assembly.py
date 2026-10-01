@@ -16,7 +16,7 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
-from screamingface_engine.benchmarks.deployment import CHANGED_CASES_KEY  # noqa: E402
+from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # noqa: E402
 from screamingface_engine_inspect import benchmarks  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     BENCHMARK_CASES,
@@ -93,4 +93,4 @@ def test_an_assembled_task_replay_benchmark_names_itself_in_a_skip(
     assert bundle is not None
     summary = bundle.prepare(tmp_path / "out")
 
-    assert summary[CHANGED_CASES_KEY].startswith("gsm8k: inspect_evals.mgsm.mgsm:mgsm")
+    assert summary[UNCONFIRMED_CASES_KEY].startswith("gsm8k: inspect_evals.mgsm.mgsm:mgsm")

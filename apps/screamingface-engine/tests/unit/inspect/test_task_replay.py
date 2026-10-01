@@ -22,7 +22,7 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
-from screamingface_engine.benchmarks.deployment import CHANGED_CASES_KEY  # noqa: E402
+from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     SKIPPED_MARKER,
     TaskReplayCasesSpec,
@@ -201,7 +201,7 @@ def test_a_changed_digest_serves_nothing_and_names_the_reason(
     assert "f" * 64 in reason
     assert pinned.case_digest in reason
     assert summary["cases"] == 0
-    assert summary[CHANGED_CASES_KEY] == reason.strip()
+    assert summary[UNCONFIRMED_CASES_KEY] == reason.strip()
 
 
 def test_a_changed_case_count_serves_nothing(fake_eval: str, tmp_path: Path) -> None:
@@ -215,7 +215,7 @@ def test_a_changed_case_count_serves_nothing(fake_eval: str, tmp_path: Path) -> 
 
     summary = prepare_replayed_cases(spec, tmp_path / "out")
 
-    assert "3 Cases, pinned case count is 2" in summary[CHANGED_CASES_KEY]
+    assert "3 Cases, pinned case count is 2" in summary[UNCONFIRMED_CASES_KEY]
     assert not (tmp_path / "out" / "cases.json").exists()
 
 
@@ -224,7 +224,7 @@ def test_a_failed_fetch_serves_nothing(fake_eval: str, tmp_path: Path) -> None:
 
     summary = prepare_replayed_cases(spec, tmp_path / "out")
 
-    assert "upstream URL returned 404" in summary[CHANGED_CASES_KEY]
+    assert "upstream URL returned 404" in summary[UNCONFIRMED_CASES_KEY]
     assert not (tmp_path / "out" / "cases.json").exists()
 
 
@@ -266,7 +266,7 @@ def test_a_skipped_reason_is_one_line_naming_the_cause(fake_eval: str, tmp_path:
 
     summary = prepare_replayed_cases(spec, tmp_path / "out")
 
-    reason: str = summary[CHANGED_CASES_KEY]
+    reason: str = summary[UNCONFIRMED_CASES_KEY]
     assert reason.endswith("RuntimeError: upstream URL returned 404")
     assert "\n" not in reason
     assert "Traceback" not in reason
@@ -360,7 +360,7 @@ def test_a_truncated_result_file_is_a_named_skip_not_a_crash(odd_eval: str, tmp_
 
     summary = prepare_replayed_cases(spec, tmp_path / "out")
 
-    assert "unreadable result" in summary[CHANGED_CASES_KEY]
+    assert "unreadable result" in summary[UNCONFIRMED_CASES_KEY]
     assert (tmp_path / "out" / SKIPPED_MARKER).is_file()
     assert not (tmp_path / "out" / "cases.json").exists()
 
@@ -373,4 +373,4 @@ def test_a_skipped_reason_names_the_benchmark_first(fake_eval: str, tmp_path: Pa
 
     summary = prepare_replayed_cases(spec, tmp_path / "out", benchmark_key="arithmetic_demo")
 
-    assert summary[CHANGED_CASES_KEY].startswith("arithmetic_demo: ")
+    assert summary[UNCONFIRMED_CASES_KEY].startswith("arithmetic_demo: ")

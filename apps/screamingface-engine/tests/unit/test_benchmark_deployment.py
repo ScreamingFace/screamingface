@@ -17,7 +17,7 @@ from screamingface_engine.benchmarks import prepare as prepare_module
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT, BUILTIN_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
 from screamingface_engine.benchmarks.deployment import (
-    CHANGED_CASES_KEY,
+    UNCONFIRMED_CASES_KEY,
     BenchmarkAssetBundle,
     BenchmarkAssetPreparationError,
     BenchmarkAssetPreparerContractError,
@@ -684,19 +684,19 @@ def _without_comment_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
-# ── strict mode for changed Cases (OME-1273, spec R11) ───────────────────────
+# ── strict mode for unconfirmed Cases (OME-1273, spec R11) ───────────────────
 
 
-def _prepare_with_changed_cases(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two bundles skipped for changed Cases, one prepared normally."""
+def _prepare_with_unconfirmed_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two bundles skipped for unconfirmed Cases, one prepared normally."""
 
     summaries: dict[str, object] = {
         "inspect-agieval": {
             "cases": 0,
-            CHANGED_CASES_KEY: "agieval: Case Digest aaa does not match bbb",
+            UNCONFIRMED_CASES_KEY: "agieval: Case Digest aaa does not match bbb",
         },
         "inspect-gsm8k": {"cases": 1319},
-        "inspect-mgsm": {"cases": 0, CHANGED_CASES_KEY: "mgsm: replay timed out after 1800s"},
+        "inspect-mgsm": {"cases": 0, UNCONFIRMED_CASES_KEY: "mgsm: replay timed out after 1800s"},
     }
 
     def prepare(
@@ -719,8 +719,8 @@ def test_strict_mode_fails_after_preparing_everything_and_names_every_changed_bu
 ) -> None:
     """The PR that changed Cases can't merge, and its log lists all of them at once."""
 
-    _prepare_with_changed_cases(monkeypatch)
-    monkeypatch.setenv(prepare_module.FAIL_ON_CHANGED_CASES_ENV, "1")
+    _prepare_with_unconfirmed_cases(monkeypatch)
+    monkeypatch.setenv(prepare_module.FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES_ENV, "1")
 
     assert prepare_module.main(["--root", str(tmp_path)]) == 1
 
@@ -731,13 +731,13 @@ def test_strict_mode_fails_after_preparing_everything_and_names_every_changed_bu
     assert "inspect-mgsm: mgsm: replay timed out after 1800s" in captured.err
 
 
-def test_without_strict_mode_changed_cases_only_skip(
+def test_without_strict_mode_unconfirmed_cases_only_skip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Deployed images keep every other Benchmark when one Case Source breaks."""
 
-    _prepare_with_changed_cases(monkeypatch)
-    monkeypatch.delenv(prepare_module.FAIL_ON_CHANGED_CASES_ENV, raising=False)
+    _prepare_with_unconfirmed_cases(monkeypatch)
+    monkeypatch.delenv(prepare_module.FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES_ENV, raising=False)
 
     assert prepare_module.main(["--root", str(tmp_path)]) == 0
 
@@ -748,24 +748,25 @@ def test_only_the_pr_image_job_runs_strict() -> None:
         pytest.skip("engine checked out apart from the monorepo; the workflows are absent")
 
     pr_job = (workflows / "screamingface-engine-tests.yml").read_text(encoding="utf-8")
-    assert "SCREAMINGFACE_FAIL_ON_CHANGED_CASES=1" in pr_job
+    assert "SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES=1" in pr_job
     for deployed in ("dev-build-screamingface-engine.yml", "release-screamingface-engine.yml"):
         body = (workflows / deployed).read_text(encoding="utf-8")
-        assert "SCREAMINGFACE_FAIL_ON_CHANGED_CASES" not in body, deployed
+        assert "SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES" not in body, deployed
 
 
 def test_benchmark_image_forwards_strict_mode_into_case_preparation() -> None:
     body = (Path(__file__).parents[2] / "Dockerfile.benchmark").read_text(encoding="utf-8")
 
-    assert "ARG SCREAMINGFACE_FAIL_ON_CHANGED_CASES=" in body
-    assert 'SCREAMINGFACE_FAIL_ON_CHANGED_CASES="$SCREAMINGFACE_FAIL_ON_CHANGED_CASES"' in body
+    assert "ARG SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES=" in body
+    switch = "SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES"
+    assert f'{switch}="${switch}"' in body
 
 
 def test_strict_mode_ignores_a_gated_benchmark_skipped_for_want_of_a_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """WHY: fork and Dependabot PR builds get no Hugging Face secret, so gated Benchmarks
-    (xstest) are skipped there on purpose; strict mode must fail only on changed Cases."""
+    (xstest) are skipped there on purpose; strict mode must fail only on unconfirmed Cases."""
 
     summaries: dict[str, object] = {
         "inspect-xstest_safe": {"cases": 0, "skipped": "gated dataset, no Hugging Face token"},
@@ -783,6 +784,6 @@ def test_strict_mode_ignores_a_gated_benchmark_skipped_for_want_of_a_token(
         return summaries
 
     monkeypatch.setattr(prepare_module, "prepare_builtin_assets", prepare)
-    monkeypatch.setenv(prepare_module.FAIL_ON_CHANGED_CASES_ENV, "1")
+    monkeypatch.setenv(prepare_module.FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES_ENV, "1")
 
     assert prepare_module.main(["--root", str(tmp_path)]) == 0

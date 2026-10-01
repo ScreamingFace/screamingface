@@ -87,3 +87,10 @@ PR image job runs strict and fails on any changed Cases. Covers spec R5, R9, R10
   leading the reason, and an assembled Benchmark naming itself. `run_gates.py` is all green.
   The PR's Known limitations now spell out that a short upstream outage during a main
   build ships the board as unavailable, with only a WARNING line in the build log.
+- **Strict switch renamed (owner decision, 2026-10-01):** `SCREAMINGFACE_FAIL_ON_CHANGED_CASES`
+  is now `SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES`, and the summary key
+  `changed_cases` is now `unconfirmed_cases`. WHY: the old name said neither what fails (the
+  Benchmark image build) nor the real condition. A dead URL or a timeout trips it too, and those
+  Cases did not change; they could not be confirmed. The rename edits three earlier test files,
+  so `run_gates.py` ran with the owner-approved `--skip-append-only`; every other gate is green.
+  The merged plan doc keeps the old name as history; spec R11 carries the new one.

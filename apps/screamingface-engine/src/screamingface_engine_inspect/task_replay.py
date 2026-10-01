@@ -39,7 +39,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine.benchmarks.deployment import CHANGED_CASES_KEY
+from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
 from screamingface_engine_inspect.prepare import (
     SKIPPED_MARKER,
     PreparedCase,
@@ -169,7 +169,7 @@ def prepare_replayed_cases(
 
     Stage 5 of the module docstring. Any refusal or replay failure writes the SKIPPED marker
     instead of Cases, so one broken Case Source never takes the other Benchmarks in the image
-    down with it (spec R10); the strict prepare CLI then fails on ``CHANGED_CASES_KEY``.
+    down with it (spec R10); the strict prepare CLI then fails on ``UNCONFIRMED_CASES_KEY``.
 
     Example: Benchmark ``mgsm_en`` pinned ``case_count=2``; the task now yields 3 Cases →
     SKIPPED, reason "mgsm_en: inspect_evals.mgsm.mgsm:mgsm: the task yielded 3 Cases, pinned
@@ -183,7 +183,7 @@ def prepare_replayed_cases(
 
     Returns:
         The summary: ``cases`` and ``case_digest`` on success; on a skip, ``cases`` 0 plus
-        ``skipped`` and ``CHANGED_CASES_KEY`` carrying the reason.
+        ``skipped`` and ``UNCONFIRMED_CASES_KEY`` carrying the reason.
     """
 
     try:
@@ -204,7 +204,7 @@ def prepare_replayed_cases(
         print(f"WARNING: skipping {reason}", file=sys.stderr, flush=True)
         out.mkdir(parents=True, exist_ok=True)
         (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
-        return {"cases": 0, "skipped": reason, CHANGED_CASES_KEY: reason, "out": str(out)}
+        return {"cases": 0, "skipped": reason, UNCONFIRMED_CASES_KEY: reason, "out": str(out)}
     _write_cases(prepared, out)
     return {"cases": len(prepared), "case_digest": digest, "out": str(out)}
 

@@ -200,7 +200,7 @@ fetch happen.
   existing `SKIPPED` marker with a reason naming the Benchmark and the expected and actual
   values, writes no Cases, and moves on to the next Benchmark. At run time the Benchmark answers
   with the existing benchmark-unavailable error, carrying that reason.
-- **R11. Strict image job.** With `SCREAMINGFACE_FAIL_ON_CHANGED_CASES=1`, Case Preparation
+- **R11. Strict image job.** With `SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES=1`, Case Preparation
   still writes every marker, then exits non-zero and lists every Benchmark it skipped for R10.
   Only the PR image job (`screamingface-engine-tests.yml`, job `image`) sets it (owner-approved,
   2026-09-30).
