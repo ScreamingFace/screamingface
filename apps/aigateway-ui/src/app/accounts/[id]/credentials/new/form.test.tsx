@@ -145,11 +145,12 @@ describe("the rest of the form", () => {
     expect(hidden).toHaveValue("acct-1");
   });
 
-  it("names the default profile and explains what the name is for", () => {
+  it("keeps the legacy default name without presenting it as a request selector", () => {
     renderFields();
 
     expect(screen.getByLabelText(/profile name/i)).toHaveValue("default");
-    expect(screen.getByText(/X-Profile/)).toBeInTheDocument();
+    expect(screen.queryByText(/X-Profile/)).not.toBeInTheDocument();
+    expect(screen.getByText(/effective credential for this account and provider/i)).toBeInTheDocument();
   });
 
   it("speaks a failure with no control of its own at the top of the form", () => {
