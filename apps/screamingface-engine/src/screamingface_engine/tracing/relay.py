@@ -80,9 +80,17 @@ class SpanRelay(EventPublisher):
     remember to unset.
     """
 
-    def __init__(self, inner: EventPublisher, sink: SpanSink | None) -> None:
+    def __init__(
+        self, inner: EventPublisher, sink: SpanSink | None, *, traceparent: str | None = None
+    ) -> None:
         self._inner = inner
         self._sink = sink
+        # FEATURE (OME-1218): the traceparent this run was HANDED (`job_env.TRACEPARENT`). Its
+        # parent-id is the span that accepted the run, and `url4.run` is that span's child
+        # (owner decision, option 1). WHY it is handed in rather than read off the wire:
+        # `lifecycle.run` adopts the trace id but mints its own root span id and drops the
+        # handed parent-id, so no frame ever states it.
+        self._handed = identity_of(traceparent)
         self._trace_id: str | None = None
         self._root_span_id: str | None = None
         self._started_at: datetime | None = None
@@ -202,7 +210,7 @@ class SpanRelay(EventPublisher):
             Span(
                 trace_id=self._trace_id,
                 span_id=self._root_span_id,
-                parent_span_id=None,
+                parent_span_id=self._root_parent(),
                 name=ROOT_SPAN_NAME,
                 operation="run",
                 start_time=self._started_at,
@@ -211,6 +219,18 @@ class SpanRelay(EventPublisher):
                 attributes={"url4.topic": topic, "url4.run.status": event.data.status},
             )
         )
+
+    def _root_parent(self) -> str | None:
+        """The handed span, when it is in THIS run's trace; otherwise none.
+
+        INVARIANT: never a parent from another trace. `lifecycle.run` adopts the handed trace
+        id, so the two always agree when the hand-off worked; when they do not, a cross-trace
+        parent pointer would dangle in every backend, which is worse than a root.
+        """
+        if self._handed is None:
+            return None
+        trace_id, span_id = self._handed
+        return span_id if trace_id == self._trace_id else None
 
     def _emit(self, span: Span) -> None:
         """Hand one span to the sink, resolving an implicit parent to the run's root.
