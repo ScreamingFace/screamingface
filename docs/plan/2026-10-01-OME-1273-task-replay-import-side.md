@@ -97,7 +97,9 @@ plan covers R1–R7 and R13–R17, and amends the spec where the recon below con
    own). Pinned in Task 3 (`test_a_wrapped_mcq_solver_is_still_mcq_by_its_choice_scorer`).
 8. **The `dataset_url` must be a web URL.** `BenchmarkSpec` refuses anything but an absolute
    http(s) URL (`definition.py:238`), so a `hugging-face` Case Source renders as
-   `https://huggingface.co/datasets/<repo>` and a `file` one renders no `dataset_url`. Pinned
+   `https://huggingface.co/datasets/<repo>`. `dataset_url` is a required field, so when no
+   Case Source has a web page the row writes `dataset_url="TODO"` with a review note, refused
+   at registration like the difficulty tier. Pinned
    in Task 6 (`test_task_replay_benchmark_row_builds_for_a_hugging_face_source`).
 
 A sixth fact the plan leans on: `case_records` numbers Cases 1..N itself (`prepare.py:906`),
@@ -107,6 +109,17 @@ reads the Sample ids the child reports, and the grading tests write Cases with i
 ---
 
 ## PR 3 — the import side (branch `OME-1273-task-replay-import`)
+
+> **As built (2026-10-01).** Three places differ from the tasks below; the ledger records why.
+> (1) The renderers and the license lookup live in a new module, `task_replay_rows.py`
+> (`render_task_replay_rows`, `write_task_replay_rows`, `card_license_of`), not in
+> `importer.py`: it keeps the 1,600-line importer from growing and removes the import cycle,
+> so `importer.py` imports `TaskReplayImport` for typing only. Their tests are in
+> `test_task_replay_rows.py`. (2) A Case Source comment is two lines (`CaseSource.comment_lines`:
+> what was fetched, then the pin), so a long URL never breaks the 100-column gate the
+> generated file must pass. (3) The recorder binds each call to the primitive's own
+> signature, so a positional or keyword argument describes the same way (`_download_remote`'s
+> parameter is `remote_url`).
 
 ### Task 0: Ledger
 
@@ -1899,8 +1912,8 @@ rendered text, assert it equals the input.
 
 **The `dataset_url` line (Review Focus 8)** comes from `_dataset_url(source)`:
 `hugging-face` → `https://huggingface.co/datasets/<repo id>` (the repo id helper is shared
-with Task 7's license lookup), `url` → the location, `file` → `None` and the line is left
-out. Pinned by `test_task_replay_benchmark_row_builds_for_a_hugging_face_source`, which
+with Task 7's license lookup), `url` → the location, `file` → `None`; the row takes the first
+browsable source, else `"TODO"` with a review note (the field is required). Pinned by `test_task_replay_benchmark_row_builds_for_a_hugging_face_source`, which
 `exec`s the rendered BenchmarkSpec row against the real `BenchmarkSpec`.
 
 **`keep_sample_metadata`** renders as `        keep_sample_metadata=True,` when the

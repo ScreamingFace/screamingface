@@ -30,7 +30,7 @@ build.** The importer refuses 34 packages because it can't see where their Cases
 - the Cases come from GitHub or another URL (agieval, mgsm)
 - the Cases ship as a file inside `inspect_evals` (persistbench)
 - several fetches happen and none is clearly the Cases, or a converter is written inside the task (chembench, DROP, pre_flight)
-- an upstream bug at 0.20.0 gets in the way (bbh)
+- the importer's own stand-in Sample crashed the eval (bbh, personality, sciknoweval)
 
 The change: we fetch the Cases the way Inspect does, by calling the eval's own task function.
 Building its Task makes the eval load its dataset, which is the fetch we want. Each Case's text
@@ -199,6 +199,10 @@ fetch happen.
   | `inspect_ai.util.download` (URL + sha256) | mgsm |
   | `inspect_evals.utils.load_dataset._download_remote` | `load_json_dataset`, `load_csv_dataset` (agieval) |
   | `inspect_ai._util.file.file` | `json_dataset`, `csv_dataset`, `file_dataset` reading a path (persistbench) |
+  | `datasets.DownloadManager.download` | loader-script builders fetching extra URLs (piqa) |
+
+  (Amended 2026-10-01: the recon found piqa's builder fetching two unpinned URLs through
+  `DownloadManager`, which the five rows above never see.)
 
   The wrap rebinds every loaded module attribute that is the same function object.
 - **R4. Import refusals, each by name.** The task raises; it yields no Samples; it yields
@@ -212,15 +216,19 @@ fetch happen.
 - **R6. Generated declaration.** A Task-replay Imported Benchmark gets its own declaration
   type, not new optional fields on `CasesSpec`, because none of `CasesSpec`'s dataset-pin fields
   apply. It carries the task reference and args, the Case count, the Case Digest, and a licence
-  field; no prompt fields, because the eval's own solvers render the prompt (R2, amended
-  2026-10-02). The importer writes each Case Source
-  above it as a comment, and the licence as `TODO`. Where upstream supplied no hash, the comment
+  field (`license` in code); no prompt fields, because the eval's own solvers render the prompt
+  (R2, amended 2026-10-02). The importer writes each Case Source above it as a comment, and the
+  licence as `TODO` unless the one Hugging Face card names a cleared licence (amended
+  2026-10-01: an uncleared card value such as medqa's `unknown` is written as `TODO` with the
+  card's value in the review note, so R7 still fires). Where upstream supplied no hash, the comment
   says the Case Digest is the only pin.
 - **R7. Licence gate.** A test refuses any Task-replay declaration whose licence is still `TODO`,
   next to the existing test that refuses unfinished catalogue prose
   (`test_inspect_imported_benchmarks.py`). The owner decides each licence; a Case Source with no
   Hugging Face dataset card has no licence the importer can read.
-- **R8. Scorer lookup in helper files.** Scorer lookup searches the eval package's loaded
+- **R8. Scorer lookup in helper files. Dropped (2026-10-01):** bbeh's scorer is in its task
+  file, and livebench re-exports its scorer into its task file and leaves the 14 (see R13).
+  The original text, kept for history: Scorer lookup searches the eval package's loaded
   modules, as template lookup already does (`_template_attribute`), and accepts a match only if
   it is the same object the Task holds. bbeh and livebench need this.
 
@@ -249,7 +257,7 @@ fetch happen.
   model weights, tokenizers or data files), and any model call it makes (a Judge, in later
   tickets) goes through the AI gateway, never to the internet directly. Run pods read the
   prepared Cases from the image and never call the task function.
-- **R17. Enforced per Benchmark.** In the import PRs (Delivery, steps 5 and 6), each new
+- **R17. Enforced per Benchmark.** In the import PRs (Delivery, steps 4 and 5), each new
   Benchmark's grading test runs with outbound network blocked inside that test (localhost
   still allowed), so a scorer that tries to download fails in CI instead of in prod. We can
   block all of it because **the 14 Benchmarks in this ticket are all graded without a Judge**:
@@ -271,21 +279,26 @@ fetch happen.
   | mgsm | URL + upstream sha256 | numeric match | — |
   | bbq | Hugging Face + loader script | choice | — |
   | piqa | Hugging Face; loader script fetches unpinned URLs | choice | the Case Digest is its only pin |
-  | bbeh | Hugging Face, from a helper file | own scorer in a helper file | needs R8 |
+  | bbeh | Hugging Face, from a helper file | own scorer in its task file | — |
   | cybermetric | GitHub commit + sha256 | choice | 4 tasks |
-  | worldsense | GitHub commit + sha256 | pattern match | — |
-  | sad | GitHub commit + sha256 | lenient multiple choice | 5 tasks |
-  | livebench | Hugging Face, helper file, one revision per category | own scorer | needs R8 + its git dependency in the image |
+  | worldsense | GitHub commit + sha256 | pattern match | `shuffle=False` task arg |
+  | sad | GitHub commit + sha256 | lenient multiple choice; `seed` task arg pins its choice order | 5 tasks |
   | sevenllm | Hugging Face file URL at a commit | choice | multiple-choice tasks only |
-  | cyberseceval_4 | GitHub commit, some with sha256 | per task | deterministically graded tasks only |
+  | cyberseceval_4 | GitHub commit, some with sha256 | per task | mitre_frr, malware_analysis, threat_intelligence only (the rest need a Judge or semgrep) |
   | pre_flight | Hugging Face; Case fields declared inline | choice | — |
-  | chembench | Hugging Face, 9 fetches | own scorer | — |
+  | chembench | Hugging Face, 9 fetches | own scorer | `shuffle=False` task arg |
+
+  livebench: out (amended 2026-10-01); it needs its git dependency in the image and downloads
+  nltk data inside its scorer (R17).
 
   The other 20 packages' destinations (Judge tickets, OME-1419, OME-1268, OME-1271, upstream
   issues) live in OME-1273's table. Here they only need to become fetchable, or to carry a named
   reason.
-- **R14. Upstream issues.** We draft the four upstream issues (bbh, personality, sciknoweval,
-  novelty_bench); the owner posts them.
+- **R14. Upstream notes** (amended 2026-10-01). The four "upstream bug" refusals were ours
+  (three from the stand-in Sample) or a missing optional dependency (novelty_bench's torch).
+  Two optional hygiene notes live in PR 5b's ledger; the owner decides whether to post them.
+  bbh, personality_TRAIT and sciknoweval are re-checked under Task replay after PR 3, through
+  the importer's `--task-replay` flag.
 - **R15. Glossary.** `CONTEXT.md` gains **Case Source** and **Case Digest**, and Case
   Preparation now reads "from its pinned Case Sources" instead of "at a pinned dataset revision".
 
@@ -308,10 +321,11 @@ fetch happen.
    and the strict switch with its one CI line, the revision pins (R5, R9-R12). Tested with a hand-written declaration.
 3. Import side: routing, the recorder, the double run, the generated declaration and the licence
    gate (R1-R7).
-4. Scorer lookup in helper files (R8), split out so PR 3 stays under the cap.
-5. agieval, medqa, mgsm, each with its no-network grading test (R17).
-6. The other 11, each with its no-network grading test (R17), plus the four upstream issue
-   drafts (R14).
+4. agieval, medqa, mgsm_en, each with its no-network grading test (R17).
+5. a. The six plain packages; b. the five with extra wiring, plus the upstream notes (R14). Each
+   Benchmark with its no-network grading test (R17).
+
+(Amended 2026-10-01: R8 dropped, so the old step 4 is gone and the 11 split in two for size.)
 
 A plan in `docs/plan/` follows this spec's approval and fixes each PR's file list and tests.
 

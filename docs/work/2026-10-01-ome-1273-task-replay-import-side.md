@@ -1,9 +1,9 @@
 ---
 ticket: OME-1273
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-01
-finished:
+finished: 2026-10-01
 ---
 
 # ome-1273-task-replay-import-side — the importer imports an eval by Task replay
@@ -51,7 +51,34 @@ run through the image-side path), and write the `TaskReplayCasesSpec` declaratio
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `src/screamingface_engine_inspect/task_replay_rows.py` and
+  `tests/unit/inspect/test_task_replay_rows.py` (the renderers and the license lookup, moved out
+  of `importer.py`); `CONTEXT.md` gains **Task replay**.
+- **Commits:** 4b7ace92 no_network fixture · 68ab82c6 Case Source recorder · e01cac1f import
+  child · 8537ef33 the four routes · 5b3f8c4d double run and R4 refusals · 4f332443 generated
+  declaration · 9f140152 CLI path and license rule · then the docs commit (spec amendments,
+  glossary, mirror progress, this outcome).
+- **Gates:** `run_gates.py screamingface-engine` → ALL GATES GREEN (append-only, ruff, format,
+  pyright, layering, pytest with coverage ≥ 80); `tests/unit/inspect` 603 passed;
+  `test_published_revisions.py` unchanged and green.
 - **Deviations:**
+  - Plan review folded in first (8e8b0bbb): D11 `keep_sample_metadata` for an eval's own scorer,
+    D12 `--task-replay`, D13 uncleared card license → TODO; task args render as Python, not
+    JSON (Review Focus 6); both MCQ witnesses (7); web `dataset_url` (8); recorder
+    `uninstall()`; id-less Samples never collide.
+  - Renderers in `task_replay_rows.py`, not `importer.py` (size, and no import cycle).
+  - Case Source comments are two lines (`comment_lines`) so generated files pass the
+    100-column gate; `as_comment()` is the one-line form the CLI prints.
+  - The recorder binds calls to each primitive's signature (`_download_remote` takes
+    `remote_url`, not `url` as the plan assumed).
+  - A `file`-only source writes `dataset_url="TODO"` (the field is required), not an omitted line.
+  - The plan's stand-in eval had two bugs, both fixed in the tests: inspect's `FieldSpec`
+    reads `choices` and `id` columns by default; MCQ targets must be letters.
+  - "No Samples": inspect's `Task` refuses an empty dataset first; its reason reaches the
+    importer intact, and our own check stays as a backstop.
+  - Gates ran once on the finished branch, not before each task's commit; each commit ran
+    ruff, format and pyright on its files plus its tests.
+  - The branch is ~2,570 lines (≈1,000 source, ≈1,500 tests), over the spec's ~500-line PR cap;
+    the owner decides the split before PR-open.
+- **Owner-verify:** run the importer for `agieval_lsat_ar` locally before PR 4 (the first real
+  fetch; nothing here touched the network).

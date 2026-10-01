@@ -225,6 +225,13 @@ The sha256 of an Imported Benchmark's prepared Cases, fixed at import and checke
 Preparation. A different digest means different Cases, so none are served.
 _Avoid_: Snapshot hash, checksum
 
+**Task replay**:
+Calling an eval's own task function in a child process with empty caches, so it fetches its
+Cases the way inspect would. It never calls inspect's `eval()`: no solver, scorer, model or
+Judge runs. The importer uses it when it cannot read the Case Sources off the task file, and
+Case Preparation uses it again at every image build, checking the Case Digest.
+_Avoid_: Running the eval, replaying the evaluation, replay alone
+
 **Coverage**:
 The share of a Benchmark's Cases that received a valid Case Grade, reported beside the score.
 _Avoid_: Completion rate
