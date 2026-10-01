@@ -63,6 +63,11 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         choices=("all", "gateway", "scoreboard", "engine", "supervisor"),
         default="all",
     )
+    logs.add_argument(
+        "--purge",
+        action="store_true",
+        help="Delete the rotated runtime logs and empty the live one, then exit",
+    )
     prepare = commands.add_parser("prepare", help="Download benchmark assets")
     _add_data_dir(prepare)
     prepare.add_argument("benchmark", nargs="?", choices=_BENCHMARKS)
@@ -118,7 +123,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
         elif args.command == "status":
             raise SystemExit(_print_status(config, json_output=args.json_output))
         elif args.command == "logs":
-            _logs(config, tail=args.tail, follow=not args.no_follow, service=args.service)
+            _logs_command(config, args)
         elif args.command == "doctor":
             raise SystemExit(_doctor(config))
         elif args.command == "prepare":
@@ -545,15 +550,30 @@ def _logs(  # noqa: C901, PLR0912, PLR0915
         stream.close()
 
 
-def _log_paths(path: Path) -> tuple[Path, ...]:
-    from screamingface._runtime.runtime_logging import LOG_BACKUPS
+def _logs_command(config: RuntimeConfig, args: argparse.Namespace) -> None:
+    if args.purge:
+        _purge_logs(config)
+        return
+    _logs(config, tail=args.tail, follow=not args.no_follow, service=args.service)
 
-    rotated = tuple(
-        candidate
-        for index in range(LOG_BACKUPS, 0, -1)
-        if (candidate := path.with_name(f"{path.name}.{index}")).exists()
-    )
-    return (*rotated, path)
+
+def _purge_logs(config: RuntimeConfig) -> None:
+    # FEATURE (OME-1048): the explicit, user-invoked remediation for prompt history written
+    # by versions before OME-990. Never automatic — that option was rejected because it
+    # destroys logs a user may want for debugging.
+    from screamingface._runtime.runtime_logging import purge_runtime_log
+
+    purged = purge_runtime_log(config.log_path)
+    if purged == 0:
+        print(f"no runtime log to purge at {config.log_path}")
+        return
+    print(f"purged {purged} runtime log file(s) at {config.log_path}")
+
+
+def _log_paths(path: Path) -> tuple[Path, ...]:
+    from screamingface._runtime.runtime_logging import _backup_paths
+
+    return (*_backup_paths(path), path)
 
 
 def _log_line_matches(line: str, service: str) -> bool:

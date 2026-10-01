@@ -39,7 +39,11 @@ from .core.parameter_discovery_cache import (
 )
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
-from .core.provider_access import ConnectionBackedCredentialAdmin, ConnectionBackedProviderAccess
+from .core.provider_access import (
+    ConnectionBackedCredentialAdmin,
+    ConnectionBackedProviderAccess,
+    SelectorPolicy,
+)
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -413,6 +417,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     credential_store = ORMStore()
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
+    # OME-1394: the selector sunset is configured once; HTTP boundaries consume this policy through
+    # ``selector_from_request`` and provider-access implementations never inspect it.
+    app.state.selector_policy = SelectorPolicy.REJECT_EXPLICIT
     # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
     # OME-1208 (Stage B, D14): the Connection-backed authority serves a pair whose marker is
     # `migrated` from its effective Connection and inherits the Profile-backed path for the rest.

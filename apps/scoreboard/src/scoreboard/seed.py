@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from .config import Settings
 from .db import close_db, init_db
+from .logs import configure as configure_logging
 from .scores.schemas import BenchmarkSchema, Visibility
 from .scores.store import ScoreStore
 
@@ -624,6 +625,8 @@ async def _run(
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    # WHY: the seed Job is its own process and never runs uvicorn (OME-937).
+    configure_logging()
     parser = _build_parser()
     args = parser.parse_args(argv)
     raw_json = args.benchmarks_json or os.getenv(SEED_BENCHMARKS_ENV, "[]")

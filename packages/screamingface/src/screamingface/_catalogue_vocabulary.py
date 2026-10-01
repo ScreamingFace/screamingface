@@ -17,5 +17,8 @@ from __future__ import annotations
 
 DECLARED_DIFFICULTY_TIERS: tuple[str, ...] = ("easy", "medium", "hard")
 DECLARED_INTERACTION_TYPES: tuple[str, ...] = ("single_shot", "multi_turn")
+#: The wire key of the refusal-rate mark (OME-1400) on the Benchmark resource, the
+#: catalogue entry and the run result — the engine's INVERTED_GRADE_KEY, letter for letter.
+INVERTED_GRADE_KEY: str = "inverted_grade"
 
 __all__: list[str] = []

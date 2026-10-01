@@ -38,7 +38,10 @@ screamingface logs --service engine --tail 100 --no-follow
 screamingface prepare --list
 ```
 
-Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. Benchmark
+Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. The log and
+its backups are readable only by you. Versions before `OME-990` wrote prompts into this log;
+`screamingface logs --purge` deletes the backups and empties the live log (it does not securely
+erase the disk blocks). Benchmark
 preparation records a versioned manifest, skips current assets, and supports `--force` when a
 fresh download is required.
 

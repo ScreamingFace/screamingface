@@ -55,9 +55,13 @@ class AigatewayCatalogSource:
         and malformed payloads map to ``CatalogBadResponse``; a timeout maps to
         ``CatalogUnavailable``.
         """
+        # INVARIANT (OME-1119/OME-1134): `traceparent=None`, stated rather than defaulted. This
+        # call is coalesced (`CachedCatalog._inflight`) and serves N callers, so no one caller's
+        # trace is honest here — see `_headers`' AIDEV-NOTE before changing it.
         response = await self._request(
             _CATALOG_PATH,
             credential,
+            traceparent=None,
             label="catalog",
             bad_response=CatalogBadResponse,
         )
@@ -75,12 +79,18 @@ class AigatewayCatalogSource:
         self,
         credential: Credential,
         model: str,
+        *,
+        traceparent: str | None = None,
     ) -> ModelParameterResponse:
-        """Fetch one detailed model contract for the caller's profile."""
+        """Fetch one detailed model contract for the caller's profile.
+
+        ``traceparent`` is the inbound request's (OME-1134): this call is one-to-one with it.
+        """
 
         response = await self._request(
             _MODEL_PARAMETERS_PATH,
             credential,
+            traceparent=traceparent,
             params={"model": model},
             label="model-parameter",
             bad_response=ModelParameterBadResponse,
@@ -97,8 +107,16 @@ class AigatewayCatalogSource:
         _validate_model_parameters(body, model)
         return ModelParameterResponse(status=response.status_code, content=response.content)
 
-    async def admit_model(self, credential: Credential, model: str) -> AdmissionAnswer:
+    async def admit_model(
+        self,
+        credential: Credential,
+        model: str,
+        *,
+        traceparent: str | None = None,
+    ) -> AdmissionAnswer:
         """Ask the gateway to dynamically admit ``model`` for this caller (OME-880).
+
+        ``traceparent`` is the asking request's (OME-1134); admission is never coalesced.
 
         Total by design — it never raises. Anything short of a well-formed
         admit/refuse answer (endpoint missing on an older gateway, transport
@@ -108,7 +126,9 @@ class AigatewayCatalogSource:
         body: object = None
         try:
             response = await self._client.post(
-                _ADMIT_PATH, json={"model_id": model}, headers=_headers(credential)
+                _ADMIT_PATH,
+                json={"model_id": model},
+                headers=_headers(credential, traceparent=traceparent),
             )
             if response.status_code == 200:
                 body = response.json(parse_constant=_reject_non_json_constant)
@@ -125,6 +145,7 @@ class AigatewayCatalogSource:
         path: str,
         credential: Credential,
         *,
+        traceparent: str | None,
         label: str,
         bad_response: type[CatalogBadResponse],
         params: dict[str, str] | None = None,
@@ -140,7 +161,9 @@ class AigatewayCatalogSource:
 
         for attempt in range(_TIMEOUT_ATTEMPTS):
             try:
-                return await self._client.get(path, params=params, headers=_headers(credential))
+                return await self._client.get(
+                    path, params=params, headers=_headers(credential, traceparent=traceparent)
+                )
             except httpx.TimeoutException as exc:
                 if attempt + 1 < _TIMEOUT_ATTEMPTS:
                     logger.warning("aigateway %s request timed out; retrying once", label)
@@ -205,8 +228,11 @@ def _reject_non_json_constant(value: str) -> Never:
     raise ValueError(f"{value} is not valid JSON")
 
 
-def _headers(credential: Credential) -> dict[str, str]:
+def _headers(credential: Credential, *, traceparent: str | None = None) -> dict[str, str]:
     """Build the upstream request headers from the credential's identity and profile.
+
+    ``traceparent``, when given, is sent as-is. It is an explicit argument, never read from an
+    ambient scope, so whether a call carries a trace is visible at its call site (OME-1134).
 
     INVARIANT: the gateway-owned header is written LAST, mirroring ``world.connector._headers`` —
     the identity mapping is not guaranteed to hold only identity keys, so no value in it can
@@ -215,8 +241,8 @@ def _headers(credential: Credential) -> dict[str, str]:
     No ``Authorization``: a deployed aigateway (``cloudflare_headers``) reads only the identity
     header, and a local one (``disabled``) reads nothing at all.
 
-    AIDEV-NOTE (OME-1119): this function carries NO ``traceparent``, and the three callers do not
-    all want that for the same reason — so do not "fix" it in one place.
+    AIDEV-NOTE (OME-1119, OME-1134): the three callers do not all want a ``traceparent``, and the
+    split is deliberate — so do not "fix" it in one place.
 
     - ``fetch`` genuinely must not carry one. ``CachedCatalog`` coalesces concurrent misses for a
       credential onto a single upstream fetch (``cache.py``'s ``_inflight``, typed
@@ -229,13 +255,14 @@ def _headers(credential: Credential) -> dict[str, str]:
     - ``fetch_model_parameters`` and ``admit_model`` are NOT coalesced — ``_inflight`` covers only
       ``fetch``, and ``CachedCatalog.model_parameter_source`` is documented as "the uncached detail
       source". ``rest/catalog.py`` calls the first straight from a route, one upstream call per
-      inbound request. Those two SHOULD carry the caller's traceparent; they do not yet, because
-      the value has to be threaded from the REST edge through ``catalog/executable.py`` rather than
-      taken from ``Credential`` — ``Credential`` holds a derived cache ``key``, so a per-request
-      field on it would give every request its own cache entry and destroy the catalog cache.
-      Tracked as ``OME-1134``.
+      inbound request. Those two carry the caller's traceparent (``OME-1134``), threaded as an
+      argument from the REST edge through ``catalog/executable.py`` — NEVER taken from
+      ``Credential``: it holds a derived cache ``key``, so a per-request field on it would give
+      every request its own cache entry and destroy the catalog cache.
     """
     headers = dict(credential.identity)
+    if traceparent is not None:
+        headers["traceparent"] = traceparent
     if credential.profile is not None:
         headers["X-Profile"] = credential.profile
     return headers

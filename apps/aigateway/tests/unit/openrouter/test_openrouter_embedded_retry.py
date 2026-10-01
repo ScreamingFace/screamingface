@@ -125,23 +125,22 @@ def test_embedded_overload_status_makes_exactly_one_upstream_call(
     assert _active_labels(authenticated_client, account_id) == ["work-or"]
 
 
-def test_embedded_401_makes_one_call_and_invalidates_only_selected_connection(
+def test_embedded_401_makes_one_call_and_invalidates_effective_connection(
     enabled_openrouter, fast_retries, credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     _create_connection(authenticated_client, "work-or")
-    _create_connection(authenticated_client, "backup-or")
 
     calls = {"n": 0}
     payload = {"id": "gen-e401", "choices": [], "error": {"code": 401, "message": "bad key"}}
     with patch("litellm.acompletion", _counting_payload_acompletion(payload, calls)):
-        resp = _post_chat(authenticated_client, profile="work-or")
+        resp = _post_chat(authenticated_client)
 
     assert calls["n"] == 1
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "auth_required"
-    # D9 local: only the selected connection flips to error.
-    assert _active_labels(authenticated_client, account_id) == ["backup-or"]
+    # D9 local: the effective connection flips to error.
+    assert _active_labels(authenticated_client, account_id) == []
 
 
 # --- Transport failures: the shared retry loop + validated Retry-After survive ---

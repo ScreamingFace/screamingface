@@ -2,12 +2,12 @@
 id: OME-906
 linear_url: https://linear.app/openmined/issue/OME-906
 asana_url:
-status: in_progress
+status: done
 type: task
 priority: 1
 labels: []
 created: 2026-08-20
-closed:
+closed: 2026-08-24
 ---
 
 # Cached DRACO evaluations overflow the Runner event bridge

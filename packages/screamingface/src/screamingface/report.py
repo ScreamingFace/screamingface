@@ -265,6 +265,10 @@ class CandidateResult:
     #
     # None means nothing priceable was observed, which is not zero.
     cache_saved_cost_usd: Decimal | None
+    # FEATURE (OME-1441, spec 2026-09-30-cached-run-not-complete): how many gateway round trips
+    # the response cache served. Local facts stay true (`usage`, `run_cost_status`); the
+    # submission reads this to refuse publishing a cached run's spend as its complete cost.
+    cache_hits: int
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
 
     def __init__(
@@ -291,9 +295,12 @@ class CandidateResult:
         trace_id: str | None = None,
         answer_seed: int | None = None,
         client_version: str | None = None,
+        cache_hits: int = 0,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
+        if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
+            raise ValueError("Candidate cache_hits must be a non-negative integer")
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
@@ -356,6 +363,7 @@ class CandidateResult:
             "usage": _usage(usage, "Candidate"),
             "run_cost_status": selected_status,
             "cache_saved_cost_usd": selected_saving,
+            "cache_hits": cache_hits,
             "_metric_items": metric_items,
         }
         for attribute, value in values.items():
@@ -416,6 +424,9 @@ class CandidateResult:
             "cache_saved_cost_usd": (
                 None if self.cache_saved_cost_usd is None else str(self.cache_saved_cost_usd)
             ),
+            # Always emitted: a reader of the export must be able to tell a cached run's spend
+            # from a real cost.
+            "cache_hits": self.cache_hits,
         }
 
 

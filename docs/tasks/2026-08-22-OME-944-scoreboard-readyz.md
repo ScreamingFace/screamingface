@@ -1,7 +1,7 @@
 ---
 id: OME-944
 linear_url: https://linear.app/openmined/issue/OME-944/split-scoreboard-readiness-from-liveness-with-a-db-aware-readyz
-status: backlog
+status: in_review
 type: improvement
 priority: 3
 labels: [scoreboard, agentic, autonomous]

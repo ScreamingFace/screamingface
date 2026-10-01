@@ -33,6 +33,7 @@ from ..core.provider_access import (
     TargetReauthRequired,
     provider_access_for,
 )
+from .provider_access_http import refusals_as_http, selector_from_request
 
 router = APIRouter()
 
@@ -96,7 +97,7 @@ def _store_admission(admitted_models: dict[str, Any], model_id: str, entry: Any)
 
 
 async def _credential_verdict(
-    request: Request, *, account_id: str, provider: str, plugin: Any
+    request: Request, *, account_id: str, provider: str, selector: Selector, plugin: Any
 ) -> tuple[bool, tuple[str, str] | None]:
     """(credentialed, relayed refusal) for the calling account on ``provider``.
 
@@ -112,7 +113,6 @@ async def _credential_verdict(
     # but a refusal here is a 200 ANSWER — so this route reads the typed refusal directly
     # instead of round-tripping through an `HTTPException` just to re-read its `code`.
     """
-    selector = Selector.from_header(request.headers.get("X-Profile"))
     try:
         target = await provider_access_for(request.app).resolve(
             account_id, provider, selector, plugin=plugin
@@ -136,6 +136,9 @@ async def _credential_verdict(
 
 @router.post("/v1/models/admit")
 async def admit_model(request: Request, current: CurrentAccount, body: _AdmitRequest) -> dict:
+    with refusals_as_http():
+        selector = selector_from_request(request)
+
     model_id = body.model_id
     provider = model_id.split("/", 1)[0] if "/" in model_id else ""
     plugin = request.app.state.providers.get(provider)
@@ -165,7 +168,11 @@ async def admit_model(request: Request, current: CurrentAccount, body: _AdmitReq
         return _capacity_refusal(model_id)
 
     credentialed, relayed = await _credential_verdict(
-        request, account_id=str(current.id), provider=provider, plugin=plugin
+        request,
+        account_id=str(current.id),
+        provider=provider,
+        selector=selector,
+        plugin=plugin,
     )
     if relayed is not None:
         code, message = relayed

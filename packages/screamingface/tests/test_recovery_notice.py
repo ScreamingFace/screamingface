@@ -69,7 +69,9 @@ def test_dead_owner_with_completed_ticket_shows_one_shared_notice(tmp_path, monk
     assert "role='status'" in client_notice_html(seen[0])
 
 
-@pytest.mark.parametrize("state,pid", [("ready", 99999999), ("running", os.getpid())])
+@pytest.mark.parametrize(
+    "state,pid", [("ready", 99999999), ("running", os.getpid())], ids=["ready", "active-owner"]
+)
 def test_healthy_or_active_evaluation_stays_quiet(tmp_path, monkeypatch, state, pid):
     notice, seen = _observe(monkeypatch)
     store, _ = _saved(tmp_path, state, pid)

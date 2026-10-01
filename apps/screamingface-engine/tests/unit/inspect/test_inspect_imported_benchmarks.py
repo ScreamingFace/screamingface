@@ -68,6 +68,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "pubmedqa": "mcq",
     # OME-1269: judged compliance on XSTest's safe prompts — no answer key.
     "xstest_safe": "judged",
+    # OME-1400: XSTest's unsafe prompts, scored by refusal rate (1 − the judge's grade).
+    "xstest_unsafe": "judged",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))

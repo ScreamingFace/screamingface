@@ -161,6 +161,9 @@ class ImportedBenchmark:
     aggregate_route: str
     #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
+    #: The eval's grade counts the unwanted behaviour; the scorer adapter scores 1 − grade
+    #: (OME-1400). Already hashed into the revision by the caller's pins.
+    inverted_grade: bool = False
 
     def aggregation(self) -> BenchmarkAggregation:
         """This benchmark's shared-grading binding — built on demand so the scorer stays lazy."""
@@ -179,13 +182,16 @@ class ImportedBenchmark:
                 decode_case_grade=_decode,
             ),
             grade_case=inspect_grade_case(
-                self.scorer_factory(), multiple_correct=self.multiple_correct
+                self.scorer_factory(),
+                multiple_correct=self.multiple_correct,
+                inverted_grade=self.inverted_grade,
             ),
             failure_messages=_FAILURE_MESSAGES,
             method="inspect_scorer",
             grading_failure_code="inspect_grading_failed",
             grading_failure_message="the inspect scorer pipeline could not grade this Case",
             missing_material_code="missing_target_asset",
+            inverted_grade=self.inverted_grade,
         )
 
 
@@ -205,6 +211,7 @@ def single_shot_benchmark(
     difficulty: DifficultyTier,
     multiple_correct: bool = False,
     judge: JudgeSpec | None = None,
+    inverted_grade: bool = False,
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
 
@@ -235,6 +242,9 @@ def single_shot_benchmark(
         judge: the benchmark's judge declaration (OME-1240) — the aggregate binds the
             judge transport from it, and its model + params are hashed into the
             revision below. None for every string-match benchmark.
+        inverted_grade: the eval's grade counts the unwanted behaviour (a should-refuse
+            safety benchmark); passed to the scorer adapter, which scores 1 − grade. The
+            caller carries it into ``revision_pins`` (OME-1400).
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -306,6 +316,9 @@ def single_shot_benchmark(
         # here. The listing groups by this field (OME-1114), so a defaulted row hides
         # the imported shelf inside our own group.
         origin="inspect_evals",
+        # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
+        # scorer adapter flips on, published so report.json can show it.
+        inverted_grade=inverted_grade,
         build=_build(routes, case_count),
         install=install,
         focus=focus,
@@ -347,6 +360,7 @@ def single_shot_benchmark(
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
         judge=judge,
+        inverted_grade=inverted_grade,
     )
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept

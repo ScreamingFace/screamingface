@@ -269,6 +269,22 @@ def benchmark_tier_sections_html(
     )
 
 
+#: The one sentence every view uses for the refusal-rate mark (OME-1400), so a researcher
+#: meets the same words on the listing, the card and the report.
+INVERTED_GRADE_MEANING = "each Case scores 1 − the eval's grade, so higher is still better"
+
+
+def inverted_grade_chip_html(benchmark: Benchmark) -> str:
+    """The listing's mark for a Benchmark scored by 1 − its eval's grade; nothing otherwise."""
+
+    if not benchmark.inverted_grade:
+        return ""
+    return (
+        f"<span class='sf-chip' title='Inverted grade: {escape(INVERTED_GRADE_MEANING)}'>"
+        "inverted grade</span>"
+    )
+
+
 def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
     if not records:
         return "<div class='sf-catalog__empty'>No benchmarks match.</div>"
@@ -276,7 +292,10 @@ def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
         "<div class='sf-catalog__row'>"
         f"<div class='sf-catalog__id'>{escape(record.title)}</div>"
         + _tags(
-            _chip(record.id) + _chip(f"{record.case_count} cases") + origin_chip_html(record.origin)
+            _chip(record.id)
+            + _chip(f"{record.case_count} cases")
+            + origin_chip_html(record.origin)
+            + inverted_grade_chip_html(record)
         )
         + f"<div class='sf-card__hint'>{escape(record.description)}</div></div>"
         for record in records
@@ -291,6 +310,11 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
         + _field("cases", escape(str(benchmark.case_count)))
         + _field("revision", _mono(benchmark.revision))
         + _field("origin", _origin_value_html(benchmark.origin))
+        + (
+            _field("grading", escape(f"Inverted: {INVERTED_GRADE_MEANING}"), wide=True)
+            if benchmark.inverted_grade
+            else ""
+        )
         + _field("description", escape(benchmark.description), wide=True)
     )
     return (

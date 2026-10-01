@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from screamingface._benchmark_identity import benchmark_id as _benchmark_id
+from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
 from screamingface._ui.catalog import _ModelCatalog
@@ -24,6 +25,7 @@ class _BenchmarkEntry:
     origin: str
     interaction: str | None
     difficulty: str | None
+    inverted_grade: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +134,20 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
         origin=_benchmark_origin(item),
         interaction=_optional_axis(item, "interaction"),
         difficulty=_optional_axis(item, "difficulty"),
+        inverted_grade=_inverted_grade(item),
     )
+
+
+def _inverted_grade(item: Mapping[str, object]) -> bool:
+    """The refusal-rate mark (OME-1400): the Engine publishes it only when true, so absence
+    means False. An Engine that serves xstest_unsafe but predates the mark lists it with no
+    key, so the Engine change that adds a flipped Benchmark and the one that adds the mark
+    ship in one release."""
+
+    value: object = item.get(INVERTED_GRADE_KEY, False)
+    if not isinstance(value, bool):
+        _catalog_invalid("Benchmark inverted_grade must be a boolean")
+    return value
 
 
 def _benchmark_origin(item: Mapping[str, object]) -> str:

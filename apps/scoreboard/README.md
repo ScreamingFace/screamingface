@@ -19,7 +19,7 @@ curl -sf http://localhost:9106/healthz
 
 By default, local runs use a SQLite database file named `scoreboard.sqlite3` in the current working directory. Delete that file to reset local data. If you previously exported `SCOREBOARD_DATABASE_URL`, unset it first with `unset SCOREBOARD_DATABASE_URL` to use the default.
 
-`/healthz` is a liveness probe only. It does not query the database and does not prove database connectivity.
+`/healthz` is a liveness probe only. It does not query the database and does not prove database connectivity. `/readyz` is the readiness probe: it runs a bounded `SELECT 1` and answers `503` when the database is unreachable.
 
 ### Running Against Local Postgres
 
@@ -58,7 +58,7 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 | --- | --- | --- |
 | `SCOREBOARD_HOST` | `127.0.0.1` | Host used by the `scoreboard` console script. |
 | `SCOREBOARD_PORT` | `9106` | Port used by the `scoreboard` console script. |
-| `SCOREBOARD_LOG_LEVEL` | `info` | Uvicorn log level. |
+| `SCOREBOARD_LOG_LEVEL` | `info` | Log level for uvicorn and for the app's own `scoreboard.*` loggers (server and Jobs). |
 | `SCOREBOARD_DATABASE_URL` | `sqlite://./scoreboard.sqlite3` | Tortoise database URL. |
 | `SCOREBOARD_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins. |
 | `SCOREBOARD_PORTAL_DIR` | app-local `portal/` | Static portal directory. |
@@ -105,7 +105,7 @@ src/scoreboard/
   cli.py             `scoreboard` console-script entry point
   db.py              Tortoise configuration/init helpers
   routes/
-    health.py        GET /healthz
+    health.py        GET /healthz, GET /readyz
   scores/
     schemas.py       Pydantic DTOs for submissions and read models
     store.py         Tortoise-backed persistence/query store

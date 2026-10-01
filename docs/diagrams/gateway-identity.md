@@ -2,8 +2,8 @@
 
 How the ScreamingFace cloud stack answers "who is calling?". Cloudflare Access authenticates the
 caller at the edge; Envoy re-verifies that assertion and re-injects the answer as one plain header;
-url4-cloud carries it to each run; aigateway resolves it to an account and picks that principal's
-credentials.
+url4-cloud carries it to each run; aigateway resolves it to an account and then resolves that
+principal's effective credential for the requested provider.
 
 Contract: <https://pulse.dev.openmined.org/docs/products/gateway-identity-flow/>
 
@@ -52,24 +52,32 @@ sequenceDiagram
 
     C->>E: GET /?q=(url4 expression)<br/>+ the caller's own token
     Note over E,A: Cloudflare Access authenticated the caller at the edge.<br/>Envoy RE-VERIFIES that assertion against Cloudflare's JWKS,<br/>strips any client-sent copy, and re-injects X-User-Email.
-    E->>A: GET /?q=(url4 expression)<br/>X-User-Email (verified)<br/>+ URL4-Capability, Authorization, X-Profile
+    E->>A: GET /?q=(url4 expression)<br/>X-User-Email (verified)<br/>+ URL4-Capability, Authorization
+    Note over E,A: A nonblank X-Profile is refused with 400 before scheduling.<br/>The normal flow below is selector-less.
 
-    Note over A,J: job_env.identity_from_headers()<br/>blank counts as absent<br/>nothing present → None, and nothing is forwarded
+    Note over A,J: job_env.identity_from_headers()<br/>blank counts as absent<br/>nothing present → None, and no credential selector is scheduled
     A->>J: schedule(identity=…)<br/>identity_to_env() → URL4_CLOUD_IDENTITY_*<br/>PLAIN env: identity is not a credential
 
     Note over A,R: THIS is why it is not header forwarding —<br/>the outgoing aigateway request does not exist yet.<br/>The App and the Runner are different Pods.
 
     J->>R: Pod starts with that env
-    Note over R,G: job_env.identity_from_env() →<br/>build_aigateway_world(identity_headers=…)<br/>held for the whole run, like token and profile
+    Note over R,G: job_env.identity_from_env() →<br/>build_aigateway_world(identity_headers=…)<br/>identity is held for the whole run<br/>no profile selector is reconstructed
 
-    R->>G: POST /v1/chat/completions<br/>X-User-Email, THEN Authorization + X-Profile<br/>(gateway-owned last, so no inbound value wins)
+    R->>G: POST /v1/chat/completions<br/>X-User-Email, THEN Authorization<br/>(gateway-owned last<br/>no X-Profile)
 
     Note over G,P: current_account() in cloudflare_headers mode:<br/>identity_from_headers() → CloudflareIdentity →<br/>Account.get_or_create(username=email)<br/>honouring is_active
-    G->>P: provider call with THAT principal's credential
-    P-->>G: completion
-    G-->>R: OpenAI-shaped response + usage
-    R-->>E: run frames over NATS → WebSocket
-    E-->>C: Result / Terminated
+    G->>G: resolve the effective credential<br/>for (account, provider)
+    alt exactly one active Connection
+        G->>P: provider call with THAT principal's credential
+        P-->>G: completion
+        G-->>R: OpenAI-shaped response + usage
+        R-->>E: run frames over NATS → WebSocket
+        E-->>C: Result / Terminated
+    else several active Connections
+        G-->>R: 409 connection_ambiguous<br/>remove extra active Connections
+        R-->>E: terminal error frame
+        E-->>C: Error / Terminated
+    end
 
     Note over G,P: No X-User-Email in this mode → 401.<br/>Never anonymous: one shared principal<br/>would pool every caller's credentials.<br/>Service-token callers are out of scope.
 ```
@@ -217,8 +225,10 @@ curl -H 'X-User-Email: me@openmined.org' \
      -H 'URL4-Capability: <token>' 'http://127.0.0.1:8000/?q=...'
 ```
 
-## Known gap
+## Credential resolution outcomes
 
-Nothing yet provisions credentials for a header-derived principal. Each principal gets its own
-credential namespace, so a caller with no configured profile reaches aigateway, authenticates, and
-then gets `404 profile_not_found` — auth succeeds, the credential lookup does not.
+Credential provisioning is separate from identity. Each principal has an isolated credential
+namespace. A caller with no usable credential for the requested provider authenticates and then gets
+`404 profile_not_found` (the legacy wire code retained until Stage E). If the account/provider pair
+has several active Connections, resolution returns `409 connection_ambiguous`; callers cannot choose
+one with a request header.

@@ -2,6 +2,8 @@ import "server-only";
 
 import { headers } from "next/headers";
 
+import { log } from "@/lib/log";
+
 import type { components } from "./schema";
 
 /**
@@ -24,6 +26,9 @@ export type AdminProfileList = components["schemas"]["AdminProfileList"];
 
 /** The identity header Envoy injects. Mirrors `HEADER_USER_EMAIL` in aigateway. */
 const IDENTITY_HEADER = "x-user-email";
+
+/** The per-request id Envoy stamps on every request it routes. Read, never minted, here. */
+const REQUEST_ID_HEADER = "x-request-id";
 
 /**
  * Why the caller could not be served — each maps to a different thing the operator must DO, which
@@ -141,7 +146,56 @@ function messageFor(kind: AdminErrorKind, detail: unknown): string {
   }
 }
 
+/**
+ * Kinds where the gateway answered and refused THIS request — expected in normal operation, so
+ * they log at `warn`. Everything else (unavailable, unreachable, unknown) means the console cannot
+ * be served and logs at `error`. The split is what gives `LOG_LEVEL=error` a meaning.
+ */
+const REFUSALS: ReadonlySet<AdminErrorKind> = new Set<AdminErrorKind>([
+  "forbidden",
+  "unauthenticated",
+  "invalid",
+  "not_found",
+  "conflict",
+]);
+
+/**
+ * Run one admin call; if it fails with an `AdminApiError`, write exactly one server-side line
+ * before rethrowing it unchanged.
+ *
+ * FEATURE: BFF error traceability (OME-943). Before this, a failed call became an error object
+ * handed to a page or server action, and the failure reached the browser and left nothing behind.
+ *
+ * INVARIANT: the line carries method, path, kind, status and request id — and NOTHING derived from
+ * the upstream body (`detail`, `message`). Those can carry provider text, and a key write's refusal
+ * can echo the key. The path is logged without its query string: `?q=` is operator-typed search.
+ *
+ * WHY only `AdminApiError`: anything else is a bug that propagates to Next's error boundary, which
+ * already logs it server-side; logging it here too would make one failure two lines.
+ */
+async function reportingFailure<T>(method: string, path: string, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof AdminApiError) {
+      const incoming = await headers();
+      log(REFUSALS.has(error.kind) ? "warn" : "error", "bff_admin_error", {
+        method,
+        path: path.split("?")[0],
+        kind: error.kind,
+        status: error.status,
+        requestId: incoming.get(REQUEST_ID_HEADER) ?? null,
+      });
+    }
+    throw error;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return reportingFailure((init?.method ?? "GET").toUpperCase(), path, () => send<T>(path, init));
+}
+
+async function send<T>(path: string, init?: RequestInit): Promise<T> {
   const email = await callerEmail();
   let response: Response;
   try {
@@ -320,6 +374,14 @@ export async function getCacheJob(jobId: string): Promise<AdminCacheJob> {
   return request<AdminCacheJob>(`/v1/admin/cache/snapshots/jobs/${segment(jobId)}`);
 }
 
+type SnapshotUpload = {
+  mode: "merge" | "replace";
+  force: boolean;
+  acknowledgeLoss: boolean;
+  snapshot: File;
+  manifest: File | null;
+};
+
 /**
  * Upload one snapshot archive (and its optional manifest) for the gateway to load.
  *
@@ -331,13 +393,11 @@ export async function getCacheJob(jobId: string): Promise<AdminCacheJob> {
  * `snapshot`/`manifest` are `File`s, which on the server side (this module only ever runs there)
  * are the request's web-standard file objects — never read into memory here; undici streams them.
  */
-export async function uploadCacheSnapshot(input: {
-  mode: "merge" | "replace";
-  force: boolean;
-  acknowledgeLoss: boolean;
-  snapshot: File;
-  manifest: File | null;
-}): Promise<AdminCacheJob> {
+export async function uploadCacheSnapshot(input: SnapshotUpload): Promise<AdminCacheJob> {
+  return reportingFailure("POST", "/v1/admin/cache/snapshots", () => sendSnapshot(input));
+}
+
+async function sendSnapshot(input: SnapshotUpload): Promise<AdminCacheJob> {
   const email = await callerEmail();
   const form = new FormData();
   form.set("mode", input.mode);

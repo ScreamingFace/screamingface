@@ -17,7 +17,9 @@ pub fn run() {
   builder
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_opener::init())
     .invoke_handler(tauri::generate_handler![
+      commands::runtime_services,
       commands::update_theme,
       commands::check_for_updates,
       commands::get_update_window_state,

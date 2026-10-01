@@ -148,7 +148,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 del self._tasks[name]
 
     def active_count(self) -> int:
-        """Runs still in flight — the admission gate's input, and what `/metrics` would report."""
+        """Runs still in flight — the admission gate's input, and what `/metrics` reports.
+
+        Read at scrape time by `metrics._ActiveRunsCollector` as
+        `screamingface_engine_active_runs` (OME-942). It used to say "would report", which was
+        true: nothing read it, so the one number that says whether the App is at its admission
+        ceiling was visible only to the code enforcing it.
+        """
         return self._active
 
     # --- the run environment ----------------------------------------------------------------

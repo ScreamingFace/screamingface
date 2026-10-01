@@ -1,12 +1,12 @@
 ---
 id: OME-507
 linear_url: https://linear.app/openmined/issue/OME-507
-status: Todo
+status: done
 type: Improvement
 priority: P3
 labels: [url4-engine, deferred, agentic]
 created: 2026-07-20
-closed:
+closed: 2026-07-20
 ---
 
 # OME-507 — Deferred conformance items

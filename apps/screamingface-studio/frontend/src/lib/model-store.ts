@@ -1,180 +1,228 @@
 "use client";
 
+import { useMemo } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { SavedModel } from "@/lib/ensemble-store";
+import { getEngineClient } from "@/lib/engine";
+import { EngineError, isEngineError } from "@/lib/engine/errors";
+import { runOAuth } from "@/lib/engine/oauth";
+import type {
+  AuthMethod,
+  Connection,
+  ConnectionStatus,
+  EngineModel,
+} from "@/lib/engine/types";
+import {
+  GROUP_ORDER,
+  providerPresentation,
+  type ProviderGroup,
+} from "@/lib/provider-presentation";
+import { openExternal } from "@/lib/tauri";
 
-export type ProviderKind = "local" | "session" | "hub" | "api";
+export const MODEL_STORE_KEY = "screamingface-models";
 
-export type ModelProvider = {
+// One provider as the Models page and the composer picker show it: the Engine's connection row
+// (or a keyless model owner) joined with its models and Studio's presentation.
+export type ProviderView = {
   id: string;
   name: string;
-  kind: ProviderKind;
-  group: "Local & Sessions" | "Providers" | "Hubs";
+  group: ProviderGroup;
   description: string;
+  color: string;
+  authMethods: AuthMethod[];
+  status: ConnectionStatus;
+  accountLabel: string | null;
   connected: boolean;
-  apiKey: string;
-  useOM: boolean;
-  discovering: boolean;
+  // A model owner with no connection row: its models need no credential (Ollama, for example).
+  keyless: boolean;
   models: SavedModel[];
 };
 
-export const PROVIDER_COLORS: Record<string, string> = {
-  ollama: "#52aec5",
-  "claude-session": "#b8520a",
-  "codex-session": "#256b24",
-  "gemini-session": "#4392c5",
-  anthropic: "#ca492c",
-  openai: "#53bea9",
-  deepmind: "#6976ae",
-  perplexity: "#175c6d",
-  openrouter: "#937098",
-  hf: "#f79763",
-  mistral: "#f79763",
-  moonshot: "#563b59",
-  xai: "#464158",
-  meta: "#52aec5",
+export type LoadState = "idle" | "loading" | "ready" | "error";
+
+// Mirrors the Python Client's fallback label for a provider with no display name.
+function titleCase(id: string) {
+  return id
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function toSavedModel(model: EngineModel, providerName?: string): SavedModel {
+  // WHY name = id: recipe.ts builds url4 paths from `name`, and the Engine addresses a model by
+  // its full `provider/model` id.
+  return {
+    id: model.id,
+    name: model.id,
+    providerId: model.owned_by,
+    providerName: providerName ?? model.owned_by,
+  };
+}
+
+export function buildProviders(
+  connections: Connection[],
+  models: EngineModel[],
+): ProviderView[] {
+  const byOwner = new Map<string, EngineModel[]>();
+  for (const model of models) {
+    byOwner.set(model.owned_by, [...(byOwner.get(model.owned_by) ?? []), model]);
+  }
+
+  const view = (
+    id: string,
+    name: string,
+    fields: Pick<ProviderView, "authMethods" | "status" | "accountLabel" | "keyless">,
+  ): ProviderView => ({
+    id,
+    name,
+    ...providerPresentation(id),
+    ...fields,
+    connected: fields.status === "connected",
+    models: (byOwner.get(id) ?? [])
+      .map((model) => toSavedModel(model, name))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  });
+
+  const known = new Set(connections.map((row) => row.provider));
+  const providers = [
+    ...connections.map((row) =>
+      view(row.provider, row.display_name, {
+        authMethods: row.auth_methods,
+        status: row.status,
+        accountLabel: row.account_label ?? null,
+        keyless: false,
+      }),
+    ),
+    ...[...byOwner.keys()]
+      .filter((owner) => !known.has(owner))
+      .map((owner) =>
+        view(owner, titleCase(owner), {
+          authMethods: [],
+          status: "connected",
+          accountLabel: null,
+          keyless: true,
+        }),
+      ),
+  ];
+
+  return providers.sort(
+    (a, b) =>
+      GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group) ||
+      a.name.localeCompare(b.name),
+  );
+}
+
+type SignInOptions = {
+  signal?: AbortSignal;
+  open?: (url: string) => Promise<void> | void;
 };
-
-const providerModels: Record<string, SavedModel[]> = {
-  ollama: [
-    { id: "ol-1", name: "ollama/llama-3.3-70b", providerId: "ollama", providerName: "Ollama" },
-    { id: "ol-2", name: "ollama/qwen-2.5-7b", providerId: "ollama", providerName: "Ollama" },
-    { id: "ol-3", name: "ollama/phi-4", providerId: "ollama", providerName: "Ollama" },
-    { id: "ol-4", name: "ollama/deepseek-r1-8b", providerId: "ollama", providerName: "Ollama" },
-  ],
-  "claude-session": [
-    { id: "cs-1", name: "claude-session/claude-opus-4.8", providerId: "claude-session", providerName: "Claude Session" },
-    { id: "cs-2", name: "claude-session/claude-sonnet-4.6", providerId: "claude-session", providerName: "Claude Session" },
-    { id: "cs-3", name: "claude-session/claude-haiku-4.5", providerId: "claude-session", providerName: "Claude Session" },
-  ],
-  "codex-session": [
-    { id: "cx-1", name: "codex-session/gpt-5-codex", providerId: "codex-session", providerName: "Codex Session" },
-    { id: "cx-2", name: "codex-session/gpt-5", providerId: "codex-session", providerName: "Codex Session" },
-  ],
-  "gemini-session": [
-    { id: "gs-1", name: "gemini-session/gemini-2.5-pro", providerId: "gemini-session", providerName: "Gemini CLI Session" },
-    { id: "gs-2", name: "gemini-session/gemini-2.5-flash", providerId: "gemini-session", providerName: "Gemini CLI Session" },
-  ],
-  anthropic: [
-    { id: "an-1", name: "anthropic/claude-opus-4.8", providerId: "anthropic", providerName: "Anthropic" },
-    { id: "an-2", name: "anthropic/claude-sonnet-4.6", providerId: "anthropic", providerName: "Anthropic" },
-    { id: "an-3", name: "anthropic/claude-haiku-4.5", providerId: "anthropic", providerName: "Anthropic" },
-  ],
-  openai: [
-    { id: "oa-1", name: "openai/gpt-5", providerId: "openai", providerName: "OpenAI" },
-    { id: "oa-2", name: "openai/gpt-4o", providerId: "openai", providerName: "OpenAI" },
-    { id: "oa-3", name: "openai/o3", providerId: "openai", providerName: "OpenAI" },
-    { id: "oa-4", name: "openai/gpt-4o-mini", providerId: "openai", providerName: "OpenAI" },
-  ],
-  deepmind: [
-    { id: "dm-1", name: "deepmind/gemini-2.5-pro", providerId: "deepmind", providerName: "Google DeepMind" },
-    { id: "dm-2", name: "deepmind/gemini-2.5-flash", providerId: "deepmind", providerName: "Google DeepMind" },
-    { id: "dm-3", name: "deepmind/gemini-2.0-flash", providerId: "deepmind", providerName: "Google DeepMind" },
-  ],
-  perplexity: [
-    { id: "px-1", name: "perplexity/sonar-pro", providerId: "perplexity", providerName: "Perplexity" },
-    { id: "px-2", name: "perplexity/sonar-reasoning", providerId: "perplexity", providerName: "Perplexity" },
-    { id: "px-3", name: "perplexity/sonar-large", providerId: "perplexity", providerName: "Perplexity" },
-  ],
-  openrouter: [
-    { id: "or-1", name: "openrouter/claude-opus-4", providerId: "openrouter", providerName: "OpenRouter" },
-    { id: "or-2", name: "openrouter/claude-sonnet-4.6", providerId: "openrouter", providerName: "OpenRouter" },
-    { id: "or-3", name: "openrouter/gemini-2.5-pro", providerId: "openrouter", providerName: "OpenRouter" },
-    { id: "or-4", name: "openrouter/gpt-4o", providerId: "openrouter", providerName: "OpenRouter" },
-    { id: "or-5", name: "openrouter/llama-4-scout", providerId: "openrouter", providerName: "OpenRouter" },
-    { id: "or-6", name: "openrouter/deepseek-r1", providerId: "openrouter", providerName: "OpenRouter" },
-  ],
-  hf: [
-    { id: "hf-1", name: "hf/mistral-7b-instruct", providerId: "hf", providerName: "HuggingFace" },
-    { id: "hf-2", name: "hf/zephyr-7b-beta", providerId: "hf", providerName: "HuggingFace" },
-  ],
-};
-
-export const ALL_MODELS = Object.values(providerModels).flat();
-
-const initialProviders: ModelProvider[] = [
-  { id: "ollama", name: "Ollama", kind: "local", group: "Local & Sessions", description: "Local models on your machine — no API key", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "claude-session", name: "Claude Session", kind: "session", group: "Local & Sessions", description: "Your signed-in Claude desktop / CLI session", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "codex-session", name: "Codex Session", kind: "session", group: "Local & Sessions", description: "Your authenticated Codex CLI session", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "gemini-session", name: "Gemini CLI Session", kind: "session", group: "Local & Sessions", description: "Your authenticated Gemini CLI session", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "anthropic", name: "Anthropic", kind: "api", group: "Providers", description: "Claude models, direct from the API", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "openai", name: "OpenAI", kind: "api", group: "Providers", description: "GPT & o-series models", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "deepmind", name: "Google DeepMind", kind: "api", group: "Providers", description: "Gemini models, direct from the API", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "perplexity", name: "Perplexity", kind: "api", group: "Providers", description: "Sonar online & reasoning models", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "openrouter", name: "OpenRouter", kind: "hub", group: "Hubs", description: "300+ models behind one API key", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-  { id: "hf", name: "HuggingFace Inference", kind: "api", group: "Hubs", description: "Serverless open-source inference", connected: false, apiKey: "", useOM: false, discovering: false, models: [] },
-];
 
 type ModelState = {
-  providers: ModelProvider[];
+  connections: Connection[];
+  models: EngineModel[];
+  load: LoadState;
+  error: EngineError | null;
   library: SavedModel[];
-  patchProvider: (id: string, patch: Partial<ModelProvider>) => void;
-  discoverProvider: (id: string) => Promise<void>;
+  refresh: () => Promise<void>;
+  connectApiKey: (provider: string, apiKey: string) => Promise<void>;
+  signIn: (provider: string, options?: SignInOptions) => Promise<Connection>;
+  disconnect: (provider: string) => Promise<void>;
   toggleLibraryModel: (model: SavedModel) => void;
   addLibraryModels: (models: SavedModel[]) => void;
 };
 
+function asEngineError(error: unknown) {
+  return isEngineError(error) ? error : new EngineError("unknown");
+}
+
+// WHY a sequence number: two refreshes can overlap (mount + a finished connect); only the newest
+// one may write, or an older, slower response would roll the page back.
+let refreshSequence = 0;
+
 export const useModelStore = create<ModelState>()(
   persist(
-    (set) => ({
-      providers: initialProviders,
+    (set, get) => ({
+      // Server state: fetched from the Engine, kept in memory, never persisted.
+      connections: [],
+      models: [],
+      load: "idle",
+      error: null,
+      // The user's starred models: a per-user convenience with no backend yet.
       library: [],
-      patchProvider: (id, patch) =>
-        set((state) => ({
-          providers: state.providers.map((provider) =>
-            provider.id === id ? { ...provider, ...patch } : provider,
-          ),
-        })),
-      discoverProvider: async (id) => {
-        set((state) => ({
-          providers: state.providers.map((provider) =>
-            provider.id === id ? { ...provider, discovering: true } : provider,
-          ),
-        }));
-        await new Promise((resolve) => window.setTimeout(resolve, 900));
-        set((state) => ({
-          providers: state.providers.map((provider) =>
-            provider.id === id
-              ? {
-                  ...provider,
-                  discovering: false,
-                  connected: true,
-                  models: providerModels[id] ?? [],
-                }
-              : provider,
-          ),
-        }));
+
+      refresh: async () => {
+        const sequence = ++refreshSequence;
+        if (get().load !== "ready") set({ load: "loading" });
+        try {
+          const client = await getEngineClient();
+          const [connections, models] = await Promise.all([
+            client.listConnections(),
+            client.listModels(),
+          ]);
+          if (sequence !== refreshSequence) return;
+          set({ connections, models, load: "ready", error: null });
+        } catch (error) {
+          if (sequence !== refreshSequence) return;
+          set({ load: "error", error: asEngineError(error) });
+        }
       },
+
+      connectApiKey: async (provider, apiKey) => {
+        const client = await getEngineClient();
+        await client.connectApiKey(provider, apiKey);
+        await get().refresh();
+      },
+
+      signIn: async (provider, { signal, open = openExternal } = {}) => {
+        const client = await getEngineClient();
+        try {
+          return await runOAuth(client, provider, { open, signal });
+        } finally {
+          await get().refresh();
+        }
+      },
+
+      disconnect: async (provider) => {
+        const client = await getEngineClient();
+        await client.disconnect(provider);
+        await get().refresh();
+      },
+
       toggleLibraryModel: (model) =>
         set((state) => ({
           library: state.library.some((item) => item.id === model.id)
             ? state.library.filter((item) => item.id !== model.id)
             : [...state.library, model],
         })),
+
       addLibraryModels: (models) =>
         set((state) => {
           const ids = new Set(state.library.map((model) => model.id));
-          return {
-            library: [
-              ...state.library,
-              ...models.filter((model) => !ids.has(model.id)),
-            ],
-          };
+          const added: SavedModel[] = [];
+          for (const model of models) {
+            if (ids.has(model.id)) continue;
+            ids.add(model.id);
+            added.push(model);
+          }
+          return { library: [...state.library, ...added] };
         }),
     }),
     {
-      name: "screamingface-models",
+      name: MODEL_STORE_KEY,
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        library: state.library,
-        providers: state.providers.map((provider) => ({
-          ...provider,
-          apiKey: "",
-          discovering: false,
-        })),
-      }),
+      // v1 held the mock's providers and a library keyed by fake ids (`ol-1`) that no Engine
+      // model matches, so nothing of it carries over.
+      version: 2,
+      migrate: () => ({ library: [] }),
+      partialize: (state) => ({ library: state.library }),
     },
   ),
 );
+
+export function useProviders(): ProviderView[] {
+  const connections = useModelStore((state) => state.connections);
+  const models = useModelStore((state) => state.models);
+  return useMemo(() => buildProviders(connections, models), [connections, models]);
+}

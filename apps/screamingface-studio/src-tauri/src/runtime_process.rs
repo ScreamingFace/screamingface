@@ -7,6 +7,7 @@ use std::{
   thread,
   time::{Duration, Instant},
 };
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 #[cfg(unix)]
@@ -20,11 +21,49 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Default)]
 pub struct RuntimeProcess {
   child: Mutex<Option<Child>>,
+  services: Mutex<Option<RuntimeServices>>,
+}
+
+/// The service addresses the runtime publishes in its readiness record. Only the Engine is
+/// read today; the webview gets it through the `runtime_services` command.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RuntimeServices {
+  pub engine: String,
+}
+
+#[derive(Deserialize)]
+struct ReadyRecord {
+  services: RuntimeServices,
 }
 
 enum StartupEvent {
-  Ready,
+  Ready(RuntimeServices),
   Error(String),
+}
+
+/// Parses `... SCREAMINGFACE_RUNTIME_READY {"services":{...}}`. The runtime prefixes the marker
+/// with a timestamp and a `[supervisor]` tag, so the marker is searched for, not anchored.
+fn parse_ready_line(line: &str) -> Option<RuntimeServices> {
+  let (_, record) = line.split_once(READY_PREFIX)?;
+  serde_json::from_str::<ReadyRecord>(record.trim())
+    .ok()
+    .map(|record| record.services)
+}
+
+/// The Engine address of a runtime that is up, or `None` while it starts or after it exited.
+pub fn services(app: &AppHandle) -> Option<RuntimeServices> {
+  app
+    .try_state::<RuntimeProcess>()?
+    .services
+    .lock()
+    .ok()?
+    .clone()
+}
+
+fn clear_services(state: &RuntimeProcess) {
+  if let Ok(mut services) = state.services.lock() {
+    services.take();
+  }
 }
 
 pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -75,7 +114,16 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
   thread::spawn(move || {
     for line in BufReader::new(stdout).lines().map_while(Result::ok) {
       if line.contains(READY_PREFIX) {
-        let _ = stdout_sender.send(StartupEvent::Ready);
+        match parse_ready_line(&line) {
+          Some(services) => {
+            let _ = stdout_sender.send(StartupEvent::Ready(services));
+          }
+          None => {
+            let _ = stdout_sender.send(StartupEvent::Error(
+              "runtime readiness record is malformed".to_owned(),
+            ));
+          }
+        }
       }
       log::info!(target: "screamingface_runtime", "{line}");
     }
@@ -94,14 +142,20 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
   let deadline = Instant::now() + STARTUP_TIMEOUT;
   loop {
     match receiver.recv_timeout(Duration::from_millis(100)) {
-      Ok(StartupEvent::Ready) => {
-        app.state::<RuntimeProcess>()
+      Ok(StartupEvent::Ready(services)) => {
+        let state = app.state::<RuntimeProcess>();
+        state
           .child
           .lock()
           .map_err(|_| Error::other("runtime process lock is poisoned"))?
           .replace(child);
+        log::info!("ScreamingFace runtime is ready; Engine at {}", services.engine);
+        state
+          .services
+          .lock()
+          .map_err(|_| Error::other("runtime services lock is poisoned"))?
+          .replace(services);
         monitor(app.clone());
-        log::info!("ScreamingFace runtime is ready at http://127.0.0.1:9108");
         return Ok(());
       }
       Ok(StartupEvent::Error(cause)) => return startup_failure(child, cause),
@@ -127,6 +181,7 @@ pub fn stop(app: &AppHandle) {
   let Some(state) = app.try_state::<RuntimeProcess>() else {
     return;
   };
+  clear_services(&state);
   let Ok(mut guard) = state.child.lock() else {
     log::error!("runtime process lock is poisoned during shutdown");
     return;
@@ -190,6 +245,7 @@ fn monitor(app: AppHandle) {
       Ok(Some(status)) => {
         log::error!("ScreamingFace runtime exited unexpectedly with {status}");
         guard.take();
+        clear_services(&state);
         return;
       }
       Ok(None) => {}
@@ -261,4 +317,40 @@ fn request_shutdown(child: &mut Child) {
 #[cfg(not(unix))]
 fn request_shutdown(child: &mut Child) {
   let _ = child.kill();
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn parses_the_engine_address_from_a_timestamped_ready_line() {
+    let line = "2026-09-29T13:58:36.290749+00:00 [supervisor] SCREAMINGFACE_RUNTIME_READY \
+      {\"services\":{\"engine\":\"http://127.0.0.1:9108\",\"gateway\":\"http://127.0.0.1:9105\",\
+      \"scoreboard\":\"http://127.0.0.1:9106\"}}";
+    assert_eq!(
+      parse_ready_line(line),
+      Some(RuntimeServices {
+        engine: "http://127.0.0.1:9108".to_owned()
+      })
+    );
+  }
+
+  #[test]
+  fn ignores_a_line_without_the_ready_marker() {
+    assert_eq!(parse_ready_line("[supervisor] starting engine"), None);
+  }
+
+  #[test]
+  fn ignores_malformed_ready_json() {
+    assert_eq!(parse_ready_line("SCREAMINGFACE_RUNTIME_READY {not json"), None);
+  }
+
+  #[test]
+  fn ignores_a_ready_record_without_an_engine() {
+    assert_eq!(
+      parse_ready_line("SCREAMINGFACE_RUNTIME_READY {\"services\":{\"gateway\":\"x\"}}"),
+      None
+    );
+  }
 }

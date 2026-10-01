@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings
 from .db import close_db, init_db
+from .logs import configure as configure_logging
 from .portal import register_portal
 from .routes import health, leaderboard, scores
 from .scores.baseline_store import BaselineStore
@@ -104,6 +105,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    # WHY first, and here rather than in cli.main: create_app is the one door every ASGI host
+    # goes through (`scoreboard` CLI, a bare `uvicorn scoreboard.main:app`, an embedding
+    # process), and uvicorn never configures the `scoreboard` logger (OME-937).
+    configure_logging()
     if settings is None:
         settings = Settings()
 

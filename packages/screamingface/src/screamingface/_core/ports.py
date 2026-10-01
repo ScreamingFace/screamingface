@@ -62,6 +62,10 @@ class _RunOutcome:
     trace_id: str | None = None
     client_version: str | None = None
     result_path: Path | None = None
+    # FEATURE (OME-1441, spec 2026-09-30-cached-run-not-complete): how many of this run's gateway
+    # round trips the response cache served. A hit spends nothing upstream, so any hit means the
+    # spend is not the run's cost, and the submission must not publish it as `complete`.
+    cache_hits: int = 0
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
