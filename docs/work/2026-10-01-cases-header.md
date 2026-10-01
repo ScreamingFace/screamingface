@@ -39,3 +39,16 @@ Showing and total repetition. Validate the approved text expectations and refres
 
 Compact range verified in the refreshed notebook; all 14 focused browser tests and the
 full SDK gates pass (lint, format, Pyright, coverage suite, notebooks, build, distribution).
+
+Owner follow-up: replace the interactive Case results toggle with a plain title; keep
+cases visible. Shorten the single export control labels to Export and Download.
+Plan: remove the toggle callback, preserve inline actions, update the explicitly
+superseded UI expectations, run SDK gates and refresh the notebook.
+
+Outcome: replaced the ToggleButton with a styled Label and removed the collapse
+callback. Export / Preparing… / Download preserve the existing single-control behavior.
+The revised UI expectations failed before implementation; all 14 browser tests now
+pass. Full SDK gates green. Notebook restart recovered the fixture and visibly showed
+the plain title with inline actions; updated the PR screenshot. No persistence, public
+API or schema changes. Review: removing the callback is the smallest implementation;
+only the explicitly requested title interaction and labels changed.

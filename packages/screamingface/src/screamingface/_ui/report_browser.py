@@ -31,7 +31,8 @@ _BROWSER_STYLE = """<style>
 .sf-cases-header{background:var(--sf-surface);padding:8px 12px;gap:4px;
  border-bottom:1px solid var(--sf-line)}
 .sf-report-browser .sf-cases-title{border:0!important;background:transparent!important;
- color:var(--sf-ink-2)!important;text-align:left;box-shadow:none!important}
+ color:var(--sf-ink-2)!important;text-align:left;box-shadow:none!important;
+ font-weight:600;font-size:14px!important}
 .sf-cases-header>.widget-label{margin:0 8px;font-size:12px}
 .sf-cases-body.widget-html{margin:0;width:100%}
 .sf-cases-body>.widget-html-content{width:100%}
@@ -110,7 +111,7 @@ class ReportBrowser:
     def _assemble(self) -> None:
         w = self.w
         self.exports = w.HTML(value=self._snapshot_link())
-        self.export = w.Button(description="Export JSON")
+        self.export = w.Button(description="Export")
         self.export.on_click(self._export_json)
         self.export_slot = w.VBox([self.export])
         self._case_box()
@@ -128,15 +129,11 @@ class ReportBrowser:
 
     def _case_box(self) -> None:
         w = self.w
-        self.case_title = w.ToggleButton(
-            value=True,
-            description="Case results",
-            icon="caret-down",
-            tooltip="Show or hide cases",
+        self.case_title = w.Label(
+            value="Case results",
             layout=w.Layout(width="auto", margin="0 auto 0 0"),
         )
         self.case_title.add_class("sf-cases-title")
-        self.case_title.observe(self._toggle_cases, names="value")
         self.previous.layout.width = "96px"
         self.next.layout.width = "76px"
         self.pagination = w.HBox([self.previous, self.next])
@@ -149,14 +146,10 @@ class ReportBrowser:
         self.case_box = w.VBox([self.case_header, self.notice, self.cases])
         self.case_box.add_class("sf-cases-box")
 
-    def _toggle_cases(self, change: Any) -> None:
-        self.cases.layout.display = "" if change["new"] else "none"
-        self.case_title.icon = "caret-down" if change["new"] else "caret-right"
-
     def _snapshot_link(self) -> str:
         if not self.snapshot.exists():
             return ""
-        return download_link(self.snapshot, "Download JSON")
+        return download_link(self.snapshot, "Download")
 
     def _move(self, direction: int) -> None:
         last = max(0, (len(self.matches) - 1) // _PAGE_SIZE)
@@ -211,7 +204,7 @@ class ReportBrowser:
     def _export_failed(self, exc: Exception) -> None:
         self._exporting = False
         self.export.disabled = False
-        self.export.description = "Export JSON"
+        self.export.description = "Export"
         self.export.icon = ""
         self.notice.value = f'<p role="alert">Export failed: {escape(str(exc))}</p>'
 

@@ -131,7 +131,7 @@ def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
     browser._export_json()
     assert "Export failed" in browser.notice.value
     assert not browser.export.disabled
-    assert browser.export.description == "Export JSON"
+    assert browser.export.description == "Export"
     assert not browser.snapshot.exists()
     assert isinstance(browser.snapshot, Path)
 
@@ -297,16 +297,16 @@ def test_export_replaces_one_control_without_redundant_status(tmp_path, monkeypa
     )
     browser = ReportBrowser(large_report(1))
     assert browser.export_slot.children == (browser.export,)
-    assert browser.export.description == "Export JSON"
+    assert browser.export.description == "Export"
     browser.export.click()
     assert browser.export_slot.children == (browser.exports,)
     assert browser.notice.value == ""
     assert browser.export not in browser.widget.children
     assert browser.exports.value.count("<a ") == 1
-    assert ">Download JSON</a>" in browser.exports.value
+    assert ">Download</a>" in browser.exports.value
 
 
-def test_case_header_contains_actions_and_preserves_collapse(tmp_path, monkeypatch):
+def test_case_header_contains_actions_and_plain_title(tmp_path, monkeypatch):
     from screamingface._ui.report_browser import ReportBrowser
 
     monkeypatch.chdir(tmp_path)
@@ -321,9 +321,8 @@ def test_case_header_contains_actions_and_preserves_collapse(tmp_path, monkeypat
     assert browser.pagination.children == (browser.previous, browser.next)
     assert browser.export_slot not in browser.widget.children
     assert "<summary>" not in browser.cases.value
-    browser.case_title.value = False
-    assert browser.cases.layout.display == "none"
-    browser.case_title.value = True
+    assert isinstance(browser.case_title, browser.w.Label)
+    assert browser.case_title.value == "Case results"
     assert browser.cases.layout.display != "none"
     browser.next.click()
     assert "26–50" in browser.count.value
