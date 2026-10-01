@@ -1770,4 +1770,9 @@ def _parse_task_args(pairs: list[str]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":  # pragma: no cover — the module IS the command
-    sys.exit(main())
+    # WHY re-import: under `python -m` this file runs as __main__, a second copy of the
+    # module whose ImporterError is a different class from the one task_replay_rows and
+    # import_replay raise; main's `except` must name the canonical class (OME-1273).
+    from screamingface_engine_inspect.importer import main as _canonical_main
+
+    sys.exit(_canonical_main())
