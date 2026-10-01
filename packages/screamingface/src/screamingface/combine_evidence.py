@@ -1,7 +1,9 @@
 """What one deterministic combine step read and decided for one Case (OME-1289).
 
-INVARIANT: evidence never holds member text. The text of each member is on that member's own
-operation ``output``; the evidence holds only the readings, the tally or scores, and the choice.
+INVARIANT: evidence never holds the ``output`` copies. The text of each member is on that member's
+own operation ``output``; the evidence holds the readings, the tally or scores, and the choice. A
+reading's ``raw``/``value`` is the extracted value, so an extractor such as ``whole@1`` or
+``json_object@1`` puts the whole reply there.
 """
 
 from __future__ import annotations
@@ -209,7 +211,7 @@ class CombineFieldReading:
 
 @dataclass(frozen=True, slots=True, init=False)
 class CombineEvidence:
-    """What one combine step read and decided for one Case. Never holds member text."""
+    """What one combine step read and decided for one Case. Never holds the ``output`` copies."""
 
     kind: CombineKind
     reducer: str
