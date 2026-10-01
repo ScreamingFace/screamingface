@@ -14,3 +14,5 @@ data:
   SCOREBOARD_CORS_ORIGINS: {{ .Values.cors.origins | toJson | quote }}
   SCOREBOARD_AUTH_MODE: {{ .Values.config.authMode | quote }}
   SCOREBOARD_ALLOWED_NETWORKS: {{ .Values.config.allowedNetworks | quote }}
+  SCOREBOARD_DB_POOL_MINSIZE: {{ .Values.config.dbPoolMinsize | quote }}
+  SCOREBOARD_DB_POOL_MAXSIZE: {{ .Values.config.dbPoolMaxsize | quote }}
