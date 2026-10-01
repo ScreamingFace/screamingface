@@ -21,7 +21,9 @@
    resource decode (absent → False, non-bool refused); run-result decode takes it as an optional
    key, cross-checks it against the Benchmark resource on a normal run, and a replay builds its
    `BenchmarkInfo` from it. Verify: new `tests/test_inverted_grade_report.py` red → green; the
-   exact report-shape tests in `test_report.py` untouched and green.
+   exact report-shape tests in `test_report.py` gain the `"inverted_grade": False` key (owner-approved
+   append-only skip) — report.json states the key for every Benchmark.
+   A twin conformance test on each side pins the key's spelling across Engine and SDK.
 5. **SDK public surface** → regenerate `tests/public_surface_snapshot.json`; CHANGELOG entry.
 6. **Gates** → `run_gates.py screamingface-engine --skip-append-only` and
    `run_gates.py screamingface --skip-append-only` (owner-approved for the snapshot).

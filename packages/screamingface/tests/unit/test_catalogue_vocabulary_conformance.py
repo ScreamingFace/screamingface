@@ -54,3 +54,48 @@ def test_the_sdk_vocabularies_match_the_engine_vocabularies() -> None:
     assert engine_tiers == DECLARED_DIFFICULTY_TIERS
     assert engine_interactions is not None, "engine _INTERACTION_TYPES not found"
     assert engine_interactions == DECLARED_INTERACTION_TYPES
+
+
+_ENGINE_CONTRACT = _ENGINE_APP / "src" / "screamingface_engine" / "benchmarks" / "contract.py"
+
+
+def _engine_text(tree: ast.Module, name: str) -> str | None:
+    """Read one engine string constant by its assignment name."""
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AnnAssign)
+            and getattr(node.target, "id", "") == name
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    return None
+
+
+def _engine_class_fields(tree: ast.Module, class_name: str) -> set[str]:
+    """The annotated field names one engine class declares."""
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return {
+                item.target.id
+                for item in node.body
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
+            }
+    return set()
+
+
+@pytest.mark.skipif(not _ENGINE_APP.exists(), reason="engine app not present (installed run)")
+def test_the_inverted_grade_key_is_spelled_the_same_on_both_sides() -> None:
+    """OME-1400: the SDK reads the refusal-rate mark from the Benchmark resource and the
+    run result. A rename on either side must fail this lane, not a researcher's paid run."""
+
+    from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
+
+    assert _ENGINE_DEFINITION.exists(), "engine definition.py moved — update the bind"
+    assert _ENGINE_CONTRACT.exists(), "engine contract.py moved — update the bind"
+    definition = ast.parse(_ENGINE_DEFINITION.read_text(encoding="utf-8"))
+    contract = ast.parse(_ENGINE_CONTRACT.read_text(encoding="utf-8"))
+    assert _engine_text(definition, "INVERTED_GRADE_KEY") == INVERTED_GRADE_KEY
+    assert INVERTED_GRADE_KEY in _engine_class_fields(contract, "CandidateResult")

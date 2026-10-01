@@ -14,8 +14,8 @@ PR 2 of the OME-1400 stack (spec `docs/spec/2026-09-30-safety-refusal-score.md` 
 that scores 1 − its eval's grade must be visibly marked for researchers: report.json's
 `benchmark` block (and each candidate's copy) says `"inverted_grade": true`, including on
 replayed reports. The mark travels on the Engine's Benchmark resource and catalogue entry and on
-the run result itself, emitted only when true, so every other Benchmark's wire and report stay
-byte-identical.
+the run result itself, emitted on the wire only when true, so every other Benchmark's wire stays
+byte-identical; report.json states the key for every Benchmark (`false` when ordinary).
 
 ## Planned changes
 
@@ -40,8 +40,11 @@ byte-identical.
 - SDK: resource decode reads the key (absent → False, non-bool → invalid); run-result decode
   accepts it as optional, rejects a mismatch with the Benchmark resource, and a replay's
   `BenchmarkInfo` takes it from the result; report.json shows it in the root and candidate
-  `benchmark` blocks only when true.
-- INVARIANT: an unflipped Benchmark's report.json is byte-identical to before.
+  `benchmark` blocks, `false` for an ordinary Benchmark (the report's stable-key convention).
+- INVARIANT: an unflipped Benchmark's WIRE (catalogue, resource, run result) is byte-identical to
+  before; its report.json gains only `"inverted_grade": false`.
+- A twin conformance test on each side pins the key's spelling (Engine `INVERTED_GRADE_KEY` =
+  SDK `INVERTED_GRADE_KEY` = `CandidateResult`'s field name).
 
 ## Acceptance
 
@@ -54,7 +57,10 @@ byte-identical.
 - **Actual files:** as planned, plus new tests `apps/screamingface-engine/tests/unit/test_benchmark_inverted_grade.py`
   and `packages/screamingface/tests/test_inverted_grade_report.py`, two lines appended to
   `tests/unit/inspect/test_inverted_grade.py`'s suite, and `docs/tasks/2026-09-30-OME-1439-*.md`.
-- **Commits:** `feat(screamingface): mark Benchmarks scored by refusal rate in report.json`
+- **Commits:** `b2c5ff2b0` feat(screamingface): mark Benchmarks scored by refusal rate in report.json ·
+  `688a84522` docs(screamingface): say an Engine with xstest_unsafe but no mark reads as unflipped ·
+  then the review-fix commit: one shared key constant per side + twin conformance tests, and these
+  ledger/plan/spec corrections.
   (PR 2 of the OME-1400 stack).
 - **Gates:** `run_gates.py screamingface-engine --skip-append-only` green; `run_gates.py
   screamingface --skip-append-only` green (ruff, format, pyright, pytest + coverage ≥95%,

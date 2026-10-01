@@ -64,6 +64,11 @@ _INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
 # INVARIANT: ordered easy→hard — the SDK renders catalogue sections in exactly this
 # order, and its copy of the tuple is pinned to this one (test_difficulty_conformance).
 _DIFFICULTY_TIERS: tuple[DifficultyTier, ...] = ("easy", "medium", "hard")
+#: The wire key of the refusal-rate mark (OME-1400) — on the Benchmark resource, the
+#: catalogue entry and (as `CandidateResult`'s field name) the run result.
+#: INVARIANT: spelled exactly as the SDK's copy in `_catalogue_vocabulary.py`; pinned
+#: by test_catalogue_vocabulary_conformance on BOTH sides.
+INVERTED_GRADE_KEY: str = "inverted_grade"
 _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -280,7 +285,7 @@ class Benchmark:
         if self.check_surface is not None:
             metadata["check_surface"] = self.check_surface.as_block()
         if self.inverted_grade:
-            metadata["inverted_grade"] = True
+            metadata[INVERTED_GRADE_KEY] = True
         return metadata
 
     def protocol(self, selected_case_count: int) -> Node:

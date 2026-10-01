@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, NoReturn, cast
 
+from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
 from screamingface._evaluation.model import _canonical_url4
@@ -62,10 +63,10 @@ def _decode_benchmark_resource(
             revision=_wire_text(resource.get("revision"), "Benchmark revision", _invalid),
             case_count=installed_case_count,
             # WHY absent means False: the Engine publishes the mark only when true. An Engine
-            # without the mark (before OME-1400's second PR) sends no key for ANY Benchmark —
-            # including xstest_unsafe if the first PR's Engine is deployed alone — so the two
-            # Engine changes deploy together.
-            inverted_grade=_inverted_grade(resource.get("inverted_grade", False)),
+            # that serves xstest_unsafe but predates the mark sends no key for it either, so
+            # the Engine change that adds a flipped Benchmark and the one that adds the mark
+            # ship in one release.
+            inverted_grade=_inverted_grade(resource.get(INVERTED_GRADE_KEY, False)),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc))
