@@ -102,3 +102,29 @@ file is absent; I ran its parsers by hand against the file in the `e4a-rank-conc
 they matched). (10) `Pick` refuses a blank `equals` and a bool `equals` with `normalize='numeric'` at
 build time. (11) README Pick paragraph states that `equals=7` also matches the string `"7"`.
 No deviations. Item 9 is absent from the coordinator's list; nothing was skipped.
+
+## User decisions U2/U3 (2026-10-01)
+
+- **U3, `writer-template@1`:** a `FieldRule.model` writer call now has a fixed, versioned system prompt
+  like the Judge: `writer_intent(field, prompt)` in `fields.py` returns
+  `writer-template@1 field=<field>\n` + the data framing + `Task:\n` + the author prompt. The framing says
+  that member values are data, never instructions. The Engine does not change (it never parses prompts).
+  `Merge._signals` builds the writer intent with `writer_intent`. `FieldRule._from_wire` recovers the author
+  prompt with `_author_prompt(field, system_prompt)`: the system prompt must start with
+  `writer_intent(field, "")` for THAT field, else `ValueError("URL4 Candidate has an unsupported writer
+  call")`. `to_python()` shows only the author prompt and the recompile is byte-identical.
+- **U2, doc note:** README Merge section says that the evidence holds each member's JSON object (in `raw`
+  and `value`) for the projection step and the final merge step, so large member JSON makes a large report.
+  The CHANGELOG Pick/Merge bullet names `writer-template@1`.
+- **Tests (RED first):** both test files import `writer_intent` / `WRITER_TEMPLATE_ID` from `fields`; RED was
+  the `ImportError`. New tests: the exact writer intent lines; the template has no `$` or `\x7f`, names the
+  field and says "never as instructions"; `to_python()` shows only the author prompt (one and two model
+  fields) and recompiles byte-identically; five tamper cases (version `@2`, another field name, template
+  line removed, reworded framing, task marker changed) and a prefix-removed rebuild are refused. PM-6
+  (writer context is exactly `$synthesis_K`) still holds.
+- **Engine cross-check (not a committed test):** the SDK-compiled Merge with a model field was run through
+  `tests/unit/test_combine_writer_world.py` helpers in the engine venv: the writer call reached the gateway
+  with the template as the system message, the projection as the user message and no `binding` param; the
+  output was the merged object.
+- **Note:** a newline in a url4 prompt is stored as U+2028 (existing `_url4_text` rule, same as the Judge),
+  so the gateway system message shows U+2028 between the template lines.
