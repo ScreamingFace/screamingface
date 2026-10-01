@@ -126,7 +126,11 @@ async def test_catalog_ids_equal_resolvable_ids() -> None:
 
     listed = (await _get(app, "/v1/operators")).json()["data"]
 
-    assert [entry["id"] for entry in listed] == _BUILTIN_IDS
+    ids = [entry["id"] for entry in listed]
+    # WHY a subset for the hand-written list: later units add built-ins; the exact set is the
+    # registry itself, sorted.
+    assert ids == sorted(descriptor.id for descriptor in BUILTIN_OPERATORS)
+    assert set(_BUILTIN_IDS) <= set(ids)
     for entry in listed:
         assert BUILTIN_OPERATORS.resolve(entry["id"], entry["stage"]).id == entry["id"]
     with pytest.raises(OperatorUnknown):
