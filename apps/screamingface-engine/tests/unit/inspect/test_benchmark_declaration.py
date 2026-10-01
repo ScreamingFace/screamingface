@@ -237,6 +237,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-worldsense": ("coverage_declare", "single_shot", "hard"),
         "inspect-sevenllm_mcq_zh": ("coverage_declare", "single_shot", "medium"),
         "inspect-sevenllm_mcq_en": ("coverage_declare", "single_shot", "medium"),
+        # OME-1371: CoCoNot — declining what it should (noncompliance rate), and answering
+        # look-alike harmless requests; both LLM-judged from a per-category rubric.
+        "inspect-coconot_original": ("coverage_declare", "single_shot", "medium"),
+        "inspect-coconot_contrast": ("coverage_declare", "single_shot", "easy"),
     }
     actual = {
         benchmark.id: (

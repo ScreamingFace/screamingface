@@ -74,6 +74,16 @@ from screamingface_engine_inspect.pins import (
     BOOLQ_DATASET_REVISION,
     BOOLQ_SHUFFLE_SEED,
     BOOLQ_SPLIT,
+    COCONOT_CONTRAST_CASE_COUNT,
+    COCONOT_CONTRAST_CONFIG,
+    COCONOT_CONTRAST_DATASET,
+    COCONOT_CONTRAST_DATASET_REVISION,
+    COCONOT_CONTRAST_SPLIT,
+    COCONOT_ORIGINAL_CASE_COUNT,
+    COCONOT_ORIGINAL_CONFIG,
+    COCONOT_ORIGINAL_DATASET,
+    COCONOT_ORIGINAL_DATASET_REVISION,
+    COCONOT_ORIGINAL_SPLIT,
     COMMONSENSE_QA_CASE_COUNT,
     COMMONSENSE_QA_CONFIG,
     COMMONSENSE_QA_DATASET,
@@ -799,6 +809,40 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
         # WHY the unbaked system_message is benign (musr precedent): the eval's
         # system message is the generic "You are a helpful assistant." — no benchmark
         # content, and the grading prompt never sees it.
+    ),
+    "coconot_original": CasesSpec(
+        dataset=COCONOT_ORIGINAL_DATASET,
+        config=COCONOT_ORIGINAL_CONFIG,
+        split=COCONOT_ORIGINAL_SPLIT,
+        dataset_revision=COCONOT_ORIGINAL_DATASET_REVISION,
+        case_count=COCONOT_ORIGINAL_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.coconot.coconot:coconot;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.coconot.coconot:record_to_sample",
+        # The judge template reads the category rubric's {refusal}/{compliance} text,
+        # which the eval's row rule puts in the Sample's metadata (OME-1371).
+        keep_sample_metadata=True,
+        # The judge grades from the question, the reply and that rubric; the dataset
+        # has no answer key (coconot's row rule sets no target).
+        has_answer_key=False,
+    ),
+    "coconot_contrast": CasesSpec(
+        dataset=COCONOT_CONTRAST_DATASET,
+        config=COCONOT_CONTRAST_CONFIG,
+        split=COCONOT_CONTRAST_SPLIT,
+        dataset_revision=COCONOT_CONTRAST_DATASET_REVISION,
+        case_count=COCONOT_CONTRAST_CASE_COUNT,
+        # Generated from
+        #   inspect_evals.coconot.coconot:coconot;
+        # verify against the eval's task.
+        record_to_sample="inspect_evals.coconot.coconot:record_to_sample",
+        # The judge template reads the category rubric's {refusal}/{compliance} text,
+        # which the eval's row rule puts in the Sample's metadata (OME-1371).
+        keep_sample_metadata=True,
+        # The judge grades from the question, the reply and that rubric; the dataset
+        # has no answer key (coconot's row rule sets no target).
+        has_answer_key=False,
     ),
     # --- importer: generated CasesSpec rows land above this line ---
 }

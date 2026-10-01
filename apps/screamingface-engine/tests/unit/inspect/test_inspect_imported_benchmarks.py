@@ -94,6 +94,10 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "worldsense": "mcq",
     "sevenllm_mcq_zh": "mcq",
     "sevenllm_mcq_en": "mcq",
+    # OME-1371: CoCoNot's two halves — judged from a per-category rubric, no answer key;
+    # the judge answers in words, graded by the row's verdict map.
+    "coconot_original": "judged",
+    "coconot_contrast": "judged",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
