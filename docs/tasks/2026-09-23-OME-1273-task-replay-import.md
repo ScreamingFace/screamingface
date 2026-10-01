@@ -25,4 +25,6 @@ this mirror closes with the last one.
 - Spec merged (#1147); image side merged (#1150).
 - Import side: the importer imports an eval by Task replay (recorder, double run, generated
   declaration, license gate, `--task-replay`). Plan:
-  `docs/plan/2026-10-01-OME-1273-task-replay-import-side.md`.
+  `docs/plan/2026-10-01-OME-1273-task-replay-import-side.md`. (#1191)
+- First Task-replay Benchmarks: eight agieval tasks, medqa and mgsm_en, licenses decided by
+  the owner on 2026-10-01; agieval's run-time choice template kept as a pinned constant.
