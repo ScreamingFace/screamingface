@@ -33,15 +33,18 @@ from __future__ import annotations
 
 import datetime as _datetime
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from screamingface_engine_inspect.case_sources import CaseSource
+from screamingface_engine_inspect.case_sources import HUGGING_FACE, CaseSource
 from screamingface_engine_inspect.import_replay import TaskReplayFacts, TaskReplayImport
 from screamingface_engine_inspect.importer import (
     _BENCHMARKS_ANCHOR,
     _LICENSE_CHARSET,
     _REFERENCE_CHARSET,
+    CLEARED_DATASET_LICENSES,
     ImporterError,
     _is_judged_by,
     _is_literal,
@@ -287,4 +290,70 @@ def _benchmark_row_lines(key: str, imported: TaskReplayImport, license: str) -> 
     return lines
 
 
-__all__ = ["TaskReplayRows", "render_task_replay_rows", "write_task_replay_rows"]
+@dataclass(frozen=True)
+class CardLicense:
+    """The license a Task-replay import writes, and what the card said when that is TODO."""
+
+    #: A cleared license read off the card, or LICENSE_TODO for the owner to decide.
+    value: str
+    #: The card's own license when it was not on the cleared list (D13), else None.
+    card_says: str | None
+
+
+def card_license_of(
+    sources: tuple[CaseSource, ...], *, dataset_info: Callable[[str, str | None], Any]
+) -> CardLicense:
+    """The license the importer can read: the card of the one Hugging Face Case Source.
+
+    WHY one source only: with several, no single card speaks for the Cases (spec R7). WHY a
+    cleared license only (D13): medqa's card says ``unknown``; written as the value it would
+    pass R7's gate with nobody deciding, so it is written as TODO and named in the note.
+
+    Example: ``hugging-face bigbio/med_qa · pin revision ddef…`` reads the card at ``ddef…``;
+    ``Apache-2.0`` → ``apache-2.0``; ``UNKNOWN`` → TODO, the card says ``unknown``.
+
+    Args:
+        sources: the Case Sources run 1 recorded.
+        dataset_info: ``(repo id, revision) → Hub dataset info`` (HfApi().dataset_info).
+
+    Returns:
+        What to write, and the card's own value when the owner must decide instead.
+    """
+
+    hugging_face: list[CaseSource] = [source for source in sources if source.kind == HUGGING_FACE]
+    card_value: str | None = (
+        _card_license_text(hugging_face[0], dataset_info) if len(hugging_face) == 1 else None
+    )
+    if card_value is None:
+        return CardLicense(value=LICENSE_TODO, card_says=None)
+    cleared: bool = card_value in CLEARED_DATASET_LICENSES
+    return CardLicense(
+        value=card_value if cleared else LICENSE_TODO, card_says=None if cleared else card_value
+    )
+
+
+def _card_license_text(
+    source: CaseSource, dataset_info: Callable[[str, str | None], Any]
+) -> str | None:
+    """The card's license at the source's revision, lowercased; None when the card has none.
+
+    Read the way read_hub_dataset_facts reads it: a list of licenses is joined.
+    """
+
+    revision: str | None = (
+        source.pin.removeprefix("revision ") if source.pin.startswith("revision ") else None
+    )
+    card: Any = getattr(dataset_info(source.hub_repo_id(), revision), "card_data", None) or {}
+    value: Any = card.get("license") if hasattr(card, "get") else None
+    if isinstance(value, list):
+        value = ", ".join(str(item) for item in value)
+    return str(value).lower() if value else None
+
+
+__all__ = [
+    "CardLicense",
+    "TaskReplayRows",
+    "card_license_of",
+    "render_task_replay_rows",
+    "write_task_replay_rows",
+]

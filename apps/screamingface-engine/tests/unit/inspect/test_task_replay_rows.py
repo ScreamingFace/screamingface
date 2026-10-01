@@ -312,3 +312,69 @@ def test_write_task_replay_rows_refuses_a_key_the_hugging_face_path_declared(
 
     with pytest.raises(ImporterError, match="already exists"):
         write_task_replay_rows("gsm8k", _imported(), engine_src=engine_src_copy, license="TODO")
+
+
+# ── the license the importer can read off a Hugging Face card (spec R7, D13) ─────
+
+import types  # noqa: E402
+
+from screamingface_engine_inspect.task_replay_rows import CardLicense, card_license_of  # noqa: E402
+
+
+def _card(license_value: object) -> Any:
+    """A stand-in for HfApi().dataset_info(...): only its card's license is read."""
+
+    return types.SimpleNamespace(card_data={"license": license_value})
+
+
+def test_a_cleared_license_comes_from_the_card_of_the_one_hugging_face_source() -> None:
+    seen: list[tuple[str, str | None]] = []
+
+    def dataset_info(dataset: str, revision: str | None) -> Any:
+        """Record which card was read, at which revision."""
+
+        seen.append((dataset, revision))
+        return _card("Apache-2.0")
+
+    source: CaseSource = CaseSource("hugging-face", "bigbio/med_qa/main", "revision " + "d" * 40)
+
+    license_read: CardLicense = card_license_of((source,), dataset_info=dataset_info)
+
+    assert license_read == CardLicense(value="apache-2.0", card_says=None)
+    assert seen == [("bigbio/med_qa", "d" * 40)]
+
+
+def test_an_uncleared_card_license_is_written_as_todo() -> None:
+    """D13: medqa's card says UNKNOWN; as a value it would pass R7's gate undecided."""
+
+    source: CaseSource = CaseSource("hugging-face", "bigbio/med_qa", "unpinned")
+
+    license_read: CardLicense = card_license_of(
+        (source,), dataset_info=lambda dataset, revision: _card("UNKNOWN")
+    )
+
+    assert license_read == CardLicense(value="TODO", card_says="unknown")
+
+
+def test_no_card_speaks_for_a_url_source_or_several_hugging_face_sources() -> None:
+    def never(dataset: str, revision: str | None) -> Any:
+        """No card should be read here."""
+
+        raise AssertionError("no card to read")
+
+    url_only: tuple[CaseSource, ...] = (CaseSource("url", "https://x", "unpinned"),)
+    two_repos: tuple[CaseSource, ...] = (
+        CaseSource("hugging-face", "a/b", "unpinned"),
+        CaseSource("hugging-face", "c/d", "unpinned"),
+    )
+
+    assert card_license_of(url_only, dataset_info=never) == CardLicense("TODO", None)
+    assert card_license_of(two_repos, dataset_info=never) == CardLicense("TODO", None)
+
+
+def test_a_card_with_no_license_is_todo() -> None:
+    source: CaseSource = CaseSource("hugging-face", "a/b", "unpinned")
+
+    assert card_license_of((source,), dataset_info=lambda d, r: _card(None)) == CardLicense(
+        "TODO", None
+    )

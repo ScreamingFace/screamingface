@@ -2414,3 +2414,145 @@ def test_every_other_refusal_stays_a_plain_refusal(monkeypatch: pytest.MonkeyPat
     with pytest.raises(ImporterError, match="exactly one scorer") as caught:
         read_inspect_task(f"{_FAKE_MODULE}:two_scorers")
     assert not isinstance(caught.value, TaskReplayRoute)
+
+
+# ── OME-1273: the CLI imports by Task replay on a route or on request (R1, D12) ──
+
+from collections.abc import Mapping  # noqa: E402
+
+from screamingface_engine_inspect.case_sources import CaseSource  # noqa: E402
+from screamingface_engine_inspect.import_replay import (  # noqa: E402
+    TaskReplayFacts,
+    TaskReplayImport,
+)
+from screamingface_engine_inspect.importer import main  # noqa: E402
+from screamingface_engine_inspect.prepare import TaskReplayCasesSpec  # noqa: E402
+
+
+def _sealed_import(source: CaseSource | None = None) -> TaskReplayImport:
+    """A sealed Task-replay import, as import_by_task_replay returns it — no child runs.
+
+    Stand-in for the two replays: it proves the CLI writes what the import returns; the
+    replays themselves are pinned in test_import_replay.py.
+    """
+
+    facts: TaskReplayFacts = TaskReplayFacts(
+        task_ref=f"{_FAKE_MODULE}:sums",
+        task_args={"cot": False},
+        prompt_template=None,
+        choice_template=None,
+        system_message=None,
+        unreproduced_solvers=(),
+        mcq=False,
+        scorer="inspect_ai.scorer:match",
+        scorer_kwargs={},
+        custom_metrics=(),
+        keep_sample_metadata=False,
+    )
+    return TaskReplayImport(
+        declaration=TaskReplayCasesSpec(
+            task=facts.task_ref, case_count=2, case_digest="e" * 64, task_args={"cot": False}
+        ),
+        case_sources=(source or CaseSource("url", "https://x.example/sums.jsonl", "unpinned"),),
+        facts=facts,
+    )
+
+
+def test_main_imports_by_task_replay_when_the_reader_routes(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _install_fake_eval(monkeypatch, sums=_free_text_task)
+    del module.hf_dataset  # type: ignore[attr-defined]
+    seen: list[tuple[str, dict[str, Any] | None]] = []
+
+    def fake_import(task_ref: str, task_args: Mapping[str, Any] | None) -> TaskReplayImport:
+        """Record the call the CLI made; return a sealed import."""
+
+        seen.append((task_ref, dict(task_args) if task_args else None))
+        return _sealed_import()
+
+    code: int = main(
+        [
+            f"{_FAKE_MODULE}:sums",
+            "--key",
+            "sums_replayed",
+            "--task-arg",
+            "cot=False",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        import_by_task_replay=fake_import,
+    )
+
+    assert code == 0
+    assert seen == [(f"{_FAKE_MODULE}:sums", {"cot": False})]
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    assert '"sums_replayed": TaskReplayCasesSpec(' in prepare_text
+    assert 'task_args={"cot": False},' in prepare_text
+    stderr: str = capsys.readouterr().err
+    assert "importing by Task replay" in stderr
+    assert "url https://x.example/sums.jsonl · pin unpinned" in stderr
+
+
+def test_the_task_replay_flag_skips_the_hugging_face_reader(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """D12: bbh-like evals crash inside the reader's stand-in Sample, so no route fires."""
+
+    def crashes_on_the_stand_in() -> Task:
+        raise KeyError("the reader's stand-in Sample has no metadata")
+
+    _install_fake_eval(monkeypatch, crashy=crashes_on_the_stand_in)
+
+    code: int = main(
+        [f"{_FAKE_MODULE}:crashy", "--key", "crashy", "--task-replay"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=lambda task_ref, task_args: _sealed_import(),
+    )
+
+    assert code == 0
+    assert '"crashy": TaskReplayCasesSpec(' in (engine_src_copy / "prepare.py").read_text()
+
+
+def test_main_reports_a_task_replay_refusal_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _install_fake_eval(monkeypatch, sums=_free_text_task)
+    del module.hf_dataset  # type: ignore[attr-defined]
+
+    def refusing_import(task_ref: str, task_args: Mapping[str, Any] | None) -> TaskReplayImport:
+        """Refuse the way import_by_task_replay refuses an unseeded shuffle."""
+
+        raise ImporterError(f"{task_ref}: two Task replays produced different Cases")
+
+    code: int = main(
+        [f"{_FAKE_MODULE}:sums", "--key", "x", "--engine-src", str(engine_src_copy)],
+        import_by_task_replay=refusing_import,
+    )
+
+    assert code == 1
+    assert "different Cases" in capsys.readouterr().err
+    assert (engine_src_copy / "prepare.py").read_text() == (_SRC_DIR / "prepare.py").read_text()
+
+
+def test_main_writes_an_uncleared_card_license_as_todo(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """D13 end to end: the card's 'unknown' never lands as the license value."""
+
+    module = _install_fake_eval(monkeypatch, sums=_free_text_task)
+    del module.hf_dataset  # type: ignore[attr-defined]
+    source: CaseSource = CaseSource("hugging-face", "bigbio/med_qa", "revision " + "d" * 40)
+
+    code: int = main(
+        [f"{_FAKE_MODULE}:sums", "--key", "medqa_like", "--engine-src", str(engine_src_copy)],
+        import_by_task_replay=lambda task_ref, task_args: _sealed_import(source),
+        dataset_info=lambda dataset, revision: types.SimpleNamespace(
+            card_data={"license": "UNKNOWN"}
+        ),
+    )
+
+    prepare_text: str = (engine_src_copy / "prepare.py").read_text()
+    assert code == 0
+    assert '        license="TODO",' in prepare_text
+    assert "the card says 'unknown', not a cleared license" in prepare_text
