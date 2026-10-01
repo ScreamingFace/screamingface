@@ -27,4 +27,6 @@ this mirror closes with the last one.
   declaration, license gate, `--task-replay`). Plan:
   `docs/plan/2026-10-01-OME-1273-task-replay-import-side.md`. (#1191)
 - First Task-replay Benchmarks: eight agieval tasks, medqa and mgsm_en, licenses decided by
-  the owner on 2026-10-01; agieval's run-time choice template kept as a pinned constant.
+  the owner on 2026-10-01; agieval's run-time choice template kept as a pinned constant. (#1194)
+- The plain packages: bbq, piqa, cybermetric ×4, worldsense, sevenllm ×2. sad moved to its own
+  PR (a renderer for its custom message structure comes first).
