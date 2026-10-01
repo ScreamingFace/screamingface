@@ -22,6 +22,7 @@ from screamingface._results.codec import (
     outcome_data,
     outcome_value,
 )
+from screamingface._results.membership import membership_value
 from screamingface.errors import ExecutionError
 
 
@@ -180,5 +181,5 @@ class ResultStore:
             data["engine_url"],
             candidate_value(data["candidate"]),
             outcome_value(data["outcome"]),
-            data["evaluation"],
+            membership_value(data["evaluation"]),
         )

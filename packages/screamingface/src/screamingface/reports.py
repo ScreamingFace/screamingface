@@ -160,15 +160,20 @@ def _group(store: ResultStore, selected: SavedRun) -> builtins.list[SavedRun]:
 def _decode(run: SavedRun, outcome: _RunOutcome) -> Report:
     if run.evaluation is None:
         return report_from_url4_outcome(run.candidate, outcome)
-    context = run.evaluation
-    evaluation = _compiled_evaluation(
-        benchmark=BenchmarkInfo(**context["benchmark"]),
-        limit=context["case_count"],
-        case_count=context["case_count"],
-        candidates=(run.candidate,),
-        required_models=run.candidate.models,
-    )
-    return report_from_outcomes(evaluation, ((run.candidate, outcome),))
+    try:
+        context = run.evaluation
+        evaluation = _compiled_evaluation(
+            benchmark=BenchmarkInfo(**context["benchmark"]),
+            limit=context["case_count"],
+            case_count=context["case_count"],
+            candidates=(run.candidate,),
+            required_models=run.candidate.models,
+        )
+        return report_from_outcomes(evaluation, ((run.candidate, outcome),))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ExecutionError(
+            "Invalid saved evaluation metadata", code="result_metadata_invalid"
+        ) from exc
 
 
 def _finish(
