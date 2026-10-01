@@ -68,6 +68,25 @@ member route · JG-9 provider failure codes · catalog lists the four ids.
 - **Gates:** `run_gates.py screamingface-engine --base e4a-engine-wiring-evidence` (append-only on):
   no offenders, ALL GATES GREEN (ruff, format, pyright, check_layering, pytest with the 80 percent
   coverage floor). With `--skip-append-only`: ALL GATES GREEN. `repo`: ALL GATES GREEN.
-- **Deviations:** none. Extra tests beyond the spec table (all inside the listed files): a
+- **Deviations:** the flow-golden test (`test_combine_flow_golden.py`) does NOT assert that top-level
+  plus flow fixtures equal the built-in ids (spec step 8). It keeps the disjointness, stage, file
+  count and file stem checks only; the exact-set check is OP-1's job (D-9). Extra tests beyond the spec table (all inside the listed files): a
   one-extra-character fuzz for the label parser, `huge-int`, `other-tag` and `empty-fence` score
   replies, a 64 KiB judge reply, a too_large label member, and a prose-from-a-judge-model world test.
+
+## Review round 1 (coordinator: ACCEPT-WITH-FIXES)
+
+- `scores@1.json` gained 9 hand-derived cases (whole-reply fence with outer whitespace, CRLF fence,
+  spaced tag, no newline before the closing fence, `-0.0`, `1e-400`, judge mode with a too_large
+  member, values mode with negative and decimal values, a voter with no value). Every hand
+  derivation matched the code on the first run.
+- The prose world test asserts `permanent is True` and exactly one judge call (no retry).
+- Flow golden test: file count equals loaded fixtures, and each file stem equals its op id.
+- `combine_flow_support.py`: no `__all__`; `judge_spec` takes the keyword-only `reducer`,
+  `select_op` and `select_args` (defaults keep the old behavior).
+- Dropped the duplicate walk-helper test. NBSP, ZWSP, fullwidth 2 and e-acute are written as escapes.
+- JG-3 is one parametrized test (label and scores) with the log-line and no-recorded-call checks.
+  The old no-call test ran inside a nested capture scope, so it could not fail; the new helper
+  calls `CombineRoute` in the test's own scope, and a positive control records exactly one call.
+- `request_parameters.py`: the `binding` explanation lives in the module docstring only.
+- Scenario texts are numbered like their member ids; `returns` is typed `Literal`.

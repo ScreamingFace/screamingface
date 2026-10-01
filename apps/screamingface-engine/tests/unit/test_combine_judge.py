@@ -15,12 +15,13 @@ from typing import Any
 
 import pytest
 from combine_flow_support import judge_spec
-from combine_support import context_text, run, run_recorded, spec_text, vote_spec
+from combine_support import context_text, request, run, spec_text, vote_spec
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.operators.judge import parse_label, parse_scores
 from screamingface_engine.combine.ports import CombineError, JudgeReplyInvalid
-from screamingface_engine.operation_calls import capture_operation_calls
+from screamingface_engine.operation_calls import OperationCall, capture_operation_calls
+from screamingface_engine.world.combine import CombineRoute
 from url4.core.errors import ResolutionError
 
 _MEMBERS = ("member_1", "member_2", "member_3")
@@ -33,7 +34,7 @@ _LOGGER = "screamingface_engine.combine.endpoint"
 def test_label_parser_accepts_exact_member_id_only() -> None:
     assert parse_label("member_2", _MEMBERS) == "member_2"
     assert parse_label(" \n member_3\t\n", _MEMBERS) == "member_3"
-    assert parse_label(" member_1 ", _MEMBERS) == "member_1"
+    assert parse_label("\u00a0member_1\u00a0", _MEMBERS) == "member_1"
     broken = [
         '"member_2"',
         "member_2.",
@@ -47,8 +48,8 @@ def test_label_parser_accepts_exact_member_id_only() -> None:
         "member-2",
         "member_2 member_3",
         "member_2\nmember_3",
-        "member_２",
-        "​member_2",
+        "member_\uff12",
+        "\u200bmember_2",
         "'member_2'",
         "member_2,",
         "<member_2>",
@@ -143,41 +144,58 @@ def test_scores_parser_requires_one_finite_number_per_member(reply: str) -> None
 # --- JG-3 -------------------------------------------------------------------------------------
 
 
-def _failure(returns: Any, reply: str) -> ResolutionError:
+def _route(returns: Any, reply: str) -> tuple[str | ResolutionError, list[OperationCall]]:
+    """Call the combine route in this test's own capture scope (a nested scope would hide calls)."""
     intent = spec_text(judge_spec(3, returns))
     context = context_text(["A", "B", "C"], {"judge": reply})
-    with pytest.raises(ResolutionError) as caught:
-        run_recorded(intent, context, registry=BUILTIN_OPERATORS)
-    return caught.value
+    route = CombineRoute(BUILTIN_OPERATORS)
+    with capture_operation_calls() as calls:
+        try:
+            result: str | ResolutionError = route(request(intent, context))
+        except ResolutionError as error:
+            result = error
+    return result, list(calls)
 
 
-def test_parse_failure_raises_judge_reply_invalid_never_uses_prose(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with caplog.at_level(logging.INFO, logger=_LOGGER):
-        error = _failure("label", "I think member 2 is best.")
-    assert error.code == "judge_reply_invalid"
-    assert error.permanent is True
-    assert "member 2 is best" not in str(error)
+def _failure(returns: Any, reply: str) -> ResolutionError:
+    result, _ = _route(returns, reply)
+    assert isinstance(result, ResolutionError)
+    return result
+
+
+def _last_log_line(caplog: pytest.LogCaptureFixture) -> str:
     lines = [r.getMessage() for r in caplog.records if r.name == _LOGGER]
     assert lines
-    assert lines[-1].endswith("outcome=judge_reply_invalid")
+    return lines[-1]
 
 
-def test_a_failed_judge_parse_records_no_operation_call() -> None:
-    intent = spec_text(judge_spec(3, "label"))
-    context = context_text(["A", "B", "C"], {"judge": "I think member 2 is best."})
-    with capture_operation_calls() as calls:
-        with pytest.raises(ResolutionError):
-            run_recorded(intent, context, registry=BUILTIN_OPERATORS)
-    assert list(calls) == []
+@pytest.mark.parametrize(
+    ("returns", "reply", "echoed"),
+    [
+        ("label", "I think member 2 is best.", "member 2 is best"),
+        ("scores", '{"member_1": 1}', "member_1"),
+    ],
+    ids=["label", "scores"],
+)
+def test_parse_failure_raises_judge_reply_invalid_never_uses_prose(
+    returns: str, reply: str, echoed: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        result, calls = _route(returns, reply)
+    assert isinstance(result, ResolutionError)
+    assert result.code == "judge_reply_invalid"
+    assert result.permanent is True
+    assert echoed not in str(result)
+    assert _last_log_line(caplog).endswith("outcome=judge_reply_invalid")
+    assert calls == []
 
 
-def test_scores_parse_failure_raises_judge_reply_invalid() -> None:
-    error = _failure("scores", '{"member_1": 1}')
-    assert error.code == "judge_reply_invalid"
-    assert error.permanent is True
-    assert "member_1" not in str(error)
+def test_a_successful_judge_step_records_exactly_one_call() -> None:
+    """The positive control of the no-call checks above: the same scope does see a record."""
+    result, calls = _route("label", "member_2")
+    assert result == "B"
+    assert len(calls) == 1
+    assert calls[0].output == "B"
 
 
 def test_a_judge_reply_over_64_kib_is_judge_reply_invalid() -> None:
@@ -189,13 +207,13 @@ def test_a_judge_reply_over_64_kib_is_judge_reply_invalid() -> None:
 
 
 def test_by_label_copies_member_text_byte_for_byte() -> None:
-    outputs = [" A\r\n", "B text é ", "C"]
+    outputs = [" A\r\n", "B text \u00e9 ", "C"]
     outcome = run(
         spec_text(judge_spec(3, "label")),
         context_text(outputs, {"judge": "member_2"}),
         registry=BUILTIN_OPERATORS,
     )
-    assert outcome.output == "B text é "
+    assert outcome.output == "B text \u00e9 "
 
 
 def test_label_accepts_a_member_marked_too_large() -> None:

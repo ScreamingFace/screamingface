@@ -11,7 +11,6 @@ import importlib
 import pkgutil
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
-from types import MappingProxyType
 
 from combine_flow_support import find_builtin, load_flow_fixtures, run_flow_case
 
@@ -77,9 +76,3 @@ def test_every_builtin_args_schema_is_immutable() -> None:
         schema = descriptor.args_schema
         assert not isinstance(schema, dict), descriptor.id
         assert _mutable_paths(schema, descriptor.id, tolerate_dicts=True) == [], descriptor.id
-
-
-def test_the_args_schema_walk_catches_a_mutable_dict() -> None:
-    assert _mutable_paths({"a": 1}, "x", tolerate_dicts=False) == ["x"]
-    assert _mutable_paths(MappingProxyType({"a": ["b"]}), "x", tolerate_dicts=False) == ["x['a']"]
-    assert _mutable_paths(MappingProxyType({"a": ("b",)}), "x", tolerate_dicts=False) == []

@@ -167,31 +167,32 @@ def run_flow_case(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
         return {"error": exc.code}
 
 
-def judge_spec(member_count: int, returns: Literal["label", "scores"]) -> dict[str, Any]:
-    """A judge spec over the built-in operators; the judge text arrives as the ``judge`` signal."""
+def judge_spec(
+    member_count: int,
+    returns: Literal["label", "scores"],
+    *,
+    reducer: str = "judge",
+    select_op: str | None = None,
+    select_args: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A judge spec over the built-in operators; the judge text arrives as the ``judge`` signal.
+
+    ``reducer`` and ``select_op`` (with ``select_args``) let a sibling reducer that reads a judge
+    reply (for example rank by judge) reuse the same reduce step and signals.
+    """
     if returns == "label":
         reduce_step = {"op": "label@1", "args": {}}
         select_step = {"op": "by_label@1", "args": {}}
     else:
         reduce_step = {"op": "scores@1", "args": {"source": "judge"}}
         select_step = {"op": "max_score@1", "args": {}}
+    if select_op is not None:
+        select_step = {"op": select_op, "args": dict(select_args or {})}
     return vote_spec(
         member_count,
-        reducer="judge",
+        reducer=reducer,
         extract=None,
         normalize=None,
         reduce=reduce_step,
         select=select_step,
     )
-
-
-__all__ = [
-    "FLOW_FIXTURE_DIR",
-    "find_builtin",
-    "flow_input",
-    "flow_reduction",
-    "judge_spec",
-    "load_flow_fixtures",
-    "reduction_view",
-    "run_flow_case",
-]

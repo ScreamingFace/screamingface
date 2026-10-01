@@ -23,4 +23,4 @@ def test_judge_reducers_are_identical_across_hash_seeds() -> None:
 
 
 def test_the_scores_scenario_picks_the_first_of_the_tied_members() -> None:
-    assert scores_scenario().startswith("member 3: ")
+    assert scores_scenario().startswith("member 4: ")

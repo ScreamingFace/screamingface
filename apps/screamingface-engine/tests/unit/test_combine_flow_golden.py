@@ -25,8 +25,14 @@ _CASES = [
 
 
 def test_every_builtin_operator_has_exactly_one_golden_fixture() -> None:
+    # WHY no exact-set check here: OP-1 (test_combine_operators_golden.py) is the one exact-set
+    # check over every fixture under fixtures/combine/, flow/ included (D-9).
     top, flow = set(load_fixtures()), set(_FLOW)
     assert flow
+    # No silent replacement: one file for each loaded fixture, and the file stem is its op id.
+    files = sorted(FLOW_FIXTURE_DIR.glob("*.json"))
+    assert len(files) == len(_FLOW)
+    assert {path.stem for path in files} == flow
     assert top.isdisjoint(flow)
     for op_id, fixture in _FLOW.items():
         assert (FLOW_FIXTURE_DIR / f"{op_id}.json").is_file(), op_id

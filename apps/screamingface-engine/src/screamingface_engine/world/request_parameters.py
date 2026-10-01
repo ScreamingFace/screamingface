@@ -24,8 +24,6 @@ from screamingface_engine.world.errors import RunnerRequestError
 WEB_SEARCH_PARAM = "web_search"
 WEB_SEARCH_EXCLUDE_PARAM = "web_search_exclude"
 OPERATION_BINDING_PARAM = "binding"
-# WHY ``binding`` is here: attribution only -- it keeps a judge/writer call's fingerprint apart
-# from a member on the same route; never forwarded to the gateway.
 _INTERPRETED_PARAMS = frozenset(
     {WEB_SEARCH_PARAM, WEB_SEARCH_EXCLUDE_PARAM, OPERATION_BINDING_PARAM}
 )

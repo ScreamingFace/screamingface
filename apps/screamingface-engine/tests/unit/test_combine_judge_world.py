@@ -205,7 +205,10 @@ async def test_prose_from_the_judge_model_fails_the_case_with_judge_reply_invali
         await _evaluate(responder, "/provider/alpha")
 
     assert caught.value.code == "judge_reply_invalid"
+    assert caught.value.permanent is True
     assert "member 2 is best" not in str(caught.value)
+    # One judge call for each case: a parse failure is not retried (PRD section 4).
+    assert sum(_is_judge_call(body) for body in seen) == 1
 
 
 async def _get(app: Any, path: str) -> httpx.Response:

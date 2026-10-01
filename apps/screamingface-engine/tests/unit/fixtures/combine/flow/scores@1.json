@@ -982,6 +982,428 @@
    "expect": {
     "error": "combine_spec_invalid"
    }
+  },
+  {
+   "name": "whitespace around a whole reply fence",
+   "args": {
+    "source": "judge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "signals": {
+     "judge": "  \n```json\n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}\n```\n  "
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "2",
+     "member_3": "3"
+    },
+    "judge": {
+     "raw": "  \n```json\n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}\n```\n  ",
+     "returns": "scores",
+     "parsed": {
+      "member_1": 1.0,
+      "member_2": 2.0,
+      "member_3": 3.0
+     }
+    }
+   }
+  },
+  {
+   "name": "CRLF fence",
+   "args": {
+    "source": "judge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "signals": {
+     "judge": "```json\r\n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}\r\n```"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "2",
+     "member_3": "3"
+    },
+    "judge": {
+     "raw": "```json\r\n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}\r\n```",
+     "returns": "scores",
+     "parsed": {
+      "member_1": 1.0,
+      "member_2": 2.0,
+      "member_3": 3.0
+     }
+    }
+   }
+  },
+  {
+   "name": "spaced fence tag",
+   "args": {
+    "source": "judge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "signals": {
+     "judge": "``` json \n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}\n```"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "2",
+     "member_3": "3"
+    },
+    "judge": {
+     "raw": "``` json \n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}\n```",
+     "returns": "scores",
+     "parsed": {
+      "member_1": 1.0,
+      "member_2": 2.0,
+      "member_3": 3.0
+     }
+    }
+   }
+  },
+  {
+   "name": "fence body with no newline before the closing fence",
+   "args": {
+    "source": "judge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "signals": {
+     "judge": "```json\n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}```"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "2",
+     "member_3": "3"
+    },
+    "judge": {
+     "raw": "```json\n{\"member_1\": 1, \"member_2\": 2, \"member_3\": 3}```",
+     "returns": "scores",
+     "parsed": {
+      "member_1": 1.0,
+      "member_2": 2.0,
+      "member_3": 3.0
+     }
+    }
+   }
+  },
+  {
+   "name": "minus zero",
+   "args": {
+    "source": "judge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "signals": {
+     "judge": "{\"member_1\": -0.0, \"member_2\": 0, \"member_3\": 0}"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "0",
+     "member_3": "0"
+    },
+    "judge": {
+     "raw": "{\"member_1\": -0.0, \"member_2\": 0, \"member_3\": 0}",
+     "returns": "scores",
+     "parsed": {
+      "member_1": -0.0,
+      "member_2": 0.0,
+      "member_3": 0.0
+     }
+    }
+   }
+  },
+  {
+   "name": "underflow to zero",
+   "args": {
+    "source": "judge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "signals": {
+     "judge": "{\"member_1\": 1e-400, \"member_2\": 0, \"member_3\": 0}"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "0",
+     "member_3": "0"
+    },
+    "judge": {
+     "raw": "{\"member_1\": 1e-400, \"member_2\": 0, \"member_3\": 0}",
+     "returns": "scores",
+     "parsed": {
+      "member_1": 0.0,
+      "member_2": 0.0,
+      "member_3": 0.0
+     }
+    }
+   }
+  },
+  {
+   "name": "judge mode with a too_large member",
+   "args": {
+    "source": "judge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "too_large",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "signals": {
+     "judge": "{\"member_1\": 0.2, \"member_2\": 0.9, \"member_3\": 0.5}"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0.2",
+     "member_2": "0.9",
+     "member_3": "0.5"
+    },
+    "judge": {
+     "raw": "{\"member_1\": 0.2, \"member_2\": 0.9, \"member_3\": 0.5}",
+     "returns": "scores",
+     "parsed": {
+      "member_1": 0.2,
+      "member_2": 0.9,
+      "member_3": 0.5
+     }
+    }
+   }
+  },
+  {
+   "name": "values mode with negative and decimal values",
+   "args": {
+    "source": "values"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "-3",
+      "value": "-3",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "2.5",
+      "value": "2.5",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "-0.75",
+      "value": "-0.75",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "-3",
+     "member_2": "2.5",
+     "member_3": "-0.75"
+    }
+   }
+  },
+  {
+   "name": "values mode with a voter that has no value",
+   "args": {
+    "source": "values"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "5",
+      "value": "5",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "7",
+      "value": "7",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
   }
  ]
 }
