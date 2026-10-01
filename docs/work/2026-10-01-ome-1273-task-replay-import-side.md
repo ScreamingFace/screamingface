@@ -79,6 +79,6 @@ run through the image-side path), and write the `TaskReplayCasesSpec` declaratio
   - Gates ran once on the finished branch, not before each task's commit; each commit ran
     ruff, format and pyright on its files plus its tests.
   - The branch is ~2,570 lines (≈1,000 source, ≈1,500 tests), over the spec's ~500-line PR cap;
-    the owner decides the split before PR-open.
+    the owner chose one PR anyway (2026-10-01), with no review-agent pass.
 - **Owner-verify:** run the importer for `agieval_lsat_ar` locally before PR 4 (the first real
   fetch; nothing here touched the network).
