@@ -191,10 +191,24 @@ The content hash that identifies one exact Benchmark: its Cases, prompts, Gradin
 Benchmark-owned Models. Changing any of them yields a new revision.
 _Avoid_: Version
 
+**Benchmark key**:
+A Benchmark's short machine name, such as `gsm8k`: one per Benchmark, used to look up its
+declarations and to build its Benchmark id (`inspect-gsm8k`). It is not the title people read
+(`GSM8K`), and not the inspect eval behind it: one eval can become several Benchmarks, each with
+its own key (`mgsm_en`).
+_Avoid_: Benchmark name, eval name, key alone
+
 **Grading Material**:
 The private part of a Case that the Candidate never sees: the answer key, choices, or Rubric used
 in Grading. A Case graded only by a Judge prompt may carry no answer key.
 _Avoid_: Target, answer, ground truth
+
+**Answer key**:
+The correct answers a Benchmark grades against, stored per Case in its Grading Material: e.g.
+`42` for "What is 6 times 7?". A Benchmark that compares the answer to it needs no Judge; some
+give it to a Judge instead, and some have none and are graded only by a Judge prompt.
+_Avoid_: Key alone ("published key", "private key" read as a Benchmark key or a credential),
+target, ground truth
 
 **Case Preparation**:
 The image-build step that downloads a Benchmark's Cases from its pinned Case Sources and freezes

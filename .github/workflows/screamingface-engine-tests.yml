@@ -188,6 +188,7 @@ jobs:
             BASE=screamingface-engine-ci
             SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=1
             SCREAMINGFACE_HF_TOKEN_PRESENT=${{ secrets.HF_TOKEN_BENCHMARKS != '' }}
+            SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES=1
           secrets: |
             hf_token=${{ secrets.HF_TOKEN_BENCHMARKS }}
           push: false
