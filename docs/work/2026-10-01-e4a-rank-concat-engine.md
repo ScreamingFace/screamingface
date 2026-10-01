@@ -65,10 +65,44 @@ catalog lists the three ids · OP-1 exact set (RED until each fixture exists).
 - **Gates:** `run_gates.py screamingface-engine --base e4a-judge-pick-engine` (append-only on): no
   offenders, ALL GATES GREEN (ruff, format, pyright, check_layering, pytest with the 80 percent
   coverage floor). With `--skip-append-only`: ALL GATES GREEN. `repo`: ALL GATES GREEN.
-- **Deviations:** none from the spec. Extras inside the listed areas: `top_k` sorts with
-  `sorted(..., reverse=True)` and not a negated key, because `-Decimal` rounds to 28 digits (a test
-  pins exact comparison beyond 28 digits). A world test with `$model_1`, quotes and newlines in
-  member text shows url4 does not re-expand a substituted value.
+- **Deviations:** from the spec text, four, none changes behavior it pins:
+  1. `top_k` sorts with `sorted(..., reverse=True)` and not a negated key (`-Decimal` rounds to the
+     28-digit default context); a test pins exact comparison beyond 28 digits.
+  2. The `builtins.py` import is a parenthesized multi-line list (the single line is 101 chars).
+  3. A new support module `tests/unit/combine_selection_support.py` (spec builders), not in the spec.
+  4. The CC-5 test is `test_join_rejects_bad_args` (9 cases), plus `test_top_k_rejects_bad_args`.
+  Review round 1 changes: the collision check `_has_extra_separator` counts overlapping matches
+  (the first version, `joined.split(separator) != parts`, missed an overlap that ends inside the
+  next part); two right-overlap cases were added to `join@1.json` and the CC-4 test (RED first, 4
+  failures), the CC-4 test asserts the exact joined text for every case, and a `too_large` member
+  with the top judge score is kept whole (CHAR).
+
+- **Per-test table** (CHAR = passes at once by design). Tests are in `test_combine_selection.py`
+  unless noted.
+
+| Id | Test | RED | GREEN |
+|---|---|---|---|
+| RK-3 / OP-14 | `test_top_k_by_judge_scores_passes_k_originals_in_rank_order` | yes | yes |
+| RK-3 | `test_top_k_copies_member_text_byte_for_byte_with_canonical_escaping` | yes | yes |
+| RK-5 | `test_top_k_by_field` | yes | yes |
+| OP-14 | `test_top_k_compares_scores_exactly_beyond_28_digits` | yes | yes |
+| RK-7 | `test_fewer_usable_than_k_fails_with_combine_no_votes`, `test_k_above_the_judged_member_count_fails_with_combine_no_votes` | yes | yes |
+| RK-8 | `test_cut_tie_goes_to_author_order`, `test_a_tie_above_the_cut_keeps_author_order_inside_the_kept_group`, `test_k_equal_to_the_member_count_has_no_cut_tie` | yes | yes |
+| RK-9 (too_large) | `test_a_too_large_member_with_the_top_score_is_kept_whole` | no (CHAR) | yes |
+| args | `test_top_k_rejects_bad_args`, `test_top_k_rejects_an_extra_arg_and_accepts_the_bounds`, `test_top_k_without_scores_is_a_spec_error` | yes | yes |
+| CC-1 | `test_concat_joins_in_author_order_with_labels_and_separator`, `test_concat_uses_the_given_separator` | yes | yes |
+| CC-4 | `test_separator_collision_is_flagged` (5 cases; the two overlap cases were RED on the split version) | yes | yes |
+| CC-6 | `test_empty_member_keeps_its_slot`, `test_a_too_large_member_is_still_joined` | yes | yes |
+| CC-7 | `test_joined_text_over_cap_fails` | yes | yes |
+| CC-2 | `test_concat_makes_no_network_call` | yes | yes |
+| CC-5 | `test_join_rejects_bad_args`, `test_join_accepts_a_separator_of_exactly_1024_characters`, `test_all_without_a_joined_text_is_a_spec_error` | yes | yes |
+| OP-1 | `test_combine_operators_golden.py::test_golden_outputs_match_for_every_registered_operator` | yes | yes |
+| goldens | `test_combine_flow_golden.py::test_flow_golden_case_matches` (top_k, join, all) | CHAR (2 join cases RED in round 1) | yes |
+| FW-3 | `test_combine_selection_determinism.py` (3 tests) | CHAR | yes |
+| RK-9 / RK-4 | `test_combine_rank_world.py::test_rank_keeps_judge_output_and_next_stage_sees_selection_only` | CHAR | yes |
+| CC-1 / CC-2 world | `test_combine_rank_world.py::test_concat_makes_no_model_call_and_next_stage_sees_the_joined_text_only` | CHAR | yes |
+| catalog | `test_combine_rank_world.py::test_catalog_lists_the_selection_operators` | CHAR | yes |
+
 - **Remaining work:** `test_sdk_flow_catalog_fixture.py` (spec 6.3 step 14, the SDK drift guard)
   is deferred: `packages/screamingface/tests/_combine_flow_fixtures.py` does not exist yet. Add it
   after the unit 9 engine and the SDK halves are linearized.
