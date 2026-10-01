@@ -65,6 +65,9 @@ plan covers R1–R7 and R13–R17, and amends the spec where the recon below con
 | D8 | **`license` is a field on `TaskReplayCasesSpec`, default `"TODO"`** | spec R6; a default keeps PR 2's tests untouched; R7's gate test reads the field | a `License:` comment on the BenchmarkSpec row, as the Hugging Face path does, with a regex-based gate |
 | D9 | **R14 shrinks to a ledger note**: no upstream issue is drafted | recon: three of the four "upstream bugs" were our stub's fake Sample (no id, no metadata); the fourth is a missing optional dependency on our side | draft the two hygiene notes as issues |
 | D10 | **The import-mode child is its own module** (`import_replay.py`), not a flag on `task_replay.py` | the image side's child protocol stays byte-for-byte what #1150 shipped and reviewed | one child with a mode flag |
+| D11 | **`keep_sample_metadata` is on whenever the scorer is not one of `inspect_ai.scorer`'s own** | an eval's own scorer may read `state.metadata` (chembench's `state.metadata["task_type"]`); metadata is inside the Case Digest, so it cannot be flipped by hand after import; inspect's built-in scorers never read it | a `--keep-sample-metadata` flag the importing agent must remember |
+| D12 | **`--task-replay` forces the Task-replay path** | bbh, personality_TRAIT and sciknoweval crash inside the Hugging Face reader's stand-in Sample with a plain exception, so no route fires; R14's re-check needs a way in | drop the re-check promise |
+| D13 | **A card license outside `CLEARED_DATASET_LICENSES` is written as `license="TODO"`**, with the card's value in the TODO comment | medqa's card says `unknown`; written as the value it would pass R7's gate with nobody deciding | the gate also refuses `unknown` and `other` by name |
 
 ## Review Focus
 
@@ -84,6 +87,18 @@ plan covers R1–R7 and R13–R17, and amends the spec where the recon below con
 5. **A Hub license string lands in generated code.** The card's license is interpolated into
    `prepare.py`; it must pass `_LICENSE_CHARSET` or be refused. Pinned in Task 6
    (`test_a_hub_license_outside_the_charset_is_refused`).
+6. **Task args land in generated Python, not JSON.** `{"shuffle": False}` must come out as
+   `False`, never `false`: `ast.parse` accepts `false` as a name, and importing `prepare.py`
+   would then raise `NameError` and take every Benchmark down (D6 gives worldsense and
+   chembench exactly this argument). Pinned in Task 6
+   (`test_task_args_render_as_python_that_evaluates_to_the_same_value`).
+7. **The two MCQ witnesses.** The Task-replay facts compute MCQ as the Hugging Face reader
+   does: the `multiple_choice` solver OR the `choice` scorer (mmlu hides its solver inside its
+   own). Pinned in Task 3 (`test_a_wrapped_mcq_solver_is_still_mcq_by_its_choice_scorer`).
+8. **The `dataset_url` must be a web URL.** `BenchmarkSpec` refuses anything but an absolute
+   http(s) URL (`definition.py:238`), so a `hugging-face` Case Source renders as
+   `https://huggingface.co/datasets/<repo>` and a `file` one renders no `dataset_url`. Pinned
+   in Task 6 (`test_task_replay_benchmark_row_builds_for_a_hugging_face_source`).
 
 A sixth fact the plan leans on: `case_records` numbers Cases 1..N itself (`prepare.py:906`),
 so a Task-replay Case's `id` is never the upstream Sample id. R4's duplicate check therefore
@@ -240,9 +255,16 @@ git commit -m "test(screamingface-engine): a no_network fixture for grading test
   `"sha256 <hex>"`, `"inspect_evals==<version>"` or `"unpinned"`.
 - Produces: `CaseSource.as_comment(self) -> str`, one line without a leading `#`:
   `url https://…/lsat-ar.jsonl · pin commit 84ab72d9…7552 (no upstream hash: the Case Digest is the only pin)`.
-- Produces: `CaseSourceRecorder(cache_root: Path)` with `.sources: list[CaseSource]` and
-  `.install() -> None`. Install wraps every primitive in `PRIMITIVES` and rebinds, in every
-  loaded module, every attribute that *is* the original function.
+- Produces: `CaseSourceRecorder(cache_root: Path)` with `.sources: list[CaseSource]`,
+  `.install() -> None` and `.uninstall() -> None`. Install wraps every primitive in
+  `PRIMITIVES` and rebinds, in every loaded module, every attribute that *is* the original
+  function, remembering each rebind; uninstall puts back every attribute still holding its
+  wrapper (and `DownloadManager.download`). WHY uninstall: the child process dies with its
+  patches, but the recorder tests install into the pytest process; without it every later
+  test in the session runs through stacked wrappers.
+- Test shape: every test in `test_case_sources.py` gets its recorder from a `recorder`
+  fixture that installs it and uninstalls in teardown, never from a bare `install()`; one
+  more test, `test_uninstall_puts_every_primitive_back`, pins the teardown.
 - Produces: `pin_from_url(url: str) -> str`: `"commit <sha>"` when a 40-hex path segment is in
   the URL, else `"unpinned"`.
 - Produces: `PRIMITIVES: tuple[Primitive, ...]` where
@@ -703,10 +725,20 @@ git commit -m "feat(screamingface-engine): record every Case Source a Task repla
 - Produces: `TaskReplayFacts` frozen dataclass: `task_ref: str`, `task_args: dict[str, Any] | None`,
   `prompt_template: str | None`, `choice_template: str | None`, `system_message: str | None`,
   `unreproduced_solvers: tuple[str, ...]`, `mcq: bool`, `scorer: str`,
-  `scorer_kwargs: dict[str, Any]`, `custom_metrics: tuple[str, ...]`.
+  `scorer_kwargs: dict[str, Any]`, `custom_metrics: tuple[str, ...]`, `keep_sample_metadata: bool`.
+  - `mcq` is `uses_multiple_choice or scorer_name == "choice"`, the Hugging Face reader's two
+    witnesses (`importer.py:226`); the child keeps `_scorer_reference`'s third value for it.
+  - `keep_sample_metadata` is `not scorer.startswith("inspect_ai.scorer:")` (D11). The child
+    builds its run-1 spec with it, so the Cases it renders, and the Case Digest, carry the
+    Sample metadata exactly when the declaration will.
+- Tests this adds to Step 1: `test_a_wrapped_mcq_solver_is_still_mcq_by_its_choice_scorer`
+  (a stand-in task whose `multiple_choice` hides inside its own `@solver`, scored by
+  `choice()`) and `test_an_evals_own_scorer_keeps_the_sample_metadata` (a stand-in scorer
+  defined in the stand-in module; the prepared Cases carry `metadata`).
 - Produces: `ImportReplay(prepared: list[PreparedCase], sample_ids: tuple[str, ...], case_sources: tuple[CaseSource, ...], facts: TaskReplayFacts)`.
   `sample_ids` are the upstream Sample ids as text, in the order the Task holds its Samples: Cases are numbered 1..N
-  by the writer, so only the child sees the ids R4's duplicate check needs.
+  by the writer, so only the child sees the ids R4's duplicate check needs. A Sample with no
+  id reports `None` (typed `tuple[str | None, ...]`), never the text `"None"`.
 - Produces: `replay_for_import(task_ref: str, task_args: Mapping[str, Any] | None, *, timeout: float = TASK_REPLAY_TIMEOUT_SECONDS) -> ImportReplay`.
   Raises `TaskReplayError` when the child fails, times out, or writes an unreadable result.
 - Produces: `UNSEALED_DIGEST = "0" * 64`, the placeholder digest the child's spec carries
@@ -1267,6 +1299,10 @@ git commit -m "feat(screamingface-engine): route the four fetch-blind refusals t
 - Produces: `import_by_task_replay(task_ref: str, task_args: Mapping[str, Any] | None, *, timeout: float = TASK_REPLAY_TIMEOUT_SECONDS) -> TaskReplayImport`.
   Raises `ImporterError` for each R4 refusal, by name: the task raised; no Samples; Samples but
   no Case Source; two Samples share an id; the two runs' Case Digests differ.
+  - The duplicate check skips Samples with no id (inspect numbers those itself at eval time,
+    so they cannot collide); pinned by `test_samples_with_no_id_are_not_duplicates`.
+  - The sealed declaration carries `keep_sample_metadata=first.facts.keep_sample_metadata`,
+    so run 2 renders the Cases run 1 sealed.
 
 - [ ] **Step 1: Write the failing tests** (append to `test_import_replay.py`)
 
@@ -1584,9 +1620,9 @@ def test_task_replay_rows_write_task_args_and_an_unpinned_source_note() -> None:
 
 
 def test_a_hub_license_lands_as_the_license_value() -> None:
-    rows = render_task_replay_rows("medqa", _task_replay_import(), "unknown")
+    rows = render_task_replay_rows("medqa", _task_replay_import(), "apache-2.0")
 
-    assert '        license="unknown",\n' in rows.cases
+    assert '        license="apache-2.0",\n' in rows.cases
     assert "TODO(review): the owner decides this license" not in rows.cases
 
 
@@ -1836,11 +1872,39 @@ def _python_literal_source(value: Any) -> str:
     return json.dumps(value) if isinstance(value, str) else repr(value)
 ```
 
-`json.dumps(True)` would be `true`, not `True`, so a bool inside a dict or list must be
-rendered by Python: use `repr`-based rendering for nested bools by walking the value, or
-refuse a task arg holding a bool inside a container with a named `ImporterError` (none of the
-planned imports has one; `cot=False` is top-level and takes the `repr` branch). Pick the
-refusal; it is two lines and a test.
+**Correction (Review Focus 6): that sketch is wrong.** The renderer passes the WHOLE
+`task_args` dict, so every value, `shuffle=False` included, would go through `json.dumps`
+and come out `false`/`null`; `ast.parse` accepts both as names, and `prepare.py` would raise
+`NameError` on import. Render containers recursively instead, leaving the str and scalar
+branches as they are (so every existing row renders byte-identical):
+
+```python
+def _python_literal_source(value: Any) -> str:
+    """One kwarg or task-arg value as Python source the emitted file's gates accept."""
+
+    if isinstance(value, dict):
+        items: str = ", ".join(
+            f"{json.dumps(str(name))}: {_python_literal_source(item)}" for name, item in value.items()
+        )
+        return f"{{{items}}}"
+    if isinstance(value, (list, tuple)):
+        # WHY a list for a tuple too: task args cross request.json, which has no tuple.
+        return f"[{', '.join(_python_literal_source(item) for item in value)}]"
+    return json.dumps(value) if isinstance(value, str) else repr(value)
+```
+
+Pinned by `test_task_args_render_as_python_that_evaluates_to_the_same_value`: render
+`{"shuffle": False, "languages": ["en"], "limit": None, "nested": {"on": True}}`, `eval` the
+rendered text, assert it equals the input.
+
+**The `dataset_url` line (Review Focus 8)** comes from `_dataset_url(source)`:
+`hugging-face` → `https://huggingface.co/datasets/<repo id>` (the repo id helper is shared
+with Task 7's license lookup), `url` → the location, `file` → `None` and the line is left
+out. Pinned by `test_task_replay_benchmark_row_builds_for_a_hugging_face_source`, which
+`exec`s the rendered BenchmarkSpec row against the real `BenchmarkSpec`.
+
+**`keep_sample_metadata`** renders as `        keep_sample_metadata=True,` when the
+declaration carries it (D11), before the license lines.
 
 Import `TaskReplayImport` and `TaskReplayFacts` from `import_replay` at the top of
 `importer.py` under `if TYPE_CHECKING:` only. WHY: `import_replay`'s child imports
@@ -1874,6 +1938,15 @@ git commit -m "feat(screamingface-engine): render a Task-replay declaration with
   sha when the pin starts with `revision `.
 - Produces: `main` takes a new keyword `import_by_task_replay: Callable[..., TaskReplayImport] = import_by_task_replay`
   for tests, next to `dataset_info=` and `count_rows=`.
+- Produces: a `--task-replay` flag (D12) that skips the Hugging Face reader and imports by
+  Task replay directly. Pinned by `test_the_task_replay_flag_skips_the_hugging_face_reader`
+  (a task the reader would crash on still imports).
+- License rule (D13): a card license outside `CLEARED_DATASET_LICENSES` comes back as
+  `LICENSE_TODO`, and the card's own value travels to the TODO comment
+  (`# TODO(review): the card says 'unknown', not a cleared license; the owner decides.`), so
+  R7's gate still refuses it. `_license_from_case_sources` returns a small
+  `CardLicense(value: str, card_says: str | None)`. Pinned by
+  `test_an_uncleared_card_license_is_written_as_todo`.
 - Produces: in `test_inspect_imported_benchmarks.py`, `test_task_replay_declarations_carry_an_owner_license_decision`.
 
 - [ ] **Step 1: Write the failing tests** (append to `test_inspect_importer.py`)
@@ -2101,7 +2174,11 @@ git push upstream OME-1273-task-replay-import
 **PR 3 Known limitations to declare:** the recorder sees six primitives, nothing else (an eval
 on plain `requests` is refused by name); the license is read from one Hugging Face card only;
 run 2 doubles import time (a package's Cases download in minutes); `file()` reads outside the
-cache and outside the package record as unpinned files.
+cache and outside the package record as unpinned files; the recorder's "one fetch, one Case
+Source" depth counter is shared across threads, so an eval that runs two top-level fetches
+at once on two threads records only the first (a per-thread counter would instead record
+every file `snapshot_download`'s worker threads fetch). R4 still refuses an eval whose only
+fetch goes unseen.
 
 ---
 
@@ -2266,7 +2343,7 @@ Repeat Task 4.1 per row. Each row is one commit. Keys, task refs, args and traps
 | `agieval_sat_en_without_passage` | `…:agie_sat_en_without_passage` | none | choice | — |
 | `agieval_aqua_rat` | `…:agie_aqua_rat` | none | choice | — |
 | `agieval_logiqa_en` | `…:agie_logiqa_en` | none | choice | — |
-| `medqa` | `inspect_evals.medqa.medqa:medqa` | none | choice | Case Source is `hugging-face bigbio/med_qa · revision ddef95d2…`; the card says `UNKNOWN`, so the license comes out `unknown`: **the owner decides** and replaces it |
+| `medqa` | `inspect_evals.medqa.medqa:medqa` | none | choice | Case Source is `hugging-face bigbio/med_qa · revision ddef95d2…`; the card says `UNKNOWN`, not a cleared license, so it comes out `license="TODO"` with the card's value in the comment (D13): **the owner decides** and replaces it |
 | `mgsm_en` | `inspect_evals.mgsm.mgsm:mgsm` | `'languages=["en"]'` | `match(numeric=True)` | Case Source `url …/mgsm_en.tsv · pin sha256 …`; free-text, so the row gets `with_check_surface=True`; grading test asserts `42` matches and `41` does not |
 
 The eight agieval rows share `test_inspect_agieval_benchmarks.py` (extend `AGIEVAL_KEYS`);
