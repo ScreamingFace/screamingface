@@ -99,7 +99,7 @@ WORLD = {"world"}
 # The combine framework (OME-1289 E4a, contracts.md K5): a SHARED LEAF with a hexagonal rule
 # inside it. Its core — every module under combine/ except the wiring module and the plugin
 # subtree — defines the ports and runs specs. The core never imports a plugin or the module that
-# lists them; a plugin imports only the ports (plus the stdlib and url4.core).
+# lists them; a plugin imports only the ports (plus the stdlib).
 COMBINE_CORE = "combine"
 COMBINE_WIRING = "combine/builtins.py"
 COMBINE_PLUGINS = "combine/operators"
@@ -311,7 +311,7 @@ def check_combine() -> list[str]:
         "names plugins, at composition time"
     )
     plugin_why = (
-        "a combine plugin imports only combine.ports (plus the standard library and url4.core): "
+        "a combine plugin imports only combine.ports (plus the standard library): "
         "the ports are the one meeting point, and importing the core or any other part of the "
         "engine couples a pure operator to the machinery that runs it"
     )

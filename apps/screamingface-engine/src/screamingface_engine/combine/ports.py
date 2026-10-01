@@ -3,9 +3,10 @@
 FEATURE: combine member answers without a synthesizer model, the same way on every replay.
 
 This module is the ONE meeting point of the combine core (``spec``, ``registry``, ``evidence``,
-``endpoint``) and the operator plugins (``combine/operators/*``). A plugin imports this module,
-the standard library and ``url4.core``, and nothing else from the engine. The core never imports
-a plugin: ``combine/builtins.py`` is the one module that lists them, and the COMBINE_CORE rule in
+``endpoint``) and the operator plugins (``combine/operators/*``). A plugin imports this module
+and the standard library only (the url4-import guard treats ``url4.core`` as an engine import).
+The core never imports a
+plugin: ``combine/builtins.py`` is the one module that lists them, and the COMBINE_CORE rule in
 ``.claude/scripts/check_layering.py`` enforces both directions.
 
 One combine call runs four stages over the members, always in author order:
