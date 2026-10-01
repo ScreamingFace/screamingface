@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from types import MappingProxyType
 from typing import Protocol, overload
 
@@ -10,6 +10,14 @@ from typing import Protocol, overload
 class _Named(Protocol):
     @property
     def name(self) -> str: ...
+
+
+def _require_unique_names(names: Iterable[str], *, duplicate_label: str) -> None:
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            raise ValueError(f"duplicate {duplicate_label} name {name!r}")
+        seen.add(name)
 
 
 class _NamedValues[Value: _Named](Sequence[Value]):
@@ -31,13 +39,9 @@ class _NamedValues[Value: _Named](Sequence[Value]):
             raise ValueError(empty_message)
         if any(not isinstance(item, item_type) for item in items):
             raise TypeError(type_message)
-        names: dict[str, Value] = {}
-        for item in items:
-            if item.name in names:
-                raise ValueError(f"duplicate {duplicate_label} name {item.name!r}")
-            names[item.name] = item
+        _require_unique_names((item.name for item in items), duplicate_label=duplicate_label)
         self._items = items
-        self._names = MappingProxyType(names)
+        self._names = MappingProxyType({item.name: item for item in items})
 
     @overload
     def __getitem__(self, index: int) -> Value: ...

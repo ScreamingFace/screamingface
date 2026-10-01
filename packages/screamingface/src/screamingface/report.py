@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -11,12 +10,13 @@ from decimal import Decimal
 from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, cast, overload
+from typing import BinaryIO, Literal, cast, overload
 
+from screamingface._atomic_file import write_atomic
 from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
-from screamingface._named_values import _NamedValues
+from screamingface._named_values import _NamedValues, _require_unique_names
 from screamingface._operation_projection import _operation_dict, _require_operation_references
 from screamingface._report_primitives import (
     CaseId,
@@ -376,15 +376,44 @@ class CandidateResult:
         }
 
 
+_EMPTY_CANDIDATES_MESSAGE = "a Report requires at least one Candidate"
+_CANDIDATE_TYPE_MESSAGE = "Report candidates must be sf.CandidateResult values"
+
+
+def _require_report_candidate_names(names: Sequence[str]) -> None:
+    """Apply the Candidate-name rules `_CandidateResults` enforces, without the Candidates."""
+    if not names:
+        raise ValueError(_EMPTY_CANDIDATES_MESSAGE)
+    _require_unique_names(names, duplicate_label="Candidate")
+
+
+def _require_report_benchmark(benchmark: BenchmarkInfo, case_count: int) -> dict[str, object]:
+    """Validate the Report Benchmark and Case count; return the Benchmark's result block."""
+    if not isinstance(benchmark, BenchmarkInfo):
+        raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
+    return benchmark._result_dict(case_count)
+
+
+def _require_report_candidate(
+    benchmark: BenchmarkInfo, case_count: int, candidate: CandidateResult
+) -> None:
+    if not isinstance(candidate, CandidateResult):
+        raise TypeError(_CANDIDATE_TYPE_MESSAGE)
+    if candidate.benchmark != benchmark:
+        raise ValueError("every Candidate Result must belong to the Report Benchmark")
+    if len(candidate.cases) != case_count:
+        raise ValueError("every Candidate Result must contain the Report's selected Case count")
+
+
 class _CandidateResults(_NamedValues[CandidateResult]):
     """Private collection behind Report.candidates."""
 
     def __init__(self, values: Sequence[CandidateResult]) -> None:
         super().__init__(
             values,
-            empty_message="a Report requires at least one Candidate",
+            empty_message=_EMPTY_CANDIDATES_MESSAGE,
             item_type=CandidateResult,
-            type_message="Report candidates must be sf.CandidateResult values",
+            type_message=_CANDIDATE_TYPE_MESSAGE,
             duplicate_label="Candidate",
         )
 
@@ -404,17 +433,10 @@ class Report:
         case_count: int,
         candidates: Sequence[CandidateResult],
     ) -> None:
-        if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
-        benchmark._result_dict(case_count)
+        _require_report_benchmark(benchmark, case_count)
         selected_candidates = _CandidateResults(candidates)
         for candidate in selected_candidates:
-            if candidate.benchmark != benchmark:
-                raise ValueError("every Candidate Result must belong to the Report Benchmark")
-            if len(candidate.cases) != case_count:
-                raise ValueError(
-                    "every Candidate Result must contain the Report's selected Case count"
-                )
+            _require_report_candidate(benchmark, case_count, candidate)
         values = {
             "benchmark": benchmark,
             "case_count": case_count,
@@ -462,7 +484,23 @@ class Report:
         }
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
+        parts: list[str] = []
+        self._emit_json(parts.append)
+        return "".join(parts)
+
+    def _emit_json(self, write: Callable[[str], object]) -> None:
+        # WHY lazy: the writer imports this module's helpers, so a top-level import cycles.
+        from screamingface._report_writer import write_report_json
+
+        write_report_json(
+            write,
+            benchmark=self.benchmark,
+            case_count=self.case_count,
+            started_at=self.started_at,
+            completed_at=self.completed_at,
+            candidate_names=tuple(candidate.name for candidate in self.candidates),
+            candidates=self.candidates,
+        )
 
     def export(
         self,
@@ -529,8 +567,13 @@ class Report:
         if selected.suffix.lower() != ".json":
             raise ValueError("Report export path must be a .json file")
         selected.parent.mkdir(parents=True, exist_ok=True)
-        selected.write_text(self.to_json(), encoding="utf-8")
+        write_atomic(selected, self._write_json)
         return selected
+
+    def _write_json(self, fp: BinaryIO) -> None:
+        # WHY a strict encode per fragment: it matches the old write_text (a lone surrogate
+        # raises), does no newline translation, and leaves no wrapper to flush or detach.
+        self._emit_json(lambda part: fp.write(part.encode("utf-8")))
 
     def __repr__(self) -> str:
         candidates = ", ".join(repr(candidate.name) for candidate in self.candidates)
