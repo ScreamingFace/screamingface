@@ -642,15 +642,15 @@ results include prompts and answers; they are retained until explicitly deleted.
 ```python
 import screamingface as sf
 
-saved = sf.runs.list()  # candidate, run ID, saved key, directory, size, download status
-report = sf.runs.recover(saved[0].key)  # reopens the containing evaluation, no model calls
+saved = sf.reports.list()  # one entry per evaluation
+report = sf.reports.get(saved[0].id)  # reopens the containing evaluation, no model calls
 report.export("report.json")
 ```
 
 Recovery uses local files when available and fresh Engine authentication for missing
 downloads. A recovery ticket cannot outlive the Engine's retention of an undownloaded
 result. An unavailable remote result reports its age. Once downloaded, the local copy
-survives Engine expiry and notebook restarts. `recover_async` offers the same operation
+survives Engine expiry and notebook restarts. `get_async` offers the same operation
 for asynchronous callers.
 
 For an incomplete evaluation, recovery raises `sf.ExecutionError` with
@@ -661,9 +661,9 @@ failure is chained as the cause. Recovery never starts their
 models again or invents missing results.
 
 If a disk fills, free space or use
-`sf.runs.recover(key, directory="/old/results", destination="/other/results")`.
-The original remains available. `sf.runs.delete(key)` explicitly removes that saved
-candidate and its recovery metadata; existing Reports using its files then become
+`sf.reports.get(report_id, directory="/old/results", destination="/other/results")`.
+The original remains available. `sf.reports.delete(report_id)` explicitly removes that saved
+report’s candidates and their recovery metadata; existing Reports using its files then become
 unreadable. There is no automatic expiry or silent cleanup.
 
 Case indexing, slicing, `by_id`, and iteration read from a local index as needed.

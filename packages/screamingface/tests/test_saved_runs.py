@@ -155,13 +155,13 @@ def test_recover_full_report_without_network_and_export_identical(tmp_path):
     import screamingface as sf
 
     original, saved = saved_fixture(tmp_path)
-    recovered = sf.runs.recover(saved.outcome.run_id, directory=tmp_path)
+    recovered = sf.reports.get(saved.outcome.run_id, directory=tmp_path)
     assert recovered.to_json() == original.to_json()
     assert recovered.candidates[0].cases.by_id(59).output == "answer 59"
-    assert sf.runs.list(directory=tmp_path)[0].downloaded
-    assert sf.runs.list(directory=tmp_path)[0].size_bytes > 0
-    sf.runs.delete(saved.key, directory=tmp_path)
-    assert sf.runs.list(directory=tmp_path) == []
+    assert sf.reports.list(directory=tmp_path)[0].downloaded
+    assert sf.reports.list(directory=tmp_path)[0].size_bytes > 0
+    sf.reports.delete(saved.key, directory=tmp_path)
+    assert sf.reports.list(directory=tmp_path) == []
 
 
 def test_recover_partial_names_missing_candidates(tmp_path):
@@ -171,7 +171,7 @@ def test_recover_partial_names_missing_candidates(tmp_path):
 
     _, saved = saved_fixture(tmp_path, expected=["model", "unfinished"])
     with pytest.raises(sf.ExecutionError) as error:
-        sf.runs.recover(saved.key, directory=tmp_path)
+        sf.reports.get(saved.key, directory=tmp_path)
     assert error.value.code == "candidates_failed"
     assert error.value.details == {"failed": {"unfinished": "result_not_received"}}
     assert error.value.partial_report is not None
@@ -195,7 +195,7 @@ def crash(events, db):
     original(events, db)
     os._exit(23)
 cases._insert_cases = crash
-sf.runs.recover(sys.argv[1], directory=sys.argv[2])
+sf.reports.get(sys.argv[1], directory=sys.argv[2])
 """
     child = subprocess.run(
         [sys.executable, "-c", script, saved.key, str(tmp_path)], env=os.environ.copy(), check=False
@@ -203,7 +203,7 @@ sf.runs.recover(sys.argv[1], directory=sys.argv[2])
     assert child.returncode == 23
     assert saved.path.exists()
     assert not saved.path.with_suffix(".sqlite3").exists()
-    assert sf.runs.recover(saved.key, directory=tmp_path).to_json() == original.to_json()
+    assert sf.reports.get(saved.key, directory=tmp_path).to_json() == original.to_json()
 
 
 def test_recovery_can_move_to_another_disk(tmp_path):
@@ -211,10 +211,10 @@ def test_recovery_can_move_to_another_disk(tmp_path):
 
     original, saved = saved_fixture(tmp_path / "original")
     destination = tmp_path / "other-disk"
-    recovered = sf.runs.recover(saved.key, directory=tmp_path / "original", destination=destination)
+    recovered = sf.reports.get(saved.key, directory=tmp_path / "original", destination=destination)
     assert recovered.to_json() == original.to_json()
     assert saved.path.exists()
-    assert sf.runs.list(directory=destination)[0].downloaded
+    assert sf.reports.list(directory=destination)[0].downloaded
 
 
 def test_expired_remote_error_reports_age(tmp_path):
@@ -263,7 +263,7 @@ def test_async_local_recovery_is_identical(tmp_path):
 
     original, saved = saved_fixture(tmp_path)
     assert (
-        asyncio.run(sf.runs.recover_async(saved.key, directory=tmp_path)).to_json()
+        asyncio.run(sf.reports.get_async(saved.key, directory=tmp_path)).to_json()
         == original.to_json()
     )
 
@@ -292,9 +292,9 @@ def test_remote_recovery_sync_and_async_never_starts_a_model(tmp_path):
                 engine.url, local.candidate, outcome, local.evaluation
             )
             recovered = (
-                asyncio.run(sf.runs.recover_async(saved.key, directory=directory))
+                asyncio.run(sf.reports.get_async(saved.key, directory=directory))
                 if async_mode
-                else sf.runs.recover(saved.key, directory=directory)
+                else sf.reports.get(saved.key, directory=directory)
             )
             assert recovered.to_json() == original.to_json()
             assert saved.path.read_text() == body
@@ -323,10 +323,10 @@ def test_evaluate_and_recover_use_the_same_durable_result(tmp_path, monkeypatch)
             run_transport=transport,
         ) as client:
             report = client.evaluate(sf.Model("provider/opus"), benchmark="draco", progress=False)
-        info = sf.runs.list()[0]
-        assert info.evaluation_id is not None
+        info = sf.reports.list()[0]
+        assert info.id
         assert isinstance(report.candidates[0].cases._items, DiskCases)
-        assert sf.runs.recover(info.key).to_json() == report.to_json()
+        assert sf.reports.get(info.id).to_json() == report.to_json()
         assert len(engine.state.artifact_requests) == 1
 
 
@@ -399,8 +399,80 @@ def test_recovery_preserves_failure_codes_and_remediation(tmp_path):
     _, saved = saved_fixture(tmp_path)
     saved.path.unlink()  # Simulate interruption before an inline result was persisted.
     with pytest.raises(sf.ExecutionError) as error:
-        sf.runs.recover(saved.key, directory=tmp_path)
+        sf.reports.get(saved.key, directory=tmp_path)
     assert isinstance(error.value.details, dict)
     assert error.value.details["failed"] == {"model": "result_unavailable"}
     assert "Inline result" in error.value.details["failure_messages"]["model"]
     assert isinstance(error.value.__cause__, sf.ExecutionError)
+
+
+def test_saved_reports_group_candidates_and_delete_the_whole_report(tmp_path):
+    import screamingface as sf
+    from screamingface._evaluation.model import _compiled_candidate
+    from screamingface._results.store import ResultStore
+
+    _, first = saved_fixture(tmp_path, expected=["model", "second"])
+    second_candidate = _compiled_candidate(
+        name="second",
+        kind=first.candidate.kind,
+        models=first.candidate.models,
+        url4=first.candidate.url4,
+        operations=first.candidate.operations,
+    )
+    second = ResultStore(tmp_path).record(
+        first.engine_url,
+        second_candidate,
+        replace(first.outcome, run_id="second-run"),
+        first.evaluation,
+    )
+    second.persist_inline()
+    entries = sf.reports.list(directory=tmp_path)
+    assert len(entries) == 1
+    assert entries[0].id == "evaluation"
+    assert entries[0].candidates == ("model", "second")
+    assert entries[0].downloaded
+    loaded = sf.reports.get(entries[0].id, directory=tmp_path)
+    assert [c.name for c in loaded.candidates] == ["model", "second"]
+    assert loaded.candidates[1].cases.by_id(59).output == "answer 59"
+    sf.reports.delete(entries[0].id, directory=tmp_path)
+    assert sf.reports.list(directory=tmp_path) == []
+    assert not first.manifest.exists() and not second.manifest.exists()
+
+
+def test_saved_report_list_keeps_independent_and_incomplete_evaluations(tmp_path):
+    import pytest
+
+    import screamingface as sf
+    from screamingface._results.store import ResultStore
+
+    _, first = saved_fixture(tmp_path, expected=["model", "missing"])
+    assert first.evaluation is not None
+    other = ResultStore(tmp_path).record(
+        first.engine_url,
+        first.candidate,
+        replace(first.outcome, run_id="other-run"),
+        {**first.evaluation, "id": "other", "candidates": ["model"]},
+    )
+    other.persist_inline()
+    standalone = ResultStore(tmp_path).record(
+        first.engine_url,
+        first.candidate,
+        replace(first.outcome, run_id="standalone"),
+    )
+    standalone.persist_inline()
+    entries = {entry.id: entry for entry in sf.reports.list(directory=tmp_path)}
+    assert set(entries) == {"evaluation", "other", standalone.key}
+    assert not entries["evaluation"].downloaded
+    assert entries["other"].downloaded and entries[standalone.key].downloaded
+    with pytest.raises(sf.ExecutionError) as error:
+        sf.reports.get("evaluation", directory=tmp_path)
+    assert error.value.partial_report is not None
+    assert isinstance(error.value.details, dict)
+    assert error.value.details["failed"] == {"missing": "result_not_received"}
+    with pytest.raises(KeyError):
+        sf.reports.get("unknown", directory=tmp_path)
+    sf.reports.delete("other", directory=tmp_path)
+    assert set(entry.id for entry in sf.reports.list(directory=tmp_path)) == {
+        "evaluation",
+        standalone.key,
+    }

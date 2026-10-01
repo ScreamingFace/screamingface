@@ -16,7 +16,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from screamingface import CaseGrade, CaseResult, Usage, runs
+from screamingface import CaseGrade, CaseResult, Usage, reports
 from screamingface._core.ports import _ResultArtifact, _RunOutcome
 from screamingface._evaluation.model import _compiled_candidate
 from screamingface._results.store import ResultStore
@@ -101,7 +101,7 @@ def main() -> None:
     parser.add_argument("--prompt-bytes", type=int, default=48000)
     args = parser.parse_args()
     key = fixture(args.directory, args.candidates, args.cases, args.prompt_bytes)
-    report = runs.recover(key, directory=args.directory)
+    report = reports.get(key, directory=args.directory)
     assert len(report.candidates) == args.candidates
     for candidate in report.candidates:
         assert len(candidate.cases) == args.cases

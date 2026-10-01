@@ -63,7 +63,7 @@ def sync_directory(path: Path) -> None:
 def storage_error(exc: OSError | sqlite3.Error, key: str = "") -> ExecutionError:
     return ExecutionError(
         f"Could not save evaluation results ({exc}). Free disk space or use "
-        f"runs.recover({key!r}, destination='/another/disk'); do not rerun models. "
+        f"reports.get({key!r}, destination='/another/disk'); do not rerun models. "
         "Recovery requires saved metadata and either a local copy or an unexpired Engine result.",
         code="result_storage_failed",
     )

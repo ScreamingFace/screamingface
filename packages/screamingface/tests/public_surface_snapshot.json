@@ -60,7 +60,7 @@
       "events",
       "leaderboards",
       "models",
-      "runs"
+      "reports"
     ],
     "exports": {
       "AsyncClient": {
@@ -740,9 +740,9 @@
         "kind": "module",
         "module": "screamingface.models"
       },
-      "runs": {
+      "reports": {
         "kind": "module",
-        "module": "screamingface.runs"
+        "module": "screamingface.reports"
       }
     }
   },

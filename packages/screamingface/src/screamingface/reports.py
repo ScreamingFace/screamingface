@@ -1,4 +1,4 @@
-"""List and recover paid results without starting another evaluation.
+"""List and open saved reports without starting another evaluation.
 
 Results are retained until ``delete`` is explicitly called. Set
 ``SCREAMINGFACE_RESULTS_DIR`` to choose their location.
@@ -22,41 +22,72 @@ from screamingface.report import CandidateResult, Report
 
 
 @dataclass(frozen=True)
-class SavedRunInfo:
-    key: str
-    run_id: str
-    candidate: str
-    engine_url: str
+class SavedReportInfo:
+    id: str
+    candidates: tuple[str, ...]
     directory: Path
     downloaded: bool
     size_bytes: int
-    evaluation_id: str | None
 
 
-def list(*, directory: str | Path | None = None) -> builtins.list[SavedRunInfo]:
-    """Find completed-run tickets, including downloads interrupted by a crash."""
-    return [
-        SavedRunInfo(
-            run.key,
-            run.outcome.run_id,
-            run.candidate.name,
-            run.engine_url,
-            run.path.parent,
-            run.path.exists(),
-            sum(p.stat().st_size for p in run.path.parent.iterdir() if p.is_file()),
-            run.evaluation["id"] if run.evaluation else None,
+def _report_id(run: SavedRun) -> str:
+    return run.evaluation["id"] if run.evaluation else run.key
+
+
+def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInfo]:
+    """List one saved report per evaluation, including interrupted downloads.
+
+    Entries contain lightweight metadata, not decoded case results. ``downloaded``
+    means every expected candidate has a local result; integrity is checked by get.
+    """
+    store = _store(directory)
+    groups: dict[str, builtins.list[SavedRun]] = {}
+    for run in store.list():
+        groups.setdefault(_report_id(run), []).append(run)
+    entries = []
+    for report_id, runs in groups.items():
+        selected = runs[0]
+        names = tuple(
+            selected.evaluation["candidates"] if selected.evaluation else [selected.candidate.name]
         )
-        for run in _store(directory).list()
-    ]
+        downloaded = {run.candidate.name for run in runs if run.path.exists()}
+        entries.append(
+            SavedReportInfo(
+                id=report_id,
+                candidates=names,
+                directory=store.directory,
+                downloaded=set(names) <= downloaded,
+                size_bytes=sum(
+                    path.stat().st_size
+                    for run in runs
+                    for path in run.path.parent.iterdir()
+                    if path.is_file()
+                ),
+            )
+        )
+    return sorted(entries, key=lambda entry: entry.id)
 
 
-def delete(run_id: str, *, directory: str | Path | None = None) -> None:
-    """Explicitly remove one saved candidate and its recovery metadata.
+def _selected(store: ResultStore, report_id: str) -> SavedRun:
+    # WHY: old saved candidate keys remain usable for disk-error remediation.
+    matches = [run for run in store.list() if _report_id(run) == report_id]
+    return matches[0] if matches else store.load(report_id)
+
+
+def delete(report_id: str, *, directory: str | Path | None = None) -> None:
+    """Explicitly remove every saved candidate belonging to this report.
 
     Existing Reports backed by these files will no longer be readable.
     """
-    run = _store(directory).load(run_id)
-    shutil.rmtree(run.path.parent)
+    store = _store(directory)
+    selected = _selected(store, report_id)
+    for run in _group(store, selected):
+        shutil.rmtree(run.path.parent)
+    # INVARIANT: saved metadata must not redirect deletion outside this manifest folder.
+    manifests = store.directory / "evaluations"
+    manifest = manifests / f"{_report_id(selected)}.json"
+    if manifest.parent == manifests:
+        manifest.unlink(missing_ok=True)
 
 
 def _store(directory: str | Path | None) -> ResultStore:
@@ -176,16 +207,16 @@ def _error_messages(errors: dict[str, ScreamingFaceError]) -> dict[str, object]:
     return {"failure_messages": {name: str(exc) for name, exc in errors.items()}} if errors else {}
 
 
-def recover(
-    run_id: str, *, directory: str | Path | None = None, destination: str | Path | None = None
+def get(
+    report_id: str, *, directory: str | Path | None = None, destination: str | Path | None = None
 ) -> Report:
-    """Reopen the evaluation containing this saved key or Engine run ID.
+    """Open a saved report by its ID from list(), without rerunning models.
 
     Downloads missing results with fresh authentication. Raises ``candidates_failed``
     with ``partial_report`` and named failures when the evaluation is incomplete.
     """
     store = _store(directory)
-    selected = store.load(run_id)
+    selected = _selected(store, report_id)
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):
@@ -198,12 +229,12 @@ def recover(
     return _finish(selected, reports, errors)
 
 
-async def recover_async(
-    run_id: str, *, directory: str | Path | None = None, destination: str | Path | None = None
+async def get_async(
+    report_id: str, *, directory: str | Path | None = None, destination: str | Path | None = None
 ) -> Report:
-    """Asynchronous network recovery with the same local result contract."""
+    """Open a saved report asynchronously with the same local result contract."""
     store = _store(directory)
-    selected = store.load(run_id)
+    selected = _selected(store, report_id)
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):

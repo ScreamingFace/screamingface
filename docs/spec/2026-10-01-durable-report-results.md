@@ -35,3 +35,8 @@ Sync and async downloads; interrupted download and decode recovery in a new proc
 checksum, malformed data, disk failure, and expired remote results; partial evaluation;
 case API behavior; byte-identical export; 11 candidates of approximately 200 MB each
 with measured peak RSS; notebook pagination without eager case retention.
+
+Saved reports use sf.reports.list(), get(id), get_async(id), and delete(id).
+List has one entry per evaluation (standalone URL4 results use their saved key).
+The persisted evaluation ID identifies the group across restarts and copies.
+Get returns the whole report; delete explicitly removes that same group.
