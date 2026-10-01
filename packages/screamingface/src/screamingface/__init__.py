@@ -40,6 +40,7 @@ from screamingface.errors import (
 )
 from screamingface.events import Event
 from screamingface.fusion import Fusion
+from screamingface.judge import Judge
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
@@ -115,6 +116,7 @@ __all__ = [
     "Failure",
     "FixedSeedSittingWarning",
     "Fusion",
+    "Judge",
     "Leaderboard",
     "LeaderboardBaseline",
     "LeaderboardEntry",

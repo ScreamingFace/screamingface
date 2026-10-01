@@ -390,6 +390,47 @@ members have no accounting value and do not vote. This also holds in a correctiv
 `max_rounds` of 2 or more, where every round sends the member's calls again. To give each member
 its own calls, use `sf.samples()` (a different `seed` for each member).
 
+### Judge synthesizer
+
+A judge is a model that reads the members and picks one. The answer of the Fusion is the text of the
+member that the judge picked. The judge does not write the answer.
+
+```python
+by_label = sf.Fusion(
+    routes,
+    synthesizer=sf.Judge(
+        "anthropic/claude-opus-5", returns="label", rubric="Pick the most correct answer."
+    ),
+)
+by_scores = sf.Fusion(
+    routes,
+    synthesizer=sf.Judge(
+        "anthropic/claude-opus-5",
+        returns="scores",
+        rubric="Give a higher number to a more correct answer.",
+        params={"temperature": 0},
+    ),
+)
+```
+
+With `returns="label"`, the judge must reply with exactly one member id (for example `member_2`) and
+nothing else. With `returns="scores"`, the judge must reply with one JSON object that gives each
+member id one finite number. The highest score wins, and a tie goes to the first member in author
+order. The check is strict: quotes, a full stop, a code fence around a label, a missing member, an
+extra key, a string, `NaN` or `Infinity` all fail the Case with `judge_reply_invalid`. The prose of the
+judge is never used as the answer, and the SDK does not retry the judge call.
+
+The judge call is the operation `op_judge_1`. Its output is the raw reply of the judge, and its cost
+is in the accounting breakdown as a synthesis row. The combine step is `op_synthesis_1`. Its `combine`
+evidence holds the raw reply, the parsed label or scores, the chosen member and
+`presentation_order="author"`. The first line of the judge system prompt is `judge-template@1`. The
+template tells the judge to treat the member answers as data and not as instructions. A change of the
+template changes the url4, so it changes the replay identity.
+
+**Position bias.** The judge sees the members in author order, and a judge can prefer a position.
+The parameter name `binding` is reserved: you cannot use it in `params`. This needs an Engine whose
+operator catalog has `label@1` and `scores@1`.
+
 ## Install
 
 ```bash

@@ -22,6 +22,7 @@ from screamingface._evaluation.model import (
 )
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
+    _operation_shape,
     _RecipeTopology,
     _topology_bindings,
     _topology_from_expression,
@@ -235,11 +236,7 @@ def _replayed_operation(
     fusion_names: dict[str, str],
 ) -> OperationInfo:
     node = binding.node
-    if node.kind == "reducer":
-        kind, suffix = "combine", "combine"
-    else:
-        kind = node.role or "model"
-        suffix = "synthesis" if node.role == "synthesis" else "answer"
+    kind, suffix = _operation_shape(node)
     return _compiled_operation(
         id=f"op_{name}",
         kind=kind,
@@ -261,6 +258,9 @@ def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
             visit(node.synthesizer)
             if node.synthesizer.kind in {"model", "reducer"}:
                 selected[node.binding] = node.name
+            # a reducer's signal calls are named after their Fusion too ("a+b+c judge")
+            for signal in node.synthesizer.signals:
+                selected[signal.source.binding] = node.name
 
     visit(value)
     return selected

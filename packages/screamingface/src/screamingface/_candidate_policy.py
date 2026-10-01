@@ -11,6 +11,8 @@ type GenerationParams = Mapping[str, GenerationScalar]
 
 _EXECUTION_OWNED_PARAMS = frozenset(
     {
+        # WHY (OME-1289): the Engine reads "binding" for attribution and never forwards it
+        "binding",
         "input",
         "messages",
         "model",

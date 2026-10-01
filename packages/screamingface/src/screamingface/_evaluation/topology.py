@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Literal, cast
@@ -12,6 +13,7 @@ from url4 import Expression, Node, Source, Text, src
 from screamingface._operation_bindings import SYNTHESIS_BINDING, TOPOLOGY_BINDING
 from screamingface.fusion import _quorum
 
+_REDUCER_INVALID = "URL4 Candidate has invalid Reducer topology metadata"
 _SCHEMA = "screamingface.recipe.v1"
 _SOURCE_NAME = "_sf_recipe"
 # A corrective loop nests its whole gated chain as one inner expression bound
@@ -21,7 +23,15 @@ _BINDING = TOPOLOGY_BINDING
 type _TopologyKind = Literal[
     "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer"
 ]
-type _OperationRole = Literal["model", "synthesis"]
+type _OperationRole = Literal["model", "synthesis", "judge"]
+
+
+@dataclass(frozen=True, slots=True)
+class _SignalTopology:
+    """One model call a reducer reads (its reply is ``context.signals[key]``)."""
+
+    key: str
+    source: _RecipeTopology
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +55,22 @@ class _RecipeTopology:
     max_rounds: int | None = None
     check_route: str | None = None
     protocol: str | None = None
+    # The model calls a reducer node reads besides its members (OME-1289).
+    signals: tuple[_SignalTopology, ...] = ()
+
+
+def _operation_shape(node: _RecipeTopology) -> tuple[str, str]:
+    """(operation kind, label suffix): the ONE rule the compiler and the url4 replay share."""
+
+    if node.kind == "reducer":
+        shape = ("combine", "combine")
+    elif node.role == "judge":
+        shape = ("judge", "judge")
+    elif node.role == "synthesis":
+        shape = ("synthesis", "synthesis")
+    else:
+        shape = ("model", "answer")
+    return shape
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,10 +189,15 @@ class _TopologyWalker:
         context: tuple[str, ...],
     ) -> None:
         member_bindings = tuple(member.binding for member in members)
+        fusion_context = tuple(dict.fromkeys((*context, *member_bindings)))
+        # A reducer's signal calls read the members; the reducer's own call then reads them too.
+        for signal in reducer.signals:
+            self._model(signal.source, fusion_context, member_bindings)
+        signal_bindings = tuple(signal.source.binding for signal in reducer.signals)
         self._visit(
             reducer,
-            tuple(dict.fromkeys((*context, *member_bindings))),
-            member_bindings,
+            tuple(dict.fromkeys((*fusion_context, *signal_bindings))),
+            (*member_bindings, *signal_bindings),
         )
 
 
@@ -275,7 +306,12 @@ def _encode_fusion(value: _RecipeTopology) -> dict[str, object]:
 
 def _encode_reducer(value: _RecipeTopology) -> dict[str, object]:
     # INVARIANT: the spec is the combine call's intent, so the node carries no spec and no role.
-    return {"binding": value.binding, "kind": value.kind, "name": value.name}
+    encoded: dict[str, object] = {"binding": value.binding, "kind": value.kind, "name": value.name}
+    if value.signals:  # written only when present, so a reducer without signals keeps its bytes
+        encoded["signals"] = [
+            {"key": signal.key, "source": _encode_model(signal.source)} for signal in value.signals
+        ]
+    return encoded
 
 
 _ENCODERS: dict[str, Callable[[_RecipeTopology], dict[str, object]]] = {
@@ -383,12 +419,55 @@ def _decode_synthesizer(value: object) -> _RecipeTopology:
 
     if not isinstance(value, dict) or value.get("kind") != "reducer":
         return _decode_node(value)
-    if set(value) != {"binding", "kind", "name"}:
-        raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
+    if set(value) not in ({"binding", "kind", "name"}, {"binding", "kind", "name", "signals"}):
+        raise ValueError(_REDUCER_INVALID)
     binding = _text(value["binding"])
     if SYNTHESIS_BINDING.fullmatch(binding) is None:
-        raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
-    return _RecipeTopology(kind="reducer", name=_text(value["name"]), binding=binding)
+        raise ValueError(_REDUCER_INVALID)
+    signals = _decode_signals(value["signals"]) if "signals" in value else ()
+    return _RecipeTopology(
+        kind="reducer", name=_text(value["name"]), binding=binding, signals=signals
+    )
+
+
+def _decode_signals(value: object) -> tuple[_SignalTopology, ...]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(_REDUCER_INVALID)
+    signals = tuple(_decode_signal(item) for item in value)
+    if len({signal.key for signal in signals}) != len(signals):
+        raise ValueError(_REDUCER_INVALID)
+    return signals
+
+
+def _signal_role(key: object) -> _OperationRole | None:
+    """The role of the model call a signal key names (None: not a signal this SDK knows)."""
+
+    return "judge" if key == "judge" else None
+
+
+def _decode_signal(value: object) -> _SignalTopology:
+    if not isinstance(value, dict) or set(value) != {"key", "source"}:
+        raise ValueError(_REDUCER_INVALID)
+    key = value["key"]
+    role = _signal_role(key)
+    source = value["source"]
+    if role is None or not isinstance(key, str) or not isinstance(source, dict):
+        raise ValueError(_REDUCER_INVALID)
+    if set(source) != {"binding", "kind", "name", "named", "role"}:
+        raise ValueError(_REDUCER_INVALID)
+    binding = source["binding"]
+    if (
+        source["kind"] != "model"
+        or source["role"] != role
+        or not isinstance(source["named"], bool)
+        or not isinstance(binding, str)
+        or re.fullmatch(rf"{role}_\d+", binding) is None
+    ):
+        raise ValueError(_REDUCER_INVALID)
+    node = _RecipeTopology(
+        kind="model", name=_text(source["name"]), binding=binding, named=source["named"], role=role
+    )
+    return _SignalTopology(key, node)
 
 
 def _decode_corrective_loop(
