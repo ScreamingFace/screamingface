@@ -6,6 +6,7 @@ INVARIANT: no iteration order of a dict or set, and no hash seed, reaches an out
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -15,9 +16,17 @@ from typing import Any
 
 from combine_support import context_text, run, spec_text, vote_spec
 
-# Twelve members, four 2-way ties for the top score, plus unicode values that casefold.
+# Twelve members: five 2-way ties for the top score (e-acute, strasse, x, y, a CJK word) and two
+# singles; the unicode values casefold to the same value.
 _BODY = """
+import json
+
 from combine_support import context_text, run, spec_text, vote_spec
+
+
+def _wire(evidence) -> str:
+    # The wire form: the model dumped by alias, then written the way the envelope encoder writes.
+    return json.dumps(evidence.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))
 
 _WORDS = ["\\u00c9", "stra\\u00dfe", "\\u00e9", "STRASSE", "x", "y", "x", "y",
           "\\u4e16\\u754c", "k", "\\u4e16\\u754c", "z"]
@@ -26,10 +35,14 @@ _WORDS = ["\\u00c9", "stra\\u00dfe", "\\u00e9", "STRASSE", "x", "y", "x", "y",
 def scenario() -> str:
     texts = [f"the answer is {word}" for word in _WORDS]
     outcome = run(spec_text(vote_spec(12)), context_text(texts))
-    return outcome.output + "\\n" + outcome.evidence.model_dump_json(by_alias=True)
+    return outcome.output + "\\n" + _wire(outcome.evidence)
 """
 _SCRIPT = _BODY + "\nprint(scenario(), end='')\n"
 _SEEDS = range(20)
+
+
+def _wire_form(dumped: dict[str, Any]) -> str:
+    return json.dumps(dumped, ensure_ascii=False, separators=(",", ":"))
 
 
 def _in_process() -> str:
@@ -70,7 +83,7 @@ def test_endpoint_is_identical_over_100_in_process_runs() -> None:
     results = set()
     for _ in range(100):
         outcome = run(intent, context)
-        results.add((outcome.output, outcome.evidence.model_dump_json(by_alias=True)))
+        results.add((outcome.output, _wire_form(outcome.evidence.model_dump(by_alias=True))))
     assert len(results) == 1
     output = next(iter(results))[0]
     assert output == texts[0]  # a (2), b (2), c (2), é (2): the first holder of the first tie

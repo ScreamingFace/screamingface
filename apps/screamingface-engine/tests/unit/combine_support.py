@@ -14,6 +14,8 @@ from typing import Any
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE, CombineOutcome, run_combine
 from screamingface_engine.combine.ports import (
     CombineInput,
+    FieldReading,
+    JudgeReading,
     OpArgs,
     OperatorDescriptor,
     Reduction,
@@ -76,6 +78,61 @@ def fake_bad(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /)
     return Selection(chosen=("member_9",))
 
 
+def fake_boom(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
+    raise ZeroDivisionError("boom")
+
+
+def fake_weighted(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """Like fake_count, but each vote scores the member's weight."""
+    groups: dict[str, list[tuple[str, Decimal]]] = {}
+    for reading in combine_input.voters:
+        if reading.value is None or reading.weight is None:
+            raise SpecInvalid("fake_weighted@1 needs weights")
+        groups.setdefault(reading.value, []).append((reading.member, reading.weight))
+    rows = [
+        TallyRow(value, sum((weight for _, weight in held), Decimal(0)), tuple(m for m, _ in held))
+        for value, held in groups.items()
+    ]
+    rows.sort(key=lambda row: -row.score)
+    return Reduction(tally=tuple(rows))
+
+
+def _all_parts(judge: JudgeReading) -> Reduction:
+    """A Reduction with every part but the tally filled (the tally excludes the judge parts)."""
+    return Reduction(
+        statistic=Decimal("2.50"),
+        scores={"member_1": Decimal("0.2"), "member_2": Decimal("0.8")},
+        judge=judge,
+        fields=(
+            FieldReading(
+                "title",
+                "first_voter",
+                {"member_1": "A", "member_2": None},
+                {"k": [1, 2.5, True, None]},
+            ),
+        ),
+        text="TEXT",
+        separator_collision=True,
+    )
+
+
+def fake_all_parts(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    return _all_parts(JudgeReading("member_2 wins", "label", "member_2"))
+
+
+def fake_all_parts_scores(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    return _all_parts(JudgeReading("0.2,0.8", "scores", {"member_1": 0.2, "member_2": 0.8}))
+
+
+def fake_built_many(
+    reduction: Reduction, combine_input: CombineInput, args: OpArgs, /
+) -> Selection:
+    """Builds the reduction's text from two chosen members."""
+    return Selection(
+        chosen=("member_1", "member_3"), output=reduction.text, tie=True, agreement=0.5
+    )
+
+
 def _check_sep_args(args: OpArgs) -> None:
     if set(args) != {"sep"} or not isinstance(args["sep"], str):
         raise SpecInvalid("expected exactly one string arg named sep")
@@ -90,7 +147,14 @@ FAKE_REGISTRY = OperatorRegistry(
         OperatorDescriptor("fake_last_word", 1, "extract", "Last word.", fake_last_word),
         OperatorDescriptor("fake_lower", 1, "normalize", "Casefold.", fake_lower),
         OperatorDescriptor("fake_count", 1, "reduce", "One vote each.", fake_count),
+        OperatorDescriptor("fake_weighted", 1, "reduce", "One weight each.", fake_weighted),
+        OperatorDescriptor("fake_all_parts", 1, "reduce", "Fills every part.", fake_all_parts),
+        OperatorDescriptor(
+            "fake_all_parts_scores", 1, "reduce", "Fills every part, scores.", fake_all_parts_scores
+        ),
         OperatorDescriptor("fake_first", 1, "select", "First holder.", fake_first),
+        OperatorDescriptor("fake_built_many", 1, "select", "Builds from two.", fake_built_many),
+        OperatorDescriptor("fake_boom", 1, "select", "Raises.", fake_boom),
         OperatorDescriptor("fake_constant", 1, "select", "Builds BUILT.", fake_constant),
         OperatorDescriptor("fake_huge", 1, "select", "Builds 8 MiB + 1.", fake_huge),
         OperatorDescriptor("fake_bad", 1, "select", "Chooses a stranger.", fake_bad),

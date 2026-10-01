@@ -21,12 +21,15 @@ reason stays the members' common reason; the operation's own finish reason is ``
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any, cast
+
+from pydantic import ValidationError
 
 from screamingface_engine.combine.evidence import (
     CombineEvidence,
@@ -44,6 +47,7 @@ from screamingface_engine.combine.ports import (
     Normalizer,
     NoVotes,
     OpArgs,
+    OperatorDescriptor,
     ReadingStatus,
     ReduceOp,
     Reduction,
@@ -145,6 +149,10 @@ def run_combine(
     except CombineError as exc:
         trace.log(exc.code)
         raise
+    except Exception:
+        # A plugin bug: log the one line, then let it travel unchanged (it is not a declared code).
+        trace.log("internal_error")
+        raise
     trace.log("ok")
     return outcome
 
@@ -169,6 +177,7 @@ def _combine(
     if not combine_input.voters:
         raise NoVotes(f"no member gave a usable value ({len(spec.members)} members)")
     reduction = plan.reduce.run(combine_input, plan.reduce.args)
+    _check_tally(reduction, combine_input.members, plan.reduce.op_id)
     selection = plan.select.run(reduction, combine_input, plan.select.args)
     output = _output(selection, plan.select.op_id, context)
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
@@ -192,10 +201,15 @@ def _check_sizes(intent: str, context: str) -> None:
         raise InputTooLarge("the combine context exceeds 64 MiB")
 
 
-def _step(registry: OperatorRegistry, step: StepSpec | None, stage: Stage) -> _Step[Any] | None:
-    if step is None:
+def _resolve(
+    registry: OperatorRegistry, step: StepSpec | None, stage: Stage
+) -> OperatorDescriptor | None:
+    return None if step is None else registry.resolve(step.op, stage)
+
+
+def _bind(descriptor: OperatorDescriptor | None, step: StepSpec | None) -> _Step[Any] | None:
+    if descriptor is None or step is None:
         return None
-    descriptor = registry.resolve(step.op, stage)
     try:
         descriptor.check_args(step.args)
     except SpecInvalid as exc:
@@ -204,12 +218,18 @@ def _step(registry: OperatorRegistry, step: StepSpec | None, stage: Stage) -> _S
 
 
 def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
-    # Keyword arguments evaluate left to right: extract, normalize, reduce, select.
+    # WHY resolve ALL four steps before checking any args: an unknown operator is the more basic
+    # failure, so it wins over bad args of an earlier step. Stage order: extract, normalize,
+    # reduce, select.
+    extract = _resolve(registry, spec.extract, "extract")
+    normalize = _resolve(registry, spec.normalize, "normalize")
+    reduce = _resolve(registry, spec.reduce, "reduce")
+    select = _resolve(registry, spec.select, "select")
     return _Plan(
-        extract=cast("_Step[Extractor] | None", _step(registry, spec.extract, "extract")),
-        normalize=cast("_Step[Normalizer] | None", _step(registry, spec.normalize, "normalize")),
-        reduce=cast("_Step[ReduceOp]", _step(registry, spec.reduce, "reduce")),
-        select=cast("_Step[SelectOp]", _step(registry, spec.select, "select")),
+        extract=cast("_Step[Extractor] | None", _bind(extract, spec.extract)),
+        normalize=cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize)),
+        reduce=cast("_Step[ReduceOp]", _bind(reduce, spec.reduce)),
+        select=cast("_Step[SelectOp]", _bind(select, spec.select)),
     )
 
 
@@ -260,6 +280,33 @@ def _output(selection: Selection, op_id: str, context: CombineContext) -> str:
     return output
 
 
+def _check_tally(reduction: Reduction, members: tuple[str, ...], op_id: str) -> None:
+    """Verify, never repair: a tally the plugin got wrong must not be hidden by a re-sort.
+
+    Rows must run by score (high first, compared as Decimals), then by the author position of
+    the first holder; holders must run in author order. A wrong tally means the evidence would
+    contradict the answer, so it is a plugin bug, raised as a ``RuntimeError`` like `_output`.
+    """
+    if reduction.tally is None:
+        return
+    position = {member: index for index, member in enumerate(members)}
+    try:
+        keys = [(-row.score, position[row.holders[0]]) for row in reduction.tally]
+        held = [[position[holder] for holder in row.holders] for row in reduction.tally]
+    except (IndexError, KeyError) as exc:
+        raise RuntimeError(f"{op_id} returned an invalid tally") from exc
+    if keys != sorted(keys) or any(order != sorted(order) for order in held):
+        raise RuntimeError(f"{op_id} returned an unsorted tally")
+
+
+def _finite(value: Decimal | float) -> float:
+    """A score or weight as a float; a value no float can hold cannot be recorded."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise SpecInvalid("a combine score is too large to record")
+    return number
+
+
 def _evidence(
     spec: CombineSpec,
     plan: _Plan,
@@ -267,7 +314,6 @@ def _evidence(
     reduction: Reduction,
     selection: Selection,
 ) -> CombineEvidence:
-    position = {member: index for index, member in enumerate(combine_input.members)}
     scores = reduction.scores or {}
     statistic = reduction.statistic
     return CombineEvidence(
@@ -275,12 +321,12 @@ def _evidence(
         reducer=spec.reducer,
         operators=list(plan.operators),
         members=[_member_record(reading, scores) for reading in combine_input.readings],
-        tally=_tally_records(reduction, position),
+        tally=_tally_records(reduction),
         judge=_judge_record(reduction),
-        fields=_field_records(reduction),
+        fields=_field_records(reduction, plan.reduce.op_id),
         chosen=list(selection.chosen),
         built=selection.output is not None,
-        agreement=selection.agreement,
+        agreement=None if selection.agreement is None else _finite(selection.agreement),
         tie=selection.tie,
         median=None if statistic is None else canonical_decimal(statistic),
         presentation_order="author" if "judge" in combine_input.signals else None,
@@ -295,26 +341,18 @@ def _member_record(reading: MemberReading, scores: Mapping[str, Decimal]) -> Mem
         raw=reading.raw,
         value=reading.value,
         status=reading.status,
-        weight=None if reading.weight is None else float(reading.weight),
-        score=float(scores[reading.member]) if reading.member in scores else None,
+        weight=None if reading.weight is None else _finite(reading.weight),
+        score=_finite(scores[reading.member]) if reading.member in scores else None,
     )
 
 
-def _tally_records(
-    reduction: Reduction, position: Mapping[str, int]
-) -> list[TallyRowRecord] | None:
-    """Rows by score (high first), then first-holder position; a correct plugin already is."""
+def _tally_records(reduction: Reduction) -> list[TallyRowRecord] | None:
     if reduction.tally is None:
         return None
-    rows = [
-        TallyRowRecord(
-            value=row.value,
-            score=float(row.score),
-            holders=sorted(row.holders, key=lambda member: position[member]),
-        )
+    return [
+        TallyRowRecord(value=row.value, score=_finite(row.score), holders=list(row.holders))
         for row in reduction.tally
     ]
-    return sorted(rows, key=lambda row: (-row.score, position[row.holders[0]]))
 
 
 def _judge_record(reduction: Reduction) -> JudgeReadingRecord | None:
@@ -325,18 +363,21 @@ def _judge_record(reduction: Reduction) -> JudgeReadingRecord | None:
     return JudgeReadingRecord(raw=judge.raw, returns=judge.returns, parsed=parsed)
 
 
-def _field_records(reduction: Reduction) -> list[FieldReadingRecord] | None:
+def _field_records(reduction: Reduction, op_id: str) -> list[FieldReadingRecord] | None:
     if reduction.fields is None:
         return None
-    return [
-        FieldReadingRecord(
-            field=reading.field,
-            rule=reading.rule,
-            values=dict(reading.values),
-            result=reading.result,
-        )
-        for reading in reduction.fields
-    ]
+    try:
+        return [
+            FieldReadingRecord(
+                field=reading.field,
+                rule=reading.rule,
+                values=dict(reading.values),  # type: ignore[arg-type]  # validated below
+                result=reading.result,  # type: ignore[arg-type]
+            )
+            for reading in reduction.fields
+        ]
+    except ValidationError as exc:
+        raise RuntimeError(f"{op_id} returned a non-JSON field reading") from exc
 
 
 __all__ = [

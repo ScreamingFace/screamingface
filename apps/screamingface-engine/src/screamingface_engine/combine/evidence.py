@@ -15,9 +15,9 @@ envelope already carries every member's full text.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from screamingface_engine.combine.ports import EvidenceKind, ReadingStatus, Reducer
 
@@ -62,8 +62,8 @@ class FieldReadingRecord(_EvidenceModel):
 
     field: str
     rule: str
-    values: dict[str, Any]
-    result: Any
+    values: dict[str, JsonValue]
+    result: JsonValue
 
 
 class CombineEvidence(_EvidenceModel):
