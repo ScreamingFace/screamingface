@@ -10,6 +10,8 @@ set default-list := true
 
 # One blesser, four flag shapes — the path moves in a single place.
 blesser := "uv run python tests/e2e/fixtures/slice_snapshot.py"
+# The GSM8K vote lane (OME-1289 E4a, EV-12) has its own two-step script: record (paid), bless (free).
+reducer_lane := "uv run python tests/e2e/fixtures/reducer_lane.py"
 
 # Where each benchmark's downloaded dataset is written — resolved the SAME way the blesser
 # resolves it (`tests/e2e/fixtures/slice_snapshot.py`: SCREAMINGFACE_E2E_ASSETS, else
@@ -254,6 +256,27 @@ e2e-bless-fresh board dump report candidate *flags: _bless-preconditions
 e2e-refresh-golden board *flags: _bless-preconditions
     {{ blesser }} --board {{board}} \
         --refresh-golden {{flags}}
+
+# Record the GSM8K vote replay lane (OME-1289 E4a, EV-12): ONE LIVE RUN that SPENDS REAL MONEY
+# through OPENROUTER_API_KEY (default 20 cases x 5 samples = 100 short calls, well under $0.10,
+# 5-15 minutes) and writes a recording directory. Also needs SCREAMINGFACE_RECORD_PAID=1, docker and
+# the prepared `inspect-gsm8k` bundle (`uv sync --extra benchmarks` in the engine, then its
+# `benchmarks.prepare --bundle inspect-gsm8k`). It refuses before any spend unless the model takes a
+# `seed`. `--out <dir>` is required; other flags: --samples, --temperature, --limit, --extract,
+# --normalize. Example:
+#   just e2e-record-reducer-lane openrouter/<seed-capable-model> --out ~/sf-recordings/gsm8k-vote
+[confirm("This spends real OpenRouter money. Run the live recording? [y/N]")]
+[doc("Record the GSM8K vote replay lane with ONE live run (spends money)")]
+e2e-record-reducer-lane model *flags: _bless-preconditions
+    {{ reducer_lane }} record --model {{model}} {{flags}}
+
+# Bless the GSM8K vote replay lane from a recording (OME-1289 E4a, EV-12): FREE and keyless. Replays
+# the recording, refuses unless it reproduces the saved report, then writes the three fixture files
+# (snapshot, manifest, reducer golden) under tests/e2e/fixtures/. Example:
+#   just e2e-bless-reducer-lane ~/sf-recordings/gsm8k-vote
+[doc("Bless the GSM8K vote lane's e2e fixtures from a recording (free, keyless)")]
+e2e-bless-reducer-lane recording *flags: _bless-preconditions
+    {{ reducer_lane }} bless --recording {{recording}} {{flags}}
 
 # Paid smoke of every Benchmark (OME-1275): boots the real stack (Postgres + gateway +
 # engine) and spends real money through OPENROUTER_API_KEY: every Benchmark the engine
