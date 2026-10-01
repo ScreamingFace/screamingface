@@ -36,6 +36,7 @@ from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import CatalogError, Credential, ModelParameterSource
 from screamingface_engine.rest.conditional import validator_matches
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
+from url4.streaming.trace import valid_traceparent
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,7 @@ async def model_parameters(
         result = await source.fetch_model_parameters(
             _caller(request.headers),
             model,
+            traceparent=_traceparent(request.headers),
         )
     except CatalogError as exc:
         logger.info("model-parameter request failed: %s", type(exc).__name__)
@@ -260,6 +262,18 @@ def _model_parameter_headers(status: int) -> dict[str, str]:
     if status == 401:
         return {**_MODEL_PARAMETER_HEADERS, **_CHALLENGE}
     return _MODEL_PARAMETER_HEADERS
+
+
+def _traceparent(headers: Mapping[str, str]) -> str | None:
+    """The inbound ``traceparent`` to forward on this request's uncoalesced calls (OME-1134).
+
+    WHY ``valid_traceparent``: the same rule as ``rest/connections.py`` — a malformed value would
+    join nothing while looking correct, so it degrades to absent, never to an error.
+
+    INVARIANT: kept apart from :func:`_caller`. The credential derives the catalog cache key, so
+    the trace must never become part of it; ``GET /v1/models`` therefore never reads this.
+    """
+    return valid_traceparent(headers.get("traceparent"))
 
 
 def _caller(headers: Mapping[str, str]) -> Credential:

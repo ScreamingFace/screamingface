@@ -76,6 +76,8 @@ class _GatewayDetails:
         self,
         credential: Credential,
         model: str,
+        *,
+        traceparent: str | None = None,
     ) -> ModelParameterResponse:
         self.seen.append(model)
         content = f'{{"model":{{"id":"{model}"}}}}'.encode()
