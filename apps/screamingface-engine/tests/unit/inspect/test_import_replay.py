@@ -95,6 +95,11 @@ FAKE_EVAL: str = textwrap.dedent(
         return Task(dataset=MemoryDataset([Sample(id=1, input="x", target="y")]), scorer=match())
 
     @task
+    def empty() -> Task:
+        # a task whose dataset holds no Samples (json_dataset refuses an empty file itself)
+        return Task(dataset=MemoryDataset([]), scorer=match())
+
+    @task
     def no_ids() -> Task:
         # Samples with no id: inspect numbers them itself at eval time
         # WHY a converter: FieldSpec reads an `id` column by default
@@ -245,3 +250,109 @@ def test_a_sample_with_no_id_reports_none_not_the_text_none(fake_eval: str) -> N
     replay: ImportReplay = replay_for_import(f"{fake_eval}:no_ids", None)
 
     assert replay.sample_ids == (None, None)
+
+
+# ── the double run and the import refusals (spec R4) ────────────────────────────
+
+from screamingface_engine_inspect.import_replay import (  # noqa: E402
+    TaskReplayImport,
+    import_by_task_replay,
+)
+from screamingface_engine_inspect.importer import ImporterError  # noqa: E402
+
+
+def test_an_import_seals_the_cases_with_a_digest_both_runs_agree_on(fake_eval: str) -> None:
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+    assert imported.declaration.case_count == 2
+    assert len(imported.declaration.case_digest) == 64
+    assert imported.declaration.prompt_template == f"{fake_eval}:TEMPLATE"
+    assert imported.declaration.task_args is None
+    assert case_digest(replayed_cases(imported.declaration)) == imported.declaration.case_digest
+
+
+def test_the_sealed_declaration_keeps_the_metadata_its_digest_covers(fake_eval: str) -> None:
+    """D11: run 2 renders with the same keep_sample_metadata run 1 sealed under."""
+
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:own_scorer", None)
+
+    assert imported.declaration.keep_sample_metadata is True
+
+
+def test_the_second_run_takes_the_image_side_path(
+    fake_eval: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review Focus 4: run 2 is what the image build will do, so the written declaration is
+    proven to reproduce, not just the import child."""
+
+    from screamingface_engine_inspect import import_replay
+
+    calls: list[TaskReplayCasesSpec] = []
+    original = import_replay.replayed_cases
+
+    def spy(spec: TaskReplayCasesSpec, **kwargs: float) -> list[dict[str, object]]:
+        """Record the declaration the image-side replay received."""
+
+        calls.append(spec)
+        return original(spec, **kwargs)  # type: ignore[return-value]
+
+    monkeypatch.setattr(import_replay, "replayed_cases", spy)
+
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+    assert calls == [imported.declaration]
+
+
+def test_a_task_that_raises_is_refused_by_name(fake_eval: str) -> None:
+    with pytest.raises(ImporterError, match="upstream URL returned 404"):
+        import_by_task_replay(f"{fake_eval}:broken", None)
+
+
+def test_samples_with_no_case_source_are_refused(fake_eval: str) -> None:
+    """A fetch nobody can see is a fetch nobody can review."""
+
+    with pytest.raises(ImporterError, match="no Case Source was recorded"):
+        import_by_task_replay(f"{fake_eval}:from_memory", None)
+
+
+def test_no_samples_is_refused(fake_eval: str) -> None:
+    """Spec R4. inspect's Task refuses an empty dataset before ours can (inspect 0.3.263), and
+    its reason reaches the importer's error intact; import_by_task_replay's own "yielded no
+    Samples" check is the backstop for an inspect that stops refusing."""
+
+    with pytest.raises(ImporterError, match="dataset is empty|yielded no Samples"):
+        import_by_task_replay(f"{fake_eval}:empty", None)
+
+
+def test_two_samples_sharing_an_id_are_refused(fake_eval: str, tmp_path: Path) -> None:
+    _write_rows(tmp_path / "cases.jsonl", [dict(_ROWS[0]), {**_ROWS[1], "id": 1}])
+
+    with pytest.raises(ImporterError, match="share the id 1"):
+        import_by_task_replay(f"{fake_eval}:arithmetic", None)
+
+
+def test_samples_with_no_id_are_not_duplicates(fake_eval: str) -> None:
+    """inspect numbers id-less Samples itself at eval time, so they cannot collide."""
+
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:no_ids", None)
+
+    assert imported.declaration.case_count == 2
+
+
+def test_two_runs_that_disagree_are_refused(fake_eval: str) -> None:
+    """An unseeded shuffle passes once and would go SKIPPED at every build (spec R4).
+
+    WHY three attempts: the stand-in shuffles four rows, so the two runs agree by chance
+    1 time in 24 per attempt; three attempts leave 1 in 13,824.
+    """
+
+    refusal: ImporterError | None = None
+    for _ in range(3):
+        try:
+            import_by_task_replay(f"{fake_eval}:shuffled", None)
+        except ImporterError as exc:
+            refusal = exc
+            break
+
+    assert refusal is not None
+    assert "different Cases" in str(refusal)
