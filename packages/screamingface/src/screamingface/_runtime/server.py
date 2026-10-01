@@ -258,14 +258,28 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object, dict[str, str]]:
         auth_mode="disabled",
     )
     gateway = create_gateway_app(gateway_settings)
+    # FEATURE (OME-1448): spilled results live in the data dir, not the system temp folder,
+    # which Ubuntu wipes on reboot — a recovery record must still find its result bytes.
+    # INVARIANT (OME-929): the runner that writes (`run_env`) and the App that reads
+    # (`EngineSettings`) get this ONE value; a one-sided edit would 404 a paid result.
+    override = config.artifacts_override(os.environ)
+    if override is None:
+        # WHY 0o700, re-applied to an existing folder: it holds every spilled run's prompts
+        # and answers. A folder the user chose is left to the Engine's store.
+        config.artifacts_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        config.artifacts_dir.chmod(0o700)
+    artifacts_dir = str(config.effective_artifacts_dir(os.environ))
     run_env: Mapping[str, str] = {
         **os.environ,
         job_env.RUNNER_CONFIG: str(config.runner_config),
         job_env.AIGATEWAY_BASE_URL: config.services["gateway"],
         "URL4_BENCHMARK_ASSETS": str(config.assets_dir),
+        job_env.ARTIFACTS_DIR: artifacts_dir,
     }
     engine = create_local_app(
-        settings=EngineSettings(aigateway_base_url=config.services["gateway"]),
+        settings=EngineSettings(
+            aigateway_base_url=config.services["gateway"], artifacts_dir=artifacts_dir
+        ),
         env=run_env,
     )
     return gateway, engine, _gateway_config_summary(gateway_settings)

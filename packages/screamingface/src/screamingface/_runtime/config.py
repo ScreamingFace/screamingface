@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 # INVARIANT: the one name for the supervisor's state record — `screamingface up` writes
 # it, `screamingface status` and default-client discovery (detect.py) read it.
 STATE_FILENAME = "runtime.json"
+
+# INVARIANT: the Engine's own name for its spill folder (`screamingface_engine.job_env.
+# ARTIFACTS_DIR`), spelled here so this module stays importable without the runtime extra.
+# `tests/test_runtime_artifacts_dir.py` pins the two names equal.
+ARTIFACTS_DIR_ENV = "URL4_CLOUD_ARTIFACTS_DIR"
 
 
 def default_data_dir() -> Path:
@@ -53,6 +59,23 @@ class RuntimeConfig:
     @property
     def assets_dir(self) -> Path:
         return self.data_dir / "benchmark-assets"
+
+    @property
+    def artifacts_dir(self) -> Path:
+        return self.data_dir / "artifacts"
+
+    def artifacts_override(self, environ: Mapping[str, str]) -> Path | None:
+        """The folder the user chose for spilled results, or None when unset.
+
+        WHY a blank value is unset: the Engine reads it that way (its `artifacts_dir`
+        validator), so this must too, or the two sides would disagree.
+        """
+        value = environ.get(ARTIFACTS_DIR_ENV, "").strip()
+        return Path(value) if value else None
+
+    def effective_artifacts_dir(self, environ: Mapping[str, str]) -> Path:
+        """The one folder the local Engine spills into: the user's choice, else the default."""
+        return self.artifacts_override(environ) or self.artifacts_dir
 
     @property
     def state_path(self) -> Path:

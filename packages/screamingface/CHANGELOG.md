@@ -34,6 +34,13 @@
   **Requires a Scoreboard that accepts the field.** Submissions reject with HTTP 422 against a
   Scoreboard deployed before `OME-1181`.
 
+* **screamingface:** the local stack (`screamingface up`) keeps spilled evaluation results in
+  `~/.screamingface/artifacts` (or `$SCREAMINGFACE_DATA_DIR/artifacts`) instead of the system temp
+  folder, so a reboot no longer deletes them; the 48 h retention is unchanged, and
+  `screamingface status` shows the folder and its size (`OME-1448`). Results spilled before the
+  upgrade stay in the old temp folder until the OS cleans it, and a result that an open notebook
+  had not fetched yet cannot be fetched after `screamingface restart`.
+
 ### Bug Fixes
 
 * **screamingface:** `Report.export()` streams one Candidate at a time and replaces the file atomically, so exporting a large Report no longer holds a second full copy in memory, and a crash mid-export keeps the previous file (`OME-1448`). The export now replaces the file with a new one instead of rewriting it in place, so hard links and ownership of an existing `report.json` are not kept, and a read-only target is replaced.
