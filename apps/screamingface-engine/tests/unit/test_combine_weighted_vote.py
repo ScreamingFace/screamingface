@@ -16,6 +16,7 @@ so they pass on their first run by design.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,19 @@ def test_empty_extract_weight_does_not_count() -> None:
     ]
     first = evidence["members"][0]
     assert (first["status"], first["weight"], first["score"]) == ("empty", 5.0, None)
+    assert evidence["agreement"] == 2 / 3
+    assert evidence["chosen"] == ["member_3"]
+    assert evidence["tie"] is False
+
+
+def test_engine_accepts_a_weight_at_the_cap() -> None:
+    # D-7: the cap is sys.float_info.max / 256, so a sum over 256 such weights stays finite.
+    output, evidence = _evidence("weighted_cap_2", ["9", "9"])
+    cap = sys.float_info.max / 256
+    assert output == "9"
+    assert [member["weight"] for member in evidence["members"]] == [cap, cap]
+    assert _tally(evidence) == [("9", cap * 2, ["member_1", "member_2"])]
+    assert evidence["chosen"] == ["member_1"]
 
 
 def _without_member_5(spec: dict[str, Any]) -> None:
@@ -118,6 +132,10 @@ def _null_weights(spec: dict[str, Any]) -> None:
     spec["weights"] = None
 
 
+def _extra_member_weight(spec: dict[str, Any]) -> None:
+    spec["weights"]["member_6"] = 1.0
+
+
 def _bad_weights_texts() -> dict[str, str]:
     base = _SPECS["weighted_5"]
     texts: dict[str, str] = {}
@@ -127,12 +145,15 @@ def _bad_weights_texts() -> dict[str, str]:
         "negative": _negative_weight,
         # weighted_mode@1 stays in the spec, so the operator itself finds no weights.
         "null_weights": _null_weights,
+        "extra_member": _extra_member_weight,
     }.items():
         spec = json.loads(base)
         mutate(spec)
         texts[name] = json.dumps(spec, sort_keys=True, separators=(",", ":"))
     assert '"member_1":3.0' in base
     texts["nan"] = base.replace('"member_1":3.0', '"member_1":NaN')
+    # Finite, but above the Engine cap (sys.float_info.max / 256).
+    texts["above_cap"] = base.replace('"member_1":3.0', '"member_1":1e308')
     texts["overflow"] = base.replace('"member_1":3.0', '"member_1":1e309')
     return texts
 

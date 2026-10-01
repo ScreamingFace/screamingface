@@ -56,14 +56,23 @@ level, real operators).
   [9, 12], chosen member_1 (sole holder of 9), agreement 2/4. `weighted_decimal_4`: 5 scores
   0.1+0.2+0.3 = 0.6 and 7 scores 0.6, tie, holders of 5 weigh 0.1/0.2/0.3 so member_3; reversed
   weights 0.3/0.2/0.1 give member_1. All as the spec says; a float sum would give 0.6000000000000001.
-- **Commits:** see `git log e4a-vote-median..HEAD` on branch `e4a-weighted-vote`.
-- **Gates:** `screamingface --base e4a-vote-median` with append-only: only offender
+- **Commits:** see `git log e4a-samples..HEAD` on branch `e4a-weighted-vote`.
+- **Gates:** `screamingface --base e4a-samples` with append-only: only offender
   `tests/public_surface_snapshot.json` (expected: the Vote and Median `__init__` signatures and
   `Vote.weights` changed); with `--skip-append-only`: ALL GATES GREEN. `screamingface-engine --base
-  e4a-vote-median` with append-only: green (no offender); with `--skip-append-only`: ALL GATES GREEN.
+  e4a-samples` with append-only: green (no offender); with `--skip-append-only`: ALL GATES GREEN.
   `repo`: ALL GATES GREEN.
-- **Deviations:** none from the behavior spec. `Vote._from_spec` also refuses (`cannot rebuild`) a
-  weight map whose keys differ from `spec["members"]`, so a hand-edited url4 gives a clean
-  ValueError and not a KeyError. The SDK does not cap a weight at `sys.float_info.max / 256`; the
-  Engine does (D-7), so a weight above the cap builds in the SDK and fails on the Engine with
-  `combine_spec_invalid`.
+- **Deviations:** `Vote._from_spec` also refuses (`cannot rebuild`) a weight map whose keys differ
+  from `spec["members"]` (missing or extra key), and a weight value that is not an int or float
+  (ratified by the coordinator). The cap deviation of round 0 is gone (see round 1).
+- **Review round 1 (coordinator ACCEPT-WITH-FIXES; branch rebased onto `e4a-samples`):**
+  `_MAX_REDUCER_MEMBERS` moved from `fusion.py` into `reducer.py` (fusion imports it back, no cycle);
+  `_MAX_WEIGHT = sys.float_info.max / 256` is checked on the raw item in `_vote_weights`
+  (`0 < item <= cap`; the OverflowError branch and the `math` import are gone); `_from_spec` refuses
+  non-number weight values and passes raw values through the same validator; tests for the exact cap,
+  `1e308`, `nextafter(cap)`, an extra weight key and bad value types; `weighted_cap_2` added to the
+  fixture and an Engine test that the cap weight is accepted; WV-9 also pins agreement, chosen and
+  tie; WV-6 adds an extra `member_6` key and a finite weight above the Engine cap (1e308); the compile
+  test compares the full literal spec; README and CHANGELOG say where each error is raised and name
+  the cap. Gates: `screamingface --base e4a-samples` with append-only: only offender
+  `tests/public_surface_snapshot.json`; `--skip-append-only` for both stacks and `repo`: ALL GATES GREEN.

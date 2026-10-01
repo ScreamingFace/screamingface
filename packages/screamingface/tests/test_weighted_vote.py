@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from typing import Any
 
 import pytest
@@ -14,6 +15,8 @@ import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface.url4 import _calls
+
+_CAP = sys.float_info.max / 256
 
 _NUMBER: dict[str, Any] = {"extract": "last_number", "normalize": "numeric"}
 
@@ -47,6 +50,13 @@ def test_non_positive_or_non_finite_weight_raises(bad: Any) -> None:
         sf.Vote(weights=[1, bad])
 
 
+def test_the_weight_cap_matches_the_engine_cap() -> None:
+    assert sf.Vote(weights=[_CAP, 1]).weights == (_CAP, 1.0)
+    for bad in (1e308, math.nextafter(_CAP, math.inf), int(_CAP) * 2):
+        with pytest.raises(ValueError, match="at most"):
+            sf.Vote(weights=[1, bad])
+
+
 @pytest.mark.parametrize("bad", [[], ()])
 def test_empty_weights_raise_value_error(bad: Any) -> None:
     with pytest.raises(ValueError):
@@ -78,10 +88,13 @@ def test_weights_on_median_raise_type_error() -> None:
 
 def test_weighted_vote_compiles_to_weighted_spec() -> None:
     raw = _raw_intent(_url4(_fusion(sf.Vote(**_NUMBER, weights=[2, 1, 1]))))
-    assert '"reduce":{"args":{},"op":"weighted_mode@1"}' in raw
-    assert '"select":{"args":{},"op":"max_weight_holder@1"}' in raw
-    assert '"weights":{"member_1":2.0,"member_2":1.0,"member_3":1.0}' in raw
-    assert json.loads(raw)["reducer"] == "vote"
+    assert raw == (
+        '{"extract":{"args":{},"op":"last_number@1"},"members":["member_1","member_2","member_3"],'
+        '"normalize":{"args":{},"op":"numeric@1"},"reduce":{"args":{},"op":"weighted_mode@1"},'
+        '"reducer":"vote","schema":"screamingface.combine-spec.v1",'
+        '"select":{"args":{},"op":"max_weight_holder@1"},'
+        '"weights":{"member_1":2.0,"member_2":1.0,"member_3":1.0}}'
+    )
     # Unweighted stays on mode / first_holder (unit 5).
     plain = json.loads(_raw_intent(_url4(_fusion(sf.Vote(**_NUMBER)))))
     assert plain["reduce"]["op"] == "mode@1"
@@ -149,4 +162,26 @@ def test_from_spec_refuses_a_weight_map_that_misses_a_member() -> None:
     spec = _spec()
     del spec["weights"]["member_3"]
     with pytest.raises(ValueError, match="cannot rebuild"):
+        sf.Vote._from_spec(spec)
+
+
+def test_from_spec_refuses_a_weight_map_with_an_extra_key() -> None:
+    spec = _spec()
+    spec["weights"]["member_4"] = 1.0
+    with pytest.raises(ValueError, match="cannot rebuild"):
+        sf.Vote._from_spec(spec)
+
+
+@pytest.mark.parametrize("bad", ["2", True, None, [1], "x"])
+def test_from_spec_refuses_a_weight_value_that_is_not_a_number(bad: Any) -> None:
+    spec = _spec()
+    spec["weights"]["member_2"] = bad
+    with pytest.raises(ValueError, match="cannot rebuild"):
+        sf.Vote._from_spec(spec)
+
+
+def test_from_spec_applies_the_weight_cap() -> None:
+    spec = _spec()
+    spec["weights"]["member_2"] = 1e308
+    with pytest.raises(ValueError, match="at most"):
         sf.Vote._from_spec(spec)

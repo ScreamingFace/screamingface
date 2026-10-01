@@ -13,6 +13,7 @@ import test_weighted_vote_contract_fixture as m; m.write_fixture()"
 from __future__ import annotations
 
 import json
+import sys
 
 from _combine_contract import COMBINE_CONTRACT, engine_operators, read_contract, requires_engine_app
 
@@ -30,6 +31,8 @@ _WEIGHTS: dict[str, tuple[float, ...]] = {
     "weighted_decimal_4": (0.1, 0.2, 0.3, 0.6),
     "weighted_decimal_reversed_4": (0.3, 0.2, 0.1, 0.6),
     "weighted_empty_4": (5, 1, 1, 1),
+    # The largest weight the Engine accepts: sys.float_info.max / 256 (D-7).
+    "weighted_cap_2": (sys.float_info.max / 256, sys.float_info.max / 256),
 }
 
 

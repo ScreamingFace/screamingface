@@ -342,7 +342,7 @@ is in the `combine` field of each case's `operations` entry (`op_synthesis_1` fo
 `case.answers()` joins each member's text to its Answer. `case.trace()` and `report.trace_dict()`
 show what each block did, in order. This needs an Engine that serves `GET /v1/operators`.
 
-`sf.Vote(weights=[2, 1, 1])` gives each member a fixed positive weight, one number per member in author order. Each answer scores the sum of the weights of the members who gave it, and the answer is the text of the heaviest member who gave the winning answer (the first in author order on equal weights). A wrong number of weights, or a weight that is zero, negative or not finite, raises `ValueError` when the Fusion is built, before any call. Weights apply to `sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. The report shows each member's `weight` and each answer's summed `score`.
+`sf.Vote(weights=[2, 1, 1])` gives each member a fixed positive weight, one number per member in author order. Each answer scores the sum of the weights of the members who gave it, and the answer is the text of the heaviest member who gave the winning answer (the first in author order on equal weights). A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError` at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to `sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. The report shows each member's `weight` and each answer's summed `score`.
 
 ## Install
 
