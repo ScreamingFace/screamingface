@@ -57,14 +57,15 @@ class CaseNavigation:
         raise IndexError(index)
 
     def resolve(self, query: str) -> CaseId:
-        text = query.strip()
         ids = self.groups if self.selected == -1 else self.identities[self.selected]
-        if text in ids:
-            return text
+        # INVARIANT: whitespace is part of retained string identity, never presentation padding.
+        if query in ids:
+            return query
+        text = query.strip()
         try:
             case_id: CaseId = int(text)
         except ValueError:
-            case_id = text
+            case_id = query
         if case_id not in ids:
             raise ValueError(f"Case {text} not found. This selection contains {len(ids)} cases.")
         return case_id

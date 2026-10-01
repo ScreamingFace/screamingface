@@ -145,3 +145,9 @@ The memory fixture includes fusion members and retained per-operation accounting
 A handled candidate failure finalizes the prepared evaluation marker even if no
 partial Report can be built. Cancellation keeps its interruption marker, and active
 presentation operations retain their existing lifecycle precedence.
+
+
+Go to case matches the original input against retained string IDs before attempting
+integer conversion. Whitespace remains part of string identity, including padded
+numeric strings. Only the integer fallback trims surrounding whitespace; candidate
+filtering limits both identity lookup and fallback to the selected candidates.
