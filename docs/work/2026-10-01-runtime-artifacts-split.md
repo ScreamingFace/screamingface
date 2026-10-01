@@ -1,5 +1,5 @@
 ---
-ticket: unfiled
+ticket: OME-1454
 stack: screamingface
 status: done
 started: 2026-10-01
@@ -32,4 +32,4 @@ All SDK card gates passed independently against ba1545d8: append-only tests, Ruf
 
 Wisdom: the local runtime adapter is an existing configuration boundary; reader/writer parity and absolute serving-path recording belong together. Retention and hosted storage remain unchanged. No new dependency or paid calls. Runtime tests use stubs and do not reproduce a reboot.
 
-The user authorized two independently mergeable PRs. The runtime branch is prepared and pushed; the new runtime issue/PR waits only for the repository-required confirmation of title, parent epic, landing leaf and priority. SDK #1156 has already been updated to SDK-only scope.
+The user authorized two independently mergeable PRs. The runtime branch is prepared and pushed. The user approved the exact ticket metadata; OME-1454 was created under E5 (OME-1294), assigned to the authenticated user, with client-sf/agentic/autonomous labels and High priority. The runtime PR targets main independently of SDK #1156, which has already been updated to SDK-only scope.
