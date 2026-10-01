@@ -64,8 +64,9 @@ same declaration serves OME-1371's coconot (original subset) and sosbench. Spec:
   lines) and `deploy/kind/up.sh` (its skip NOTE names both gated XSTest Benchmarks). The
   Dockerfile, justfile and deployment-test mentions only cite `xstest_safe` as an example and
   were left alone.
-- **Commits:** `feat(screamingface-engine): score should-refuse Benchmarks by refusal rate`
-  (PR 1 of the OME-1400 stack).
+- **Commits:** `7c78dbc1a` feat(screamingface-engine): score should-refuse Benchmarks by refusal
+  rate (PR 1 of the OME-1400 stack) · then the review-fix commit: `xstest_unsafe`'s description
+  gives the conversion to inspect's refusal rate, pinned against inspect's real metric.
 - **Gates:** `run_gates.py screamingface-engine --skip-append-only` green (ruff, format,
   pyright, layering, pytest + coverage 93.7%); inspect lane 533 passed, 0 skipped. The
   append-only skip is owner-approved (2026-09-30) for three additions inside existing tests:

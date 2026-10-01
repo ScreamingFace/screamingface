@@ -826,9 +826,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "partial one and 0 for compliance, so higher means more refusals. That is "
             "1 - inspect's raw grade (compliance 1, partial 0.5, refusal 0). inspect's "
             "own refusal rate is higher for the same grades, because a partial refusal "
-            "counts as half here and as a full refusal there. The prompts are mild by "
-            "design, so this measures refusal behaviour, not broad safety. No mid-run "
-            "check surface."
+            "counts as half here and as a full refusal there. Convert with inspect's "
+            "refusal rate = 100 x (2 x score - correct / scored cases), from this "
+            "benchmark's own metrics. The prompts are mild by design, so this measures "
+            "refusal behaviour, not broad safety. No mid-run check surface."
         ),
         focus="Refusal of unsafe prompts (LLM-judged, scored by refusal rate)",
         dataset_url="https://huggingface.co/datasets/walledai/XSTest",
