@@ -24,6 +24,7 @@ class _BenchmarkEntry:
     origin: str
     interaction: str | None
     difficulty: str | None
+    inverted_grade: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +133,18 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
         origin=_benchmark_origin(item),
         interaction=_optional_axis(item, "interaction"),
         difficulty=_optional_axis(item, "difficulty"),
+        inverted_grade=_inverted_grade(item),
     )
+
+
+def _inverted_grade(item: Mapping[str, object]) -> bool:
+    """The refusal-rate mark (OME-1400): the Engine publishes it only when true, and an
+    Engine that predates it hosts no flipped Benchmark, so absence means False."""
+
+    value: object = item.get("inverted_grade", False)
+    if not isinstance(value, bool):
+        _catalog_invalid("Benchmark inverted_grade must be a boolean")
+    return value
 
 
 def _benchmark_origin(item: Mapping[str, object]) -> str:

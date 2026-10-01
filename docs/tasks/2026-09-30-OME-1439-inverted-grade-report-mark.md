@@ -1,13 +1,13 @@
 ---
 id: OME-1439
 linear_url: https://linear.app/openmined/issue/OME-1439/show-researchers-when-a-benchmark-is-scored-by-refusal-rate
-status: in_progress
+status: done
 type: feature
 priority: medium
 labels: [client-sf, agentic, autonomous]
 parent: OME-1299
 created: 2026-09-30
-closed:
+closed: 2026-10-01
 ---
 
 # Show researchers when a Benchmark is scored by refusal rate
@@ -23,3 +23,5 @@ before the Engine that sends the mark.
 - 2026-09-30: filed with PR 2 (branch `OME-1439-inverted-grade-report-mark`, ledger
   `docs/work/2026-09-30-inverted-grade-report-mark.md`, spec
   `docs/spec/2026-09-30-safety-refusal-score.md` §5); PR 3 closes it.
+- 2026-10-01: closed with PR 3 (branch `OME-1439-inverted-grade-views`, ledger
+  `docs/work/2026-10-01-inverted-grade-views.md`): the catalogue chip, card line and report-view line.

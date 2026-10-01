@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
+from screamingface._ui.cards import INVERTED_GRADE_MEANING
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
@@ -220,8 +221,17 @@ def _head_html(report: Report) -> str:
         "<div class='sf-report__head-row'><div>"
         "<div class='sf-report__title'>Report</div>"
         f"<div class='sf-report__sub'>Benchmark · {escape(str(report.benchmark.id))}</div>"
+        f"{_inverted_grade_html(report)}"
         f"</div>{_download_html(report)}</div>"
     )
+
+
+def _inverted_grade_html(report: Report) -> str:
+    """One plain line under the header for a Benchmark scored by refusal rate (OME-1400)."""
+
+    if not getattr(report.benchmark, "inverted_grade", False):
+        return ""
+    return f"<div class='sf-report__sub'>Inverted grade: {escape(INVERTED_GRADE_MEANING)}</div>"
 
 
 def _download_html(report: Report) -> str:
