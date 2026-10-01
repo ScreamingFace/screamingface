@@ -19,7 +19,7 @@ curl -sf http://localhost:9106/healthz
 
 By default, local runs use a SQLite database file named `scoreboard.sqlite3` in the current working directory. Delete that file to reset local data. If you previously exported `SCOREBOARD_DATABASE_URL`, unset it first with `unset SCOREBOARD_DATABASE_URL` to use the default.
 
-`/healthz` is a liveness probe only. It does not query the database and does not prove database connectivity.
+`/healthz` is a liveness probe only. It does not query the database and does not prove database connectivity. `/readyz` is the readiness probe: it runs a bounded `SELECT 1` and answers `503` when the database is unreachable.
 
 ### Running Against Local Postgres
 
@@ -105,7 +105,7 @@ src/scoreboard/
   cli.py             `scoreboard` console-script entry point
   db.py              Tortoise configuration/init helpers
   routes/
-    health.py        GET /healthz
+    health.py        GET /healthz, GET /readyz
   scores/
     schemas.py       Pydantic DTOs for submissions and read models
     store.py         Tortoise-backed persistence/query store

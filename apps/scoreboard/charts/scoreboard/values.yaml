@@ -80,9 +80,12 @@ livenessProbe:
   periodSeconds: 20
   timeoutSeconds: 5
 
+# WHY two endpoints (OME-944): /healthz is pure liveness and never touches the database — a
+# DB-coupled liveness probe restarts every replica when one backend fails. /readyz runs a bounded
+# `SELECT 1`, so a pod that cannot reach its database leaves the Service instead of 503ing.
 readinessProbe:
   httpGet:
-    path: /healthz
+    path: /readyz
     port: http
   initialDelaySeconds: 5
   periodSeconds: 10

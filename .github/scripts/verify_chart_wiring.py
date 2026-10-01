@@ -54,6 +54,8 @@ ENGINE_RELEASE = "url4-cloud"
 # name.
 ENGINE_FULLNAME = f"{ENGINE_RELEASE}-{ENGINE_RELEASE}"
 INTAKE_RELEASE = "reports"
+SCOREBOARD_CHART = REPO / "apps/scoreboard/charts/scoreboard"
+SCOREBOARD_RELEASE = "scoreboard"
 # What `values-cloud.yaml` deliberately leaves empty, because a chart cannot know a Gateway's name,
 # a Cloudflare application, a Pod CIDR or a mesh gateway's label — and refuses the render rather
 # than inventing one. Placeholders, not deployment values — nothing here is installed.
@@ -1492,6 +1494,21 @@ check(
     console_image.rsplit(":", 1)[1] != "" and ":" in console_image,
     "the chart pins an image TAG rather than leaving it floating at :latest",
 )
+
+# --- scoreboard: readiness split from liveness (OME-944) -----------------------------------------
+# WHY both values files: values-prod.yaml is what release-scoreboard.yml renders, and an override of
+# either probe there would silently undo the split in the only deployment that matters.
+print("\nscoreboard")
+SCOREBOARD_PROD_ARGS = ("--values", str(SCOREBOARD_CHART / "values-prod.yaml"))
+for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
+    scoreboard_docs = render(SCOREBOARD_CHART, SCOREBOARD_RELEASE, *extra)
+    scoreboard_container = containers_of(find(scoreboard_docs, "Deployment"))[0]
+    check(
+        scoreboard_container["livenessProbe"]["httpGet"]["path"] == "/healthz"
+        and scoreboard_container["readinessProbe"]["httpGet"]["path"] == "/readyz",
+        f"scoreboard ({label} values): liveness is /healthz (never touches the DB) and readiness "
+        "is /readyz (fails when the DB is down)",
+    )
 
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:
