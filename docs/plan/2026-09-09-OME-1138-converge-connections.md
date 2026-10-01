@@ -2,7 +2,7 @@
 ticket: OME-1138
 status: draft   # adapter-first re-plan; no execution, task or publication approval is inferred
 created: 2026-09-09
-updated: 2026-09-26
+updated: 2026-10-01
 spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 ---
 
@@ -26,7 +26,7 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 
 ## 1. Stage status
 
-| Stage | Gate | Status, 2026-09-24 |
+| Stage | Gate | Status, 2026-10-01 |
 | --- | --- | --- |
 | P0 baseline | G0 | done 2026-09-09 at b47853ea (gates, consumer/meta maps); anchors re-verified at 17048f5d in this pass; gates not rerun |
 | P1 design | G1 | **revised to adapter-first**: consumer evidence, adversarial checks and review feedback incorporated; spec §3–§9 written; D11–D18 and the D7 conflict presented (their current status: spec §8); not approved |
@@ -38,7 +38,7 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 | A4 Hosted Engine on the availability successor | G3 | **merged** in two units (D15 and D17 decided 2026-09-14): U4 (`OME-1244`, PR #1006, `2da45896`, 2026-09-21) publishes the caller-scoped `GET /v1/provider-access` listing; U4e (`OME-1245`, PR #1007, `54fa8673`, 2026-09-22) moves the Hosted Engine listing onto it |
 | B backing transition | G4 | **merged** as `OME-1208` (PR #1029, `7cff8a56`, 2026-09-23) under D11 (a), D14 and D16, decided 2026-09-22 (design PR #23): the `provider_credential_slots` pair marker, the Connection-backed implementations and the backfill tooling (S1/S2'/S4); Profile storage, routes and schemas stay until Stage E (`OME-1209`) |
 | C defaults cutover (D2) | G5a | **UI done** as `OME-1322` (PR #1043, `21832443`): the console sends only `{ "api_key" }`. **Gateway merged** as `OME-1323` (PR #1061, `e8c7d262`, 2026-09-25): chat no longer reads or merges stored defaults, the five writers answer a present `defaults` (even `null`) with 422 `defaults_not_accepted`, cache keys byte-identical (no revision bump, no reset). The running console must use the key-only payload before the gateway refusal reaches dev |
-| D selector sunset and carriers (D4) | G5b | **contract decided** 2026-09-25 (`OME-1377`: D12, D4 rollout, D13 — spec §8); metamodel merged as `OME-1380` (design PR #25, `3ba6a3d`); the separate census **waived 2026-09-25 (owner, recorded on `OME-1381`)**: dev evidence and the absence of first-party callers that send `X-Profile` are accepted as sufficient; then Engine producer-off (`OME-1381`), drain proof and the gateway reject; the sunset date and env audit are still open |
+| D selector sunset and carriers (D4) | G5b | **reject path merged**: contract/metamodel `OME-1377`/`OME-1380` (design PR #25, `3ba6a3d`); Engine producer-off `OME-1381` (PR #1082, `df6e9b92`); activation census waived with accepted alpha-canary risk and `OME-1401` canceled; Gateway rejection `OME-1394` (PR #1114, `3083640b`, 2026-09-30). Remaining Stage D work is `OME-1398` plus separately authorised Engine/URL4 legacy-carrier cleanup (S6/S9). |
 | E retirement and cleanup | G6 | not started; needs D6 |
 | S13 catalog | M0 | additive text possible after M0; Stage D resolved by D13 (version bump, `OME-1380`, merged `3ba6a3d`); successors at E |
 
@@ -177,11 +177,12 @@ option (b) executes B' under the same discipline (dry-run, journal, quarantine, 
 protected metadata mapping). C removes defaults per spec §3.7 with a measured cache impact and
 rejects legacy writes carrying defaults; it lands UI first (`OME-1322`), then gateway
 (`OME-1323`), and keeps `defaults_for`, `apply_defaults`, `should_apply_profile_default` and
-`CredentialTarget.defaults` declared without a production caller until E. D enables the reject policy only after drained or
-dispositioned accepted work and the worker env audit (the provenance census was waived on
-2026-09-25); S6 before S9; SDK and e2e
-pins change in the same release train as any code rename. E follows D6 with reference-safe cleanup
-and the tooling retirement list.
+`CredentialTarget.defaults` declared without a production caller until E. D's Engine producer-off
+and Gateway rejection are merged (`OME-1381`, `OME-1394`); the owner waived the activation census
+and accepted the residual alpha-canary risk without a production-read or zero-count claim. S6/S9
+still remove the retained Engine/URL4 compatibility carriers under separate authorisation. No SDK
+landing was required for the rejection contract. E follows D6 with reference-safe cleanup and the
+tooling retirement list.
 
 ### Current-source preservation checks (unchanged obligations)
 
@@ -217,7 +218,7 @@ and the tooling retirement list.
 | D15, D17 → G3 | successor route shape and hosted mutability rule decided; U4/U4e filed |
 | D11, D14, Q01–Q04 → G4 | backing chosen; dual-write owner decided and tested; versions, census and key access authorised; writer fencing in place; fixture swap of the 18 feature suites, the facade-suite split and the bootstrap re-target planned; public wording follows D20 even if backing mechanics choose an internal aggregate |
 | D16 → G5a | defaults source during the transition decided; impact plan approved; rehearsed rollback includes the defaults mode |
-| D4 date, D12 → G5b | sunset date; selector semantics after cutover; provenance census **waived 2026-09-25 (owner, recorded on `OME-1381`)**; accepted-work disposition; worker env audit |
+| D4 date, D12 → G5b | **closed for reject activation:** selector contract and rollback floor decided; Engine producer-off merged as PR #1082 (`df6e9b92`); census/drain precondition waived with accepted alpha-canary risk and no zero-count claim; Gateway rejection merged as PR #1114 (`3083640b`). S6/S9 compatibility-carrier deletion remains separate follow-up work. |
 | D6 → G6 | retention fulfilled; reference-safe cleanup proven; deletion approved |
 | D13, M0 | catalog write/version handling resolved; successor protocols decided for `X-Profile` removal; only then `--write` — **D13/M0 closed 2026-09-25:** version bump of the existing cards, no successor protocols (`OME-1380`, merged `3ba6a3d`) |
 | D18 | admin successor timing and shape (may wait for D11) |
