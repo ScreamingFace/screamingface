@@ -9,30 +9,33 @@ Pipeline stage receives exactly the selection.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
-from screamingface._evaluation.operators import STAGES
 from screamingface.judge import Judge, judge_from_signals
 from screamingface.reducer import (
+    _MAX_REDUCER_MEMBERS,
     _REDUCER_CLASSES,
-    FIELD_PATH,
     Reducer,
     _cannot_rebuild,
+    _field_path,
     _ModelSignal,
-    _op_name,
     _ReducerKind,
     _ReducerName,
+    _require_steps,
     _spec_steps,
     _Step,
     _Steps,
 )
 
-_MAX_K = 256
+# INVARIANT: the Engine's top_k@1 `_MAX_K` (operators/selection.py), copied; it is also the most
+# members a reducer Fusion takes, so one constant serves both.
+_MAX_K = _MAX_REDUCER_MEMBERS
+# INVARIANT: the Engine's join@1 `_MAX_SEPARATOR_CHARS` (operators/selection.py), copied; a longer
+# separator is refused here, before any call is made.
 _MAX_SEPARATOR_CHARS = 1024
-_MAX_FIELD_CHARS = 256
-DEFAULT_SEPARATOR = "\n\n---\n\n"
+_DEFAULT_SEPARATOR = "\n\n---\n\n"
 # WHY the exact id: scores@1 assumes the v1 output form of the numeric normalizer, so a later
 # numeric@2 must not change what a Rank by field means.
 _RANK_NORMALIZER = "numeric@1"
@@ -59,10 +62,12 @@ class Rank(Reducer):
             raise ValueError(f"Rank k must be between 1 and {_MAX_K}")
         if (by is None) == (by_field is None):
             raise ValueError("Rank needs exactly one of by= or by_field=")
-        if by is not None and not (isinstance(by, Judge) and by.returns == "scores"):
+        if by is not None and not isinstance(by, Judge):
+            raise TypeError("Rank by must be an sf.Judge")
+        if by is not None and by.returns != "scores":
             raise ValueError("Rank(by=...) needs sf.Judge(..., returns='scores')")
         if by_field is not None:
-            _check_field_path(by_field)
+            _field_path(by_field, "Rank by_field")
         object.__setattr__(self, "name", "rank")
         object.__setattr__(self, "k", k)
         object.__setattr__(self, "by", by)
@@ -103,7 +108,7 @@ class Rank(Reducer):
         steps = _spec_steps(spec)
         select, extract = steps["select"], steps["extract"]
         k = None if select is None else select[1].get("k")
-        if spec["weights"] is not None or isinstance(k, bool) or not isinstance(k, int):
+        if isinstance(k, bool) or not isinstance(k, int):
             raise _cannot_rebuild("rank")
         if signals:
             rank = cls(k, by=judge_from_signals(signals, "scores"))
@@ -113,6 +118,8 @@ class Rank(Reducer):
                 raise _cannot_rebuild("rank")
             rank = cls(k, by_field=path)
         _require_steps(spec, rank._steps(), "rank")
+        # WHY: the Fusion refuses a k above its member count, so a recovery must too
+        rank._check_members(len(cast("Sequence[str]", spec["members"])))
         return rank
 
     def _python(self) -> str:
@@ -139,7 +146,7 @@ class Concat(Reducer):
     separator: str
     label: bool
 
-    def __init__(self, separator: str = DEFAULT_SEPARATOR, *, label: bool = True) -> None:
+    def __init__(self, separator: str = _DEFAULT_SEPARATOR, *, label: bool = True) -> None:
         if not isinstance(separator, str):
             raise TypeError("Concat separator must be a string")
         if not separator:
@@ -171,11 +178,7 @@ class Concat(Reducer):
         reduce = _spec_steps(spec)["reduce"]
         args = {} if reduce is None else reduce[1]
         separator, label = args.get("separator"), args.get("label")
-        if (
-            spec["weights"] is not None
-            or not isinstance(separator, str)
-            or not isinstance(label, bool)
-        ):
+        if not isinstance(separator, str) or not isinstance(label, bool):
             raise _cannot_rebuild("concat")
         concat = cls(separator, label=label)
         _require_steps(spec, concat._steps(), "concat")
@@ -185,32 +188,6 @@ class Concat(Reducer):
         return f"Concat(separator={self.separator!r}, label={self.label!r})"
 
     __hash__: ClassVar[Any] = None
-
-
-def _check_field_path(path: object) -> None:
-    if not isinstance(path, str):
-        raise TypeError("Rank by_field must be a string")
-    if len(path) > _MAX_FIELD_CHARS or FIELD_PATH.fullmatch(path) is None:
-        raise ValueError(
-            f"Rank by_field must be a JSON field path of at most {_MAX_FIELD_CHARS} characters, "
-            f"like 'score' or 'result.score[0]', not {path!r}"
-        )
-
-
-def _require_steps(spec: Mapping[str, object], expected: _Steps, name: str) -> None:
-    """Refuse a decoded spec that is not exactly what ``expected`` writes (a hand-edited url4)."""
-
-    observed = _spec_steps(spec)
-    if not all(_step_is(observed[stage], getattr(expected, stage)) for stage in STAGES):
-        raise _cannot_rebuild(name)
-
-
-def _step_is(observed: tuple[str, Mapping[str, object]] | None, expected: _Step | None) -> bool:
-    if observed is None or expected is None:
-        return observed is None and expected is None
-    op_id, args = observed
-    same_op = op_id == expected.op if "@" in expected.op else _op_name(op_id) == expected.op
-    return same_op and dict(args) == dict(expected.args)
 
 
 _REDUCER_CLASSES.update(rank=Rank, concat=Concat)

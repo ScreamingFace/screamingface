@@ -97,6 +97,23 @@ def test_selection_as_fusion_or_loop_member_raises_at_compile() -> None:
         _compile(sf.CorrectiveLoop(["provider/d", sf.Pipeline([_concat()])], judge="provider/j"))
 
 
+def test_a_selection_cannot_be_the_judge_of_a_corrective_loop() -> None:
+    with pytest.raises(ValueError, match="a Rank cannot feed a corrective loop"):
+        _compile(sf.CorrectiveLoop(["provider/a", "provider/b"], judge=_rank()))
+    with pytest.raises(ValueError, match="a Concat cannot feed a corrective loop"):
+        _compile(sf.CorrectiveLoop(["provider/a", "provider/b"], judge=_concat()))
+
+
+def test_a_fusion_whose_recipe_synthesizer_ends_in_a_selection_is_not_a_member() -> None:
+    ends_in_rank = sf.Fusion(members3(), synthesizer=sf.Pipeline(["provider/y", _rank()]))
+
+    with pytest.raises(ValueError, match="a Rank Fusion cannot be a Fusion member"):
+        _compile(sf.Fusion([ends_in_rank, "provider/d"], synthesizer="provider/s"))
+    # followed by a stage, the same Fusion is an ordinary member
+    followed = sf.Pipeline([ends_in_rank, _writer()])
+    assert _compile(sf.Fusion([followed, "provider/d"], synthesizer="provider/s")).operations
+
+
 def test_a_selection_that_is_followed_compiles_everywhere_it_may_stand() -> None:
     followed = sf.Pipeline([_rank(), _writer()])
     # a selection inside a Pipeline's first stage, followed by a Fusion

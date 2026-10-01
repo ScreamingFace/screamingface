@@ -84,13 +84,13 @@ def test_rank_needs_exactly_one_ranking_source() -> None:
         sf.Rank(k=2, by=_scores_judge(), by_field="score")
     with pytest.raises(ValueError, match=r"Rank\(by=\.\.\.\) needs sf.Judge"):
         sf.Rank(k=2, by=sf.Judge("provider/j", returns="label", rubric=RUBRIC))
-    with pytest.raises(ValueError, match=r"Rank\(by=\.\.\.\) needs sf.Judge"):
+    with pytest.raises(TypeError, match="Rank by must be an sf.Judge"):
         sf.Rank(k=2, by="provider/j")  # type: ignore[arg-type]
 
     with pytest.raises(TypeError, match="Rank by_field must be a string"):
         sf.Rank(k=2, by_field=3)  # type: ignore[arg-type]
     for bad in ("", "a.", ".a", "a[01]", "a b", "$a", "a" * 257):
-        with pytest.raises(ValueError, match="Rank by_field must be a JSON field path"):
+        with pytest.raises(ValueError, match="Rank by_field .* must be a JSON path"):
             sf.Rank(k=2, by_field=bad)
     for good in ("score", "a.b", "a[0].b", "[0].a", "a" * 256):
         assert sf.Rank(k=2, by_field=good).by_field == good

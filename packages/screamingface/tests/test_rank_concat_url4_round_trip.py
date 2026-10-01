@@ -133,6 +133,12 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
         "k is a string": ("rank by field", '"args":{"k":2}', '"args":{"k":"2"}', _CANNOT_REBUILD),
         "k is a float": ("rank by field", '"args":{"k":2}', '"args":{"k":2.0}', _CANNOT_REBUILD),
         "k is zero": ("rank by field", '"args":{"k":2}', '"args":{"k":0}', "between 1 and 256"),
+        "k above the member count": (
+            "rank by field",
+            '"args":{"k":2}',
+            '"args":{"k":5}',
+            "k=5 members but the Fusion has 3",
+        ),
         "extra select arg": (
             "rank by field",
             '"args":{"k":2}',
@@ -143,7 +149,7 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
             "rank by field",
             '"path":"result.score[0]"',
             '"path":"a b"',
-            "JSON field path",
+            "must be a JSON path",
         ),
         "path is not a string": (
             "rank by field",
