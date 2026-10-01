@@ -72,6 +72,7 @@ from .routes import (
     tavily_retrieval_cache,
 )
 from .routes.chat_accounting import accounting_error_response
+from .span_exclusion import SpanExclusion
 from .tracing import install as install_tracing
 
 logger = logging.getLogger(__name__)
@@ -405,7 +406,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # so the last registration ends up outermost — the opposite of the intuitive reading. Being
     # outermost is the point: the auth guard above rejects requests and logs while doing it, and
     # those lines are exactly the ones an operator needs attributed.
-    app.add_middleware(CallIdMiddleware)
+    # WHY the exclusion is passed in: it is read through `Settings` like every `AIGW_*` value
+    # (OME-1453), not by the middleware from `os.environ`.
+    app.add_middleware(
+        CallIdMiddleware,
+        exclusion=SpanExclusion.from_setting(settings.trace_excluded_routes),
+    )
 
     registry = ProviderRegistry()
     load_plugins(registry)
