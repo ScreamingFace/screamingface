@@ -639,6 +639,11 @@ location is `~/.screamingface/results` (under `SCREAMINGFACE_DATA_DIR` when conf
 Set `SCREAMINGFACE_RESULTS_DIR` before creating a client to choose another disk. Saved
 results include prompts and answers; they are retained until explicitly deleted.
 
+The local runtime also keeps Engine artifacts in the private `<data_dir>/artifacts`
+folder rather than temporary storage. `URL4_CLOUD_ARTIFACTS_DIR` overrides that folder;
+`screamingface status` reports its location and size. Engine retention still applies to
+these artifacts; the SDK's downloaded copies remain available until explicitly deleted.
+
 ```python
 import screamingface as sf
 
@@ -646,6 +651,10 @@ saved = sf.reports.list()  # one entry per evaluation
 report = sf.reports.get(saved[0].id)  # reopens the containing evaluation, no model calls
 report.export("report.json")
 ```
+
+JSON export streams one case at a time through an atomic, fsynced file replacement,
+preserving existing permissions and output symlinks. `to_json()` uses the same serializer
+but still allocates the complete returned string; use `export()` for large reports.
 
 Recovery uses local files when available and fresh Engine authentication for missing
 downloads. A recovery ticket cannot outlive the Engine's retention of an undownloaded

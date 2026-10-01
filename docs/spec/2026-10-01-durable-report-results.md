@@ -84,3 +84,22 @@ briefly while a page is loading to keep the navigation model stable.
 ### Case rail refinement (2026-10-01)
 
 The candidate selector has no visible prefix and defaults to All Candidates. Live rows are 44 px, with a viewport-bounded scrollable rail. Candidate mode shows status, case ID and a short input preview; All Candidates shows status, case ID, candidate name and preview. Go to case selects the detail pane, retains the entered ID, highlights the row and reveals it inside the rail. A brief initial CSS snap is released after insertion so subsequent manual scrolling is unrestricted. Static exports retain their existing labels/layout.
+
+## Export and local runtime durability
+
+Adopts Ionésio's implemented atomic-file and local-runtime artifact improvements from
+PR #1211 at 12b8a390bbf7fe83b2d889eccfe55573e83bc1a7. Export retains our finer case-level
+streaming, flushes/fsyncs the sibling temporary file before replacement, follows output
+symlinks, and preserves existing ordinary permissions. New exports honor the process umask.
+On POSIX the parent directory is fsynced after replacement. Failure before replacement
+retains the previous export; failure during directory fsync means the new file has already
+replaced it, but durability is unconfirmed. `to_json()` uses the same serializer, avoiding
+whole-candidate dictionaries, although returning the complete string still takes memory.
+
+`screamingface up` sets both the Engine reader and runner writer to `<data_dir>/artifacts`
+by default, creates/restricts that folder to 0700, and respects a nonblank
+`URL4_CLOUD_ARTIFACTS_DIR` override. `screamingface status` reports the serving runtime's
+artifact path and bytes. This survives temporary-directory cleanup; it does not override
+Engine artifact retention/TTL or change hosted storage. SDK-downloaded results remain in
+our separate saved-results store. No recovery API or notice planned in #1211 is copied;
+our existing `sf.reports` API remains the recovery interface.

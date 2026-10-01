@@ -511,7 +511,11 @@ class Report:
         }
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
+        from screamingface._report_export import iter_report_json
+
+        # WHY: returning a string still allocates its bytes; avoid also holding every
+        # candidate's case dictionaries at once. File export remains bounded.
+        return "".join(iter_report_json(self))
 
     def export(
         self,

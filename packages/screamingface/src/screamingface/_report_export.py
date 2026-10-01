@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
+
+from screamingface._atomic_file import write_atomic
 
 if TYPE_CHECKING:
     from screamingface.report import Report
@@ -50,14 +51,9 @@ def inline_json(report: Report, limit: int = 65536) -> str | None:
 
 def write_report(report: Report, path: Path) -> None:
     """Replace an export only after the complete new snapshot reaches disk."""
-    temporary: Path | None = None
-    try:
-        with NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent, prefix=".report-", delete=False
-        ) as stream:
-            temporary = Path(stream.name)
-            stream.writelines(iter_report_json(report))
-        temporary.replace(path)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+
+    def write(stream: BinaryIO) -> None:
+        for chunk in iter_report_json(report):
+            stream.write(chunk.encode("utf-8"))
+
+    write_atomic(path, write)
