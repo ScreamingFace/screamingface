@@ -279,16 +279,16 @@ def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(
     engine_src_copy: Path,
 ) -> None:
     write_task_replay_rows(
-        "agieval_lsat_ar", _imported(), engine_src=engine_src_copy, license="TODO"
+        "stand_in_replay", _imported(), engine_src=engine_src_copy, license="TODO"
     )
 
     prepare_text: str = (engine_src_copy / "prepare.py").read_text()
     benchmarks_text: str = (engine_src_copy / "benchmarks.py").read_text()
-    assert '"agieval_lsat_ar": TaskReplayCasesSpec(' in prepare_text
-    assert prepare_text.index('"agieval_lsat_ar": TaskReplayCasesSpec(') > prepare_text.index(
+    assert '"stand_in_replay": TaskReplayCasesSpec(' in prepare_text
+    assert prepare_text.index('"stand_in_replay": TaskReplayCasesSpec(') > prepare_text.index(
         "TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {"
     )
-    assert 'key="agieval_lsat_ar"' in benchmarks_text
+    assert 'key="stand_in_replay"' in benchmarks_text
     assert (engine_src_copy / "pins.py").read_text() == (_SRC_DIR / "pins.py").read_text()
     for name in ("prepare.py", "benchmarks.py"):
         ast.parse((engine_src_copy / name).read_text())
@@ -296,12 +296,12 @@ def test_write_task_replay_rows_lands_in_prepare_and_benchmarks_only(
 
 def test_write_task_replay_rows_refuses_a_key_already_declared(engine_src_copy: Path) -> None:
     write_task_replay_rows(
-        "agieval_lsat_ar", _imported(), engine_src=engine_src_copy, license="TODO"
+        "stand_in_replay", _imported(), engine_src=engine_src_copy, license="TODO"
     )
 
     with pytest.raises(ImporterError, match="already exists"):
         write_task_replay_rows(
-            "agieval_lsat_ar", _imported(), engine_src=engine_src_copy, license="TODO"
+            "stand_in_replay", _imported(), engine_src=engine_src_copy, license="TODO"
         )
 
 
