@@ -64,6 +64,11 @@ _INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
 # INVARIANT: ordered easy→hard — the SDK renders catalogue sections in exactly this
 # order, and its copy of the tuple is pinned to this one (test_difficulty_conformance).
 _DIFFICULTY_TIERS: tuple[DifficultyTier, ...] = ("easy", "medium", "hard")
+#: The wire key of the refusal-rate mark (OME-1400) — on the Benchmark resource, the
+#: catalogue entry and (as `CandidateResult`'s field name) the run result.
+#: INVARIANT: spelled exactly as the SDK's copy in `_catalogue_vocabulary.py`; pinned
+#: by test_catalogue_vocabulary_conformance on BOTH sides.
+INVERTED_GRADE_KEY: str = "inverted_grade"
 _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -207,6 +212,12 @@ class Benchmark:
     # true fact for every benchmark authored in this repo, and the import lane must pass
     # origin="inspect_evals" explicitly at registration.
     origin: BenchmarkOrigin = "screamingface"
+    # FEATURE: safety Benchmarks where refusing is the right answer (OME-1400). True when
+    # every Case score is ALREADY 1 − the eval's grade (a should-refuse Benchmark, scored by
+    # refusal rate). A mark for researchers, never an instruction: no consumer flips again.
+    # INVARIANT: published only when true, so every other Benchmark's catalogue entry and
+    # resource stay byte-identical.
+    inverted_grade: bool = False
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -273,6 +284,8 @@ class Benchmark:
             metadata["dataset_url"] = self.dataset_url
         if self.check_surface is not None:
             metadata["check_surface"] = self.check_surface.as_block()
+        if self.inverted_grade:
+            metadata[INVERTED_GRADE_KEY] = True
         return metadata
 
     def protocol(self, selected_case_count: int) -> Node:

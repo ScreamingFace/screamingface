@@ -121,9 +121,10 @@
       "BenchmarkInfo": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', revision: 'str', case_count: 'int') -> None",
+          "__init__": "method (self, id: 'str', revision: 'str', case_count: 'int', inverted_grade: 'bool' = False) -> None",
           "case_count": "field",
           "id": "field",
+          "inverted_grade": "field",
           "revision": "field"
         }
       },

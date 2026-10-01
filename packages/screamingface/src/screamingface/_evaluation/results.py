@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
+from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._evaluation.operation_accounting import decode_operation_accounting
@@ -104,6 +105,9 @@ def report_from_url4_outcome(candidate: Candidate, outcome: _RunOutcome) -> Repo
         id=benchmark_id,
         revision=benchmark_revision,
         case_count=case_count,
+        # WHY from the result: a replay never loads the Benchmark resource, and the run
+        # result is the one wire that names the revision that actually ran (OME-1400).
+        inverted_grade=_inverted_grade(value),
     )
     evaluation = _compiled_evaluation(
         benchmark=benchmark,
@@ -221,6 +225,7 @@ def _candidate_payload(
             "failures",
         },
         label="Candidate result",
+        optional={INVERTED_GRADE_KEY},
     )
     if value.get("schema") != "screamingface.candidate-result.v1":
         raise ExecutionError("SF Engine Candidate result schema is unsupported")
@@ -230,7 +235,22 @@ def _candidate_payload(
         raise ExecutionError("SF Engine Candidate result has the wrong Benchmark revision")
     if _positive_integer(value.get("case_count"), "Candidate case_count") != evaluation.case_count:
         raise ExecutionError("SF Engine Candidate result has the wrong case count")
+    # INVARIANT: the resource and the result describe ONE Benchmark revision; if they
+    # disagree on the mark, the report would publish the wrong meaning for every score.
+    if _inverted_grade(value) != evaluation.benchmark.inverted_grade:
+        raise ExecutionError(
+            "SF Engine Candidate result and its Benchmark disagree on inverted_grade"
+        )
     return value
+
+
+def _inverted_grade(value: Mapping[str, object]) -> bool:
+    """The run result's refusal-rate mark; the Engine omits it unless true (OME-1400)."""
+
+    marked: object = value.get(INVERTED_GRADE_KEY, False)
+    if not isinstance(marked, bool):
+        raise ExecutionError("Candidate inverted_grade must be a boolean")
+    return marked
 
 
 def _candidate_components(

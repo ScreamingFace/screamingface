@@ -191,6 +191,7 @@ class ImportedBenchmark:
             grading_failure_code="inspect_grading_failed",
             grading_failure_message="the inspect scorer pipeline could not grade this Case",
             missing_material_code="missing_target_asset",
+            inverted_grade=self.inverted_grade,
         )
 
 
@@ -315,6 +316,9 @@ def single_shot_benchmark(
         # here. The listing groups by this field (OME-1114), so a defaulted row hides
         # the imported shelf inside our own group.
         origin="inspect_evals",
+        # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
+        # scorer adapter flips on, published so report.json can show it.
+        inverted_grade=inverted_grade,
         build=_build(routes, case_count),
         install=install,
         focus=focus,

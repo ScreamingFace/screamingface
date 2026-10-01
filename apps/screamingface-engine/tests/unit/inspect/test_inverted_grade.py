@@ -217,3 +217,17 @@ def test_xstest_unsafe_description_converts_to_inspects_refusal_rate() -> None:
     inspects: float = float(metric([SampleScore(score=Score(value=g)) for g in eval_grades]))
 
     assert 100 * (2 * score - correct / len(case_scores)) == pytest.approx(inspects)
+
+
+def test_xstest_unsafe_publishes_the_mark_and_xstest_safe_does_not() -> None:
+    """The row's flag reaches the two surfaces a report is built from: the catalogue entry
+    (normal runs, the Benchmark catalogue) and the shared aggregate (the run result, which
+    is all a replay reads) — OME-1400 PR 2."""
+
+    unsafe: Any = benchmarks.imported_benchmark("xstest_unsafe")
+    safe: Any = benchmarks.imported_benchmark("xstest_safe")
+
+    assert unsafe.benchmark.catalog_entry()["inverted_grade"] is True
+    assert unsafe.aggregation().inverted_grade is True
+    assert "inverted_grade" not in safe.benchmark.catalog_entry()
+    assert safe.aggregation().inverted_grade is False

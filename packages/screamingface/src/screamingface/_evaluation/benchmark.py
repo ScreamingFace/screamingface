@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, NoReturn, cast
 
+from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
 from screamingface._evaluation.model import _canonical_url4
@@ -61,6 +62,11 @@ def _decode_benchmark_resource(
             id=benchmark_id,
             revision=_wire_text(resource.get("revision"), "Benchmark revision", _invalid),
             case_count=installed_case_count,
+            # WHY absent means False: the Engine publishes the mark only when true. An Engine
+            # that serves xstest_unsafe but predates the mark sends no key for it either, so
+            # the Engine change that adds a flipped Benchmark and the one that adds the mark
+            # ship in one release.
+            inverted_grade=_inverted_grade(resource.get(INVERTED_GRADE_KEY, False)),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc))
@@ -75,6 +81,14 @@ def _decode_benchmark_resource(
         url4=url4,
         check_surface=_check_surface(resource.get("check_surface")),
     )
+
+
+def _inverted_grade(value: object) -> bool:
+    """The Benchmark-level refusal-rate mark, refused unless it is a real boolean."""
+
+    if not isinstance(value, bool):
+        _invalid("Benchmark inverted_grade must be a boolean")
+    return value
 
 
 def _check_surface(value: object) -> _CheckSurface | None:

@@ -210,6 +210,8 @@ class BenchmarkAggregation:
             (OME-1149): the rubric benchmarks say ``missing_rubric_asset``, but an MCQ
             benchmark's material is its answer key — publishing a rubric-flavored code
             there would contradict its own message.
+        inverted_grade: the Benchmark's Case scores are already 1 − its eval's grade
+            (OME-1400). Stamped onto the run result so a replayed report can show it.
     """
 
     reader: CaseGradeReader
@@ -223,6 +225,7 @@ class BenchmarkAggregation:
     missing_material_result: MissingMaterialResult | None = None
     hook_failure_result: HookFailureResult | None = None
     missing_material_code: str = "missing_rubric_asset"
+    inverted_grade: bool = False
 
     def aggregate(
         self,
@@ -313,6 +316,7 @@ class BenchmarkAggregation:
                 selected_cases=list(selected_cases),
                 cases=case_results,
                 scorer=scorer,
+                inverted_grade=self.inverted_grade,
             )
             observed = {case.case_id for case in case_results}
             for case in finalized.cases:

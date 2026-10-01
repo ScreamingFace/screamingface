@@ -55,3 +55,38 @@ def test_the_engine_vocabularies_match_the_sdk_vocabularies() -> None:
     assert sdk_tiers == _DIFFICULTY_TIERS
     assert sdk_interactions is not None, "SDK DECLARED_INTERACTION_TYPES not found"
     assert sdk_interactions == _INTERACTION_TYPES
+
+
+_SDK_VOCABULARY = _SDK_PACKAGE / "src" / "screamingface" / "_catalogue_vocabulary.py"
+
+
+def _sdk_text(tree: ast.Module, name: str) -> str | None:
+    """Read one SDK string constant by its assignment name."""
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AnnAssign)
+            and getattr(node.target, "id", "") == name
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    return None
+
+
+@pytest.mark.skipif(not _SDK_PACKAGE.exists(), reason="SDK package not present")
+def test_the_inverted_grade_key_is_spelled_the_same_on_both_sides() -> None:
+    """OME-1400: the refusal-rate mark rides the Benchmark resource AND the run result.
+    A rename on one side would otherwise surface only at run time — after a paid run,
+    as an SDK refusing an unknown field. This twin fails the lane that carried it."""
+
+    from screamingface_engine.benchmarks.contract import CandidateResult
+    from screamingface_engine.benchmarks.definition import INVERTED_GRADE_KEY
+
+    assert _SDK_VOCABULARY.exists(), "SDK _catalogue_vocabulary.py moved — update the bind"
+    sdk_key = _sdk_text(
+        ast.parse(_SDK_VOCABULARY.read_text(encoding="utf-8")), "INVERTED_GRADE_KEY"
+    )
+    assert sdk_key == INVERTED_GRADE_KEY
+    # The run result spells the key through its field name — the same word.
+    assert INVERTED_GRADE_KEY in CandidateResult.model_fields
