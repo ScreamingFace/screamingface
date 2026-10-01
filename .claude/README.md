@@ -40,7 +40,7 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
 | Invoke | For |
 |---|---|
 | `product-context` | Product facts, terminology, personas, claims |
-| `writing-docs` | Page shape, prose craft, review. Pending publication, not yet installed here |
+| `writing-docs` | Page shape, prose craft, review |
 
 Advisory, not a gate: `run_gates.py` does not check whether either skill was used. The
 closest thing to enforcement is `docs-sync-check.yml` (below), which checks that a docs

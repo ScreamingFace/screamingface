@@ -1,6 +1,6 @@
-# 03: SDLC flow update
+# SDLC flow update
 
-Status: not started. No spec, no plan.
+Status: merged, PR #1028. Followup: installing writing-docs in this repository, PR open.
 
 This child carries the epic's stated Done when, so the epic closes on this one.
 
@@ -20,9 +20,3 @@ skill itself so it never reaches into a product repository, which is what keeps 
 
 The writing-docs and product-context skills, because the routing has to point at skills
 that exist.
-
-## Expected contents
-
-- `spec.md`
-- `plan.md`
-- the `.claude/` changes, or a pointer to the PR
