@@ -8,7 +8,11 @@ from collections.abc import Awaitable, Callable
 from url4 import Expression, Source, Text, build
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
-from screamingface._evaluation.combine_spec import COMBINE_MODEL
+from screamingface._evaluation.combine_spec import (
+    COMBINE_MODEL,
+    decode_combine_spec,
+    spec_operator_pairs,
+)
 from screamingface._evaluation.model import (
     Candidate,
     _candidate_kind,
@@ -20,6 +24,7 @@ from screamingface._evaluation.model import (
     _with_capture,
     _with_replay_frozen_copy,
 )
+from screamingface._evaluation.operators import Stage, _OperatorCatalog
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
     _operation_shape,
@@ -44,6 +49,7 @@ def evaluate_url4_sync(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    load_operators: Callable[[], _OperatorCatalog] | None = None,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
@@ -55,7 +61,9 @@ def evaluate_url4_sync(
     )
 
     _evaluation_options(on_event, progress)
-    candidate = _candidate_from_url4(url4)
+    candidate, pinned = _replayed_url4(url4)
+    if pinned and load_operators is not None:
+        _require_known_operators(load_operators(), pinned)
     if answer_seed is not None:
         # FEATURE (OME-1193): a replayed sitting is the reproduction use case itself.
         candidate = _with_answer_seed(candidate, answer_seed)
@@ -91,6 +99,7 @@ async def evaluate_url4_async(
     answer_seed: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    load_operators: Callable[[], Awaitable[_OperatorCatalog]] | None = None,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
@@ -102,7 +111,9 @@ async def evaluate_url4_async(
     )
 
     _evaluation_options(on_event, progress)
-    candidate = _candidate_from_url4(url4)
+    candidate, pinned = _replayed_url4(url4)
+    if pinned and load_operators is not None:
+        _require_known_operators(await load_operators(), pinned)
     if answer_seed is not None:
         # FEATURE (OME-1193): see the sync twin.
         candidate = _with_answer_seed(candidate, answer_seed)
@@ -161,11 +172,18 @@ def _require_replay_statement(
 
 
 def _candidate_from_url4(value: str) -> Candidate:
-    """Recover the Candidate projection embedded by the ScreamingFace linker.
+    """Recover the Candidate projection embedded by the ScreamingFace linker."""
+
+    return _replayed_url4(value)[0]
+
+
+def _replayed_url4(value: str) -> tuple[Candidate, tuple[tuple[Stage, str], ...]]:
+    """Recover the embedded Candidate and the (stage, pinned id) pairs its combine calls use.
 
     The benchmark owns the outer expression. Its zero-weight ``candidate`` binding
     carries the independently compiled Candidate expression as text, which is the
     stable seam needed to rebuild Report metadata without changing the URL4 that runs.
+    The pairs are what the Engine's operator catalog must hold before the replay spends.
     """
 
     url4 = _canonical_url4(value, "Evaluation")
@@ -185,7 +203,24 @@ def _candidate_from_url4(value: str) -> Candidate:
         if topology.kind in {"corrective_loop", "self_corrective"}
         else _dependency_closure(final, calls)
     )
-    return _candidate_from_topology(url4, topology, calls, selected)
+    pinned = tuple(
+        dict.fromkeys(
+            pair
+            for call in parsed_calls.values()
+            if call.model == COMBINE_MODEL
+            for pair in spec_operator_pairs(decode_combine_spec(call.raw_intent))
+        )
+    )
+    return _candidate_from_topology(url4, topology, calls, selected), pinned
+
+
+def _require_known_operators(
+    catalog: _OperatorCatalog, pinned: tuple[tuple[Stage, str], ...]
+) -> None:
+    """Refuse a replay that pins an operator this Engine lacks (``pin`` names the id and stage)."""
+
+    for stage, operator in pinned:
+        catalog.pin(stage, operator)
 
 
 def _candidate_from_topology(

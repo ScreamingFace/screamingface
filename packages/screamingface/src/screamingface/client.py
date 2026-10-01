@@ -267,6 +267,7 @@ class Client:
                 progress,
                 answer_seed=selected_seed,
                 capture=capture,
+                load_operators=self._operator_catalog.load,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
@@ -636,6 +637,7 @@ class AsyncClient:
                 progress,
                 answer_seed=selected_seed,
                 capture=capture,
+                load_operators=self._operator_catalog.load,
             )
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
