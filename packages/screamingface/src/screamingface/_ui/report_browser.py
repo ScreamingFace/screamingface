@@ -129,11 +129,11 @@ class ReportBrowser:
         self.go_to.observe(self._go_to_case, names="value")
         self.candidate = w.Dropdown(
             options=[
-                ("All", -1),
+                ("All Candidates", -1),
                 *((owner.name, index) for index, owner in enumerate(self.entries.owners)),
             ],
             value=-1,
-            description="Candidate:",
+            tooltip="Filter candidates",
             layout=w.Layout(width="190px"),
             style={"description_width": "initial"},
         )
@@ -330,6 +330,7 @@ class ReportBrowser:
             framed=False,
             accounting_contexts=self._accounting_contexts,
             selected=selected,
+            navigation_mode="comparison" if self.navigation.comparing else "candidate",
         )
 
     def _page_controls(self) -> None:

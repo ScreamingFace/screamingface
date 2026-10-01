@@ -39,3 +39,9 @@ Live JupyterLab verified typed Enter navigation to case 124 across 11 candidates
 Synthetic 46,002-result fixture: navigation/browser construction 0.8554 s, exact ID lookup 0.000046 s, 11-candidate page rendering 0.0025 s, individual last-page rendering 0.001 s. Backend timings exclude frontend transfer/paint. No model calls or source-result deletion.
 
 Browser automation `fill()` alone did not commit the ipywidgets Text value; real key typing and Enter did. This was verified in the live notebook before completion.
+
+## Owner-approved row refinement
+
+Removed the Candidate prefix and renamed All to All Candidates. Live rows use 44 px and a bounded scrollable rail, omitting redundant candidate labels in candidate mode and redundant case/preview labels in comparison mode. Go to case uses the existing selected detail and highlight plus initial CSS scroll snapping; snapping ends after insertion to avoid trapping manual scrolling. No new frontend dependency or executable report-content scripts. Updated the navigation interaction test to retain mode-specific label expectations.
+
+Validation: 35 focused navigation/browser/interaction tests pass, all SDK gates green, and final CSS lint/format checks pass. Live JupyterLab verified Go to 124 selected the final row on candidate-5’s 101–125 page; the rail scrolled to 801.5 px and the selected row was visible. Computed scroll-snap-type returned none after initial insertion. Manual scrolling stayed at the new position after leaving the rail. Saved `outputs/case-row-jump.png` as local visual proof; updated the PR screenshot with All Candidates comparison mode.

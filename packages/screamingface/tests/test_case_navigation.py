@@ -76,12 +76,24 @@ def test_live_controls_select_candidates_and_exact_cases(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     browser = ReportBrowser(comparison_report())
     assert browser.candidate.value == -1
+    assert browser.candidate.options[0] == ("All Candidates", -1)
+    assert browser.candidate.description == ""
     assert browser.go_to.placeholder == "Go to case number"
     browser.go_to.value = "59"
     assert browser.count.value == "Case 59 · 2 candidates"
     assert "CANDIDATE-0" in browser.cases.value.upper()
     assert "CANDIDATE-1" in browser.cases.value.upper()
+    comparison_rail = browser.cases.value.split("<div class='sf-rail'>")[1].split(
+        "<div class='sf-detail'>"
+    )[0]
+    assert "sf-rail__q" not in comparison_rail
+    assert "case 59" not in comparison_rail
     browser.candidate.value = 1
+    candidate_rail = browser.cases.value.split("<div class='sf-rail'>")[1].split(
+        "<div class='sf-detail'>"
+    )[0]
+    assert "sf-rail__who" not in candidate_rail
+    assert "sf-rail__q" in candidate_rail
     assert browser.count.value == "51–60 of 60"
     assert "-9' checked" in browser.cases.value
     browser.candidate_buttons[0].click()

@@ -79,3 +79,7 @@ browser, with active selection visible. Preserve all figures and original detail
 Keep one header, one Download and no per-candidate expanded case panels. Rapid
 navigation remains coalesced and clickable. Input/candidate changes are disabled
 briefly while a page is loading to keep the navigation model stable.
+
+### Case rail refinement (2026-10-01)
+
+The candidate selector has no visible prefix and defaults to All Candidates. Live rows are 44 px, with a viewport-bounded scrollable rail. Candidate mode shows status, case ID and a short input preview; comparison mode shows status and candidate name. Go to case selects the detail pane, retains the entered ID, highlights the row and reveals it inside the rail. A brief initial CSS snap is released after insertion so subsequent manual scrolling is unrestricted. Static exports retain their existing labels/layout.

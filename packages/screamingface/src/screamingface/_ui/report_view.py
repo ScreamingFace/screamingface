@@ -142,6 +142,12 @@ _STYLE = (
 .sf-rail__who{{font-size:11px;color:var(--sf-ink-3);white-space:nowrap}}
 .sf-rail__q{{font-size:12px;color:var(--sf-ink-2);overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;min-width:0}}
+/* Snap once on insertion, then release it: manual scrolling must never snap back
+   to the selected row. This changes scroll policy, with no animated movement. */
+.sf-master--browser>.sf-rail{{max-height:min(440px,38vh);overflow-y:auto;
+  scroll-snap-type:none;animation:sf-reveal-case .2s step-end}}
+@keyframes sf-reveal-case{{from{{scroll-snap-type:y mandatory}}to{{scroll-snap-type:none}}}}
+.sf-master--browser .sf-rail__item{{height:44px;box-sizing:border-box;padding:8px 12px}}
 /* the ✓/✗ marker: a drawn square, never a bare coloured dot */
 .sf-mark{{flex:0 0 auto;width:16px;height:16px;display:flex;align-items:center;
   justify-content:center;font-size:11px;font-weight:700;color:var(--sf-success);
@@ -683,6 +689,7 @@ def cases_page_html(
     framed: bool = True,
     accounting_contexts: Mapping[int, _AccountingContext] | None = None,
     selected: int = 0,
+    navigation_mode: str | None = None,
 ) -> str:
     """Use the original rail and detail panes for one bounded page of cases."""
     if not entries:
@@ -708,7 +715,7 @@ def cases_page_html(
         inputs.append(
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )
-        rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1))
+        rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1, navigation_mode))
         renderer = bounded_pane if preview else _pane_html
         panes.append(renderer(candidate, case, costs[id(candidate)][case.case_id]))
     total = len(entries)
@@ -716,9 +723,10 @@ def cases_page_html(
     label = f"{count} case result" + ("" if count == 1 else "s")
     if preview and count > total:
         label += f" · preview of first {total}; display report in a live notebook to browse all"
+    master_class = "sf-master sf-master--browser" if navigation_mode else "sf-master"
     body = (
         f"{_selection_css(group, total)}"
-        f"<div class='sf-master'>{''.join(inputs)}"
+        f"<div class='{master_class}'>{''.join(inputs)}"
         f"<div class='sf-rail'>{''.join(rail)}</div>"
         f"<div class='sf-detail'>{''.join(panes)}</div></div>"
     )
@@ -769,7 +777,7 @@ def _selection_css(group: str, total: int) -> str:
         rules.append(
             f"#{item}:checked~.sf-detail>.sf-pane:nth-child({nth}){{display:block}}"
             f"#{item}:checked~.sf-rail>.sf-rail__item:nth-child({nth})"
-            f"{{background:var(--sf-surface);border-left-color:var(--sf-accent)}}"
+            f"{{background:var(--sf-surface);border-left-color:var(--sf-accent);scroll-snap-align:start}}"
         )
     return f"<style>{''.join(rules)}</style>"
 
@@ -779,7 +787,13 @@ def _group_key(report: Report) -> str:
     return f"{abs(hash(names)) % 10**8:08d}"
 
 
-def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who: bool) -> str:
+def _rail_item(
+    item: str,
+    candidate: CandidateResult,
+    case: CaseResult,
+    show_who: bool,
+    navigation_mode: str | None = None,
+) -> str:
     state = _case_state(case)
     # WHY (OME-793): a failed case gets the warning mark, never the incorrect ✗ — the rail
     # must not present an infra failure as a graded wrong answer.
@@ -799,6 +813,14 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
         "unscored": "?",
     }[state]
     who = f" <span class='sf-rail__who'>{escape(candidate.name)}</span>" if show_who else ""
+    if navigation_mode == "candidate":
+        who = ""
+    if navigation_mode == "comparison":
+        return (
+            f"<label class='sf-rail__item' for='{item}'>"
+            f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
+            f"<span class='sf-rail__id'>{escape(candidate.name)}</span></label>"
+        )
     preview = _clip(case.prompt_preview, 90) if case.input is not None else "input unavailable"
     return (
         f"<label class='sf-rail__item' for='{item}'>"
