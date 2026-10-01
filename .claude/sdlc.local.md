@@ -12,6 +12,7 @@ stacks:
     gates:
       - python3 .claude/scripts/tests/test_run_gates.py
       - python3 .claude/scripts/tests/test_check_mirror_status.py
+      - python3 .claude/scripts/tests/test_pre_push.py
       - python3 .claude/scripts/check_loop_parity.py
       # The docs/tasks <-> docs/work status gate (OME-1215). Reads two directories of
       # markdown; NO network and no Linear call, deliberately — a quality gate that needs

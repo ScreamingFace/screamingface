@@ -1,9 +1,24 @@
 #!/bin/sh
 # Heavy per-stack quality gates before pushing: run_gates.py for each stack whose root
-# changed on this branch vs the merge base with origin/main. Keeps pytest/pyright/coverage
+# changed on this branch vs the merge base with the remote's main. Keeps pytest/pyright/coverage
 # off the per-commit path while still gating what leaves the machine.
-base="origin/main"
-git rev-parse --verify --quiet "$base" >/dev/null 2>&1 || base="main"
+#
+# The base is the REMOTE's main, never a local `main`: a local main that lags the remote makes
+# every remote commit since look like this branch's change, so a docs-only push gated every
+# stack those commits touched. upstream/main comes first because a clone with both remotes is
+# usually a fork, where upstream is the shared repo and origin/main may be stale.
+base=""
+for candidate in upstream/main origin/main; do
+  if git rev-parse --verify --quiet "refs/remotes/$candidate" >/dev/null 2>&1; then
+    base="$candidate"
+    break
+  fi
+done
+if [ -z "$base" ]; then
+  echo "pre-push: no upstream/main or origin/main to compare this branch against." >&2
+  echo "pre-push: fetch your remote's main (git fetch <remote>) and push again." >&2
+  exit 1
+fi
 changed=$(git diff --name-only "$base"...HEAD 2>/dev/null)
 
 fail=0
