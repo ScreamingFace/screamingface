@@ -30,6 +30,7 @@ from nats.errors import NoRespondersError
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.client_provenance import CLIENT_VERSION_ENV
+from screamingface_engine.evidence_retention import subject_retained
 from screamingface_engine.logs import run_scope
 from screamingface_engine.runner_queue import (
     UNDECODABLE_BODY_ERRORS,
@@ -679,16 +680,27 @@ class RunSupervisor:
                 proc.kill()
 
     def _schedule_reclaim(self, topic: str, env: Mapping[str, str]) -> None:
-        """Purge the finished run's subject after its grace, detached from the slot."""
+        """Purge the finished run's subject after its grace, detached from the slot.
+
+        A run that ended `failed`/`timed_out` is NOT purged (OME-946): its frames are the
+        post-mortem, left for the events stream's 24 h `max_age` — see `evidence_retention`.
+        """
         if self._reclaim is None:
             return
         grace_s = _float_or_none(env.get(job_env.STREAM_GRACE_S))
         delay = job_env.DEFAULT_STREAM_GRACE_S if grace_s is None else grace_s
         reclaim = self._reclaim
+        last_frame = self._publisher.last_frame
 
         async def _later() -> None:
             await asyncio.sleep(delay)
             try:
+                # WHY read the tail AFTER the grace and not at exit: the worker's own
+                # classified frame (a crash, a deadline) is published after the child exits,
+                # and the tail is the one account of the ending both publishers share.
+                if await subject_retained(last_frame, topic):
+                    logger.info("kept the subject of failed run %s for post-mortem", topic)
+                    return
                 await reclaim(topic)
             except Exception:
                 # Best-effort, as the child's own teardown was: `max_age` removes the frames.

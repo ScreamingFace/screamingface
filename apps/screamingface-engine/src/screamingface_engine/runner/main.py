@@ -32,6 +32,7 @@ from screamingface_engine.client_provenance import (
     ProvenanceExecutor,
     valid_version,
 )
+from screamingface_engine.evidence_retention import subject_retained
 from screamingface_engine.logs import run_scope
 from screamingface_engine.observations import ObserverFactory
 from screamingface_engine.request_scope import RequestScope
@@ -171,6 +172,7 @@ async def run_and_reclaim(
     *,
     grace_s: float = job_env.DEFAULT_STREAM_GRACE_S,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    retain: Callable[[str], Awaitable[bool]] | None = None,
 ) -> None:
     """Drive one run, then reclaim its subject on the shared events stream.
 
@@ -182,6 +184,10 @@ async def run_and_reclaim(
 
     INVARIANT: the reclamation is in a `finally`. A run that raised is precisely the run whose
     subject would otherwise be left behind.
+
+    `retain` (OME-946) is consulted after the grace: True skips the purge, leaving a failed
+    run's frames to `max_age` for post-mortem (`evidence_retention.subject_retained`). None
+    keeps the unconditional purge.
     """
     try:
         await run_once()
@@ -193,7 +199,14 @@ async def run_and_reclaim(
         # forcing its replay to fail with `stream_reclaimed` instead of finishing the read.
         await sleep(grace_s)
         try:
-            await publisher.delete_stream(topic)
+            # Inside the guard: a retention check that raises must not supersede the run's
+            # own outcome either; the frames then simply wait for `max_age`.
+            # WHY if/else and not an early `return`: a `return` inside `finally` silently
+            # DISCARDS the exception propagating from a raised run.
+            if retain is not None and await retain(topic):
+                logger.info("kept the stream of failed run %s for post-mortem", topic)
+            else:
+                await publisher.delete_stream(topic)
         except Exception:
             # INVARIANT: nothing here may escape. Teardown is best-effort by design and
             # `max_age` expiry is the stated backstop (EV-D13: a crashed runner that never
@@ -722,7 +735,11 @@ async def _run_process(
             await publisher.flush()
         else:
             await run_and_reclaim(
-                publisher, params.topic, run_once, grace_s=stream_grace_s(os.environ)
+                publisher,
+                params.topic,
+                run_once,
+                grace_s=stream_grace_s(os.environ),
+                retain=functools.partial(subject_retained, publisher.last_frame),
             )
 
 
