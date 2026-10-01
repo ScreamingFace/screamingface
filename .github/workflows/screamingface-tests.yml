@@ -23,6 +23,10 @@ on:
       - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
       # the cache snapshot column layout that tests/e2e/test_reducer_lane_contracts.py reads
       - "apps/aigateway/src/aigateway/core/request_cache/snapshot.py"
+      # the Engine files the conformance and contract checks under tests/unit/ read
+      - "apps/screamingface-engine/src/screamingface_engine/combine/**"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/operation_outputs.py"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
@@ -46,6 +50,10 @@ on:
       - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
       # the cache snapshot column layout that tests/e2e/test_reducer_lane_contracts.py reads
       - "apps/aigateway/src/aigateway/core/request_cache/snapshot.py"
+      # the Engine files the conformance and contract checks under tests/unit/ read
+      - "apps/screamingface-engine/src/screamingface_engine/combine/**"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/operation_outputs.py"
+      - "apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 
