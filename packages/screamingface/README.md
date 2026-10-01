@@ -648,11 +648,6 @@ location is `~/.screamingface/results` (under `SCREAMINGFACE_DATA_DIR` when conf
 Set `SCREAMINGFACE_RESULTS_DIR` before creating a client to choose another disk. Saved
 results include prompts and answers; they are retained until explicitly deleted.
 
-The local runtime also keeps Engine artifacts in the private `<data_dir>/artifacts`
-folder rather than temporary storage. `URL4_CLOUD_ARTIFACTS_DIR` overrides that folder;
-`screamingface status` reports its location and size. Engine retention still applies to
-these artifacts; the SDK's downloaded copies remain available until explicitly deleted.
-
 ```python
 import screamingface as sf
 

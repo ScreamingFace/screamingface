@@ -1,0 +1,12 @@
+{
+  "source_head": "10354d586f418ea1046f43417d3bec7cdcf000fa",
+  "main_base": "ba1545d8180fc97ae05061ccff2ff9410dc8dd43",
+  "sdk_append_only_baseline": "d65c48f60fa181c019d2be273624f30961a2948d",
+  "relocation": "Only test layout changes in the append-only baseline; no production changes. All original definitions are preserved exactly across the two branches.",
+  "moved_definitions": {
+    "serving_state": "7fd1fdc56f6261667740f9e1d2cdd27b8f766a48b2cac9e265734ca3171062f8",
+    "test_relative_artifacts_override_status_uses_serving_cwd": "5ddba61d12d800a07dac0723fd88a8bac7fa1f1d7e857b28a2b9635779ff0a83"
+  },
+  "runtime_test_sha256": "316d0d6adf9c07fd4d2a185cc88d561ff9f03298e442ad3411b87c9d0f077896",
+  "both_merge_orders": "conflict-free; identical production sources to source_head"
+}

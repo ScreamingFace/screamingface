@@ -4,7 +4,7 @@
 
 ### Features
 
-* **screamingface:** keep local Engine result artifacts in the private data directory (respecting `URL4_CLOUD_ARTIFACTS_DIR`) and show their location/size in runtime status. Report exports fsync before atomic replacement, preserve existing permissions and symlinks, and share case-level serialization with `to_json()`. Incorporates export/runtime improvements from Ionésio’s PR #1211.
+* **screamingface:** Report exports fsync before atomic replacement, preserve existing permissions and symlinks, and share case-level serialization with `to_json()`. Incorporates atomic-export improvements from Ionésio’s PR #1211.
 
 * **screamingface:** automatically retain completed candidate results on disk and load cases incrementally. `sf.reports.list()` lists one entry per evaluation; `get()` / `get_async()` and explicit report-wide `delete()` support recovery after notebook crashes without rerunning models. `SCREAMINGFACE_RESULTS_DIR` configures storage; `Client(save_results=False)` opts out. Notebook reports paginate cases; full JSON exports stream without changing report.v1 values. On reopening a notebook, the shared informational notice can identify interrupted report construction/rendering/export and show its exact recovery call; healthy and active evaluations stay quiet.
 
