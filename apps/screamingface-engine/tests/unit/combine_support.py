@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
-from screamingface_engine.combine.endpoint import COMBINE_ROUTE, CombineEndpoint
+from screamingface_engine.combine.endpoint import COMBINE_ROUTE, CombineOutcome, run_combine
 from screamingface_engine.combine.ports import (
     CombineInput,
     OpArgs,
@@ -27,6 +27,7 @@ from screamingface_engine.combine.ports import (
 )
 from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.operation_calls import OperationCall, capture_operation_calls
+from screamingface_engine.world.combine import CombineRoute
 from url4.peer.server import Request
 
 
@@ -145,8 +146,20 @@ def run(
     *,
     registry: OperatorRegistry = FAKE_REGISTRY,
     params: Mapping[str, str] | None = None,
+) -> CombineOutcome:
+    """Run the pure combine core (no url4, no recording)."""
+    binding = {"binding": "synthesis_1"} if params is None else params
+    return run_combine(registry, binding, context, intent)
+
+
+def run_recorded(
+    intent: str,
+    context: str,
+    *,
+    registry: OperatorRegistry = FAKE_REGISTRY,
+    params: Mapping[str, str] | None = None,
 ) -> tuple[str, list[OperationCall]]:
-    """Run the endpoint inside a capture scope; returns the output and the recorded calls."""
+    """Run the url4 route handler in a capture scope; returns the output and the recorded calls."""
     with capture_operation_calls() as calls:
-        output = CombineEndpoint(registry)(request(intent, context, params))
+        output = CombineRoute(registry)(request(intent, context, params))
     return output, list(calls)

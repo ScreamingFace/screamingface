@@ -148,6 +148,19 @@ def test_a_combine_module_importing_world_fails(
     assert _flags(_offenders(tmp_path, monkeypatch), "combine/endpoint.py")
 
 
+def test_a_world_module_may_import_the_combine_core(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route adapter (`world/combine.py`) is the engine-importing half: world -> combine."""
+    _write(
+        _source_tree(tmp_path),
+        "world/combine.py",
+        "from screamingface_engine.combine.endpoint import COMBINE_ROUTE, run_combine\n"
+        "from screamingface_engine.combine.registry import OperatorRegistry\n",
+    )
+    assert not _flags(_offenders(tmp_path, monkeypatch), "world/combine.py")
+
+
 def test_the_gate_tolerates_a_tree_without_combine(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

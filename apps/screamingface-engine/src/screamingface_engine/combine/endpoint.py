@@ -1,16 +1,18 @@
-"""The url4 endpoint that runs one combine spec over member outputs (OME-1289 E4a).
+"""The pure core of the combine call: run one spec over member outputs (OME-1289 E4a).
 
 FEATURE: deterministic combine -- pick or build the answer from the members' own texts with pure
 functions, and never call a model.
-STORY: as a compiled reducer Candidate, I send one ``/ensemble/combine/v1`` call (the spec as
-``intent``, the member outputs as ``context``) and get one member's text back byte for byte, or a
-text built only by the spec's operators, plus one ``CombineEvidence`` in the task-local record.
+STORY: as the url4 route adapter (``world/combine.py``), I hand over one call's params, context
+(the member outputs) and intent (the spec) and get back one member's text byte for byte, or a text
+built only by the spec's operators, plus the ``CombineEvidence`` of what happened.
 
-One call runs: read the members (extract, then normalize), reduce, select, check, record.
+One call runs: read the members (extract, then normalize), reduce, select, check.
 
-INVARIANT: the handler is sync, pure CPU work -- no HTTP client, no clock, no cache, no module
-state. Order always comes from ``spec.members``; nothing iterates a dict or set to decide an output.
-INVARIANT: only a ``CombineError`` becomes a ``ResolutionError``. A plugin bug stays loud.
+INVARIANT: this module imports no ``url4`` module -- the adapter owns the route, the
+``ResolutionError`` mapping and the task-local record (a side effect), so the core stays pure.
+INVARIANT: pure CPU work -- no HTTP client, no clock, no cache, no module state. Order always
+comes from ``spec.members``; nothing iterates a dict or set to decide an output.
+INVARIANT: only a ``CombineError`` is a declared failure. A plugin bug stays loud.
 INVARIANT: a failure message names ids, counts and limits -- never member text or arg values.
 WHY no ``record_model_outcome``: the step is not a model call, so the Candidate's terminal finish
 reason stays the members' common reason; the operation's own finish reason is ``stop``.
@@ -61,9 +63,6 @@ from screamingface_engine.combine.spec import (
     parse_context,
     parse_spec,
 )
-from screamingface_engine.operation_calls import record_combine_call
-from url4.core.errors import ResolutionError
-from url4.peer.server import Request, Url4Node
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
 MAX_SPEC_BYTES = 64 * 1024
@@ -74,12 +73,6 @@ MAX_RESULT_BYTES = 8 * 1024 * 1024
 _BINDING = re.compile(r"synthesis_\d+")  # same \d+ as benchmarks/operation_outputs.py
 
 logger = logging.getLogger(__name__)
-
-
-def install_combine_runtime(node: Url4Node, registry: OperatorRegistry) -> None:
-    """Register the combine endpoint once per URL4 world (mirrors install_corrective_runtime)."""
-    if COMBINE_ROUTE not in node.processor_routes():
-        node.endpoint(COMBINE_ROUTE)(CombineEndpoint(registry))
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,48 +124,57 @@ class _Trace:
         )
 
 
-class CombineEndpoint:
-    """The combine handler: one spec, one context, one answer, one recorded evidence."""
+@dataclass(frozen=True, slots=True)
+class CombineOutcome:
+    """What one successful combine call produced."""
 
-    __slots__ = ("_registry",)
+    output: str
+    evidence: CombineEvidence
 
-    def __init__(self, registry: OperatorRegistry) -> None:
-        self._registry = registry
 
-    @property
-    def registry(self) -> OperatorRegistry:
-        return self._registry
+def run_combine(
+    registry: OperatorRegistry, params: Mapping[str, str], context: str, intent: str
+) -> CombineOutcome:
+    """Run one combine spec. Raises ``CombineError`` (a declared code) on any declared failure.
 
-    def __call__(self, request: Request) -> str:
-        trace = _Trace()
-        try:
-            output, evidence = self._combine(request, trace)
-        except CombineError as exc:
-            trace.log(exc.code)
-            raise ResolutionError(str(exc), code=exc.code, permanent=True) from exc
-        record_combine_call(COMBINE_ROUTE, request.params, output, evidence)
-        trace.log("ok")
-        return output
+    Logs the one documented line (FW-17) for a success and for each ``CombineError``.
+    """
+    trace = _Trace()
+    try:
+        outcome = _combine(registry, params, context, intent, trace)
+    except CombineError as exc:
+        trace.log(exc.code)
+        raise
+    trace.log("ok")
+    return outcome
 
-    def _combine(self, request: Request, trace: _Trace) -> tuple[str, CombineEvidence]:
-        trace.binding = _binding(request.params)
-        _check_sizes(request)
-        spec = parse_spec(request.intent)
-        trace.reducer, trace.members = spec.reducer, str(len(spec.members))
-        if len(spec.members) > MAX_MEMBERS:
-            raise InputTooLarge(f"a combine call takes at most {MAX_MEMBERS} members")
-        plan = _plan(spec, self._registry)
-        context = parse_context(request.context, spec.members)
-        combine_input = _read_members(spec, plan, context)
-        trace.voters = str(len(combine_input.voters))
-        if not combine_input.voters:
-            raise NoVotes(f"no member gave a usable value ({len(spec.members)} members)")
-        reduction = plan.reduce.run(combine_input, plan.reduce.args)
-        selection = plan.select.run(reduction, combine_input, plan.select.args)
-        output = _output(selection, plan.select.op_id, context)
-        trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
-        trace.tie = "true" if selection.tie else "false"
-        return output, _evidence(spec, plan, combine_input, reduction, selection)
+
+def _combine(
+    registry: OperatorRegistry,
+    params: Mapping[str, str],
+    context_text: str,
+    intent: str,
+    trace: _Trace,
+) -> CombineOutcome:
+    trace.binding = _binding(params)
+    _check_sizes(intent, context_text)
+    spec = parse_spec(intent)
+    trace.reducer, trace.members = spec.reducer, str(len(spec.members))
+    if len(spec.members) > MAX_MEMBERS:
+        raise InputTooLarge(f"a combine call takes at most {MAX_MEMBERS} members")
+    plan = _plan(spec, registry)
+    context = parse_context(context_text, spec.members)
+    combine_input = _read_members(spec, plan, context)
+    trace.voters = str(len(combine_input.voters))
+    if not combine_input.voters:
+        raise NoVotes(f"no member gave a usable value ({len(spec.members)} members)")
+    reduction = plan.reduce.run(combine_input, plan.reduce.args)
+    selection = plan.select.run(reduction, combine_input, plan.select.args)
+    output = _output(selection, plan.select.op_id, context)
+    trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
+    trace.tie = "true" if selection.tie else "false"
+    evidence = _evidence(spec, plan, combine_input, reduction, selection)
+    return CombineOutcome(output, evidence)
 
 
 def _binding(params: Mapping[str, str]) -> str:
@@ -182,11 +184,11 @@ def _binding(params: Mapping[str, str]) -> str:
     return binding
 
 
-def _check_sizes(request: Request) -> None:
-    if utf8_exceeds(request.intent, MAX_SPEC_BYTES):
+def _check_sizes(intent: str, context: str) -> None:
+    if utf8_exceeds(intent, MAX_SPEC_BYTES):
         raise InputTooLarge("the combine spec exceeds 64 KiB")
     # WHY before any JSON parse: an oversize context must cost one length check, not a decode.
-    if utf8_exceeds(request.context, MAX_CONTEXT_BYTES):
+    if utf8_exceeds(context, MAX_CONTEXT_BYTES):
         raise InputTooLarge("the combine context exceeds 64 MiB")
 
 
@@ -344,6 +346,6 @@ __all__ = [
     "MAX_OUTPUT_READ_BYTES",
     "MAX_RESULT_BYTES",
     "MAX_SPEC_BYTES",
-    "CombineEndpoint",
-    "install_combine_runtime",
+    "CombineOutcome",
+    "run_combine",
 ]

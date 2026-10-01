@@ -25,10 +25,8 @@ _WORDS = ["\\u00c9", "stra\\u00dfe", "\\u00e9", "STRASSE", "x", "y", "x", "y",
 
 def scenario() -> str:
     texts = [f"the answer is {word}" for word in _WORDS]
-    output, calls = run(spec_text(vote_spec(12)), context_text(texts))
-    combine = calls[0].combine
-    assert combine is not None
-    return output + "\\n" + combine.model_dump_json(by_alias=True)
+    outcome = run(spec_text(vote_spec(12)), context_text(texts))
+    return outcome.output + "\\n" + outcome.evidence.model_dump_json(by_alias=True)
 """
 _SCRIPT = _BODY + "\nprint(scenario(), end='')\n"
 _SEEDS = range(20)
@@ -71,9 +69,8 @@ def test_endpoint_is_identical_over_100_in_process_runs() -> None:
     context = context_text(texts)
     results = set()
     for _ in range(100):
-        output, calls = run(intent, context)
-        assert calls[0].combine is not None
-        results.add((output, calls[0].combine.model_dump_json(by_alias=True)))
+        outcome = run(intent, context)
+        results.add((outcome.output, outcome.evidence.model_dump_json(by_alias=True)))
     assert len(results) == 1
     output = next(iter(results))[0]
     assert output == texts[0]  # a (2), b (2), c (2), é (2): the first holder of the first tie
