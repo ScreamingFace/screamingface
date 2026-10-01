@@ -79,3 +79,18 @@ keep `selection is None`.
   without versions and Rank pins `numeric@1` exactly. `by` that is not a Judge raises the same
   `ValueError` as a label Judge. Messages: "Rank k must be an integer" (TypeError), "Rank needs exactly one
   of by= or by_field=", "Rank by_field must be a JSON field path ...", "Concat separator must be a string".
+
+## Review round 1 (coordinator, ACCEPT-WITH-FIXES)
+
+Applied: `selection.py` uses the shared `reducer._require_steps` (the local `_require_steps` and
+`_step_is` are gone; the shared matcher handles the pinned `numeric@1` and the weights check); one
+`reducer._field_path(value, label)` validator (256-char cap) serves Rank `by_field` and Pick `field`
+(`fields._check_pick_field` removed, messages unchanged where tests match them; Rank's message now reads
+"Rank by_field '...' must be a JSON path ..."); `Rank._rebuild` refuses a hand-edited k above the member
+count (new tamper case); README and CHANGELOG name `scores@1` and `top_k@1` for both Rank forms and
+`join@1` and `all@1` for Concat; new tests for a corrective-loop judge that is a selection and for a
+Fusion member whose Recipe synthesizer ends in a selection; the engine-mirrored limits carry
+`# INVARIANT` comments, `_MAX_K` reuses `_MAX_REDUCER_MEMBERS`, `DEFAULT_SEPARATOR` is private; a
+non-Judge `by` raises `TypeError` (a label Judge keeps `ValueError`); CHANGELOG is in unit order. Also
+added the deferred engine drift guard `test_sdk_flow_catalog_fixture.py` (reads `FLOW_OPERATOR_IDS` as an
+`ast.AnnAssign` or `ast.Assign`, no duplicates, equals the built-ins). No deviations.

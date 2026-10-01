@@ -609,8 +609,8 @@ The compiler checks the place of a selection before any call. A Fusion with `Ran
 cannot be the last step of a candidate, cannot be a member of another Fusion (also not through a
 `sf.Pipeline` that ends in one), and cannot be a member of a corrective loop. Each case raises
 `ValueError`. The next stage does not receive the original question or the other member texts, so
-put the task in the prompt of that stage. This needs an Engine whose operator catalog has `top_k@1`,
-`join@1` and `all@1`, and (for `by=`) the judge operators of `sf.Judge`.
+put the task in the prompt of that stage. This needs an Engine whose operator catalog has `scores@1` and
+`top_k@1` for `Rank` (both forms), or `join@1` and `all@1` for `Concat`.
 
 ## Install
 
