@@ -378,3 +378,28 @@ def test_a_card_with_no_license_is_todo() -> None:
     assert card_license_of((source,), dataset_info=lambda d, r: _card(None)) == CardLicense(
         "TODO", None
     )
+
+
+def test_a_solver_flag_with_a_parenthesis_lands_as_a_comment() -> None:
+    """Found on the first real import (agieval): the flag text is our own wording, written
+    only into a comment, so only a line break could escape it."""
+
+    facts: TaskReplayFacts = _facts(
+        unreproduced_solvers=(
+            "inspect_ai/multiple_choice (custom choice template is not prepared)",
+        )
+    )
+
+    rows: TaskReplayRows = render_task_replay_rows("agieval", _imported(facts=facts), "TODO")
+
+    assert "multiple_choice (custom choice template is not prepared)" in rows.cases
+    assert _declared(rows)["agieval"].task == _AGIEVAL_TASK
+
+
+def test_a_comment_string_with_a_line_break_is_refused() -> None:
+    """A newline would end the comment and start a line of code (injection guard)."""
+
+    facts: TaskReplayFacts = _facts(unreproduced_solvers=("x\nimport os",))
+
+    with pytest.raises(ImporterError, match="injection guard"):
+        render_task_replay_rows("x", _imported(facts=facts), "TODO")

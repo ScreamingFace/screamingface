@@ -158,9 +158,15 @@ def _refuse_injectable_import(
         declaration.task,
         imported.facts.scorer,
         *(getattr(declaration, name) for name in _REFERENCE_FIELDS),
-        *imported.facts.unreproduced_solvers,
-        *imported.facts.custom_metrics,
     ]
+    # WHY a looser rule for these: they land only inside comments, and the solver flags carry
+    # our own wording ("multiple_choice (custom choice template is not prepared)"); only a
+    # line break or another control character could end the comment and start code.
+    for text in (*imported.facts.unreproduced_solvers, *imported.facts.custom_metrics):
+        if not text.isprintable():
+            raise ImporterError(
+                f"{text!r} cannot be written into a generated comment — refusing (injection guard)"
+            )
     texts: list[tuple[str, re.Pattern[str]]] = [
         *((value, _REFERENCE_CHARSET) for value in references if value is not None),
         *((text, _LICENSE_CHARSET) for text in (license, card_license) if text is not None),

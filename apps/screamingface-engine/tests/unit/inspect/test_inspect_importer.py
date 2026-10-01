@@ -2556,3 +2556,51 @@ def test_main_writes_an_uncleared_card_license_as_todo(
     assert code == 0
     assert '        license="TODO",' in prepare_text
     assert "the card says 'unknown', not a cleared license" in prepare_text
+
+
+def test_the_command_reports_a_task_replay_refusal_as_an_error_line(
+    tmp_path: Path, engine_src_copy: Path
+) -> None:
+    """Found on the first real import: under `python -m`, the importer module runs as
+    __main__, so main's `except ImporterError` named a second copy of the class and a
+    refusal raised from task_replay_rows escaped as a traceback."""
+
+    import os
+    import subprocess
+
+    # Stand-in eval whose task raises: it proves a Task-replay refusal reaches main's error
+    # line through the real command; it does not exercise any real eval's fetch.
+    (tmp_path / "fake_cli_eval.py").write_text(
+        "from inspect_ai import Task, task\n\n"
+        "@task\n"
+        "def broken() -> Task:\n"
+        "    raise RuntimeError('upstream URL returned 404')\n",
+        encoding="utf-8",
+    )
+    env: dict[str, str] = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(filter(None, [str(tmp_path), os.environ.get("PYTHONPATH")])),
+    }
+
+    completed: subprocess.CompletedProcess[str] = subprocess.run(  # noqa: S603 — our own argv
+        [
+            sys.executable,
+            "-m",
+            "screamingface_engine_inspect.importer",
+            "fake_cli_eval:broken",
+            "--key",
+            "broken",
+            "--task-replay",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "ERROR: fake_cli_eval:broken: replay failed" in completed.stderr
+    assert "Traceback" not in completed.stderr.split("ERROR:")[-1]
