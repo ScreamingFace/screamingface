@@ -213,6 +213,8 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-pubmedqa": ("coverage_declare", "single_shot", "medium"),
         # OME-1269: over-refusal of harmless prompts, LLM-judged (gated dataset).
         "inspect-xstest_safe": ("coverage_declare", "single_shot", "easy"),
+        # OME-1400: refusal of mild unsafe prompts, LLM-judged, scored by refusal rate.
+        "inspect-xstest_unsafe": ("coverage_declare", "single_shot", "easy"),
     }
     actual = {
         benchmark.id: (
