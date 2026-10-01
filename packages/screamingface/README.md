@@ -239,7 +239,7 @@ A call that sets its own `seed` keeps it, and a run seed (`answer_seed=`, one "s
 evaluation) only applies to calls without one. So `sf.samples()` members, and any
 `sf.Model(params={"seed": ...})`, send the same requests in every sitting, and a mean and
 confidence interval across sittings would look tighter than the model really is. When a run seed is
-set and a Recipe has such calls, the SDK emits `sf.FixedSeedSittingWarning` before the run starts,
+set and a Recipe or a replayed URL4 has such calls, the SDK emits `sf.FixedSeedSittingWarning` before the run starts,
 naming the calls, and then runs as usual. If you already pass different `seeds=` to `sf.samples()` in
 each sitting, the warning is expected, and you can silence it:
 
@@ -249,8 +249,8 @@ import warnings
 warnings.filterwarnings("ignore", category=sf.FixedSeedSittingWarning)
 ```
 
-Otherwise drop the explicit seed. The check applies to Recipes; a raw URL4 replay with
-`answer_seed` does not warn yet.
+Otherwise drop the explicit seed. The check covers Recipes and raw URL4 replays
+(`client.evaluate("<url4>", answer_seed=...)`), with the same text.
 
 ### Serial and recursive composition
 
