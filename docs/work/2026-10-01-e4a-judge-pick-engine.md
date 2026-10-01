@@ -90,3 +90,4 @@ member route · JG-9 provider failure codes · catalog lists the four ids.
   calls `CombineRoute` in the test's own scope, and a positive control records exactly one call.
 - `request_parameters.py`: the `binding` explanation lives in the module docstring only.
 - Scenario texts are numbered like their member ids; `returns` is typed `Literal`.
+- Gates after this round: append-only run (vs `e4a-engine-wiring-evidence`) has no offenders and is ALL GATES GREEN; `--skip-append-only` and `repo` are ALL GATES GREEN.
