@@ -42,6 +42,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
 
 from aigateway.call_context import current_trace_id
+from aigateway.span_exclusion import DropExcludedSpans
 from aigateway.w3c_trace import new_trace_id
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,8 @@ def install(env: Mapping[str, str]) -> bool:
             {"service.name": env.get("OTEL_SERVICE_NAME") or DEFAULT_SERVICE_NAME}
         )
         provider = TracerProvider(resource=resource, id_generator=_BoundIdGenerator())
-        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        # OME-1217: spans flagged as probe traffic are dropped here, before export.
+        provider.add_span_processor(DropExcludedSpans(BatchSpanProcessor(OTLPSpanExporter())))
         trace.set_tracer_provider(provider)
     except Exception:
         logger.warning("span export is configured but could not be started", exc_info=True)
@@ -105,16 +107,17 @@ def install(env: Mapping[str, str]) -> bool:
 
 
 @contextmanager
-def server_span(name: str, *, parent_span_id: str | None) -> Iterator[None]:
-    """The span for one inbound HTTP request.
+def server_span(name: str, *, parent_span_id: str | None) -> Iterator[trace.Span | None]:
+    """The span for one inbound HTTP request — yielded (None when tracing is off) so the caller
+    can flag it once routing has resolved the route (OME-1217).
 
     `parent_span_id` is the id off the caller's traceparent, already validated by
     `w3c_trace.parse_traceparent`, or None when the caller sent nothing usable. None yields a
     ROOT span rather than a child of a fabricated parent — a span pointing at an id nobody
     emitted renders as a gap in the waterfall and is worse than an honest root.
     """
-    with _span(name, kind="server", parent_span_id=parent_span_id):
-        yield
+    with _span(name, kind="server", parent_span_id=parent_span_id) as span:
+        yield span
 
 
 @contextmanager
@@ -145,7 +148,7 @@ def _span(
     kind: str,
     parent_span_id: str | None = None,
     attributes: Mapping[str, str] | None = None,
-) -> Iterator[None]:
+) -> Iterator[trace.Span | None]:
     """One span, or nothing at all when tracing is off.
 
     INVARIANT: never raises and never alters control flow. Everything here is a side effect on
@@ -155,7 +158,7 @@ def _span(
     if isinstance(trace.get_tracer_provider(), trace.NoOpTracerProvider):
         # Not installed: do not pay for span objects that go nowhere. Every request passes
         # through here, so the off path must be as close to free as a function call gets.
-        yield
+        yield None
         return
 
     tracer = trace.get_tracer(_TRACER_NAME)
@@ -179,7 +182,7 @@ def _span(
         set_status_on_exception=False,
     ) as span:
         try:
-            yield
+            yield span
         except Exception as exc:
             # CLASS NAME ONLY. Never `str(exc)`, never `record_exception` (which attaches the
             # message AND the traceback) — both would carry raw provider text.
