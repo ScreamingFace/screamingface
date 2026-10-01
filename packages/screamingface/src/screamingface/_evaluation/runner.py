@@ -107,7 +107,7 @@ def evaluate_sync(
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
     # observer and the report all see the same objects.
     selected_candidates = _captured_candidates(
-        _seeded_candidates_warning_fixed_seeds(tuple(evaluation.candidates), answer_seed), capture
+        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
     )
     catalog = load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
@@ -173,7 +173,7 @@ async def evaluate_async(
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
     selected_candidates = _captured_candidates(
-        _seeded_candidates_warning_fixed_seeds(tuple(evaluation.candidates), answer_seed), capture
+        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
     )
     catalog = await load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
@@ -578,15 +578,15 @@ def _observe_progress(observer: Callable[..., object], *values: object) -> None:
         _logger.exception("ScreamingFace progress rendering failed")
 
 
-def _seeded_candidates_warning_fixed_seeds(
+def _seeded_candidates(
     candidates: tuple[Candidate, ...],
     answer_seed: int | None,
 ) -> tuple[Candidate, ...]:
     """Stamp the run's declared sitting onto each compiled Candidate — identity when None.
 
-    Side effect (U1): also warns about own-seed calls, once per evaluation, after compile and
-    before any model-details lookup or submit. The name says so because the caller reads as a
-    pure stamp, and the two evaluate functions are at ruff's statement limit.
+    Side effect (U1, OME-1289): also warns about own-seed calls, once per evaluation, after
+    compile and before any model-details lookup or submit. WHY here and not in the caller: the
+    two evaluate functions are at ruff's statement limit.
     """
     if answer_seed is None:
         return candidates
