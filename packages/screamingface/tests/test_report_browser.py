@@ -131,7 +131,7 @@ def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
     browser._export_json()
     assert "Export failed" in browser.notice.value
     assert not browser.export.disabled
-    assert browser.export.description == "Retry export"
+    assert browser.export.description == "Export JSON"
     assert not browser.snapshot.exists()
     assert isinstance(browser.snapshot, Path)
 
@@ -249,7 +249,7 @@ async def test_export_busy_state_prevents_duplicate_work(tmp_path, monkeypatch):
     monkeypatch.setattr(Report, "export", slow_export)
     browser.export.click()
     assert browser.export.disabled
-    assert browser.export.description == "Exporting…"
+    assert browser.export.description == "Preparing…"
     assert await asyncio.to_thread(started.wait, 5)
     browser.export.click()
     release.set()
@@ -258,7 +258,7 @@ async def test_export_busy_state_prevents_duplicate_work(tmp_path, monkeypatch):
     browser.export.click()
     assert len(calls) == 1
     assert browser.export.disabled
-    assert browser.export.description == "Export ready"
+    assert browser.export_slot.children == (browser.exports,)
     assert "Download" in browser.exports.value
 
 
@@ -284,5 +284,23 @@ async def test_async_export_failure_allows_retry(tmp_path, monkeypatch):
     assert browser._export_task is not None
     await browser._export_task
     assert browser.export.disabled
-    assert browser.export.description == "Export ready"
+    assert browser.export_slot.children == (browser.exports,)
     assert "Export failed" not in browser.notice.value
+
+
+def test_export_replaces_one_control_without_redundant_status(tmp_path, monkeypatch):
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "screamingface._ui.report_files._served_url", lambda path: "/files/report.json"
+    )
+    browser = ReportBrowser(large_report(1))
+    assert browser.export_slot.children == (browser.export,)
+    assert browser.export.description == "Export JSON"
+    browser.export.click()
+    assert browser.export_slot.children == (browser.exports,)
+    assert browser.notice.value == ""
+    assert browser.export not in browser.widget.children
+    assert browser.exports.value.count("<a ") == 1
+    assert ">Download JSON</a>" in browser.exports.value

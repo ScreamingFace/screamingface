@@ -393,11 +393,11 @@ Use **Previous** and **Next**, then select a Case in the original report rail to
 detail. The existing presentation and text previews are preserved; full JSON export contains
 every field. The summary describes the original Evaluation, including partial coverage.
 
-**Export full JSON** writes the complete Report on demand to
+**Export JSON** writes the complete Report on demand to
 `screamingface-reports/<unique-id>/report.json` under the notebook's working directory and
 provides a download link. While preparing the file, the button is disabled and shows
-**Exporting…** with a spinner; repeated clicks do not start another export. On success use the
-ready download link; an error enables **Retry export**. If the notebook host cannot serve local downloads, the browser shows
+**Preparing…** with a spinner; repeated clicks do not start another export. On success the
+same control becomes **Download JSON**; an error enables **Export JSON**. If the notebook host cannot serve local downloads, the browser shows
 the saved path instead. Export errors leave the saved source results available for recovery
 or `report.export()` to another location. Automatic result retention happens during collection,
 before decoding; it does not depend on displaying or exporting the Report.

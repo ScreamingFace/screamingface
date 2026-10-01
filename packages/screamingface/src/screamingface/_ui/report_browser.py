@@ -27,6 +27,12 @@ _BROWSER_STYLE = """<style>
 .sf-report-browser .widget-button:hover{background:var(--sf-surface)!important}
 .sf-report-browser .widget-button:focus-visible{outline:2px solid var(--sf-accent)}
 .sf-report-browser .widget-label{color:var(--sf-ink-2)}
+.sf-report-browser .sf-browser-links a{display:inline-flex;align-items:center;
+ justify-content:center;box-sizing:border-box;width:148px;min-height:28px;padding:2px 6px;
+ margin:2px;border:1px solid var(--sf-line-2);background:var(--sf-bg);color:var(--sf-ink);
+ font:inherit;text-decoration:none}
+.sf-report-browser .sf-browser-links a:hover{background:var(--sf-surface)}
+.sf-report-browser .sf-browser-links a:focus-visible{outline:2px solid var(--sf-accent)}
 .sf-report-browser .widget-button:disabled{opacity:.55;cursor:default}
 .sf-report-browser .fa-spinner{animation:sf-export-spin 1s linear infinite}
 @keyframes sf-export-spin{to{transform:rotate(360deg)}}
@@ -95,16 +101,16 @@ class ReportBrowser:
     def _assemble(self) -> None:
         w = self.w
         self.exports = w.HTML(value=self._snapshot_link())
-        self.export = w.Button(description="Export full JSON")
+        self.export = w.Button(description="Export JSON")
         self.export.on_click(self._export_json)
+        self.export_slot = w.VBox([self.export])
         self.widget = w.VBox(
             [
                 w.HTML(
                     value=_BROWSER_STYLE + report_html(self.report, cases=False, download=False)
                 ),
                 self.notice,
-                self.exports,
-                self.export,
+                self.export_slot,
                 self._row([self.previous, self.count, self.next]),
                 self.cases,
             ]
@@ -118,7 +124,7 @@ class ReportBrowser:
     def _snapshot_link(self) -> str:
         if not self.snapshot.exists():
             return ""
-        return download_link(self.snapshot, "Download all results · JSON (lossless)")
+        return download_link(self.snapshot, "Download JSON")
 
     def _move(self, direction: int) -> None:
         last = max(0, (len(self.matches) - 1) // _PAGE_SIZE)
@@ -142,9 +148,9 @@ class ReportBrowser:
             return
         self._exporting = True
         self.export.disabled = True
-        self.export.description = "Exporting…"
+        self.export.description = "Preparing…"
         self.export.icon = "spinner"
-        self.notice.value = '<p role="status">Preparing download…</p>'
+        self.notice.value = ""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -172,13 +178,12 @@ class ReportBrowser:
     def _export_failed(self, exc: Exception) -> None:
         self._exporting = False
         self.export.disabled = False
-        self.export.description = "Retry export"
+        self.export.description = "Export JSON"
         self.export.icon = ""
         self.notice.value = f'<p role="alert">Export failed: {escape(str(exc))}</p>'
 
     def _export_ready(self) -> None:
         self.exports.value = self._snapshot_link()
-        self.notice.value = '<p role="status">Export ready. Use the download link.</p>'
-        self.export.description = "Export ready"
-        self.export.icon = "check"
+        self.notice.value = ""
+        self.export_slot.children = (self.exports,)
         self._exporting = False
