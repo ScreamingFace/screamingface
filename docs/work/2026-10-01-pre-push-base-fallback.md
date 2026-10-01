@@ -35,12 +35,13 @@ commits on top of. It stops with a clear message if there is none, and never use
 - Same with the remote named `origin`: no stack is gated.
 - Same with a remote named `sc-remote`: no stack is gated (any name works).
 - Two remotes, the stale one named `upstream`: the main the branch was cut from wins.
+- Two remotes, the stale one named `origin` so it sorts first: it still loses (history, not order).
 - A branch that really changes the engine: exactly the engine is gated, with `--base upstream/main`.
 - No remote main at all: the hook exits 1 and names both refs, and gates nothing.
 
 ## Acceptance
 
-- The six tests pass; the `upstream` one fails on the original hook, and the `sc-remote` and stale-remote ones fail on a fixed-name-list version.
+- The seven tests pass; the `upstream` one fails on the original hook, and the `sc-remote` and stale-remote ones fail on a fixed-name-list version.
 - `run_gates.py repo` is green.
 
 ## Outcome (fill at the end — required before COMMIT)
@@ -51,8 +52,8 @@ commits on top of. It stops with a clear message if there is none, and never use
 - **Gates:** RED first on the unfixed hook: 1 passed, 3 failed (the docs-only `upstream` branch gated
   `screamingface-engine main`). The first fix tried `upstream/main` then `origin/main` by name; on
   review it was replaced by the by-history pick, with two RED tests on the name-list version (the
-  `sc-remote` push was blocked; the stale `upstream` won and gated the engine). GREEN after: 6
-  passed. `run_gates.py repo --base upstream/main`: ALL GATES GREEN.
+  `sc-remote` push was blocked; the stale `upstream` won and gated the engine). GREEN after: 7
+  passed (the seventh, a stale `origin` that sorts first, added on review: a hook that took the first `<remote>/main` passed the other six). `run_gates.py repo --base upstream/main`: ALL GATES GREEN.
 - **Deviations:** the base pick changed mid-review from a fixed name list to the by-history pick
   (owner decision, 2026-10-01), so any remote name and a fork with a stale remote both work. The `repo` stack is still not in the hook's stack list, so the hook never
   runs the repo gates itself; left as is (out of scope).

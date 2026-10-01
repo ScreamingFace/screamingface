@@ -203,6 +203,26 @@ def test_a_stale_second_remote_never_wins_by_its_name() -> None:
         box.cleanup()
 
 
+def test_a_stale_remote_that_sorts_first_never_wins() -> None:
+    """History beats sort order: a frozen `origin` sorts before the fresh `upstream`, and must lose.
+
+    The test above has the right remote sorting first too, so a hook that just took the first
+    `<remote>/main` would pass it. Here only counting commits picks `upstream/main`.
+    """
+
+    box: _Sandbox = _Sandbox("upstream")
+    try:
+        box.add_frozen_remote("origin")
+        box.remote_moves_on(_ENGINE_FILE)
+        _git(box.clone, "checkout", "-q", "-b", "docs-only", "upstream/main")
+        _commit_file(box.clone, "docs/note.md", "docs\n")
+        code, output, gated = box.run_hook()
+        assert code == 0, output
+        assert gated == [], gated
+    finally:
+        box.cleanup()
+
+
 def test_engine_change_gates_exactly_the_engine_against_the_remote_main() -> None:
     """A branch that really edits the engine still gets the engine's gates, based on the remote's main."""
 
