@@ -106,12 +106,12 @@ def test_context_parse_rejects_a_bad_shape(context: str) -> None:
 
 def test_context_parse_keeps_outputs_and_signals() -> None:
     parsed = parse_context(
-        context_text(["a", "b"], {"judge": "member_1", "writer.title": "member_2"}),
+        context_text(["a", "b"], {"judge": "member_1", "writer_title": "member_2"}),
         ["member_1", "member_2"],
     )
     assert parsed.input == "q"
     assert dict(parsed.outputs) == {"member_1": "a", "member_2": "b"}
-    assert dict(parsed.signals) == {"judge": "member_1", "writer.title": "member_2"}
+    assert dict(parsed.signals) == {"judge": "member_1", "writer_title": "member_2"}
     assert dict(parse_context(context_text(["a"]), ["member_1"]).signals) == {}
 
 

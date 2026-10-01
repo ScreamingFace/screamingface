@@ -33,7 +33,9 @@ from screamingface_engine.combine.ports import (
 COMBINE_SPEC_SCHEMA = "screamingface.combine-spec.v1"
 _OP_ID = r"^[a-z][a-z0-9_]{0,47}@[1-9][0-9]{0,5}$"
 _MEMBER = re.compile(r"member_[1-9][0-9]*")
-_SIGNAL = re.compile(r"judge|writer\.[A-Za-z_][A-Za-z0-9_]*")
+# WHY "writer_" and not "writer.": the SDK builds the context with url4 struct, whose keys are
+# [A-Za-z0-9_]+ only, so a dotted signal key cannot be written (OME-1289 unit 8-10 spec, P1).
+_SIGNAL = re.compile(r"judge|writer_[A-Za-z_][A-Za-z0-9_]*")
 _MAX_ERRORS_SHOWN = 5
 _MAX_LOCATION_CHARS = 64
 MAX_MEMBERS = 256
