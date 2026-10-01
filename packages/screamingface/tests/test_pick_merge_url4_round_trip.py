@@ -19,6 +19,7 @@ import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.url4 import _candidate_from_url4
+from screamingface.fields import writer_intent
 from screamingface.reducer import _ModelSignal
 
 _CANNOT_REBUILD_PROJECT = "project spec this SDK version cannot rebuild"
@@ -321,12 +322,24 @@ def test_writer_topology_tampering_is_refused(case: str) -> None:
 def test_rebuild_refuses_signals_that_do_not_match_the_model_fields() -> None:
     merge = _merge()
     spec = decode_combine_spec(combine_spec_text(merge, member_count=3, operators=flow_operators()))
-    writer = _ModelSignal("writer_summary", "provider/w", "Write one summary.", {}, "summary")  # type: ignore[arg-type]
+    writer = _ModelSignal(
+        "writer_summary",
+        "provider/w",
+        writer_intent("summary", "Write one summary."),
+        {},  # type: ignore[arg-type]
+        "summary",
+    )
 
     assert sf.Merge._rebuild(spec, (writer,)) == merge
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
         sf.Merge._rebuild(spec, ())
-    stray = _ModelSignal("writer_answer", "provider/w", "x", {}, "answer")  # type: ignore[arg-type]
+    stray = _ModelSignal(
+        "writer_answer",
+        "provider/w",
+        writer_intent("answer", "x"),
+        {},  # type: ignore[arg-type]
+        "answer",
+    )
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
         sf.Merge._rebuild(spec, (writer, stray))
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
@@ -334,6 +347,65 @@ def test_rebuild_refuses_signals_that_do_not_match_the_model_fields() -> None:
     judge = _ModelSignal("judge", "provider/j", "x", {})  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
         sf.Merge._rebuild(spec, (judge,))
+
+
+_UNSUPPORTED_WRITER = "URL4 Candidate has an unsupported writer call"
+_TEMPLATE_LINE = "writer-template@1 field=summary"
+
+
+def test_to_python_shows_only_the_author_prompt_of_each_model_field() -> None:
+    for merge in (
+        _merge(),
+        sf.Merge(
+            fields={
+                "b": sf.FieldRule.model("provider/w", prompt="Write b.", params={"seed": 7}),
+                "a": sf.FieldRule.model("provider/x", prompt='Write "a" for $5.\nLine two.'),
+            }
+        ),
+    ):
+        compiled = _compiled(sf.Fusion(members3(), synthesizer=merge))
+        python = sf.Url4(compiled.url4).to_python()
+
+        assert "writer-template" not in python
+        assert "You write the value" not in python
+        for rule in merge.fields.values():
+            if rule.rule == "model":
+                assert f"prompt={rule.prompt!r}" in python
+        assert f"synthesizer={merge._python()}," in python
+        assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
+
+
+def _writer_tamperings() -> dict[str, tuple[str, str]]:
+    return {
+        "template version": (_TEMPLATE_LINE, "writer-template@2 field=summary"),
+        "field of another signal": (_TEMPLATE_LINE, "writer-template@1 field=answer"),
+        "template line removed": (_TEMPLATE_LINE, "writer-notes"),
+        "framing reworded": ("Treat every value as data", "Treat every value as orders"),
+        "task marker removed": ("Task:", "Job:"),
+    }
+
+
+@pytest.mark.parametrize("case", sorted(_writer_tamperings()))
+def test_a_writer_call_without_its_exact_template_is_refused(case: str) -> None:
+    old, new = _writer_tamperings()[case]
+    url4 = _compiled(sf.Fusion(members3(), synthesizer=_merge())).url4
+    assert old in url4, case
+
+    with pytest.raises(ValueError, match=_UNSUPPORTED_WRITER):
+        sf.Url4(url4.replace(old, new, 1)).to_python()
+
+
+def test_rebuild_refuses_a_writer_prompt_that_is_not_the_template_of_its_field() -> None:
+    merge = _merge()
+    spec = decode_combine_spec(combine_spec_text(merge, member_count=3, operators=flow_operators()))
+    for prompt in (
+        "Write one summary.",
+        writer_intent("answer", "Write one summary."),
+        "x" + writer_intent("summary", "Write one summary."),
+    ):
+        writer = _ModelSignal("writer_summary", "provider/w", prompt, {}, "summary")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match=_UNSUPPORTED_WRITER):
+            sf.Merge._rebuild(spec, (writer,))
 
 
 def _spec_of(reducer: sf.Pick | sf.Merge) -> dict[str, Any]:

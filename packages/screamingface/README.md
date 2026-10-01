@@ -519,6 +519,8 @@ A member whose reply is not a JSON object is skipped, and the report shows the s
 A field with a JSON `null` value counts as absent. If no member gives a usable value for a
 `majority`, `max` or `union` field, or no member is usable at all, the case fails with
 `combine_no_votes`. The report shows the value of each member for each field and the result.
+The evidence of a Merge holds the JSON object that each member gave (in `raw` and `value`), for the
+projection step and for the final merge step. A member that replies with large JSON makes a large report.
 
 **Model-written field.** A `FieldRule.model` field adds two calls for that field. The first call is
 a pure projection (`synthesis_N`): it builds one JSON object of the values of that field, by member.
