@@ -311,6 +311,11 @@ SKIPPED_MARKER = "SKIPPED"
 type PreparedCase = dict[str, dict[str, Any]]
 
 
+#: The license value the importer writes when it cannot read a cleared one; a test refuses
+#: a Task-replay declaration that still carries it (spec R7). The owner decides each license.
+LICENSE_TODO: str = "TODO"
+
+
 @dataclass(frozen=True)
 class TaskReplayCasesSpec:
     """One Task-replay Imported Benchmark's Case Preparation, as pure data (OME-1273).
@@ -331,6 +336,10 @@ class TaskReplayCasesSpec:
     system_message: str | None = None
     keep_sample_metadata: bool = False
     has_answer_key: bool = True
+    #: The dataset license, from the Hugging Face card when the one Case Source has one and
+    #: it is on the cleared list, otherwise the owner's decision replacing LICENSE_TODO in
+    #: the diff (spec R6, R7).
+    license: str = LICENSE_TODO
 
 
 def case_digest(prepared: Sequence[PreparedCase]) -> str:
@@ -768,7 +777,9 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
 
 #: Every Task-replay Imported Benchmark's Case Preparation, keyed like BENCHMARK_CASES.
 #: Empty until OME-1273's import PRs add agieval, medqa and mgsm.
-TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {}
+TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
+    # --- importer: generated TaskReplayCasesSpec rows land above this line ---
+}
 
 
 def require_commit_sha(revision: str) -> str:
@@ -1366,6 +1377,7 @@ __all__ = [
     "PrepareError",
     "BENCHMARK_CASES",
     "CasesSpec",
+    "LICENSE_TODO",
     "PreparedCase",
     "TASK_REPLAY_CASES",
     "TaskReplayCasesSpec",

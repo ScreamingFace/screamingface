@@ -261,3 +261,28 @@ def test_the_comment_says_when_the_digest_is_the_only_pin() -> None:
     assert CaseSource("hugging-face", "bigbio/med_qa", "revision " + "d" * 40).as_comment() == (
         f"hugging-face bigbio/med_qa · pin revision {'d' * 40}"
     )
+
+
+def test_the_generated_comment_puts_the_pin_on_its_own_line() -> None:
+    """WHY two lines: the URL line ends with its URL, which the 100-column gate exempts."""
+
+    source: CaseSource = CaseSource("url", _AGIEVAL_URL, f"commit {_COMMIT}")
+
+    assert source.comment_lines() == (f"url {_AGIEVAL_URL}", f"pin commit {_COMMIT}")
+
+
+def test_a_hugging_face_source_names_its_repository_and_web_page() -> None:
+    config_load: CaseSource = CaseSource("hugging-face", "bigbio/med_qa/main", "unpinned")
+    one_file: CaseSource = CaseSource("hugging-face", "BBEH/bbeh/data/x.json", "unpinned")
+
+    assert config_load.hub_repo_id() == "bigbio/med_qa"
+    assert one_file.hub_repo_id() == "BBEH/bbeh"
+    assert config_load.web_url() == "https://huggingface.co/datasets/bigbio/med_qa"
+
+
+def test_only_a_browsable_source_has_a_web_url() -> None:
+    """The BenchmarkSpec dataset_url must be an absolute http(s) URL (definition.py)."""
+
+    assert CaseSource("url", "https://x/y.jsonl", "unpinned").web_url() == "https://x/y.jsonl"
+    assert CaseSource("url", "s3://bucket/y.jsonl", "unpinned").web_url() is None
+    assert CaseSource("file", "inspect_evals/a/b.jsonl", "inspect_evals==0.20.0").web_url() is None
