@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import csv
 import json
+from collections.abc import Sequence
 from html import escape
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 from uuid import uuid4
 
 from screamingface._ui.accounting_view import case_accounting
@@ -16,7 +16,7 @@ from screamingface._ui.style import NO_MATH_CLASSES
 
 if TYPE_CHECKING:
     from screamingface.case_result import CaseResult
-    from screamingface.report import Report
+    from screamingface.report import CandidateResult, Report
 
 _PAGE_SIZE = 25
 _TEXT_PAGE = 12000
@@ -36,93 +36,62 @@ _BROWSER_STYLE = """<style>
 </style>"""
 
 
-def _category(case: CaseResult) -> str:
-    metadata = case.metadata or {}
-    return str(metadata.get("category", metadata.get("clause_category", "Unspecified")))
+class _Entries(Sequence[tuple["CandidateResult", "CaseResult"]]):
+    """Flatten candidate positions without retaining their cases."""
 
+    def __init__(self, report: Report) -> None:
+        self.owners = report.candidates
+        self.total = sum(len(owner.cases) for owner in self.owners)
 
-def _search_text(case: CaseResult, query: str) -> bool:
-    # WHY: search covers every retained field, including late text and metadata.
-    return query in json.dumps(case.to_dict(), ensure_ascii=False).casefold()
+    def __len__(self) -> int:
+        return self.total
 
+    @overload
+    def __getitem__(self, index: int) -> tuple[CandidateResult, CaseResult]: ...
 
-def _matches_status(case: CaseResult, status: str | None) -> bool:
-    if status == "ungraded":
-        return case.grade is None or case.grade.score is None
-    if status == "failed":
-        return case.status == "failed"
-    return not status or _case_state(case) == status
+    @overload
+    def __getitem__(self, index: slice) -> list[tuple[CandidateResult, CaseResult]]: ...
+
+    def __getitem__(self, index: int | slice):
+        if isinstance(index, slice):
+            return [self[i] for i in range(*index.indices(self.total))]
+        position = index + self.total if index < 0 else index
+        if not 0 <= position < self.total:
+            raise IndexError(index)
+        for owner in self.owners:
+            if position < len(owner.cases):
+                return owner, owner.cases[position]
+            position -= len(owner.cases)
+        raise IndexError(index)
 
 
 class ReportBrowser:
-    """Kernel-backed controls over the immutable Report, with a durable full snapshot."""
+    """Kernel-backed controls over the immutable Report, with bounded case access."""
 
     def __init__(self, report: Report) -> None:
         import ipywidgets as widgets
 
         self.w = widgets
         self.report = report
-        self.entries = [(owner, case) for owner in report.candidates for case in owner.cases]
-        self.matches = list(range(len(self.entries)))
+        self.entries = _Entries(report)
+        self.matches = range(len(self.entries))
         self.page = 0
         self._updating = False
         self._text = ""
         self.directory = Path("screamingface-reports") / uuid4().hex
         self.snapshot = self.directory / "report.json"
         self.notice = widgets.HTML()
-        self._persist()
         self._controls()
         self._assemble()
-        self._filter()
-
-    def _persist(self) -> None:
-        # INVARIANT: save before display; rendering never embeds the full artifact.
-        try:
-            self.report.export(self.snapshot)
-        except OSError as exc:
-            self.notice.value = (
-                f'<p role="alert">Could not save report: {escape(str(exc))}. '
-                "Results remain in the Report; use report.export() to save them.</p>"
-            )
+        self._render_page()
 
     def _controls(self) -> None:
         w = self.w
-        self.search = w.Text(placeholder="Search all cases", continuous_update=True)
-        self.status = w.Dropdown(
-            description="Outcome",
-            options=[
-                ("All", ""),
-                ("Correct", "passed"),
-                ("Incorrect", "incorrect"),
-                ("Failed", "failed"),
-                ("Ungraded", "ungraded"),
-            ],
-        )
-        self.candidate = w.Dropdown(
-            description="Candidate",
-            options=[("All", "")]
-            + [
-                (f"{owner.name} · {index + 1}", owner.run_id)
-                for index, owner in enumerate(self.report.candidates)
-            ],
-        )
-        self.category = w.Dropdown(
-            description="Category",
-            options=["All"] + sorted({_category(case) for _, case in self.entries}),
-        )
-        if self.category.options == ("All", "Unspecified"):
-            self.category.layout.display = "none"
-        self.sort = w.Dropdown(
-            description="Sort",
-            options=[("Original order", ""), ("Score ↑", "score"), ("Score ↓", "-score")],
-        )
         self.previous = w.Button(description="Previous", icon="chevron-left")
         self.next = w.Button(description="Next", icon="chevron-right")
         self.count = w.Label()
         self.cases = w.Select(rows=10, layout=w.Layout(width="100%"))
         self.detail = w.HTML()
-        for control in (self.search, self.status, self.candidate, self.category, self.sort):
-            control.observe(self._filter, names="value")
         self.previous.on_click(lambda _: self._move(-1))
         self.next.on_click(lambda _: self._move(1))
         self.cases.observe(self._select, names="value")
@@ -138,10 +107,8 @@ class ReportBrowser:
         self.full_field.observe(self._load_text, names="value")
         self.text_page.observe(self._show_text, names="value")
         self.exports = w.HTML(value=self._snapshot_link())
-        all_csv = w.Button(description="Export all CSV")
-        filtered_csv = w.Button(description="Export filtered CSV")
-        all_csv.on_click(lambda _: self._export_csv(False))
-        filtered_csv.on_click(lambda _: self._export_csv(True))
+        export = w.Button(description="Export full JSON")
+        export.on_click(self._export_json)
         full_box = w.VBox(
             [self._row([self.full_field, self.text_page, self.text_count]), self.full]
         )
@@ -155,10 +122,7 @@ class ReportBrowser:
                 ),
                 self.notice,
                 self.exports,
-                self._row([all_csv, filtered_csv]),
-                w.HTML(value=self._counts_html()),
-                self._row([self.search, self.status]),
-                self._row([self.candidate, self.category, self.sort]),
+                export,
                 self._row([self.previous, self.count, self.next]),
                 self.cases,
                 details,
@@ -170,46 +134,10 @@ class ReportBrowser:
     def _row(self, children: list[Any]) -> Any:
         return self.w.HBox(children, layout=self.w.Layout(flex_flow="row wrap"))
 
-    def _counts_html(self) -> str:
-        graded = sum(
-            case.grade is not None and case.grade.score is not None for _, case in self.entries
-        )
-        failed = sum(case.status == "failed" for _, case in self.entries)
-        return (
-            f"<p><b>{graded:,} of {len(self.entries):,} case results graded</b> · "
-            f"{failed:,} failed · {len(self.entries) - graded:,} ungraded. "
-            "Summary scores above always cover the original evaluation.</p>"
-        )
-
     def _snapshot_link(self) -> str:
         if not self.snapshot.exists():
             return ""
         return download_link(self.snapshot, "Download all results · JSON (lossless)")
-
-    def _matches(self, index: int) -> bool:
-        owner, case = self.entries[index]
-        checks = (
-            not self.candidate.value or owner.run_id == self.candidate.value,
-            _matches_status(case, self.status.value),
-            self.category.value == "All" or _category(case) == self.category.value,
-        )
-        query = self.search.value.strip().casefold()
-        return all(checks) and (
-            not query or query in owner.name.casefold() or _search_text(case, query)
-        )
-
-    def _filter(self, change: Any = None) -> None:
-        self.matches = [index for index in range(len(self.entries)) if self._matches(index)]
-        if self.sort.value:
-            self.matches.sort(key=self._score_key)
-        self.page = 0
-        self._render_page()
-
-    def _score_key(self, index: int) -> tuple[bool, float]:
-        grade = self.entries[index][1].grade
-        score = grade.score if grade else None
-        value = score if score is not None else 0.0
-        return score is None, -value if self.sort.value == "-score" else value
 
     def _move(self, direction: int) -> None:
         last = max(0, (len(self.matches) - 1) // _PAGE_SIZE)
@@ -240,7 +168,7 @@ class ReportBrowser:
         if self._updating:
             return
         if self.cases.value is None:
-            self.detail.value = "<p>No matching cases. Clear the filters to browse all results.</p>"
+            self.detail.value = "<p>No cases available.</p>"
         else:
             owner, case = self.entries[self.cases.value]
             cost = case_accounting(owner, case_ids={case.case_id})[case.case_id]
@@ -272,37 +200,10 @@ class ReportBrowser:
         )
         self.text_count.value = f"of {self.text_page.max} · {len(self._text):,} characters"
 
-    def _export_csv(self, filtered: bool) -> None:
-        scope = "filtered" if filtered else "all"
-        indices = self.matches if filtered else range(len(self.entries))
-        path = self.directory / f"{scope}-{uuid4().hex[:8]}.csv"
+    def _export_json(self, change: Any = None) -> None:
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("w", encoding="utf-8", newline="") as stream:
-                writer = csv.writer(stream)
-                writer.writerow(["candidate", "run_id", "case_id", "outcome", "score", "case_json"])
-                for index in indices:
-                    writer.writerow(self._csv_row(index))
+            self.report.export(self.snapshot)
         except OSError as exc:
             self.notice.value = f'<p role="alert">Export failed: {escape(str(exc))}</p>'
             return
-        self.exports.value = self._snapshot_link() + download_link(
-            path, f"Download {scope} CSV · {len(indices):,} case results"
-        )
-
-    def _csv_row(self, index: int) -> list[object]:
-        owner, case = self.entries[index]
-
-        # WHY: spreadsheet formula prefixes in untrusted labels must remain plain text.
-        def cell(value: object) -> str:
-            text = str(value)
-            return "'" + text if text.startswith(("=", "+", "-", "@", "\t", "\r")) else text
-
-        return [
-            cell(owner.name),
-            cell(owner.run_id),
-            cell(case.case_id),
-            _case_state(case),
-            case.grade.score if case.grade else None,
-            json.dumps(case.to_dict(), ensure_ascii=False),
-        ]
+        self.exports.value = self._snapshot_link()

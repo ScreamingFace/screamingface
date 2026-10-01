@@ -1,3 +1,5 @@
+> Superseded on 2026-10-01 by [the combined durable-results contract](../spec/2026-10-01-durable-report-results.md). The final UI uses pagination only; search, filters, sorting, CSV, and automatic display-time export were removed by user request.
+
 # OME-1422 — bounded Report display
 
 Approved in the originating user conversation: compact summary, searchable/filterable

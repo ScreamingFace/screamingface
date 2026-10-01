@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
@@ -48,6 +49,15 @@ def _decoded_result_body(outcome: _RunOutcome) -> object:
     count so the researcher learns what happened from the error alone; (4) anything else
     keeps the generic message.
     """
+    if outcome.result_path is not None and outcome.result_body is None:
+        from screamingface._results.cases import index_result
+        from screamingface._results.store import storage_error
+
+        try:
+            metadata, cases = index_result(outcome.result_path)
+        except (OSError, sqlite3.Error) as exc:
+            raise storage_error(exc, outcome.run_id) from exc
+        return {**metadata, "cases": cases}
     body = outcome.result_body
     if body is None:
         raise ExecutionError(
@@ -241,7 +251,7 @@ def _candidate_components(
     float | None,
     float,
     dict[str, object],
-    tuple[CaseResult, ...],
+    Sequence[CaseResult],
     tuple[Failure, ...],
 ]:
     score_value = value.get("score")
@@ -268,7 +278,11 @@ def _metrics(value: object) -> dict[str, object]:
     return dict(raw)
 
 
-def _cases(value: object) -> tuple[CaseResult, ...]:
+def _cases(value: object) -> Sequence[CaseResult]:
+    from screamingface._results.cases import DiskCases
+
+    if isinstance(value, DiskCases):
+        return value
     return tuple(_case_result(item) for item in _sequence(value, "Candidate cases"))
 
 

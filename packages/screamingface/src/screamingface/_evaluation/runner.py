@@ -19,6 +19,7 @@ from screamingface._core.ports import (
     AsyncRunTransport,
     SyncRunTransport,
     _ConnectionNotice,
+    _ResultPersistence,
     _RunOutcome,
 )
 from screamingface._evaluation.benchmark import _BenchmarkResource
@@ -98,6 +99,7 @@ def evaluate_sync(
     preflight_sync(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    _prepare_results(transport, evaluation, selected_candidates)
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -155,6 +157,7 @@ async def evaluate_async(
     await preflight_async(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    _prepare_results(transport, evaluation, selected_candidates)
     observer = _async_event_observer(
         on_event,
         progress,
@@ -809,3 +812,8 @@ def _evaluation_inputs(
 
 
 __all__: list[str] = []
+
+
+def _prepare_results(transport, evaluation, candidates) -> None:
+    if isinstance(transport, _ResultPersistence):
+        transport.prepare_results(evaluation, candidates)

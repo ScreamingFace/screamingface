@@ -54,7 +54,7 @@ def test_large_static_report_output_is_bounded():
     assert "data:application/json;base64" not in html
 
 
-def test_browser_filters_whole_report_and_exports_losslessly(tmp_path, monkeypatch):
+def test_browser_paginates_and_exports_losslessly(tmp_path, monkeypatch):
     import json
 
     from screamingface._ui.report_browser import ReportBrowser
@@ -63,15 +63,17 @@ def test_browser_filters_whole_report_and_exports_losslessly(tmp_path, monkeypat
     source = large_report(60)
     browser = ReportBrowser(source)
     assert browser.count.value.startswith("Showing 1–25 of 60")
+    assert not hasattr(browser, "search")
+    assert not browser.snapshot.exists()
     browser.next.click()
     assert browser.count.value.startswith("Showing 26–50 of 60")
-    browser.search.value = "answer 59"
-    assert browser.count.value.startswith("Showing 1–1 of 1")
-    assert browser.matches == [59]
+    browser.next.click()
+    assert browser.count.value.startswith("Showing 51–60 of 60")
+    assert browser.next.disabled
+    browser.cases.value = 59
+    assert "answer 59" in browser.detail.value
+    browser._export_json()
     assert json.loads(browser.snapshot.read_text()) == source.to_dict()
-    browser.search.value = "no such case"
-    assert browser.count.value.startswith("Showing 0–0 of 0")
-    assert browser.next.disabled and browser.previous.disabled
 
 
 def test_streaming_export_does_not_materialize_whole_report(tmp_path, monkeypatch):
@@ -86,32 +88,6 @@ def test_streaming_export_does_not_materialize_whole_report(tmp_path, monkeypatc
     monkeypatch.setattr(Report, "to_json", reject)
     monkeypatch.setattr(Report, "to_dict", reject)
     assert source.export(tmp_path / "report.json").read_text() == expected
-
-
-def test_page_boundaries_global_category_filter_and_sort(tmp_path, monkeypatch):
-    from screamingface._ui.report_browser import ReportBrowser
-
-    monkeypatch.chdir(tmp_path)
-    browser = ReportBrowser(large_report(60))
-    browser.next.click()
-    browser.next.click()
-    assert browser.count.value.startswith("Showing 51–60")
-    assert browser.next.disabled
-    browser.previous.click()
-    assert browser.count.value.startswith("Showing 26–50")
-    browser.category.value = "clause 18"
-    assert browser.matches == [18, 59]
-    assert browser.page == 0
-    browser.sort.value = "-score"
-    assert browser.matches == [18, 59]
-    browser.candidate.value = "demo"
-    assert browser.matches == [18, 59]
-    browser.status.value = "failed"
-    assert browser.matches == []
-    browser.status.value = "passed"
-    assert browser.matches == [18, 59]
-    browser.search.value = "model"
-    assert browser.matches == [18, 59]
 
 
 def test_full_content_paging_and_escaping(tmp_path, monkeypatch):
@@ -148,27 +124,6 @@ def test_full_content_paging_and_escaping(tmp_path, monkeypatch):
     assert json.loads(browser._text) == case.to_dict()
 
 
-def test_csv_scopes_and_case_json_are_exact(tmp_path, monkeypatch):
-    import csv
-    import json
-
-    from screamingface._ui.report_browser import ReportBrowser
-
-    monkeypatch.chdir(tmp_path)
-    source = large_report(60)
-    browser = ReportBrowser(source)
-    browser.search.value = "answer 59"
-    browser._export_csv(True)
-    with next(browser.directory.glob("filtered-*.csv")).open() as stream:
-        rows = list(csv.DictReader(stream))
-    assert len(rows) == 1
-    assert json.loads(rows[0]["case_json"]) == source.candidates[0].cases[59].to_dict()
-    browser._export_csv(False)
-    with next(browser.directory.glob("all-*.csv")).open() as stream:
-        assert len(list(csv.DictReader(stream))) == 60
-    assert "all CSV" in browser.exports.value
-
-
 def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
     from pathlib import Path
 
@@ -177,9 +132,9 @@ def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "screamingface-reports").write_text("not a directory")
     browser = ReportBrowser(large_report(2))
-    assert "Could not save report" in browser.notice.value
-    assert browser.matches == [0, 1]
-    browser._export_csv(False)
+    assert browser.notice.value == ""
+    assert list(browser.matches) == [0, 1]
+    browser._export_json()
     assert "Export failed" in browser.notice.value
     assert not browser.snapshot.exists()
     assert isinstance(browser.snapshot, Path)
@@ -202,8 +157,9 @@ def test_widget_state_does_not_contain_all_cases(tmp_path, monkeypatch):
     assert len(payload) < 100_000
     assert "answer 4181" not in payload
     assert len(browser.cases.options) == 25
-    browser.search.value = "answer 4181"
-    assert browser.matches == [4181]
+    browser.page = 4181 // 25
+    browser._render_page()
+    browser.cases.value = 4181
     assert "answer 4181" in browser.detail.value
 
 
@@ -247,7 +203,7 @@ def test_failed_streaming_export_keeps_previous_file(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == [destination]
 
 
-def test_candidate_filter_keeps_shared_case_ids_distinct(tmp_path, monkeypatch):
+def test_pagination_keeps_shared_case_ids_distinct(tmp_path, monkeypatch):
     from test_report_panel import report
 
     from screamingface._ui.report_browser import ReportBrowser
@@ -255,23 +211,7 @@ def test_candidate_filter_keeps_shared_case_ids_distinct(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = report(candidate("first", 1.0), candidate("second", 0.0))
     browser = ReportBrowser(source)
-    browser.candidate.value = "run-second"
-    assert browser.matches == [1]
-    browser.sort.value = "score"
-    browser.candidate.value = ""
-    assert browser.matches == [1, 0]
-    browser.sort.value = "-score"
-    assert browser.matches == [0, 1]
-
-
-def test_failed_and_ungraded_filters_include_failed_grading(tmp_path, monkeypatch):
-    from test_report_panel import report
-
-    from screamingface._ui.report_browser import ReportBrowser
-
-    monkeypatch.chdir(tmp_path)
-    browser = ReportBrowser(report(candidate("model", None)))
-    browser.status.value = "failed"
-    assert browser.matches == [0]
-    browser.status.value = "ungraded"
-    assert browser.matches == [0]
+    browser.cases.value = 1
+    assert browser.entries[1][0].name == "second"
+    browser.cases.value = 0
+    assert browser.entries[0][0].name == "first"

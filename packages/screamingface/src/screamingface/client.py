@@ -49,6 +49,7 @@ class Client:
         http_transport: httpx.BaseTransport | None = None,
         scoreboard_transport: httpx.BaseTransport | None = None,
         run_transport: SyncRunTransport | None = None,
+        save_results: bool = True,
     ) -> None:
         import httpx
 
@@ -92,7 +93,7 @@ class Client:
         self._transport: SyncRunTransport = (
             run_transport
             if run_transport is not None
-            else Url4CloudTransport(self._engine_url, self._engine_auth)
+            else Url4CloudTransport(self._engine_url, self._engine_auth, save_results=save_results)
         )
         self.models: Models = Models(self._http_get, self._engine_url)
         self.benchmarks: Benchmarks = Benchmarks(self._http_get, self._engine_url)
@@ -382,6 +383,7 @@ class AsyncClient:
         http_transport: httpx.AsyncBaseTransport | None = None,
         scoreboard_transport: httpx.AsyncBaseTransport | None = None,
         run_transport: AsyncRunTransport | None = None,
+        save_results: bool = True,
     ) -> None:
         import httpx
 
@@ -425,7 +427,9 @@ class AsyncClient:
         self._transport: AsyncRunTransport = (
             run_transport
             if run_transport is not None
-            else AsyncUrl4CloudTransport(self._engine_url, self._engine_auth)
+            else AsyncUrl4CloudTransport(
+                self._engine_url, self._engine_auth, save_results=save_results
+            )
         )
         self.models: AsyncModels = AsyncModels(self._http_get, self._engine_url)
         self.benchmarks: AsyncBenchmarks = AsyncBenchmarks(self._http_get, self._engine_url)

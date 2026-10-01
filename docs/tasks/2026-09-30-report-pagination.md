@@ -11,6 +11,7 @@ closed:
 
 # Prevent large ContractEval reports from crashing the notebook kernel
 
-Draft implementation: bounded notebook report browsing and file-backed full exports.
+Draft implementation: pagination-only notebook browsing, automatic durable result
+retention, bounded decoding, and recovery. Combined with existing OME-1448 in PR #1156.
 The source issue already exists; its Linear status remains authoritative. Validation and
-known unrelated gate failures are recorded in the work ledger. No paid benchmark performed.
+validation results are recorded in the work ledger. No paid benchmark performed.

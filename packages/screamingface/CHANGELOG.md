@@ -4,6 +4,8 @@
 
 ### Features
 
+* **screamingface:** automatically retain completed candidate results on disk and load cases incrementally. `sf.runs.list()`, `recover()` / `recover_async()`, and explicit `delete()` support recovery after notebook crashes without rerunning models. `SCREAMINGFACE_RESULTS_DIR` configures storage; `Client(save_results=False)` opts out. Notebook reports paginate cases; full JSON exports stream without changing report.v1 values.
+
 * **screamingface:** render completed per-operation accounting and per-Case details across benchmarks. `CandidateResult.accounting` derives immutable stage, operation, member, model and Case summaries from retained records, preserving unknown values and authoritative root totals. Direct model members receive usage only when every Case has a unique observation. Includes an offline Jupyter review notebook (`14_report_accounting.ipynb`).
 
 * **screamingface:** preserve Engine-observed caller version as `CandidateResult.client_version` and in report JSON; unavailable provenance remains null.

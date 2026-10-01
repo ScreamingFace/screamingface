@@ -533,14 +533,11 @@ def _failures_html(report: Report) -> str:
     (OME-793: the worst30 fusion incident rendered 3 id-less duplicate lines).
     """
 
-    failures = report.failures
-    if (
-        len(failures) > 25
-        or sum(len(json.dumps(failure.to_dict())) for failure in failures) > 16000
-    ):
+    failures, count, size = _failure_preview(report)
+    if count > 25 or size > 16000:
         return (
-            f"<div class='sf-report__warn'>{len(failures):,} failures. "
-            "Browse failed cases or export the report for all failure details.</div>"
+            f"<div class='sf-report__warn'>{count:,} failures. "
+            "Browse cases or export the report for all failure details.</div>"
         )
     if not failures:
         return ""
@@ -560,6 +557,24 @@ def _failures_html(report: Report) -> str:
         "<details><summary>failure details</summary>"
         f"<pre class='sf-report__pre'>{escape(details)}</pre></details>"
     )
+
+
+def _failure_preview(report: Report) -> tuple[list[Any], int, int]:
+    preview = []
+    count = size = 0
+    candidates = getattr(report, "candidates", None)
+    failures = (
+        (failure for candidate in candidates for failure in _candidate_failures(candidate))
+        if candidates is not None
+        else iter(report.failures)
+    )
+    for failure in failures:
+        count += 1
+        if count <= 25 and size <= 16000:
+            size += len(json.dumps(failure.to_dict()))
+            if size <= 16000:
+                preview.append(failure)
+    return preview, count, size
 
 
 def _candidate_failures_html(candidate: CandidateResult) -> str:

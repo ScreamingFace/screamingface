@@ -125,10 +125,15 @@ class Url4CloudTransport:
         engine_url: str,
         caller_auth: _TransportAuth | None = None,
         *,
+        save_results: bool = True,
         reconnect_budget_s: float = _RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
         admission_budget_s: float = _ADMISSION_BUDGET_S,
     ) -> None:
+        from screamingface._results.store import ResultStore
+
+        self._result_store = ResultStore() if save_results else None
+        self._result_contexts = {}
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -160,6 +165,25 @@ class Url4CloudTransport:
         # How many `run()` calls are in flight — NOT the registry size: a Run can leave the
         # registry before it ends. Guarded by `_active_lock`.
         self._running = 0
+
+    def _save_result(self, candidate, outcome, trace):
+        if self._result_store is None:
+            return _materialize_sync(self._http, outcome)
+        from screamingface._engine.result_download import download_sync
+
+        saved = self._result_store.record(
+            self._engine_url,
+            candidate,
+            _dataclass_replace(outcome, trace_id=trace.trace_id),
+            self._result_contexts.pop(id(candidate), None),
+        )
+        return download_sync(self._http, saved, lambda: _mint_sync(self._http))
+
+    def prepare_results(self, evaluation, candidates) -> None:
+        from screamingface._results.evaluation import prepare
+
+        if self._result_store is not None:
+            self._result_contexts.update(prepare(self._result_store, evaluation, candidates))
 
     @property
     def _aborted(self) -> bool:
@@ -281,7 +305,7 @@ class Url4CloudTransport:
                 # By now the run is over and the WS is closed — a fetch failure here
                 # must surface as its own error, never trip the socket-scoped
                 # stop-on-interrupt arm into writing to a dead connection.
-                return _materialize_sync(self._http, outcome)
+                return self._save_result(candidate, outcome, trace)
             except InvalidStatus as exc:
                 if run_started and _is_transient_rejection(exc):
                     self._back_off(recovery, exc, started, on_event, minted[-1])
@@ -502,10 +526,15 @@ class AsyncUrl4CloudTransport:
         engine_url: str,
         caller_auth: _TransportAuth | None = None,
         *,
+        save_results: bool = True,
         reconnect_budget_s: float = _RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
         admission_budget_s: float = _ADMISSION_BUDGET_S,
     ) -> None:
+        from screamingface._results.store import ResultStore
+
+        self._result_store = ResultStore() if save_results else None
+        self._result_contexts = {}
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -532,6 +561,25 @@ class AsyncUrl4CloudTransport:
         self._active_tokens: set[str] = set()
         # In-flight `run()` calls; see the sync twin (spec 4.3).
         self._running = 0
+
+    async def _save_result(self, candidate, outcome, trace):
+        if self._result_store is None:
+            return await _materialize_async(self._http, outcome)
+        from screamingface._engine.result_download import download_async
+
+        saved = self._result_store.record(
+            self._engine_url,
+            candidate,
+            _dataclass_replace(outcome, trace_id=trace.trace_id),
+            self._result_contexts.pop(id(candidate), None),
+        )
+        return await download_async(self._http, saved, lambda: _mint_async(self._http))
+
+    def prepare_results(self, evaluation, candidates) -> None:
+        from screamingface._results.evaluation import prepare
+
+        if self._result_store is not None:
+            self._result_contexts.update(prepare(self._result_store, evaluation, candidates))
 
     @property
     def _aborted(self) -> bool:
@@ -674,7 +722,7 @@ class AsyncUrl4CloudTransport:
                     recovery.connected(time.monotonic())
                     outcome = await self._run_connected(websocket, lifecycle, on_event, minted)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
-                return await _materialize_async(self._http, outcome)
+                return await self._save_result(candidate, outcome, trace)
             except InvalidStatus as exc:
                 if run_started and _is_transient_rejection(exc):
                     await self._back_off(recovery, exc, started, on_event, minted[-1])
