@@ -28,7 +28,7 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     benchmark_registrations,
     imported_benchmark,
 )
-from screamingface_engine_inspect.prepare import BENCHMARK_CASES  # noqa: E402
+from screamingface_engine_inspect.prepare import BENCHMARK_CASES, TASK_REPLAY_CASES  # noqa: E402
 
 #: Every imported benchmark key and its family: "mcq" (choice scorer, draft-feedback offer
 #: refused per OME-796), "free_text" (draft-feedback offer ON, spec §4), or "judged"
@@ -68,16 +68,32 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "pubmedqa": "mcq",
     # OME-1269: judged compliance on XSTest's safe prompts — no answer key.
     "xstest_safe": "judged",
+    # OME-1273: the first Task-replay Benchmarks — their Cases come from calling the eval's
+    # own task function, sealed by a Case Digest (TASK_REPLAY_CASES, not BENCHMARK_CASES).
+    "agieval_lsat_ar": "mcq",
+    "agieval_lsat_lr": "mcq",
+    "agieval_lsat_rc": "mcq",
+    "agieval_sat_math": "mcq",
+    "agieval_sat_en": "mcq",
+    "agieval_sat_en_without_passage": "mcq",
+    "agieval_aqua_rat": "mcq",
+    "agieval_logiqa_en": "mcq",
+    "medqa": "mcq",
+    "mgsm_en": "free_text",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
+#: The new keys prepared from a pinned Hugging Face revision; the Task-replay keys have no
+#: dataset revision or row rule to pin, and their own twins sit at the end of this file.
+_HF_KEYS: tuple[str, ...] = tuple(k for k in _NEW_KEYS if k not in TASK_REPLAY_CASES)
 
 
 def test_catalogue_holds_every_imported_benchmark() -> None:
     """OME-1116 acceptance: ≥10 imported benchmarks; the row table IS the catalogue."""
 
     assert {spec.key for spec in BENCHMARKS} == set(_EXPECTED_FAMILIES)
-    assert set(BENCHMARK_CASES) == set(_EXPECTED_FAMILIES)
+    assert set(BENCHMARK_CASES) | set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
+    assert not set(BENCHMARK_CASES) & set(TASK_REPLAY_CASES)
     ids = [registration.benchmark.id for registration in benchmark_registrations()]
     assert len(ids) == len(set(ids)) == len(_EXPECTED_FAMILIES)
     assert all(benchmark_id.startswith("inspect-") for benchmark_id in ids)
@@ -112,7 +128,7 @@ def test_benchmark_revisions_are_distinct() -> None:
     assert len(revisions) == len(_EXPECTED_FAMILIES)
 
 
-@pytest.mark.parametrize("key", sorted(_NEW_KEYS))
+@pytest.mark.parametrize("key", sorted(_HF_KEYS))
 def test_cases_row_pins_benchmark_identity(key: str) -> None:
     cases_spec = BENCHMARK_CASES[key]
     assert len(cases_spec.dataset_revision) == 40
@@ -121,7 +137,7 @@ def test_cases_row_pins_benchmark_identity(key: str) -> None:
     assert cases_spec.dataset and cases_spec.split
 
 
-@pytest.mark.parametrize("key", sorted(_NEW_KEYS))
+@pytest.mark.parametrize("key", sorted(_HF_KEYS))
 def test_cases_row_references_resolve_inside_the_pinned_eval(key: str) -> None:
     """The rows POINT at the eval's own code; a dangling reference must fail CI,
     not the image build."""
@@ -171,7 +187,11 @@ def test_benchmark_row_prose_is_filled_not_todo(key: str) -> None:
     spec = next(spec for spec in BENCHMARKS if spec.key == key)
     for prose in (spec.title, spec.description, spec.focus, spec.dataset_url):
         assert prose and "TODO" not in prose
-    assert spec.dataset_url.startswith("https://huggingface.co/datasets/")
+    # A Task-replay row links wherever its Cases live (a GitHub repo for agieval).
+    hub_only: bool = key not in TASK_REPLAY_CASES
+    assert spec.dataset_url.startswith(
+        "https://huggingface.co/datasets/" if hub_only else "https://"
+    )
 
 
 def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
@@ -450,3 +470,33 @@ def test_task_replay_declarations_carry_an_owner_license_decision() -> None:
     ]
 
     assert undecided == []
+
+
+# ── OME-1273: Task-replay twins of the Hugging Face row contracts above ─────────
+
+
+@pytest.mark.parametrize("key", sorted(TASK_REPLAY_CASES))
+def test_task_replay_declaration_is_sealed(key: str) -> None:
+    """The seal is what the image build checks: a count and a 64-hex Case Digest."""
+
+    spec = TASK_REPLAY_CASES[key]
+    assert spec.case_count > 0
+    assert len(spec.case_digest) == 64 and spec.case_digest == spec.case_digest.lower()
+    int(spec.case_digest, 16)
+
+
+@pytest.mark.parametrize("key", sorted(TASK_REPLAY_CASES))
+def test_task_replay_references_resolve(key: str) -> None:
+    """The task function and every template the declaration points at must import — a
+    dangling reference fails CI here, not the image build."""
+
+    spec = TASK_REPLAY_CASES[key]
+    references: list[str] = [spec.task]
+    references.extend(
+        reference
+        for reference in (spec.prompt_template, spec.choice_template, spec.system_message)
+        if reference is not None
+    )
+    for reference in references:
+        module_name, _, attribute = reference.partition(":")
+        assert hasattr(import_module(module_name), attribute), reference
