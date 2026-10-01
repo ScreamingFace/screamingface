@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import warnings
 from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
@@ -23,6 +24,7 @@ from screamingface._core.ports import (
     _ResultPersistence,
     _RunOutcome,
 )
+from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import recipes_need_operators
 from screamingface._evaluation.completion import completion_callback
@@ -46,6 +48,7 @@ from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
 from screamingface.report import CandidateResult, Report
+from screamingface.warnings import FixedSeedSittingWarning
 
 
 class _ModelCatalog(Protocol):
@@ -64,6 +67,8 @@ type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
 _logger = logging.getLogger(__name__)
+_SEED_PARAM = "seed"
+"""The sampling seed's wire name, the key a call uses to state its own seed."""
 
 
 def evaluate_sync(
@@ -574,9 +579,14 @@ def _seeded_candidates(
     candidates: tuple[Candidate, ...],
     answer_seed: int | None,
 ) -> tuple[Candidate, ...]:
-    """Stamp the run's declared sitting onto each compiled Candidate — identity when None."""
+    """Stamp the run's declared sitting onto each compiled Candidate — identity when None.
+
+    Also the one place that warns about own-seed calls (U1): it runs once per evaluation, after
+    compile and before any model-details lookup or submit.
+    """
     if answer_seed is None:
         return candidates
+    _warn_fixed_seed_sittings(candidates, answer_seed)
     return tuple(_with_answer_seed(candidate, answer_seed) for candidate in candidates)
 
 
@@ -591,6 +601,34 @@ def _captured_candidates(
     if not capture:
         return candidates
     return tuple(_with_capture(candidate) for candidate in candidates)
+
+
+def _warn_fixed_seed_sittings(candidates: tuple[Candidate, ...], answer_seed: int) -> None:
+    """Warn once per Candidate whose own-seed calls ignore the run seed (never a refusal).
+
+    WHY: the Engine lets a call that sets its own ``seed`` keep it and applies the run's seed only
+    to calls without one, so those calls send the same request in every sitting (OME-1038) and a
+    mean and CI across sittings looks tighter than the model really is.
+    """
+    for candidate in candidates:
+        if operation_ids := _own_seed_operation_ids(candidate):
+            warnings.warn(
+                f"Candidate {candidate.name!r}: the run seed is {answer_seed}, but operations "
+                f"{', '.join(operation_ids)} set their own seed, so they send the same request in "
+                "every sitting and the spread across sittings is not measured. Drop the explicit "
+                "seed, or vary seeds= per sitting.",
+                FixedSeedSittingWarning,
+                skip_file_prefixes=(SDK_PACKAGE_ROOT,),
+            )
+
+
+def _own_seed_operation_ids(candidate: Candidate) -> tuple[str, ...]:
+    """Operation ids of the compiled model calls whose resolved params carry a ``seed``."""
+    return tuple(
+        assignment.operation_id
+        for assignment in candidate.parameter_assignments
+        if _SEED_PARAM in assignment.params
+    )
 
 
 def _run_candidates_sync(

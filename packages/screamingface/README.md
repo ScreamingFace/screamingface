@@ -229,6 +229,14 @@ samples inherit. A model whose provider does not accept `seed` fails with `sf.Pl
 `sf.DuplicateMembersWarning` when a reducer Fusion has two members that send the same request,
 because the gateway may serve them from one cached answer.
 
+A call that sets its own `seed` keeps it, and a run seed (`answer_seed=`, one "sitting" of an
+evaluation) only applies to calls without one. So `sf.samples()` members, and any
+`sf.Model(params={"seed": ...})`, send the same requests in every sitting, and a mean and
+confidence interval across sittings would look tighter than the model really is. When a run seed is
+set and a Candidate has such calls, the SDK emits `sf.FixedSeedSittingWarning` before the run
+starts, naming the calls, and then runs as usual. To fix it, drop the explicit seed or pass a
+different `seeds=` to `sf.samples()` in each sitting.
+
 ### Serial and recursive composition
 
 Every complete `Recipe` accepts one input and returns one final answer. `Model` is atomic,

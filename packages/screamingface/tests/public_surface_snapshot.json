@@ -24,6 +24,7 @@
       "ExecutionError",
       "Extract",
       "Failure",
+      "FixedSeedSittingWarning",
       "Fusion",
       "Leaderboard",
       "LeaderboardBaseline",
@@ -413,6 +414,16 @@
           "stage": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
+      },
+      "FixedSeedSittingWarning": {
+        "catches_as": [
+          "EvaluationWarning",
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
       },
       "Fusion": {
         "kind": "class",

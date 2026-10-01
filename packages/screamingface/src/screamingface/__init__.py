@@ -69,7 +69,11 @@ from screamingface.report import (
     Usage,
 )
 from screamingface.url4 import Url4
-from screamingface.warnings import DuplicateMembersWarning, EvaluationWarning
+from screamingface.warnings import (
+    DuplicateMembersWarning,
+    EvaluationWarning,
+    FixedSeedSittingWarning,
+)
 
 # The installed distribution's version, resolved once at import — see `_version.py`.
 __version__ = resolve_version()
@@ -109,6 +113,7 @@ __all__ = [
     "reproduce",
     "samples",
     "Failure",
+    "FixedSeedSittingWarning",
     "Fusion",
     "Leaderboard",
     "LeaderboardBaseline",
