@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1443
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-01
-finished:
+finished: 2026-10-01
 ---
 
 # pre-push-base-fallback — the pre-push hook compares against the remote's main, never a local `main`
@@ -46,7 +46,7 @@ uses the local branch.
 
 - **Actual files:** as planned: `.githooks/pre-push`, `.claude/scripts/tests/test_pre_push.py`,
   `.claude/sdlc.local.md`, this ledger and the task mirror.
-- **Commits:** `fix(repo): compare the pre-push hook against the remote's main, never a local main`.
+- **Commits:** `701de1985` fix(repo): compare the pre-push hook against the remote's main, never a local main; then this ledger and the mirror.
 - **Gates:** RED first on the unfixed hook: 1 passed, 3 failed (the docs-only `upstream` branch gated
   `screamingface-engine main`). GREEN after: 4 passed. `run_gates.py repo --base upstream/main`:
   ALL GATES GREEN.
