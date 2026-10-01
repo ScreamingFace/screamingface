@@ -105,7 +105,8 @@ included), in the Benchmark catalogue, and in the notebook's report view (owner,
   byte-identical. Both the normal path and a replay read it from the result it describes, so
   the mark always matches the revision that actually ran.
 - **The Benchmark resource and catalogue entry carry it**, only when true; the SDK reads an absent
-  key as `False` (old Engines have no flipped Benchmarks). The normal path cross-checks the
+  key as `False`. That is right for every Engine except one running PR 1 without PR 2
+  (`xstest_unsafe` live, no mark yet), so PRs 1 and 2 deploy together. The normal path cross-checks the
   resource's mark against the result's.
 - **report.json** states `"inverted_grade"` in the top-level `benchmark` block and each
   candidate's copy — `true` for a flipped Benchmark, `false` for every other one. The WIRE omits

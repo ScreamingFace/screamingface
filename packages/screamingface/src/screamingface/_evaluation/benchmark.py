@@ -61,8 +61,10 @@ def _decode_benchmark_resource(
             id=benchmark_id,
             revision=_wire_text(resource.get("revision"), "Benchmark revision", _invalid),
             case_count=installed_case_count,
-            # WHY absent means False: the Engine publishes the mark only when true, and an
-            # Engine that predates it has no flipped Benchmark (OME-1400).
+            # WHY absent means False: the Engine publishes the mark only when true. An Engine
+            # without the mark (before OME-1400's second PR) sends no key for ANY Benchmark —
+            # including xstest_unsafe if the first PR's Engine is deployed alone — so the two
+            # Engine changes deploy together.
             inverted_grade=_inverted_grade(resource.get("inverted_grade", False)),
         )
     except (TypeError, ValueError) as exc:
