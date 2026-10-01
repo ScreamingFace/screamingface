@@ -47,7 +47,7 @@ commits on top of. It stops with a clear message if there is none, and never use
 
 - **Actual files:** as planned: `.githooks/pre-push`, `.claude/scripts/tests/test_pre_push.py`,
   `.claude/sdlc.local.md`, this ledger and the task mirror.
-- **Commits:** `701de1985` fix(repo): compare the pre-push hook against the remote's main, never a local main; then this ledger and the mirror.
+- **Commits:** `701de1985` fix(repo): compare the pre-push hook against the remote's main, never a local main · `b0da301a7` fix(repo): pick the pre-push base by history, so any remote name works; plus this ledger and the mirror.
 - **Gates:** RED first on the unfixed hook: 1 passed, 3 failed (the docs-only `upstream` branch gated
   `screamingface-engine main`). The first fix tried `upstream/main` then `origin/main` by name; on
   review it was replaced by the by-history pick, with two RED tests on the name-list version (the
