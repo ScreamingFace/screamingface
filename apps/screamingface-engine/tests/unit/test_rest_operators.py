@@ -1,0 +1,143 @@
+"""``GET /v1/operators`` lists the combine operator registry (OME-1289 E4a, unit 3).
+
+FEATURE: a client reads which combine operators this Engine runs, before it compiles a reducer.
+STORY: as the SDK, I fetch the catalog once, cache it by ETag, and learn each operator's id,
+stage and summary without a call to the combine route.
+INVARIANT defended: the catalog and the endpoint share ONE registry, so a listed id always
+resolves and an unlisted id never does.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Mapping
+
+import httpx
+import pytest
+from combine_support import FAKE_REGISTRY
+from fastapi import FastAPI
+
+from screamingface_engine.app import create_app
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
+from screamingface_engine.combine.ports import (
+    OpArgs,
+    OperatorDescriptor,
+    OperatorUnknown,
+    StageResult,
+    accepted,
+)
+from screamingface_engine.combine.registry import OperatorRegistry
+from screamingface_engine.config import Settings
+from screamingface_engine.testing import InMemoryEventStream
+
+# Hand-written (not derived from the registry), in plain string order.
+_BUILTIN_IDS = [
+    "boxed@1",
+    "first_holder@1",
+    "identity@1",
+    "json_field@1",
+    "last_line@1",
+    "last_number@1",
+    "max_weight_holder@1",
+    "median@1",
+    "mode@1",
+    "nearest@1",
+    "numeric@1",
+    "text@1",
+    "value@1",
+    "weighted_mode@1",
+    "whole@1",
+]
+
+
+async def _get(
+    app: FastAPI, path: str, *, headers: Mapping[str, str] | None = None
+) -> httpx.Response:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
+    ) as client:
+        return await client.get(path, headers=headers)
+
+
+def _unordered_registry() -> OperatorRegistry:
+    def keep(text: str, args: OpArgs, /) -> StageResult:
+        return accepted(text)
+
+    return OperatorRegistry(
+        (
+            OperatorDescriptor("zeta", 2, "extract", "Last one.", keep),
+            OperatorDescriptor("alpha", 1, "extract", "First one.", keep),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_v1_operators_lists_registry_sorted_with_etag_and_304() -> None:
+    registry = _unordered_registry()
+    app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream(), operators=registry)
+
+    response = await _get(app, "/v1/operators")
+
+    expected = {
+        "object": "list",
+        "data": [
+            {
+                "id": "alpha@1",
+                "name": "alpha",
+                "version": 1,
+                "stage": "extract",
+                "args_schema": {},
+                "summary": "First one.",
+            },
+            {
+                "id": "zeta@2",
+                "name": "zeta",
+                "version": 2,
+                "stage": "extract",
+                "args_schema": {},
+                "summary": "Last one.",
+            },
+        ],
+    }
+    body = json.dumps(expected, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+    etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert response.content == body
+    assert response.headers["etag"] == etag
+    assert response.headers["cache-control"] == "public, max-age=300, must-revalidate"
+    assert response.headers["content-type"].startswith("application/json")
+
+    repeated = await _get(app, "/v1/operators", headers={"If-None-Match": etag})
+    other = await _get(app, "/v1/operators", headers={"If-None-Match": '"not-this-one"'})
+
+    assert repeated.status_code == 304
+    assert repeated.content == b""
+    assert repeated.headers["etag"] == etag
+    assert other.status_code == 200
+    assert other.json() == expected
+
+
+@pytest.mark.asyncio
+async def test_the_fake_registry_catalog_is_served_through_the_same_describe() -> None:
+    app = create_app(
+        Settings(jwt_secret="s"), stream=InMemoryEventStream(), operators=FAKE_REGISTRY
+    )
+
+    response = await _get(app, "/v1/operators")
+
+    assert response.json()["data"] == FAKE_REGISTRY.describe()
+
+
+@pytest.mark.asyncio
+async def test_catalog_ids_equal_resolvable_ids() -> None:
+    app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
+
+    listed = (await _get(app, "/v1/operators")).json()["data"]
+
+    assert [entry["id"] for entry in listed] == _BUILTIN_IDS
+    for entry in listed:
+        assert BUILTIN_OPERATORS.resolve(entry["id"], entry["stage"]).id == entry["id"]
+    with pytest.raises(OperatorUnknown):
+        BUILTIN_OPERATORS.resolve("last_number@9", "extract")

@@ -32,6 +32,8 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import ModelParameterSource
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
+from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 
 if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotation needs the name
@@ -60,6 +62,7 @@ from screamingface_engine.rest import (
     benchmark_router,
     catalog_router,
     connection_router,
+    operator_router,
 )
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.mounts import install_mounts
@@ -83,6 +86,7 @@ _ROUTERS = (
     rest_router,
     artifact_router,
     benchmark_router,
+    operator_router,
     catalog_router,
     connection_router,
     ws_router,
@@ -114,6 +118,7 @@ def create_app(
     connections: Connections | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     span_sink: SpanSink | None = None,
+    operators: OperatorRegistry = BUILTIN_OPERATORS,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -142,7 +147,7 @@ def create_app(
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
     app.state.connections = connections
-    app.state.benchmarks = benchmarks
+    _install_catalogs(app, benchmarks, operators)
     app.state.metrics = build_metrics()
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
     # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
@@ -208,6 +213,17 @@ def _install_span_sink(app: FastAPI, sink: SpanSink | None) -> None:
             _logger.warning("the span sink did not shut down cleanly", exc_info=True)
 
     app.router.on_shutdown.append(_close)
+
+
+def _install_catalogs(
+    app: FastAPI, benchmarks: BenchmarkRegistry, operators: OperatorRegistry
+) -> None:
+    """Hold the two immutable catalogs the discovery routes read: Benchmarks and combine operators.
+
+    WHY a helper: `create_app` sits at the statement limit, and each catalog is one more DI seam.
+    """
+    app.state.benchmarks = benchmarks
+    app.state.operators = operators
 
 
 def _install_middleware(app: FastAPI, settings: Settings) -> None:
