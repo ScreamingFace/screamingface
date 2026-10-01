@@ -53,7 +53,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # WHY type-only: import_replay imports this module, so a runtime import would cycle.
+    from screamingface_engine_inspect.import_replay import TaskReplayImport
 
 #: Dataset licenses cleared for the public catalogue. An unlisted license still
 #: emits rows, with a WARNING — the generated pins comment carries the license so
@@ -1534,8 +1538,15 @@ def main(
     *,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     count_rows: Callable[[InspectTaskFacts, str], int] | None = None,
+    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport]
+    | None = None,
 ) -> int:
-    """Stage 1 → 2 → 3, then tell the dev to review the diff."""
+    """Stage 1 → 2 → 3, then tell the dev to review the diff.
+
+    An eval whose fetch the Hugging Face reader cannot see (a TaskReplayRoute), or any eval
+    under ``--task-replay``, is imported by Task replay instead (OME-1273, spec R1, D12).
+    ``import_by_task_replay`` is injectable for tests, like ``dataset_info``.
+    """
 
     parser = argparse.ArgumentParser(
         prog="python -m screamingface_engine_inspect.importer",
@@ -1569,10 +1580,23 @@ def main(
         default=Path(__file__).resolve().parent,
         help="directory holding pins.py/prepare.py/benchmarks.py (default: this package)",
     )
+    parser.add_argument(
+        "--task-replay",
+        action="store_true",
+        help="skip the Hugging Face reader and import by Task replay: call the task function "
+        "in a clean child, twice, and seal its Cases with a Case Digest (OME-1273)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        facts: InspectTaskFacts = read_inspect_task(args.task_ref, _parse_task_args(args.task_arg))
+        facts: InspectTaskFacts | None = (
+            None
+            if args.task_replay
+            else _read_or_route(args.task_ref, _parse_task_args(args.task_arg))
+        )
+        if facts is None:
+            _import_by_task_replay_cli(args, dataset_info, import_by_task_replay)
+            return 0
         # WHY: shuffle=True without a seed means the upstream order is random per
         # run — the import must pin ONE order. An explicit --shuffle-seed (policy)
         # wins; otherwise the eval's own seed is pinned AS EXAM IDENTITY.
@@ -1616,6 +1640,65 @@ def main(
         "every TODO(review), then run the gates — a human must review the diff before merge."
     )
     return 0
+
+
+def _read_or_route(task_ref: str, task_args: Mapping[str, Any]) -> InspectTaskFacts | None:
+    """The Hugging Face reader's facts, or None when it routes the eval to Task replay (R1)."""
+
+    try:
+        return read_inspect_task(task_ref, task_args)
+    except TaskReplayRoute as route:
+        print(f"NOTE: {route} — importing by Task replay", file=sys.stderr)
+        return None
+
+
+def _import_by_task_replay_cli(
+    args: argparse.Namespace,
+    dataset_info: Callable[[str, str | None], Any] | None,
+    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport] | None,
+) -> None:
+    """The CLI's Task-replay path: two replays, the card license, the two rows (OME-1273).
+
+    Stages: (1) import_by_task_replay seals the Cases (both replays run here; refusals are
+    ImporterErrors); (2) the one Hugging Face card, if any, gives a cleared license or TODO
+    (D13); (3) the declaration and the BenchmarkSpec row are written; (4) stderr lists each
+    Case Source so the importing agent can check them against the eval's loader.
+    """
+
+    # WHY lazy: task_replay_rows and import_replay import this module.
+    from screamingface_engine_inspect.import_replay import (
+        import_by_task_replay as replay_both_times,
+    )
+    from screamingface_engine_inspect.task_replay_rows import (
+        CardLicense,
+        card_license_of,
+        write_task_replay_rows,
+    )
+
+    imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
+        args.task_ref, _parse_task_args(args.task_arg)
+    )
+    card: CardLicense = card_license_of(
+        imported.case_sources, dataset_info=dataset_info or _hub_dataset_info
+    )
+    write_task_replay_rows(
+        args.key,
+        imported,
+        engine_src=args.engine_src,
+        license=card.value,
+        card_license=card.card_says,
+    )
+    sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
+    print(
+        f"Task-replay rows for {args.key!r} written into {args.engine_src} — "
+        f"{imported.declaration.case_count} Cases, Case Digest "
+        f"{imported.declaration.case_digest[:12]}…, license {card.value}. Case Sources:\n"
+        f"{sources}\n"
+        "Onboarding is AI-first: agent, check each Case Source against the eval's loader, "
+        "fill the TODO catalogue prose and resolve every TODO(review), then run the gates — "
+        "a human decides the license and reviews the diff before merge.",
+        file=sys.stderr,
+    )
 
 
 def _resolved_choice_shuffle_seed(
