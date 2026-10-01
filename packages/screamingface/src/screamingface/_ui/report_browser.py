@@ -1,4 +1,4 @@
-"""Live notebook Case browsing; only a page and one detail enter widget state."""
+"""Live notebook Case browsing; only the current page enters widget state."""
 
 from __future__ import annotations
 

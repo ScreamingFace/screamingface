@@ -685,7 +685,7 @@ def cases_page_html(report: Report, entries: list, *, preview: bool = False) -> 
 
 
 def bounded_pane(candidate: CandidateResult, case: CaseResult, cost_html: str) -> str:
-    """Large individual Cases are read through the widget's paged full-content view."""
+    """Bound static previews; full result content remains available in JSON export."""
     encoded = json.JSONEncoder(ensure_ascii=False).iterencode(case.to_dict())
     size = 0
     for chunk in encoded:
