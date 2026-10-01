@@ -2329,3 +2329,88 @@ def test_read_inspect_task_flags_an_evals_own_metrics_for_review(
             "sums", _facts(), HubDatasetFacts(revision="c" * 40, case_count=3, license="mit")
         ).benchmark
     )
+
+
+# ── OME-1273: the four refusals that route to Task replay (spec R1) ─────────────
+
+from inspect_ai.dataset import MemoryDataset  # noqa: E402
+
+from screamingface_engine_inspect.importer import TaskReplayRoute  # noqa: E402
+
+
+def test_a_module_with_no_hf_dataset_binding_routes_to_task_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _install_fake_eval(monkeypatch, sums=_free_text_task)
+    del module.hf_dataset  # type: ignore[attr-defined]
+
+    with pytest.raises(TaskReplayRoute, match="no hf_dataset binding"):
+        read_inspect_task(f"{_FAKE_MODULE}:sums")
+
+
+def test_a_task_that_never_calls_hf_dataset_routes_to_task_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def from_memory() -> Task:
+        return Task(dataset=MemoryDataset([Sample(input="x", target="y")]), scorer=match())
+
+    _install_fake_eval(monkeypatch, from_memory=from_memory)
+
+    with pytest.raises(TaskReplayRoute, match="never called hf_dataset"):
+        read_inspect_task(f"{_FAKE_MODULE}:from_memory")
+
+
+def test_several_calls_none_the_tasks_dataset_route_to_task_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def two_loads_neither_held() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        for split in ("train", "test"):
+            module.hf_dataset(path="acme/sums", split=split, sample_fields=module.record_to_sample)
+        return Task(dataset=MemoryDataset([Sample(input="x", target="y")]), scorer=match())
+
+    _install_fake_eval(monkeypatch, two=two_loads_neither_held)
+
+    with pytest.raises(TaskReplayRoute, match="none is the Task's dataset"):
+        read_inspect_task(f"{_FAKE_MODULE}:two")
+
+
+def test_a_task_local_record_to_sample_routes_to_task_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def local_converter() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+
+        def record_to_sample(row: dict[str, Any]) -> Sample:
+            return Sample(input=str(row["q"]), target=str(row["a"]))
+
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=record_to_sample
+            ),
+            scorer=match(),
+        )
+
+    _install_fake_eval(monkeypatch, local=local_converter)
+
+    with pytest.raises(TaskReplayRoute, match="task-local"):
+        read_inspect_task(f"{_FAKE_MODULE}:local")
+
+
+def test_every_other_refusal_stays_a_plain_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spec R1: only the four 'can't see the fetch' refusals route; a real mismatch never does."""
+
+    def two_scorers() -> Task:
+        module = sys.modules[_FAKE_MODULE]
+        return Task(
+            dataset=module.hf_dataset(
+                path="acme/sums", split="test", sample_fields=module.record_to_sample
+            ),
+            scorer=[match(), choice()],
+        )
+
+    _install_fake_eval(monkeypatch, two_scorers=two_scorers)
+
+    with pytest.raises(ImporterError, match="exactly one scorer") as caught:
+        read_inspect_task(f"{_FAKE_MODULE}:two_scorers")
+    assert not isinstance(caught.value, TaskReplayRoute)
