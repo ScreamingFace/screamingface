@@ -722,8 +722,8 @@ export interface paths {
          * @description List, for the signed-in caller, each registered provider and whether it can be used.
          *
          *     `status` is one of `not_connected`, `pending`, `connected`, `needs_reauth` or `error`; a row
-         *     carries nothing else. The listing is private to the caller and never cached. The `X-Profile`
-         *     header is ignored: the listing is per caller, not per selection.
+         *     carries nothing else. The listing is private to the caller and never cached. Nonblank
+         *     `X-Profile` headers are rejected: the listing is per caller, not per selection.
          */
         get: operations["list_provider_access_v1_provider_access_get"];
         put?: never;
