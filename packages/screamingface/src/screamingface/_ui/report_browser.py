@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 from uuid import uuid4
 
+from screamingface._results.accounting import saved_accounting_context
 from screamingface._ui.report_files import download_link
 from screamingface._ui.report_view import cases_page_html, report_html
 from screamingface._ui.style import NO_MATH_CLASSES
-from screamingface.accounting import _accounting_context
 from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
@@ -122,7 +122,7 @@ class ReportBrowser:
     def _assemble(self) -> None:
         w = self.w
         self._accounting_contexts = {
-            id(owner): _accounting_context(owner) for owner in self.entries.owners
+            id(owner): saved_accounting_context(owner) for owner in self.entries.owners
         }
         self.exports = w.HTML(value=self._snapshot_link())
         self.export = w.Button(description="Download")

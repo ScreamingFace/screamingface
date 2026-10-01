@@ -137,7 +137,7 @@ def _candidate_result(
             evaluation,
             candidate,
         )
-        return CandidateResult(
+        result = CandidateResult(
             benchmark=evaluation.benchmark,
             run_id=outcome.run_id,
             # OME-1121: carried across the boundary verbatim. The transport stamped the id
@@ -183,6 +183,11 @@ def _candidate_result(
             # archive sum, and never the two added (OME-1251 D3).
             cache_saved_cost_usd=outcome.cache_saved_cost_usd,
         )
+        if result.cases._disk_path is not None:
+            from screamingface._results.accounting import saved_accounting_context
+
+            saved_accounting_context(result)
+        return result
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
 

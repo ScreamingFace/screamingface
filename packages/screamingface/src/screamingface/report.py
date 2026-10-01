@@ -179,6 +179,28 @@ class _CaseResults(Sequence[CaseResult]):
                 if query in json.dumps(case.to_dict(), ensure_ascii=False).casefold():
                     yield index
 
+    @property
+    def _disk_path(self) -> Path | None:
+        from screamingface._results.cases import DiskCases
+
+        return self._items.path if isinstance(self._items, DiskCases) else None
+
+    def _gradeable_count(self) -> int:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases) and self._items.gradeable is not None:
+            return self._items.gradeable
+        return sum(case.grade is not None and case.grade.score is not None for case in self._items)
+
+    def _failures(self) -> Iterator[Failure]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.failures()
+        else:
+            for case in self._items:
+                yield from case.failures
+
     def by_id(self, case_id: CaseId) -> CaseResult:
         """Return the Case with this domain ID without treating integers as positions."""
 
@@ -610,8 +632,7 @@ def _candidate_failures(candidate: CandidateResult) -> Iterator[Failure]:
     for member in candidate.members:
         if member.failures is not None:
             yield from member.failures
-    for case in candidate.cases:
-        yield from case.failures
+    yield from candidate.cases._failures()
 
 
 def _failures(values: Sequence[Failure], label: str) -> tuple[Failure, ...]:
@@ -810,7 +831,11 @@ def _validate_candidate_outcome(
 ) -> None:
     """Independently enforce the Engine's Candidate Result wire invariants."""
 
-    gradeable = sum(case.grade is not None and case.grade.score is not None for case in cases)
+    gradeable = (
+        cases._gradeable_count()
+        if isinstance(cases, _CaseResults)
+        else sum(case.grade is not None and case.grade.score is not None for case in cases)
+    )
     expected_coverage = round(gradeable / len(cases), 4)
     if coverage != expected_coverage:
         raise ValueError(

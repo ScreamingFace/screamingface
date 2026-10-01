@@ -48,3 +48,13 @@ browser into a compact context, then only displayed cases are read for page cost
 Search scans the existing disk JSON index without constructing CaseResult objects,
 and candidate-name matches require only positions. No duplicate full-text index is
 created; full-content queries still read the saved content.
+
+Compact accounting context is persisted as a versioned, checksummed, atomic derived
+cache beside the immutable case index. Its identity includes index size/mtime and
+all candidate inputs used by accounting. Missing, stale, damaged or unwritable
+caches retain the original derived accounting behavior; they never replace raw
+accounting evidence or enter exported report.v1. Saved report collection builds
+the context; browser rendering reuses it. Index creation also retains validated
+numeric-grade counts and compact case failure rows. Existing indices are upgraded
+transactionally, with a read-only fallback. Coverage invariants and diagnostic
+details remain unchanged.
