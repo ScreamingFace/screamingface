@@ -4,6 +4,9 @@ Sibling of :mod:`screamingface_engine.model_outcomes`, and split from it deliber
 outcome is status telemetry every scope wants, while a call's output text is
 payload that only the Candidate invocation boundary may retain — so the two
 recorders stay independently scoped.
+
+Combine steps (OME-1289 E4a) are recorded too, by :func:`record_combine_call`: not a provider
+round trip, but one per-operation record that carries its :class:`CombineEvidence`.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from screamingface_engine.combine.evidence import CombineEvidence
 from screamingface_engine.operation_accounting import OperationAccounting
 from screamingface_engine.request_identity import ModelRequestKey, model_request_key
 
@@ -31,6 +35,7 @@ class OperationCall:
     output: str
     finish_reason: str | None
     accounting: OperationAccounting | None
+    combine: CombineEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +169,33 @@ def record_operation_call(
             recorder.append(request_accounting)
 
 
+def record_combine_call(
+    path: str,
+    params: Mapping[str, str],
+    output: str,
+    evidence: CombineEvidence,
+) -> None:
+    """Publish one combine step to every active capture scope.
+
+    WHY no identity and no run ledger: a combine step is not a provider round trip, so it has
+    no request key and no accounting; it only joins the Candidate's per-operation record.
+    """
+
+    recorders = _recorders.get()
+    if not recorders:
+        return
+    call = OperationCall(
+        path=path,
+        params=tuple(sorted(params.items())),
+        output=output,
+        finish_reason="stop",
+        accounting=None,
+        combine=evidence,
+    )
+    for recorder in recorders:
+        recorder.append(call)
+
+
 def current_model_request_key() -> ModelRequestKey | None:
     """The exact authored request being executed, when run capture is enabled."""
     identity = _identity.get()
@@ -185,6 +217,7 @@ __all__ = [
     "current_request_accounting",
     "current_model_request_key",
     "operation_call_identity",
+    "record_combine_call",
     "record_operation_call",
     "suspend_request_accounting",
 ]
