@@ -34,6 +34,42 @@ def _open_private(path: Path) -> TextIO:
     return stream
 
 
+def _backup_paths(path: Path) -> tuple[Path, ...]:
+    """The rotated backups that exist beside ``path``, oldest first."""
+    return tuple(
+        candidate
+        for index in range(LOG_BACKUPS, 0, -1)
+        if (candidate := path.with_name(f"{path.name}.{index}")).exists()
+    )
+
+
+def _tighten_backups(path: Path) -> None:
+    # WHY (OME-1048): `_rotate` RENAMES backups, it never reopens them — so a backup written
+    # 0644 by the pre-OME-990 code kept that mode until five more 10 MiB rotations pushed it
+    # out. Tightening on every start is unconditional and chmod-only: deleting history on
+    # start would destroy logs a user may want for debugging (`logs --purge` is the opt-in).
+    for backup in _backup_paths(path):
+        backup.chmod(0o600)
+
+
+def purge_runtime_log(path: Path) -> int:
+    """Remove every rotated backup and empty the live log; return how many files were purged.
+
+    WHY truncate the live log instead of unlinking it (OME-1048): a running stack holds it
+    open for append, so an unlinked file would keep receiving lines nobody can read and
+    `screamingface logs` would go blind until the next restart. An O_APPEND writer keeps
+    appending at the new end of a truncated file.
+    """
+    backups = _backup_paths(path)
+    for backup in backups:
+        backup.unlink(missing_ok=True)
+    if not path.exists():
+        return len(backups)
+    with _open_private(path) as live:
+        live.truncate(0)
+    return len(backups) + 1
+
+
 @contextlib.contextmanager
 def log_service(name: str) -> Iterator[None]:
     token = _service.set(name)
@@ -51,6 +87,8 @@ class RuntimeLog(io.TextIOBase):
         self._buffer = ""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._stream = _open_private(path)
+        # INVARIANT (OME-1048): after any start, every file `screamingface logs` reads is 0600.
+        _tighten_backups(path)
 
     def write(self, value: str) -> int:
         with self._lock:
