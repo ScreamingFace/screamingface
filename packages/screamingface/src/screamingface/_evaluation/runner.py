@@ -36,7 +36,11 @@ from screamingface._evaluation.model import (
     _with_answer_seed,
     _with_capture,
 )
-from screamingface._evaluation.model_parameters import preflight_async, preflight_sync
+from screamingface._evaluation.model_parameters import (
+    _SEED_PARAM,
+    preflight_async,
+    preflight_sync,
+)
 from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface._evaluation.outcome import (
     _CandidatesFailed,
@@ -66,9 +70,8 @@ type _SyncOperatorLoading = Callable[[], _OperatorCatalog]
 type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
 
 _MAX_CANDIDATES_IN_FLIGHT = 8
+_NAMED_CALLS = 3
 _logger = logging.getLogger(__name__)
-_SEED_PARAM = "seed"
-"""The sampling seed's wire name, the key a call uses to state its own seed."""
 
 
 def evaluate_sync(
@@ -104,7 +107,7 @@ def evaluate_sync(
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
     # observer and the report all see the same objects.
     selected_candidates = _captured_candidates(
-        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+        _seeded_candidates_warning_fixed_seeds(tuple(evaluation.candidates), answer_seed), capture
     )
     catalog = load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
@@ -170,7 +173,7 @@ async def evaluate_async(
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
     selected_candidates = _captured_candidates(
-        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+        _seeded_candidates_warning_fixed_seeds(tuple(evaluation.candidates), answer_seed), capture
     )
     catalog = await load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
@@ -575,18 +578,19 @@ def _observe_progress(observer: Callable[..., object], *values: object) -> None:
         _logger.exception("ScreamingFace progress rendering failed")
 
 
-def _seeded_candidates(
+def _seeded_candidates_warning_fixed_seeds(
     candidates: tuple[Candidate, ...],
     answer_seed: int | None,
 ) -> tuple[Candidate, ...]:
     """Stamp the run's declared sitting onto each compiled Candidate — identity when None.
 
-    Also the one place that warns about own-seed calls (U1): it runs once per evaluation, after
-    compile and before any model-details lookup or submit.
+    Side effect (U1): also warns about own-seed calls, once per evaluation, after compile and
+    before any model-details lookup or submit. The name says so because the caller reads as a
+    pure stamp, and the two evaluate functions are at ruff's statement limit.
     """
     if answer_seed is None:
         return candidates
-    _warn_fixed_seed_sittings(candidates, answer_seed)
+    _warn_fixed_seed_sittings(candidates)
     return tuple(_with_answer_seed(candidate, answer_seed) for candidate in candidates)
 
 
@@ -603,32 +607,47 @@ def _captured_candidates(
     return tuple(_with_capture(candidate) for candidate in candidates)
 
 
-def _warn_fixed_seed_sittings(candidates: tuple[Candidate, ...], answer_seed: int) -> None:
+def _warn_fixed_seed_sittings(candidates: tuple[Candidate, ...]) -> None:
     """Warn once per Candidate whose own-seed calls ignore the run seed (never a refusal).
 
     WHY: the Engine lets a call that sets its own ``seed`` keep it and applies the run's seed only
     to calls without one, so those calls send the same request in every sitting (OME-1038) and a
-    mean and CI across sittings looks tighter than the model really is.
+    mean and CI across sittings looks tighter than the model really is. INVARIANT: the text holds
+    no run seed value, because Python shows a warning once per text and line, and a text that
+    changed with the sitting would repeat in every sitting.
     """
     for candidate in candidates:
-        if operation_ids := _own_seed_operation_ids(candidate):
+        if calls := _own_seed_calls(candidate):
             warnings.warn(
-                f"Candidate {candidate.name!r}: the run seed is {answer_seed}, but operations "
-                f"{', '.join(operation_ids)} set their own seed, so they send the same request in "
-                "every sitting and the spread across sittings is not measured. Drop the explicit "
-                "seed, or vary seeds= per sitting.",
+                f"Candidate {candidate.name!r}: a run seed is set, but {_calls_phrase(calls)}. "
+                "These calls send the same request in every sitting, so the spread across "
+                "sittings is not measured. If you already pass different seeds= in each "
+                "sitting, this is expected: silence it with "
+                'warnings.filterwarnings("ignore", category=sf.FixedSeedSittingWarning). '
+                "Otherwise drop the explicit seed.",
                 FixedSeedSittingWarning,
                 skip_file_prefixes=(SDK_PACKAGE_ROOT,),
             )
 
 
-def _own_seed_operation_ids(candidate: Candidate) -> tuple[str, ...]:
-    """Operation ids of the compiled model calls whose resolved params carry a ``seed``."""
+def _own_seed_calls(candidate: Candidate) -> tuple[str, ...]:
+    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``."""
+    labels = {operation.id: operation.label for operation in candidate.operations}
     return tuple(
-        assignment.operation_id
+        f"{assignment.operation_id} ({labels[assignment.operation_id]})"
         for assignment in candidate.parameter_assignments
         if _SEED_PARAM in assignment.params
     )
+
+
+def _calls_phrase(calls: tuple[str, ...]) -> str:
+    """Name the calls with the right number; a long list keeps its first few and a count."""
+    shown = ", ".join(calls[:_NAMED_CALLS])
+    if len(calls) > _NAMED_CALLS:
+        shown += f", and {len(calls) - _NAMED_CALLS} more"
+    if len(calls) == 1:
+        return f"1 call sets its own seed: {shown}"
+    return f"{len(calls)} calls set their own seed: {shown}"
 
 
 def _run_candidates_sync(

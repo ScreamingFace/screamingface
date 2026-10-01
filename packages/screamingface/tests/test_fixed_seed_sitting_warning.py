@@ -19,11 +19,10 @@ import httpx
 import pytest
 from _model_parameter_fixtures import DETAILS as _DETAILS
 from _model_parameter_fixtures import SUMMARY as _SUMMARY
-from _reducer_fixtures import FixtureVote, fixture_operators, operators_response
+from _reducer_fixtures import FixtureVote, operators_response
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
-from screamingface._evaluation.candidate import compile_candidate
 
 _BENCHMARK_URL4 = render(
     expr(
@@ -43,9 +42,18 @@ _BENCHMARK = {
     "revision": "fixture-revision",
     "case_count": 1,
     "url4": _BENCHMARK_URL4,
+    # WHY: the corrective recipes need a benchmark that advertises a check route.
+    "check_surface": {
+        "check_route": "/benchmarks/fixture/fixture-revision/check-surface",
+        "feedback_intent": "feedback",
+        "expected_check_cost": "free",
+    },
 }
 
 _MODEL = "provider/opus"
+_OTHER = "provider/other"
+_JUDGE = "provider/judge"
+_ROUTES = (_MODEL, _OTHER, _JUDGE)
 _SEED_ROW = {
     "request_path": "seed",
     "schema": {"type": "integer"},
@@ -64,12 +72,21 @@ _SEED_ROW = {
 }
 
 
-def _details() -> dict[str, object]:
+def _details(model: str) -> dict[str, object]:
     value: dict[str, Any] = copy.deepcopy(_DETAILS)
-    provider, upstream = _MODEL.split("/", 1)
-    value["model"] = {"id": _MODEL, "gateway_provider": provider, "upstream_id": upstream}
+    provider, upstream = model.split("/", 1)
+    value["model"] = {"id": model, "gateway_provider": provider, "upstream_id": upstream}
     value["parameters"]["seed"] = _SEED_ROW
     return value
+
+
+def _summary(model: str) -> dict[str, object]:
+    return {
+        **_SUMMARY,
+        "id": model,
+        "owned_by": model.split("/", 1)[0],
+        "parameter_contract_url": f"/v1/model-parameters?model={model}",
+    }
 
 
 def _handler(request: httpx.Request) -> httpx.Response:
@@ -79,11 +96,10 @@ def _handler(request: httpx.Request) -> httpx.Response:
     elif request.url.path == "/v1/operators":
         response = operators_response()
     elif request.url.path == "/v1/models":
-        summary = {**_SUMMARY, "id": _MODEL, "owned_by": "provider"}
-        summary["parameter_contract_url"] = f"/v1/model-parameters?model={_MODEL}"
-        response = httpx.Response(200, json={"object": "list", "data": [summary]})
+        data = [_summary(model) for model in _ROUTES]
+        response = httpx.Response(200, json={"object": "list", "data": data})
     elif request.url.path == "/v1/model-parameters":
-        response = httpx.Response(200, json=_details())
+        response = httpx.Response(200, json=_details(request.url.params["model"]))
     return response
 
 
@@ -129,11 +145,6 @@ def _unseeded_fusion() -> sf.Recipe:
     )
 
 
-def _seeded_operation_ids(recipe: sf.Recipe) -> list[str]:
-    compiled = compile_candidate(recipe, operators=fixture_operators())
-    return [item.operation_id for item in compiled.parameter_assignments if "seed" in item.params]
-
-
 def _sync_client() -> tuple[sf.Client, _ReachedTransport]:
     transport = _ReachedTransport()
     client = sf.Client(
@@ -168,29 +179,34 @@ def _run_sync(
 
 
 def test_samples_with_a_run_seed_warn_once_naming_the_seeded_operations() -> None:
-    recipe = _samples_fusion()
-
-    fixed, transport = _run_sync(recipe, answer_seed=7)
+    fixed, transport = _run_sync(_samples_fusion(), answer_seed=7)
 
     assert len(fixed) == 1
     message = str(fixed[0].message)
-    assert "7" in message
-    operation_ids = _seeded_operation_ids(recipe)
-    assert len(operation_ids) == 3
-    for operation_id in operation_ids:
-        assert operation_id in message
-    assert "same request in every sitting" in message
-    assert "seeds=" in message
+    assert "a run seed is set, but 3 calls set their own seed: " in message
+    assert "op_model_1 (opus answer), op_model_2 (opus answer), op_model_3 (opus answer)" in message
+    assert "send the same request in every sitting" in message
+    assert "the spread across sittings is not measured" in message
+    assert "If you already pass different seeds= in each sitting, this is expected" in message
+    assert 'warnings.filterwarnings("ignore", category=sf.FixedSeedSittingWarning)' in message
     assert isinstance(fixed[0].message, sf.EvaluationWarning)
     assert fixed[0].filename == __file__
     # WHY: a warning, not a refusal; the run reached the transport.
     assert transport.called is True
 
 
+def test_the_text_does_not_hold_the_run_seed_so_python_shows_it_once_per_line() -> None:
+    first, _ = _run_sync(_samples_fusion(), answer_seed=7)
+    second, _ = _run_sync(_samples_fusion(), answer_seed=8)
+
+    assert str(first[0].message) == str(second[0].message)
+
+
 def test_a_plain_model_with_its_own_seed_warns() -> None:
     fixed, transport = _run_sync(sf.Model(_MODEL, params={"seed": 7}), answer_seed=7)
 
     assert len(fixed) == 1
+    assert "1 call sets its own seed: op_model_1 (opus answer)." in str(fixed[0].message)
     assert transport.called is True
 
 
@@ -222,6 +238,53 @@ def test_one_warning_for_each_candidate_that_has_a_seeded_call() -> None:
     assert all("'plain'" not in str(w.message) for w in fixed)
 
 
+def test_a_run_seed_of_zero_still_warns() -> None:
+    fixed, _transport = _run_sync(sf.Model(_MODEL, params={"seed": 7}), answer_seed=0)
+
+    assert len(fixed) == 1
+
+
+def test_a_seeded_model_synthesizer_with_unseeded_members_warns() -> None:
+    recipe = sf.Fusion([_MODEL, _OTHER], synthesizer=sf.Model(_JUDGE, params={"seed": 3}))
+
+    fixed, _transport = _run_sync(recipe, answer_seed=7)
+
+    assert len(fixed) == 1
+    assert "1 call sets its own seed: op_synthesis_1 (" in str(fixed[0].message)
+
+
+def test_a_seeded_stage_of_a_pipeline_warns() -> None:
+    recipe = sf.Pipeline([sf.Model(_MODEL), sf.Model(_OTHER, params={"seed": 1})])
+
+    fixed, _transport = _run_sync(recipe, answer_seed=7)
+
+    assert len(fixed) == 1
+    assert "1 call sets its own seed: op_model_2 (other answer)." in str(fixed[0].message)
+
+
+def test_a_seeded_member_of_a_corrective_loop_warns_for_every_round() -> None:
+    recipe = sf.CorrectiveLoop([sf.Model(_MODEL, params={"seed": 1}), _OTHER], judge=_JUDGE)
+
+    fixed, _transport = _run_sync(recipe, answer_seed=7)
+
+    assert len(fixed) == 1
+    assert "3 calls set their own seed: op_model_1 (opus answer), op_model_5 (" in str(
+        fixed[0].message
+    )
+
+
+def test_a_long_list_of_seeded_calls_keeps_the_first_few_and_a_count() -> None:
+    recipe = sf.SelfCorrective(sf.Model(_MODEL, params={"seed": 1}))
+
+    fixed, _transport = _run_sync(recipe, answer_seed=7)
+
+    assert len(fixed) == 1
+    message = str(fixed[0].message)
+    assert "5 calls set their own seed: op_model_1 (opus answer), op_model_2 (" in message
+    assert ", and 2 more." in message
+    assert "op_model_5" not in message
+
+
 @pytest.mark.asyncio
 async def test_async_samples_with_a_run_seed_warn_once() -> None:
     recipe = _samples_fusion()
@@ -235,8 +298,7 @@ async def test_async_samples_with_a_run_seed_warn_once() -> None:
 
     fixed = [w for w in recorded if issubclass(w.category, sf.FixedSeedSittingWarning)]
     assert len(fixed) == 1
-    for operation_id in _seeded_operation_ids(recipe):
-        assert operation_id in str(fixed[0].message)
+    assert "op_model_1 (opus answer), op_model_2 (opus answer), op_model_3" in str(fixed[0].message)
     assert fixed[0].filename == __file__
     assert transport.called is True
 
