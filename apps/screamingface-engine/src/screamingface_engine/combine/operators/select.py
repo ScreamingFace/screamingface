@@ -13,11 +13,13 @@ AIDEV-NOTE: ``tie`` for ``nearest@1`` means two or more different values at the 
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation, localcontext
+import re
+from decimal import Decimal, localcontext
 
 from screamingface_engine.combine.ports import (
     DECIMAL_CONTEXT,
     CombineInput,
+    MemberReading,
     OpArgs,
     OperatorDescriptor,
     Reduction,
@@ -27,6 +29,9 @@ from screamingface_engine.combine.ports import (
     canonical_decimal,
 )
 
+# WHY only this form: it is what numeric@1 writes (see reduce.py `_CANONICAL_NUMBER`).
+_CANONICAL_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+
 
 def _rows(reduction: Reduction, op_id: str) -> tuple[TallyRow, ...]:
     if not reduction.tally:
@@ -34,9 +39,11 @@ def _rows(reduction: Reduction, op_id: str) -> tuple[TallyRow, ...]:
     return reduction.tally
 
 
-def _tie_and_agreement(rows: tuple[TallyRow, ...]) -> tuple[bool, float]:
+def _tie_and_agreement(rows: tuple[TallyRow, ...], op_id: str) -> tuple[bool, float]:
     with localcontext(DECIMAL_CONTEXT):
         total = sum((row.score for row in rows), Decimal(0))
+        if total == 0:
+            raise SpecInvalid(f"{op_id} needs a tally with a positive total")
         agreement = float(rows[0].score / total)
     return len(rows) > 1 and rows[1].score == rows[0].score, agreement
 
@@ -44,7 +51,7 @@ def _tie_and_agreement(rows: tuple[TallyRow, ...]) -> tuple[bool, float]:
 def first_holder(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
     """First member, in author order, holding the winning value."""
     rows = _rows(reduction, "first_holder@1")
-    tie, agreement = _tie_and_agreement(rows)
+    tie, agreement = _tie_and_agreement(rows, "first_holder@1")
     return Selection(chosen=(rows[0].holders[0],), tie=tie, agreement=agreement)
 
 
@@ -61,15 +68,18 @@ def max_weight_holder(
     if not all(member in weights for member in rows[0].holders):
         raise SpecInvalid("max_weight_holder@1 needs weights")
     heaviest = max(rows[0].holders, key=lambda member: weights[member])
-    tie, agreement = _tie_and_agreement(rows)
+    tie, agreement = _tie_and_agreement(rows, "max_weight_holder@1")
     return Selection(chosen=(heaviest,), tie=tie, agreement=agreement)
 
 
+def _number(reading: MemberReading) -> Decimal:
+    if reading.value is None or _CANONICAL_NUMBER.fullmatch(reading.value) is None:
+        raise SpecInvalid("nearest@1 needs numeric values")
+    return Decimal(reading.value)
+
+
 def _numbers(combine_input: CombineInput) -> list[tuple[str, Decimal]]:
-    try:
-        return [(reading.member, Decimal(reading.value or "")) for reading in combine_input.voters]
-    except InvalidOperation as exc:
-        raise SpecInvalid("nearest@1 needs numeric values") from exc
+    return [(reading.member, _number(reading)) for reading in combine_input.voters]
 
 
 def _median(reduction: Reduction, op_id: str) -> Decimal:

@@ -12,8 +12,9 @@ INVARIANT: each operator is pure; all Decimal arithmetic runs in ``DECIMAL_CONTE
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Decimal, localcontext
 
 from screamingface_engine.combine.ports import (
     DECIMAL_CONTEXT,
@@ -25,6 +26,10 @@ from screamingface_engine.combine.ports import (
     SpecInvalid,
     TallyRow,
 )
+
+# WHY only this form: it is what numeric@1 writes, and it keeps Decimal() from ever seeing NaN,
+# an exponent like 1E+999999999 (which overflows the mean), or a non-ASCII digit.
+_CANONICAL_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 
 
 def _value(reading: MemberReading, op_id: str) -> str:
@@ -62,20 +67,13 @@ def _weight(reading: MemberReading) -> Decimal:
 
 def weighted_mode(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """The member's weight per vote."""
-    voters = combine_input.voters
-    for reading in voters:
-        _weight(reading)
-    return _tally(voters, "weighted_mode@1", _weight)
+    return _tally(combine_input.voters, "weighted_mode@1", _weight)
 
 
 def _decimal(reading: MemberReading) -> Decimal:
-    try:
-        number = Decimal(_value(reading, "median@1"))
-    except InvalidOperation as exc:
-        raise SpecInvalid("median@1 needs numeric values") from exc
-    if not number.is_finite():
+    if reading.value is None or _CANONICAL_NUMBER.fullmatch(reading.value) is None:
         raise SpecInvalid("median@1 needs numeric values")
-    return number
+    return Decimal(reading.value)
 
 
 def median(combine_input: CombineInput, args: OpArgs, /) -> Reduction:

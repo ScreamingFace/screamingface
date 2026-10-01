@@ -24,8 +24,8 @@ from screamingface_engine.combine.ports import (
     rejected,
 )
 
-_UNICODE_MINUS = "−"
-_CURRENCY = re.compile("[$\u20ac\u00a3]")
+_UNICODE_MINUS = "\u2212"
+_CURRENCY = re.compile(r"[$\u20ac\u00a3]")
 # AIDEV-NOTE: a 64-char cap and a 2-digit exponent keep the canonical form bounded (golden-pinned).
 _MAX_NUMERIC_CHARS = 64
 _GROUPED = re.compile(r"[-+]?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")

@@ -3,11 +3,12 @@
 FEATURE: a member's free text becomes one candidate answer, deterministically.
 STORY: as an author of a majority-vote Candidate, I choose how the answer is read from a reply.
 
-Mental model: a reader with a ruler. It looks only at a bounded stretch of text (the last 128
-characters ending at the last digit, 4096 characters after the last box), so a hostile 1 MiB reply
-costs the same as a short one.
+Mental model: a reader with a ruler. ``last_number`` and ``boxed`` look only at a bounded stretch
+of text (the last 128 characters ending at the last digit; 4096 characters after the last box), so
+a hostile 1 MiB reply costs them the same as a short one. The other three make one linear pass
+over the text at C speed (a strip, a ``json.loads`` or a ``rfind``).
 
-INVARIANT: each extractor is pure and O(n) at C speed; this module holds no mutable state.
+INVARIANT: each extractor is pure and O(n); this module holds no mutable state.
 WHY ASCII digits only: ``[0-9]``, never ``\\d``.
 AIDEV-NOTE: the scan limits are v1 behavior pinned by the golden fixtures. A change is a new
 ``@version``, never an edit.
@@ -16,6 +17,7 @@ AIDEV-NOTE: the scan limits are v1 behavior pinned by the golden fixtures. A cha
 from __future__ import annotations
 
 import re
+from types import MappingProxyType
 
 from screamingface_engine.combine.ports import (
     OpArgs,
@@ -30,7 +32,9 @@ from screamingface_engine.combine.ports import (
 
 _DIGITS = "0123456789"
 _LAST_NUMBER_WINDOW = 128
-_NUMBER = re.compile("[-−]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?")
+# WHY the whole comma run: grouping is judged by numeric@1, so `1,00,000` is one token (and not
+# 000) and `1,23` stays `1,23` (not_numeric) instead of silently reading as 23.
+_NUMBER = re.compile(r"[-\u2212]?[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?")
 _BOX_OPEN = "\\boxed{"
 _BOX_SCAN_CHARS = 4096
 _BOX_MAX_DEPTH = 8
@@ -38,9 +42,10 @@ _FENCE_OPEN = "```json"
 _FENCE_CLOSE = "```"
 # AIDEV-NOTE: a copy of url4's field-path grammar (dag/semantics/ensemble.py `_PATH`), extended
 # with a leading `[N]` segment; copied so a plugin keeps the "ports + stdlib" import rule.
-_SEGMENT = r"(?:[A-Za-z_][A-Za-z0-9_]*|\[(?:0|[1-9][0-9]*)\])"
-_PATH = re.compile(rf"{_SEGMENT}(?:\.[A-Za-z_][A-Za-z0-9_]*|\[(?:0|[1-9][0-9]*)\])*")
-_STEP = re.compile(r"\.?([A-Za-z_][A-Za-z0-9_]*)|\[(0|[1-9][0-9]*)\]")
+_KEY = r"[A-Za-z_][A-Za-z0-9_]*"
+_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
+_PATH = re.compile(rf"(?:{_KEY}|{_INDEX})(?:\.{_KEY}|{_INDEX})*")
+_STEP = re.compile(rf"\.?({_KEY})|\[(0|[1-9][0-9]*)\]")
 
 
 def _found(value: str) -> StageResult:
@@ -157,12 +162,16 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "extract",
         "One JSON field, read by a url4 field path.",
         json_field,
-        args_schema={
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
-            "additionalProperties": False,
-        },
+        # AIDEV-NOTE: the top level is read-only; the nested "properties" stays a plain dict because
+        # ports.catalog_entry deep-copies the schema and a mappingproxy cannot be deep-copied.
+        args_schema=MappingProxyType(
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ("path",),
+                "additionalProperties": False,
+            }
+        ),
         check_args=_check_json_field_args,
     ),
     OperatorDescriptor("last_line", 1, "extract", "Last non-empty line.", last_line),
