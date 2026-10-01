@@ -190,16 +190,26 @@ class ExecutableModelParameterSource:
         self,
         credential: Credential,
         model: str,
+        *,
+        traceparent: str | None = None,
     ) -> ModelParameterResponse:
+        # INVARIANT (OME-1134): every upstream call below — up to three on the heal path — is
+        # made for THIS request alone, so each carries its `traceparent`. Nothing here is
+        # coalesced, which is what makes forwarding the caller's trace honest.
+        #
         # `model` arrives as the caller wrote it — the same `~`-encoded id `GET /v1/models` just
         # advertised (OME-873). `self._model_ids` holds the REAL ids, and aigateway itself has
         # never heard of '~', so both the membership check and the forwarded call need the
         # decoded form; `ModelNotInstalled` echoes back what the caller actually sent.
         real_model = decode_route_id(model)
         if real_model in self._model_ids:
-            return await self._source.fetch_model_parameters(credential, real_model)
+            return await self._source.fetch_model_parameters(
+                credential, real_model, traceparent=traceparent
+            )
         if real_model in self._admitted:
-            response = await self._source.fetch_model_parameters(credential, real_model)
+            response = await self._source.fetch_model_parameters(
+                credential, real_model, traceparent=traceparent
+            )
             if response.status != 404:
                 return response
             # HEAL (review F1): a 404 for an OVERLAY id means the gateway restarted
@@ -208,18 +218,21 @@ class ExecutableModelParameterSource:
             # stale entry is dropped and admission decides afresh — bounded to one
             # retry: whatever the re-admitted fetch returns is the answer.
             self._admitted.discard(real_model)
-        return await self._admit_and_fetch(credential, model, real_model)
+        return await self._admit_and_fetch(credential, model, real_model, traceparent)
 
     async def _admit_and_fetch(
         self,
         credential: Credential,
         model: str,
         real_model: str,
+        traceparent: str | None,
     ) -> ModelParameterResponse:
         """Ask the gateway to admit ``real_model``, then forward on a grant."""
         if self._admission_source is None or not is_dynamically_admissible(real_model):
             raise ModelNotInstalled(model)
-        answer = await self._admission_source.admit_model(credential, real_model)
+        answer = await self._admission_source.admit_model(
+            credential, real_model, traceparent=traceparent
+        )
         if answer.outcome == "refused":
             return _refusal_response(model, answer.code, answer.message)
         if answer.outcome != "admitted":
@@ -229,7 +242,9 @@ class ExecutableModelParameterSource:
         self._admitted.add(real_model)
         if self._on_admitted is not None:
             self._on_admitted()
-        return await self._source.fetch_model_parameters(credential, real_model)
+        return await self._source.fetch_model_parameters(
+            credential, real_model, traceparent=traceparent
+        )
 
 
 __all__ = ["ExecutableCatalog", "ExecutableCatalogSource", "ExecutableModelParameterSource"]
