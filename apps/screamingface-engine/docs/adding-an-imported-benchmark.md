@@ -48,10 +48,16 @@ check:
     makes an eval not row-importable as-is). There is no silent drop: an eval that
     grades only at specific sampling settings either isn't imported, or ships
     without them as a NAMED DEVIATION (below).
-  - Every Sample has a non-empty text target. A judged eval whose rubric IS the target
-    (coconot, sosbench — the target is empty and the judge carries the whole rule)
-    fails the deterministic prepare today; the prepare step extension is an unfiled follow-up,
-    not a knob you can flip.
+  - A judged eval with no answer key (xstest, coconot — the target is empty and the
+    judge grades from the question, the reply and its own prompt) sets
+    `has_answer_key=False` on its cases row; the importer does not add it. Assembly
+    refuses it on a row with no judge, or whose judge template reads `{criterion}`.
+    If the template reads other Sample metadata (coconot's `{refusal}`), also set
+    `keep_sample_metadata=True`.
+  - A judge that answers in words rather than inspect's C/I/P/N letters (coconot's
+    UNACCEPTABLE / ACCEPTABLE / NEITHER) needs `verdict_grades` on the row: each word
+    → its grade, copied from the eval's own epoch reducer and pinned to it by a test.
+    Without it every Case fails as `invalid_score_value`.
 
 ## Step 1 — run the importer
 
