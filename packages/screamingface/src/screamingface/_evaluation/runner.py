@@ -618,16 +618,25 @@ def _warn_fixed_seed_sittings(candidates: tuple[Candidate, ...]) -> None:
     """
     for candidate in candidates:
         if calls := _own_seed_calls(candidate):
-            warnings.warn(
-                f"Candidate {candidate.name!r}: a run seed is set, but {_calls_phrase(calls)}. "
-                "These calls send the same request in every sitting, so the spread across "
-                "sittings is not measured. If you already pass different seeds= in each "
-                "sitting, this is expected: silence it with "
-                'warnings.filterwarnings("ignore", category=sf.FixedSeedSittingWarning). '
-                "Otherwise drop the explicit seed.",
-                FixedSeedSittingWarning,
-                skip_file_prefixes=(SDK_PACKAGE_ROOT,),
-            )
+            _warn_fixed_seed(candidate.name, calls)
+
+
+def _warn_fixed_seed(name: str, calls: tuple[str, ...]) -> None:
+    """Emit the one fixed-seed warning for ``calls`` of the Candidate ``name``.
+
+    Shared by the Recipe path and the raw URL4 replay (``_evaluation/url4.py``), so the text is
+    identical. ``skip_file_prefixes`` points the warning at the researcher's line.
+    """
+    warnings.warn(
+        f"Candidate {name!r}: a run seed is set, but {_calls_phrase(calls)}. "
+        "These calls send the same request in every sitting, so the spread across "
+        "sittings is not measured. If you already pass different seeds= in each "
+        "sitting, this is expected: silence it with "
+        'warnings.filterwarnings("ignore", category=sf.FixedSeedSittingWarning). '
+        "Otherwise drop the explicit seed.",
+        FixedSeedSittingWarning,
+        skip_file_prefixes=(SDK_PACKAGE_ROOT,),
+    )
 
 
 def _own_seed_calls(candidate: Candidate) -> tuple[str, ...]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from url4 import Expression, Source, Text, build
@@ -61,12 +62,13 @@ def evaluate_url4_sync(
     )
 
     _evaluation_options(on_event, progress)
-    candidate, pinned = _replayed_url4(url4)
-    if pinned and load_operators is not None:
-        _require_known_operators(load_operators(), pinned)
+    replay = _replayed_url4(url4)
+    candidate = replay.candidate
+    if replay.pinned and load_operators is not None:
+        _require_known_operators(load_operators(), replay.pinned)
     if answer_seed is not None:
         # FEATURE (OME-1193): a replayed sitting is the reproduction use case itself.
-        candidate = _with_answer_seed(candidate, answer_seed)
+        candidate = _stamped_sitting(replay, answer_seed)
     if capture:
         # FEATURE (OME-1307): the capture request rides the Candidate, as the seed does.
         candidate = _with_capture(candidate)
@@ -111,12 +113,13 @@ async def evaluate_url4_async(
     )
 
     _evaluation_options(on_event, progress)
-    candidate, pinned = _replayed_url4(url4)
-    if pinned and load_operators is not None:
-        _require_known_operators(await load_operators(), pinned)
+    replay = _replayed_url4(url4)
+    candidate = replay.candidate
+    if replay.pinned and load_operators is not None:
+        _require_known_operators(await load_operators(), replay.pinned)
     if answer_seed is not None:
         # FEATURE (OME-1193): see the sync twin.
-        candidate = _with_answer_seed(candidate, answer_seed)
+        candidate = _stamped_sitting(replay, answer_seed)
     if capture:
         candidate = _with_capture(candidate)
     if replay_frozen_copy is not None:
@@ -178,17 +181,38 @@ def _candidate_from_url4(value: str) -> Candidate:
     expose the operators a replay must check.
     """
 
-    return _replayed_url4(value)[0]
+    return _replayed_url4(value).candidate
 
 
-def _replayed_url4(value: str) -> tuple[Candidate, tuple[tuple[Stage, str], ...]]:
-    """Recover the embedded Candidate and the (stage, pinned id) pairs its combine calls use.
+@dataclass(frozen=True, slots=True)
+class _Replay:
+    candidate: Candidate
+    # The (stage, pinned id) pairs of the combine calls: the Engine's catalog must hold them.
+    pinned: tuple[tuple[Stage, str], ...]
+    # Own-seed model calls as ``op_id (label)``, for the fixed-seed warning (U1).
+    seeded: tuple[str, ...]
+
+
+def _stamped_sitting(replay: _Replay, answer_seed: int) -> Candidate:
+    """Warn about own-seed calls, then stamp the declared sitting (as the Recipe path does)."""
+
+    from screamingface._evaluation.runner import _warn_fixed_seed
+
+    if replay.seeded:
+        _warn_fixed_seed(replay.candidate.name, replay.seeded)
+    return _with_answer_seed(replay.candidate, answer_seed)
+
+
+def _replayed_url4(value: str) -> _Replay:
+    """Recover the embedded Candidate with what a replay must check before it spends.
 
     The benchmark owns the outer expression. Its zero-weight ``candidate`` binding
     carries the independently compiled Candidate expression as text, which is the
     stable seam needed to rebuild Report metadata without changing the URL4 that runs.
     The pairs are what the Engine's operator catalog must hold before the replay spends.
     """
+
+    from screamingface._evaluation.runner import _SEED_PARAM
 
     url4 = _canonical_url4(value, "Evaluation")
     root = build(url4)
@@ -210,7 +234,16 @@ def _replayed_url4(value: str) -> tuple[Candidate, tuple[tuple[Stage, str], ...]
     pinned = _combine_operator_pairs(parsed_calls)
     # No I/O here: the form check shares its message with the corrective-loop recompile.
     _OperatorCatalog.from_pinned(pinned)
-    return _candidate_from_topology(url4, topology, calls, selected), pinned
+    recovered = _candidate_from_topology(url4, topology, calls, selected)
+    labels = {operation.id: operation.label for operation in recovered.operations}
+    seeded = tuple(
+        f"{operation_id} ({labels[operation_id]})"
+        for binding, call in parsed_calls.items()
+        if call.model != COMBINE_MODEL
+        and (operation_id := f"op_{binding}") in labels
+        and any(name == _SEED_PARAM for name, _ in call.params)
+    )
+    return _Replay(recovered, pinned, seeded)
 
 
 def _require_known_operators(
