@@ -83,6 +83,14 @@ class ImporterError(Exception):
     """The importer refuses to emit. Always says which fact stopped it."""
 
 
+class TaskReplayRoute(ImporterError):
+    """The Hugging Face reader cannot see this eval's fetch; Task replay can import it (OME-1273).
+
+    WHY a subclass: to every caller that only knows refusals it IS one; the CLI alone tells
+    the two apart and takes the Task-replay path (spec R1).
+    """
+
+
 @dataclass(frozen=True)
 class InspectTaskFacts:
     """What the eval's own task DECLARES — read by running it, never re-typed."""
@@ -187,7 +195,7 @@ def read_inspect_task(
     module = import_module(module_name)
     task_fn: Any = getattr(module, attribute)
     if not hasattr(module, "hf_dataset"):
-        raise ImporterError(
+        raise TaskReplayRoute(
             f"{module_name} has no hf_dataset binding — the importer only reads evals "
             "that load their questions from the HuggingFace Hub"
         )
@@ -488,7 +496,7 @@ def _require_module_level_record_to_sample(sample_fields: Any, task_ref: str) ->
         # WHY: some evals (truthfulqa) define record_to_sample INSIDE the task
         # function; the row's dotted reference could never resolve it, so the
         # dangling row would fail at image build instead of at import review.
-        raise ImporterError(
+        raise TaskReplayRoute(
             f"{task_ref}: record_to_sample is a task-local function — the row can only "
             "POINT at a module-level attribute; import this eval by hand or upstream a fix"
         )
@@ -505,7 +513,7 @@ def _question_dataset_kwargs(
     """
 
     if not recorded:
-        raise ImporterError(f"{task_ref}: the task never called hf_dataset")
+        raise TaskReplayRoute(f"{task_ref}: the task never called hf_dataset")
     for kwargs, stub in recorded:
         if task.dataset is stub:
             return kwargs, stub
@@ -515,7 +523,7 @@ def _question_dataset_kwargs(
         # A single HF call whose stub never reached the Task (a json benchmark with HF
         # fewshots) must refuse: that call is not the benchmark (review round 2026-09-17).
         return recorded[0]
-    raise ImporterError(
+    raise TaskReplayRoute(
         f"{task_ref}: {len(recorded)} hf_dataset call(s) and none is the Task's dataset — "
         "cannot tell the question load apart; pass task args that disable the extras"
     )
