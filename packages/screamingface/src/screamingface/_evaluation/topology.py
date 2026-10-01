@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from url4 import Expression, Node, Source, Text, src
 
-from screamingface._operation_bindings import TOPOLOGY_BINDING
+from screamingface._operation_bindings import SYNTHESIS_BINDING, TOPOLOGY_BINDING
 from screamingface.fusion import _quorum
 
 _SCHEMA = "screamingface.recipe.v1"
 _SOURCE_NAME = "_sf_recipe"
 # A corrective loop nests its whole gated chain as one inner expression bound
-# under loop_candidate (OME-796); everything else stays model_N / synthesis_N.
+# under loop_candidate (OME-796); everything else is an operation binding
+# (model_N, synthesis_N, judge_N, writer_N).
 _BINDING = TOPOLOGY_BINDING
-_SYNTHESIS_BINDING = re.compile(r"synthesis_\d+")
 type _TopologyKind = Literal[
     "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer"
 ]
@@ -387,7 +386,7 @@ def _decode_synthesizer(value: object) -> _RecipeTopology:
     if set(value) != {"binding", "kind", "name"}:
         raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
     binding = _text(value["binding"])
-    if _SYNTHESIS_BINDING.fullmatch(binding) is None:
+    if SYNTHESIS_BINDING.fullmatch(binding) is None:
         raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
     return _RecipeTopology(kind="reducer", name=_text(value["name"]), binding=binding)
 

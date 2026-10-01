@@ -127,17 +127,20 @@ class FixtureVote(Reducer):
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class FixtureMedianish(Reducer):
-    """A reducer that keeps the base-class defaults for weights and member checks."""
+class FixtureJudgeish(Reducer):
+    """A judge-shaped reducer: no extract or normalize step (valid for the Engine's judge rule).
+
+    It keeps the base-class defaults for weights and member checks.
+    """
 
     name: str
 
     def __init__(self) -> None:
-        object.__setattr__(self, "name", "median")
+        object.__setattr__(self, "name", "judge")
 
     @property
     def _reducer(self) -> _ReducerName:
-        return "median"
+        return "judge"
 
     @property
     def _kind(self) -> _ReducerKind:
@@ -147,12 +150,12 @@ class FixtureMedianish(Reducer):
         return _Steps(reduce=_Step("median"), select=_Step("value"))
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> FixtureMedianish:
+    def _from_spec(cls, spec: Mapping[str, object]) -> FixtureJudgeish:
         del spec
         return cls()
 
     def __repr__(self) -> str:
-        return "FixtureMedianish()"
+        return "FixtureJudgeish()"
 
     __hash__: ClassVar[Any] = None
 

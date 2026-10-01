@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import cast
-
-from url4 import Text
+from typing import NoReturn, cast
 
 from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
@@ -75,10 +73,6 @@ def _pinned_step(
     return {"op": operators.pin(stage, step.op), "args": thaw_mapping(step.args)}
 
 
-def combine_spec_intent(spec_text: str) -> Text:
-    return Text(spec_text)
-
-
 def decode_combine_spec(raw_intent: str) -> dict[str, object]:
     """Recover the spec from the RAW intent text of a combine call.
 
@@ -87,12 +81,27 @@ def decode_combine_spec(raw_intent: str) -> dict[str, object]:
     """
 
     try:
-        spec = json.loads(raw_intent)
-    except (json.JSONDecodeError, RecursionError) as exc:
+        spec = json.loads(
+            raw_intent, parse_constant=_reject_constant, object_pairs_hook=_reject_duplicates
+        )
+    except (ValueError, RecursionError) as exc:
         raise ValueError(_INVALID_SPEC) from exc
     if not _is_spec(spec):
         raise ValueError(_INVALID_SPEC)
     return cast(dict[str, object], spec)
+
+
+def _reject_constant(name: str) -> NoReturn:
+    # Like the Engine: NaN and Infinity are not JSON numbers, and a spec holds only JSON.
+    raise ValueError(f"unsupported JSON constant {name}")
+
+
+def _reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    # Like the Engine: a repeated key would let two readers disagree about one spec.
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate key in a combine spec")
+    return dict(pairs)
 
 
 def _is_spec(spec: object) -> bool:

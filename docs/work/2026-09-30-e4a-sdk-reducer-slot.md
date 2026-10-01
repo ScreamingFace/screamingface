@@ -48,6 +48,14 @@ on this branch (unit 3 widens the engine pattern).
   engine `_BINDING`) plus one load-dependent flake (`test_evaluation_outcome.py::test_a_callback_exception_aborts...`,
   passes 5/5 alone). The pytest step with that one test deselected: 2182 passed, 26 skipped, coverage 96%.
   `check_notebooks.py` and `uv build` green. `run_gates.py repo`: all green.
+- **Review round 1 (coordinator ACCEPT-WITH-FIXES):** corrective recovery now refuses a rider binding with no call
+  (was a `KeyError`); `_require_call_kind` also pins the binding param and the node name to the spec reducer;
+  `decode_combine_spec` rejects NaN/Infinity and duplicate keys; blank strings are accepted in tally value, judge raw
+  and field reading text; the evidence decoder follows the `operation_accounting` exemplar with shared `_mapping`
+  and `_exact_keys` and the number helpers moved to `_report_primitives`; `combine_spec_intent` inlined; the reducer
+  compile builds its own context from `input_context`; CHANGELOG corrected. RED seen (against the pre-round source)
+  for the new tampering, NaN, duplicate-key, missing-call and corrective cases; the no-stale-fallback tests, the
+  blank-text test and the from_pinned tests pass at once (they pin behavior the code already had).
 - **Deviations:** `sf.Reducer` is NOT exported: the existing `tests/test_public_surface.py` lists `Reducer` among
   names that must stay absent from `sf` (legacy alias guard), and existing tests are append-only. Goldens and the engine
   fixture are read with `.removesuffix("\n")` because the end-of-file hook appends a newline to data files.

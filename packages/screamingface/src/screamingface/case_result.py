@@ -15,6 +15,7 @@ from screamingface._report_primitives import (
     _case_id,
     _nonblank_text,
     _nonempty_text,
+    _optional_number,
 )
 from screamingface.combine_evidence import CombineEvidence
 from screamingface.operation_accounting import OperationAccounting
@@ -633,10 +634,6 @@ def _turn(message: object) -> tuple[str, str] | None:
     return (role, content) if isinstance(role, str) and isinstance(content, str) else None
 
 
-def _optional_number(value: object, label: str) -> float | None:
-    return None if value is None else _required_number(value, label)
-
-
 def _validate_execution(
     stop_reason: StopReason | None,
     rounds_executed: int | None,
@@ -692,15 +689,6 @@ def _string(value: object, label: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{label} must be text")
     return value
-
-
-def _required_number(value: object, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError(f"{label} must be a finite number")
-    selected = float(value)
-    if selected in {float("inf"), float("-inf")} or selected != selected:
-        raise ValueError(f"{label} must be a finite number")
-    return selected
 
 
 def _validate_case_outcome(

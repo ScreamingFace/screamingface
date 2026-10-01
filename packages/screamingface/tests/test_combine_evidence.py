@@ -13,7 +13,13 @@ from typing import Any
 
 import httpx
 import pytest
-from _reducer_fixtures import FixtureVote, evidence_wire, reducer_fusion
+from _reducer_fixtures import (
+    FixtureVote,
+    evidence_wire,
+    fixture_operators,
+    operators_response,
+    reducer_fusion,
+)
 from test_client_run import _engine, _ReplayTransport
 from test_leaderboards import _candidate_result
 
@@ -208,8 +214,6 @@ def _operation(operation_id: str, output: str, **extra: Any) -> dict[str, Any]:
 def _evaluate(recipe: sf.Recipe, operations: list[dict[str, Any]]) -> sf.Report:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/operators":
-            from _reducer_fixtures import operators_response
-
             return operators_response()
         return _engine(request)
 
@@ -248,7 +252,7 @@ def test_two_reducers_keep_separate_evidence() -> None:
     pipeline = sf.Pipeline(
         [reducer_fusion(), sf.Fusion(["provider/d", "provider/e"], synthesizer=FixtureVote())]
     )
-    compiled = compile_candidate(pipeline, operators=_operators())
+    compiled = compile_candidate(pipeline, operators=fixture_operators())
     sources = [op.id for op in compiled.operations if op.kind == "combine"]
     assert sources == ["op_synthesis_1", "op_synthesis_2"]
 
@@ -257,7 +261,7 @@ def test_two_reducers_keep_separate_evidence() -> None:
         _operation(
             "op_synthesis_2",
             "14",
-            combine=evidence_wire(2, chosen=["member_2"], reducer="median", agreement=0.5),
+            combine=evidence_wire(2, chosen=["member_2"], agreement=0.5),
         ),
     ]
     report = _evaluate(pipeline, operations)
@@ -271,17 +275,13 @@ def test_two_reducers_keep_separate_evidence() -> None:
         ("member_1",),
         3,
     )
-    assert (second.operation_id, second.combine.reducer, len(second.combine.members)) == (
+    assert (second.operation_id, second.combine.chosen, len(second.combine.members)) == (
         "op_synthesis_2",
-        "median",
+        ("member_2",),
         2,
     )
-
-
-def _operators() -> Any:
-    from _reducer_fixtures import fixture_operators
-
-    return fixture_operators()
+    assert (first.combine.reducer, second.combine.reducer) == ("vote", "vote")
+    assert (first.combine.agreement, second.combine.agreement) == (1.0, 0.5)
 
 
 def _mutated(mutation: Any) -> dict[str, Any]:
@@ -360,6 +360,12 @@ def test_sdk_rejects_unknown_keys_and_schema(case: str) -> None:
 
 
 def test_evidence_for_64_members_has_no_text_and_fits_64kib() -> None:
+    # Each member answered with a long text that ends in its number; the evidence may hold
+    # the extracted number but never the text around it.
+    outputs = {
+        f"member_{i}": f"I worked through the problem step by step. Final answer: {i}"
+        for i in range(1, 65)
+    }
     wire = evidence_wire(
         64,
         tally=[
@@ -368,6 +374,9 @@ def test_evidence_for_64_members_has_no_text_and_fits_64kib() -> None:
         ],
         agreement=1 / 64,
     )
+    for reading in wire["members"]:
+        index = reading["member"].removeprefix("member_")
+        reading["raw"] = reading["value"] = index
 
     evidence = decode_combine_evidence(wire, _LABEL)
 
@@ -379,7 +388,31 @@ def test_evidence_for_64_members_has_no_text_and_fits_64kib() -> None:
         evidence.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     assert len(exported.encode("utf-8")) <= 65536
-    assert "text" not in json.loads(exported)
+    for member, text in outputs.items():
+        assert text not in exported
+        reading = next(item for item in evidence.members if item.member == member)
+        assert reading.raw != text
+        assert reading.value != text
+    assert all(row.value != text for row in evidence.tally or () for text in outputs.values())
+
+
+def test_blank_text_in_a_reading_does_not_make_the_evidence_undecodable() -> None:
+    # The Engine model carries these as plain strings: a judge may reply with nothing.
+    judge = evidence_wire(
+        reducer="judge",
+        tally=None,
+        judge={"raw": "", "returns": "label", "parsed": "member_1"},
+        fields=[{"field": "", "rule": " ", "values": {}, "result": None}],
+    )
+    evidence = decode_combine_evidence(judge, _LABEL)
+    assert evidence is not None
+    assert evidence.judge is not None and evidence.judge.raw == ""
+    assert evidence.fields is not None and (evidence.fields[0].field, evidence.fields[0].rule) == (
+        "",
+        " ",
+    )
+    row = CombineTallyRow(value="", score=1.0, holders=("member_1",))
+    assert row.value == ""
 
 
 def test_evidence_values_validate_their_own_construction() -> None:
@@ -390,13 +423,13 @@ def test_evidence_values_validate_their_own_construction() -> None:
         CombineTallyRow(value="12", score=None, holders=("member_1",))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="must not be empty"):
         CombineTallyRow(value="12", score=1.0, holders=())
-    with pytest.raises(TypeError, match="number or None"):
+    with pytest.raises(TypeError, match="finite number"):
         CombineMemberReading(member="member_1", raw=None, value=None, status="empty", weight=True)
     with pytest.raises(ValueError, match="finite"):
         CombineMemberReading(
             member="member_1", raw=None, value=None, status="empty", score=float("inf")
         )
-    with pytest.raises(TypeError, match="text or None"):
+    with pytest.raises(TypeError, match="must be text"):
         CombineMemberReading(member="member_1", raw=3, value=None, status="empty")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="finite|number"):
         CombineMemberReading(member="member_1", raw=None, value=None, status="empty", weight="1")  # type: ignore[arg-type]
@@ -404,8 +437,8 @@ def test_evidence_values_validate_their_own_construction() -> None:
         CombineJudgeReading(raw="x", returns="rank", parsed="member_1")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="object"):
         CombineJudgeReading(raw="x", returns="scores", parsed="member_1")
-    with pytest.raises(ValueError, match="must not be blank"):
-        CombineFieldReading(field=" ", rule="r", values={}, result=None)
+    with pytest.raises(TypeError, match="must be text"):
+        CombineFieldReading(field=3, rule="r", values={}, result=None)  # type: ignore[arg-type]
     base: dict[str, Any] = {
         "kind": "answer",
         "reducer": "vote",
@@ -432,6 +465,7 @@ def test_evidence_values_validate_their_own_construction() -> None:
         ({"presentation_order": "random"}, ValueError),
         ({"median": 9}, TypeError),
         ({"finish_reason": " "}, ValueError),
+        ({"finish_reason": None}, ValueError),
         ({"agreement": "1"}, TypeError),
     ):
         with pytest.raises(error):

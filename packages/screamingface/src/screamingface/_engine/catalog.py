@@ -13,6 +13,7 @@ import httpx
 
 from screamingface._benchmark_identity import benchmark_id as _benchmark_id
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.benchmark import _engine_url
 from screamingface._engine.catalog_contract import (
     _BenchmarkCatalogData,
     _BenchmarkEntry,
@@ -371,7 +372,7 @@ class OperatorCatalogResource:
                 extensions={_REPLAY_SAFE: True},
             )
         except httpx.HTTPError as exc:
-            _unreachable(str(self._http.base_url).rstrip("/"), "operator catalog", exc)
+            _unreachable(_engine_url(self._http), "operator catalog", exc)
         self._cached = _next_cache(response, cached, now)
         return self._cached.catalog
 
@@ -398,7 +399,7 @@ class AsyncOperatorCatalogResource:
                 extensions={_REPLAY_SAFE: True},
             )
         except httpx.HTTPError as exc:
-            _unreachable(str(self._http.base_url).rstrip("/"), "operator catalog", exc)
+            _unreachable(_engine_url(self._http), "operator catalog", exc)
         self._cached = _next_cache(response, cached, now)
         return self._cached.catalog
 

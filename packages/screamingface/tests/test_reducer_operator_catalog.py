@@ -191,6 +191,41 @@ def test_catalog_without_etag_sends_no_conditional_header() -> None:
     assert "if-none-match" not in engine.requests[1].headers
 
 
+class _FlakyEngine(_Engine):
+    """Serves the scripted responses, then loses the network."""
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if not self.responses:
+            self.requests.append(request)
+            raise httpx.ConnectError("refused", request=request)
+        return super().__call__(request)
+
+
+def test_a_stale_catalog_is_never_served_when_revalidation_cannot_reach_the_engine() -> None:
+    clock = _Clock()
+    resource = _sync(_FlakyEngine(operators_response()), clock)
+    resource.load()
+
+    clock.now = 301
+    with pytest.raises(sf.EngineUnavailableError) as caught:
+        resource.load()
+
+    assert caught.value.engine_url == _BASE
+
+
+@pytest.mark.asyncio
+async def test_async_stale_catalog_is_never_served_when_the_engine_is_unreachable() -> None:
+    clock = _Clock()
+    resource = _async(_FlakyEngine(operators_response()), clock)
+    await resource.load()
+
+    clock.now = 301
+    with pytest.raises(sf.EngineUnavailableError) as caught:
+        await resource.load()
+
+    assert caught.value.engine_url == _BASE
+
+
 def _refusals() -> dict[str, tuple[httpx.Response, type[Exception], dict[str, object]]]:
     return {
         "304 without a cache": (
@@ -311,6 +346,12 @@ def test_client_fetches_the_catalog_once_for_repeated_reducer_evaluations() -> N
     assert transport.candidate.models == ("provider/a", "provider/b", "provider/c")
 
 
+def _plain_fusion() -> sf.Fusion:
+    return sf.Fusion(
+        [sf.Model("provider/opus"), sf.Model("provider/judge")], synthesizer="provider/opus"
+    )
+
+
 def test_engine_without_catalog_raises_capability_error_only_for_reducers() -> None:
     paths: list[str] = []
 
@@ -327,16 +368,15 @@ def test_engine_without_catalog_raises_capability_error_only_for_reducers() -> N
         with pytest.raises(sf.EngineCapabilityError) as caught:
             client.evaluate(reducer_fusion(), benchmark="draco", progress=False)
         assert transport.candidate is None
-        plain = sf.Fusion(
-            [sf.Model("provider/opus"), sf.Model("provider/judge")], synthesizer="provider/opus"
-        )
-        client.evaluate(plain, benchmark="draco", progress=False)
+        asked = paths.count("/v1/operators")
+        client.evaluate(_plain_fusion(), benchmark="draco", progress=False)
+        assert paths.count("/v1/operators") == asked
 
     assert caught.value.code == "engine_capability_missing"
     assert caught.value.status == 404
     assert isinstance(caught.value, sf.PlanningError)
     assert caught.value.message == "this SF Engine does not support reducers"
-    assert paths.count("/v1/operators") == 1
+    assert asked == 1
     assert transport.candidate is not None
 
 
@@ -355,13 +395,12 @@ def test_unknown_operator_through_a_client_fails_before_the_run_starts() -> None
 
 
 @pytest.mark.asyncio
-async def test_async_client_covers_the_same_catalog_contract() -> None:
+async def test_async_client_fetches_the_catalog_once() -> None:
     paths: list[str] = []
-    transport = _AsyncReplayTransport()
     client = sf.AsyncClient(
         engine_url=_BASE,
         http_transport=httpx.MockTransport(_operators_engine(paths)),
-        run_transport=transport,
+        run_transport=_AsyncReplayTransport(),
     )
     await client.evaluate(reducer_fusion(), benchmark="draco", progress=False)
     await client.evaluate(
@@ -373,15 +412,28 @@ async def test_async_client_covers_the_same_catalog_contract() -> None:
 
     assert paths.count("/v1/operators") == 1
 
-    missing = sf.AsyncClient(
-        engine_url=_BASE,
-        http_transport=httpx.MockTransport(_engine),
-        run_transport=_AsyncReplayTransport(),
+
+@pytest.mark.asyncio
+async def test_async_engine_without_catalog_raises_capability_error_only_for_reducers() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return _engine(request)
+
+    transport = _AsyncReplayTransport()
+    client = sf.AsyncClient(
+        engine_url=_BASE, http_transport=httpx.MockTransport(handler), run_transport=transport
     )
-    with pytest.raises(sf.EngineCapabilityError):
-        await missing.evaluate(reducer_fusion(), benchmark="draco", progress=False)
-    plain = sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/judge")], synthesizer="provider/opus"
-    )
-    await missing.evaluate(plain, benchmark="draco", progress=False)
-    await missing.aclose()
+    with pytest.raises(sf.EngineCapabilityError) as caught:
+        await client.evaluate(reducer_fusion(), benchmark="draco", progress=False)
+    assert transport.candidate is None
+    asked = paths.count("/v1/operators")
+    await client.evaluate(_plain_fusion(), benchmark="draco", progress=False)
+    await client.aclose()
+
+    assert caught.value.code == "engine_capability_missing"
+    assert caught.value.message == "this SF Engine does not support reducers"
+    assert asked == 1
+    assert paths.count("/v1/operators") == asked
+    assert transport.candidate is not None

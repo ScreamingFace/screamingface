@@ -12,5 +12,7 @@ OPERATION_REFERENCE = re.compile(rf"\$({_BODY})")
 # A corrective loop nests its whole gated chain as one inner expression bound under
 # loop_candidate (OME-796); everything else stays an operation binding.
 TOPOLOGY_BINDING = re.compile(rf"{_BODY}|loop_candidate")
+# A reducer node is a combine call, and every combine call takes the next synthesis_N.
+SYNTHESIS_BINDING = re.compile(r"synthesis_\d+")
 
 __all__: list[str] = []

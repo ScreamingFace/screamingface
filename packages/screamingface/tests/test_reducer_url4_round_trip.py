@@ -12,7 +12,7 @@ import screamingface as sf
 import screamingface.reducer as reducer_module
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface._evaluation.combine_spec import decode_combine_spec
+from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.topology import _topology_from_expression
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface.url4 import _calls
@@ -57,8 +57,11 @@ def test_url4_round_trip_recovers_reducer_topology() -> None:
         "vote",
     )
     call = _calls(root)["synthesis_1"]
-    assert decode_combine_spec(call.raw_intent) == json.loads(call.raw_intent)
-    assert decode_combine_spec(call.raw_intent)["reducer"] == "vote"
+    compiled_spec = json.loads(
+        combine_spec_text(FixtureVote(), member_count=3, operators=fixture_operators())
+    )
+    assert decode_combine_spec(call.raw_intent) == compiled_spec
+    assert compiled_spec["reducer"] == "vote"
 
     replayed = _candidate_from_url4(_linked(compiled.url4))
     assert replayed.operations == compiled.operations
@@ -71,33 +74,77 @@ def test_url4_round_trip_recovers_reducer_topology() -> None:
     ]
 
 
-def _tamperings() -> dict[str, tuple[str, str, str]]:
-    """name -> (recipe key, text to replace, replacement)."""
+_REDUCER_NODE = '{"binding":"synthesis_1","kind":"reducer","name":"vote"}'
+_MODEL_CALLS = "does not match its model calls"
+
+
+def _tamperings() -> dict[str, tuple[str, str, str, str]]:
+    """name -> (recipe key, text to replace, replacement, expected error)."""
 
     return {
-        "combine path swapped": ("reducer", "/ensemble/combine/v1", "/provider/x"),
-        "model node on a combine call": ("model", "/provider/x", "/ensemble/combine/v1"),
+        "combine path swapped": ("reducer", "/ensemble/combine/v1", "/provider/x", _MODEL_CALLS),
+        "model node on a combine call": (
+            "model",
+            "/provider/x",
+            "/ensemble/combine/v1",
+            _MODEL_CALLS,
+        ),
         "reducer as a pipeline stage": (
             "pipeline",
             '{"binding":"model_2","kind":"model","name":"b","named":false,"role":"model"}',
             '{"binding":"model_2","kind":"reducer","name":"vote"}',
+            "invalid Recipe topology metadata",
         ),
         "reducer with an extra key": (
             "reducer",
-            '{"binding":"synthesis_1","kind":"reducer","name":"vote"}',
+            _REDUCER_NODE,
             '{"binding":"synthesis_1","extra":1,"kind":"reducer","name":"vote"}',
+            "invalid Reducer topology metadata",
         ),
         "reducer with a model binding": (
             "reducer",
-            '{"binding":"synthesis_1","kind":"reducer","name":"vote"}',
+            _REDUCER_NODE,
             '{"binding":"model_1","kind":"reducer","name":"vote"}',
+            "invalid Reducer topology metadata",
         ),
+        "reducer name that is not the spec's reducer": (
+            "reducer",
+            _REDUCER_NODE,
+            '{"binding":"synthesis_1","kind":"reducer","name":"median"}',
+            _MODEL_CALLS,
+        ),
+        "binding param of another call": (
+            "pipeline_of_reducers",
+            "?binding=synthesis_2&",
+            "?binding=synthesis_1&",
+            _MODEL_CALLS,
+        ),
+        "binding param removed": ("reducer", "?binding=synthesis_1&", "?", _MODEL_CALLS),
         "intent with a wrong schema": (
             "reducer",
             "screamingface.combine-spec.v1",
             "screamingface.combine-spec.v9",
+            "invalid combine spec",
         ),
-        "intent that is not json": ("reducer", '{"extract"', "not json {"),
+        "intent that is not json": ("reducer", '{"extract"', "not json {", "invalid combine spec"),
+        "intent with a NaN": (
+            "reducer",
+            '"args":{}',
+            '"args":{"x":NaN}',
+            "invalid combine spec",
+        ),
+        "intent with an Infinity": (
+            "reducer",
+            '"args":{}',
+            '"args":{"x":Infinity}',
+            "invalid combine spec",
+        ),
+        "intent with a duplicate key": (
+            "reducer",
+            '"weights":null',
+            '"weights":null,"weights":null',
+            "invalid combine spec",
+        ),
     }
 
 
@@ -106,18 +153,34 @@ def _recipes() -> dict[str, sf.Recipe]:
         "reducer": reducer_fusion(),
         "model": sf.Model("provider/x"),
         "pipeline": sf.Pipeline(["provider/a", "provider/b"]),
+        "pipeline_of_reducers": sf.Pipeline(
+            [reducer_fusion(), sf.Fusion(["provider/d", "provider/e"], synthesizer=FixtureVote())]
+        ),
     }
 
 
 @pytest.mark.parametrize("case", sorted(_tamperings()))
 def test_reducer_topology_tampering_is_refused(case: str) -> None:
-    key, old, new = _tamperings()[case]
+    key, old, new, message = _tamperings()[case]
     url4 = _compiled(_recipes()[key])
     assert old in url4
-    tampered = url4.replace(old, new)
+    tampered = url4.replace(old, new, 1)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         sf.Url4(tampered).to_python()
+
+
+def test_a_corrective_rider_naming_a_missing_reducer_call_is_refused() -> None:
+    loop = sf.CorrectiveLoop([reducer_fusion(), "provider/d"], judge="provider/j", max_rounds=2)
+    url4 = _compiled(loop)
+    head, marker, rider = url4.partition("_sf_recipe:")
+    assert '"binding":"synthesis_1"' in rider
+    tampered = head + marker + rider.replace('"binding":"synthesis_1"', '"binding":"synthesis_99"')
+
+    with pytest.raises(ValueError, match=_MODEL_CALLS):
+        sf.Url4(tampered).to_python()
+    with pytest.raises(ValueError, match=_MODEL_CALLS):
+        _candidate_from_url4(_linked(tampered))
 
 
 def test_to_python_and_corrective_replay_use_the_reducer_registry(

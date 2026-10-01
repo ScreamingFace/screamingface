@@ -5,15 +5,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 from screamingface._immutable_json import freeze_mapping
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
 type _ReducerName = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat"]
-REDUCER_NAMES: frozenset[str] = frozenset(
-    {"vote", "median", "judge", "pick", "merge", "project", "rank", "concat"}
-)
+# One source for each vocabulary: the Literal above is the list, the sets are derived from it.
+REDUCER_NAMES: frozenset[str] = frozenset(get_args(_ReducerName.__value__))
+REDUCER_KINDS: frozenset[str] = frozenset(get_args(_ReducerKind.__value__))
 
 
 @dataclass(frozen=True, slots=True, init=False)

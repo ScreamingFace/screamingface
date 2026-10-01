@@ -408,8 +408,13 @@ def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
 
     if (node.kind == "reducer") != (call.model == COMBINE_MODEL):
         raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
-    if node.kind == "reducer":
-        decode_combine_spec(call.raw_intent)
+    if node.kind != "reducer":
+        return
+    spec = decode_combine_spec(call.raw_intent)
+    # INVARIANT: the binding param is what keeps two reducers' evidence apart, and the node's
+    # name is the spec's reducer; either one drifting means the url4 was edited by hand.
+    if call.params != (("binding", call.binding),) or node.name != spec["reducer"]:
+        raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
 
 
 def _reducer_from_call(call: _Call) -> Reducer:
@@ -487,11 +492,7 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
         selected = Fusion(
             [_recipe_from_topology(member, calls) for member in value.members],
             name=value.name if value.name != inferred_name else None,
-            synthesizer=(
-                _reducer_from_call(calls[value.synthesizer.binding])
-                if value.synthesizer.kind == "reducer"
-                else _recipe_from_topology(value.synthesizer, calls)
-            ),
+            synthesizer=_synthesizer_from_topology(value.synthesizer, calls),
             quorum=value.quorum,
             optional=value.optional,
         )
@@ -514,6 +515,15 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
             max_rounds=value.max_rounds,
         )
     return selected
+
+
+def _synthesizer_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe | Reducer:
+    if value.kind != "reducer":
+        return _recipe_from_topology(value, calls)
+    call = calls.get(value.binding)
+    if call is None:
+        raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+    return _reducer_from_call(call)
 
 
 def _editable_params(call: _Call) -> dict[str, str | int | float | bool]:

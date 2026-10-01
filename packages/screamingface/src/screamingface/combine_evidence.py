@@ -6,26 +6,26 @@ operation ``output``; the evidence holds only the readings, the tally or scores,
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
-from screamingface.reducer import REDUCER_NAMES
+from screamingface._report_primitives import _nonblank_text, _optional_number, _required_number
+from screamingface.reducer import REDUCER_KINDS, REDUCER_NAMES, _ReducerKind
 
 COMBINE_EVIDENCE_SCHEMA = "screamingface.combine-evidence.v1"
 
-type CombineKind = Literal["answer", "selection", "projection"]
+type CombineKind = _ReducerKind
 type ReadingStatus = Literal[
     "voted", "empty", "not_numeric", "not_json", "field_missing", "too_large"
 ]
 type JudgeReturns = Literal["label", "scores"]
 
-_KINDS = frozenset({"answer", "selection", "projection"})
-_STATUSES = frozenset({"voted", "empty", "not_numeric", "not_json", "field_missing", "too_large"})
-_RETURNS = frozenset({"label", "scores"})
+# One source for each vocabulary: the Literal is the list, the set is derived from it.
+_STATUSES = frozenset(get_args(ReadingStatus.__value__))
+_RETURNS = frozenset(get_args(JudgeReturns.__value__))
 _MEMBER_ID = re.compile(r"member_[1-9][0-9]*")
 _OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]*@[1-9][0-9]*")
 
@@ -46,8 +46,12 @@ class CombineMemberReading:
         _optional_text(self.raw, "Combine member reading raw")
         _optional_text(self.value, "Combine member reading value")
         _one_of(self.status, _STATUSES, "Combine member reading status")
-        object.__setattr__(self, "weight", _optional_number(self.weight, "reading weight"))
-        object.__setattr__(self, "score", _optional_number(self.score, "reading score"))
+        object.__setattr__(
+            self, "weight", _optional_number(self.weight, "Combine member reading weight")
+        )
+        object.__setattr__(
+            self, "score", _optional_number(self.score, "Combine member reading score")
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -70,10 +74,7 @@ class CombineTallyRow:
 
     def __post_init__(self) -> None:
         _text(self.value, "Combine tally value")
-        score = _optional_number(self.score, "tally score")
-        if score is None:
-            raise TypeError("Combine tally score must be a finite number")
-        object.__setattr__(self, "score", score)
+        object.__setattr__(self, "score", _required_number(self.score, "Combine tally score"))
         holders = _member_ids(self.holders, "Combine tally holders")
         if not holders:
             raise ValueError("Combine tally holders must not be empty")
@@ -172,7 +173,7 @@ class CombineEvidence:
         presentation_order: Literal["author"] | None = None,
         separator_collision: bool | None = None,
     ) -> None:
-        _one_of(kind, _KINDS, "Combine evidence kind")
+        _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
         selected_members = _typed_tuple(members, CombineMemberReading, "Combine evidence members")
         member_ids = tuple(item.member for item in selected_members)
@@ -202,7 +203,7 @@ class CombineEvidence:
             "separator_collision": _optional_flag(
                 separator_collision, "Combine evidence separator_collision"
             ),
-            "finish_reason": _text(finish_reason, "Combine evidence finish_reason"),
+            "finish_reason": _nonblank_text(finish_reason, "Combine evidence finish_reason"),
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
@@ -229,17 +230,19 @@ class CombineEvidence:
 
 
 def _text(value: object, label: str) -> str:
+    """Plain text as the Engine model carries it: any ``str``, blank included.
+
+    WHY blank is allowed: a judge may reply with nothing, and one blank reading must not
+    make the whole Report undecodable.
+    """
+
     if not isinstance(value, str):
         raise TypeError(f"{label} must be text")
-    if not value.strip():
-        raise ValueError(f"{label} must not be blank")
     return value
 
 
 def _optional_text(value: object, label: str) -> str | None:
-    if value is not None and not isinstance(value, str):
-        raise TypeError(f"{label} must be text or None")
-    return value
+    return None if value is None else _text(value, label)
 
 
 def _one_of(value: object, allowed: frozenset[str], label: str) -> None:
@@ -277,18 +280,8 @@ def _operator_ids(values: object) -> tuple[str, ...]:
     return tuple(values)
 
 
-def _optional_number(value: object, label: str) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError(f"Combine {label} must be a number or None")
-    if not math.isfinite(value):
-        raise ValueError(f"Combine {label} must be finite")
-    return float(value)
-
-
 def _agreement(value: object) -> float | None:
-    selected = _optional_number(value, "evidence agreement")
+    selected = _optional_number(value, "Combine evidence agreement")
     if selected is not None and not 0.0 <= selected <= 1.0:
         raise ValueError("Combine evidence agreement must be between 0 and 1")
     return selected

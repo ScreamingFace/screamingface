@@ -9,11 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 from url4 import Node, RelExpr, RenderError, Text, expr, render, src, struct
 
-from screamingface._evaluation.combine_spec import (
-    COMBINE_ROUTE,
-    combine_spec_intent,
-    combine_spec_text,
-)
+from screamingface._evaluation.combine_spec import COMBINE_ROUTE, combine_spec_text
 from screamingface._evaluation.model import (
     _compiled_operation,
     _member_projection,
@@ -338,7 +334,6 @@ class _CandidateCompiler:
         self._synthesis_count += 1
         binding = f"synthesis_{self._synthesis_count}"
         operation_id = f"op_{binding}"
-        context = context if context is not None else _fusion_context(input_context, members)
         dependencies = tuple(member.operation_id for member in members)
         synthesizer = fusion.synthesizer
         if isinstance(synthesizer, Reducer):
@@ -348,9 +343,10 @@ class _CandidateCompiler:
                 members,
                 binding=binding,
                 operation_id=operation_id,
-                context=context,
+                input_context=input_context,
                 dependencies=dependencies,
             )
+        context = context if context is not None else _fusion_context(input_context, members)
         if isinstance(synthesizer, Model):
             return self._model_synthesizer(
                 fusion,
@@ -376,7 +372,6 @@ class _CandidateCompiler:
         context: str,
         dependencies: tuple[str, ...],
     ) -> _ResolvedRecipe:
-        models = tuple(model for member in members for model in member.models)
         synthesizer = _canonical_model(model.model)
         prompt = model.prompt or DEFAULT_SYNTHESIS_PROMPT
         self._sources.append(
@@ -405,7 +400,7 @@ class _CandidateCompiler:
             operation_id=operation_id,
             name=fusion.name,
             kind="fusion",
-            models=_ordered_unique((*models, synthesizer)),
+            models=_ordered_unique((*_member_models(members), synthesizer)),
             topology=_RecipeTopology(
                 kind="fusion",
                 quorum=fusion.quorum,
@@ -433,7 +428,6 @@ class _CandidateCompiler:
         context: str,
         dependencies: tuple[str, ...],
     ) -> _ResolvedRecipe:
-        models = tuple(model for member in members for model in member.models)
         # WHY: a complete Recipe used as the synthesizer receives the same explicit
         # question-and-panel value as a direct Model synthesizer. Its internal serial or
         # parallel topology remains ordinary Recipe compilation rather than a special path.
@@ -448,7 +442,7 @@ class _CandidateCompiler:
             operation_id=resolved_synthesizer.operation_id,
             name=fusion.name,
             kind="fusion",
-            models=_ordered_unique((*models, *resolved_synthesizer.models)),
+            models=_ordered_unique((*_member_models(members), *resolved_synthesizer.models)),
             topology=_RecipeTopology(
                 kind="fusion",
                 quorum=fusion.quorum,
@@ -469,7 +463,7 @@ class _CandidateCompiler:
         *,
         binding: str,
         operation_id: str,
-        context: str,
+        input_context: str,
         dependencies: tuple[str, ...],
     ) -> _ResolvedRecipe:
         """Compile a reducer to ONE combine call whose intent is the canonical spec.
@@ -485,12 +479,15 @@ class _CandidateCompiler:
                 "evaluate it through an sf.Client"
             )
         spec = combine_spec_text(reducer, member_count=len(members), operators=self._operators)
+        # The combine call reads the same question-and-panel value a Model synthesizer does;
+        # building it here keeps a later extra input (signals) a local change.
+        context = context if context is not None else _fusion_context(input_context, members)
         self._sources.append(
             src(
                 RelExpr(
                     path=COMBINE_ROUTE,
                     context=context,
-                    intent=combine_spec_intent(spec),
+                    intent=Text(spec),
                     params=(("binding", binding),),
                 ),
                 name=binding,
@@ -510,7 +507,7 @@ class _CandidateCompiler:
             operation_id=operation_id,
             name=fusion.name,
             kind="fusion",
-            models=_ordered_unique(tuple(model for member in members for model in member.models)),
+            models=_ordered_unique(_member_models(members)),
             topology=_RecipeTopology(
                 kind="fusion",
                 quorum=fusion.quorum,
@@ -594,6 +591,10 @@ def _fusion_context(input_context: str, members: tuple[_ResolvedRecipe, ...]) ->
             }
         )
     )
+
+
+def _member_models(members: tuple[_ResolvedRecipe, ...]) -> tuple[str, ...]:
+    return tuple(route for member in members for route in member.models)
 
 
 def _required_topology(value: _ResolvedRecipe) -> _RecipeTopology:

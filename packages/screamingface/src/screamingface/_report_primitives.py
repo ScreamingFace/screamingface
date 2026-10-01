@@ -305,6 +305,19 @@ def _nonblank_text(value: object, label: str) -> str:
     return value
 
 
+def _required_number(value: object, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"{label} must be a finite number")
+    selected = float(value)
+    if selected in {float("inf"), float("-inf")} or selected != selected:
+        raise ValueError(f"{label} must be a finite number")
+    return selected
+
+
+def _optional_number(value: object, label: str) -> float | None:
+    return None if value is None else _required_number(value, label)
+
+
 def _case_id(value: object, label: str = "Case Result case_id") -> CaseId:
     if isinstance(value, bool) or not isinstance(value, int | str):
         raise TypeError(f"{label} must be a non-boolean integer or non-blank string")
