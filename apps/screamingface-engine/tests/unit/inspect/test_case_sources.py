@@ -165,7 +165,7 @@ def test_a_file_inside_the_inspect_evals_package_is_pinned_by_its_version(
     recorder: CaseSourceRecorder = install_recorder(tmp_path / "cache")
     from inspect_ai._util.file import file as inspect_file
 
-    with inspect_file(str(Path(inspect_evals.__file__)), "r"):
+    with inspect_file(str(inspect_evals.__file__), "r"):
         pass
 
     assert recorder.sources == [

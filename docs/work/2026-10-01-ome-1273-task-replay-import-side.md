@@ -85,5 +85,9 @@ run through the image-side path), and write the `TaskReplayCasesSpec` declaratio
     class), and our own solver-flag wording was refused as code; plus two write tests moved
     off the sample key `agieval_lsat_ar`, which PR 4 makes a real Benchmark (owner granted
     `--skip-append-only` for that commit, 2026-10-01).
+  - CI typechecks without the `inspect` extra (`uv sync --dev`), where `inspect_evals.__file__`
+    types as `str | None`; the recorder now guards it, and one test line changed with the
+    owner's `--skip-append-only` grant. Reproduce with an extra-less venv:
+    `UV_PROJECT_ENVIRONMENT=<tmp> uv sync --dev --frozen && … uv run pyright`.
 - **Owner-verify:** run the importer for `agieval_lsat_ar` locally before PR 4 (the first real
   fetch; nothing here touched the network).
