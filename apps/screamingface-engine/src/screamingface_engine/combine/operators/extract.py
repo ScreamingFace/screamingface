@@ -1,0 +1,172 @@
+"""Extract operators: one member text -> one raw value, or a status (OME-1289, E4a).
+
+FEATURE: a member's free text becomes one candidate answer, deterministically.
+STORY: as an author of a majority-vote Candidate, I choose how the answer is read from a reply.
+
+Mental model: a reader with a ruler. It looks only at a bounded stretch of text (the last 128
+characters ending at the last digit, 4096 characters after the last box), so a hostile 1 MiB reply
+costs the same as a short one.
+
+INVARIANT: each extractor is pure and O(n) at C speed; this module holds no mutable state.
+WHY ASCII digits only: ``[0-9]``, never ``\\d``.
+AIDEV-NOTE: the scan limits are v1 behavior pinned by the golden fixtures. A change is a new
+``@version``, never an edit.
+"""
+
+from __future__ import annotations
+
+import re
+
+from screamingface_engine.combine.ports import (
+    OpArgs,
+    OperatorDescriptor,
+    SpecInvalid,
+    StageResult,
+    accepted,
+    canonical_json,
+    loads_bounded,
+    rejected,
+)
+
+_DIGITS = "0123456789"
+_LAST_NUMBER_WINDOW = 128
+_NUMBER = re.compile("[-−]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?")
+_BOX_OPEN = "\\boxed{"
+_BOX_SCAN_CHARS = 4096
+_BOX_MAX_DEPTH = 8
+_FENCE_OPEN = "```json"
+_FENCE_CLOSE = "```"
+# AIDEV-NOTE: a copy of url4's field-path grammar (dag/semantics/ensemble.py `_PATH`), extended
+# with a leading `[N]` segment; copied so a plugin keeps the "ports + stdlib" import rule.
+_SEGMENT = r"(?:[A-Za-z_][A-Za-z0-9_]*|\[(?:0|[1-9][0-9]*)\])"
+_PATH = re.compile(rf"{_SEGMENT}(?:\.[A-Za-z_][A-Za-z0-9_]*|\[(?:0|[1-9][0-9]*)\])*")
+_STEP = re.compile(r"\.?([A-Za-z_][A-Za-z0-9_]*)|\[(0|[1-9][0-9]*)\]")
+
+
+def _found(value: str) -> StageResult:
+    """A raw value that is blank after ``strip()`` is ``empty``; otherwise it is kept as is."""
+    return accepted(value) if value.strip() else rejected("empty")
+
+
+def last_number(text: str, args: OpArgs, /) -> StageResult:
+    """Last number token: sign, thousands separators and decimals; read from a 128-char window."""
+    end = max(text.rfind(digit) for digit in _DIGITS)
+    if end < 0:
+        return rejected("empty")
+    window = text[max(0, end - (_LAST_NUMBER_WINDOW - 1)) : end + 1]
+    last = None
+    for last in _NUMBER.finditer(window):
+        pass
+    return rejected("empty") if last is None else _found(last.group(0))
+
+
+def _box_content(body: str) -> str | None:
+    """The text up to the brace that closes the box, or None (unclosed, or deeper than 8)."""
+    depth = 1
+    for offset, char in enumerate(body):
+        depth += (char == "{") - (char == "}")
+        if depth > _BOX_MAX_DEPTH:
+            return None
+        if depth == 0:
+            return body[:offset]
+    return None
+
+
+def boxed(text: str, args: OpArgs, /) -> StageResult:
+    """Content of the last ``\\boxed{}``; at most 4096 chars scanned and 8 braces deep."""
+    start = text.rfind(_BOX_OPEN)
+    if start < 0:
+        return rejected("empty")
+    begin = start + len(_BOX_OPEN)
+    content = _box_content(text[begin : begin + _BOX_SCAN_CHARS])
+    return rejected("empty") if content is None else _found(content)
+
+
+def _check_json_field_args(args: OpArgs) -> None:
+    path = args.get("path")
+    if set(args) != {"path"} or not isinstance(path, str) or _PATH.fullmatch(path) is None:
+        raise SpecInvalid('json_field@1 takes exactly {"path": <field path>}')
+
+
+def _decode(text: str) -> object:
+    """The whole trimmed text as JSON, else the last ```json fenced block; ValueError if neither."""
+    try:
+        return loads_bounded(text.strip())
+    except ValueError:
+        pass
+    opened = text.rfind(_FENCE_OPEN)
+    closed = text.find(_FENCE_CLOSE, opened + len(_FENCE_OPEN))
+    if opened < 0 or closed < 0:
+        raise ValueError("no JSON and no fenced block")
+    return loads_bounded(text[opened + len(_FENCE_OPEN) : closed])
+
+
+def _walk(node: object, path: str) -> tuple[bool, object]:
+    """Follow ``path`` through ``node``: (found, value)."""
+    for step in _STEP.finditer(path):
+        key, index = step.group(1), step.group(2)
+        if key is not None and isinstance(node, dict) and key in node:
+            node = node[key]
+        elif index is not None and isinstance(node, list) and int(index) < len(node):
+            node = node[int(index)]
+        else:
+            return False, None
+    return True, node
+
+
+def _field_text(value: object) -> StageResult:
+    if value is None or isinstance(value, str):
+        return _found(value or "")
+    try:
+        return accepted(canonical_json(value))
+    except ValueError:
+        # a JSON number too big for a float (1e999) decodes to inf, which has no canonical form
+        return rejected("not_json")
+
+
+def json_field(text: str, args: OpArgs, /) -> StageResult:
+    """One JSON field, read by a url4 field path (``a.b[0]``)."""
+    try:
+        decoded = _decode(text)
+    except ValueError:
+        return rejected("not_json")
+    found, value = _walk(decoded, str(args["path"]))
+    return _field_text(value) if found else rejected("field_missing")
+
+
+def last_line(text: str, args: OpArgs, /) -> StageResult:
+    """Last non-empty line; v1 line breaks are only ``\\n`` and ``\\r``."""
+    stripped = text.rstrip()
+    if not stripped:
+        return rejected("empty")
+    start = max(stripped.rfind("\n"), stripped.rfind("\r"))
+    return _found(stripped[start + 1 :].strip())
+
+
+def whole(text: str, args: OpArgs, /) -> StageResult:
+    """The whole text, kept as it is."""
+    return _found(text)
+
+
+OPERATORS: tuple[OperatorDescriptor, ...] = (
+    OperatorDescriptor("last_number", 1, "extract", "Last number token.", last_number),
+    OperatorDescriptor("boxed", 1, "extract", "Content of the last \\boxed{}.", boxed),
+    OperatorDescriptor(
+        "json_field",
+        1,
+        "extract",
+        "One JSON field, read by a url4 field path.",
+        json_field,
+        args_schema={
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        check_args=_check_json_field_args,
+    ),
+    OperatorDescriptor("last_line", 1, "extract", "Last non-empty line.", last_line),
+    OperatorDescriptor("whole", 1, "extract", "The whole text.", whole),
+)
+
+__all__ = ["OPERATORS"]
