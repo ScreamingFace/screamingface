@@ -2,6 +2,10 @@
 
 Test-only. The core is exercised through these fake operators, never through the built-ins, so a
 core test cannot pass or fail because of a real operator's behavior.
+
+Role: the combine CORE -- fake operators, spec/context/request builders and the run helpers. Its
+sibling ``combine_golden_support`` serves the REAL plugin operators (golden runner, built-in
+registry specs) and reuses the builders here instead of copying them.
 """
 
 from __future__ import annotations

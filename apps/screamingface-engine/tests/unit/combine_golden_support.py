@@ -1,8 +1,11 @@
-"""Golden-fixture runner shared by the answer-operator tests (OME-1289, E4a, unit 2).
+"""Real-operator test support for the answer operators (OME-1289, E4a, unit 2).
 
-FEATURE: an operator's behavior is frozen per ``@version`` by a hand-computed fixture file.
-Fixture format: ``fixtures/combine/<id>.json`` = ``{"op", "stage", "cases": [{"name", "input",
-"args", "expect"}]}``. Decimals are strings. See the unit 2 spec, section 2.6.
+Role: this module serves the REAL plugin operators (``combine/operators``): the golden-fixture
+runner, direct stage helpers, and real-operator specs for the built-in registry. Its sibling
+``combine_support`` serves the combine CORE with fake operators; the spec, context and run builders
+here come from that module (``vote_spec``, ``spec_text``, ``context_text``, ``run``) and are never
+copied. Fixture format: ``fixtures/combine/<id>.json`` = ``{"op", "stage", "cases": [{"name",
+"input", "args", "expect"}]}``. Decimals are strings. See the unit 2 spec, section 2.6.
 """
 
 from __future__ import annotations
@@ -13,6 +16,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
+from combine_support import context_text, run, spec_text, vote_spec
+
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.operators import extract, normalize, reduce, select
 from screamingface_engine.combine.ports import (
     CombineError,
@@ -103,6 +109,61 @@ def select_result(
     return cast("SelectOp", find(op_id).run)(reduction, combine_input(readings), {})
 
 
+_TIE_TEXTS = (
+    "so the answer is 7.",
+    "The total is 9.",
+    "roughly 7.0",
+    "answer: $9",
+    "it fell to \u22123",
+    "down to -3.",
+    "that is $1,200",
+    "no digits at all",
+)
+_SPREAD_TEXTS = ("I think 10", "12", "maybe 30", "40 ", "no number here")
+
+
+def _step(op_id: str) -> dict[str, Any]:
+    return {"op": op_id, "args": {}}
+
+
+def builtin_vote_spec(member_count: int) -> dict[str, Any]:
+    """A vote over the last number of each member: last_number, numeric, mode, first_holder."""
+    return vote_spec(
+        member_count,
+        extract=_step("last_number@1"),
+        normalize=_step("numeric@1"),
+        reduce=_step("mode@1"),
+        select=_step("first_holder@1"),
+    )
+
+
+def builtin_median_spec(member_count: int, select_op: str = "nearest@1") -> dict[str, Any]:
+    """A median over the last number of each member: last_number, numeric, median, ``select_op``."""
+    return vote_spec(
+        member_count,
+        reducer="median",
+        extract=_step("last_number@1"),
+        normalize=_step("numeric@1"),
+        reduce=_step("median@1"),
+        select=_step(select_op),
+    )
+
+
+def _bytes_of(spec: dict[str, Any], texts: Sequence[str]) -> str:
+    outcome = run(spec_text(spec), context_text(list(texts)), registry=BUILTIN_OPERATORS)
+    return outcome.output + "\n" + outcome.evidence.model_dump_json(by_alias=True)
+
+
+def vote_scenario() -> str:
+    """Output and evidence JSON of a vote with three 2-way ties (built-in operators only)."""
+    return _bytes_of(builtin_vote_spec(len(_TIE_TEXTS)), _TIE_TEXTS)
+
+
+def median_scenario() -> str:
+    """Output and evidence JSON of a median + nearest with a tie at the minimum distance."""
+    return _bytes_of(builtin_median_spec(len(_SPREAD_TEXTS)), _SPREAD_TEXTS)
+
+
 def _tally(rows: list[dict[str, Any]] | None) -> tuple[TallyRow, ...] | None:
     if rows is None:
         return None
@@ -168,13 +229,17 @@ def run_case(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
 __all__ = [
     "FIXTURE_DIR",
     "MODULE_OPERATORS",
+    "builtin_median_spec",
+    "builtin_vote_spec",
     "combine_input",
     "find",
     "load_fixtures",
+    "median_scenario",
     "member_readings",
     "readings_from_rows",
     "reduce_result",
     "run_case",
     "select_result",
     "stage",
+    "vote_scenario",
 ]

@@ -3,7 +3,8 @@
 FEATURE: an operator's behavior is frozen per ``@version``; a changed output is a new version.
 STORY: as an author, a recorded combine replays to the same answer after any engine upgrade.
 
-PHASE A runs the fixtures against the plugin modules' ``OPERATORS`` tuples directly.
+The module tests run the fixtures against the plugin modules' ``OPERATORS`` tuples directly; OP-1
+at the end of the file is the one exact-set check against the built-in registry.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from combine_golden_support import (
     load_fixtures,
     run_case,
 )
+
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 
 _FIXTURES = load_fixtures()
 _CASES = [
@@ -46,3 +49,13 @@ def test_find_names_the_missing_operator() -> None:
 @pytest.mark.parametrize(("op_id", "case"), _CASES)
 def test_golden_case_matches_for_every_module_operator(op_id: str, case: dict[str, object]) -> None:
     assert run_case(find(op_id), case) == case["expect"]
+
+
+def test_golden_outputs_match_for_every_registered_operator() -> None:
+    """OP-1: the one exact-set check -- every fixture file is a built-in operator, and back."""
+    assert set(_FIXTURES) == {descriptor.id for descriptor in BUILTIN_OPERATORS}
+    for op_id, fixture in sorted(_FIXTURES.items()):
+        descriptor = BUILTIN_OPERATORS.resolve(op_id, fixture["stage"])
+        assert descriptor.stage == fixture["stage"], op_id
+        for case in fixture["cases"]:
+            assert run_case(descriptor, case) == case["expect"], (op_id, case["name"])

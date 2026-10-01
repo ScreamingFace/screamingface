@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-30
-finished:
+finished: 2026-10-01
 ---
 
 # e4a-answer-operators — the 15 v1 answer operators and their golden fixtures (epic OME-1289)
@@ -38,7 +38,8 @@ hash-seed determinism test.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-PHASE A (operators, fixtures, tests; no `builtins.py`). PHASE B is still open.
+PHASE A (operators, fixtures, tests) and PHASE B (builtins wiring, OP-1, hash-seed determinism,
+end-to-end tests, helper reconcile) are both done.
 
 - **Actual files:** the 5 plugin modules; 15 fixtures; 5 test files; `tests/unit/combine_golden_support.py`
   (shared runner, added beyond the spec list so OP-1 and OP-18 use one runner); this ledger.
@@ -74,3 +75,25 @@ PHASE A (operators, fixtures, tests; no `builtins.py`). PHASE B is still open.
 - `json_field@1` `args_schema` top level is a `MappingProxyType` with a `required` tuple. The nested
   `properties` dict stays plain because `ports.catalog_entry` deep-copies the schema and a
   mappingproxy cannot be deep-copied or JSON-encoded (`ports.py` is not editable here).
+
+### Phase B (after the rebase onto e4a-combine-core)
+
+- Rebase clean: 321 combine/world/layering tests passed, `check_layering.py` OK (the plugins pass the
+  COMBINE_CORE plugin rule). No unit 1 test asserts an empty builtins registry (only
+  `test_builtin_operators_is_built_at_import`, an isinstance check).
+- Step 9: `combine/builtins.py` lists the four plugin modules. OP-1
+  `test_golden_outputs_match_for_every_registered_operator` was RED first on the exact-set assertion
+  (the registry was empty), then GREEN. It resolves each id through `BUILTIN_OPERATORS.resolve`.
+- Step 10: `test_builtin_vote_and_median_are_identical_across_hash_seeds` (seeds 0..19, byte-equal to
+  the in-process result). RED first: `OperatorUnknown` (the registry was empty), then GREEN.
+- End-to-end tests with hand-computed expectations (RED first, then GREEN): VT-H1 vote
+  (18,18,26,18,18: member_1 text, tally 18:4 / 26:1, agreement 0.8, tie false), the same vote through
+  the url4 route (one recorded call), VT-H4 median value (10,12,30,40 -> "21", built, chosen []),
+  and median + nearest (member_2, tie true, agreement 0.25).
+- Helper reconcile: `combine_support` = core fakes and builders; `combine_golden_support` = real
+  plugin helpers, built on `combine_support.vote_spec/spec_text/context_text/run` (no copies).
+  The new `hash_seed_support.py` holds the hash-seed subprocess harness. Unit 1's
+  `test_combine_determinism.py` keeps its own private copy of that harness (its tests are append-only
+  for this unit), so a later cleanup can point it at `hash_seed_support`.
+- Deviation: the end-to-end test file `test_combine_builtin_end_to_end.py` and `hash_seed_support.py`
+  are not named in the spec.
