@@ -444,6 +444,8 @@ If GHCR image pulls fail, create an image pull Secret and set `imagePullSecrets[
 
 - The container listens on `0.0.0.0:9106` and exposes `/healthz` and `/readyz`.
 - `/healthz` is a liveness endpoint and does not query the database; `/readyz` (the readinessProbe) answers `503` when the database is unreachable. Helm test also calls `/readyz` and `/v1/benchmarks` for DB-backed checks.
+- `/readyz` runs on its own reserved database connection, not the request pool, so a load spike that holds every pooled connection does not mark pods unready. Because Helm test calls `/readyz`, `helm test` fails while the database is down — that is intended, not a broken test.
+- The request pool is sized explicitly per pod by `config.dbPoolMinsize` / `config.dbPoolMaxsize` (env `SCOREBOARD_DB_POOL_MINSIZE` / `SCOREBOARD_DB_POOL_MAXSIZE`, default 1 / 5 — Tortoise's own defaults made visible). Each pod opens at most `dbPoolMaxsize + 1` connections (the extra one is the readiness connection), so budget `replicaCount × (dbPoolMaxsize + 1)` against Postgres `max_connections`, plus the migration and seed Jobs. Do not put `min_size`/`max_size` in the database URL: Tortoise lets those override the settings.
 - The migration and seed Jobs use the same image and database Secret as the app Deployment.
 - The demo DB PVC owns the database state; deleting it deletes the database.
 - Backups, HA Postgres, PodMonitor, and HPA are follow-up infrastructure work.

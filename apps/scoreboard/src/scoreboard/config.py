@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_DATABASE_URL = "sqlite://./scoreboard.sqlite3"
 
 AuthMode = Literal["disabled", "cloudflare_headers"]
+
+
+@dataclass(frozen=True)
+class PoolSize:
+    """The request pool's bounds for a PostgreSQL connection (OME-1452)."""
+
+    minsize: int
+    maxsize: int
 
 
 def normalize_database_url(database_url: str) -> str:
@@ -65,6 +74,29 @@ class Settings(BaseSettings):
     ``cloudflare_headers`` mode, where it is mandatory — see
     :func:`scoreboard.core.auth.cloudflare_identity.peer_in_networks`.
     """
+
+    # FEATURE: explicit DB pool sizing (OME-1452).
+    # WHY 1 / 5: Tortoise 1.1.8's PostgreSQL client defaults (`base_postgres/client.py`), which
+    # override asyncpg's own 10 / 10 — so these are the values the pool already ran on, now
+    # named. Raising the max is a load-data decision; each pod also holds one more connection,
+    # reserved for the readiness probe (see `scoreboard.db`). Ignored for SQLite, which has no pool.
+    db_pool_minsize: int = Field(default=1, ge=0)
+    db_pool_maxsize: int = Field(default=5, ge=1)
+
+    @property
+    def db_pool(self) -> PoolSize:
+        return PoolSize(minsize=self.db_pool_minsize, maxsize=self.db_pool_maxsize)
+
+    @model_validator(mode="after")
+    def _pool_bounds_are_ordered(self) -> Settings:
+        # INVARIANT: a pool asyncpg would refuse at its first query is refused at startup instead.
+        if self.db_pool_minsize > self.db_pool_maxsize:
+            msg = (
+                f"db_pool_minsize ({self.db_pool_minsize}) exceeds "
+                f"db_pool_maxsize ({self.db_pool_maxsize})"
+            )
+            raise ValueError(msg)
+        return self
 
     @field_validator("database_url")
     @classmethod

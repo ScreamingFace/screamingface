@@ -1509,6 +1509,20 @@ for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
         f"scoreboard ({label} values): liveness is /healthz (never touches the DB) and readiness "
         "is /readyz (fails when the DB is down)",
     )
+    # OME-1452: the pool is sized by the chart, not by a library default nobody can see. The app
+    # refuses min > max at startup; this catches it at render instead of in a crash-looping pod.
+    scoreboard_config = find(scoreboard_docs, "ConfigMap")["data"]
+    pool_bounds = (
+        scoreboard_config.get("SCOREBOARD_DB_POOL_MINSIZE", ""),
+        scoreboard_config.get("SCOREBOARD_DB_POOL_MAXSIZE", ""),
+    )
+    check(
+        all(bound.isdigit() for bound in pool_bounds)
+        and 1 <= int(pool_bounds[1])
+        and int(pool_bounds[0]) <= int(pool_bounds[1]),
+        f"scoreboard ({label} values): the ConfigMap sets the DB pool bounds explicitly as "
+        f"integers with 0 <= min <= max and max >= 1 (got {pool_bounds})",
+    )
 
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:
