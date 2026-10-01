@@ -70,6 +70,7 @@ from screamingface.report import (
     Report,
     Usage,
 )
+from screamingface.selection import Concat, Rank
 from screamingface.url4 import Url4
 from screamingface.warnings import (
     DuplicateMembersWarning,
@@ -93,6 +94,7 @@ __all__ = [
     "CandidateResult",
     "Check",
     "Client",
+    "Concat",
     "Connection",
     "ConnectionPanel",
     "CorrectiveLoop",
@@ -142,6 +144,7 @@ __all__ = [
     "PlanningError",
     "Pipeline",
     "ProviderConnectionError",
+    "Rank",
     "Recipe",
     "Reduce",
     "Report",
