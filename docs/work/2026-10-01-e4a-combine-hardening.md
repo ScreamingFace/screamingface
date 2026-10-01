@@ -67,6 +67,9 @@ reducer (H4). This unit closes all four with new tests and small source edits.
   test_archive_money_never_reaches_the_result_or_the_board`, a pre-existing flake: it asserts that
   the text `0.5` is absent from a payload that holds a timestamp, and the clock digits matched; it
   passes alone). `repo`: ALL GATES GREEN.
-- **Deviations:** none from the spec. Note for review: a non-pinned operator name in a hand-edited
-  url4 (for example `mode`) is resolved by `_OperatorCatalog.pin` and so passes the check; the
-  Engine still rejects it. The spec asks only for pinned ids to exist.
+- **Follow-up (coordinator decision):** a replayed url4 must name only exact pinned ids.
+  `_require_known_operators` now refuses a bare operator name (for example `mode`) with a
+  ValueError before the pinned-id check. Two new tests (sync, async) were RED first (the run
+  transport was called), then GREEN. Commit: see `git log` (fix(sdk): refuse an unpinned operator
+  name in a replayed url4). Both gate runs were repeated; results below.
+- **Deviations:** none from the spec.

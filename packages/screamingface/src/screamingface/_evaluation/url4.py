@@ -24,7 +24,7 @@ from screamingface._evaluation.model import (
     _with_capture,
     _with_replay_frozen_copy,
 )
-from screamingface._evaluation.operators import Stage, _OperatorCatalog
+from screamingface._evaluation.operators import _ID, Stage, _OperatorCatalog
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
     _operation_shape,
@@ -217,9 +217,19 @@ def _replayed_url4(value: str) -> tuple[Candidate, tuple[tuple[Stage, str], ...]
 def _require_known_operators(
     catalog: _OperatorCatalog, pinned: tuple[tuple[Stage, str], ...]
 ) -> None:
-    """Refuse a replay that pins an operator this Engine lacks (``pin`` names the id and stage)."""
+    """Refuse a replay that names an unpinned operator or pins one this Engine lacks.
+
+    INVARIANT: the compiler always writes ``name@version``, so a bare name is a hand edit and
+    ``pin`` (which would quietly pick the newest version) must not resolve it. For a pinned id,
+    ``pin`` names the id and stage when the catalog lacks it.
+    """
 
     for stage, operator in pinned:
+        if _ID.fullmatch(operator) is None:
+            raise ValueError(
+                f"URL4 Candidate combine spec names operator {operator!r} without a version; "
+                "a replayed spec must pin name@version"
+            )
         catalog.pin(stage, operator)
 
 

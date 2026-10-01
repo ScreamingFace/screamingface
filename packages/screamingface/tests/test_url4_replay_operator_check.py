@@ -39,6 +39,7 @@ assert _PLAIN is not None
 assert "mode@1" in _REDUCER
 VALID_REDUCER_REPLAY = _replay(_REDUCER)
 UNKNOWN_OPERATOR_REPLAY = _replay(_REDUCER.replace("mode@1", "mode@9"))
+UNPINNED_OPERATOR_REPLAY = _replay(_REDUCER.replace("mode@1", "mode"))
 WRONG_STAGE_REPLAY = _replay(_REDUCER.replace("mode@1", "numeric@1"))
 PLAIN_REPLAY = _replay(_PLAIN)
 
@@ -92,6 +93,18 @@ def test_replaying_an_unknown_pinned_operator_fails_before_the_run() -> None:
 
     assert transport.called is False
     assert paths == ["/v1/operators"]
+
+
+def test_replaying_an_unpinned_operator_name_fails_before_the_run() -> None:
+    transport = _ForbiddenTransport()
+
+    with (
+        sf.Client(engine_url=_BASE, http_transport=_engine([]), run_transport=transport) as client,
+        pytest.raises(ValueError, match="names operator 'mode' without a version"),
+    ):
+        client.evaluate(UNPINNED_OPERATOR_REPLAY, progress=False)
+
+    assert transport.called is False
 
 
 def test_replaying_an_operator_pinned_in_the_wrong_stage_fails_before_the_run() -> None:
@@ -166,6 +179,18 @@ async def test_async_replaying_an_unknown_pinned_operator_fails_before_the_run()
 
     assert transport.called is False
     assert paths == ["/v1/operators"]
+
+
+@pytest.mark.asyncio
+async def test_async_replaying_an_unpinned_operator_name_fails_before_the_run() -> None:
+    transport = _AsyncForbiddenTransport()
+    client = sf.AsyncClient(engine_url=_BASE, http_transport=_engine([]), run_transport=transport)
+
+    with pytest.raises(ValueError, match="names operator 'mode' without a version"):
+        await client.evaluate(UNPINNED_OPERATOR_REPLAY, progress=False)
+    await client.aclose()
+
+    assert transport.called is False
 
 
 @pytest.mark.asyncio
