@@ -668,6 +668,8 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # shape of the shared world, and it names the ONE type it composes against.
         Path("screamingface_engine/world/serving.py"),
         Path("screamingface_engine/world/corrective.py"),
+        # OME-1289 E4a: the combine route adapter registers /ensemble/combine/v1 on the node.
+        Path("screamingface_engine/world/combine.py"),
     }
 )
 
