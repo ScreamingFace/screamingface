@@ -1203,19 +1203,41 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
         "        # Provenance: this scorer is declared by the Task of",
         f"        #   {facts.task_ref}.",
         f"        # License: {license_note}.",
-        f'        scorer="{facts.scorer}",',
     ]
-    if facts.scorer_kwargs:
+    benchmark_lines.extend(
+        _scorer_lines(
+            facts.scorer, facts.scorer_kwargs, facts.custom_metrics, facts.mcq, _is_judged(facts)
+        )
+    )
+    benchmark_lines.append("    ),")
+    return benchmark_lines
+
+
+def _scorer_lines(
+    scorer: str,
+    scorer_kwargs: Mapping[str, Any],
+    custom_metrics: tuple[str, ...],
+    mcq: bool,
+    judged: bool,
+) -> list[str]:
+    """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
+
+    Shared by the Hugging Face rows and the Task-replay rows (OME-1273), so the two importers
+    can never drift on how a scorer is declared.
+    """
+
+    benchmark_lines: list[str] = [f'        scorer="{scorer}",']
+    if scorer_kwargs:
         # WHY json.dumps for str values AND names: repr's single quotes fail the
         # emitted file's ruff-format gate; json escaping is as injection-safe as
         # repr's. Names are registry_params keys — identifiers in practice, but
         # a **kwargs-taking scorer could carry arbitrary upstream strings.
         rendered_kwargs: str = ", ".join(
             f"{json.dumps(name)}: {_python_literal_source(value)}"
-            for name, value in sorted(facts.scorer_kwargs.items())
+            for name, value in sorted(scorer_kwargs.items())
         )
         benchmark_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
-    for metric_name in facts.custom_metrics:
+    for metric_name in custom_metrics:
         benchmark_lines.append(
             f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
         )
@@ -1225,7 +1247,6 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
         benchmark_lines.append(
             "        # to convert between the two) in the benchmark's description."
         )
-    judged: bool = _is_judged(facts)
     if judged:
         # OME-1240: a judged row must never land silently — the TODO model is
         # refused at assembly by name, so an unreviewed judge cannot ship.
@@ -1242,13 +1263,12 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
         benchmark_lines.append("        # If the scorer dispatches on sample metadata, also set")
         benchmark_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
         benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
-    if not facts.mcq and not judged:
+    if not mcq and not judged:
         benchmark_lines.append(
             "        # Free-form answers make mid-run feedback legitimate (spec §4);"
         )
         benchmark_lines.append("        # MCQ benchmarks must NOT set this (OME-796).")
         benchmark_lines.append("        with_check_surface=True,")
-    benchmark_lines.append("    ),")
     return benchmark_lines
 
 
@@ -1258,6 +1278,12 @@ _JUDGE_MODEL_KWARG_NAMES = frozenset({"model", "grader_model", "judge_model", "s
 
 
 def _is_judged(facts: InspectTaskFacts) -> bool:
+    """A Hugging Face row is judged exactly when its scorer is (see _is_judged_by)."""
+
+    return _is_judged_by(facts.scorer, facts.scorer_kwargs)
+
+
+def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     """A row is judged when its scorer takes a judge — by builtin NAME or by KWARG.
 
     WHY the kwarg check: a custom eval-module scorer (frontierscience) carries its
@@ -1267,14 +1293,32 @@ def _is_judged(facts: InspectTaskFacts) -> bool:
     check-cost knob (OME-1116), so the generated row stays green-by-construction.
     """
 
-    if facts.scorer.rpartition(":")[2].startswith("model_graded_"):
+    if scorer.rpartition(":")[2].startswith("model_graded_"):
         return True
-    return any(name in _JUDGE_MODEL_KWARG_NAMES for name in facts.scorer_kwargs)
+    return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
 
 
 def _python_literal_source(value: Any) -> str:
-    """One scorer kwarg value as source text the emitted file's gates accept."""
+    """One scorer kwarg or task-arg value as Python source the emitted file's gates accept.
 
+    WHY recurse instead of json.dumps a container: JSON spells False/None as false/null,
+    which ast.parse accepts as NAMES, so the emitted file would parse and then raise
+    NameError on import (OME-1273 Review Focus 6). Strings keep json.dumps (double quotes,
+    as ruff format writes them); every other scalar keeps repr.
+
+    Example: the task args ``{"shuffle": False, "limit": None}`` render as that same text,
+    where json.dumps would write ``{"shuffle": false, "limit": null}``.
+    """
+
+    if isinstance(value, dict):
+        items: str = ", ".join(
+            f"{json.dumps(str(name))}: {_python_literal_source(item)}"
+            for name, item in value.items()
+        )
+        return f"{{{items}}}"
+    if isinstance(value, list | tuple):
+        # WHY a list for a tuple too: task args cross request.json, which has no tuple.
+        return f"[{', '.join(_python_literal_source(item) for item in value)}]"
     return json.dumps(value) if isinstance(value, str) else repr(value)
 
 

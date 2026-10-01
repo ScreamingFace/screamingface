@@ -68,12 +68,39 @@ class CaseSource:
     pin: str
 
     def as_comment(self) -> str:
-        """The review line the importer writes above the declaration (spec R6)."""
+        """The one-line review note the importer prints for this Case Source (spec R6)."""
 
-        line: str = f"{self.kind} {self.location} · pin {self.pin}"
+        return " · ".join(self.comment_lines())
+
+    def comment_lines(self) -> tuple[str, str]:
+        """The same note as two lines, as the generated declaration's comment carries it.
+
+        WHY two lines: a URL plus a 40-hex pin overflows the 100-column lint gate; a line
+        that ENDS with its URL is exempt, so the pin goes on a line of its own.
+        """
+
+        pin: str = f"pin {self.pin}"
         if self.pin == UNPINNED:
-            line += " (no upstream hash: the Case Digest is the only pin)"
-        return line
+            pin += " (no upstream hash: the Case Digest is the only pin)"
+        return f"{self.kind} {self.location}", pin
+
+    def hub_repo_id(self) -> str:
+        """The Hugging Face repository a hugging-face location names: `owner/name`.
+
+        Example: ``bigbio/med_qa/main`` (a load_dataset config) → ``bigbio/med_qa``.
+        """
+
+        owner, _, rest = self.location.partition("/")
+        return f"{owner}/{rest.partition('/')[0]}"
+
+    def web_url(self) -> str | None:
+        """Where a reader can see this Case Source in a browser, if anywhere."""
+
+        if self.kind == HUGGING_FACE:
+            return f"https://huggingface.co/datasets/{self.hub_repo_id()}"
+        if self.kind == URL and self.location.startswith(("http://", "https://")):
+            return self.location
+        return None
 
 
 def pin_from_url(url: str) -> str:
