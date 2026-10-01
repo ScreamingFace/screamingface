@@ -304,3 +304,26 @@ def test_export_replaces_one_control_without_redundant_status(tmp_path, monkeypa
     assert browser.export not in browser.widget.children
     assert browser.exports.value.count("<a ") == 1
     assert ">Download JSON</a>" in browser.exports.value
+
+
+def test_case_header_contains_actions_and_preserves_collapse(tmp_path, monkeypatch):
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.chdir(tmp_path)
+    browser = ReportBrowser(large_report(60))
+    assert browser.case_box in browser.widget.children
+    assert browser.case_header.children == (
+        browser.case_title,
+        browser.count,
+        browser.pagination,
+        browser.export_slot,
+    )
+    assert browser.pagination.children == (browser.previous, browser.next)
+    assert browser.export_slot not in browser.widget.children
+    assert "<summary>" not in browser.cases.value
+    browser.case_title.value = False
+    assert browser.cases.layout.display == "none"
+    browser.case_title.value = True
+    assert browser.cases.layout.display != "none"
+    browser.next.click()
+    assert "26–50" in browser.count.value

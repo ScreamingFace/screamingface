@@ -27,6 +27,15 @@ _BROWSER_STYLE = """<style>
 .sf-report-browser .widget-button:hover{background:var(--sf-surface)!important}
 .sf-report-browser .widget-button:focus-visible{outline:2px solid var(--sf-accent)}
 .sf-report-browser .widget-label{color:var(--sf-ink-2)}
+.sf-cases-box{border:1px solid var(--sf-line);margin-top:14px;width:100%}
+.sf-cases-header{background:var(--sf-surface);padding:8px 12px;gap:4px;
+ border-bottom:1px solid var(--sf-line)}
+.sf-report-browser .sf-cases-title{border:0!important;background:transparent!important;
+ color:var(--sf-ink-2)!important;text-align:left;box-shadow:none!important}
+.sf-cases-header>.widget-label{margin:0 8px;font-size:12px}
+.sf-cases-body.widget-html{margin:0;width:100%}
+.sf-cases-body>.widget-html-content{width:100%}
+.sf-cases-header .widget-button,.sf-cases-header .widget-box{flex-shrink:0}
 .sf-report-browser .sf-browser-links a{display:inline-flex;align-items:center;
  justify-content:center;box-sizing:border-box;width:148px;min-height:28px;padding:2px 6px;
  margin:2px;border:1px solid var(--sf-line-2);background:var(--sf-bg);color:var(--sf-ink);
@@ -104,22 +113,45 @@ class ReportBrowser:
         self.export = w.Button(description="Export JSON")
         self.export.on_click(self._export_json)
         self.export_slot = w.VBox([self.export])
+        self._case_box()
+
         self.widget = w.VBox(
             [
                 w.HTML(
                     value=_BROWSER_STYLE + report_html(self.report, cases=False, download=False)
                 ),
-                self.notice,
-                self.export_slot,
-                self._row([self.previous, self.count, self.next]),
-                self.cases,
+                self.case_box,
             ]
         )
         for name in ("sf-ui", "sf-report-browser", *NO_MATH_CLASSES):
             self.widget.add_class(name)
 
-    def _row(self, children: list[Any]) -> Any:
-        return self.w.HBox(children, layout=self.w.Layout(flex_flow="row wrap"))
+    def _case_box(self) -> None:
+        w = self.w
+        self.case_title = w.ToggleButton(
+            value=True,
+            description="Case results",
+            icon="caret-down",
+            tooltip="Show or hide cases",
+            layout=w.Layout(width="auto", margin="0 auto 0 0"),
+        )
+        self.case_title.add_class("sf-cases-title")
+        self.case_title.observe(self._toggle_cases, names="value")
+        self.previous.layout.width = "96px"
+        self.next.layout.width = "76px"
+        self.pagination = w.HBox([self.previous, self.next])
+        self.case_header = w.HBox(
+            [self.case_title, self.count, self.pagination, self.export_slot],
+            layout=w.Layout(flex_flow="row wrap", align_items="center"),
+        )
+        self.case_header.add_class("sf-cases-header")
+        self.cases.add_class("sf-cases-body")
+        self.case_box = w.VBox([self.case_header, self.notice, self.cases])
+        self.case_box.add_class("sf-cases-box")
+
+    def _toggle_cases(self, change: Any) -> None:
+        self.cases.layout.display = "" if change["new"] else "none"
+        self.case_title.icon = "caret-down" if change["new"] else "caret-right"
 
     def _snapshot_link(self) -> str:
         if not self.snapshot.exists():
@@ -135,12 +167,13 @@ class ReportBrowser:
         start = self.page * _PAGE_SIZE
         indices = self.matches[start : start + _PAGE_SIZE]
         self.count.value = (
-            f"Showing {start + 1 if indices else 0}–{start + len(indices)} "
-            f"of {len(self.matches)} · {len(self.entries)} total"
+            f"Showing {start + 1 if indices else 0}–{start + len(indices)} of {len(self.matches):,}"
         )
         self.previous.disabled = self.page == 0
         self.next.disabled = start + _PAGE_SIZE >= len(self.matches)
-        self.cases.value = cases_page_html(self.report, [self.entries[index] for index in indices])
+        self.cases.value = cases_page_html(
+            self.report, [self.entries[index] for index in indices], framed=False
+        )
 
     def _export_json(self, change: Any = None) -> None:
         # INVARIANT: queued clicks cannot start concurrent or repeated exports of this Report.

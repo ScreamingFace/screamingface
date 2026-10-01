@@ -389,6 +389,8 @@ reserved for a future collection of independent Reports. JSON export streams one
 and replaces the destination only after the new file is complete.
 
 In a live notebook, displaying `report` opens a Case browser with 25 results per page.
+The case range, Previous/Next buttons, and single export/download control sit inline in
+the cases box header, wrapping within that header on narrow screens.
 Use **Previous** and **Next**, then select a Case in the original report rail to view its
 detail. The existing presentation and text previews are preserved; full JSON export contains
 every field. The summary describes the original Evaluation, including partial coverage.

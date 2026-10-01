@@ -647,7 +647,9 @@ def _cases_html(report: Report) -> str:
     return cases_page_html(report, entries, preview=True)
 
 
-def cases_page_html(report: Report, entries: list, *, preview: bool = False) -> str:
+def cases_page_html(
+    report: Report, entries: list, *, preview: bool = False, framed: bool = True
+) -> str:
     """Use the original rail and detail panes for one bounded page of cases."""
     if not entries:
         return ""
@@ -675,12 +677,17 @@ def cases_page_html(report: Report, entries: list, *, preview: bool = False) -> 
     label = f"{count} case result" + ("" if count == 1 else "s")
     if preview and count > total:
         label += f" · preview of first {total}; display report in a live notebook to browse all"
-    return (
-        f"<details class='sf-report__det' open><summary>{escape(label)}</summary>"
+    body = (
         f"{_selection_css(group, total)}"
         f"<div class='sf-master'>{''.join(inputs)}"
         f"<div class='sf-rail'>{''.join(rail)}</div>"
-        f"<div class='sf-detail'>{''.join(panes)}</div></div></details>"
+        f"<div class='sf-detail'>{''.join(panes)}</div></div>"
+    )
+
+    if not framed:
+        return body
+    return (
+        f"<details class='sf-report__det' open><summary>{escape(label)}</summary>{body}</details>"
     )
 
 
