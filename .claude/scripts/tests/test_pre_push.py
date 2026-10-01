@@ -17,6 +17,9 @@ Worked example of the bug this pins (seen 2026-10-01): the remote is named `upst
 and the push ran the engine's full test suite. Expected gated stacks: [] — the old hook gave
 ["screamingface-engine"].
 
+The fixed hook picks the base by history, not by name: among every `<remote>/main`, the one
+the branch has the fewest commits on top of is the main it was cut from.
+
 Usage: python3 .claude/scripts/tests/test_pre_push.py
 """
 
@@ -97,6 +100,14 @@ class _Sandbox:
         self.bin_dir: pathlib.Path = bin_dir
         self.gate_log: pathlib.Path = self.root / "gates.log"
 
+    def add_frozen_remote(self, name: str) -> None:
+        """Add a second remote frozen at the remote's current state; it never sees later commits."""
+
+        frozen: pathlib.Path = self.root / f"frozen-{name}"
+        _git(self.root, "clone", "-q", "--bare", str(self.remote), str(frozen))
+        _git(self.clone, "remote", "add", name, str(frozen))
+        _git(self.clone, "fetch", "-q", name)
+
     def remote_moves_on(self, rel_path: str) -> None:
         """Land a commit on the remote's main and fetch it, leaving the clone's local main behind."""
 
@@ -159,6 +170,39 @@ def test_docs_only_branch_with_origin_remote_gates_no_stack() -> None:
         box.cleanup()
 
 
+def test_docs_only_branch_with_any_remote_name_gates_no_stack() -> None:
+    """The base is found by history, not by name: a remote called `sc-remote` works too."""
+
+    box: _Sandbox = _docs_only_branch_on_fresh_remote_main("sc-remote")
+    try:
+        code, output, gated = box.run_hook()
+        assert code == 0, output
+        assert gated == [], gated
+    finally:
+        box.cleanup()
+
+
+def test_a_stale_second_remote_never_wins_by_its_name() -> None:
+    """With two remotes, the main the branch was cut from wins, even when the stale one is `upstream`.
+
+    Example: `origin/main` has the engine commit and the branch is cut from it, so the branch
+    is 1 commit ahead of `origin/main` but 2 ahead of the frozen `upstream/main`. Comparing
+    against `upstream/main` would count the engine commit as this branch's change.
+    """
+
+    box: _Sandbox = _Sandbox("origin")
+    try:
+        box.add_frozen_remote("upstream")
+        box.remote_moves_on(_ENGINE_FILE)
+        _git(box.clone, "checkout", "-q", "-b", "docs-only", "origin/main")
+        _commit_file(box.clone, "docs/note.md", "docs\n")
+        code, output, gated = box.run_hook()
+        assert code == 0, output
+        assert gated == [], gated
+    finally:
+        box.cleanup()
+
+
 def test_engine_change_gates_exactly_the_engine_against_the_remote_main() -> None:
     """A branch that really edits the engine still gets the engine's gates, based on the remote's main."""
 
@@ -183,7 +227,7 @@ def test_no_remote_main_stops_the_push_and_gates_nothing() -> None:
         _commit_file(box.clone, "docs/note.md", "docs\n")
         code, output, gated = box.run_hook()
         assert code == 1, output
-        assert "upstream/main" in output and "origin/main" in output, output
+        assert "git fetch" in output, output
         assert gated == [], gated
     finally:
         box.cleanup()

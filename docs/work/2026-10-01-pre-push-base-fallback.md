@@ -16,15 +16,14 @@ named `upstream` has no `origin/main`, so the hook fell back to the local `main`
 `main` that lags the remote by a few commits makes every remote commit since look like this
 branch's change, so a docs-only push ran the engine, aigateway and aigateway-ui gates (a full
 ~4,650-test engine suite with coverage, plus an npm build). Seen 2026-10-01: local `main` 8
-commits behind `upstream/main`, those 8 commits touching three stacks. The fix tries
-`upstream/main`, then `origin/main`, and stops with a clear message if neither exists. It never
-uses the local branch.
+commits behind `upstream/main`, those 8 commits touching three stacks. The fix picks the base by
+history, not by remote name: among every `<remote>/main`, the one the branch has the fewest
+commits on top of. It stops with a clear message if there is none, and never uses a local branch.
 
 ## Planned changes
 
-- `.githooks/pre-push`: resolve the base from `refs/remotes/upstream/main`, then
-  `refs/remotes/origin/main`; no local-branch fallback; exit 1 with a fix-it message when neither
-  exists.
+- `.githooks/pre-push`: resolve the base as the `<remote>/main` with the fewest commits between it
+  and HEAD; no local-branch fallback; exit 1 with a fix-it message when no remote main exists.
 - `.claude/scripts/tests/test_pre_push.py` (new): runs the real hook in throwaway git repos with a
   stub `uv` that records which stacks were gated.
 - `.claude/sdlc.local.md`: register the new test under the `repo` stack's gates.
@@ -34,12 +33,14 @@ uses the local branch.
 - A docs-only branch in a clone whose remote is `upstream` and whose local `main` lags: no stack
   is gated (RED on main: engine gated).
 - Same with the remote named `origin`: no stack is gated.
+- Same with a remote named `sc-remote`: no stack is gated (any name works).
+- Two remotes, the stale one named `upstream`: the main the branch was cut from wins.
 - A branch that really changes the engine: exactly the engine is gated, with `--base upstream/main`.
 - No remote main at all: the hook exits 1 and names both refs, and gates nothing.
 
 ## Acceptance
 
-- The four tests pass; the first fails on the unfixed hook.
+- The six tests pass; the `upstream` one fails on the original hook, and the `sc-remote` and stale-remote ones fail on a fixed-name-list version.
 - `run_gates.py repo` is green.
 
 ## Outcome (fill at the end — required before COMMIT)
@@ -48,7 +49,10 @@ uses the local branch.
   `.claude/sdlc.local.md`, this ledger and the task mirror.
 - **Commits:** `701de1985` fix(repo): compare the pre-push hook against the remote's main, never a local main; then this ledger and the mirror.
 - **Gates:** RED first on the unfixed hook: 1 passed, 3 failed (the docs-only `upstream` branch gated
-  `screamingface-engine main`). GREEN after: 4 passed. `run_gates.py repo --base upstream/main`:
-  ALL GATES GREEN.
-- **Deviations:** none. The `repo` stack is still not in the hook's stack list, so the hook never
+  `screamingface-engine main`). The first fix tried `upstream/main` then `origin/main` by name; on
+  review it was replaced by the by-history pick, with two RED tests on the name-list version (the
+  `sc-remote` push was blocked; the stale `upstream` won and gated the engine). GREEN after: 6
+  passed. `run_gates.py repo --base upstream/main`: ALL GATES GREEN.
+- **Deviations:** the base pick changed mid-review from a fixed name list to the by-history pick
+  (owner decision, 2026-10-01), so any remote name and a fork with a stale remote both work. The `repo` stack is still not in the hook's stack list, so the hook never
   runs the repo gates itself; left as is (out of scope).

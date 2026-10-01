@@ -3,19 +3,24 @@
 # changed on this branch vs the merge base with the remote's main. Keeps pytest/pyright/coverage
 # off the per-commit path while still gating what leaves the machine.
 #
-# The base is the REMOTE's main, never a local `main`: a local main that lags the remote makes
+# The base is a REMOTE's main, never a local `main`: a local main that lags the remote makes
 # every remote commit since look like this branch's change, so a docs-only push gated every
-# stack those commits touched. upstream/main comes first because a clone with both remotes is
-# usually a fork, where upstream is the shared repo and origin/main may be stale.
+# stack those commits touched. The remote is found by history, not by name: among every
+# <remote>/main, the one this branch has the fewest commits on top of is the main it was cut
+# from. Example: 1 commit ahead of sc-remote/main but 41 ahead of a fork's stale origin/main
+# -> sc-remote/main. A branch cut from another branch is still compared with main, so its
+# parent's stacks are gated too: slower, never missed.
 base=""
-for candidate in upstream/main origin/main; do
-  if git rev-parse --verify --quiet "refs/remotes/$candidate" >/dev/null 2>&1; then
-    base="$candidate"
-    break
+fewest=""
+for ref in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/*/main'); do
+  ahead=$(git rev-list --count "$ref..HEAD" 2>/dev/null) || continue
+  if [ -z "$fewest" ] || [ "$ahead" -lt "$fewest" ]; then
+    base="$ref"
+    fewest="$ahead"
   fi
 done
 if [ -z "$base" ]; then
-  echo "pre-push: no upstream/main or origin/main to compare this branch against." >&2
+  echo "pre-push: found no <remote>/main to compare this branch against." >&2
   echo "pre-push: fetch your remote's main (git fetch <remote>) and push again." >&2
   exit 1
 fi
