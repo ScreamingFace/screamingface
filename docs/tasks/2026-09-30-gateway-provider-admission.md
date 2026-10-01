@@ -1,7 +1,7 @@
 ---
 id: OME-1162
 linear_url: https://linear.app/openmined/issue/OME-1162
-status: Backlog
+status: In Review
 priority: High
 labels: [aigateway, agentic, design-session]
 created: 2026-09-09

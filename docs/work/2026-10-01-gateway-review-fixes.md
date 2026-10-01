@@ -61,3 +61,11 @@ configure queue timeout through Helm, and PR #1153 contains the tested fixes.
 - **Wisdom:** Disconnect provenance is explicit; external cancellation is never
   swallowed. HTTP 499 prevents successful response conversion/cache writes after a
   disconnect. Operator defaults stay intact; the shorter queue limit is opt-in.
+
+## CI follow-up: synchronize ticket mirror status
+
+The Mirror status workflow reported `ledger-done-mirror-not-started` for OME-1162:
+this completed work ledger was paired with a stale Backlog task mirror. Linear MCP
+confirmed the issue is In Review (since 2026-09-30), with no completion date. Updated
+the existing mirror to In Review. The current CI checker reproduced the failure
+before the correction and passes afterward; no runtime code or tests changed.
