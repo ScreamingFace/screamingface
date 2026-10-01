@@ -9,9 +9,9 @@ so a Fusion case artifact can say which member produced which answer.
 Stages, in execution order:
 
 1. Parse the candidate expression the adapter already holds and select its
-   named ``model_N`` / ``synthesis_N`` sources — the identical naming rule the
-   Client's operation projection uses (``operation_id = "op_" + binding``), so
-   both sides agree with no protocol change.
+   named ``model_N`` / ``synthesis_N`` / ``judge_N`` / ``writer_N`` sources — the
+   identical naming rule the Client's operation projection uses
+   (``operation_id = "op_" + binding``), so both sides agree with no protocol change.
 2. Fingerprint each source as (path, sorted params). Two members on the same
    model route with different params (e.g. temperature) stay distinct.
 3. Join recorded calls to bindings by fingerprint. A fingerprint claimed by ONE
@@ -42,8 +42,10 @@ from url4.core.nodes import Expression, RelExpr, Source, walk
 from url4.core.parser import build
 
 # INVARIANT: kept in lock-step with the Client's operation projection, where
-# `operation_id = "op_" + binding` and bindings are model_N / synthesis_N.
-_BINDING = re.compile(r"^(?:model|synthesis)_\d+$")
+# `operation_id = "op_" + binding` and bindings are model_N / synthesis_N / judge_N / writer_N
+# (OME-1289 E4a). `tests/unit/data/combine_contract/binding_names.json` pins this pattern in
+# both packages.
+_BINDING = re.compile(r"^(?:model|synthesis|judge|writer)_\d+$")
 
 type _Fingerprint = tuple[str, tuple[tuple[str, str], ...]]
 
@@ -91,12 +93,16 @@ def _attributed(
     output: str | None = None
     finish_reason: str | None = None
     accounting = None
+    combine = None
     matched = [] if binding.fingerprint is None else by_fingerprint.get(binding.fingerprint, [])
     if matched and claims.get(binding.fingerprint or ("", ()), 0) == 1:
         # One claimant: every matched call IS this operation; the last one is terminal
         # (a corrective re-invocation repeats the operation, and only its final answer
         # is the one the Candidate used).
         output, finish_reason = matched[-1].output, matched[-1].finish_reason
+        # A combine call's evidence follows the same last-call rule, and only a ONE-claimant
+        # fingerprint may carry it (the ambiguous branch below never invents evidence).
+        combine = matched[-1].combine
         if all(call.accounting is not None for call in matched):
             accounting = combine_operation_accounting(
                 [call.accounting for call in matched if call.accounting is not None]
@@ -112,6 +118,7 @@ def _attributed(
         output=output,
         finish_reason=finish_reason,
         accounting=accounting,
+        combine=combine,
     )
 
 

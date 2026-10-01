@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from screamingface_engine.combine.evidence import CombineEvidence
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     OperationCache,
@@ -340,12 +341,18 @@ class OperationOutput(_StrictWireModel):
     FEATURE: OME-843 member-output capture. ``output``/``finish_reason`` are null
     when the Engine could not attribute the call unambiguously — absence of
     evidence, never a positional guess.
+
+    FEATURE: OME-1289 (E4a) ``combine`` is the evidence of a deterministic combine step. It is
+    set only on a combine operation the Engine attributed to ONE binding, and it is left out of
+    the wire (not written as null) when absent, so an envelope with no reducer is byte-identical
+    to the pre-E4a contract.
     """
 
     operation_id: str = Field(min_length=1)
     output: str | None
     finish_reason: str | None
     accounting: OperationAccounting | None
+    combine: CombineEvidence | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("finish_reason")
     @classmethod
