@@ -77,6 +77,22 @@ def _evidence(agreement: float = 0.6) -> CombineEvidence:
     )
 
 
+def _evidence_kwargs() -> dict[str, Any]:
+    base = _evidence()
+    return {
+        "kind": base.kind,
+        "reducer": base.reducer,
+        "operators": base.operators,
+        "members": base.members,
+        "tally": base.tally,
+        "chosen": base.chosen,
+        "built": base.built,
+        "tie": base.tie,
+        "agreement": base.agreement,
+        "finish_reason": base.finish_reason,
+    }
+
+
 def _case(
     case_id: str = "1",
     *,
@@ -174,7 +190,7 @@ def test_golden_validates_and_maps_to_a_golden_report() -> None:
 
     assert isinstance(outcome, GoldenReport)
     assert outcome.kind == "model"
-    assert outcome.models == ("openrouter/prov/model-x",)
+    assert outcome.models == ()  # only build_candidate reads it; the spec builds the candidate
     assert (outcome.board, outcome.revision, outcome.limit) == ("inspect-gsm8k", "rev-1", 2)
     assert outcome.expression_sha == _SHA
     assert (outcome.final_score, outcome.case_count, outcome.gradeable_count) == ("0.5", 2, 1)
@@ -218,11 +234,21 @@ def test_the_five_locks_run_unchanged_on_the_mapped_outcome() -> None:
         {"case_failures": {}},  # a failed case must name its reason
         {"final_score": 0.5},  # the score is a decimal string, never a float
         {"unknown": 1},
+        {"lane": "inspect-gsm8k-other"},  # the golden belongs to one lane and one board
+        {"board": "ifeval"},
     ],
 )
 def test_golden_refuses_a_bad_shape_on_read(overrides: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         ReducerGolden.model_validate(_golden_doc(**overrides))
+
+
+def test_the_refusal_names_the_lane_script_and_not_the_board_refresh_recipe() -> None:
+    with pytest.raises(ValidationError) as refused:
+        ReducerGolden.model_validate(_golden_doc(case_failures={}))
+
+    assert "e2e-refresh-golden" not in str(refused.value)
+    assert "tests/e2e/fixtures/reducer_lane.py" in str(refused.value)
 
 
 def test_golden_refuses_evidence_for_a_case_it_does_not_list() -> None:
@@ -310,6 +336,15 @@ def test_evidence_lock_wants_a_positive_agreement() -> None:
 def test_evidence_lock_wants_the_synthesis_to_be_the_chosen_members_text_verbatim() -> None:
     with pytest.raises(AssertionError, match="chosen member"):
         _lock([_case(synthesis_output="so 42!")])
+
+
+def test_evidence_lock_names_a_vote_that_chose_no_member() -> None:
+    empty = CombineEvidence(**{**_evidence_kwargs(), "chosen": ()})
+    golden = ReducerGolden.model_validate(
+        _golden_doc(evidence={"case_id": "1", "combine": empty.to_dict()})
+    )
+    with pytest.raises(AssertionError, match="chose no member"):
+        _lock([_case(evidence=empty)], golden)
 
 
 def test_evidence_lock_wants_every_member_output_attributed() -> None:

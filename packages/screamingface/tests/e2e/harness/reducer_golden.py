@@ -21,6 +21,7 @@ member readings and to carry the same bytes as the text of the member it chose.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Final, Literal
@@ -35,6 +36,9 @@ REDUCER_GOLDEN_SCHEMA: Final = "screamingface.reducer-golden.v1"
 
 _SHA256_HEX = r"^[0-9a-f]{64}$"
 _MEMBER_PREFIX: Final = "member_"
+_BOARD_REFRESH_ADVICE: Final = re.compile(
+    r" — re-bless this golden from its committed snapshot \(`just e2e-refresh-golden [^`]*`\)"
+)
 _MAX_SAMPLES: Final = 256  # sf.samples()'s own bound
 
 
@@ -77,8 +81,8 @@ class ReducerGolden(BaseModel):
     schema_: Literal["screamingface.reducer-golden.v1"] = Field(
         alias="schema", default=REDUCER_GOLDEN_SCHEMA
     )
-    lane: str = Field(min_length=1)
-    board: str = Field(min_length=1)
+    lane: Literal["inspect-gsm8k-vote"]
+    board: Literal["inspect-gsm8k"]
     revision: str = Field(min_length=1)
     limit: int | None
     candidate: ReducerCandidateSpec
@@ -93,8 +97,9 @@ class ReducerGolden(BaseModel):
     def outcome(self) -> GoldenReport:
         """The five-lock answer sheet, so ``compare_outcome`` runs unchanged."""
         return GoldenReport(
+            # `models` stays empty: only `build_candidate` reads it, and a reducer lane builds its
+            # candidate from `ReducerCandidateSpec`; `compare_outcome` never reads it.
             kind="model",
-            models=(self.candidate.model,),
             board=self.board,
             revision=self.revision,
             limit=self.limit,
@@ -114,12 +119,19 @@ class ReducerGolden(BaseModel):
         try:
             self.outcome()
         except ValidationError as exc:
-            raise ValueError(str(exc)) from exc
+            raise ValueError(_reducer_remediation(str(exc))) from exc
         if self.evidence.case_id not in self.case_statuses:
             raise ValueError(
                 f"evidence pins case {self.evidence.case_id!r} that case_statuses does not list"
             )
         return self
+
+
+def _reducer_remediation(message: str) -> str:
+    """GoldenReport's advice names the board refresh recipe, which cannot refresh this lane."""
+    return _BOARD_REFRESH_ADVICE.sub(
+        " — re-record and re-bless the lane (tests/e2e/fixtures/reducer_lane.py)", message
+    )
 
 
 def load_reducer_golden(path: Path) -> ReducerGolden:
@@ -179,7 +191,10 @@ def _check_text(operations: dict[str, Any], synthesis: Any, combine: Any) -> Non
         member = operations.get(f"op_model_{index}")
         if member is None or member.output is None:
             raise AssertionError(f"op_model_{index} carries no output (the member text is lost)")
-    chosen = operations[f"op_model_{int(combine.chosen[0].removeprefix(_MEMBER_PREFIX))}"]
+    if not combine.chosen:
+        raise AssertionError("the vote chose no member, so there is no text to compare")
+    # The loop above proved op_model_1..N exist, and the SDK refuses a `chosen` outside the members.
+    chosen = operations[f"op_model_{combine.chosen[0].removeprefix(_MEMBER_PREFIX)}"]
     if synthesis.output != chosen.output:
         raise AssertionError(
             "the synthesis output is not the chosen member's text verbatim: "

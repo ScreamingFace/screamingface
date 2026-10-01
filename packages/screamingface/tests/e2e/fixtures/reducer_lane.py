@@ -17,7 +17,8 @@ Two steps make them. The first one SPENDS MONEY and is run by the user, never by
     takes. It refuses before any spend unless the model's ``seed`` parameter is published, enabled
     and not ``unsupported`` by the provider (a vote over unseeded samples counts one cached answer N
     times). It writes ``<out>/report.json`` (the SDK report), ``<out>/candidate.json`` (the
-    ``ReducerCandidateSpec``) and ``<out>/cache.sql.gz`` (every cache row the run wrote). The key is
+    ``ReducerCandidateSpec``), ``<out>/recording.json`` (the requested ``limit``) and
+    ``<out>/cache.sql.gz`` (every cache row the run wrote). The key is
     read from the environment, handed to the gateway through the connect route, and never written to
     disk. Needs ``OPENROUTER_API_KEY``, ``SCREAMINGFACE_RECORD_PAID=1`` and a docker daemon. Cost:
     about ``limit * samples`` short calls (20 * 5 = 100), well under $0.10, 5 to 15 minutes.
@@ -25,7 +26,8 @@ Two steps make them. The first one SPENDS MONEY and is run by the user, never by
 ``bless`` (free, docker, keyless)
     Replays the recording with NO key: the sliced cache goes into a keyless gateway and the same
     candidate runs on the Engine. It refuses unless the replay reproduces the saved report (same
-    url4 expression, same case statuses, same score) and the evidence lock holds, then writes the
+    board, url4 expression, case statuses, score, coverage, failure codes and combine evidence) and
+    the evidence lock holds, then writes the
     three fixture files above. Run ``git add`` on them and commit them in a follow-up commit.
 
 The commands, from ``packages/screamingface`` (the asset preparation downloads GSM8K from Hugging
@@ -57,16 +59,17 @@ import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 _FIXTURES_DIR = Path(__file__).resolve().parent
 _E2E_DIR = _FIXTURES_DIR.parent
-for _path in (_E2E_DIR, _FIXTURES_DIR):
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
+if str(_E2E_DIR) not in sys.path:
+    sys.path.insert(0, str(_E2E_DIR))
 
-import slice_snapshot as ss  # noqa: E402
+# WHY the package path: the same module object the contract tests import.
+from fixtures import slice_snapshot as ss  # noqa: E402
 from harness._local_proc import (  # noqa: E402
     ManagedProcess,
     clean_env,
@@ -75,7 +78,12 @@ from harness._local_proc import (  # noqa: E402
     venv_bin,
 )
 from harness.cache_seeded import CacheSeededGateway  # noqa: E402
-from harness.goldens import canonical_score, expression_sha, failure_map  # noqa: E402
+from harness.goldens import (  # noqa: E402
+    GoldenFailure,
+    canonical_score,
+    expression_sha,
+    failure_map,
+)
 from harness.inspect_stack import InspectEngineProcess  # noqa: E402
 from harness.reducer_golden import (  # noqa: E402
     EvidenceLock,
@@ -92,7 +100,7 @@ _RECORD_PAID_ENV = "SCREAMINGFACE_RECORD_PAID"
 _KEY_ENV = "OPENROUTER_API_KEY"
 #: Fixed manifest date: committed fixtures carry no wall-clock traces.
 _BLESSED_AT = "2026-10-01"
-_RECORDING_FILES = ("report.json", "candidate.json", "cache.sql.gz")
+_RECORDING_FILES = ("report.json", "candidate.json", "recording.json", "cache.sql.gz")
 
 #: Every cache row the recording run wrote, normalized like the board slice (fixed timestamps, no
 #: expiry, counters zeroed). It is ``slice_snapshot._SLICE_SQL`` without the baseline join, because
@@ -261,6 +269,8 @@ def record(args: argparse.Namespace) -> None:
     report, rows = _record_stack(spec, args.limit, assets_root, work_dir)
     report.export(args.out / "report.json")
     (args.out / "candidate.json").write_text(spec.model_dump_json(indent=2) + "\n")
+    # The requested limit: `bless` replays the same selection and cross-checks it with the report.
+    (args.out / "recording.json").write_text(json.dumps({"limit": args.limit}) + "\n")
     header = [
         "--",
         f"-- Raw cache rows recorded for lane '{LANE}' (reducer_lane.py record).",
@@ -279,43 +289,126 @@ def record(args: argparse.Namespace) -> None:
 # -- bless (free, keyless) ------------------------------------------------------------
 
 
-def _read_recording(recording: Path) -> tuple[Any, ReducerCandidateSpec, Path]:
+@dataclass(frozen=True, slots=True)
+class _Recording:
+    """What `record` left behind, as `bless` reads it: the saved report's facts and its extras."""
+
+    facts: Any  # slice_snapshot.FreshReportFacts: url4, score, coverage, statuses
+    spec: ReducerCandidateSpec
+    cache: Path
+    limit: int
+    failures: dict[str, tuple[GoldenFailure, ...]]
+    combines: dict[str, dict[str, Any]]
+
+
+def _recorded_failures(cases: list[dict[str, Any]]) -> dict[str, tuple[GoldenFailure, ...]]:
+    """The saved report's failure map, spelled like ``failure_map`` spells the replay's."""
+    return {
+        str(case["case_id"]): tuple(
+            GoldenFailure(stage=failure["stage"], code=failure["code"])
+            for failure in case["failures"]
+        )
+        for case in cases
+        if case["failures"]
+    }
+
+
+def _recorded_combines(cases: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """case id -> the saved report's ``op_synthesis_1`` combine evidence (absent when none)."""
+    return {
+        str(case["case_id"]): operation["combine"]
+        for case in cases
+        for operation in case.get("operations") or ()
+        if operation["operation_id"] == _OPERATION_ID and operation.get("combine") is not None
+    }
+
+
+def _read_recording(recording: Path) -> _Recording:
     missing = [name for name in _RECORDING_FILES if not (recording / name).is_file()]
     if missing:
         raise SystemExit(
             f"the recording {recording} lacks {', '.join(missing)}: run `record` first"
         )
-    facts = ss.parse_fresh_report(json.loads((recording / "report.json").read_text("utf-8")))
+    raw = json.loads((recording / "report.json").read_text("utf-8"))
+    facts = ss.parse_fresh_report(raw)
     if facts.board != BOARD:
         raise SystemExit(f"the report describes board {facts.board!r}, not {BOARD!r}")
-    spec = ReducerCandidateSpec.model_validate_json(
-        (recording / "candidate.json").read_text("utf-8")
-    )
-    return facts, spec, recording / "cache.sql.gz"
-
-
-def _refuse_unless_reproduced(report: Any, facts: Any) -> dict[str, str]:
-    """The replay must reproduce the saved report, or the recording does not describe this lane."""
-    outcome = report.candidates.only
-    if str(outcome.url4) != facts.rendered_url4:
+    if facts.kind != "fusion":
+        raise SystemExit(f"the report records a {facts.kind!r} run; this lane blesses a fusion")
+    limit = json.loads((recording / "recording.json").read_text("utf-8"))["limit"]
+    if limit != len(facts.case_statuses):
         raise SystemExit(
-            "BLESS REFUSED: the replay rendered a different url4 expression than the saved report "
-            "recorded; candidate.json does not rebuild the recorded run"
+            f"the recording asked for limit {limit} but the report holds "
+            f"{len(facts.case_statuses)} cases; it does not describe one run"
         )
+    cases = raw["candidates"][0]["cases"]
+    return _Recording(
+        facts=facts,
+        spec=ReducerCandidateSpec.model_validate_json(
+            (recording / "candidate.json").read_text("utf-8")
+        ),
+        cache=recording / "cache.sql.gz",
+        limit=limit,
+        failures=_recorded_failures(cases),
+        combines=_recorded_combines(cases),
+    )
+
+
+def _refuse(mismatch: bool, message: str) -> None:
+    if mismatch:
+        raise SystemExit(f"BLESS REFUSED: {message}")
+
+
+def _replayed_combines(cases: Any) -> dict[str, dict[str, Any]]:
+    return {
+        str(case.case_id): json.loads(json.dumps(operation.combine.to_dict()))
+        for case in cases
+        for operation in case.operations or ()
+        if operation.operation_id == _OPERATION_ID and operation.combine is not None
+    }
+
+
+def _refuse_unless_reproduced(report: Any, recording: _Recording) -> dict[str, str]:
+    """The replay must reproduce the saved report, or the recording does not describe this lane.
+
+    The order is the order of ``compare_outcome``, then the evidence: board, expression, statuses,
+    score, coverage, failure codes, combine evidence.
+    """
+    outcome, facts = report.candidates.only, recording.facts
+    _refuse(report.benchmark.id != BOARD, f"the engine ran {report.benchmark.id!r}, not {BOARD!r}")
+    _refuse(
+        str(outcome.url4) != facts.rendered_url4,
+        "the replay rendered a different url4 expression than the saved report recorded; "
+        "candidate.json does not rebuild the recorded run",
+    )
     statuses = {str(case.case_id): str(case.status) for case in outcome.cases}
     ss._refuse_status_drift(facts.case_statuses, statuses)
-    if canonical_score(outcome.score) != canonical_score(facts.expected_score):
-        raise SystemExit(
-            f"BLESS REFUSED: replay score {canonical_score(outcome.score)!r} contradicts the saved "
-            f"report's {canonical_score(facts.expected_score)!r}; the recording does not reproduce"
-        )
+    _refuse(
+        canonical_score(outcome.score) != canonical_score(facts.expected_score),
+        f"replay score {canonical_score(outcome.score)!r} contradicts the saved report's "
+        f"{canonical_score(facts.expected_score)!r}; the recording does not reproduce",
+    )
+    _refuse(
+        round(outcome.coverage, 4) != round(facts.expected_coverage, 4),
+        f"replay coverage {round(outcome.coverage, 4)} contradicts the saved report's "
+        f"{round(facts.expected_coverage, 4)}",
+    )
+    _refuse(
+        failure_map(outcome.cases) != recording.failures,
+        "the replay's failure codes differ from the saved report's",
+    )
+    _refuse(
+        _replayed_combines(outcome.cases) != recording.combines,
+        "the replay's combine evidence differs from the saved report's",
+    )
     return statuses
 
 
 def _replay_and_slice(
-    spec: ReducerCandidateSpec, facts: Any, cache: Path, assets_root: Path, work_dir: Path
+    recording: _Recording, assets_root: Path, work_dir: Path
 ) -> tuple[Any, dict[str, str], list[str]]:
     """Boot a KEYLESS gateway, seed the recording, replay, verify, and slice what the replay hit."""
+    cache = recording.cache
     backend, gateway_url = ss._boot_gateway(argparse.Namespace(dump=cache, work_dir=work_dir))
     engine = InspectEngineProcess(work_dir=work_dir, assets_dir=assets_root)
     try:
@@ -324,8 +417,8 @@ def _replay_and_slice(
         engine_url = engine.start(gateway_url)
         # Baseline BEFORE the verified replay, so the slice can observe movement.
         ss._psql(backend._container, ss._BASELINE_SQL)
-        report = ss._evaluate(engine_url, spec.build(), BOARD, len(facts.case_statuses))
-        statuses = _refuse_unless_reproduced(report, facts)
+        report = ss._evaluate(engine_url, recording.spec.build(), BOARD, recording.limit)
+        statuses = _refuse_unless_reproduced(report, recording)
         rows = _rows(ss._psql(backend._container, ss._SLICE_SQL))
     finally:
         engine.stop()
@@ -347,7 +440,7 @@ def _evidence(cases: Any) -> EvidenceLock:
 
 
 def _author_golden(
-    report: Any, spec: ReducerCandidateSpec, statuses: dict[str, str]
+    report: Any, spec: ReducerCandidateSpec, statuses: dict[str, str], limit: int
 ) -> ReducerGolden:
     outcome = report.candidates.only
     golden = ReducerGolden.model_validate(
@@ -355,7 +448,7 @@ def _author_golden(
             "lane": LANE,
             "board": BOARD,
             "revision": report.benchmark.revision,
-            "limit": len(statuses),
+            "limit": limit,
             "candidate": spec,
             "expression_sha": expression_sha(str(outcome.url4)),
             "final_score": canonical_score(outcome.score),
@@ -408,21 +501,22 @@ def _write_fixtures(
 
 def bless(args: argparse.Namespace) -> None:
     _require_docker()
-    facts, spec, cache = _read_recording(args.recording)
+    recording = _read_recording(args.recording)
     assets_root = _require_assets()
     work_dir = args.work_dir or args.recording / "bless-work"
     work_dir.mkdir(parents=True, exist_ok=True)
-    report, statuses, rows = _replay_and_slice(spec, facts, cache, assets_root, work_dir)
-    golden = _author_golden(report, spec, statuses)
+    report, statuses, rows = _replay_and_slice(recording, assets_root, work_dir)
+    golden = _author_golden(report, recording.spec, statuses, recording.limit)
     report_sha = hashlib.sha256((args.recording / "report.json").read_bytes()).hexdigest()
     # Provenance rule: sources are described generically plus content shas, never local paths.
     header = [
         "--",
         f"-- Sliced replay fixture for lane '{LANE}' (OME-1289 E4a; see reducer_lane.py).",
         "-- Every row VERBATIM from a recording made through this checkout's gateway",
-        f"-- (cache content sha256 {ss._dump_content_sha(cache)}), so the keys are already this",
-        "-- protocol's. The bless proved the replayed score, statuses and rendered expression",
-        f"-- reproduce the saved SDK report (content sha256 {report_sha}).",
+        f"-- (cache content sha256 {ss._dump_content_sha(recording.cache)}), so the keys are",
+        "-- already this protocol's. The bless proved the replay reproduces the saved SDK report",
+        f"-- (content sha256 {report_sha}): expression, statuses, score, coverage, failures and",
+        "-- combine evidence.",
         "--",
         "",
     ]
