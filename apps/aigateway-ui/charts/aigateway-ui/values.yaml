@@ -32,6 +32,10 @@ securityContext:
 
 config:
   port: 9107
+  # Threshold for the BFF's server-side JSON log lines (`src/lib/log.ts`): debug | info | warn |
+  # error. A failed admin call writes one line — refusals (forbidden, invalid, not_found, …) at
+  # `warn`, an unservable console (unreachable, unavailable, unknown) at `error` — so `error`
+  # silences the expected refusals. An unrecognised value falls back to `info`, never to silence.
   logLevel: info
 
 # WHERE THE ADMIN API IS. The console is a Backend-for-Frontend: every call to `/v1/admin` is made

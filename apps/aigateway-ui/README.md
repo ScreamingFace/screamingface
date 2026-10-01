@@ -88,6 +88,7 @@ literals on color properties all fail the build.
 | Variable | Purpose |
 |---|---|
 | `AIGATEWAY_ADMIN_BASE_URL` | Where aigateway's admin API lives, e.g. `http://aigateway:9105`. Server-side only. |
+| `LOG_LEVEL` | `debug` \| `info` (default) \| `warn` \| `error`. Every failed admin call writes one JSON line (`msg: "bff_admin_error"`: method, path, kind, status, `x-request-id`) — refusals at `warn`, an unservable console at `error`. Never the upstream body. |
 
 ## Ports
 
