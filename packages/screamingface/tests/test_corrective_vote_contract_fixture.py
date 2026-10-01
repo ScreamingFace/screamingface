@@ -47,8 +47,8 @@ def corrective_vote_url4() -> str:
 
 
 def write_fixture() -> None:
-    # WHY no trailing newline here: the repo's end-of-file-fixer hook appends one, and the
-    # engine test and this guard both strip exactly one.
+    # WHY no trailing newline here: the repo's end-of-file-fixer hook appends one; the engine
+    # test rstrips newlines and this guard strips exactly one.
     _FIXTURE.write_text(corrective_vote_url4(), encoding="utf-8")
 
 

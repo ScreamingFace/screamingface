@@ -40,6 +40,13 @@ _MODELS = (*_VOTERS, "prov/member-d", "prov/judge")
 # Graded against the two-constraint spec of test_corrective_loop_e2e (no_comma + english_lowercase):
 _FAIL_ANSWER = "Tea, is nice."  # comma + capital -> fails
 _PASS_ANSWER = "tea is warm and calming"  # passes both
+# Coached voters: a and b hold the SAME vote ("text" drops one trailing period) in different
+# bytes, so the first-holder choice must give back a's bytes; c passes with another text and loses.
+_COACHED = {
+    "prov/member-a": _PASS_ANSWER,
+    "prov/member-b": _PASS_ANSWER + ".",
+    "prov/member-c": "tea is calm and warm",
+}
 
 
 def _respond(calls: list[tuple[str, str]]):
@@ -53,7 +60,7 @@ def _respond(calls: list[tuple[str, str]]):
         if model == "prov/judge":
             return _chat("Remove the comma and write everything in lowercase.")
         if model in _VOTERS and "Judge feedback:" in content:
-            return _chat(_PASS_ANSWER)
+            return _chat(_COACHED[model])
         return _chat(_FAIL_ANSWER)
 
     return respond
@@ -89,13 +96,16 @@ async def test_corrective_loop_with_a_reducer_member_reports_no_operation_eviden
 
     case = json.loads(result.text)["cases"][0]
     # The loop works: round 1 fails, one coaching call, round 2's vote passes and is submitted
-    # word for word (the vote returns the first holder's text verbatim).
+    # word for word (the vote returns the FIRST holder's text verbatim: a's bytes, not b's).
     assert case["status"] == "scored"
-    assert case["output"] == _PASS_ANSWER
+    assert case["output"] == _COACHED["prov/member-a"] != _COACHED["prov/member-b"]
     assert case["stop_reason"] == "passed"
     assert case["rounds_executed"] == 2
     models = [model for model, _ in calls]
     assert [models.count(model) for model in _MODELS] == [2, 2, 2, 2, 1]
     # CHAR (EV-10, decision D-8): no `operations` at all. If this ever turns into a list, the
     # last-round evidence became observable and EV-10 should be rewritten as the PRD asks.
-    assert case.get("operations") is None
+    assert case.get("operations") is None, (
+        "EV-10: corrective member operations are now lifted; "
+        "rewrite as corrective_rounds_keep_last_evidence"
+    )
