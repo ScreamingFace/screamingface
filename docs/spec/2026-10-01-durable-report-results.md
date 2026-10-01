@@ -61,19 +61,20 @@ details remain unchanged.
 
 ## Shared case browser (owner-approved follow-up)
 
-Replace text search with Candidate (default All) and Go to case number, submitted
+Replace text search with a candidate dropdown (default All Candidates) and Go to case number, submitted
 on Enter or blur. These use actual retained case identity, not the flattened
 candidate–case result number. Indexed identities/positions are read without prompt
 decoding. Preserve numeric and string Case IDs and escaped diagnostics. Invalid
 input preserves the current page and explains that the case was not found.
 
-All compares the candidates for one case; Previous/Next advances through cases.
-Comparisons exceeding 25 candidates use bounded pages for that same case before
-advancing. A specific candidate browses its cases in 25-result pages; a singleton
-report naturally uses this pagination even with All selected. Case order follows
-retained first occurrence, including sparse and differently ordered identities.
-Direct lookup selects the exact case's detail within its page. Changing candidate
-preserves that case when available; otherwise starts at the first available page.
+All Candidates lists every retained case result across candidates, ordered by first
+occurrence of case identity then candidate order, in 25-result pages. Its range is
+against the combined result total. A specific candidate lists its cases in the
+original order with the same pagination. Go to case selects and reveals the first
+matching result in the current selection, using exact case identity rather than row
+number; matching candidates sit together in the combined list and may span page
+boundaries. Changing candidate preserves that case when available; otherwise starts
+at the first available page. There is no implicit one-case comparison mode.
 Candidate summary names are native notebook buttons selecting the same shared
 browser, with active selection visible. Preserve all figures and original details.
 Keep one header, one Download and no per-candidate expanded case panels. Rapid
@@ -82,4 +83,4 @@ briefly while a page is loading to keep the navigation model stable.
 
 ### Case rail refinement (2026-10-01)
 
-The candidate selector has no visible prefix and defaults to All Candidates. Live rows are 44 px, with a viewport-bounded scrollable rail. Candidate mode shows status, case ID and a short input preview; comparison mode shows status and candidate name. Go to case selects the detail pane, retains the entered ID, highlights the row and reveals it inside the rail. A brief initial CSS snap is released after insertion so subsequent manual scrolling is unrestricted. Static exports retain their existing labels/layout.
+The candidate selector has no visible prefix and defaults to All Candidates. Live rows are 44 px, with a viewport-bounded scrollable rail. Candidate mode shows status, case ID and a short input preview; All Candidates shows status, case ID, candidate name and preview. Go to case selects the detail pane, retains the entered ID, highlights the row and reveals it inside the rail. A brief initial CSS snap is released after insertion so subsequent manual scrolling is unrestricted. Static exports retain their existing labels/layout.

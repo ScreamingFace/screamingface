@@ -24,31 +24,23 @@ class CaseNavigation:
             for position, case_id in enumerate(ids):
                 self.groups.setdefault(case_id, []).append(offset + position)
             offset += len(ids)
-        self.comparison_pages = tuple(
-            tuple(indices[start : start + PAGE_SIZE])
-            for indices in self.groups.values()
-            for start in range(0, len(indices), PAGE_SIZE)
-        )
-        self.page_ids = tuple(
-            case_id
-            for case_id, indices in self.groups.items()
-            for _ in range(0, len(indices), PAGE_SIZE)
-        )
+        self.combined = tuple(index for indices in self.groups.values() for index in indices)
+        self.case_positions = {}
+        for position, index in enumerate(self.combined):
+            self.case_positions[index] = position
         self.select(-1)
-
-    @property
-    def comparing(self) -> bool:
-        return self.selected == -1 and len(self.identities) > 1
 
     def select(self, candidate: int) -> None:
         if candidate < -1 or candidate >= len(self.identities):
             raise ValueError("unknown Candidate")
         self.selected = candidate
-        if self.comparing:
-            self.pages: Sequence[Sequence[int]] = self.comparison_pages
+        if candidate == -1:
+            self.pages: Sequence[Sequence[int]] = tuple(
+                self.combined[start : start + PAGE_SIZE]
+                for start in range(0, len(self.combined), PAGE_SIZE)
+            )
         else:
-            owner = max(candidate, 0)
-            start, count = self.offsets[owner], len(self.identities[owner])
+            start, count = self.offsets[candidate], len(self.identities[candidate])
             self.pages = tuple(
                 range(start + index, start + min(index + PAGE_SIZE, count))
                 for index in range(0, count, PAGE_SIZE)
@@ -58,9 +50,11 @@ class CaseNavigation:
         return self.pages[page]
 
     def focused_id(self, page: int) -> CaseId:
-        if self.comparing:
-            return self.page_ids[page]
-        return self.identities[max(self.selected, 0)][page * PAGE_SIZE]
+        index = self.indices(page)[0]
+        for start, ids in reversed(tuple(zip(self.offsets, self.identities, strict=True))):
+            if index >= start:
+                return ids[index - start]
+        raise IndexError(index)
 
     def resolve(self, query: str) -> CaseId:
         text = query.strip()
@@ -68,7 +62,7 @@ class CaseNavigation:
             case_id: CaseId = int(text)
         except ValueError:
             case_id = text
-        ids = tuple(self.groups) if self.comparing else self.identities[max(self.selected, 0)]
+        ids = self.groups if self.selected == -1 else self.identities[self.selected]
         if case_id not in ids and text in ids:
             case_id = text
         if case_id not in ids:
@@ -77,18 +71,11 @@ class CaseNavigation:
 
     def locate(self, query: str) -> int:
         case_id = self.resolve(query)
-        ids = self.identities[max(self.selected, 0)]
-        return self.page_ids.index(case_id) if self.comparing else ids.index(case_id) // PAGE_SIZE
+        if self.selected == -1:
+            return self.case_positions[self.groups[case_id][0]] // PAGE_SIZE
+        return self.identities[self.selected].index(case_id) // PAGE_SIZE
 
     def caption(self, page: int) -> str:
-        indices = self.indices(page)
-        if not self.comparing:
-            total = len(self.identities[max(self.selected, 0)])
-            start = page * PAGE_SIZE
-            return f"{start + 1}–{start + len(indices)} of {total}"
-        case_id = self.page_ids[page]
-        total = len(self.groups[case_id])
-        if total <= PAGE_SIZE:
-            return f"Case {case_id} · {total} candidate" + ("" if total == 1 else "s")
-        start = self.groups[case_id].index(indices[0])
-        return f"Case {case_id} · {start + 1}–{start + len(indices)} of {total} candidates"
+        total = len(self.combined) if self.selected == -1 else len(self.identities[self.selected])
+        start = page * PAGE_SIZE
+        return f"{start + 1}–{start + len(self.indices(page))} of {total}"

@@ -815,12 +815,6 @@ def _rail_item(
     who = f" <span class='sf-rail__who'>{escape(candidate.name)}</span>" if show_who else ""
     if navigation_mode == "candidate":
         who = ""
-    if navigation_mode == "comparison":
-        return (
-            f"<label class='sf-rail__item' for='{item}'>"
-            f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
-            f"<span class='sf-rail__id'>{escape(candidate.name)}</span></label>"
-        )
     preview = _clip(case.prompt_preview, 90) if case.input is not None else "input unavailable"
     return (
         f"<label class='sf-rail__item' for='{item}'>"

@@ -330,7 +330,7 @@ class ReportBrowser:
             framed=False,
             accounting_contexts=self._accounting_contexts,
             selected=selected,
-            navigation_mode="comparison" if self.navigation.comparing else "candidate",
+            navigation_mode="all" if self.navigation.selected == -1 else "candidate",
         )
 
     def _page_controls(self) -> None:

@@ -1,4 +1,4 @@
-"""One shared browser supports case comparison and candidate inspection."""
+"""One shared browser filters the complete result list and navigates exact cases."""
 
 from dataclasses import fields
 
@@ -8,7 +8,7 @@ from test_report_browser import large_report
 from screamingface.report import Report
 
 
-def comparison_report(count=60, candidates=2, identities=None):
+def multi_candidate_report(count=60, candidates=2, identities=None):
     items = []
     for index in range(candidates):
         source = large_report(count).candidates[0]
@@ -26,29 +26,29 @@ def comparison_report(count=60, candidates=2, identities=None):
     return Report(benchmark=items[0].benchmark, case_count=count, candidates=items)
 
 
-def test_all_compares_one_case_across_candidates():
+def test_all_lists_case_results_across_candidates():
     from screamingface._ui.case_navigation import CaseNavigation
 
-    nav = CaseNavigation(comparison_report().candidates)
+    nav = CaseNavigation(multi_candidate_report().candidates)
     assert nav.selected == -1
-    assert nav.indices(0) == (0, 60)
-    assert nav.indices(59) == (59, 119)
-    assert nav.locate("59") == 59
-    assert nav.caption(59) == "Case 59 · 2 candidates"
+    assert nav.indices(0) == tuple(value for i in range(12) for value in (i, 60 + i)) + (12,)
+    assert nav.indices(4) == tuple(value for i in range(50, 60) for value in (i, 60 + i))
+    assert nav.locate("59") == 4
+    assert nav.caption(4) == "101–120 of 120"
     nav.select(1)
     assert list(nav.indices(1)) == list(range(85, 110))
     assert nav.locate("59") == 2
     assert nav.caption(2) == "51–60 of 60"
 
 
-def test_comparison_with_many_candidates_is_bounded():
+def test_all_with_many_candidates_is_bounded():
     from screamingface._ui.case_navigation import CaseNavigation
 
-    nav = CaseNavigation(comparison_report(count=2, candidates=30).candidates)
+    nav = CaseNavigation(multi_candidate_report(count=2, candidates=30).candidates)
     assert len(nav.indices(0)) == 25
-    assert len(nav.indices(1)) == 5
-    assert nav.caption(1) == "Case 0 · 26–30 of 30 candidates"
-    assert nav.locate("1") == 2
+    assert len(nav.indices(1)) == 25
+    assert nav.caption(1) == "26–50 of 60"
+    assert nav.locate("1") == 1
 
 
 def test_single_candidate_all_keeps_ordinary_pagination():
@@ -64,7 +64,7 @@ def test_case_identity_is_not_combined_result_position():
 
     from screamingface._ui.case_navigation import CaseNavigation
 
-    nav = CaseNavigation(comparison_report().candidates)
+    nav = CaseNavigation(multi_candidate_report().candidates)
     with pytest.raises(ValueError, match="Case 46000 not found"):
         nav.locate("46000")
     assert nav.locate("0") == 0
@@ -74,20 +74,20 @@ def test_live_controls_select_candidates_and_exact_cases(tmp_path, monkeypatch):
     from screamingface._ui.report_browser import ReportBrowser
 
     monkeypatch.chdir(tmp_path)
-    browser = ReportBrowser(comparison_report())
+    browser = ReportBrowser(multi_candidate_report())
     assert browser.candidate.value == -1
     assert browser.candidate.options[0] == ("All Candidates", -1)
     assert browser.candidate.description == ""
     assert browser.go_to.placeholder == "Go to case number"
     browser.go_to.value = "59"
-    assert browser.count.value == "Case 59 · 2 candidates"
-    assert "CANDIDATE-0" in browser.cases.value.upper()
-    assert "CANDIDATE-1" in browser.cases.value.upper()
-    comparison_rail = browser.cases.value.split("<div class='sf-rail'>")[1].split(
+    assert browser.count.value == "101–120 of 120"
+    assert all(name in browser.cases.value.upper() for name in ("CANDIDATE-0", "CANDIDATE-1"))
+    combined_rail = browser.cases.value.split("<div class='sf-rail'>")[1].split(
         "<div class='sf-detail'>"
     )[0]
-    assert "sf-rail__q" not in comparison_rail
-    assert "case 59" not in comparison_rail
+    assert "sf-rail__q" in combined_rail
+    assert "sf-rail__who" in combined_rail
+    assert "case 59" in combined_rail
     browser.candidate.value = 1
     candidate_rail = browser.cases.value.split("<div class='sf-rail'>")[1].split(
         "<div class='sf-detail'>"
@@ -131,11 +131,12 @@ def test_sparse_and_reordered_string_identities_are_grouped_correctly():
 
     from screamingface._ui.case_navigation import CaseNavigation
 
-    source = comparison_report(count=2, identities=[[20, 10], ["named", 20]])
+    source = multi_candidate_report(count=2, identities=[[20, 10], ["named", 20]])
     nav = CaseNavigation(source.candidates)
-    assert nav.indices(nav.locate("20")) == (0, 3)
-    assert nav.indices(nav.locate("named")) == (2,)
-    assert nav.caption(nav.locate("named")) == "Case named · 1 candidate"
+    assert nav.indices(0) == (0, 3, 1, 2)
+    assert nav.locate("20") == 0
+    assert nav.locate("named") == 0
+    assert nav.caption(0) == "1–4 of 4"
     nav.select(1)
     assert nav.locate("named") == 0
     with pytest.raises(ValueError, match="not found"):
@@ -147,18 +148,20 @@ def test_sparse_and_reordered_string_identities_are_grouped_correctly():
 def test_go_to_matches_string_numeric_ids():
     from screamingface._ui.case_navigation import CaseNavigation
 
-    nav = CaseNavigation(comparison_report(count=2, identities=[["0", "1"], ["0", "1"]]).candidates)
+    nav = CaseNavigation(
+        multi_candidate_report(count=2, identities=[["0", "1"], ["0", "1"]]).candidates
+    )
     assert nav.resolve("1") == "1"
-    assert nav.locate("1") == 1
+    assert nav.locate("1") == 0
 
 
 @pytest.mark.asyncio
-async def test_comparison_navigation_keeps_accepting_rapid_clicks(tmp_path, monkeypatch):
+async def test_all_navigation_keeps_accepting_rapid_clicks(tmp_path, monkeypatch):
     from screamingface._ui.report_browser import ReportBrowser
 
     monkeypatch.chdir(tmp_path)
-    browser = ReportBrowser(comparison_report())
-    browser.go_to.value = "30"
+    browser = ReportBrowser(multi_candidate_report(count=100))
+    browser.go_to.value = "1"
     assert browser._page_task is not None
     await browser._page_task
     for _ in range(5):
@@ -166,9 +169,9 @@ async def test_comparison_navigation_keeps_accepting_rapid_clicks(tmp_path, monk
     assert not browser.previous.disabled and not browser.next.disabled
     assert browser._page_task is not None
     await browser._page_task
-    assert browser.count.value == "Case 35 · 2 candidates"
-    assert browser.go_to.value == "35"
+    assert browser.count.value == "126–150 of 200"
+    assert browser.go_to.value == "62"
     assert not browser.candidate.disabled and not browser.go_to.disabled
     browser.candidate.value = 1
-    assert browser.count.value == "26–50 of 60"
-    assert "-10' checked" in browser.cases.value
+    assert browser.count.value == "51–75 of 100"
+    assert "-12' checked" in browser.cases.value
