@@ -1,0 +1,633 @@
+{
+  "vote_tie": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "mode@1",
+      "first_holder@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": "9",
+        "value": "9",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": "12",
+        "value": "12",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": "9",
+        "value": "9",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_4",
+        "raw": "12",
+        "value": "12",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "9",
+        "score": 2.0,
+        "holders": [
+          "member_1",
+          "member_3"
+        ]
+      },
+      {
+        "value": "12",
+        "score": 2.0,
+        "holders": [
+          "member_2",
+          "member_4"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 0.5,
+    "tie": true,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "vote_weighted": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "weighted_mode@1",
+      "max_weight_holder@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": "9",
+        "value": "9",
+        "status": "voted",
+        "weight": 3.0,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": "9",
+        "value": "9",
+        "status": "voted",
+        "weight": 3.0,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": "12",
+        "value": "12",
+        "status": "voted",
+        "weight": 1.0,
+        "score": null
+      },
+      {
+        "member": "member_4",
+        "raw": "12",
+        "value": "12",
+        "status": "voted",
+        "weight": 1.0,
+        "score": null
+      },
+      {
+        "member": "member_5",
+        "raw": "12",
+        "value": "12",
+        "status": "voted",
+        "weight": 1.0,
+        "score": null
+      }
+    ],
+    "tally": [
+      {
+        "value": "9",
+        "score": 6.0,
+        "holders": [
+          "member_1",
+          "member_2"
+        ]
+      },
+      {
+        "value": "12",
+        "score": 3.0,
+        "holders": [
+          "member_3",
+          "member_4",
+          "member_5"
+        ]
+      }
+    ],
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1"
+    ],
+    "built": false,
+    "agreement": 0.6666666666666666,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "median_value": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "median",
+    "operators": [
+      "last_number@1",
+      "numeric@1",
+      "median@1",
+      "value@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": "10",
+        "value": "10",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": "20",
+        "value": "20",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": "40",
+        "value": "40",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "empty",
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": "20",
+    "presentation_order": null,
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "judge_label": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "judge",
+    "operators": [
+      "label@1",
+      "by_label@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": {
+      "raw": " member_2\n",
+      "returns": "label",
+      "parsed": "member_2"
+    },
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": "author",
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "judge_scores": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "judge",
+    "operators": [
+      "scores@1",
+      "max_score@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": 0.2
+      },
+      {
+        "member": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": 0.9
+      },
+      {
+        "member": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": 0.9
+      }
+    ],
+    "tally": null,
+    "judge": {
+      "raw": "{\"member_1\":0.2,\"member_2\":0.9,\"member_3\":0.9}",
+      "returns": "scores",
+      "parsed": {
+        "member_1": 0.2,
+        "member_2": 0.9,
+        "member_3": 0.9
+      }
+    },
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": true,
+    "median": null,
+    "presentation_order": "author",
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "pick": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "pick",
+    "operators": [
+      "json_field@1",
+      "numeric@1",
+      "values@1",
+      "by_field@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": "0.4",
+        "value": "0.4",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": "0.9",
+        "value": "0.9",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": "0.7",
+        "value": "0.7",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "confidence",
+        "rule": "values",
+        "values": {
+          "member_1": "0.4",
+          "member_2": "0.9",
+          "member_3": "0.7"
+        },
+        "result": null
+      }
+    ],
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "merge_model_field": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "merge",
+    "operators": [
+      "json_object@1",
+      "field_rules@1",
+      "built@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": "{\"answer\":\"Paris.\",\"score\":3}",
+        "value": "{\"answer\":\"Paris.\",\"score\":3}",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": "{\"answer\":\"paris\",\"score\":5}",
+        "value": "{\"answer\":\"paris\",\"score\":5}",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": "{\"answer\":\"Lyon\",\"score\":\"high\"}",
+        "value": "{\"answer\":\"Lyon\",\"score\":\"high\"}",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "answer",
+        "rule": "majority",
+        "values": {
+          "member_1": "Paris.",
+          "member_2": "paris",
+          "member_3": "Lyon"
+        },
+        "result": "Paris."
+      },
+      {
+        "field": "score",
+        "rule": "max",
+        "values": {
+          "member_1": 3,
+          "member_2": 5,
+          "member_3": "high"
+        },
+        "result": 5
+      },
+      {
+        "field": "summary",
+        "rule": "model",
+        "values": {},
+        "result": "Two of three members say Paris."
+      }
+    ],
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "projection": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "projection",
+    "reducer": "project",
+    "operators": [
+      "json_object@1",
+      "project_field@1",
+      "built@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": "{\"answer\":\"A\"}",
+        "value": "{\"answer\":\"A\"}",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": "{\"answer\":\"B\"}",
+        "value": "{\"answer\":\"B\"}",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": "{\"other\":1}",
+        "value": "{\"other\":1}",
+        "status": "voted",
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "answer",
+        "rule": "project",
+        "values": {
+          "member_1": "A",
+          "member_2": "B"
+        },
+        "result": null
+      }
+    ],
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "rank_by_judge": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "rank",
+    "operators": [
+      "scores@1",
+      "top_k@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": 0.1
+      },
+      {
+        "member": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": 0.8
+      },
+      {
+        "member": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": 0.5
+      },
+      {
+        "member": "member_4",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": 0.8
+      }
+    ],
+    "tally": null,
+    "judge": {
+      "raw": "{\"member_1\":0.1,\"member_2\":0.8,\"member_3\":0.5,\"member_4\":0.8}",
+      "returns": "scores",
+      "parsed": {
+        "member_1": 0.1,
+        "member_2": 0.8,
+        "member_3": 0.5,
+        "member_4": 0.8
+      }
+    },
+    "fields": null,
+    "chosen": [
+      "member_2",
+      "member_4"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": "author",
+    "separator_collision": null,
+    "finish_reason": "stop"
+  },
+  "concat_collision": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "selection",
+    "reducer": "concat",
+    "operators": [
+      "join@1",
+      "all@1"
+    ],
+    "members": [
+      {
+        "member": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": null
+      },
+      {
+        "member": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "voted",
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_1",
+      "member_2",
+      "member_3"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": true,
+    "finish_reason": "stop"
+  }
+}
