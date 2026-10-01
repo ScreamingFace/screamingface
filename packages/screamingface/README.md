@@ -196,10 +196,10 @@ Quorum is a success floor checked after members finish, not an early response ra
 `quorum=0` permits synthesis with no successful members when every member is optional.
 `None`, booleans, negative numbers, and numbers above the member count are rejected.
 Quorum and per-member optional settings survive `Url4.to_python()` and replay.
-A reducer synthesizer (`sf.Reduce` and the other combine blocks) takes quorum and optional
-members too. It reads only the members that answered, and the evidence lists each failed optional
-member with the reason `missing`. With `quorum=0` and no member answering, the reducer abstains
-and the Case scores 0.0.
+A reducer synthesizer (`sf.Vote`, `sf.Reduce` and the other combine blocks) takes quorum and
+optional members too. It reads only the members that answered, and the evidence lists each failed
+optional member with the reason `missing`. With `quorum=0` and no member answering, the reducer
+abstains and the Case scores 0.0.
 
 **Deployment requirement:** before using composed quorum Recipes (such as a Pipeline
 feeding a quorum Fusion or a quorum Fusion used as a synthesizer), deploy an Engine
@@ -208,6 +208,24 @@ can pass literal binding references instead of resolved upstream answers. Deploy
 Engine operation-reporting update as well to retain member outputs and accounting.
 URL4 already supports quorum and optional sources; the runtime change fixes scope
 propagation for these compositions.
+
+### Independent samples of one model
+
+`sf.samples(model, n)` builds `n` Models of one route that differ only in an integer `seed`, so a
+vote over them counts `n` real answers and not one cached answer `n` times:
+
+```python
+votes = sf.samples("openrouter/openai/gpt-5.5", 5, temperature=0.7)
+candidate = sf.Fusion(list(votes), synthesizer="openrouter/anthropic/claude-opus-4.8")
+```
+
+Seeds default to `0` through `n - 1`; pass `seeds=[...]` (unique ints) to choose them. `prompts=[...]`
+gives member `i` its own prompt (for example one per language), `temperature=` and `params=` apply
+to every member, and a `sf.Model` as the first argument is the base whose prompt and params the
+samples inherit. A model whose provider does not accept `seed` fails before any request is sent, with
+`sf.PlanningError` (code `unsupported_model_parameter`). A reducer Fusion with two members that send
+the same request raises `sf.DuplicateMembersWarning`, because the gateway may serve them from one
+cached answer.
 
 ### Serial and recursive composition
 

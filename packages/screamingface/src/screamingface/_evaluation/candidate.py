@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -34,6 +35,7 @@ from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
+from screamingface.warnings import DuplicateMembersWarning
 
 if TYPE_CHECKING:
     from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
@@ -496,6 +498,7 @@ class _CandidateCompiler:
         then read it in place of every member's output.
         """
 
+        _warn_duplicate_members(fusion)
         if self._operators is None:
             raise ValueError(
                 "a reducer needs the SF Engine operator catalog to compile; "
@@ -623,6 +626,35 @@ def _fusion_context(
     else:
         value["panel"] = panel
     return render(struct(value))
+
+
+def _warn_duplicate_members(fusion: Fusion) -> None:
+    """Warn for each group of direct Model members that send one identical request.
+
+    WHY: the gateway keys its response cache on the request, so equal members may be served
+    by one cached answer and a vote would count it N times. Names do not reach the wire, and
+    Recipe members are skipped: their inner requests are compiled elsewhere.
+    """
+
+    groups: dict[tuple[str, str | None, tuple[tuple[str, object], ...]], list[int]] = {}
+    for position, member in enumerate(fusion.members, start=1):
+        if isinstance(member, Model):
+            key = (member.model, member.prompt, tuple(sorted(member.params.items())))
+            groups.setdefault(key, []).append(position)
+    for (route, _prompt, _params), positions in groups.items():
+        if len(positions) >= 2:
+            warnings.warn(
+                f"Fusion {fusion.name!r}: members {_positions(positions)} send the same request "
+                f"to {route!r}; identical requests may be served by one cached answer. "
+                "Use sf.samples() for independent samples.",
+                DuplicateMembersWarning,
+                stacklevel=2,
+            )
+
+
+def _positions(positions: list[int]) -> str:
+    head = ", ".join(str(position) for position in positions[:-1])
+    return f"{head} and {positions[-1]}"
 
 
 def _member_models(members: tuple[_ResolvedRecipe, ...]) -> tuple[str, ...]:

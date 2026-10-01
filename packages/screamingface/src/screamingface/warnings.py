@@ -5,4 +5,8 @@ class EvaluationWarning(UserWarning):
     """An Evaluation planning or result condition needs the caller's attention."""
 
 
-__all__ = ["EvaluationWarning"]
+class DuplicateMembersWarning(EvaluationWarning):
+    """Two members of a reducer Fusion send the same request, so they may be one cached answer."""
+
+
+__all__ = ["DuplicateMembersWarning", "EvaluationWarning"]

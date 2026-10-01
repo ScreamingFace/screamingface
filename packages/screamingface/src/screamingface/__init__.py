@@ -10,6 +10,7 @@ from screamingface._default_client import (
     reproduce,
 )
 from screamingface._reproduction import Reproduction, ReproductionOutcome
+from screamingface._samples import samples
 from screamingface._signals import signal
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
@@ -68,7 +69,7 @@ from screamingface.report import (
     Usage,
 )
 from screamingface.url4 import Url4
-from screamingface.warnings import EvaluationWarning
+from screamingface.warnings import DuplicateMembersWarning, EvaluationWarning
 
 # The installed distribution's version, resolved once at import — see `_version.py`.
 __version__ = resolve_version()
@@ -95,6 +96,7 @@ __all__ = [
     "connect",
     "connections",
     "disconnect",
+    "DuplicateMembersWarning",
     "Evidence",
     "EvidenceProducer",
     "Event",
@@ -146,4 +148,5 @@ __all__ = [
     "events",
     "leaderboards",
     "models",
+    "samples",
 ]
