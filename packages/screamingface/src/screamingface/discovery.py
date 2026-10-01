@@ -295,8 +295,13 @@ class Benchmark:
     # true-fact default exists: a tier nobody assigned is not a tier).
     interaction: str | None = None
     difficulty: str | None = None
+    # FEATURE: the refusal-rate mark (OME-1400) — True when every Case score is ALREADY
+    # 1 − the eval's grade. Shown to the researcher; never an instruction to flip again.
+    inverted_grade: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.inverted_grade, bool):
+            raise TypeError("Benchmark inverted_grade must be a boolean")
         object.__setattr__(self, "id", _benchmark_id(self.id))
         for name in ("title", "description", "revision", "origin"):
             object.__setattr__(self, name, _nonblank(getattr(self, name), f"Benchmark {name}"))

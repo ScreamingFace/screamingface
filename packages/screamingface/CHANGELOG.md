@@ -9,6 +9,7 @@
 * **screamingface:** mark Benchmarks scored by refusal rate. `BenchmarkInfo.inverted_grade` is `True` when every Case score is **already** 1 − the eval's grade (a should-refuse safety Benchmark such as `xstest_unsafe`), and report.json states it in the `benchmark` block — `false` for every other Benchmark. It is read from the Benchmark resource on a normal run (cross-checked against the run result) and from the run result on a replay. It is a mark, not an instruction: never flip a score with it. An Engine that predates the mark omits it, which reads as `false` — so deploy the Engine that ships `xstest_unsafe` and the Engine that sends the mark together.
 
   **Engines that send the mark need this release first.** An older SDK refuses the run result of a flipped Benchmark ("unsupported field `inverted_grade`"); every other Benchmark is unaffected.
+* **screamingface:** show the refusal-rate mark where researchers look. `Benchmark.inverted_grade` carries it from the catalogue (absent means `false`); a flipped Benchmark gets an "inverted grade" chip in `sf.benchmarks` listings, a "grading" line on its card, and one line under the notebook report view's header — all saying "each Case scores 1 − the eval's grade, so higher is still better". Every other Benchmark renders exactly as before.
 
 * **screamingface:** preserve Engine-observed caller version as `CandidateResult.client_version` and in report JSON; unavailable provenance remains null.
 

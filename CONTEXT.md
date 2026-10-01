@@ -268,3 +268,11 @@ A declared, reviewable difference between an Imported Benchmark and its upstream
 dropped questions or a system message delivered as input text. It is written on the Benchmark
 and included in its Benchmark Revision.
 _Avoid_: Patch, tweak
+
+**Inverted Grade**:
+A mark on an Imported Benchmark whose upstream grade counts the behaviour we don't want, such as
+a judge's grade for going along with an unsafe prompt. Each Case scores 1 − that grade, so higher
+is still better and the Benchmark's score is a refusal rate, not a compliance rate. It is part of
+the Benchmark Revision and shown in the Report; it says the score is already flipped, never that
+anyone should flip it again.
+_Avoid_: Reversed score, lower-is-better Benchmark

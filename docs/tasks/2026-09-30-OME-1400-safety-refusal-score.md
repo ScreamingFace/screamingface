@@ -1,13 +1,13 @@
 ---
 id: OME-1400
 linear_url: https://linear.app/openmined/issue/OME-1400/score-safety-benchmarks-where-refusing-is-the-right-answer
-status: in_progress
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, human, autonomous]
 parent: OME-1299
 created: 2026-09-29
-closed:
+closed: 2026-10-01
 ---
 
 # Score safety benchmarks where refusing is the right answer
@@ -30,3 +30,5 @@ shape them are on that ticket.
   `docs/spec/2026-09-30-safety-refusal-score.md`): the flip + `xstest_unsafe`. The owner asked
   for a Benchmark-level `inverted_grade` mark in report.json (replays included), the catalogue
   and the notebook view; PRs 2–3 carry it, and the last PR closes this ticket.
+- 2026-10-01: closed with PR 3 of 3 (the catalogue and report-view marks); release the SDK from
+  PR 2 before deploying its Engine.

@@ -152,6 +152,7 @@ def _benchmark(entry: _BenchmarkEntry) -> Benchmark:
         origin=entry.origin,
         interaction=entry.interaction,
         difficulty=entry.difficulty,
+        inverted_grade=entry.inverted_grade,
     )
 
 
