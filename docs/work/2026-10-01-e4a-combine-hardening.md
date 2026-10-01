@@ -63,17 +63,21 @@ reducer (H4). This unit closes all four with new tests and small source edits.
     previous source 4 of them were RED; all 17 are GREEN now.
   - H2: engine 22 tests (11 RED first, the fixture was missing); SDK 11 tests (2 RED with the
     fixture moved away). The SDK decoder needed no change: it round-trips all ten entries.
-- **Commits (oldest first):**
-  - da6f9ce34 fix(sdk): check the operator catalog before a raw url4 replay spends
-  - cf78f1752 test: pin the combine evidence contract from real engine output and decode it in the sdk
-  - dde41858b ci(sdk): run the sdk tests when the engine combine conformance inputs change
-  - 760645f9d docs(sdk): say the whole reducer stack ships and note the replay catalog check
-  - 5a45c7137 docs(work): record the e4a combine hardening ledger
-  - f6616d5f4 fix(sdk): refuse an unpinned operator name in a replayed url4
-  - 9dc2e69b8 docs(work): record the unpinned operator follow-up gates
-  - b4b6b87ec refactor(sdk): share the combine operator pairs and check the pinned form without I/O in a url4 replay
-  - a079bac9e test: cover corrective, unpinned and unreachable replays and parametrize the evidence contract
-  - 41d50f45f ci(sdk): watch two more engine inputs and fix the evidence changelog wording
+- **Commits (oldest first; SHAs after the coordinator's cascade rebase onto `28f2c1a31`):**
+  - f0f492954 fix(sdk): check the operator catalog before a raw url4 replay spends
+  - ae3d15475 test: pin the combine evidence contract from real engine output and decode it in the sdk
+  - b2275dd8b ci(sdk): run the sdk tests when the engine combine conformance inputs change
+  - 3a8d5c974 docs(sdk): say the whole reducer stack ships and note the replay catalog check
+  - e0dab6078 docs(work): record the e4a combine hardening ledger
+  - 39d1d7d72 fix(sdk): refuse an unpinned operator name in a replayed url4
+  - fc4b68d52 docs(work): record the unpinned operator follow-up gates
+  - f82c40b59 refactor(sdk): share the combine operator pairs and check the pinned form without I/O in a url4 replay
+  - b103c7b32 test: cover corrective, unpinned and unreachable replays and parametrize the evidence contract
+  - 5a677a8fc ci(sdk): watch two more engine inputs and fix the evidence changelog wording
+  - e1a2c79bf docs(work): record the combine hardening review round
+  - 1e70e7fe4 feat(sdk): warn about own-seed calls in a raw url4 replay with a run seed
+  - cb52b5795 docs(sdk): say the fixed-seed warning covers raw url4 replays
+  - (748e1d30f, a coordinator commit on this branch, reworded the evidence docstrings)
 - **Gates (final, after the review round):** `screamingface` with append-only ALL GATES GREEN (no
   offenders); `screamingface-engine` with append-only ALL GATES GREEN (no offenders); both with
   `--skip-append-only` ALL GATES GREEN; `repo` ALL GATES GREEN. An earlier SDK skip run failed once
@@ -84,4 +88,14 @@ reducer (H4). This unit closes all four with new tests and small source edits.
   `_replayed_url4` with no I/O through `_OperatorCatalog.from_pinned`, so a Fusion and a corrective
   loop give the same message (`... operator 'mode' is not a pinned id`). `Mode@1` in a corrective
   loop is refused earlier by the vote-spec rebuild with its own message.
+- **U1 follow-through (fixed-seed warning on a raw url4 replay):** `evaluate_url4_sync/async` warn
+  with `FixedSeedSittingWarning` once per replay, after the catalog check and before any spend,
+  when `answer_seed` is set and a non-combine call has a `seed` param. The calls come from the
+  parsed `_Call` params (`_replayed_url4` now returns a `_Replay` with `seeded`), and the text comes
+  from the runner's `_warn_fixed_seed`, which the Recipe path now shares, so the two texts are
+  equal (pinned by a test). New file `tests/test_url4_replay_fixed_seed_warning.py` (7 tests): 4
+  RED first (the warning cases), 3 characterization tests passed at once (no warning without
+  `answer_seed`, no warning without a seed, async no-warning). README and CHANGELOG no longer say a
+  replay does not warn. Gates after this item: `screamingface` with append-only and with
+  `--skip-append-only` ALL GATES GREEN; `repo` below.
 - **Deviations:** none from the spec.
