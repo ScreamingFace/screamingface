@@ -13,9 +13,10 @@ divider between them. The clerk never rewords a page.
 INVARIANT: each operator is pure and holds no mutable state; no model call. Order comes from the
 author order of the members -- ties at a score keep it (a stable sort), and ``join`` walks
 ``combine_input.members``, never a dict.
-WHY ``sorted(..., reverse=True)`` and not a negated key: ``-Decimal`` rounds to the thread's
-decimal context (28 digits), and two long numeric field values could then compare equal. The
-comparison itself is exact, and ``reverse=True`` keeps equal scores in author order.
+WHY ``sorted(..., reverse=True)`` and not a negated key: the sort does no arithmetic, so it needs
+no ``DECIMAL_CONTEXT``, and a Decimal comparison is exact. Negating a score would round it to the
+thread's default 28-digit context, and two long numeric field values could then compare equal.
+``reverse=True`` keeps equal scores in author order.
 AIDEV-NOTE: the selection JSON shape, the cut-tie rule and the collision rule are v1 behavior
 pinned by the golden fixtures. A change is a new ``@version``, never an edit.
 """
@@ -86,14 +87,29 @@ def _check_join_args(args: OpArgs) -> None:
         )
 
 
+def _has_extra_separator(joined: str, separator: str, boundaries: int) -> bool:
+    """Whether ``separator`` occurs more often (overlaps counted) than the ``boundaries`` need.
+
+    Each boundary holds exactly one match, at its own start, so any further match is a collision.
+    The scan stops at the first extra match and builds no list.
+    """
+    found, position = 0, joined.find(separator)
+    while position != -1:
+        found += 1
+        if found > boundaries:
+            return True
+        position = joined.find(separator, position + 1)
+    return False
+
+
 def join(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """Every member text, in author order, joined by the separator.
 
     Every member takes a slot, also an empty one and one marked ``too_large``. The collision flag
-    says the separator also occurs inside a part, so the boundaries are not unique; the text is
-    never changed for it.
+    says the separator also occurs inside a part, or overlaps a boundary, so the boundaries are not
+    unique; the text is never changed for it.
     """
-    separator = str(args["separator"])
+    separator = cast("str", args["separator"])  # check_args ran first
     parts = [
         f"[{member}]\n{combine_input.outputs[member]}"
         if args["label"]
@@ -101,7 +117,9 @@ def join(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
         for member in combine_input.members
     ]
     joined = separator.join(parts)
-    return Reduction(text=joined, separator_collision=joined.split(separator) != parts)
+    return Reduction(
+        text=joined, separator_collision=_has_extra_separator(joined, separator, len(parts) - 1)
+    )
 
 
 def all_members(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:

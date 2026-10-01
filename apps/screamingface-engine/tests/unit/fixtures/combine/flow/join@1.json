@@ -159,6 +159,72 @@
    }
   },
   {
+   "name": "CC-4 the separator ends inside the next part",
+   "args": {
+    "separator": "--",
+    "label": false
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "x",
+     "member_2": "-y"
+    }
+   },
+   "expect": {
+    "text": "x---y",
+    "separator_collision": true
+   }
+  },
+  {
+   "name": "CC-4 the default separator ends inside the next part",
+   "args": {
+    "separator": "\n\n---\n\n",
+    "label": false
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "---\n\nB"
+    }
+   },
+   "expect": {
+    "text": "A\n\n---\n\n---\n\nB",
+    "separator_collision": true
+   }
+  },
+  {
    "name": "CC-4 a label line holds the separator",
    "args": {
     "separator": "\n",

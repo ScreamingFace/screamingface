@@ -162,6 +162,17 @@ def test_k_equal_to_the_member_count_has_no_cut_tie() -> None:
     assert outcome.evidence.tie is False
 
 
+def test_a_too_large_member_with_the_top_score_is_kept_whole() -> None:
+    big = "x" * (1024 * 1024 + 1)
+
+    outcome = _rank_by_judge(["A", big], [0.1, 0.9], 1)
+
+    assert outcome.output == _selected(("member_2", big))
+    assert outcome.evidence.chosen == ["member_2"]
+    assert [m.status for m in outcome.evidence.members] == ["voted", "too_large"]
+    assert [m.score for m in outcome.evidence.members] == [0.1, 0.9]
+
+
 # --- top_k args -------------------------------------------------------------------------------
 
 
@@ -229,13 +240,21 @@ def test_concat_uses_the_given_separator() -> None:
 @pytest.mark.parametrize(
     ("texts", "separator", "label", "joined"),
     [
-        (["A", "x" + DEFAULT_SEPARATOR + "y", "C"], DEFAULT_SEPARATOR, True, None),
+        (
+            ["A", "x" + DEFAULT_SEPARATOR + "y", "C"],
+            DEFAULT_SEPARATOR,
+            True,
+            "[member_1]\nA\n\n---\n\n[member_2]\nx\n\n---\n\ny\n\n---\n\n[member_3]\nC",
+        ),
         (["x-", "y"], "--", False, "x---y"),
         (["A", "B"], "\n", True, "[member_1]\nA\n[member_2]\nB"),
+        # The overlap starts at a boundary and ENDS inside the next part.
+        (["x", "-y"], "--", False, "x---y"),
+        (["A", "---\n\nB"], DEFAULT_SEPARATOR, False, "A\n\n---\n\n---\n\nB"),
     ],
 )
 def test_separator_collision_is_flagged(
-    texts: list[str], separator: str, label: bool, joined: str | None
+    texts: list[str], separator: str, label: bool, joined: str
 ) -> None:
     outcome = run(
         spec_text(concat_spec(len(texts), separator=separator, label=label)),
@@ -243,11 +262,8 @@ def test_separator_collision_is_flagged(
         registry=BUILTIN_OPERATORS,
     )
 
+    assert outcome.output == joined
     assert outcome.evidence.separator_collision is True
-    if joined is not None:
-        assert outcome.output == joined
-    else:
-        assert texts[1] in outcome.output
 
 
 # --- CC-6 -------------------------------------------------------------------------------------
