@@ -22,21 +22,21 @@ import pytest
 
 from screamingface._runtime import bootstrap, log_redaction, runtime_logging, server
 
-SECRET = "SECRET-PROMPT-tell-me-the-launch-codes"
+PLANTED = "PLANTED-PROMPT-tell-me-the-launch-codes"
 
 # One planted line per structural carrier, each with non-secret context that must survive.
 CARRIERS: dict[str, tuple[str, str]] = {
     "url4-query": (
-        f"GET 'http://127.0.0.1:9108/?q={SECRET}&limit=1' failed: 500",
+        f"GET 'http://127.0.0.1:9108/?q={PLANTED}&limit=1' failed: 500",
         "http://127.0.0.1:9108/?q=",
     ),
     "litellm-messages": (
-        f"litellm.BadRequestError: upstream said no\nMessages: `[{{'content': '{SECRET}'}}]`",
+        f"litellm.BadRequestError: upstream said no\nMessages: `[{{'content': '{PLANTED}'}}]`",
         "litellm.BadRequestError: upstream said no",
     ),
     "litellm-curl-body": (
         "POST Request Sent from LiteLLM:\ncurl -X POST \\\nhttps://openrouter.ai/api \\\n"
-        f'-d \'{{"messages": [{{"content": "{SECRET}"}}]}}\'',
+        f'-d \'{{"messages": [{{"content": "{PLANTED}"}}]}}\'',
         "curl -X POST",
     ),
 }
@@ -111,7 +111,7 @@ def test_no_structural_carrier_reaches_the_runtime_log(
         PRODUCERS[producer](planted)
 
     written = path.read_text()
-    assert SECRET not in written
+    assert PLANTED not in written
     assert context in written, "redaction must keep the non-secret context"
     assert log_redaction.REDACTED in written
 
@@ -137,7 +137,7 @@ def test_the_factory_preserves_an_already_installed_one(tmp_path: Path) -> None:
     logging.setLogRecordFactory(preinstalled)
     try:
         with runtime_logging.capture_runtime_log(tmp_path / "runtime.log", foreground=False):
-            logger.warning("fetch %r failed", f"/?q={SECRET}")
+            logger.warning("fetch %r failed", f"/?q={PLANTED}")
         assert logging.getLogRecordFactory() is preinstalled
     finally:
         logging.setLogRecordFactory(original)
