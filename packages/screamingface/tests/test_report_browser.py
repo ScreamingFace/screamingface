@@ -64,7 +64,7 @@ def test_browser_paginates_and_exports_losslessly(tmp_path, monkeypatch):
     source = large_report(60)
     browser = ReportBrowser(source)
     assert browser.count.value == "1–25 of 60"
-    assert browser.search.value == ""
+    assert browser.go_to.value == ""
     assert not browser.snapshot.exists()
     browser.next.click()
     assert browser.count.value == "26–50 of 60"
@@ -127,7 +127,7 @@ def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
     (tmp_path / "screamingface-reports").write_text("not a directory")
     browser = ReportBrowser(large_report(2))
     assert browser.notice.value == ""
-    assert list(browser.matches) == [0, 1]
+    assert list(browser.navigation.indices(0)) == [0, 1]
     browser._export_json()
     assert "Download failed" in browser.notice.value
     assert not browser.export.disabled
@@ -314,7 +314,8 @@ def test_case_header_contains_actions_and_plain_title(tmp_path, monkeypatch):
     assert browser.case_box in browser.widget.children
     assert browser.case_header.children == (
         browser.case_title,
-        browser.search,
+        browser.candidate,
+        browser.go_to,
         browser.count,
         browser.pagination,
         browser.export_slot,
@@ -329,7 +330,7 @@ def test_case_header_contains_actions_and_plain_title(tmp_path, monkeypatch):
     assert "26–50" in browser.count.value
 
 
-def test_search_all_cases_and_clear_preserves_full_export(tmp_path, monkeypatch):
+def test_go_to_case_and_clear_preserves_full_export(tmp_path, monkeypatch):
     import json
 
     from screamingface._ui.report_browser import ReportBrowser
@@ -338,50 +339,41 @@ def test_search_all_cases_and_clear_preserves_full_export(tmp_path, monkeypatch)
     source = large_report(60)
     browser = ReportBrowser(source)
     browser.next.click()
-    browser.search.value = "ANSWER 59"
-    assert browser.count.value == "1–1 of 1"
-    assert browser.page == 0
+    browser.go_to.value = "59"
+    assert browser.count.value == "51–60 of 60"
+    assert browser.page == 2
     assert "answer 59" in browser.cases.value
-    browser.search.value = "clause 40"
-    assert browser.count.value == "1–1 of 1"
-    browser.search.value = "missing"
-    assert browser.count.value == "0–0 of 0"
-    assert browser.next.disabled and browser.previous.disabled
-    browser.search.value = ""
-    assert browser.count.value == "1–25 of 60"
-    browser.search.value = "model"
+    browser.go_to.value = "40"
+    assert browser.count.value == "26–50 of 60"
+    browser.go_to.value = "missing"
+    assert "Case missing not found" in browser.notice.value
+    assert browser.count.value == "26–50 of 60"
+    browser.go_to.value = ""
     assert browser.count.value == "1–25 of 60"
     browser.export.click()
     assert json.loads(browser.snapshot.read_text()) == source.to_dict()
 
 
 @pytest.mark.asyncio
-async def test_search_scans_in_worker_and_restores_controls(tmp_path, monkeypatch):
-    import asyncio
-
+async def test_go_to_renders_in_worker_and_restores_controls(tmp_path, monkeypatch):
     from screamingface._ui.report_browser import ReportBrowser
 
     monkeypatch.chdir(tmp_path)
     browser = ReportBrowser(large_report(60))
-    browser.search.value = "answer 59"
-    assert browser.search.disabled
-    assert browser.previous.disabled and browser.next.disabled
-    assert browser.count.value == "Searching…"
-    assert browser._search_task is not None
-    await browser._search_task
-    assert not browser.search.disabled
-    assert browser.count.value == "1–1 of 1"
+    browser.go_to.value = "59"
+    assert browser.go_to.disabled
+    assert browser._page_task is not None
+    await browser._page_task
+    assert not browser.go_to.disabled
+    assert browser.count.value == "51–60 of 60"
 
-    def fail(query):
+    def fail(page):
         raise OSError("disk unavailable")
 
-    monkeypatch.setattr(browser, "_matching_indices", fail)
-    browser.search.value = "other"
-    assert browser._search_task is not None
-    await browser._search_task
-    assert not browser.search.disabled
-    assert browser.count.value == "1–1 of 1"
-    assert "Search failed" in browser.notice.value
-    browser.search.value = ""
-    await asyncio.sleep(0)
-    assert browser.count.value == "1–25 of 60"
+    monkeypatch.setattr(browser, "_page_html", fail)
+    browser.go_to.value = "0"
+    assert browser._page_task is not None
+    await browser._page_task
+    assert not browser.go_to.disabled
+    assert browser.count.value == "51–60 of 60"
+    assert "Could not load cases" in browser.notice.value

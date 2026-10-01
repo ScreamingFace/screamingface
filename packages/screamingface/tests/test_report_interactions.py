@@ -14,16 +14,16 @@ def test_disk_search_does_not_decode_every_case(tmp_path, monkeypatch):
 
     _, saved = saved_fixture(tmp_path / "saved", count=60)
     report = sf.reports.get(saved.key, directory=tmp_path / "saved")
-    browser = ReportBrowser(report)
+    ReportBrowser(report)
 
     def reject(body):
         raise AssertionError("search rebuilt a CaseResult instead of scanning the index")
 
     monkeypatch.setattr(cases, "_decode", reject)
-    assert browser._matching_indices("answer 59") == [59]
-    assert browser._matching_indices("model") == list(range(60))
-    assert browser._matching_indices("clause 40") == [40]
-    assert browser._matching_indices("does not exist") == []
+    assert list(report.candidates[0].cases._matching_indices("answer 59")) == [59]
+    assert list(report.candidates[0].cases._matching_indices("contract")) == list(range(60))
+    assert list(report.candidates[0].cases._matching_indices("clause 40")) == [40]
+    assert list(report.candidates[0].cases._matching_indices("does not exist")) == []
 
 
 def test_disk_search_preserves_full_text_unicode_and_literal_queries(tmp_path):
@@ -38,10 +38,11 @@ def test_disk_search_preserves_full_text_unicode_and_literal_queries(tmp_path):
     payload = json.loads(saved.path.read_text())
     payload["cases"][1]["input"] = "x" * 24000 + " Straße needle%_"
     saved.path.write_text(json.dumps(payload, ensure_ascii=False))
-    browser = ReportBrowser(sf.reports.get(saved.key, directory=tmp_path / "saved"))
-    assert browser._matching_indices("strasse") == [1]
-    assert browser._matching_indices("needle%_") == [1]
-    assert browser._matching_indices("needle%' OR 1=1 --") == []
+    report = sf.reports.get(saved.key, directory=tmp_path / "saved")
+    ReportBrowser(report)
+    assert list(report.candidates[0].cases._matching_indices("strasse")) == [1]
+    assert list(report.candidates[0].cases._matching_indices("needle%_")) == [1]
+    assert list(report.candidates[0].cases._matching_indices("needle%' OR 1=1 --")) == []
 
 
 @pytest.mark.asyncio
@@ -65,7 +66,7 @@ async def test_page_loading_coalesces_rapid_clicks_to_latest_page(tmp_path, monk
     try:
         browser.next.click()
         assert not browser.previous.disabled and not browser.next.disabled
-        assert browser.search.disabled and browser.next.icon == "spinner"
+        assert browser.go_to.disabled and browser.next.icon == "spinner"
         for _ in range(10):
             browser.next.click()
         assert browser._page_task is not None
@@ -75,7 +76,7 @@ async def test_page_loading_coalesces_rapid_clicks_to_latest_page(tmp_path, monk
         release.set()
     assert calls == [11]
     assert browser.count.value == "276–300 of 300" and "answer 275" in browser.cases.value
-    assert not browser.previous.disabled and browser.next.disabled and not browser.search.disabled
+    assert not browser.previous.disabled and browser.next.disabled and not browser.go_to.disabled
     assert browser.next.icon == "chevron-right"
 
 
@@ -99,7 +100,7 @@ async def test_page_disk_error_preserves_current_page(tmp_path, monkeypatch):
     assert browser.page == 1
     assert browser.count.value == "26–50 of 60" and "answer 25" in browser.cases.value
     assert "Could not load cases" in browser.notice.value
-    assert not browser.next.disabled and not browser.search.disabled
+    assert not browser.next.disabled and not browser.go_to.disabled
 
 
 def test_page_accounting_only_visits_candidates_on_the_page(monkeypatch):
@@ -162,7 +163,8 @@ def test_page_load_does_not_rescan_disk_cases_for_accounting(tmp_path, monkeypat
     from screamingface._ui.report_browser import ReportBrowser
 
     _, saved = saved_fixture(tmp_path / "saved", count=60)
-    browser = ReportBrowser(sf.reports.get(saved.key, directory=tmp_path / "saved"))
+    report = sf.reports.get(saved.key, directory=tmp_path / "saved")
+    browser = ReportBrowser(report)
 
     def reject(self):
         raise AssertionError("page load rescanned all saved cases")

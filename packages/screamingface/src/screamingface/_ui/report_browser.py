@@ -11,8 +11,14 @@ from typing import TYPE_CHECKING, Any, overload
 from uuid import uuid4
 
 from screamingface._results.accounting import saved_accounting_context
+from screamingface._ui.case_navigation import CaseNavigation
 from screamingface._ui.report_files import download_link
-from screamingface._ui.report_view import cases_page_html, report_html
+from screamingface._ui.report_view import (
+    _card_html,
+    _failures_html,
+    cases_page_html,
+    report_overview_html,
+)
 from screamingface._ui.style import NO_MATH_CLASSES
 from screamingface.errors import ScreamingFaceError
 
@@ -20,7 +26,6 @@ if TYPE_CHECKING:
     from screamingface.case_result import CaseResult
     from screamingface.report import CandidateResult, Report
 
-_PAGE_SIZE = 25
 _BROWSER_STYLE = """<style>
 .sf-report-browser .widget-button,.sf-report-browser input,.sf-report-browser select{
  border-radius:0!important;border:1px solid var(--sf-line-2)!important;
@@ -39,13 +44,22 @@ _BROWSER_STYLE = """<style>
 .sf-cases-body>.widget-html-content{width:100%}
 .sf-cases-header .widget-button,.sf-cases-header .widget-box{flex-shrink:0}
 .sf-report-browser .sf-browser-links a{display:inline-flex;align-items:center;
- justify-content:center;box-sizing:border-box;width:148px;min-height:28px;padding:2px 6px;
+ justify-content:center;box-sizing:border-box;width:90px;min-height:28px;padding:2px 6px;
  margin:2px;border:1px solid var(--sf-line-2);background:var(--sf-bg);color:var(--sf-ink);
  font:inherit;text-decoration:none}
 .sf-report-browser .sf-browser-links a:hover{background:var(--sf-surface)}
 .sf-report-browser .sf-browser-links a:focus-visible{outline:2px solid var(--sf-accent)}
 .sf-report-browser .widget-button:disabled{opacity:.55;cursor:default}
 .sf-report-browser .fa-spinner{animation:sf-export-spin 1s linear infinite}
+.sf-linked-card{position:relative;width:100%;padding:0 14px;box-sizing:border-box}
+.sf-linked-card>.widget-html{width:100%;margin:0}
+.sf-linked-card .sf-report__name{visibility:hidden}
+.sf-report-browser .sf-candidate-name{position:absolute;top:27px;left:27px;
+ border:0!important;background:transparent!important;padding:0!important;margin:0;
+ height:20px;line-height:20px;font-size:14px;font-weight:600;text-align:left}
+.sf-report-browser .sf-candidate-name:hover{text-decoration:underline;
+ color:var(--sf-accent)!important}
+.sf-report-browser .sf-candidate-active{color:var(--sf-accent)!important}
 @keyframes sf-export-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.sf-report-browser .fa-spinner{animation:none}}
 </style>"""
@@ -89,12 +103,13 @@ class ReportBrowser:
         self.w = widgets
         self.report = report
         self.entries = _Entries(report)
-        self.matches: Sequence[int] = range(len(self.entries))
+        self.navigation = CaseNavigation(report.candidates)
+        self._focus_id = None
+        self._updating_go_to = False
         self.page = 0
         self._requested_page = 0
         self._exporting = False
         self._export_task = None
-        self._search_task = None
         self._paging = False
         self._page_task = None
         self.directory = Path("screamingface-reports") / uuid4().hex
@@ -106,12 +121,23 @@ class ReportBrowser:
 
     def _controls(self) -> None:
         w = self.w
-        self.search = w.Text(
-            placeholder="Search cases… press Enter",
+        self.go_to = w.Text(
+            placeholder="Go to case number",
             continuous_update=False,
-            layout=w.Layout(width="auto", min_width="140px", flex="1 1 180px"),
+            layout=w.Layout(width="auto", min_width="120px", flex="1 1 120px"),
         )
-        self.search.observe(self._search, names="value")
+        self.go_to.observe(self._go_to_case, names="value")
+        self.candidate = w.Dropdown(
+            options=[
+                ("All", -1),
+                *((owner.name, index) for index, owner in enumerate(self.entries.owners)),
+            ],
+            value=-1,
+            description="Candidate:",
+            layout=w.Layout(width="190px"),
+            style={"description_width": "initial"},
+        )
+        self.candidate.observe(self._select_candidate, names="value")
         self.previous = w.Button(description="Previous", icon="chevron-left")
         self.next = w.Button(description="Next", icon="chevron-right")
         self.count = w.Label()
@@ -125,27 +151,50 @@ class ReportBrowser:
             id(owner): saved_accounting_context(owner) for owner in self.entries.owners
         }
         self.exports = w.HTML(value=self._snapshot_link())
-        self.export = w.Button(description="Download")
+        self.export = w.Button(description="Download", layout=w.Layout(width="90px"))
         self.export.on_click(self._export_json)
         self.export_slot = w.VBox([self.export])
         self._case_box()
 
         self.widget = w.VBox(
             [
-                w.HTML(
-                    value=_BROWSER_STYLE
-                    + report_html(
-                        self.report,
-                        cases=False,
-                        download=False,
-                        accounting_contexts=self._accounting_contexts,
-                    )
-                ),
+                w.HTML(value=_BROWSER_STYLE + report_overview_html(self.report)),
+                *self._candidate_cards(),
+                w.HTML(value=_failures_html(self.report)),
                 self.case_box,
             ]
         )
         for name in ("sf-ui", "sf-report-browser", *NO_MATH_CLASSES):
             self.widget.add_class(name)
+
+    def _candidate_cards(self):
+        cards = []
+        self.candidate_buttons = []
+        for index, owner in enumerate(self.entries.owners):
+            button = self.w.Button(
+                description=owner.name,
+                tooltip=f"View {owner.name} cases",
+                layout=self.w.Layout(width="auto"),
+            )
+            button.add_class("sf-candidate-name")
+            button.on_click(lambda _, index=index: setattr(self.candidate, "value", index))
+            self.candidate_buttons.append(button)
+            card = self.w.Box(
+                [
+                    self.w.HTML(
+                        value=_card_html(
+                            owner,
+                            self.report,
+                            context=self._accounting_contexts[id(owner)],
+                            linked=True,
+                        )
+                    ),
+                    button,
+                ]
+            )
+            card.add_class("sf-linked-card")
+            cards.append(card)
+        return cards
 
     def _case_box(self) -> None:
         w = self.w
@@ -158,7 +207,14 @@ class ReportBrowser:
         self.next.layout.width = "76px"
         self.pagination = w.HBox([self.previous, self.next])
         self.case_header = w.HBox(
-            [self.case_title, self.search, self.count, self.pagination, self.export_slot],
+            [
+                self.case_title,
+                self.candidate,
+                self.go_to,
+                self.count,
+                self.pagination,
+                self.export_slot,
+            ],
             layout=w.Layout(flex_flow="row wrap", align_items="center"),
         )
         self.case_header.add_class("sf-cases-header")
@@ -171,71 +227,53 @@ class ReportBrowser:
             return ""
         return download_link(self.snapshot, "Download")
 
-    def _matching_indices(self, query: str) -> list[int]:
-        matches = []
-        offset = 0
-        for owner in self.entries.owners:
-            # WHY: a candidate-name match needs only positions, never a full content scan.
-            positions = (
-                range(len(owner.cases))
-                if query in owner.name.casefold()
-                else owner.cases._matching_indices(query)
-            )
-            matches.extend(offset + index for index in positions)
-            offset += len(owner.cases)
-        return matches
-
-    def _search(self, change: Any) -> None:
-        if self._paging:
+    def _go_to_case(self, change: Any) -> None:
+        if self._paging or self._updating_go_to:
             return
-        query = self.search.value.strip().casefold()
         self.notice.value = ""
-        if not query:
-            self.matches = range(len(self.entries))
+        try:
+            target = self.navigation.locate(self.go_to.value) if self.go_to.value.strip() else 0
+        except ValueError as exc:
+            self.notice.value = f'<p role="alert">{escape(str(exc))}</p>'
+        else:
+            self._focus_id = (
+                self.navigation.resolve(self.go_to.value) if self.go_to.value.strip() else None
+            )
+            self._request_page(target)
+
+    def _select_candidate(self, change: Any) -> None:
+        focused = (
+            str(self._focus_id)
+            if self._focus_id is not None
+            else str(self.navigation.focused_id(self.page))
+        )
+        selected = self.candidate.value
+        assert isinstance(selected, int)
+        self.navigation.select(selected)
+        try:
+            self.page = self.navigation.locate(focused)
+        except ValueError:
             self.page = 0
-            self._render_page()
-            return
-        self.search.disabled = True
-        self.previous.disabled = self.next.disabled = True
-        self.count.value = "Searching…"
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            try:
-                self._search_ready(self._matching_indices(query))
-            except (OSError, sqlite3.Error, ScreamingFaceError) as exc:
-                self._search_failed(exc)
-        else:
-            self._search_task = loop.create_task(self._search_async(query))
-
-    async def _search_async(self, query: str) -> None:
-        # WHY: scanning disk-backed cases must not block the notebook's widget loop.
-        try:
-            matches = await asyncio.to_thread(self._matching_indices, query)
-        except (OSError, sqlite3.Error, ScreamingFaceError) as exc:
-            self._search_failed(exc)
-        else:
-            self._search_ready(matches)
-
-    def _search_ready(self, matches: Sequence[int]) -> None:
-        self.matches = matches
-        self.page = 0
-        self.search.disabled = False
+            self._focus_id = None
+        self.notice.value = ""
+        for index, button in enumerate(self.candidate_buttons):
+            if index == self.candidate.value:
+                button.add_class("sf-candidate-active")
+            else:
+                button.remove_class("sf-candidate-active")
         self._render_page()
-
-    def _search_failed(self, exc: Exception) -> None:
-        self.search.disabled = False
-        self._render_page()
-        self.notice.value = f'<p role="alert">Search failed: {escape(str(exc))}</p>'
 
     def _move(self, direction: int) -> None:
-        if self.search.disabled and not self._paging:
-            return
-        last = max(0, (len(self.matches) - 1) // _PAGE_SIZE)
+        last = len(self.navigation.pages) - 1
         current = self._requested_page if self._paging else self.page
         target = min(last, max(0, current + direction))
         if target == current:
             return
+        self._focus_id = None
+        self._request_page(target, direction)
+
+    def _request_page(self, target: int, direction: int = 1) -> None:
+        last = len(self.navigation.pages) - 1
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -251,7 +289,9 @@ class ReportBrowser:
         selected.icon = "spinner"
         if not self._paging:
             self._paging = True
-            self.search.disabled = True
+            self.go_to.disabled = self.candidate.disabled = True
+            for button in self.candidate_buttons:
+                button.disabled = True
             self.notice.value = ""
             self._page_task = loop.create_task(self._load_page())
 
@@ -259,7 +299,7 @@ class ReportBrowser:
         # WHY: coalesce a click burst and discard stale renders without blocking widgets.
         try:
             await asyncio.sleep(0.075)
-            while self._requested_page != self.page:
+            while True:
                 target = self._requested_page
                 html = await asyncio.to_thread(self._page_html, target)
                 if target == self._requested_page:
@@ -271,27 +311,37 @@ class ReportBrowser:
             self.notice.value = f'<p role="alert">Could not load cases: {escape(str(exc))}</p>'
         finally:
             self._paging = False
-            self.search.disabled = False
+            self.go_to.disabled = self.candidate.disabled = False
+            for button in self.candidate_buttons:
+                button.disabled = False
             self.previous.icon = "chevron-left"
             self.next.icon = "chevron-right"
             self._page_controls()
 
     def _page_html(self, page: int) -> str:
-        start = page * _PAGE_SIZE
-        indices = self.matches[start : start + _PAGE_SIZE]
+        indices = self.navigation.indices(page)
+        entries = [self.entries[index] for index in indices]
+        selected = next(
+            (index for index, (_, case) in enumerate(entries) if case.case_id == self._focus_id), 0
+        )
         return cases_page_html(
             self.report,
-            [self.entries[index] for index in indices],
+            entries,
             framed=False,
             accounting_contexts=self._accounting_contexts,
+            selected=selected,
         )
 
     def _page_controls(self) -> None:
-        start = self.page * _PAGE_SIZE
-        length = len(self.matches[start : start + _PAGE_SIZE])
-        self.count.value = f"{start + 1 if length else 0}–{start + length} of {len(self.matches)}"
+        if self._focus_id is None:
+            self._focus_id = self.navigation.focused_id(self.page)
+        if self.go_to.value.strip() and not self.notice.value:
+            self._updating_go_to = True
+            self.go_to.value = str(self._focus_id)
+            self._updating_go_to = False
+        self.count.value = self.navigation.caption(self.page)
         self.previous.disabled = self.page == 0
-        self.next.disabled = start + _PAGE_SIZE >= len(self.matches)
+        self.next.disabled = self.page + 1 >= len(self.navigation.pages)
 
     def _render_page(self) -> None:
         self._requested_page = self.page

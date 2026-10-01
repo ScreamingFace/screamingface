@@ -59,6 +59,11 @@ class DiskCases(Sequence[CaseResult]):
             for row in db.execute("SELECT body FROM cases ORDER BY position"):
                 yield _decode(row[0])
 
+    def identities(self) -> Iterator[CaseId]:
+        with closing(self._connect()) as db:
+            for row in db.execute("SELECT id FROM cases ORDER BY position"):
+                yield json.loads(row[0])
+
     def matching_indices(self, query: str) -> Iterator[int]:
         # WHY: scan the existing JSON index without decoding and rebuilding every Case.
         # INVARIANT: parameter binding keeps quotes, % and _ literal; Unicode uses casefold.

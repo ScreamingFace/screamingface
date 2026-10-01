@@ -229,6 +229,15 @@ def report_html(
     )
 
 
+def report_overview_html(report: Report) -> str:
+    """Original identity/receipt for the live browser's linked Candidate cards."""
+    return (
+        f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
+        "aria-label='ScreamingFace evaluation report'>"
+        f"{_head_html(report, download=False)}{_strip_html(report)}</div>"
+    )
+
+
 def _head_html(report: Report, *, download: bool = True) -> str:
     return (
         "<div class='sf-report__head-row'><div>"
@@ -300,7 +309,11 @@ def _strip_html(report: Report) -> str:
 
 
 def _card_html(
-    candidate: CandidateResult, report: Report, *, context: _AccountingContext | None = None
+    candidate: CandidateResult,
+    report: Report,
+    *,
+    context: _AccountingContext | None = None,
+    linked: bool = False,
 ) -> str:
     """One candidate's result card: identity, the figures grid, then what it was made of."""
 
@@ -339,7 +352,8 @@ def _card_html(
     ]
     return (
         "<div class='sf-report__card'><div class='sf-report__card-h'>"
-        f"<span class='sf-report__name'>{escape(candidate.name)}</span>"
+        f"<span class='sf-report__name'{' aria-hidden=true' if linked else ''}>"
+        f"{escape(candidate.name)}</span>"
         f"<span class='sf-report__ctx'>{escape(ctx)}</span>"
         f"<span class='sf-report__run'>{escape(_short(candidate.run_id))}</span></div>"
         f"{_models_html(candidate)}"
@@ -668,6 +682,7 @@ def cases_page_html(
     preview: bool = False,
     framed: bool = True,
     accounting_contexts: Mapping[int, _AccountingContext] | None = None,
+    selected: int = 0,
 ) -> str:
     """Use the original rail and detail panes for one bounded page of cases."""
     if not entries:
@@ -689,7 +704,7 @@ def cases_page_html(
     }
     for index, (candidate, case) in enumerate(entries):
         item = f"{group}-{index}"
-        checked = " checked" if index == 0 else ""
+        checked = " checked" if index == selected else ""
         inputs.append(
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )

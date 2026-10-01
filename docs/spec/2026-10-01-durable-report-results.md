@@ -23,8 +23,8 @@ Report UI reuses the original case rail and detail panes and paginates 25 cases.
 The case range, Previous/Next, and export/download control belong inline in the cases
 box header, with responsive wrapping and a plain Case results title. No added Case
 detail / Full content tabs or filter/sort controls. A search input sits between the
-title and range; submitted queries scan retained case fields and candidate names one
-case at a time without blocking the notebook widget loop. Preserve the
+title and range; this search was superseded by the owner's approved case-navigation
+layout below. Preserve the
 original text previews; complete JSON export retains every field. A single export control changes from Download to disabled/spinning Preparing… to
 Download. Duplicate requests are ignored. Failure restores enabled Download with
 a brief error; successful states have no separate status text or leftover export button. Persistence belongs to collection, not rendering.
@@ -47,7 +47,7 @@ requested page. Global accounting attribution/consistency is derived once per
 browser into a compact context, then only displayed cases are read for page costs.
 Search scans the existing disk JSON index without constructing CaseResult objects,
 and candidate-name matches require only positions. No duplicate full-text index is
-created; full-content queries still read the saved content.
+created; this earlier search UI is superseded by exact case navigation below.
 
 Compact accounting context is persisted as a versioned, checksummed, atomic derived
 cache beside the immutable case index. Its identity includes index size/mtime and
@@ -58,3 +58,24 @@ the context; browser rendering reuses it. Index creation also retains validated
 numeric-grade counts and compact case failure rows. Existing indices are upgraded
 transactionally, with a read-only fallback. Coverage invariants and diagnostic
 details remain unchanged.
+
+## Shared case browser (owner-approved follow-up)
+
+Replace text search with Candidate (default All) and Go to case number, submitted
+on Enter or blur. These use actual retained case identity, not the flattened
+candidate–case result number. Indexed identities/positions are read without prompt
+decoding. Preserve numeric and string Case IDs and escaped diagnostics. Invalid
+input preserves the current page and explains that the case was not found.
+
+All compares the candidates for one case; Previous/Next advances through cases.
+Comparisons exceeding 25 candidates use bounded pages for that same case before
+advancing. A specific candidate browses its cases in 25-result pages; a singleton
+report naturally uses this pagination even with All selected. Case order follows
+retained first occurrence, including sparse and differently ordered identities.
+Direct lookup selects the exact case's detail within its page. Changing candidate
+preserves that case when available; otherwise starts at the first available page.
+Candidate summary names are native notebook buttons selecting the same shared
+browser, with active selection visible. Preserve all figures and original details.
+Keep one header, one Download and no per-candidate expanded case panels. Rapid
+navigation remains coalesced and clickable. Input/candidate changes are disabled
+briefly while a page is loading to keep the navigation model stable.

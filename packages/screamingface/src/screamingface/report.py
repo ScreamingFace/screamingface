@@ -179,6 +179,14 @@ class _CaseResults(Sequence[CaseResult]):
                 if query in json.dumps(case.to_dict(), ensure_ascii=False).casefold():
                     yield index
 
+    def _identities(self) -> Iterator[CaseId]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.identities()
+        else:
+            yield from (case.case_id for case in self._items)
+
     @property
     def _disk_path(self) -> Path | None:
         from screamingface._results.cases import DiskCases
