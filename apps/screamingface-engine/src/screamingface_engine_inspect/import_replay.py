@@ -40,17 +40,24 @@ from typing import Any
 
 from screamingface_engine_inspect.case_sources import CaseSource, CaseSourceRecorder
 from screamingface_engine_inspect.importer import (
+    ImporterError,
     _custom_metrics,
     _scorer_reference,
     _solver_facts,
 )
-from screamingface_engine_inspect.prepare import PreparedCase, TaskReplayCasesSpec, case_records
+from screamingface_engine_inspect.prepare import (
+    PreparedCase,
+    TaskReplayCasesSpec,
+    case_digest,
+    case_records,
+)
 from screamingface_engine_inspect.task_replay import (
     TASK_REPLAY_TIMEOUT_SECONDS,
     TaskReplayError,
     _failure_reason,
     _log_child_stderr,
     replay_environment,
+    replayed_cases,
 )
 
 #: The digest the import child's spec carries: nothing compares it (replayed_cases never does).
@@ -234,10 +241,113 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
 
 
+@dataclass(frozen=True)
+class TaskReplayImport:
+    """What the importer writes from: the sealed declaration, its Case Sources and facts."""
+
+    declaration: TaskReplayCasesSpec
+    case_sources: tuple[CaseSource, ...]
+    facts: TaskReplayFacts
+
+
+def import_by_task_replay(
+    task_ref: str,
+    task_args: Mapping[str, Any] | None,
+    *,
+    timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
+) -> TaskReplayImport:
+    """Import one eval by Task replay: run 1 reads, the declaration is sealed, run 2 proves it.
+
+    Think of it as printing the question booklet twice and checking both prints match before
+    the booklet is filed. Stages, in execution order:
+
+        Stage 1 — run 1, the import child: Cases, Sample ids, Case Sources, facts.
+        Stage 2 — refuse by name (spec R4): the task raised; no Samples; Samples but no Case
+                  Source; two Samples share an id (id-less Samples never collide).
+        Stage 3 — seal: the declaration carries run 1's Case count and Case Digest, plus the
+                  facts that shape a Case (templates, keep_sample_metadata).
+        Stage 4 — run 2, the IMAGE-SIDE child (task_replay.replayed_cases) on that
+                  declaration: what every build will do. A different digest is refused: an
+                  unseeded shuffle would pass once and go SKIPPED at every build.
+
+    Example: the stand-in eval's two arithmetic Cases seal to one digest; its four-row
+    unseeded shuffle seals to one order and replays to another 23 times in 24 → refused.
+
+    Args:
+        task_ref: ``"module:attr"`` of the eval's task function.
+        task_args: forwarded to the task function in both runs; None for none.
+        timeout: seconds before either run is abandoned.
+
+    Returns:
+        The sealed declaration, the Case Sources run 1 recorded, and the Task's facts.
+
+    Raises:
+        ImporterError: one of the Stage 2 or Stage 4 refusals, named.
+    """
+
+    # Stage 1
+    try:
+        first: ImportReplay = replay_for_import(task_ref, task_args, timeout=timeout)
+    except TaskReplayError as exc:
+        raise ImporterError(str(exc)) from exc
+    # Stage 2
+    _refuse_unsealable(task_ref, first)
+    # Stage 3
+    declaration: TaskReplayCasesSpec = TaskReplayCasesSpec(
+        task=task_ref,
+        case_count=len(first.prepared),
+        case_digest=case_digest(first.prepared),
+        task_args=dict(task_args) if task_args else None,
+        prompt_template=first.facts.prompt_template,
+        choice_template=first.facts.choice_template,
+        system_message=first.facts.system_message,
+        keep_sample_metadata=first.facts.keep_sample_metadata,
+    )
+    # Stage 4
+    try:
+        second: list[PreparedCase] = replayed_cases(declaration, timeout=timeout)
+    except TaskReplayError as exc:
+        raise ImporterError(str(exc)) from exc
+    second_digest: str = case_digest(second)
+    if second_digest != declaration.case_digest:
+        raise ImporterError(
+            f"{task_ref}: two Task replays produced different Cases (Case Digest "
+            f"{declaration.case_digest[:12]}… then {second_digest[:12]}…) — an unseeded "
+            "shuffle or generated Cases; pass task args that fix the order, e.g. "
+            "--task-arg shuffle=False or --task-arg seed=42"
+        )
+    return TaskReplayImport(
+        declaration=declaration, case_sources=first.case_sources, facts=first.facts
+    )
+
+
+def _refuse_unsealable(task_ref: str, first: ImportReplay) -> None:
+    """Stage 2 — the R4 refusals that need only run 1, each named."""
+
+    if not first.prepared:
+        raise ImporterError(f"{task_ref}: the task yielded no Samples")
+    if not first.case_sources:
+        raise ImporterError(
+            f"{task_ref}: the task yielded {len(first.prepared)} Samples but no Case Source "
+            "was recorded — a fetch nobody can see is a fetch nobody can review; the eval "
+            "downloads through a primitive the recorder does not wrap"
+        )
+    seen: set[str] = set()
+    for sample_id in first.sample_ids:
+        # WHY skip None: inspect numbers id-less Samples itself at eval time.
+        if sample_id is None:
+            continue
+        if sample_id in seen:
+            raise ImporterError(f"{task_ref}: two Samples share the id {sample_id}")
+        seen.add(sample_id)
+
+
 __all__ = [
     "UNSEALED_DIGEST",
     "ImportReplay",
     "TaskReplayFacts",
+    "TaskReplayImport",
+    "import_by_task_replay",
     "replay_for_import",
 ]
 
