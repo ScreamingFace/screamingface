@@ -10,14 +10,18 @@ from typing import Literal, cast
 
 from url4 import Expression, Node, Source, Text, src
 
+from screamingface._operation_bindings import TOPOLOGY_BINDING
 from screamingface.fusion import _quorum
 
 _SCHEMA = "screamingface.recipe.v1"
 _SOURCE_NAME = "_sf_recipe"
 # A corrective loop nests its whole gated chain as one inner expression bound
 # under loop_candidate (OME-796); everything else stays model_N / synthesis_N.
-_BINDING = re.compile(r"(?:model|synthesis)_\d+|loop_candidate")
-type _TopologyKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
+_BINDING = TOPOLOGY_BINDING
+_SYNTHESIS_BINDING = re.compile(r"synthesis_\d+")
+type _TopologyKind = Literal[
+    "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer"
+]
 type _OperationRole = Literal["model", "synthesis"]
 
 
@@ -97,7 +101,7 @@ class _TopologyWalker:
         context: tuple[str, ...],
         operations: tuple[str, ...],
     ) -> None:
-        if node.kind == "model":
+        if node.kind in {"model", "reducer"}:
             self._model(node, context, operations)
         elif node.kind == "pipeline":
             self._pipeline(node, context, operations)
@@ -270,8 +274,14 @@ def _encode_fusion(value: _RecipeTopology) -> dict[str, object]:
     }
 
 
+def _encode_reducer(value: _RecipeTopology) -> dict[str, object]:
+    # INVARIANT: the spec is the combine call's intent, so the node carries no spec and no role.
+    return {"binding": value.binding, "kind": value.kind, "name": value.name}
+
+
 _ENCODERS: dict[str, Callable[[_RecipeTopology], dict[str, object]]] = {
     "model": _encode_model,
+    "reducer": _encode_reducer,
     "pipeline": _encode_pipeline,
     "fusion": _encode_fusion,
     "corrective_loop": _encode_corrective_loop,
@@ -356,7 +366,7 @@ def _decode_fusion(
     if not isinstance(members_value, list):
         raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
     members = tuple(_decode_node(member) for member in members_value)
-    synthesizer = _decode_node(value["synthesizer"])
+    synthesizer = _decode_synthesizer(value["synthesizer"])
     if not members or binding != synthesizer.binding:
         raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
     return _RecipeTopology(
@@ -367,6 +377,19 @@ def _decode_fusion(
         members=members,
         synthesizer=synthesizer,
     )
+
+
+def _decode_synthesizer(value: object) -> _RecipeTopology:
+    """A Fusion synthesizer is an ordinary node, or a reducer leaf (the only reducer position)."""
+
+    if not isinstance(value, dict) or value.get("kind") != "reducer":
+        return _decode_node(value)
+    if set(value) != {"binding", "kind", "name"}:
+        raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
+    binding = _text(value["binding"])
+    if _SYNTHESIS_BINDING.fullmatch(binding) is None:
+        raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
+    return _RecipeTopology(kind="reducer", name=_text(value["name"]), binding=binding)
 
 
 def _decode_corrective_loop(

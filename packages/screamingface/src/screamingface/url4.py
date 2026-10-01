@@ -24,18 +24,27 @@ from url4 import (
 from url4.core.nodes import children
 
 from screamingface._benchmark_identity import benchmark_id as _flat_benchmark_id
+from screamingface._evaluation.combine_spec import (
+    COMBINE_MODEL,
+    decode_combine_spec,
+    spec_operator_pairs,
+)
+from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
 from screamingface._evaluation.topology import (
     _RecipeTopology,
     _topology_bindings,
     _topology_from_expression,
 )
+from screamingface._operation_bindings import OPERATION_BINDING
+from screamingface.reducer import Reducer, _reducer_class
 
 if TYPE_CHECKING:
     from screamingface.recipe import Recipe
 
-_BINDING = re.compile(r"(?:model|synthesis)_\d+")
-_REFERENCE = re.compile(r"\$(model_\d+|synthesis_\d+|panel_\d+)")
+_BINDING = OPERATION_BINDING
+# A quorum panel (OME-1557) gathers member results; it is a reference, never an operation.
+_REFERENCE = re.compile(rf"\$({OPERATION_BINDING.pattern.strip('^$')}|panel_\d+)")
 _BENCHMARK_ROUTE = re.compile(
     r"/benchmarks/([A-Za-z0-9._~/-]+?)/"
     r"(?:cases|tasks|aggregate|criterion-verdict|criterion-evaluation|case-evaluation)\b"
@@ -74,6 +83,7 @@ class _Call:
     dependencies: tuple[str, ...]
     prompt: str
     params: tuple[tuple[str, str], ...]
+    raw_intent: str
 
 
 def _to_python(value: str) -> str:
@@ -137,6 +147,7 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
             dependencies=dependencies,
             prompt=_python_text(node.value.intent.value),
             params=_params(node.value.params),
+            raw_intent=node.value.intent.value,
         )
     if not calls:
         raise ValueError("URL4 contains no compiled ScreamingFace model calls")
@@ -253,6 +264,8 @@ def _render_topology(
         lines = _render_pipeline_topology(value, calls, indent=indent)
     elif value.kind in {"corrective_loop", "self_corrective"}:
         lines = _render_corrective_topology(value, calls, indent=indent)
+    elif value.kind == "reducer":
+        lines = [f"{' ' * indent}sf.{_reducer_from_call(calls[value.binding])!r}"]
     else:
         lines = _render_fusion_topology(value, calls, indent=indent)
     if value.optional:
@@ -360,6 +373,7 @@ def _validate_topology(
     for name, binding in bindings.items():
         if calls[name].dependencies != binding.context_dependencies:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+        _require_call_kind(binding.node, calls[name])
     # INVARIANT: default-valued metadata cannot conceal executable policy.
     if _has_fusion_policy(value) or _has_executable_fusion_policy(candidate):
         from screamingface._evaluation.candidate import compile_candidate
@@ -389,6 +403,20 @@ def _has_fusion_policy(value: _RecipeTopology) -> bool:
     return any(_has_fusion_policy(child) for child in children)
 
 
+def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
+    """A reducer node is exactly a combine call (and its intent a valid spec), and only that."""
+
+    if (node.kind == "reducer") != (call.model == COMBINE_MODEL):
+        raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+    if node.kind == "reducer":
+        decode_combine_spec(call.raw_intent)
+
+
+def _reducer_from_call(call: _Call) -> Reducer:
+    spec = decode_combine_spec(call.raw_intent)
+    return _reducer_class(str(spec["reducer"]))._from_spec(spec)
+
+
 def _validate_compiled_corrective(
     candidate: Expression,
     topology: _RecipeTopology,
@@ -409,6 +437,12 @@ def _validate_compiled_corrective(
 
     recipe = _recipe_from_topology(topology, calls)
     assert topology.check_route is not None
+    operators = _OperatorCatalog.from_pinned(
+        pair
+        for call in calls.values()
+        if call.model == COMBINE_MODEL
+        for pair in spec_operator_pairs(decode_combine_spec(call.raw_intent))
+    )
     expected = compile_candidate(
         recipe,
         check_surface=_CheckSurface(
@@ -416,6 +450,7 @@ def _validate_compiled_corrective(
             feedback_intent="replay-validation",
             expected_check_cost="free",
         ),
+        operators=operators,
     ).url4
     if render(candidate) != expected:
         raise ValueError("URL4 Candidate does not match its Recipe metadata")
@@ -452,7 +487,11 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
         selected = Fusion(
             [_recipe_from_topology(member, calls) for member in value.members],
             name=value.name if value.name != inferred_name else None,
-            synthesizer=_recipe_from_topology(value.synthesizer, calls),
+            synthesizer=(
+                _reducer_from_call(calls[value.synthesizer.binding])
+                if value.synthesizer.kind == "reducer"
+                else _recipe_from_topology(value.synthesizer, calls)
+            ),
             quorum=value.quorum,
             optional=value.optional,
         )

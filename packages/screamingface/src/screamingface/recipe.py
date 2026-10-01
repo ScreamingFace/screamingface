@@ -6,6 +6,8 @@ import unicodedata
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Literal
 
+from screamingface.reducer import Reducer
+
 if TYPE_CHECKING:
     from screamingface.pipeline import Pipeline
 
@@ -57,6 +59,8 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
         from screamingface.model import Model
 
         return Model(value)
+    if isinstance(value, Reducer):
+        raise TypeError(f"{label} cannot be a reducer: a reducer must be a Fusion synthesizer")
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route or sf.Model, sf.Fusion, or sf.Pipeline")
     assert isinstance(value, Recipe)

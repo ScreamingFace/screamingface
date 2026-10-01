@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 from screamingface.recipe import Recipe, _name, _optional, _recipe
+from screamingface.reducer import Reducer
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -21,7 +22,7 @@ class Fusion(Recipe):
 
     name: str
     members: tuple[Recipe, ...]
-    synthesizer: Recipe
+    synthesizer: Recipe | Reducer
     quorum: int | Literal["all"]
     optional: bool
 
@@ -30,7 +31,7 @@ class Fusion(Recipe):
         members: Sequence[str | Recipe],
         *,
         name: str | None = None,
-        synthesizer: str | Recipe,
+        synthesizer: str | Recipe | Reducer,
         quorum: int | Literal["all"] = "all",
         optional: bool = False,
     ) -> None:
@@ -45,7 +46,9 @@ class Fusion(Recipe):
             inferred_name if name is None else _name(name, "fusion name"),
         )
         object.__setattr__(self, "members", selected_members)
-        object.__setattr__(self, "synthesizer", _recipe(synthesizer, "Fusion synthesizer"))
+        object.__setattr__(
+            self, "synthesizer", _synthesizer(synthesizer, selected_members, self.quorum)
+        )
 
     @property
     def _recipe_marker(self) -> None:
@@ -83,6 +86,31 @@ def _quorum(value: object, member_count: int) -> int | Literal["all"]:
     if value < 0 or value > member_count:
         raise ValueError("Fusion quorum must be between zero and the member count")
     return value
+
+
+_MAX_REDUCER_MEMBERS = 256
+
+
+def _synthesizer(
+    value: object, members: tuple[Recipe, ...], quorum: int | Literal["all"]
+) -> Recipe | Reducer:
+    if isinstance(value, Reducer):
+        if len(members) > _MAX_REDUCER_MEMBERS:
+            raise ValueError(
+                f"a reducer Fusion supports at most {_MAX_REDUCER_MEMBERS} members, "
+                f"not {len(members)}"
+            )
+        # INVARIANT (OME-1289 x OME-1557): a quorum panel reaches its synthesizer as one text
+        # block, while a combine call reads a JSON map with every member's output. Until the
+        # combine route reads a panel, a reducer needs every member required.
+        if quorum != "all" or any(member.optional for member in members):
+            raise ValueError(
+                "a reducer synthesizer needs every Fusion member required; quorum and "
+                "optional members work only with a Model or Recipe synthesizer"
+            )
+        value._check_members(len(members))
+        return value
+    return _recipe(value, "Fusion synthesizer")
 
 
 def _members(values: object) -> tuple[Recipe, ...]:

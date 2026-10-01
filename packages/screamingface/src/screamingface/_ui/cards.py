@@ -14,6 +14,7 @@ from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface._ui.style import NO_MATH
 from screamingface.recipe import _recipe_kind
+from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -441,7 +442,14 @@ def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
     )
 
 
-def _synthesizer_fields(recipe: Recipe) -> str:
+def _synthesizer_fields(recipe: Recipe | Reducer) -> str:
+    if isinstance(recipe, Reducer):
+        return _field(
+            "synthesizer",
+            f"<span class='sf-mono'>{escape(recipe.name)}</span>"
+            "<div class='sf-card__hint'>reducer</div>",
+            wide=True,
+        )
     route = getattr(recipe, "model", None)
     if route is None:
         value = (

@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from url4 import Expression, Source, Text, build
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
+from screamingface._evaluation.combine_spec import COMBINE_MODEL
 from screamingface._evaluation.model import (
     Candidate,
     _canonical_url4,
@@ -23,9 +24,11 @@ from screamingface._evaluation.topology import (
     _RecipeTopology,
     _topology_bindings,
     _topology_from_expression,
+    _TopologyBinding,
 )
 from screamingface.errors import ExecutionError
 from screamingface.events import Event
+from screamingface.operation import OperationInfo
 from screamingface.report import Report
 from screamingface.url4 import _calls as _url4_calls
 from screamingface.url4 import _validate_topology
@@ -193,17 +196,7 @@ def _candidate_from_topology(
     corrective = topology.kind in {"corrective_loop", "self_corrective"}
     fusion_names = _direct_fusion_output_names(topology)
     operations = tuple(
-        _compiled_operation(
-            id=f"op_{name}",
-            kind=bindings[name].node.role or "model",
-            label=(
-                f"{fusion_names.get(name, bindings[name].node.name)} "
-                f"{'synthesis' if bindings[name].node.role == 'synthesis' else 'answer'}"
-            ),
-            depends_on=tuple(
-                f"op_{dependency}" for dependency in bindings[name].operation_dependencies
-            ),
-        )
+        _replayed_operation(name, bindings[name], fusion_names)
         for name in bindings
         if name in selected
     )
@@ -221,7 +214,7 @@ def _candidate_from_topology(
         else ()
     )
     models = (
-        tuple(dict.fromkeys(calls[name][0] for name in bindings))
+        tuple(dict.fromkeys(calls[name][0] for name in bindings if calls[name][0] != COMBINE_MODEL))
         if corrective
         else _models(topology.binding, calls)
     )
@@ -235,18 +228,37 @@ def _candidate_from_topology(
     )
 
 
+def _replayed_operation(
+    name: str,
+    binding: _TopologyBinding,
+    fusion_names: dict[str, str],
+) -> OperationInfo:
+    node = binding.node
+    if node.kind == "reducer":
+        kind, suffix = "combine", "combine"
+    else:
+        kind = node.role or "model"
+        suffix = "synthesis" if node.role == "synthesis" else "answer"
+    return _compiled_operation(
+        id=f"op_{name}",
+        kind=kind,
+        label=f"{fusion_names.get(name, node.name)} {suffix}",
+        depends_on=tuple(f"op_{dependency}" for dependency in binding.operation_dependencies),
+    )
+
+
 def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
     selected: dict[str, str] = {}
 
     def visit(node: _RecipeTopology) -> None:
-        if node.kind == "model":
+        if node.kind in {"model", "reducer"}:
             return
         children = node.stages if node.kind == "pipeline" else node.members
         for child in children:
             visit(child)
         if node.synthesizer is not None:
             visit(node.synthesizer)
-            if node.synthesizer.kind == "model":
+            if node.synthesizer.kind in {"model", "reducer"}:
                 selected[node.binding] = node.name
 
     visit(value)
@@ -312,7 +324,12 @@ def _models(
     calls: dict[str, tuple[str, tuple[str, ...]]],
 ) -> tuple[str, ...]:
     selected = _dependency_closure(name, calls)
-    return tuple(dict.fromkeys(route for key, (route, _) in calls.items() if key in selected))
+    # INVARIANT: the combine route is a join, never a model a Run needs available.
+    return tuple(
+        dict.fromkeys(
+            route for key, (route, _) in calls.items() if key in selected and route != COMBINE_MODEL
+        )
+    )
 
 
 __all__: list[str] = []
