@@ -26,6 +26,9 @@ One image ships two modes, and the whole point of that shape is a rule about wha
                   Job's cold start should pay for. The serving half imports it freely.
   Shared leaves:  job_env · subjects · adapters.jetstream · request_scope · candidate_scope ·
                   model_outcomes · observations — importable by BOTH, importing NEITHER.
+  Combine core:   combine — a shared leaf with a hexagonal rule inside it (OME-1289 E4a). Its core
+                  defines the ports and runs specs and never imports a plugin or the wiring module
+                  (`combine/builtins.py`); a plugin (`combine/operators/*`) imports only the ports.
 
 WHY this rule outlived the package split it was born in: it used to be proved structurally — the
 two halves were separate distributions with separate images, so a cross-import could not even be
@@ -92,6 +95,16 @@ WORKER_MODE = {"worker"}
 # NEITHER. It is not a shared leaf because the dependency arrow is one-way — the world imports
 # shared leaves such as `job_env`, so a shared leaf importing the world would close a cycle.
 WORLD = {"world"}
+
+# The combine framework (OME-1289 E4a, contracts.md K5): a SHARED LEAF with a hexagonal rule
+# inside it. Its core — every module under combine/ except the wiring module and the plugin
+# subtree — defines the ports and runs specs. The core never imports a plugin or the module that
+# lists them; a plugin imports only the ports (plus the stdlib and url4.core).
+COMBINE_CORE = "combine"
+COMBINE_WIRING = "combine/builtins.py"
+COMBINE_PLUGINS = "combine/operators"
+COMBINE_CORE_FORBIDDEN = {"combine.operators", "combine.builtins"}
+COMBINE_PLUGIN_ALLOWED = {"combine", "combine.ports", "combine.operators"}
 
 # (subtree under screamingface_engine/, forbidden screamingface_engine submodules, why)
 RULES: list[tuple[str, set[str], str]] = [
@@ -275,6 +288,51 @@ def shared_leaf_files() -> list[pathlib.Path]:
     return [p for p in python_files(SRC) if _half_of(p) is None]
 
 
+def combine_files() -> tuple[list[pathlib.Path], list[pathlib.Path]]:
+    """The combine (core files, plugin files); both empty when the tree has no `combine/`."""
+    root = SRC / COMBINE_CORE
+    if not root.is_dir():
+        return [], []
+    plugins_root = SRC / COMBINE_PLUGINS
+    wiring = SRC / COMBINE_WIRING
+    files = python_files(root)
+    plugins = [p for p in files if p.is_relative_to(plugins_root)]
+    core = [p for p in files if p not in plugins and p != wiring]
+    return core, plugins
+
+
+def check_combine() -> list[str]:
+    """The hexagonal rule inside `combine/`: the core never imports a plugin or the wiring, and a
+    plugin imports only the ports (and its sibling plugins)."""
+    core, plugins = combine_files()
+    core_why = (
+        "the combine core defines the ports and runs specs; it never imports a plugin, nor the "
+        "wiring module (combine/builtins.py) that lists them. Wiring is the one place that "
+        "names plugins, at composition time"
+    )
+    plugin_why = (
+        "a combine plugin imports only combine.ports (plus the standard library and url4.core): "
+        "the ports are the one meeting point, and importing the core or any other part of the "
+        "engine couples a pure operator to the machinery that runs it"
+    )
+    offenders: list[str] = []
+    for path in core:
+        found = imported_screamingface_engine_submodules(path)
+        for module in sorted(found & COMBINE_CORE_FORBIDDEN):
+            offenders.append(
+                f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n"
+                f"      {core_why}"
+            )
+    for path in plugins:
+        found = imported_screamingface_engine_submodules(path)
+        for module in sorted(found - COMBINE_PLUGIN_ALLOWED):
+            offenders.append(
+                f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n"
+                f"      {plugin_why}"
+            )
+    return offenders
+
+
 def check_layers() -> list[str]:
     if not SRC.is_dir():
         print(f"ERROR: source tree missing: {SRC}", file=sys.stderr)
@@ -316,6 +374,7 @@ def check_layers() -> list[str]:
                 f"  {path.relative_to(ROOT)}: imports screamingface_engine.{module}\n"
                 f"      {REMOVED[module]}; mount calls run as direct runs (rest.mounts)"
             )
+    offenders.extend(check_combine())
     return offenders
 
 
