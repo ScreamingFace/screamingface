@@ -138,8 +138,9 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
 
 
 def _inverted_grade(item: Mapping[str, object]) -> bool:
-    """The refusal-rate mark (OME-1400): the Engine publishes it only when true, and an
-    Engine that predates it hosts no flipped Benchmark, so absence means False."""
+    """The refusal-rate mark (OME-1400): the Engine publishes it only when true, so absence
+    means False. An Engine running OME-1400's first PR without its second lists
+    xstest_unsafe with no mark — the two Engine changes deploy together."""
 
     value: object = item.get("inverted_grade", False)
     if not isinstance(value, bool):
