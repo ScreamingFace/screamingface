@@ -1,9 +1,9 @@
 ---
 ticket: OME-1394
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-09-28
-finished:
+finished: 2026-10-01
 ---
 
 # aigateway-reject-explicit-x-profile — reject obsolete credential selectors
@@ -124,19 +124,16 @@ pair's one effective Connection.
 
 ### Outcome
 
-- **Actual files:** the Stage D D4/D12 specification, OME-1394 task mirror, this ledger, the blank
-  selector route matrix, one OpenRouter helper, and the live provider matrix helper. Runtime source
-  code did not change.
+- **Actual files:** AIGateway selector parsing and refusal rendering, chat/model-parameters/
+  admission/provider-access route boundaries, ambiguity behavior, focused unit/live tests, the
+  Stage D specification, OME-1394 task mirror and this ledger.
 - **Decision record:** Linear comment `d5148392-6578-4889-a6c2-3b100c135f77` records the owner
   clarification, breaking PR metadata, accounting decision, rollout census, and production-read
   boundary. UI copy, generated schema, and diagrams are tracked in `OME-1398`.
-- **Gates:** focused tests `60 passed`; credential-free provider matrix `20 skipped`; focused Ruff
-  and format checks green; `uv run .claude/scripts/run_gates.py aigateway --skip-append-only` — ALL
-  GATES GREEN (Ruff, format, Pyright, no-enterprise, full pytest coverage >=80); `git diff --check`
-  clean.
-- **Deviations:** append-only remains skipped for the owner-approved contract re-pins and review
-  corrections already recorded above. No production read, deployment, rebase, push, or runtime
-  behavior change occurred.
+- **Gates:** focused tests and the complete AIGateway gate passed; PR checks passed for Python 3.12
+  and 3.13, replay, CodeQL and image planning. `git diff --check` was clean.
+- **Deviations:** prior contract assertions were re-pinned under the recorded owner approval. No
+  production read or deployment occurred.
 
 ## Activation waiver
 
@@ -147,3 +144,9 @@ pair's one effective Connection.
   `OME-1394`; PR #1114 may proceed through normal review and CI.
 - **Rollback:** treat alpha as the canary; an unexpected increase in `400 x_profile_unsupported` or
   `409 connection_ambiguous` restores Gateway selector honoring while Engine remains producer-off.
+
+## Merge closure
+
+- PR #1114 merged to `main` on 2026-09-30 as `3083640b6be5d67b909d93643c6878d5fe67e318`.
+- `OME-1394` is complete. Stale UI/schema/diagram guidance remains in `OME-1398`; URL4/Engine
+  compatibility-carrier cleanup, D18 and Stage E remain separate work under `OME-1138`.

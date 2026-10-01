@@ -1,13 +1,13 @@
 ---
 id: OME-1394
 linear_url: https://linear.app/openmined/issue/OME-1394/aigateway-reject-explicit-x-profile-after-engine-producer-off
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-09-28
-closed:
+closed: 2026-10-01
 ---
 
 # OME-1394 — AIGateway rejects explicit X-Profile
@@ -36,12 +36,12 @@ Engine remains producer-off. `OME-1401` is canceled as waived and no longer bloc
 
 ## Implementation Status
 
-Ready for re-review. Duplicate-header handling, pre-cache refusal, selector-less ambiguity,
-target-local invalidation, value-free exceptions, current documentation, and opt-in live callers
-are pinned. The complete AIGateway gate runner is green. No deployment or production access was
-performed.
+Merged in PR #1114 as `3083640b` on 2026-09-30. Duplicate-header handling, pre-cache refusal,
+selector-less ambiguity, target-local invalidation, value-free exceptions, current documentation,
+and opt-in live callers are pinned. All required checks passed. No deployment or production access
+was performed.
 
-The PR must use title `feat(aigateway)!: reject explicit profile selectors` and include:
+The PR used title `feat(aigateway)!: reject explicit profile selectors` and included:
 
 `BREAKING CHANGE: AIGateway rejects every nonblank X-Profile and selector-less pairs with multiple active Connections now return 409 even when one Connection is labelled default.`
 
