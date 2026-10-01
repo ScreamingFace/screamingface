@@ -23,7 +23,11 @@ from screamingface_engine.request_identity import ModelRequestKey, model_request
 
 @dataclass(frozen=True, slots=True)
 class OperationCall:
-    """One terminal provider round trip plus the route identity that requested it.
+    """One terminal provider round trip, or one combine step, plus the route identity that
+    requested it.
+
+    ``combine`` is set only by :func:`record_combine_call`: a combine step is not a provider
+    round trip, so its ``accounting`` is None and its ``finish_reason`` is ``stop``.
 
     ``params`` is the request's parameter set sorted by name — the half of the
     OME-843 attribution fingerprint that distinguishes two members on the same
