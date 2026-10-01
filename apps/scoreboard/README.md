@@ -58,7 +58,7 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 | --- | --- | --- |
 | `SCOREBOARD_HOST` | `127.0.0.1` | Host used by the `scoreboard` console script. |
 | `SCOREBOARD_PORT` | `9106` | Port used by the `scoreboard` console script. |
-| `SCOREBOARD_LOG_LEVEL` | `info` | Uvicorn log level. |
+| `SCOREBOARD_LOG_LEVEL` | `info` | Log level for uvicorn and for the app's own `scoreboard.*` loggers (server and Jobs). |
 | `SCOREBOARD_DATABASE_URL` | `sqlite://./scoreboard.sqlite3` | Tortoise database URL. |
 | `SCOREBOARD_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins. |
 | `SCOREBOARD_PORTAL_DIR` | app-local `portal/` | Static portal directory. |
