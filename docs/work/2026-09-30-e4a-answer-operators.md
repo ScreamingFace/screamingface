@@ -52,7 +52,25 @@ PHASE A (operators, fixtures, tests; no `builtins.py`). PHASE B is still open.
   the commits): ALL GATES GREEN, no offender. Rerun `--skip-append-only` after the commits:
   ALL GATES GREEN. `run_gates.py repo`: ALL GATES GREEN. 155 operator tests pass; worst hostile
   1 MiB extractor run is 2.7 ms.
-- **Deviations:** `json_field@1` returns `not_json` when the field holds a number JSON decodes to
+- **Deviations:** (orchestrator decision: `last_number@1` returns the whole comma run) `json_field@1` returns `not_json` when the field holds a number JSON decodes to
   inf (1e999), because `canonical_json` rejects it (the spec is silent). `value@1`/`nearest@1`
   raise `SpecInvalid` when the statistic is missing, and `mode@1`/`median@1` raise it when a voter
   has no extracted value (the spec is silent). Sort key uses `-score` inside `DECIMAL_CONTEXT`.
+
+### Phase A review fixes (ACCEPT-WITH-FIXES)
+
+- Median and nearest accept only `-?[0-9]+(\.[0-9]+)?`; no Decimal error escapes. A zero tally
+  total raises `SpecInvalid`. The weighted_mode pre-loop is gone.
+- Orchestrator decision 4: `last_number@1` returns the whole maximal digit/comma run
+  (`[-\u2212]?[0-9]+(,[0-9]+)*(\.[0-9]+)?`); `numeric@1` judges the grouping. The golden for `1,23`
+  changed from `23` to `1,23` (numeric: `not_numeric`). Hostile `"1,"*524288` stays far below 50 ms.
+- Golden test: no hard-coded 15 and no exact-set check against the module tuples (two subset
+  checks via the fixture files instead); phase B's OP-1 over BUILTIN_OPERATORS is the exact check.
+- New CHAR tests that passed at once by design: hostile global decimal context (prec=2), and the
+  pinned quirks (`1e999`, `1e20` -> `1e+20`, `-0.0`, repeated key, `9..`, `5$3`, boxed `a\}b}`,
+  `a b`, `3.5e10`). Every hand-derived value matched the code.
+- The append-only check flagged only this branch's own phase A files (edits are authorized by the
+  coordinator); the gate was rerun with `--skip-append-only` and is green, as is `repo`.
+- `json_field@1` `args_schema` top level is a `MappingProxyType` with a `required` tuple. The nested
+  `properties` dict stays plain because `ports.catalog_entry` deep-copies the schema and a
+  mappingproxy cannot be deep-copied or JSON-encoded (`ports.py` is not editable here).

@@ -57,12 +57,57 @@
    }
   },
   {
-   "name": "bad grouping reads tail",
+   "name": "bad grouping keeps the whole run",
    "input": "1,23",
    "args": {},
    "expect": {
     "status": "voted",
-    "value": "23"
+    "value": "1,23"
+   }
+  },
+  {
+   "name": "indian grouping keeps the whole run",
+   "input": "Total: 1,00,000",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1,00,000"
+   }
+  },
+  {
+   "name": "four digit group keeps the whole run",
+   "input": "1,2345",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1,2345"
+   }
+  },
+  {
+   "name": "long last group keeps the whole run",
+   "input": "12,345,6789",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "12,345,6789"
+   }
+  },
+  {
+   "name": "grouped decimals",
+   "input": "1,200.50",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1,200.50"
+   }
+  },
+  {
+   "name": "exponent reads its digits as a number",
+   "input": "3.5e10",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "10"
    }
   },
   {

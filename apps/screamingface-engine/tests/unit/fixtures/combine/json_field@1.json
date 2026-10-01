@@ -199,6 +199,50 @@
     "status": "voted",
     "value": "1"
    }
+  },
+  {
+   "name": "number too big for a float",
+   "input": "{\"a\":1e999}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "large float keeps python exponent form",
+   "input": "{\"a\":1e20}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "1e+20"
+   }
+  },
+  {
+   "name": "negative zero float",
+   "input": "{\"a\":-0.0}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "-0.0"
+   }
+  },
+  {
+   "name": "repeated key keeps the last value",
+   "input": "{\"a\":1,\"a\":2}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "2"
+   }
   }
  ]
 }

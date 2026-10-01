@@ -8,6 +8,7 @@ Fixture format: ``fixtures/combine/<id>.json`` = ``{"op", "stage", "cases": [{"n
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -21,6 +22,7 @@ from screamingface_engine.combine.ports import (
     Normalizer,
     OpArgs,
     OperatorDescriptor,
+    ReadingStatus,
     ReduceOp,
     Reduction,
     Selection,
@@ -42,7 +44,10 @@ Case = dict[str, Any]
 
 def find(op_id: str) -> OperatorDescriptor:
     """The module-level descriptor for ``op_id`` (the built-in registry is not used here)."""
-    return next(d for d in MODULE_OPERATORS if d.id == op_id)
+    for descriptor in MODULE_OPERATORS:
+        if descriptor.id == op_id:
+            return descriptor
+    raise LookupError(f"no plugin module lists the combine operator {op_id!r}")
 
 
 def stage(op_id: str, text: str, args: OpArgs | None = None) -> StageResult:
@@ -56,7 +61,7 @@ def load_fixtures() -> dict[str, dict[str, Any]]:
     return {fixture["op"]: fixture for fixture in loaded}
 
 
-def _readings(raw: list[dict[str, Any]]) -> tuple[MemberReading, ...]:
+def readings_from_rows(raw: list[dict[str, Any]]) -> tuple[MemberReading, ...]:
     return tuple(
         MemberReading(
             member=row["member"],
@@ -69,8 +74,33 @@ def _readings(raw: list[dict[str, Any]]) -> tuple[MemberReading, ...]:
     )
 
 
-def _combine_input(readings: tuple[MemberReading, ...]) -> CombineInput:
+def combine_input(readings: tuple[MemberReading, ...]) -> CombineInput:
+    """A ``CombineInput`` over ``readings`` (outputs are empty strings; no signals)."""
     return CombineInput(readings=readings, outputs={r.member: "" for r in readings}, signals={})
+
+
+def member_readings(
+    values: Sequence[str | None], weights: Sequence[str | None] | None = None
+) -> tuple[MemberReading, ...]:
+    """Readings for member_1..member_N: a None value is an ``empty`` member, otherwise voted."""
+    rows: list[MemberReading] = []
+    for index, value in enumerate(values):
+        weight = None if weights is None or weights[index] is None else Decimal(str(weights[index]))
+        status: ReadingStatus = "voted" if value is not None else "empty"
+        rows.append(MemberReading(f"member_{index + 1}", value, value, status, weight))
+    return tuple(rows)
+
+
+def reduce_result(op_id: str, readings: tuple[MemberReading, ...]) -> Reduction:
+    """Run one reduce operator (no args) over ``readings``."""
+    return cast("ReduceOp", find(op_id).run)(combine_input(readings), {})
+
+
+def select_result(
+    op_id: str, reduction: Reduction, readings: tuple[MemberReading, ...]
+) -> Selection:
+    """Run one select operator (no args) on ``reduction``."""
+    return cast("SelectOp", find(op_id).run)(reduction, combine_input(readings), {})
 
 
 def _tally(rows: list[dict[str, Any]] | None) -> tuple[TallyRow, ...] | None:
@@ -113,9 +143,9 @@ def _run(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
     descriptor.check_args(args)
     if descriptor.stage in ("extract", "normalize"):
         return _stage_view(cast("Extractor | Normalizer", descriptor.run)(given, args))
-    readings = _readings(given["readings"])
+    readings = readings_from_rows(given["readings"])
     if descriptor.stage == "reduce":
-        return _reduction_view(cast("ReduceOp", descriptor.run)(_combine_input(readings), args))
+        return _reduction_view(cast("ReduceOp", descriptor.run)(combine_input(readings), args))
     given_reduction = given["reduction"]
     reduction = Reduction(
         tally=_tally(given_reduction["tally"]),
@@ -124,7 +154,7 @@ def _run(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
         else Decimal(given_reduction["statistic"]),
     )
     select_run = cast("SelectOp", descriptor.run)
-    return _selection_view(select_run(reduction, _combine_input(readings), args))
+    return _selection_view(select_run(reduction, combine_input(readings), args))
 
 
 def run_case(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
@@ -135,4 +165,16 @@ def run_case(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
         return {"error": exc.code}
 
 
-__all__ = ["FIXTURE_DIR", "MODULE_OPERATORS", "find", "load_fixtures", "run_case", "stage"]
+__all__ = [
+    "FIXTURE_DIR",
+    "MODULE_OPERATORS",
+    "combine_input",
+    "find",
+    "load_fixtures",
+    "member_readings",
+    "readings_from_rows",
+    "reduce_result",
+    "run_case",
+    "select_result",
+    "stage",
+]

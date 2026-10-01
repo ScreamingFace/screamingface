@@ -9,7 +9,13 @@ PHASE A runs the fixtures against the plugin modules' ``OPERATORS`` tuples direc
 from __future__ import annotations
 
 import pytest
-from combine_golden_support import MODULE_OPERATORS, find, load_fixtures, run_case
+from combine_golden_support import (
+    FIXTURE_DIR,
+    MODULE_OPERATORS,
+    find,
+    load_fixtures,
+    run_case,
+)
 
 _FIXTURES = load_fixtures()
 _CASES = [
@@ -19,14 +25,22 @@ _CASES = [
 ]
 
 
-def test_every_module_operator_has_one_fixture_file() -> None:
-    assert set(_FIXTURES) == {descriptor.id for descriptor in MODULE_OPERATORS}
-    assert len(MODULE_OPERATORS) == 15
-
-
-def test_each_fixture_names_the_stage_of_its_operator() -> None:
+def test_every_fixture_file_names_a_module_operator_of_its_stage() -> None:
+    assert _FIXTURES
     for op_id, fixture in _FIXTURES.items():
+        assert (FIXTURE_DIR / f"{op_id}.json").is_file(), op_id
         assert fixture["stage"] == find(op_id).stage, op_id
+
+
+def test_every_module_operator_has_a_fixture_file() -> None:
+    assert MODULE_OPERATORS
+    for descriptor in MODULE_OPERATORS:
+        assert (FIXTURE_DIR / f"{descriptor.id}.json").is_file(), descriptor.id
+
+
+def test_find_names_the_missing_operator() -> None:
+    with pytest.raises(LookupError, match="nope@1"):
+        find("nope@1")
 
 
 @pytest.mark.parametrize(("op_id", "case"), _CASES)

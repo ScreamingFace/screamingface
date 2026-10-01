@@ -84,6 +84,15 @@
    }
   },
   {
+   "name": "backslash does not escape a brace",
+   "input": "\\boxed{a\\}b}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "a\\"
+   }
+  },
+  {
    "name": "unclosed last box beats closed earlier",
    "input": "\\boxed{1} \\boxed{2",
    "args": {},
