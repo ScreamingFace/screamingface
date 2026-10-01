@@ -179,7 +179,7 @@ class Url4CloudTransport:
             self._engine_url,
             candidate,
             _dataclass_replace(outcome, trace_id=trace.trace_id),
-            self._result_contexts.pop(id(candidate), None),
+            _take_result_context(self._result_contexts, candidate),
         )
         return download_sync(self._http, saved, lambda: _mint_sync(self._http))
 
@@ -187,7 +187,14 @@ class Url4CloudTransport:
         from screamingface._results.evaluation import prepare
 
         if self._result_store is not None:
-            self._result_contexts.update(prepare(self._result_store, evaluation, candidates))
+            contexts = prepare(self._result_store, evaluation, candidates)
+            self._result_contexts.update(
+                {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
+            )
+
+    def finish_results(self, candidates) -> None:
+        for candidate in candidates:
+            self._result_contexts.pop(id(candidate), None)
 
     @property
     def _aborted(self) -> bool:
@@ -200,7 +207,14 @@ class Url4CloudTransport:
         else:
             self._abort.clear()
 
-    def run(
+    def run(self, candidate: Candidate, on_event: SyncEventCallback | None) -> _RunOutcome:
+        try:
+            return self._run(candidate, on_event)
+        finally:
+            # INVARIANT: admission failure and owner abort retire membership too.
+            self._result_contexts.pop(id(candidate), None)
+
+    def _run(
         self,
         candidate: Candidate,
         on_event: SyncEventCallback | None,
@@ -507,6 +521,7 @@ class Url4CloudTransport:
             raise
 
     def close(self) -> None:
+        self._result_contexts.clear()
         try:
             self._http.close()
         finally:
@@ -579,7 +594,7 @@ class AsyncUrl4CloudTransport:
             self._engine_url,
             candidate,
             _dataclass_replace(outcome, trace_id=trace.trace_id),
-            self._result_contexts.pop(id(candidate), None),
+            _take_result_context(self._result_contexts, candidate),
         )
         return await download_async(self._http, saved, lambda: _mint_async(self._http))
 
@@ -587,7 +602,14 @@ class AsyncUrl4CloudTransport:
         from screamingface._results.evaluation import prepare
 
         if self._result_store is not None:
-            self._result_contexts.update(prepare(self._result_store, evaluation, candidates))
+            contexts = prepare(self._result_store, evaluation, candidates)
+            self._result_contexts.update(
+                {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
+            )
+
+    def finish_results(self, candidates) -> None:
+        for candidate in candidates:
+            self._result_contexts.pop(id(candidate), None)
 
     @property
     def _aborted(self) -> bool:
@@ -631,7 +653,13 @@ class AsyncUrl4CloudTransport:
         if errors:
             raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
-    async def run(
+    async def run(self, candidate: Candidate, on_event: AsyncEventCallback | None) -> _RunOutcome:
+        try:
+            return await self._run(candidate, on_event)
+        finally:
+            self._result_contexts.pop(id(candidate), None)
+
+    async def _run(
         self,
         candidate: Candidate,
         on_event: AsyncEventCallback | None,
@@ -860,11 +888,19 @@ class AsyncUrl4CloudTransport:
             raise
 
     async def close(self) -> None:
+        self._result_contexts.clear()
         try:
             await self._http.aclose()
         finally:
             if self._owns_auth:
                 await asyncio.to_thread(self._caller_auth.close)
+
+
+def _take_result_context(contexts, candidate):
+    # WHY: retain the actual object until retirement; an integer identity alone
+    # can be reused after a failed/abandoned evaluation releases its candidates.
+    selected = contexts.pop(id(candidate), None)
+    return selected[1] if selected is not None and selected[0] is candidate else None
 
 
 def _observe_sync(callback: SyncEventCallback, event: Event) -> None:

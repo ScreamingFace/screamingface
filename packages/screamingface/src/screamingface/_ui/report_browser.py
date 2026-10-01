@@ -111,6 +111,7 @@ class ReportBrowser:
         self.page = 0
         self._requested_page = 0
         self._exporting = False
+        self._export_prepared = False
         self._export_task = None
         self._paging = False
         self._page_task = None
@@ -374,7 +375,7 @@ class ReportBrowser:
 
     def _export_json(self, change: Any = None) -> None:
         # INVARIANT: queued clicks cannot start concurrent or repeated exports of this Report.
-        if self._exporting or self.snapshot.exists():
+        if self._exporting or self._export_prepared:
             return
         self._exporting = True
         self.export.disabled = True
@@ -413,6 +414,7 @@ class ReportBrowser:
         self.notice.value = f'<p role="alert">Download failed: {escape(str(exc))}</p>'
 
     def _export_ready(self) -> None:
+        self._export_prepared = True
         self.exports.value = self._snapshot_link()
         self.notice.value = ""
         self.export_slot.children = (self.exports,)

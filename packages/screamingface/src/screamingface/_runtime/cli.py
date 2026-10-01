@@ -354,7 +354,7 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
         "control_url": f"http://127.0.0.1:{control.server_port}",
         "services": config.services,
         "log_path": str(config.log_path),
-        "artifacts_dir": str(config.effective_artifacts_dir(os.environ)),
+        "artifacts_dir": str(config.effective_artifacts_dir(os.environ).resolve()),
         "source": runtime_source.state_record(runtime_source.resolve_source(os.environ)),
     }
     _write_state(config, state)
