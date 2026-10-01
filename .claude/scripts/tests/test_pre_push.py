@@ -230,9 +230,32 @@ def test_engine_change_gates_exactly_the_engine_against_the_remote_main() -> Non
     try:
         _git(box.clone, "checkout", "-q", "-b", "engine-change", "upstream/main")
         _commit_file(box.clone, _ENGINE_FILE, "branch change\n")
+        cut: str = _git(box.clone, "merge-base", "upstream/main", "HEAD").strip()
         code, output, gated = box.run_hook()
         assert code == 0, output
-        assert gated == ["screamingface-engine upstream/main"], gated
+        assert gated == [f"screamingface-engine {cut}"], gated
+    finally:
+        box.cleanup()
+
+
+def test_the_checks_get_the_branch_point_not_the_remote_main_s_latest_commit() -> None:
+    """main moving on after the cut must not change the base the checks compare against.
+
+    The append-only test check diffs its base against the working tree. Example: the branch
+    is cut at commit X and edits the engine; main then adds an engine test at X+1. Given
+    upstream/main (X+1) as the base, that test reads as this branch deleting it. Given X, it
+    doesn't exist on either side.
+    """
+
+    box: _Sandbox = _Sandbox("upstream")
+    try:
+        _git(box.clone, "checkout", "-q", "-b", "engine-change", "upstream/main")
+        cut: str = _git(box.clone, "rev-parse", "upstream/main").strip()
+        _commit_file(box.clone, _ENGINE_FILE, "branch change\n")
+        box.remote_moves_on("apps/screamingface-engine/tests/test_new.py")
+        code, output, gated = box.run_hook()
+        assert code == 0, output
+        assert gated == [f"screamingface-engine {cut}"], gated
     finally:
         box.cleanup()
 

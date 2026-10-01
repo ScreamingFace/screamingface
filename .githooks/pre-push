@@ -24,6 +24,15 @@ if [ -z "$base" ]; then
   echo "pre-push: fetch your remote's main (git fetch <remote>) and push again." >&2
   exit 1
 fi
+# Hand the checks the commit this branch was cut from, not the remote main's latest commit:
+# run_gates.py's append-only test check diffs its base against the working tree, so a test
+# main changed after the cut would read as this branch editing it.
+remote_main="$base"
+if ! base=$(git merge-base "$remote_main" HEAD); then
+  echo "pre-push: this branch shares no history with $remote_main." >&2
+  exit 1
+fi
+echo "pre-push: comparing against $remote_main at $(git rev-parse --short "$base")"
 changed=$(git diff --name-only "$base"...HEAD 2>/dev/null)
 
 fail=0
