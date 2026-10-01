@@ -63,13 +63,13 @@ def test_browser_paginates_and_exports_losslessly(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = large_report(60)
     browser = ReportBrowser(source)
-    assert browser.count.value.startswith("Showing 1–25 of 60")
+    assert browser.count.value == "1–25 of 60"
     assert not hasattr(browser, "search")
     assert not browser.snapshot.exists()
     browser.next.click()
-    assert browser.count.value.startswith("Showing 26–50 of 60")
+    assert browser.count.value == "26–50 of 60"
     browser.next.click()
-    assert browser.count.value.startswith("Showing 51–60 of 60")
+    assert browser.count.value == "51–60 of 60"
     assert browser.next.disabled
     assert "answer 59" in browser.cases.value
     browser._export_json()

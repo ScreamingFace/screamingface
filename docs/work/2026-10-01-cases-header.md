@@ -33,3 +33,9 @@ Final SDK gates green: 2,118 passed, 26 skipped, 26 paid tests excluded; 95.72% 
 lint, format, Pyright, notebook checks, build and distribution pass. The final run includes
 the grouped narrow-screen navigation adjustment. Commit: `fix(client): integrate controls into cases header`,
 existing draft PR #1156.
+
+Follow-up requested by owner: shorten the range label to `26–50 of 46002`, removing
+Showing and total repetition. Validate the approved text expectations and refresh the notebook.
+
+Compact range verified in the refreshed notebook; all 14 focused browser tests and the
+full SDK gates pass (lint, format, Pyright, coverage suite, notebooks, build, distribution).

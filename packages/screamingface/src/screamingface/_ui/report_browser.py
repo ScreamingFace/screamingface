@@ -167,7 +167,7 @@ class ReportBrowser:
         start = self.page * _PAGE_SIZE
         indices = self.matches[start : start + _PAGE_SIZE]
         self.count.value = (
-            f"Showing {start + 1 if indices else 0}–{start + len(indices)} of {len(self.matches):,}"
+            f"{start + 1 if indices else 0}–{start + len(indices)} of {len(self.matches)}"
         )
         self.previous.disabled = self.page == 0
         self.next.disabled = start + _PAGE_SIZE >= len(self.matches)
