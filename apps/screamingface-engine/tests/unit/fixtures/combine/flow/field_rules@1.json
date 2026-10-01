@@ -1240,6 +1240,32 @@
    }
   },
   {
+   "name": "a voter value that is not json",
+   "args": {
+    "fields": [
+     {
+      "field": "x",
+      "rule": "majority",
+      "normalize": null
+     }
+    ]
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{oops",
+      "value": "{oops",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
    "name": "a voter without a value",
    "args": {
     "fields": [

@@ -288,6 +288,26 @@
    "expect": {
     "error": "combine_spec_invalid"
    }
+  },
+  {
+   "name": "a voter value that is not json",
+   "args": {
+    "field": "summary"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "{oops",
+      "value": "{oops",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
   }
  ]
 }
