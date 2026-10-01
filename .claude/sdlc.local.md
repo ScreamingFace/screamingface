@@ -84,7 +84,13 @@ stacks:
       - uv run ruff check
       - uv run ruff format --check
       - uv run pyright
-      - uv run pytest --cov=screamingface --cov-fail-under=95 -q
+      # `-n auto` (pytest-xdist): one worker per core, so the step takes about as long as the
+      # slowest test instead of the whole suite end to end. `--dist worksteal`, not the default
+      # `load`: `load` hands each worker a run of neighbouring tests up front, so this suite's
+      # two ~95s disconnect tests (same file) queued on ONE worker and the step took 208s;
+      # worksteal lets an idle worker take the second one, 110s. pytest-cov merges the workers'
+      # coverage before the floor is checked, so the floor means what it did serially (OME-1444).
+      - uv run pytest -n auto --dist worksteal --cov=screamingface --cov-fail-under=95 -q
       - uv run --extra notebook python scripts/check_notebooks.py
       - uv build
       - uv run python scripts/check_distribution.py
@@ -99,7 +105,8 @@ stacks:
       # One venv holds every distribution, so no runtime check can prove the boundaries —
       # this gate keeps url4.streaming conceptual and every concrete adapter in its own deployable.
       - python3 ../../.claude/scripts/check_layering.py
-      - uv run pytest --cov=screamingface_engine --cov=url4.streaming --cov-fail-under=80 -q
+      # `-n auto --dist worksteal`: see the screamingface stack above (OME-1444).
+      - uv run pytest -n auto --dist worksteal --cov=screamingface_engine --cov=url4.streaming --cov-fail-under=80 -q
   # The first non-Python stack. run_gates.py is stack-agnostic — it shells this `gates:` list with
   # cwd = root — so nothing in the runner needed changing. `npm ci` (not `install`) is deliberate:
   # it installs FROM the lockfile and fails when package.json disagrees, which is this stack's
