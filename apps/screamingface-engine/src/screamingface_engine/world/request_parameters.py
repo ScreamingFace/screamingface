@@ -2,6 +2,12 @@
 
 INVARIANT: a nested call may narrow its active retrieval policy, but it cannot enable retrieval
 or remove excluded domains forbidden by its parent invocation.
+
+FEATURE (OME-1289 E4a): ``binding`` is an attribution-only param. The SDK sends
+``("binding", "judge_N")`` or ``("binding", "writer_N")`` on a judge or writer call, so attribution
+(a fingerprint of path plus sorted params) tells it apart from a member on the same model route.
+WHY it is stripped here: the connector records the request params as they were written, and then
+``model_params`` drops the interpreted params, so the gateway never sees ``binding``.
 """
 
 from __future__ import annotations
@@ -17,7 +23,12 @@ from screamingface_engine.world.errors import RunnerRequestError
 
 WEB_SEARCH_PARAM = "web_search"
 WEB_SEARCH_EXCLUDE_PARAM = "web_search_exclude"
-_INTERPRETED_PARAMS = frozenset({WEB_SEARCH_PARAM, WEB_SEARCH_EXCLUDE_PARAM})
+OPERATION_BINDING_PARAM = "binding"
+# WHY ``binding`` is here: attribution only -- it keeps a judge/writer call's fingerprint apart
+# from a member on the same route; never forwarded to the gateway.
+_INTERPRETED_PARAMS = frozenset(
+    {WEB_SEARCH_PARAM, WEB_SEARCH_EXCLUDE_PARAM, OPERATION_BINDING_PARAM}
+)
 _RUNNER_OWNED_FIELDS = frozenset(
     {"model", "messages", "tools", "tool_choice", "stream", "web_search_excluded_domains"}
 )
