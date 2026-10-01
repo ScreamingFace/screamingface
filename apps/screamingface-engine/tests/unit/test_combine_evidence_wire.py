@@ -17,10 +17,14 @@ from combine_support import context_text, run, spec_text, vote_spec
 from screamingface_engine.benchmarks.contract import (
     CaseGrade,
     CaseResult,
+    OperationAccounting,
+    OperationCache,
     OperationOutput,
+    OperationUsage,
     decode_candidate_invocation_record,
     encode_candidate_invocation,
 )
+from screamingface_engine.benchmarks.graded_results import encode_result
 from screamingface_engine.benchmarks.operation_outputs import attribute_operation_outputs
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
 from screamingface_engine.combine.evidence import CombineEvidence
@@ -50,8 +54,8 @@ def test_envelope_without_reducer_is_byte_identical() -> None:
     )
 
 
-def test_case_result_without_reducer_is_byte_identical() -> None:
-    case = CaseResult(
+def _case_with_operation() -> CaseResult:
+    return CaseResult(
         status="scored",
         case_id=1,
         input="in",
@@ -64,13 +68,30 @@ def test_case_result_without_reducer_is_byte_identical() -> None:
         operations=[_MODEL_ONLY_OPERATION],
     )
 
+
+_CASE_JSON = (
+    '{"status":"scored","case_id":1,"input":"in","output":"answer","finish_reason":"stop",'
+    '"refusal":null,"stop_reason":null,"rounds_executed":null,'
+    '"grade":{"method":"test","score":1.0,"metrics":{},"checks":[]},'
+    f'"failures":[],"metadata":{{}},"operations":[{_OPERATION_JSON}]}}'
+)
+
+
+def test_case_result_without_reducer_is_byte_identical() -> None:
+    case = _case_with_operation()
+
     encoded = json.dumps(case.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))
 
+    assert encoded == _CASE_JSON
+
+
+def test_graded_row_without_reducer_is_byte_identical() -> None:
+    """The production encoder (``graded_results.encode_result``) writes the same bytes."""
+    encoded = encode_result(_case_with_operation(), benchmark_id="b", revision="r1")
+
     assert encoded == (
-        '{"status":"scored","case_id":1,"input":"in","output":"answer","finish_reason":"stop",'
-        '"refusal":null,"stop_reason":null,"rounds_executed":null,'
-        '"grade":{"method":"test","score":1.0,"metrics":{},"checks":[]},'
-        f'"failures":[],"metadata":{{}},"operations":[{_OPERATION_JSON}]}}'
+        '{"schema":"screamingface.graded-case.v1","benchmark_id":"b","revision":"r1",'
+        f'"result":{_CASE_JSON}}}'
     )
 
 
@@ -234,3 +255,57 @@ def test_envelope_dump_key_order_is_declaration_order() -> None:
         "separator_collision",
         "finish_reason",
     ]
+
+
+def _accounting(model: str) -> OperationAccounting:
+    return OperationAccounting(
+        provider="openrouter",
+        request_model=model,
+        response_model=model,
+        usage=OperationUsage(
+            input_tokens=10,
+            output_tokens=2,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            reasoning_tokens=0,
+            cost_usd="0.01",
+        ),
+        provider_latency_ms=25,
+        provider_attempts=1,
+        cache=OperationCache(hits=0, misses=1, bypasses=0, unknown=0),
+    )
+
+
+def test_judge_and_writer_model_routes_are_attributed_their_own_output_and_accounting() -> None:
+    expression = render(
+        expr(
+            src(
+                RelExpr(path="/provider/alpha", context="$input", intent=Text("judge")),
+                name="judge_1",
+                weight=0.0,
+            ),
+            src(
+                RelExpr(path="/provider/beta", context="$input", intent=Text("write")),
+                name="writer_2",
+                weight=0.0,
+            ),
+            intent=Text("$writer_2"),
+        )
+    )
+    calls = [
+        OperationCall("/provider/alpha", (), "member_2", "stop", _accounting("provider/alpha")),
+        OperationCall("/provider/beta", (), "drafted", "length", _accounting("provider/beta")),
+    ]
+
+    operations = attribute_operation_outputs(expression, calls)
+
+    assert operations is not None
+    assert [(op.operation_id, op.output, op.finish_reason) for op in operations] == [
+        ("op_judge_1", "member_2", "stop"),
+        ("op_writer_2", "drafted", "length"),
+    ]
+    assert [op.accounting.request_model for op in operations if op.accounting] == [
+        "provider/alpha",
+        "provider/beta",
+    ]
+    assert [op.combine for op in operations] == [None, None]

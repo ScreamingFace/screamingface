@@ -147,7 +147,7 @@ def create_app(
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
     app.state.connections = connections
-    _install_catalogs(app, benchmarks, operators)
+    _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
     # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
@@ -215,10 +215,10 @@ def _install_span_sink(app: FastAPI, sink: SpanSink | None) -> None:
     app.router.on_shutdown.append(_close)
 
 
-def _install_catalogs(
+def _install_discovery_registries(
     app: FastAPI, benchmarks: BenchmarkRegistry, operators: OperatorRegistry
 ) -> None:
-    """Hold the two immutable catalogs the discovery routes read: Benchmarks and combine operators.
+    """Hold the immutable registries the discovery routes read: Benchmarks and combine operators.
 
     WHY a helper: `create_app` sits at the statement limit, and each catalog is one more DI seam.
     """

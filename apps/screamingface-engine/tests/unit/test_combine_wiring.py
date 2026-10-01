@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -20,6 +21,7 @@ from combine_golden_support import builtin_vote_spec
 from combine_support import context_text, spec_text, vote_spec
 from test_benchmark_foundation import _benchmark
 
+from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks import BenchmarkRegistry
 from screamingface_engine.benchmarks.contract import (
     OperationOutput,
@@ -28,6 +30,9 @@ from screamingface_engine.benchmarks.contract import (
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
+from screamingface_engine.config import Settings
+from screamingface_engine.testing import InMemoryEventStream
+from screamingface_engine.world import factory
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import ModelSpec, WorldConfig, parse_config
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
@@ -218,3 +223,38 @@ async def test_a_world_without_benchmarks_has_no_combine_route() -> None:
             assert COMBINE_ROUTE not in node.processor_routes()
         finally:
             await aclose()
+
+
+# --- FW-15 / FW-D7: the registry the factory installs is the one the catalog serves -----------
+
+
+@pytest.mark.asyncio
+async def test_factory_installs_the_registry_the_default_app_serves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installed: list[object] = []
+    real_install = factory.install_combine_runtime
+
+    def spy(node: Any, registry: Any) -> None:
+        installed.append(registry)
+        real_install(node, registry)
+
+    monkeypatch.setattr(factory, "install_combine_runtime", spy)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_answer_by_model()), base_url="http://aigateway.test"
+    ) as client:
+        _, aclose = await build_world(
+            env={},
+            config=_world_config(),
+            client=client,
+            benchmarks=BenchmarkRegistry((_benchmark(),)),
+            benchmark_assets_root=tmp_path,
+        )
+        assert aclose is not None
+        await aclose()
+
+    app = create_app(Settings(jwt_secret="s"), stream=InMemoryEventStream())
+
+    assert len(installed) == 1
+    assert installed[0] is app.state.operators
+    assert installed[0] is BUILTIN_OPERATORS

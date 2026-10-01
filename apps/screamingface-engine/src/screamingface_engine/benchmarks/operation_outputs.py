@@ -20,6 +20,9 @@ Stages, in execution order:
    If any claimant belongs to an optional subtree, the observations cannot prove
    which operation answered; output and finish reason stay null for every claimant.
    Never make a positional guess.
+   Combine evidence (OME-1289) follows the stricter rule: it is attributed only
+   when ONE binding claims the fingerprint, never when several do, even if their
+   recorded outputs are identical.
 
 Worked example — members ``/alpha?temperature=0.0``, ``/beta`` and synthesis
 ``/alpha?temperature=0.5`` with calls [(alpha@0.0 → "A"), (beta → "B"),

@@ -3,8 +3,10 @@
 FEATURE: a client reads which combine operators this Engine runs, before it compiles a reducer.
 STORY: as the SDK, I fetch the catalog once, cache it by ETag, and learn each operator's id,
 stage and summary without a call to the combine route.
-INVARIANT defended: the catalog and the endpoint share ONE registry, so a listed id always
-resolves and an unlisted id never does.
+INVARIANT defended: the catalog lists exactly the built-in ids, and each one resolves. The App
+reads ``app.state.operators`` (a test-only seam) while the runner's factory installs
+``BUILTIN_OPERATORS``; both default to that one constant, and
+``test_combine_wiring.py`` pins that the factory passes the same object the default App serves.
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ from collections.abc import Mapping
 
 import httpx
 import pytest
-from combine_support import FAKE_REGISTRY
 from fastapi import FastAPI
 
 from screamingface_engine.app import create_app
@@ -117,17 +118,6 @@ async def test_get_v1_operators_lists_registry_sorted_with_etag_and_304() -> Non
     assert repeated.headers["etag"] == etag
     assert other.status_code == 200
     assert other.json() == expected
-
-
-@pytest.mark.asyncio
-async def test_the_fake_registry_catalog_is_served_through_the_same_describe() -> None:
-    app = create_app(
-        Settings(jwt_secret="s"), stream=InMemoryEventStream(), operators=FAKE_REGISTRY
-    )
-
-    response = await _get(app, "/v1/operators")
-
-    assert response.json()["data"] == FAKE_REGISTRY.describe()
 
 
 @pytest.mark.asyncio

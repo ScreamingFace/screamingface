@@ -62,3 +62,23 @@ with ETag and 304 · FW-15 catalog ids equal resolvable ids.
 - **Deviations:** `create_app` was at the 26-statement limit (PLR0915). The new
   `app.state.operators = operators` line made it 27. The two catalog assignments moved into a small
   helper `_install_catalogs(app, benchmarks, operators)`. Behavior is the same.
+
+## Review round 1 (coordinator: ACCEPT-WITH-FIXES)
+
+The branch was rebased onto the review-fixed units 1 and 2 (my commits became c6d85376e..60e77dec8);
+the full engine suite was green there (4787 passed) before this round.
+
+- Items 1: the "one registry" INVARIANT comment in `rest/operators.py` and `test_rest_operators.py`
+  now says the App parameter is a test-only seam and both sides default to `BUILTIN_OPERATORS`.
+- Item 2: `test_factory_installs_the_registry_the_default_app_serves` spies on
+  `world.factory.install_combine_runtime` and asserts the registry `is` the default App's
+  `app.state.operators` and `is BUILTIN_OPERATORS`. It passes at once (a pin; the factory already did this).
+- Item 3: the tautological fake-registry test is deleted (the FW-14 test keeps the literal body).
+- Item 4: `operation_outputs.py` docstring states the stricter combine-evidence rule.
+- Item 5: `conditional_json_response` now lives in `rest/conditional.py` and both `rest/benchmarks.py`
+  and `rest/operators.py` use it. The existing benchmark REST tests pass unchanged.
+- Item 6: `test_judge_and_writer_model_routes_are_attributed_their_own_output_and_accounting`.
+- Item 7: `_install_catalogs` renamed `_install_discovery_registries`;
+  `test_graded_row_without_reducer_is_byte_identical` pins `graded_results.encode_result`.
+- Gates: append-only run shows only `test_failure_classes.py` and `test_url4_executor.py`;
+  `--skip-append-only`, `screamingface` and `repo` are green.
