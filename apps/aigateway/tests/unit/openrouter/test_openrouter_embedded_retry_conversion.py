@@ -13,7 +13,7 @@ This file drives raw OpenRouter bodies through the real
 ``ModelResponse`` from mocked ``acompletion``, pinning on the reachable path:
 exactly one upstream call per embedded 429/503/529, the sanitized
 status/code mapping, no invented Retry-After, and choice-level 401
-invalidating only the selected connection (CODE-2, plan D7/D9).
+invalidating the effective connection (CODE-2, plan D7/D9).
 """
 
 from __future__ import annotations
@@ -169,20 +169,19 @@ def test_embedded_choice_error_via_real_conversion_makes_exactly_one_call(
     assert _active_labels(authenticated_client, account_id) == ["work-or"]
 
 
-def test_embedded_choice_401_via_real_conversion_invalidates_only_selected(
+def test_embedded_choice_401_via_real_conversion_invalidates_effective_connection(
     enabled_openrouter, fast_retries, credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     _create_connection(authenticated_client, "work-or")
-    _create_connection(authenticated_client, "backup-or")
 
     calls = {"n": 0}
     raw = _raw_openrouter_choice_error(401)
     with patch("litellm.acompletion", _counting_converted_acompletion(raw, calls)):
-        resp = _post_chat(authenticated_client, profile="work-or")
+        resp = _post_chat(authenticated_client)
 
     assert calls["n"] == 1
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "auth_required"
-    # D9 local: only the selected connection flips to error.
-    assert _active_labels(authenticated_client, account_id) == ["backup-or"]
+    # D9 local: the effective connection flips to error.
+    assert _active_labels(authenticated_client, account_id) == []

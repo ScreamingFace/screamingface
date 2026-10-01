@@ -120,6 +120,10 @@ fetch happen.
   `kubernetes/apps/sf-preview/templates/networkpolicies.yaml`). A scorer that downloads
   something therefore passes in a preview and fails in dev. Accepted: R17's no-network grading
   test is the check that catches it, and it runs in CI before any environment.
+- **Task replay has no gated-dataset path.** Hugging Face Benchmarks behind a gate
+  (`needs_hf_token`) refuse a tokenless main build by name; a Task-replay Benchmark would go
+  SKIPPED instead, and fail every secretless PR's strict image job. Accepted: none of the 14
+  packages fetches a gated source; add the token path when one does.
 - **A fetch we don't wrap can't be imported.** An eval that downloads through plain `requests`
   or `urllib` produces Cases with no recorded Case Source, and is refused. It stays refused
   until upstream moves to an Inspect helper or we add its primitive to the recorder.
@@ -196,7 +200,7 @@ fetch happen.
   existing `SKIPPED` marker with a reason naming the Benchmark and the expected and actual
   values, writes no Cases, and moves on to the next Benchmark. At run time the Benchmark answers
   with the existing benchmark-unavailable error, carrying that reason.
-- **R11. Strict image job.** With `SCREAMINGFACE_FAIL_ON_CHANGED_CASES=1`, Case Preparation
+- **R11. Strict image job.** With `SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES=1`, Case Preparation
   still writes every marker, then exits non-zero and lists every Benchmark it skipped for R10.
   Only the PR image job (`screamingface-engine-tests.yml`, job `image`) sets it (owner-approved,
   2026-09-30).

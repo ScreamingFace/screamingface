@@ -9,6 +9,10 @@ from aigateway.core.profile_models import AuthType, Profile, ProfileState, profi
 
 _MODEL = "anthropic/claude-opus-4-8"
 _GEMINI = "gemini-cli/gemini-2.5-flash"
+_UNSUPPORTED_DETAIL = {
+    "code": "x_profile_unsupported",
+    "message": "X-Profile is no longer supported; omit the header.",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -44,8 +48,7 @@ def _assert_access(response, expected):
     assert response.status_code == 200, response.text
     assert response.json()["context"]["execution_access"] == expected
     assert response.headers["cache-control"] == "private, no-store"
-    assert "X-Profile" in response.headers["vary"]
-    assert "Authorization" in response.headers["vary"]
+    assert response.headers["vary"] == "Authorization"
 
 
 def test_missing_access_still_returns_datasheet(authenticated_client):
@@ -96,12 +99,12 @@ async def test_stored_target_is_configured_without_credential_validation(
     authenticated_client, credential_blobs, auth_type
 ):
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    await _profile(credential_blobs, account_id, name="chosen", auth_type=auth_type)
+    _assert_access(_details(authenticated_client), "missing")
+    await _profile(credential_blobs, account_id, auth_type=auth_type)
     # WHY: a profile record is configuration, not proof that its secret is valid.
-    response = _details(authenticated_client, profile="chosen")
+    response = _details(authenticated_client)
     _assert_access(response, "configured")
     assert account_id not in response.text
-    _assert_access(_details(authenticated_client), "missing")
 
 
 @pytest.mark.asyncio
@@ -129,10 +132,11 @@ async def test_profile_failures_remain_typed(
     assert response.headers["cache-control"] == "private, no-store"
 
 
-def test_named_missing_profile_remains_error(authenticated_client):
+def test_named_selector_is_rejected_value_free(authenticated_client):
     response = _details(authenticated_client, profile="absent")
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "profile_not_found"
+    assert response.status_code == 400
+    assert response.json()["detail"] == _UNSUPPORTED_DETAIL
+    assert "absent" not in response.text
 
 
 def test_no_auth_provider_is_configured(authenticated_client, monkeypatch):
@@ -147,7 +151,7 @@ def test_no_auth_provider_is_configured(authenticated_client, monkeypatch):
     _assert_access(_details(authenticated_client, "ollama/test"), "configured")
 
 
-def test_active_connection_and_ambiguous_selection(authenticated_client):
+def test_active_connection_ambiguity_and_explicit_selector_rejection(authenticated_client):
     from functools import partial
     from uuid import uuid4
 
@@ -179,10 +183,11 @@ def test_active_connection_and_ambiguous_selection(authenticated_client):
     response = _details(authenticated_client)
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "connection_ambiguous"
-    _assert_access(_details(authenticated_client, profile="two"), "configured")
-    response = _details(authenticated_client, profile="absent")
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "connection_not_found"
+    for selector in ("two", "absent"):
+        response = _details(authenticated_client, profile=selector)
+        assert response.status_code == 400
+        assert response.json()["detail"] == _UNSUPPORTED_DETAIL
+        assert selector not in response.text
 
 
 @pytest.mark.parametrize("env_name", ["GEMINI_API_KEY", "GOOGLE_API_KEY"])

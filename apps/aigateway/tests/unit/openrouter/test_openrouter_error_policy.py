@@ -1,6 +1,6 @@
 """OpenRouter local BYOK error policy (OME-428 Phase 4, plan D9/D10).
 
-Pins: a dispatch 401 invalidates ONLY the selected account connection;
+Pins: a dispatch 401 invalidates the effective account connection;
 402/403/408/429/5xx never invalidate a valid key; embedded errors inside a
 nominal HTTP-200 body surface as sanitized gateway errors (numeric status
 through the sanitizer, malformed/status-less -> 502, raw provider
@@ -64,11 +64,9 @@ def _active_labels(client, account_id: str) -> list[str]:
     return client.portal.call(_list)
 
 
-def _post_chat(client, *, profile: str | None = None):
-    headers = {"X-Profile": profile} if profile is not None else {}
+def _post_chat(client):
     return client.post(
         "/v1/chat/completions",
-        headers=headers,
         json={"model": _MODEL, "messages": [{"role": "user", "content": "hi"}]},
     )
 
@@ -117,15 +115,14 @@ def _as_transport(exc: Exception, *, wire_status: int | None) -> Exception:
     return exc
 
 
-# --- D9 local: 401 invalidates only the selected connection ---
+# --- D9 local: 401 invalidates the effective connection ---
 
 
-def test_dispatch_401_marks_only_selected_connection(
+def test_dispatch_401_marks_effective_connection(
     enabled_openrouter, credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     _create_connection(authenticated_client, "work-or")
-    _create_connection(authenticated_client, "backup-or")
 
     exc = _as_transport(
         AuthenticationError(
@@ -136,12 +133,11 @@ def test_dispatch_401_marks_only_selected_connection(
         wire_status=401,
     )
     with patch("litellm.acompletion", _raising_acompletion(exc)):
-        resp = _post_chat(authenticated_client, profile="work-or")
+        resp = _post_chat(authenticated_client)
 
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "auth_required"
-    # Only the selected connection flipped to error; the other stays usable.
-    assert _active_labels(authenticated_client, account_id) == ["backup-or"]
+    assert _active_labels(authenticated_client, account_id) == []
 
 
 @pytest.mark.parametrize(

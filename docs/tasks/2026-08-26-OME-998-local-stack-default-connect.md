@@ -1,12 +1,12 @@
 ---
 id: OME-998
 linear_url: https://linear.app/openmined/issue/OME-998/connect-to-the-running-local-stack-by-default-instead-of-the-hosted
-status: backlog
+status: done
 type: null
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
 created: 2026-08-26
-closed: null
+closed: 2026-08-26
 ---
 
 # Connect to the running local stack by default instead of the hosted engine

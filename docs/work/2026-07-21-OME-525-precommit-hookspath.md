@@ -1,9 +1,9 @@
 ---
 ticket: OME-525
 stack: repo
-status: in_progress
+status: done
 started: 2026-07-21
-finished:
+finished: 2026-07-21
 ---
 
 # OME-525 — pre-commit framework + fix stale core.hooksPath
@@ -43,3 +43,17 @@ per-stack `run_gates.py` runs on pre-push + CI. Prerequisite for OME-514 (url4-c
   keep commits fast; did **not** run `pre-commit run --all-files` (it would reformat the whole
   existing repo — recommend a separate normalization change); `ruff-pre-commit` pinned to `v0.14.0`
   (re-pin via `pre-commit autoupdate` when network allows).
+
+## Closure justification (OME-1215, round 2)
+
+This ledger's `status:` was `in_progress` with the unit's work already merged, while the
+`docs/tasks/` mirror said `done` — the mirror was the correct side. `OME-1215` closed the
+ledger, which is an edit to an audit record, so the owner required the closure to be
+justified with evidence rather than asserted.
+
+EVIDENCE, verifiable from this repo: the unit's work is on `origin/main` as `3d35f713`
+(`chore(repo): add pre-commit framework + fix stale core.hooksPath`), authored 2026-07-21. `finished: 2026-07-21` is that commit's author date — read
+from git, not reconstructed.
+
+WHAT IS *NOT* CLAIMED: nothing about why the ledger was left open, and nothing about the
+ticket's Linear state. Only that the work in this ledger reached `main` on the date given.

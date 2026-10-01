@@ -30,7 +30,9 @@ from screamingface_engine.benchmarks.definition import DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine_inspect.prepare import (
     BENCHMARK_CASES,
+    TASK_REPLAY_CASES,
     CasesSpec,
+    TaskReplayCasesSpec,
     prepare_cases,
     require_commit_sha,
 )
@@ -40,6 +42,7 @@ from screamingface_engine_inspect.single_shot import (
     install_imported_benchmark,
     single_shot_benchmark,
 )
+from screamingface_engine_inspect.task_replay import prepare_replayed_cases
 from url4.peer.server import Url4Node
 
 
@@ -821,8 +824,16 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     """Row pair in, registered benchmark out — the whole per-benchmark 'code' path."""
 
     _check_judge_declaration(spec)
-    cases_spec: CasesSpec = BENCHMARK_CASES[spec.key]
+    cases_spec: CasesSpec | TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
+    identity_pins: tuple[str, ...]
+    prepare: Callable[[Path], dict[str, Any]]
+    if isinstance(cases_spec, TaskReplayCasesSpec):
+        identity_pins = _task_replay_pins(cases_spec)
+        prepare = partial(prepare_replayed_cases, cases_spec, benchmark_key=spec.key)
+    else:
+        identity_pins = _revision_pins(cases_spec)
+        prepare = partial(prepare_cases, cases_spec)
     return single_shot_benchmark(
         benchmark_key=spec.key,
         title=spec.title,
@@ -831,9 +842,9 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
         case_count=cases_spec.case_count,
-        revision_pins=_revision_pins(cases_spec) + _judge_prompt_pins(spec),
+        revision_pins=identity_pins + _judge_prompt_pins(spec),
         scorer_factory=_scorer_factory(spec),
-        prepare=partial(prepare_cases, cases_spec),
+        prepare=prepare,
         install=_installer(f"inspect-{spec.key}"),
         with_check_surface=spec.with_check_surface,
         multiple_correct=spec.multiple_correct,
@@ -996,7 +1007,9 @@ def _reads_answer_key(template: str) -> bool:
     )
 
 
-def _check_answer_key_opt_in(spec: BenchmarkSpec, cases_spec: CasesSpec) -> None:
+def _check_answer_key_opt_in(
+    spec: BenchmarkSpec, cases_spec: CasesSpec | TaskReplayCasesSpec
+) -> None:
     """Refuse a benchmark without an answer key unless a judge grades it without one.
 
     WHY at assembly (CI): with no key, only a judge can grade — a string-match benchmark
@@ -1044,6 +1057,34 @@ def _judge_prompt_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
         dict(spec.scorer_kwargs), sort_keys=True, separators=(",", ":"), default=repr
     )
     return (f"judge_scorer={spec.scorer}", f"judge_kwargs={canonical_kwargs}")
+
+
+def _cases_declaration(benchmark_key: str) -> CasesSpec | TaskReplayCasesSpec:
+    """The one Case Preparation declaration for a Benchmark key, from the registry holding it."""
+
+    # INVARIANT: a Benchmark key lives in exactly one registry — never silently pick one of two
+    # (OME-1273).
+    if benchmark_key in BENCHMARK_CASES and benchmark_key in TASK_REPLAY_CASES:
+        raise ValueError(f"{benchmark_key}: declared in both BENCHMARK_CASES and TASK_REPLAY_CASES")
+    if benchmark_key in TASK_REPLAY_CASES:
+        return TASK_REPLAY_CASES[benchmark_key]
+    return BENCHMARK_CASES[benchmark_key]
+
+
+def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
+    """Benchmark-identity pins for a Task-replay Benchmark (OME-1273, spec R12).
+
+    WHY these three and nothing else: the Case Digest already seals every written byte
+    (inputs, templates, system text, Grading Material), so the task reference and its args
+    name WHERE the Cases come from and the digest pins WHAT they are.
+    """
+
+    task_args: str = json.dumps(cases_spec.task_args or {}, sort_keys=True)
+    return (
+        f"task={cases_spec.task}",
+        f"task_args={task_args}",
+        f"case_digest={cases_spec.case_digest}",
+    )
 
 
 def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:

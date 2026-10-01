@@ -3,8 +3,8 @@
 # INVARIANT: absent, blank and whitespace-only headers all mean the implicit default and are
 # NOT explicit; anything else is the stripped value and explicit. The Stage D sunset policy is
 # applied HERE, at the parse step, so no implementation ever consults it.
-# AIDEV-NOTE: routes still build the string (`(header or "default").strip() or "default"`) and
-# the shims re-parse it; A2 moves the parse to the route boundary and deletes that string.
+# AIDEV-NOTE: HTTP routes reach this parser through ``selector_from_request``, which inspects every
+# repeated header field. Window-only shims still parse their already-scalar compatibility values.
 """
 
 from __future__ import annotations
@@ -45,5 +45,5 @@ class Selector:
         if policy is SelectorPolicy.REJECT_EXPLICIT:
             # WHY a literal `default` is refused too: admitting it needs the D4 equivalence proof
             # (spec §3.6) — an owner decision, not an implementation default.
-            raise SelectorUnsupported(stripped)
+            raise SelectorUnsupported()
         return cls(stripped, explicit=True)

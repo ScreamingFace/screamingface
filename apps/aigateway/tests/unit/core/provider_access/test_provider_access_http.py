@@ -61,10 +61,7 @@ _CASES: list[tuple[ProviderAccessRefusal, int, dict]] = [
         {
             "code": "connection_ambiguous",
             "provider": "anthropic",
-            "message": (
-                "Multiple active connections exist. Select one by setting "
-                "X-Profile to the connection label."
-            ),
+            "message": "Multiple active Connections exist. Remove extra Connections, then retry.",
         },
     ),
     (
@@ -111,9 +108,12 @@ _CASES: list[tuple[ProviderAccessRefusal, int, dict]] = [
         },
     ),
     (
-        SelectorUnsupported("work"),
+        SelectorUnsupported(),
         400,
-        {"code": "x_profile_unsupported", "requested_label": "work"},
+        {
+            "code": "x_profile_unsupported",
+            "message": "X-Profile is no longer supported; omit the header.",
+        },
     ),
 ]
 

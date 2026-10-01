@@ -1,0 +1,96 @@
+---
+ticket: OME-1273
+stack: screamingface-engine
+status: done
+started: 2026-09-30
+finished: 2026-09-30
+---
+
+# ome-1273-task-replay-image — prepare Task-replay Benchmarks and check their Case Digest
+
+## Intent
+
+PR 2 of OME-1273's stack (spec `docs/spec/2026-09-30-OME-1273-task-replay-import.md`, plan
+`docs/plan/2026-09-30-OME-1273-task-replay-image-side.md`). At image build, a Task-replay
+Imported Benchmark's Cases come from calling the eval's own task function in a child process
+with empty caches (never inspect's `eval()`), and they are served only when their Case count and
+Case Digest match the pinned values; otherwise the Benchmark goes SKIPPED with the reason. The
+PR image job runs strict and fails on any changed Cases. Covers spec R5, R9, R10, R11, R12.
+
+## Planned changes
+
+- `apps/screamingface-engine/src/screamingface_engine_inspect/prepare.py`: shared Case writer
+  (`case_records`, `_write_cases`), `PreparedCase`, `case_digest`, `TaskReplayCasesSpec`,
+  `TASK_REPLAY_CASES`.
+- `apps/screamingface-engine/src/screamingface_engine_inspect/task_replay.py` (new): child-process
+  replay, `prepare_replayed_cases`.
+- `apps/screamingface-engine/src/screamingface_engine_inspect/benchmarks.py`: assemble either
+  declaration type; `_task_replay_pins`.
+- `apps/screamingface-engine/src/screamingface_engine/benchmarks/deployment.py`: `CHANGED_CASES_KEY`.
+- `apps/screamingface-engine/src/screamingface_engine/benchmarks/prepare.py`: strict mode.
+- `apps/screamingface-engine/Dockerfile.benchmark`, `.github/workflows/screamingface-engine-tests.yml`:
+  the strict switch (CI edit owner-approved 2026-09-30).
+- Tests: `tests/unit/inspect/test_case_digest.py`, `test_task_replay.py`,
+  `test_task_replay_assembly.py` (new); `tests/unit/test_benchmark_deployment.py` (appended).
+
+## Test plan
+
+- Case Digest pinned to a literal; moves on any written field or order change; UTF-8 on disk.
+- Replay returns the task's Cases; passes task args; deterministic; a raising task, a stalled
+  task (timeout) and a chatty task (stdout) are handled; the child gets its own empty caches.
+- Matching digest writes Cases; changed digest, changed count and failed fetch write SKIPPED
+  with the reason and no Cases.
+- Assembly: pins carry task, args and digest; a key in both registries is refused; published
+  revisions unchanged.
+- Strict CLI lists every changed bundle and exits 1; non-strict exits 0; only the PR image job
+  sets the switch; the Dockerfile forwards it.
+
+## Acceptance
+
+- All plan tasks green; the engine gates green; `test_published_benchmark_revision_is_byte_identical`
+  unchanged.
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:** as planned: `prepare.py`, `task_replay.py` (new), `benchmarks.py`,
+  `deployment.py`, `benchmarks/prepare.py`, `Dockerfile.benchmark`,
+  `.github/workflows/screamingface-engine-tests.yml`, and the four test files.
+- **Commits:** `52359b34` shared Case writer + Case Digest; `50c68d9e` Task-replay Case
+  Preparation in a child process with the digest check; `89fd3a1c` assembly and revision pins;
+  `ed6883a9` strict mode for the PR image job; plus this ledger.
+- **Gates:** `run_gates.py screamingface-engine` ALL GREEN (append-only, ruff, format, pyright,
+  layering, pytest with coverage ≥ 80). Unit suite 4,637 passed, 0 failed, 6 skipped.
+  `test_published_benchmark_revision_is_byte_identical` unchanged.
+- **Deviations:** plan Tasks 2 and 3 landed as one commit (their tests share one file).
+  `test_benchmark_row_scorer_resolves_and_constructs[frontierscience]` fails when
+  `test_inspect_imported_benchmarks.py` runs alone, identically on main `364f68b8`; it passes in
+  the full suite (the gateway Judge provider is registered by another test's import). Not
+  touched here.
+- **Review follow-ups (fresh sf-code-review, 2026-09-30, verdict mergeable):** widened the
+  child's cache redirection (XDG, HF modules/xet/assets) and pinned it with a real-child probe;
+  SKIPPED reasons are now one line (the child's final error), the stderr tail goes to the build
+  log; added tests that the written files re-seal to the pinned digest and that strict mode
+  ignores a gated-token skip; the stand-in eval prepends to PYTHONPATH. Spec gained a Known
+  limitation: Task replay has no gated-dataset path.
+- **JSON round trip fixed here, not carried to PR 3:** `case_digest` now round-trips the Cases
+  through JSON before hashing, so integer metadata keys (which come back as strings and sort
+  differently) can't make the child's digest and the parent's disagree. Pinned by
+  `test_case_digest_is_the_same_before_and_after_a_json_round_trip`; the pinned literal is
+  unchanged.
+- **Second review pass (2026-10-01), all fixed here:** the child's output is now decoded as
+  UTF-8 with replacement, because one Latin-1 byte on its stderr raised `UnicodeDecodeError`,
+  which no caller catches, and crashed the whole image build (spec R10). A cut-off
+  `result.json` from a child that exits 0 is now a SKIPPED reason, not a `JSONDecodeError`.
+  The SKIPPED reason now starts with the Benchmark's key, because assembly passes it, as R10
+  asks. The dead file-level pyright pragma in `task_replay.py` is gone; pyright is green
+  without it. Pinned by four appended tests: a non-UTF-8 byte, a cut-off result, the key
+  leading the reason, and an assembled Benchmark naming itself. `run_gates.py` is all green.
+  The PR's Known limitations now spell out that a short upstream outage during a main
+  build ships the board as unavailable, with only a WARNING line in the build log.
+- **Strict switch renamed (owner decision, 2026-10-01):** `SCREAMINGFACE_FAIL_ON_CHANGED_CASES`
+  is now `SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES`, and the summary key
+  `changed_cases` is now `unconfirmed_cases`. WHY: the old name said neither what fails (the
+  Benchmark image build) nor the real condition. A dead URL or a timeout trips it too, and those
+  Cases did not change; they could not be confirmed. The rename edits three earlier test files,
+  so `run_gates.py` ran with the owner-approved `--skip-append-only`; every other gate is green.
+  The merged plan doc keeps the old name as history; spec R11 carries the new one.
