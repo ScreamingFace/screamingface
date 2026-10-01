@@ -157,3 +157,13 @@ reviews. The user can reverse any of them.
 | U3 | Writer framing: the writer call gets no versioned framing (unlike `judge-template@1`) | no framing | add `writer-template@1` now (this changes the url4) or later |
 | U4 | EV-10: lift the operations of corrective members | not lifted (a CHAR test pins this) | a follow-up ticket |
 | U5 | EV-12 fixtures: a paid OpenRouter recording, under $0.10 | the lane skips | run `record`, then `bless` (see the e2e-replay ledger) |
+
+### 8.3 User decisions (2026-10-01)
+
+| # | Decision | What follows |
+|---|---|---|
+| U1 | **Warn.** When a run has a sitting seed (`answer_seed`) and the candidate has a call with its own seed (`samples()` members or a manual `seed`), the SDK emits `FixedSeedSittingWarning` that names those members, then runs. | SDK change: a new warning class and a check before submit; tests. |
+| U2 | **Accept and document** the Merge evidence size for v1. | Docs note; a follow-up issue for an evidence size cap. |
+| U3 | **Add `writer-template@1` now.** The writer system prompt starts with a fixed, versioned text that names the field and frames the member values as data, then the author prompt follows. | SDK change in the Merge writer compile and url4 recovery; tests. |
+| U4 | **Follow-up issue** (`improvement-ideas`) to lift the operations of corrective members; E4a keeps the EV-10 characterization test. | One Triage issue, unassigned. |
+| U5 | **Record the EV-12 fixtures when the unit 11 PR opens**, on the final code. | The user runs `record` and `bless`; the lane skips until then. |
