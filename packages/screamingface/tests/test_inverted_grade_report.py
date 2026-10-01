@@ -18,7 +18,10 @@ INVARIANT: the mark is information, never an instruction — no SDK code flips a
 from __future__ import annotations
 
 import json
-from typing import Any
+from collections.abc import Callable
+from pathlib import Path
+from runpy import run_path
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -182,3 +185,23 @@ def test_benchmark_info_defaults_to_an_ordinary_benchmark() -> None:
 def test_benchmark_info_refuses_a_non_boolean_mark(bad: object) -> None:
     with pytest.raises(TypeError, match="inverted_grade"):
         sf.BenchmarkInfo(id="draco", revision="r", case_count=1, inverted_grade=bad)  # type: ignore[arg-type]
+
+
+# ── the notebook helper that reloads a saved report.json ─────────────────────────
+
+
+def test_the_notebook_reload_helper_keeps_the_mark(tmp_path: Path) -> None:
+    """``examples/helpers.py`` rebuilds a Candidate from report.json for a later submit.
+
+    WHY: it reads the ``benchmark`` block back, so dropping the key would turn a refusal
+    rate into an ordinary score the moment a researcher reloads their own run.
+    """
+
+    report = _evaluate(_marked_engine, _FakeTransport(_result_payload(inverted_grade=True)))
+    artifact = report.export(tmp_path / "flipped.json")
+    helper = Path(__file__).parents[1] / "examples" / "helpers.py"
+    load_candidate_result = cast(
+        Callable[..., sf.CandidateResult], run_path(str(helper))["load_candidate_result"]
+    )
+
+    assert load_candidate_result(str(artifact)).benchmark.inverted_grade is True

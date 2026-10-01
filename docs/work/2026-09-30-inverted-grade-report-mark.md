@@ -60,7 +60,8 @@ byte-identical; report.json states the key for every Benchmark (`false` when ord
 - **Commits:** `b2c5ff2b0` feat(screamingface): mark Benchmarks scored by refusal rate in report.json ·
   `688a84522` docs(screamingface): say an Engine with xstest_unsafe but no mark reads as unflipped ·
   then the review-fix commit: one shared key constant per side + twin conformance tests, and these
-  ledger/plan/spec corrections.
+  ledger/plan/spec corrections · then a second review fix: `examples/helpers.py`'s notebook
+  reload helper keeps the mark when it rebuilds a Candidate from report.json.
   (PR 2 of the OME-1400 stack).
 - **Gates:** `run_gates.py screamingface-engine --skip-append-only` green; `run_gates.py
   screamingface --skip-append-only` green (ruff, format, pyright, pytest + coverage ≥95%,
@@ -72,5 +73,7 @@ byte-identical; report.json states the key for every Benchmark (`false` when ord
     as spec §5 first said: the report's own convention is stable keys (`answer_seed`), and a
     researcher should read `false`, not infer it. The wire still omits the key unless true.
     Spec §5 updated.
+  - `examples/helpers.py` (`load_candidate_result`) reads report.json back, so it carries the
+    key too (absent → `False` for older files); pinned in `test_inverted_grade_report.py`.
   - The Engine's `BenchmarkAggregation` gained the flag (one finalize call serves both
     aggregate faces), rather than threading it through every `aggregate(...)` call.

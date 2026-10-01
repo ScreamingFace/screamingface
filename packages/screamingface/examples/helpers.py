@@ -147,6 +147,8 @@ def load_candidate_result(
             id=raw["benchmark"]["id"],
             revision=raw["benchmark"]["revision"],
             case_count=raw["benchmark"]["case_count"],
+            # Reports written before the mark existed have no key: an ordinary Benchmark.
+            inverted_grade=raw["benchmark"].get("inverted_grade", False),
         ),
         "run_id": raw["run_id"],
         "started_at": _ts(raw["started_at"]),
