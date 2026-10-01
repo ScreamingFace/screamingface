@@ -1,9 +1,9 @@
 ---
 ticket: OME-1377
 stack: repo
-status: in_progress
+status: done
 started: 2026-09-25
-finished:
+finished: 2026-10-01
 ---
 
 # OME-1377-selector-sunset-decision — decide the Profile selector sunset and record it
@@ -74,9 +74,11 @@ landing (`OME-1380`). It changes no runtime code.
 - One unambiguous selector contract and rollout are recorded in Linear and the tracked spec/plan.
 - The `OME-1380` metamodel merge commit is recorded here and on `OME-1377` before any census or
   runtime landing is filed.
-- Still open after this unit: evidence window and sunset date (after the census), production
-  evidence access (`OME-1333`), the remaining landings (census, Engine producer-off, gateway
-  reject, URL4, Engine consumer cleanup).
+- Runtime follow-through is recorded before closure: Engine producer-off merged in PR #1082 as
+  `df6e9b92`; the activation census/drain proof was waived with explicit alpha-canary risk and no
+  production-read or zero-count claim; Gateway rejection merged in PR #1114 as `3083640b`.
+- Remaining work is outside this decision issue: `OME-1398`, URL4/Engine compatibility-carrier
+  cleanup, D18 (`OME-1375`), production readiness (`OME-1333`) and Stage E (`OME-1209`).
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -95,3 +97,6 @@ landing (`OME-1380`). It changes no runtime code.
   Stage D; its target section now keeps it until D18/Stage E. Solution `completions` still says
   saved defaults are read before the cache lookup — stale since Stage C, left for a later catalog
   refresh.
+- **Decision closure:** PR #1082 (`df6e9b92`) and PR #1114 (`3083640b`) implemented the accepted
+  producer-off and Gateway-reject sequence. `OME-1401` was canceled under the owner waiver. The
+  decision issue is complete; later carrier and Profile retirement work remains under `OME-1138`.

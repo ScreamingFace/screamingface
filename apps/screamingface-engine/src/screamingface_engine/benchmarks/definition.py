@@ -17,9 +17,9 @@ from url4.peer.server import Url4Node
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
 
 type BenchmarkInstaller = Callable[[Url4Node, Path], None]
-type CheckCost = Literal["free", "paid"]
+type DraftFeedbackCost = Literal["free", "paid"]
 # What a Case that never got a valid grade (model call errored, judge died, rubric asset
-# missing) does to the published score. Picture an exam of 157 questions where 33 answer
+# missing) does to the published score. Picture a benchmark of 157 questions where 33 answer
 # sheets got lost in the mail:
 #   "withhold"         — the lost sheets count against the candidate: score = earned / all
 #                        157. Coverage always reads 100%; failures are silently priced in,
@@ -35,18 +35,18 @@ type FailurePolicy = Literal["withhold", "coverage_declare"]
 # How the Candidate is exercised.
 #   "single_shot" — one prompt in, one reply out, graded. No follow-up turns, no tool
 #                   environment.
-#   "multi_turn"  — the BOARD invokes the Candidate more than once per Case, feeding an earlier
+#   "multi_turn"  — the BENCHMARK invokes the Candidate more than once per Case, feeding an earlier
 #                   reply into a later prompt. Declared because it changes both the cost shape
 #                   (N invocations per Case) and what a Fusion entrant is actually being asked
 #                   to do: the exchange wraps the whole ensemble, not each member (OME-1126).
 # Agentic/tool-environment interactions arrive later as further declared values.
 type InteractionType = Literal["single_shot", "multi_turn"]
-# How hard the exam is — the catalogue's easy→hard axis (OME-1257). Hand-assigned by the
-# board's author/importer and reviewed in the PR that lands it; NOT measured from score
+# How hard the benchmark is — the catalogue's easy→hard axis (OME-1257). Hand-assigned by the
+# benchmark's author/importer and reviewed in the PR that lands it; NOT measured from score
 # distributions (a measured tier would be a separate, later mechanism).
 #   "easy" — largely saturated material (grade-school sets, binary choices):
-#                    frontier models pass ~90%+, so the board gives quick, cheap signal.
-#   "medium" — real headroom without expert stakes: broad knowledge exams,
+#                    frontier models pass ~90%+, so the benchmark gives quick, cheap signal.
+#   "medium" — real headroom without expert stakes: broad knowledge benchmarks,
 #                    instruction following, specialized extraction.
 #   "hard"     — expert-written material today's best models visibly fail (clinical
 #                    safety, deep research, real professional work) — where a
@@ -64,17 +64,22 @@ _INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
 # INVARIANT: ordered easy→hard — the SDK renders catalogue sections in exactly this
 # order, and its copy of the tuple is pinned to this one (test_difficulty_conformance).
 _DIFFICULTY_TIERS: tuple[DifficultyTier, ...] = ("easy", "medium", "hard")
+#: The wire key of the refusal-rate mark (OME-1400) — on the Benchmark resource, the
+#: catalogue entry and (as `CandidateResult`'s field name) the run result.
+#: INVARIANT: spelled exactly as the SDK's copy in `_catalogue_vocabulary.py`; pinned
+#: by test_catalogue_vocabulary_conformance on BOTH sides.
+INVERTED_GRADE_KEY: str = "inverted_grade"
 _BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # WHY only http(s): the dataset link is rendered as a clickable target on a public web page, so a
-# scheme a browser will not follow (or a bare host that resolves relative to the board) is a
+# scheme a browser will not follow (or a bare host that resolves relative to the benchmark) is a
 # broken link published under the Engine's name.
 _WEB_URL = re.compile(r"https?://\S+")
 # WHY the Engine enforces the leaderboard's column widths: this definition is the ONE place a
-# benchmark's text is written (OME-904), which means an author here never runs the board's
+# benchmark's text is written (OME-904), which means an author here never runs the benchmark's
 # validation. Without a cap, over-long text passes every Engine test and is only discovered at
-# the next deploy, where the board can do no better than skip that benchmark and keep its old
+# the next deploy, where the benchmark can do no better than skip that benchmark and keep its old
 # text. Fail where the text is written instead.
 _DISPLAY_LIMITS = {"title": 255, "revision": 64, "focus": 120}
 
@@ -84,7 +89,7 @@ def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class CheckSurface:
+class DraftFeedbackOffer:
     """One benchmark's advertised mid-run checking capability (OME-796).
 
     A loop recipe compiled client-side writes `check_route` into its check
@@ -97,15 +102,15 @@ class CheckSurface:
 
     check_route: str
     feedback_intent: str
-    expected_check_cost: CheckCost
+    expected_check_cost: DraftFeedbackCost
 
     def __post_init__(self) -> None:
         if not isinstance(self.check_route, str) or not self.check_route.startswith("/"):
-            raise ValueError("CheckSurface check_route must be an absolute route path")
+            raise ValueError("DraftFeedbackOffer check_route must be an absolute route path")
         if not isinstance(self.feedback_intent, str) or not self.feedback_intent.strip():
-            raise ValueError("CheckSurface feedback_intent must be non-empty text")
+            raise ValueError("DraftFeedbackOffer feedback_intent must be non-empty text")
         if self.expected_check_cost not in {"free", "paid"}:
-            raise ValueError("CheckSurface expected_check_cost must be 'free' or 'paid'")
+            raise ValueError("DraftFeedbackOffer expected_check_cost must be 'free' or 'paid'")
 
     def as_block(self) -> dict[str, str]:
         return {
@@ -119,8 +124,8 @@ class CheckSurface:
 class BenchmarkDeclaration:
     """The declared grading contract a Benchmark registers — public, typed, no defaults.
 
-    Think of it as the rules printed on the exam's cover sheet: before anyone sits the
-    exam, a reader can see how a failed paper counts. Three axes today:
+    Think of it as the rules printed on the benchmark's cover sheet: before anyone sits the
+    benchmark, a reader can see how a failed paper counts. Three axes today:
 
     ``failure_policy`` — what a Case that never got a valid grade does to the published
     score. ``withhold``: the case counts against the candidate (all-or-nothing).
@@ -130,16 +135,16 @@ class BenchmarkDeclaration:
     ``interaction`` — how the Candidate is exercised. ``single_shot`` and ``multi_turn``
     today; any other value is refused by name before any paid request.
 
-    ``difficulty`` — how hard the exam is, the catalogue's easy→hard axis (OME-1257).
-    A hand-assigned tier from the closed set above, so the listing can group boards
-    into a map a newcomer reads without knowing each board by name.
+    ``difficulty`` — how hard the benchmark is, the catalogue's easy→hard axis (OME-1257).
+    A hand-assigned tier from the closed set above, so the listing can group benchmarks
+    into a map a newcomer reads without knowing each benchmark by name.
 
     INVARIANT: every field is REQUIRED with no defaults. A defaulted policy is a policy
     nobody can see from the manifest, and a policy nobody can see is a policy nobody can
     approve (OME-1039); a defaulted difficulty is a tier nobody assigned (OME-1257).
     AIDEV-NOTE: this record is THE extension point for later declared axes — a
     ``multi_turn`` interaction, or an ``environment`` declaration (image digest + setup +
-    verifier) lands as a new field/value HERE, never as a spine change. Do not add those
+    verifier) lands as a new field/value HERE, never as a shared-grading change. Do not add those
     fields before a benchmark needs them (YAGNI).
     """
 
@@ -191,10 +196,10 @@ class Benchmark:
     # declared its failure policy fails registration before any paid request (OME-1039).
     declaration: BenchmarkDeclaration
     install: BenchmarkInstaller = _no_routes
-    check_surface: CheckSurface | None = None
+    check_surface: DraftFeedbackOffer | None = None
     # FEATURE: benchmark descriptions on the leaderboard (OME-904). `title`, `description`,
-    # `focus` and `dataset_url` are the four fields the public board displays, and this
-    # definition is their ONLY authoring site — the board seeds them from the catalogue rather
+    # `focus` and `dataset_url` are the four fields the public Leaderboard displays, and this
+    # definition is their ONLY authoring site — the Scoreboard seeds them from the catalogue rather
     # than from hand-copied deployment configuration.
     # INVARIANT: neither field enters `revision`, which is computed from dataset and protocol
     # constants alone. Editing editorial text must never make a recorded submission look
@@ -204,9 +209,15 @@ class Benchmark:
     # FEATURE: benchmark provenance in the public catalogue (OME-1112).
     # WHY a default, unlike `declaration`: OME-1039's no-defaults rule guards
     # score-changing declarations; provenance defaulting to "screamingface" states a
-    # true fact for every board authored in this repo, and the import lane must pass
+    # true fact for every benchmark authored in this repo, and the import lane must pass
     # origin="inspect_evals" explicitly at registration.
     origin: BenchmarkOrigin = "screamingface"
+    # FEATURE: safety Benchmarks where refusing is the right answer (OME-1400). True when
+    # every Case score is ALREADY 1 − the eval's grade (a should-refuse Benchmark, scored by
+    # refusal rate). A mark for researchers, never an instruction: no consumer flips again.
+    # INVARIANT: published only when true, so every other Benchmark's catalogue entry and
+    # resource stay byte-identical.
+    inverted_grade: bool = False
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -273,6 +284,8 @@ class Benchmark:
             metadata["dataset_url"] = self.dataset_url
         if self.check_surface is not None:
             metadata["check_surface"] = self.check_surface.as_block()
+        if self.inverted_grade:
+            metadata[INVERTED_GRADE_KEY] = True
         return metadata
 
     def protocol(self, selected_case_count: int) -> Node:
@@ -432,7 +445,7 @@ __all__ = [
     "Benchmark",
     "BenchmarkDeclaration",
     "BenchmarkInstaller",
-    "CheckSurface",
+    "DraftFeedbackOffer",
     "DifficultyTier",
     "FailurePolicy",
     "InteractionType",

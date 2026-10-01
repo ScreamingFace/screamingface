@@ -7,7 +7,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
+from screamingface._core.ports import _ConnectionNotice
 from screamingface._evaluation.model import Candidate
+from screamingface._ui.provisional_score import ProvisionalScore, advance, parse_snapshot
 from screamingface.events import Event, Log, Span, Started, Terminated, Usage
 from screamingface.report import CandidateResult, Report
 
@@ -36,8 +38,11 @@ class _CandidateProgress:
     cache_bypass_reasons: dict[str, dict[str, int]] = field(default_factory=dict)
     activity: str | None = None
     stage: str | None = None
+    # FEATURE: OME-1016 — "Reconnecting (attempt n)" while the Run's stream reconnects.
+    connection: str | None = None
     active_cases: str | None = None
     result: CandidateResult | None = None
+    provisional: ProvisionalScore | None = None
     workflow_status: str | None = None
     started_elapsed_seconds: float | None = None
     started_at: datetime | None = None
@@ -59,11 +64,15 @@ class _CandidateProgress:
 
     @property
     def score(self) -> float | None:
-        return None if self.result is None else self.result.score
+        if self.result is not None:
+            return self.result.score
+        if self.status not in {"queued", "running"} or self.provisional is None:
+            return None
+        return self.provisional.score
 
     @property
     def score_available(self) -> bool:
-        return self.result is not None
+        return self.result is not None or self.score is not None
 
     @property
     def qualifier(self) -> str | None:
@@ -131,6 +140,10 @@ class _CandidateProgress:
             self._observe_started(event, elapsed_seconds)
         elif isinstance(event, Log):
             self._observe_cache_log(event)
+            if self.result is None:
+                self.provisional = advance(
+                    self.provisional, parse_snapshot(event, self.total_cases)
+                )
         elif isinstance(event, Usage):
             self._observe_usage(event)
         elif isinstance(event, Terminated):
@@ -255,9 +268,20 @@ class _CandidateProgress:
             self.have_tokens = True
         self.activity = "Result ready"
 
-    def abort(self, exc: BaseException) -> None:
+    def stop(self) -> None:
+        """The SDK stopped this submitted Run (owner abort or callback error, OME-1071)."""
         if self.result is not None or self.status not in {"queued", "running"}:
             return
+        if not self.submitted:
+            return  # the final `abort` labels it `not_run`
+        self.workflow_status = "stopped"
+        self.activity = "Run stopped"
+
+    def abort(self, exc: BaseException) -> None:
+        if self.result is not None or self.status not in {"queued", "running", "finished"}:
+            return
+        # A successful transport still needs a decoded final result.
+        self.terminal_status = None
         if not self.submitted:
             self.workflow_status = "not_run"
             self.activity = "Not started"
@@ -327,6 +351,31 @@ class _EvaluationProgress:
         except KeyError:
             raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
         row.begin()
+
+    def connection(self, candidate: Candidate, notice: _ConnectionNotice) -> None:
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        # INVARIANT: a finished row keeps its outcome; a late notice must not relabel it.
+        if row.status not in {"queued", "running"}:
+            return
+        match notice.state:
+            case "reconnecting":
+                row.connection = f"Reconnecting (attempt {notice.attempt})"
+                self.announcement = f"{candidate.name} reconnecting (attempt {notice.attempt})"
+            case "reconnected":
+                row.connection = None
+                self.announcement = f"{candidate.name} connection restored"
+            case "waiting_for_capacity":
+                # FEATURE OME-1066: the row says the Candidate is queued at the Engine.
+                row.connection = f"Waiting for Engine capacity (attempt {notice.attempt})"
+                self.announcement = (
+                    f"{candidate.name} waiting for Engine capacity (attempt {notice.attempt})"
+                )
+            case "admitted":
+                row.connection = None
+                self.announcement = f"{candidate.name} Engine capacity available"
 
     @property
     def finished(self) -> bool:
@@ -408,6 +457,29 @@ class _EvaluationProgress:
 
     def candidate_result(self, result: CandidateResult) -> None:
         self._rows_by_name[result.name].reconcile(result)
+
+    def candidate_stopped(self, candidate: Candidate) -> None:
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        before = row.status
+        row.stop()
+        if row.status != before:
+            self.announcement = f"{candidate.name} stopped"
+
+    def candidate_failed(self, candidate: Candidate, exc: BaseException) -> None:
+        """Show ONE failed Candidate at once; its siblings keep running (OME-1071)."""
+        try:
+            row = self._rows_by_name[candidate.name]
+        except KeyError:
+            raise ValueError(f"unknown Evaluation Candidate {candidate.name!r}") from None
+        before = row.status
+        # WHY `abort` of the row: it already maps the evidence (submitted, started) to the
+        # right failed status, and it leaves a finished row as it is.
+        row.abort(exc)
+        if row.status != before:
+            self.announcement = f"{candidate.name} {row.status.replace('_', ' ')}"
 
     def reconcile(self, report: Report) -> None:
         if self.case_count is not None and report.case_count != self.case_count:

@@ -6,12 +6,12 @@ not the fact that we submitted plain text where a Word document was expected.
 A GDPval rubric is a checklist; the judge ticks each line against the candidate's answer and the
 Case score is points earned over points available. Most lines judge content and transfer to a
 text answer unchanged. A minority judge the artifact itself — "provided as a Microsoft Word
-(.docx) document", "A single PDF file is delivered". This board never produces a file, so every
-candidate fails those identically. They are stripped in ``prepare`` and never reach the baked
+(.docx) document", "A single PDF file is delivered". This benchmark never produces a file, so every
+candidate fails those identically. They are stripped in ``prepare`` and never reach the prepared
 assets.
 
 INVARIANT: filtering happens at BUILD time, so no scoring path can include a container criterion
-by accident. ``FILTER_REVISION`` is hashed into the board revision — changing the rules below
+by accident. ``FILTER_REVISION`` is hashed into the benchmark revision — changing the rules below
 changes which criteria are scored, and must therefore re-address every route.
 
 Measured over the 4,553 criteria of the 102 selected tasks (2026-08-27, rules v2): 106 removed,
@@ -33,7 +33,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-# WHY: hashed into the board revision. Bump when any rule below changes.
+# WHY: hashed into the benchmark revision. Bump when any rule below changes.
 FILTER_REVISION = "container-vs-content-v2"
 
 # Rule 1 — a filename inside quotes is a REFERENCE the answer must be consistent with, never a
@@ -89,7 +89,7 @@ def is_format_criterion(criterion: str) -> bool:
 def strip_format_criteria(items: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """Drop container criteria, preserving the order of everything else.
 
-    INVARIANT: order is preserved — rubric position is part of the baked answer key.
+    INVARIANT: order is preserved — rubric position is part of the prepared answer key.
     """
 
     return [item for item in items if not is_format_criterion(str(item["criterion"]))]

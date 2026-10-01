@@ -363,3 +363,85 @@ test("listedBenchmarks tolerates a non-array and leaves its input alone", () => 
   L.listedBenchmarks(input);
   assert.equal(input.length, 2, "the caller's array must not be filtered in place");
 });
+
+// --- OME-1145: the open-share card on the frontier basis ---------------------------------------
+//
+// INVARIANT: the card never states a percentage the API did not measure. `open_share: null`
+// (nothing classifiable, D-S) and `frontier_available: false` (no registered revision, D12) both
+// hide the number; "0% open" would assert a closed frontier nobody measured.
+
+function frontier(overrides) {
+  return Object.assign(
+    {
+      frontier_available: true,
+      frontier_size: 2,
+      open_count: 1,
+      closed_count: 1,
+      unidentified_count: 0,
+      unrecognised_models: [],
+      open_share: 0.5,
+      trend: [],
+    },
+    overrides
+  );
+}
+
+test("frontierSummary: a measured share renders as a whole percentage", () => {
+  const summary = L.frontierSummary(frontier({}));
+  assert.equal(summary.text, "50% open");
+  assert.match(summary.title, /1 of 2 frontier entries/);
+});
+
+test("frontierSummary: no measurement hides the card", () => {
+  assert.equal(L.frontierSummary(frontier({ open_share: null })), null);
+  assert.equal(L.frontierSummary(frontier({ frontier_available: false, open_share: null })), null);
+  assert.equal(L.frontierSummary(null), null);
+});
+
+test("frontierSummary: a real 0% is shown, not hidden", () => {
+  const summary = L.frontierSummary(frontier({ open_count: 0, closed_count: 1, open_share: 0 }));
+  assert.equal(summary.text, "0% open");
+});
+
+test("frontierSummary: exclusions are named, so a stale registry is visible (D4)", () => {
+  const summary = L.frontierSummary(
+    frontier({ unidentified_count: 2, unrecognised_models: ["openrouter/nobody/mystery-1"] })
+  );
+  assert.match(summary.title, /2 without model identities/);
+  assert.match(summary.title, /openrouter\/nobody\/mystery-1/);
+});
+
+// --- OME-1282: each row's open/closed verdict --------------------------------------------------
+//
+// INVARIANT: the label never claims verification. `open` means the declared models have
+// downloadable weights, not that anyone re-ran the entry, so the tone is neutral (no success
+// green) and the word carries the meaning.
+
+test("opennessLabel: open is shown at full tone", () => {
+  assert.deepEqual(L.opennessLabel({ openness: "open" }), { text: "Open", tone: "open" });
+});
+
+test("opennessLabel: closed is shown in the whisper tone", () => {
+  assert.deepEqual(L.opennessLabel({ openness: "closed" }), { text: "Closed", tone: "closed" });
+});
+
+test("opennessLabel: an entry with no declared models says so rather than guessing", () => {
+  const label = L.opennessLabel({ openness: "unidentified" });
+  assert.equal(label.tone, "unknown");
+  assert.match(label.title, /not declared/);
+});
+
+test("opennessLabel: a missing or unexpected value is unknown, never open", () => {
+  assert.equal(L.opennessLabel({}).tone, "unknown");
+  assert.equal(L.opennessLabel({ openness: "yes" }).tone, "unknown");
+  assert.equal(L.opennessLabel(null).tone, "unknown");
+});
+
+test("opennessLabel: the unidentified tooltip claims no history about the entry", () => {
+  // `models` stays optional on submissions, so an entry filed today by an older client is
+  // unidentified too. The tooltip may say what is missing, never why or since when.
+  const label = L.opennessLabel({ openness: "unidentified" });
+  assert.doesNotMatch(label.title, /predate|before|older|legacy/i);
+  assert.match(label.title, /unidentified/);
+  assert.match(label.title, /not counted/);
+});

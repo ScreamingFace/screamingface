@@ -1,12 +1,12 @@
 ---
 id: OME-1108
 linear_url: https://linear.app/openmined/issue/OME-1108/release-in-flight-reservations-when-a-run-actually-finishes
-status: in_progress
+status: done
 type: task
 priority: 1
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-03
-closed:
+closed: 2026-09-28
 ---
 
 # Release in-flight reservations when a run actually finishes
@@ -26,3 +26,10 @@ Fix: the runner observes its own finished runs before refusing a caller, reusing
 `status()` already performs, plus a bounded reservation lease as the backstop.
 
 Ledger: `docs/work/2026-09-03-OME-1108-release-in-flight-reservations.md`
+
+## Close (2026-09-28)
+
+Landed on `main` in `4cdfa920` (#822, 2026-09-08). PR #836 merged into the stacked branch
+`OME-1092-chart-cutover`, not into `main`. `d64d5e94` (#1085) later adapted the release to the
+shared events stream with no change in behaviour. Closed in Linear on 2026-09-28 with the close
+comment.

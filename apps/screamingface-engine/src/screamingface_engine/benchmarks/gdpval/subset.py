@@ -1,11 +1,11 @@
-"""The frozen GDPval text-subset selection — the 102 tasks this board serves.
+"""The frozen GDPval text-subset selection — the 102 tasks this benchmark serves.
 
 Provenance: the 220-task open gold set (openai/gdpval) filtered to tasks whose reference
 AND deliverable formats are all prose — {.docx, .doc, .txt, .md, .pdf}, or absent — which
 yields 109; then minus the 7 whose reference files cannot be extracted to text. Both figures
 were measured on 2026-08-24 over the published parquet, every row, not a sample.
 
-INVARIANT: this tuple is FROZEN. subset_sha() participates in the board's revision hash,
+INVARIANT: this tuple is FROZEN. subset_sha() participates in the benchmark's revision hash,
 so any edit re-addresses every route — an expression written against the old revision
 physically cannot resolve against a changed selection. Never regenerate it from live data.
 
@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import hashlib
 
-# WHY: GDPval task_ids, not Engine Case ids — this board's identity IS a selection out of
+# WHY: GDPval task_ids, not Engine Case ids — this benchmark's identity IS a selection out of
 # the 220, so the dataset's own stable ids are the honest fingerprint. HealthBench's worst30
-# board does the same with HF row ids.
+# benchmark does the same with HF row ids.
 TEXT_SUBSET_TASK_IDS: tuple[str, ...] = (
     "0112fc9b-c3b2-4084-8993-5a4abb1f54f1",
     "02314fc6-a24e-42f4-a8cd-362cae0f0ec1",
@@ -146,8 +146,8 @@ EXCLUDED_TASK_IDS: dict[str, str] = {
 def subset_sha() -> str:
     """Fingerprint the selection, in serve order.
 
-    INVARIANT: order participates. Two boards serving the same tasks in a different order are
-    different exams, because Engine Case ids are the 1-based positions of this tuple.
+    INVARIANT: order participates. Two benchmarks serving the same tasks in a different order are
+    different benchmarks, because Engine Case ids are the 1-based positions of this tuple.
     """
 
     return hashlib.sha256("\n".join(TEXT_SUBSET_TASK_IDS).encode()).hexdigest()

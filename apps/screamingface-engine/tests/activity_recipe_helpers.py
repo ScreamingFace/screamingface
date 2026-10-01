@@ -7,8 +7,8 @@ import httpx
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as DRACO_JUDGE
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL as GDPVAL_JUDGE
-from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL as HEALTH_JUDGE
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as GDPVAL_JUDGE
+from screamingface_engine.benchmarks.healthbench.revision_inputs import JUDGE_MODEL as HEALTH_JUDGE
 from screamingface_engine.grading_accounting import capture_grading_requests
 from screamingface_engine.observations import RunObservations
 from screamingface_engine.operation_calls import capture_request_accounting
@@ -76,4 +76,8 @@ async def _run(registration, root, fusion):
         finally:
             await run.aclose()
             await world.aclose()
-    return json.loads(result), [e.attributes for e in events.events if isinstance(e, Log)]
+    return json.loads(result), [
+        e.attributes
+        for e in events.events
+        if isinstance(e, Log) and e.attributes.get("sf.activity.schema")
+    ]

@@ -21,11 +21,17 @@ from screamingface_engine.benchmarks.healthbench.scoring import (
     clipped_mean,
     unclipped_mean,
 )
-from screamingface_engine.benchmarks.healthbench.verdict import bind, binding_key
+from screamingface_engine.benchmarks.healthbench.verdict import (
+    build_evidence_record,
+    evidence_record_key,
+)
 
-# WHY the spine import: sample_stdev / verdict_coverage moved into the shared exam
-# scorer (OME-1097) — the tests follow the production location of the code they pin.
-from screamingface_engine.benchmarks.spine.exam import sample_stdev, verdict_coverage
+# WHY the shared grading code import: sample_stdev / verdict_coverage moved into the shared
+# benchmark scorer (OME-1097) — the tests follow the production location of the code they pin.
+from screamingface_engine.benchmarks.shared_grading.mean_scorer import (
+    sample_stdev,
+    verdict_coverage,
+)
 
 # --- prompts -------------------------------------------------------------------------
 
@@ -65,15 +71,15 @@ def test_the_grader_prompt_preserves_an_empty_model_output() -> None:
 
 
 def test_binding_key_decodes_engine_ids() -> None:
-    assert binding_key("12:3") == (12, 3)
+    assert evidence_record_key("12:3") == (12, 3)
     for bad in ("12", "0:1", "1:0", "a:b", ""):
         with pytest.raises(ValueError):
-            binding_key(bad)
+            evidence_record_key(bad)
 
 
 def test_a_fenced_json_reply_binds_as_a_valid_verdict() -> None:
     raw = '```json\n{"explanation": "met because…", "criteria_met": true}\n```'
-    record = bind(raw, case_id=5, rubric_id=2, producer_id="judge")
+    record = build_evidence_record(raw, case_id=5, rubric_id=2, producer_id="judge")
     assert record["valid"] is True
     assert record["criteria_met"] is True
     assert record["case_id"] == 5
@@ -83,11 +89,15 @@ def test_a_fenced_json_reply_binds_as_a_valid_verdict() -> None:
 
 def test_bare_json_and_preambled_json_bind_too() -> None:
     assert (
-        bind('{"criteria_met": false}', case_id=1, rubric_id=1, producer_id="j")["criteria_met"]
+        build_evidence_record('{"criteria_met": false}', case_id=1, rubric_id=1, producer_id="j")[
+            "criteria_met"
+        ]
         is False
     )
     preambled = 'Sure! {"explanation": "…", "criteria_met": false}'
-    assert bind(preambled, case_id=1, rubric_id=1, producer_id="j")["valid"] is True
+    assert (
+        build_evidence_record(preambled, case_id=1, rubric_id=1, producer_id="j")["valid"] is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -106,7 +116,7 @@ def test_bare_json_and_preambled_json_bind_too() -> None:
     ],
 )
 def test_unusable_replies_stay_invalid_with_evidence(raw: str, reason: str) -> None:
-    record = bind(raw, case_id=2, rubric_id=1, producer_id="j")
+    record = build_evidence_record(raw, case_id=2, rubric_id=1, producer_id="j")
     assert record["valid"] is False
     assert record["reason"] == reason
     assert record["raw_output"] == raw  # the audit trail keeps the exact reply
@@ -136,7 +146,7 @@ def test_case_score_restricts_to_judged_items() -> None:
     assert case_score([-6], {1: False}) is None
 
 
-def test_the_exam_mean_is_unclipped() -> None:
+def test_the_variant_mean_is_unclipped() -> None:
     # WHY: official HealthBench clips max(0, mean); on the worst-30% subset every
     # serious baseline mean is negative and the clip would flatten the leaderboard
     # to 0.00 — the challenge keeps the raw mean.
@@ -156,7 +166,7 @@ def test_verdict_coverage() -> None:
 
 
 def test_the_official_aggregate_clips_only_where_the_reference_clips() -> None:
-    """The official HealthBench exam metric — the reference's ``np.clip(mean, 0, 1)``.
+    """The official HealthBench benchmark metric — the reference's ``np.clip(mean, 0, 1)``.
 
     Worked example: two Cases scoring ``[0.8, -1.4]`` average to -0.3; a published
     HealthBench figure would report 0.0, never a negative. The upper bound is structurally
@@ -167,5 +177,5 @@ def test_the_official_aggregate_clips_only_where_the_reference_clips() -> None:
     assert clipped_mean([0.8, -1.4]) == 0.0
     assert clipped_mean([0.25, 0.75]) == pytest.approx(0.5)
     assert clipped_mean([1.0, 1.0]) == 1.0
-    # Unscorable exam: "we could not score this" is not "the answer scored zero".
+    # Unscorable benchmark: "we could not score this" is not "the answer scored zero".
     assert clipped_mean([]) is None

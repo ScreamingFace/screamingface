@@ -7,7 +7,7 @@ import pytest
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_context import case_scope
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.observations import ModelCall, RunObservations
 
 
@@ -18,9 +18,9 @@ async def test_interleaved_stages_and_models_keep_their_own_case(monkeypatch):
     def emit(body, attributes=None, **kwargs):
         events.append(dict(attributes or {}))
 
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
 
-    @observe_stage(ActivityKind.GRADING)
+    @observe_phase(ActivityKind.GRADING)
     async def grade():
         async with ModelCall("judge", emit):
             await asyncio.sleep(0)
@@ -51,9 +51,9 @@ def test_unknown_or_unsafe_case_does_not_suppress_stage(monkeypatch, case):
     def emit(body, attributes=None, **kwargs):
         events.append(dict(attributes or {}))
 
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
     with RunObservations((ActivityObserver,)).bind(), case_scope(case):
-        assert observe_stage(ActivityKind.GRADING)(lambda: "ok")() == "ok"
+        assert observe_phase(ActivityKind.GRADING)(lambda: "ok")() == "ok"
     assert [r["sf.activity.state"] for r in events] == ["started", "completed"]
     assert all("sf.activity.case_id" not in r for r in events)
 
@@ -76,7 +76,7 @@ async def test_candidate_answering_stage_starts_inside_decoded_case_scope(monkey
         inputs.append(input_text)
         return "answer"
 
-    monkeypatch.setattr("screamingface_engine.benchmarks.stages.current_log_sink", lambda: emit)
+    monkeypatch.setattr("screamingface_engine.benchmarks.phases.current_log_sink", lambda: emit)
     monkeypatch.setattr(candidate_adapter, "evaluate_candidate_recipe", evaluate)
     node = Url4Node()
     install_candidate_invocation(node)

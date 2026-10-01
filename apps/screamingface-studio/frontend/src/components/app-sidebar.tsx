@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Boxes,
   Cpu,
-  FileCode,
   Flame,
   Hash,
   Key,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 
 import { SidebarThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -35,18 +35,16 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsTauri } from "@/hooks/use-is-tauri";
 import { useEnsembleStore } from "@/lib/ensemble-store";
-import { useModelStore } from "@/lib/model-store";
+import { useModelStore, useProviders } from "@/lib/model-store";
 import {
   OPENMINED_BUDGET_TOTAL,
   useOpenMinedStore,
 } from "@/lib/openmined-store";
-import { useScriptStore } from "@/lib/script-store";
 
 const navigation = [
   { label: "Fusions", href: "/ensembles/", Icon: Boxes },
   { label: "Models", href: "/models/", Icon: Layers },
   { label: "Leaderboard", href: "/leaderboard/", Icon: Trophy },
-  { label: "Scripts", href: "/scripts/", Icon: FileCode },
 ];
 
 function MonsterFusionCard() {
@@ -99,12 +97,16 @@ export function AppSidebar() {
   const activeEnsembleId = useEnsembleStore(
     (state) => state.activeEnsembleId,
   );
-  const connectedProviders = useModelStore(
-    (state) =>
-      state.providers.filter((provider) => provider.connected).length,
-  );
+  const connectedProviders = useProviders().filter(
+    (provider) => provider.connected && !provider.keyless,
+  ).length;
+  const catalogLoad = useModelStore((state) => state.load);
+  const refreshCatalog = useModelStore((state) => state.refresh);
+
+  useEffect(() => {
+    if (catalogLoad === "idle") void refreshCatalog();
+  }, [catalogLoad, refreshCatalog]);
   const omConnected = useOpenMinedStore((state) => state.connected);
-  const scriptCount = useScriptStore((state) => state.scripts.length);
   const authOpen = useOpenMinedStore((state) => state.authOpen);
   const authorizing = useOpenMinedStore((state) => state.authorizing);
   const setAuthOpen = useOpenMinedStore((state) => state.setAuthOpen);
@@ -131,9 +133,7 @@ export function AppSidebar() {
               const visibleBadge =
                 label === "Models" && connectedProviders > 0
                   ? String(connectedProviders)
-                  : label === "Scripts" && scriptCount > 0
-                    ? String(scriptCount)
-                    : undefined;
+                  : undefined;
               return (
                 <SidebarMenuItem key={label}>
                   <SidebarMenuButton

@@ -26,7 +26,7 @@ def inspect_available() -> bool:
 
 
 def registrations() -> tuple[BenchmarkRegistration, ...]:
-    """Every imported board this plugin contributes — empty without the ``inspect`` extra.
+    """Every imported benchmark this plugin contributes — empty without the ``inspect`` extra.
 
     WHY the emptiness lives HERE and not in the discovery loop: the plugin is the only
     party that knows its own optional dependencies. Core discovery loads and calls every
@@ -36,10 +36,10 @@ def registrations() -> tuple[BenchmarkRegistration, ...]:
 
     if not inspect_available():
         return ()
-    # Lazy: boards import inspect_ai at module import, legal only past the check above.
-    from screamingface_engine_inspect.boards import board_registrations
+    # Lazy: benchmarks import inspect_ai at module import, legal only past the check above.
+    from screamingface_engine_inspect.benchmarks import benchmark_registrations
 
-    return board_registrations()
+    return benchmark_registrations()
 
 
 __all__ = ["inspect_available", "registrations"]

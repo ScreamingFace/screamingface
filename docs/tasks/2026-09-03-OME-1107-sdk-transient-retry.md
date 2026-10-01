@@ -1,12 +1,12 @@
 ---
 id: OME-1107
 linear_url: https://linear.app/openmined/issue/OME-1107/retry-replay-safe-sdk-requests-on-transient-edge-failures
-status: in_progress
-type: null
+status: done
+type: bug
 priority: 2
-labels: [py-screamingface, agentic, autonomous]
+labels: [client-sf, agentic, autonomous, bug]
 created: 2026-09-03
-closed:
+closed: 2026-09-28
 ---
 
 # Retry replay-safe SDK requests on transient edge failures
@@ -30,3 +30,8 @@ the one dangerous call is excluded by construction rather than by a rule someone
 **Explicitly NOT fixed here:** the in-flight reservation leak and the all-or-nothing evaluation
 semantics. Run start is deliberately not replay-safe, so this retry does not — and must not —
 cover a refused run start.
+
+## Close (2026-09-28)
+
+Landed on `main` in `ad0c965d` (#835, 2026-09-09). Closed in Linear on 2026-09-28 with the close
+comment. The labels now match Linear.

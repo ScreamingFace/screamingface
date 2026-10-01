@@ -458,9 +458,14 @@ validation). Then these repo-specific surfaces, each of which has already bitten
   otherwise). Sandbox rules from the architecture docs, for anything touching user
   code or agentic runs: user-supplied rules run with no network, no filesystem,
   CPU/mem/time caps, pinned by content hash; agentic fusion members never share a
-  workspace; the grader gets an untouched fresh copy. One standing gap to keep in
-  mind: every app's Helm chart has a NetworkPolicy EXCEPT the engine's — flag any
-  engine-chart change that assumes one exists.
+  workspace; the grader gets an untouched fresh copy. Every app's Helm chart has a
+  NetworkPolicy EXCEPT the engine's, and that is not a gap: the platform owns the engine's
+  network rules. The infrastructure repo puts a default-deny on the engine's namespace
+  ([`sf-fusion/base/netpol.yaml`](https://github.com/OpenMined/infrastructure/blob/9f513d769731fbe1deec112c104be0ac616487da/kubernetes/apps/sf-fusion/base/netpol.yaml#L10-L16)) plus
+  an allow-list ([`url4-cloud-netpol.yaml`](https://github.com/OpenMined/infrastructure/blob/9f513d769731fbe1deec112c104be0ac616487da/kubernetes/apps/sf-fusion/base/url4-cloud-netpol.yaml)),
+  and the tenant chart may not render a NetworkPolicy at all
+  ([`project.yaml`](https://github.com/OpenMined/infrastructure/blob/9f513d769731fbe1deec112c104be0ac616487da/kubernetes/tenants/screamingface/project.yaml#L57-L68)). Flag any
+  engine-chart change that adds a NetworkPolicy or assumes the chart controls egress.
 - **Kill-switch coupling.** The bug shape: feature flag `X_ENABLED` gates a module
   that also happens to own something unrelated — so disabling accounting deletes
   correlation IDs (`AIGW_TAXONOMY_ENABLED`, OME-938), or setting a grace period to 0
@@ -555,6 +560,22 @@ config has burned real money here.
   future `helm upgrade` fail (#752). (b) chart defaults that switch on egress or
   behavior in shared environments belong to the platform owner, not the PR — #921 was
   closed outright for defaulting tracing on.
+- **Engine run pods have no internet.** In dev, staging and prod, the pods that run and
+  grade Cases can reach only DNS, the AI gateway on 9105, NATS, Garage and SigNoz
+  ([allow-list](https://github.com/OpenMined/infrastructure/blob/9f513d769731fbe1deec112c104be0ac616487da/kubernetes/apps/sf-fusion/base/url4-cloud-netpol.yaml#L100-L286); staging
+  and prod reuse the same base). Only the gateway server reaches the internet
+  ([`sf-aigw-platform/base/netpol.yaml`](https://github.com/OpenMined/infrastructure/blob/9f513d769731fbe1deec112c104be0ac616487da/kubernetes/apps/sf-aigw-platform/base/netpol.yaml#L152-L178)),
+  so every provider or Judge call goes runner → gateway → provider. The root filesystem is
+  read-only; only `/tmp` is writable. Per-PR previews are the exception: they allow outbound
+  80 and 443 for every pod
+  ([`sf-preview/templates/networkpolicies.yaml`](https://github.com/OpenMined/infrastructure/blob/9f513d769731fbe1deec112c104be0ac616487da/kubernetes/apps/sf-preview/templates/networkpolicies.yaml#L381-L412)),
+  so "it worked in the preview" proves nothing about dev. Review checks: any download on the
+  Run or Grading path is a finding (Hugging Face files, tokenizers, model weights, NLTK data,
+  `pip`, inspect's `download()`); it belongs in Case Preparation at image build. Any model call
+  that does not go through the gateway is a finding. Any write outside `/tmp` on the run path
+  is a finding. A new Imported Benchmark needs a grading test that passes with outbound
+  network blocked (OME-1273, spec R17). Facts pinned to infrastructure commit `9f513d76`
+  (2026-09-30); re-check the linked files if a finding hinges on them.
 - **A parameter sent to an outside API can fail three ways — and the silent one is
   the worst.** When our code passes an argument to a provider (via the gateway,
   LiteLLM, or any third-party API), there are three outcomes: (1) the provider
@@ -583,6 +604,20 @@ config has burned real money here.
   nothing. Require at least one test constructing the REAL vendor type. Flag any
   reliance on a `_private` vendor method unless a drift-alarm test will scream on the
   next bump; prefer tripwires pinned to the vendor's own exported constants (#903).
+- **A version pinned in two projects drifts through the copy nobody holds.** The Engine
+  and the SDK are separate uv projects with separate lockfiles, so a pin they must share
+  exists twice: the SDK's `inspect` extra copies the Engine's `inspect-ai`, which every
+  Imported Benchmark's Benchmark Revision hashes. OME-1411 held `inspect-ai` in Dependabot
+  for the Engine's directory only, and #1119 and #1135 then moved the SDK alone to
+  0.3.270. Both merged green, while the SDK's own `pyproject.toml` comment said the two
+  must match. Review checks: a diff that pins, bumps or holds a dependency (in
+  `pyproject.toml`, `uv.lock`, `.github/dependabot.yml` or `dependabot-ignores.yml`) must
+  find every other project pinning the same package (`git grep '"<pkg>=='` across `apps/`
+  and `packages/`) and move or hold them together. A hold added for one directory is a
+  finding unless the other copies are held too. The cure is Lane 3's: name one side the
+  source of truth, and bind the copy with a conformance test **twinned in both projects**
+  (`test_inspect_pin_conformance.py`). It has to be twinned because CI is path-filtered,
+  so a one-sided test never runs on the other side's Dependabot PR (OME-1421).
 - **Migrations.** Model change and its migration land in the same diff;
   `makemigrations` afterwards reports "no changes"; new columns on populated tables
   are nullable; no `RunPython`/`RunSQL` data rewrites. Remember: aigateway does NOT

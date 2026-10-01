@@ -4,7 +4,7 @@ FEATURE: OME-796 — the LANL corrective protocol as a generic capability. The
 client compiles the ENTIRE loop (member fan-out, rounds, gates, select) into one
 whole-`$candidate` expression; the engine contributes generic invocation and
 control-flow endpoints under `CORRECTIVE_PREFIX` plus each benchmark's advertised
-check surface. Everything here is Engine-owned transport contract: the Client
+draft-feedback offer. Everything here is Engine-owned transport contract: the Client
 mirrors these route strings when it renders a loop expression, so any change is
 a protocol change. Client-authored loop prose and its identity hash remain with
 the compiler that places that prose into the expression.
@@ -33,7 +33,7 @@ RESULT_ROUTE = f"{CORRECTIVE_PREFIX}/result"
 # replaces the old "PASSED" feedback
 # sentinel; `satisfaction` replaces the IFEval-private `_strict_satisfaction`
 # call inside gate/select (each benchmark computes its own behind the adapter).
-CHECK_SURFACE_SCHEMA = "screamingface.check-surface.v1"
+DRAFT_FEEDBACK_SCHEMA = "screamingface.check-surface.v1"
 
 # Member identity uses unbounded spreadsheet-style lowercase labels so the
 # generic substrate does not inherit the LANL prototype's 2..4 bound.
@@ -57,7 +57,7 @@ def _member_label(index: int) -> str:
 
 __all__ = [
     "ANSWER_ROUTE",
-    "CHECK_SURFACE_SCHEMA",
+    "DRAFT_FEEDBACK_SCHEMA",
     "CORRECTIVE_API_VERSION",
     "CORRECTIVE_PREFIX",
     "GATE_ROUTE",

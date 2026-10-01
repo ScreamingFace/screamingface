@@ -1,0 +1,27 @@
+{
+  "issue": "OME-1134",
+  "branch": "bershadsky/ome-1134-propagate-the-callers-traceparent-on-the-two-uncoalesced",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-10-01",
+  "scope": "signature-only: keyword-only traceparent param on 9 fakes implementing ModelParameterSource/ModelAdmissionSource; no assertion changes",
+  "reason": "protocol widened to thread traceparent explicitly per ticket; avoids Credential cache-key trap",
+  "note": "Applied as 8 fake methods in 4 files. test_selector_refusal.py imports _ParameterSource from test_model_parameters_proxy.py, so it needed no edit. The append-only checker never exempts Python tests through this manifest (approved_test_changes.py is TS/TSX only). The manifest records the approval and pins the exact blobs.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_dynamic_model_admission.py": {
+      "base_blob": "ce392217dbc3c786445aeead9f0e223b2c175b44",
+      "approved_blob": "cfad51bb05f9b1968b74399274a899f3297e4879"
+    },
+    "apps/screamingface-engine/tests/unit/test_executable_catalog_route_encoding.py": {
+      "base_blob": "e1e744252f42325793298dfd762a1a3f004eac7a",
+      "approved_blob": "2e6acd464b3597a41e3d8d7a995e5513e9535c25"
+    },
+    "apps/screamingface-engine/tests/unit/test_executable_model_catalog.py": {
+      "base_blob": "037a3dcc18244230b28de0ea3d3b8ce07d7ff20e",
+      "approved_blob": "2c390e751a1c6c7938aeb0033201d00d3ca58b65"
+    },
+    "apps/screamingface-engine/tests/unit/test_model_parameters_proxy.py": {
+      "base_blob": "5d3397ba12f099208b8dc31b99508d36f4243377",
+      "approved_blob": "0b477a5e78de053086cc995c7568752f1cc3946b"
+    }
+  }
+}

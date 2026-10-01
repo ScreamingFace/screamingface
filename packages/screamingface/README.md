@@ -38,7 +38,10 @@ screamingface logs --service engine --tail 100 --no-follow
 screamingface prepare --list
 ```
 
-Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. Benchmark
+Logs are timestamped, tagged by service, rotated at 10 MiB, and retain five backups. The log and
+its backups are readable only by you. Versions before `OME-990` wrote prompts into this log;
+`screamingface logs --purge` deletes the backups and empties the live log (it does not securely
+erase the disk blocks). Benchmark
 preparation records a versioned manifest, skips current assets, and supports `--force` when a
 fresh download is required.
 
@@ -395,7 +398,7 @@ version that originally generated cached model answers.
 Each entry in `CandidateResult.operations` is a public immutable `sf.OperationInfo` value.
 
 Authentication, validation, transport, execution, protocol, and invalid-result failures raise
-typed exceptions. Partial-result reporting remains a later Engine/Report contract.
+typed exceptions.
 
 Expected SDK failures inherit from `ScreamingFaceError` and always carry a stable error code, plus
 an optional HTTP status, structured details, remediation hint, and `permanent`/`retryable`
@@ -407,6 +410,36 @@ classification. The public classes reflect distinct recovery actions:
 - `ExecutionError`: inspect or retry a Run that failed after reaching the Engine.
 - `ProviderConnectionError`: change a provider credential or provider connection.
 
+These classes arrive directly when the failure happens before any Candidate runs — for example
+while the Client loads the Benchmark or the Model catalogue — and when an Evaluation has one
+Candidate. A multi-Candidate Evaluation is different once its Candidates run: one failed
+Candidate does not stop the others. They run to their end, the progress output marks the failed
+row at once, and then the Evaluation raises `ExecutionError` with `code="candidates_failed"`:
+
+- `error.details["failed"]` maps each failed Candidate's name to its error code, for example
+  `websocket_disconnected`, `engine_at_capacity`, `authentication_failed` or
+  `engine_unreachable` (`unexpected_error` when the failure had no SDK code);
+- `error.__cause__` is the first failure itself, so an `AuthenticationError` or
+  `EngineUnavailableError` from a running Candidate is found there, not raised directly;
+- `error.partial_report` is a `Report` of the Candidates that succeeded, or `None` when none
+  did. It holds nothing for a failed Candidate.
+
+To keep the paid results, export the Partial Report; `details["failed"]` names the Candidates to run again:
+
+```python
+try:
+    report = sf.evaluate(candidates, benchmark="draco")
+except sf.ExecutionError as error:
+    if error.code != "candidates_failed":
+        raise
+    if error.partial_report is not None:
+        error.partial_report.export("partial-report.json")
+    failed = error.details["failed"]  # {candidate name: code}
+```
+
+Ctrl-C, task cancellation, and an exception raised by your own `on_event` callback still stop
+every Run of the Evaluation and re-raise that exception unchanged.
+
 IPython and Jupyter render these failures as a concise message, hint, and code instead of exposing
 dependency tracebacks. Notebook panels render the same safe text inline. Programmatic callers can
 catch a specific recovery class or catch `ScreamingFaceError` for every expected SDK failure;
@@ -416,6 +449,37 @@ errors such as invalid Python argument types retain their normal tracebacks.
 Every `CandidateResult` exposes the Engine-owned top-level `coverage` ratio. A partial score remains
 available alongside the Cases that could not be graded, and the notebook Report panel labels the
 result as partial rather than silently presenting it as a complete evaluation.
+
+### Completed accounting breakdown
+
+Each Candidate exposes derived views of the Engine's retained operation and grading records:
+
+```python
+breakdown = report.candidates[0].accounting
+breakdown.by_stage  # generation, synthesis, grading
+breakdown.by_operation  # (stage, operation/check id)
+breakdown.by_member  # direct model-member operation ids
+breakdown.by_model  # request model or reliable declared identity; None when unknown
+breakdown.by_case  # original Case ids
+breakdown.unattributed_cost_usd
+```
+
+Each group has `usage`, `calls`, `cache`, `provider_latency_ms`, and `provider_attempts`.
+These summarize retained observations; they do not replace the authoritative run total.
+Missing observations remain unknown. A missing record stays in its declared model group
+when that identity is unambiguous and agrees with retained requests. If any row's model
+cannot be identified, all named `by_model` summaries are unknown: the unidentified work
+could belong to any of them. The `None` bucket summarizes only its anonymous observations.
+Calls count consumed responses, not provider retries.
+Provider time sums attempt latencies and is not wall time. Unknown or unpriced costs prevent
+an exact remainder; inconsistent records disable the breakdown (`consistent=False`).
+Loop internals and composite-member ownership remain unattributed where the retained contract
+cannot prove their scope. Derived group views are not added to Report JSON.
+
+Each completed Report Case has **Answer & grading** and **Cost & usage** views.
+The latter shows labelled activity blocks; whole-run totals remain above the Cases.
+Try [the offline review notebook](examples/14_report_accounting.ipynb) without credentials or
+paid calls. Its synthetic figures are explicitly labelled; actual evaluations use the same UI.
 
 ## Ownership boundary
 

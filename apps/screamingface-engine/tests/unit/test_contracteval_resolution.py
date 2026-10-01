@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks.builtins import BUILTIN_DEPLOYMENT
-from screamingface_engine.benchmarks.contracteval import definition as board
+from screamingface_engine.benchmarks.contracteval import definition as benchmark
 from screamingface_engine.benchmarks.contracteval.prepare import emit
 from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
@@ -36,9 +36,9 @@ _CONTRACT = f"1. Term. Five years. 2. Governing Law. {_GOLD}"
 
 
 def _assets(tmp_path: Path) -> Path:
-    """Bake one real Case under the layout `install_contracteval` expects."""
+    """Prepare one real Case under the layout `install_contracteval` expects."""
 
-    bundle = tmp_path / board.ASSET_BUNDLE_ID
+    bundle = tmp_path / benchmark.ASSET_BUNDLE_ID
     bundle.mkdir(parents=True)
     emit(
         [
@@ -69,7 +69,7 @@ def _reply(text_out: str):
 
 
 async def _run(tmp_path: Path, model_reply: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Resolve the board's own expression at limit=1 and return (result, gateway requests)."""
+    """Resolve the benchmark's own expression at limit=1 and return (result, gateway requests)."""
 
     seen: list[dict[str, Any]] = []
 
@@ -85,12 +85,12 @@ async def _run(tmp_path: Path, model_reply: str) -> tuple[dict[str, Any], list[d
         client=client,
     )
     install_candidate_invocation(world.node)
-    registry = BenchmarkRegistry((board.CONTRACTEVAL,))
+    registry = BenchmarkRegistry((benchmark.CONTRACTEVAL,))
     registry.install(world.node, assets_root=_assets(tmp_path))
     candidate = RelExpr(path="/provider/model", context="$input", intent=text("Answer."))
     try:
         result = await world.node.evaluate(
-            link_candidate(candidate, build(str(board.CONTRACTEVAL.resource(1)["url4"])))
+            link_candidate(candidate, build(str(benchmark.CONTRACTEVAL.resource(1)["url4"])))
         )
     finally:
         await world.aclose()
@@ -110,7 +110,7 @@ async def test_the_candidate_receives_the_real_contract_and_not_empty_text(
     user = next(m["content"] for m in seen[0]["messages"] if m["role"] == "user")
     assert _CONTRACT in user
     assert "Which state's law governs?" in user
-    # The baked input also carries the instructions — prompt bytes are exam identity here.
+    # The prepared input also carries the instructions — prompt bytes are benchmark identity here.
     assert "Do not rephrase or summarize" in user
 
 
@@ -140,13 +140,13 @@ async def test_a_paraphrase_resolves_to_a_false_negative(tmp_path: Path) -> None
     assert result["cases"][0]["grade"]["score"] == 0.0
 
 
-async def test_the_board_resolves_the_same_way_from_the_real_deployment(
+async def test_the_benchmark_resolves_the_same_way_from_the_real_deployment(
     tmp_path: Path,
 ) -> None:
-    """The registry the Engine actually ships must carry this board with working routes —
+    """The registry the Engine actually ships must carry this benchmark with working routes —
     `_run` builds its own registry, so without this the production composition is untested."""
 
-    assert board.CONTRACTEVAL in tuple(BUILTIN_DEPLOYMENT.benchmarks)
+    assert benchmark.CONTRACTEVAL in tuple(BUILTIN_DEPLOYMENT.benchmarks)
     result, _ = await _run(tmp_path, "No related clause.")
 
     # Abstaining on a row that HAS a clause: graded, wrong, and counted as laziness.

@@ -26,9 +26,12 @@ parse is REPLACED, never cleaned up. See `aigateway.w3c_trace`.
 
 from __future__ import annotations
 
+import os
+
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from aigateway.call_context import call_scope, new_gateway_call_id
+from aigateway.span_exclusion import SpanExclusion, mark_excluded
 from aigateway.tracing import server_span
 from aigateway.w3c_trace import adopt_or_mint_trace_id, parse_traceparent
 
@@ -65,11 +68,31 @@ def _route_name(scope: Scope) -> str:
     return f"{method} {scope.get('path', '')}".strip()
 
 
+def _exclusion_key(scope: Scope) -> str:
+    """What the probe exclusion is matched against, read AFTER the app has handled the request.
+
+    FEATURE (OME-1217): the route TEMPLATE routing resolved (`scope["route"]`, populated during
+    dispatch on this same scope dict) — never the raw path, which `/healthz/`, query strings and
+    path parameters would all defeat. When routing dispatched to no route (Starlette answered by
+    itself — the `/healthz/` slash redirect, a 404), the raw path with trailing slashes stripped
+    stands in, so a slash variant of a probe is still recognised as the probe.
+    AIDEV-NOTE: the template cannot be resolved BEFORE dispatch: FastAPI's nested
+    `_IncludedRouter.matches()` returns FULL with an empty child scope. Hence flag-then-drop.
+    """
+    route_path = getattr(scope.get("route"), "path", None)
+    if isinstance(route_path, str):
+        return route_path
+    path = str(scope.get("path", ""))
+    return path.rstrip("/") or "/"
+
+
 class CallIdMiddleware:
     """Give every HTTP request its correlation ids, bound for the whole request."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, exclusion: SpanExclusion | None = None) -> None:
         self._app = app
+        # Read once, at app build: the exclusion is deployment configuration, not per-request.
+        self._exclusion = exclusion if exclusion is not None else SpanExclusion.from_env(os.environ)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # WHY the type guard: lifespan and websocket scopes pass through here too. Binding a
@@ -104,7 +127,7 @@ class CallIdMiddleware:
         # prevent (OME-1132). A no-op when tracing is not configured, which is the default.
         with (
             call_scope(call_id, trace_id=trace_id),
-            server_span(_route_name(scope), parent_span_id=parent_span_id),
+            server_span(_route_name(scope), parent_span_id=parent_span_id) as span,
         ):
             # Published on the scope so downstream consumers (the taxonomy session, the
             # exception handlers) read the SAME ids rather than minting a second set for the
@@ -113,6 +136,12 @@ class CallIdMiddleware:
             state["gateway_call_id"] = call_id
             state["trace_id"] = trace_id
             await self._app(scope, receive, send_with_trace)
+            # INVARIANT (OME-1217): only the SPAN is affected — the ids above were bound and
+            # published, and the request handled, exactly as for any route. Flagged only on
+            # NORMAL completion: a probe that raises keeps its span, failing toward more
+            # telemetry. `span` is None with tracing off, so the off path stays free.
+            if span is not None and self._exclusion.excludes(_exclusion_key(scope)):
+                mark_excluded(span)
 
 
 __all__ = ["TRACE_RESPONSE_HEADER", "CallIdMiddleware"]

@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.healthbench.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.healthbench.case_grade import (
+    CASE_GRADE_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
 )
 from screamingface_engine.benchmarks.healthbench.grade import (
@@ -74,7 +74,7 @@ def _case_row(
     output = None if refusal is not None else f"output-{case_id}"
     answer = refusal if refusal is not None else output
     grading = {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": case_id,
         "case": {
             "schema": CASE_SCHEMA,
@@ -105,7 +105,7 @@ def _case_row(
         ],
     }
     assert isinstance(answer, str)
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id,
         encode_candidate_invocation(
             output or "",
@@ -291,7 +291,7 @@ def test_an_error_collected_row_fails_its_case(tmp_path: Path) -> None:
         [
             _case_row(1, {1: True}),
             {
-                "schema": CASE_EVALUATION_SCHEMA,
+                "schema": CASE_GRADE_SCHEMA,
                 "case_id": 2,
                 "error": {
                     "kind": "ResolutionError",
@@ -500,11 +500,11 @@ def test_load_rubric_points_rejects_malformed_assets(tmp_path: Path) -> None:
     assert load_rubric_points(tmp_path, 9) is None  # ids must be consecutive from 1
 
 
-def test_the_official_board_floors_a_negative_mean_at_zero(tmp_path: Path) -> None:
-    """INVARIANT (OME-903): one reduction, two exam-level metrics.
+def test_the_official_benchmark_floors_a_negative_mean_at_zero(tmp_path: Path) -> None:
+    """INVARIANT (OME-903): one reduction, two benchmark-level metrics.
 
-    The SAME graded Cases must produce the challenge number on the worst-30% board and the
-    official number on the professional board — the clip is the ONLY difference. A run
+    The SAME graded Cases must produce the challenge number on the worst-30% benchmark and the
+    official number on the professional benchmark — the clip is the ONLY difference. A run
     dominated by safety penalties averages -3.0 here; the official HealthBench aggregate
     reports 0.0 for it, which is what makes the number comparable to published figures.
     """
@@ -531,14 +531,14 @@ def test_the_official_board_floors_a_negative_mean_at_zero(tmp_path: Path) -> No
 
     assert challenge["score"] == pytest.approx(-3.0)
     assert official["score"] == 0.0
-    # Only the exam-level number moves: the per-Case grade keeps its unclamped truth, so a
-    # reader can still see WHY the board says zero.
+    # Only the benchmark-level number moves: the per-Case grade keeps its unclamped truth, so a
+    # reader can still see WHY the benchmark says zero.
     assert official["cases"][0]["grade"]["score"] == pytest.approx(-3.0)
     assert official["coverage"] == challenge["coverage"] == 1.0
     assert official["metrics"]["pass_rate"] == challenge["metrics"]["pass_rate"]
 
 
-def test_the_official_board_leaves_an_ordinary_mean_alone(tmp_path: Path) -> None:
+def test_the_official_benchmark_leaves_an_ordinary_mean_alone(tmp_path: Path) -> None:
     _write_rubric(tmp_path, 1, [7, 8, -6])
     _write_rubric(tmp_path, 2, [5])
     rows = json.dumps(

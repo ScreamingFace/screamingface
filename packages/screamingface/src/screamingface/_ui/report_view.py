@@ -10,6 +10,9 @@ from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING, Any
 
+from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
+from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
+from screamingface._ui.cards import INVERTED_GRADE_MEANING
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
@@ -21,9 +24,13 @@ if TYPE_CHECKING:
 # disclosure and clipped: a Report can carry many thousands of words per case, and the
 # panel has to stay a summary rather than dumping a transcript into the notebook.
 _TEXT_CLIP = 10_000
+# A judge's reasoning shows this much under its verdict; the rest sits behind a
+# "full reasoning" disclosure, so a list of criteria stays scannable (OME-1340).
+_REASONING_PREVIEW = 400
 
 _STYLE = (
     STYLE
+    + ACCOUNTING_STYLE
     + f"""<style>
 .sf-report{{padding:4px 14px 14px}}
 .sf-report__head-row{{display:flex;align-items:flex-start;gap:12px}}
@@ -84,6 +91,16 @@ _STYLE = (
   border-top:1px solid var(--sf-line)}}
 .sf-check__label{{flex:1 1 auto;font-size:13px;min-width:0}}
 .sf-check__why{{color:var(--sf-ink-3);font-size:12px;margin-top:3px}}
+/* a judge's reasoning past the preview (OME-1340): collapsed, line breaks kept, and the
+   preview hides once open — the full text starts with the same 400 characters */
+.sf-check__full{{margin-top:4px}}
+.sf-check__full>summary{{cursor:pointer;font-size:12px;color:var(--sf-ink-2);list-style:none}}
+.sf-check__full>summary::-webkit-details-marker{{display:none}}
+.sf-check__full>summary::before{{content:"\u25b8 ";color:var(--sf-ink-3)}}
+.sf-check__full[open]>summary::before{{content:"\u25be "}}
+.sf-check__full-text{{color:var(--sf-ink-3);font-size:12px;margin-top:3px;white-space:pre-wrap;
+  overflow-wrap:anywhere}}
+.sf-check__label:has(>.sf-check__full[open])>.sf-check__why{{display:none}}
 .sf-badge{{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;
   font:600 11px/1 "IBM Plex Mono",ui-monospace,monospace;text-transform:uppercase;
   letter-spacing:.06em;padding:4px 8px;border:1px solid var(--sf-line-2);white-space:nowrap}}
@@ -204,8 +221,17 @@ def _head_html(report: Report) -> str:
         "<div class='sf-report__head-row'><div>"
         "<div class='sf-report__title'>Report</div>"
         f"<div class='sf-report__sub'>Benchmark · {escape(str(report.benchmark.id))}</div>"
+        f"{_inverted_grade_html(report)}"
         f"</div>{_download_html(report)}</div>"
     )
+
+
+def _inverted_grade_html(report: Report) -> str:
+    """One plain line under the header for a Benchmark scored by refusal rate (OME-1400)."""
+
+    if not report.benchmark.inverted_grade:
+        return ""
+    return f"<div class='sf-report__sub'>Inverted grade: {escape(INVERTED_GRADE_MEANING)}</div>"
 
 
 def _download_html(report: Report) -> str:
@@ -313,6 +339,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
+        f"{run_accounting_note(candidate)}"
         f"{_recipe_html(candidate)}</div>"
     )
 
@@ -601,6 +628,7 @@ def _cases_html(report: Report) -> str:
     # share a radio group and fight over the selection. Candidate run IDs are unique.
     group = f"sf-case-{_group_key(report)}"
     inputs, rail, panes = [], [], []
+    costs = {id(candidate): case_accounting(candidate) for candidate in report.candidates}
     for index, (candidate, case) in enumerate(entries):
         item = f"{group}-{index}"
         checked = " checked" if index == 0 else ""
@@ -608,7 +636,7 @@ def _cases_html(report: Report) -> str:
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )
         rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1))
-        panes.append(_pane_html(candidate, case))
+        panes.append(_pane_html(candidate, case, costs[id(candidate)][case.case_id]))
     total = len(entries)
     label = f"{total} case result" + ("" if total == 1 else "s")
     return (
@@ -673,7 +701,7 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
     )
 
 
-def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
+def _pane_html(candidate: CandidateResult, case: CaseResult, cost_html: str) -> str:
     state = _case_state(case)
     # WHY (OME-793): tri-state verdict — "failed" (warning) is neither correct nor
     # incorrect; the case was never graded, and the badge must say so.
@@ -729,12 +757,12 @@ def _pane_html(candidate: CandidateResult, case: CaseResult) -> str:
             "<div class='sf-pane__q'>input unavailable — "
             "the case failed before it was recorded</div>"
         )
+    body = f"{answer_html}{refusal_html}{_case_failures_html(case)}{checks_head}{checks}"
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
         f"<span class='sf-report__case-id'>case {escape(str(case.case_id))} · "
         f"{escape(candidate.name)}</span>{verdict}{finish_html}{rounds_html}</div>{tags_html}"
-        f"{question}{answer_html}{refusal_html}{_case_failures_html(case)}"
-        f"{checks_head}{checks}</div>"
+        f"{question}{case_tabs(body, cost_html)}</div>"
     )
 
 
@@ -840,10 +868,31 @@ def _check_html(check: Any) -> str:
     )
     why = next((item.explanation for item in check.evidence if item.explanation), None)
     judge_html = f"<span class='sf-check__who'>{escape(judge)}</span>" if judge else ""
-    why_html = f"<div class='sf-check__why'>{escape(_clip(why, 400))}</div>" if why else ""
+    why_html = _reasoning_html(why) if why else ""
     return (
         f"<div class='sf-check'><span class='sf-check__label'>{escape(check.label)}"
         f"{judge_html}{why_html}</span>{badge}</div>"
+    )
+
+
+def _reasoning_html(why: str) -> str:
+    """A judge's reasoning under its verdict: short text whole, long text previewed + expandable.
+
+    Worked example: a 2,812-character rubric breakdown renders its first 400 characters
+    and "… 2,412 more characters", then a collapsed "full reasoning" block holding all
+    2,812. A 301-character reasoning renders exactly as it did before, with no block.
+    """
+    # INVARIANT: the preview row is byte-identical to the pre-OME-1340 row, so short
+    # reasoning (the common case) renders unchanged.
+    preview: str = f"<div class='sf-check__why'>{escape(_clip(why, _REASONING_PREVIEW))}</div>"
+    if len(why) <= _REASONING_PREVIEW:
+        return preview
+    # WHY: escaped like the preview — the same untrusted judge output, now at full length.
+    # Capped at _TEXT_CLIP like every free text here: once OME-1339 routes any inspect
+    # scorer's explanation into this block, one could be a multi-megabyte log.
+    return (
+        f"{preview}<details class='sf-check__full'><summary>full reasoning</summary>"
+        f"<div class='sf-check__full-text'>{escape(_clip(why))}</div></details>"
     )
 
 
@@ -886,15 +935,18 @@ def _score_text(value: float | None) -> str:
 def _tokens_total(usage: Any) -> str:
     """One figure for the cell — the in/out split is carried by the receipt strip."""
 
-    if usage.input_tokens is None and usage.output_tokens is None:
+    # INVARIANT: a partial observation is not a total, even when the known half is zero.
+    if usage.input_tokens is None or usage.output_tokens is None:
         return "—"
-    return _compact((usage.input_tokens or 0) + (usage.output_tokens or 0))
+    return _compact(usage.input_tokens + usage.output_tokens)
 
 
 def _tokens(usage: Any) -> str:
     if usage.input_tokens is None and usage.output_tokens is None:
         return "—"
-    return f"{_compact(usage.input_tokens or 0)} / {_compact(usage.output_tokens or 0)}"
+    input_tokens = "—" if usage.input_tokens is None else _compact(usage.input_tokens)
+    output_tokens = "—" if usage.output_tokens is None else _compact(usage.output_tokens)
+    return f"{input_tokens} / {output_tokens}"
 
 
 def _compact(value: int) -> str:

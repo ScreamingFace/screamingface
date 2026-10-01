@@ -24,6 +24,7 @@ on:
       - "apps/report-intake/src/report_intake/config.py"
       - "apps/analytics/charts/**"
       - "apps/screamingface-engine/deploy/helm/**"
+      - "apps/scoreboard/charts/scoreboard/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
       # The verifier compares the chart's image against the images these lanes publish, and checks
@@ -50,6 +51,7 @@ on:
       - "apps/report-intake/src/report_intake/config.py"
       - "apps/analytics/charts/**"
       - "apps/screamingface-engine/deploy/helm/**"
+      - "apps/scoreboard/charts/scoreboard/**"
       - ".github/scripts/verify_chart_wiring.py"
       - ".github/workflows/charts.yml"
       # The verifier compares the chart's image against the images these lanes publish, and checks

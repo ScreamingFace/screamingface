@@ -9,9 +9,11 @@ import logging
 import random
 import ssl
 import time
+from asyncio import Event as _AsyncEvent
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as _dataclass_replace
+from threading import Event as _ThreadEvent
 from threading import Lock
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -27,12 +29,23 @@ from websockets.typing import Subprotocol
 from screamingface._access.auth import _default_caller_auth
 from screamingface._access.base import _TransportAuth
 from screamingface._access.contract import _challenge_audience
-from screamingface._core.ports import _ResultArtifact, _RunOutcome
-from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
+from screamingface._core.ports import (
+    _ConnectionListener,
+    _ConnectionNotice,
+    _ConnectionState,
+    _ResultArtifact,
+    _RunOutcome,
+)
+from screamingface._core.retry import (
+    _RETRYABLE_STATUS,
+    RetryingAsyncTransport,
+    RetryingTransport,
+)
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine.admission import _ADMISSION_BUDGET_S, _AdmissionWait
 from screamingface._engine.identity import engine_headers
 from screamingface._engine.reconnect import _RecoveryWindow
-from screamingface._engine.run_lifecycle import _Lifecycle
+from screamingface._engine.run_lifecycle import _Lifecycle, _LifecycleStep
 from screamingface._engine.trace import TraceContext, new_trace_context
 from screamingface._evaluation.model import Candidate
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
@@ -70,6 +83,14 @@ _RECONNECT_BUDGET_S = 90.0
 _RECONNECT_BASE_DELAY_S = 0.5
 _RECONNECT_MAX_DELAY_S = 15.0
 
+# WHY explicit (review fix 6): a start may wait up to the admission budget (900 s) with no
+# Run frames on its WebSocket, and an edge closes an idle WebSocket (Cloudflare: ~100 s).
+# The `websockets` keepalive (sync: a background thread, `sync/connection.py` `keepalive`;
+# asyncio: a task) sends a ping every interval even while the start loop blocks, and a ping
+# is traffic to the edge. Its default is 20 s; naming it here makes the dependency visible
+# and lets `test_admission_retry.py` prove the pings flow during a wait.
+_KEEPALIVE_PING_S = 20.0
+
 _logger = logging.getLogger(__name__)
 
 
@@ -106,6 +127,7 @@ class Url4CloudTransport:
         *,
         reconnect_budget_s: float = _RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
+        admission_budget_s: float = _ADMISSION_BUDGET_S,
     ) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
@@ -126,11 +148,29 @@ class Url4CloudTransport:
         # Test-only seams; production callers leave the defaults (spec §6 S3).
         self._reconnect_budget_s = reconnect_budget_s
         self._reconnect_base_delay_s = reconnect_base_delay_s
+        self._admission_budget_s = admission_budget_s
         # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
-        # the sweep already stopped every Run this client owns. Plain bool, GIL-atomic.
-        self._aborted = False
+        # the sweep already stopped every Run this client owns. Cleared when the next Run
+        # starts with none running (`_end_finished_abort`). WHY an Event behind `_aborted`:
+        # a worker waiting for Engine capacity must wake the moment the owner aborts
+        # (spec 2026-09-28 B3), not after a `Retry-After` that may be minutes long.
+        self._abort = _ThreadEvent()
         self._active_lock = Lock()
         self._active_tokens: set[str] = set()
+        # How many `run()` calls are in flight — NOT the registry size: a Run can leave the
+        # registry before it ends. Guarded by `_active_lock`.
+        self._running = 0
+
+    @property
+    def _aborted(self) -> bool:
+        return self._abort.is_set()
+
+    @_aborted.setter
+    def _aborted(self, value: bool) -> None:
+        if value:
+            self._abort.set()
+        else:
+            self._abort.clear()
 
     def run(
         self,
@@ -142,7 +182,9 @@ class Url4CloudTransport:
         trace = new_trace_context()
         minted = [_mint_sync(self._http, trace=trace)]
         with self._active_lock:
+            self._end_finished_abort()
             self._active_tokens.add(minted[0])
+            self._running += 1
         lifecycle = _Lifecycle(candidate)
         started = time.monotonic()
         try:
@@ -161,6 +203,21 @@ class Url4CloudTransport:
         finally:
             with self._active_lock:
                 self._active_tokens.difference_update(minted)
+                self._running -= 1
+
+    def _end_finished_abort(self) -> None:
+        """Clear the owner-abort flag when a Run starts and no Run is running (spec B1).
+
+        WHY: `cancel_active` sets `_aborted` so that the Runs it swept stop reconnecting. It
+        used to stay set for the Client's whole life, so after ONE Ctrl-C every later Run on
+        this Client neither reconnected nor stopped its own Run after a lost stream.
+        INVARIANT: while any Run is still running, the flag stays set — the Runs of that
+        abort may still be unwinding. Both twins count running Runs, not registered
+        capabilities, because the async sweep empties the registry while its Runs unwind.
+        AIDEV-NOTE: the caller holds `_active_lock`.
+        """
+        if self._running == 0:
+            self._aborted = False
 
     def _run_reconnecting(
         self,
@@ -177,8 +234,9 @@ class Url4CloudTransport:
         resumes from the last accepted stream sequence with the SAME capability (valid for
         the Run's whole life after OME-1018). A handshake 401/403 that is not an Access
         challenge is FATAL — dead credentials, no probe on a single-engine fleet (D5). A
-        connect/OS/timeout failure backs off with full jitter; when the outage recovery budget
-        is spent, everything this client owns is stopped and the Run surfaces as
+        connect/OS/timeout failure — or, once the Run started, a 5xx handshake refusal —
+        backs off with full jitter; when the outage recovery budget
+        is spent, THIS Run is stopped (never its siblings, OME-1067) and surfaces as
         `websocket_disconnected`.
         """
         recovery = _RecoveryWindow(self._reconnect_budget_s)
@@ -194,6 +252,7 @@ class Url4CloudTransport:
                     },
                     open_timeout=30,
                     close_timeout=10,
+                    ping_interval=_KEEPALIVE_PING_S,
                     max_size=_MAX_FRAME_BYTES,
                     ssl=self._ssl,
                 ) as websocket:
@@ -206,42 +265,82 @@ class Url4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
+                            admission=_new_admission(
+                                self._admission_budget_s, self._reconnect_base_delay_s
+                            ),
+                            on_event=on_event,
+                            wait=self._abort.wait,
                         )
                         run_started = True
                     else:
                         websocket.send(lifecycle.resume_attach())
+                        _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
-                    outcome = self._run_connected(websocket, lifecycle, on_event)
+                    outcome = self._run_connected(websocket, lifecycle, on_event, minted)
                 # FEATURE OME-892: redeem the claim ticket OUTSIDE the socket scope.
                 # By now the run is over and the WS is closed — a fetch failure here
                 # must surface as its own error, never trip the socket-scoped
                 # stop-on-interrupt arm into writing to a dead connection.
                 return _materialize_sync(self._http, outcome)
             except InvalidStatus as exc:
-                self._on_handshake_rejection(exc, minted, run_started, trace)
-                recovery.attempts += 1
-                continue
+                if run_started and _is_transient_rejection(exc):
+                    self._back_off(recovery, exc, started, on_event, minted[-1])
+                else:
+                    self._on_handshake_rejection(exc, minted, run_started, trace, recovery)
+                    recovery.attempts += 1
             except (WebSocketException, OSError, TimeoutError) as exc:
-                deadline = recovery.failed(time.monotonic())
-                recovery.attempts = self._on_stream_failure(
-                    exc, recovery.attempts, deadline, started
-                )
-                continue
+                self._back_off(recovery, exc, started, on_event, minted[-1])
+
+    def _retire(self, minted: list[str]) -> None:
+        """Take this Run's capabilities out of the owner sweep's reach."""
+        with self._active_lock:
+            self._active_tokens.difference_update(minted)
+
+    def _back_off(
+        self,
+        recovery: _RecoveryWindow,
+        exc: WebSocketException | OSError | TimeoutError,
+        started: float,
+        on_event: SyncEventCallback | None,
+        token: str,
+    ) -> None:
+        """Spend one attempt of the outage budget, then announce the next connect (R4)."""
+        deadline = recovery.failed(time.monotonic())
+        recovery.attempts = self._on_stream_failure(
+            exc, recovery.attempts, deadline, started, token
+        )
+        _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     def _on_handshake_rejection(
-        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
+        self,
+        exc: InvalidStatus,
+        minted: list[str],
+        run_started: bool,
+        trace: TraceContext,
+        recovery: _RecoveryWindow,
     ) -> None:
         """Classify a refused handshake: Access challenge remints; anything else is FATAL.
 
         A non-Access 401/403 means dead credentials — retrying cannot help and no probe
         is needed on a single-engine fleet (D5). If the Run already started, stop it
-        rather than orphan it (G3).
+        rather than orphan it (G3) — this Run only, never its siblings.
         """
         if _is_access_websocket_rejection(exc):
-            self._remint_after_challenge(minted, trace)
-            return
+            if not run_started:
+                self._remint_after_challenge(minted, trace)
+                return
+            # INVARIANT (spec 2026-09-28 F1): after the Run started, resume on the SAME
+            # capability. Every mint names a NEW topic, so a fresh capability would attach
+            # to a topic that holds none of this Run's frames.
+            allowed_s = recovery.admit_challenge(time.monotonic())
+            if allowed_s is not None:
+                self._caller_auth.reauthenticate(timeout=allowed_s)
+                return
+            _logger.warning("SF Engine reconnect re-login limit reached; stopping the Run")
         if run_started:
-            self._sweep_after_disconnect()
+            # INVARIANT (spec 2026-09-28 run isolation, C2): the refusal is about THIS
+            # stream's handshake. Sibling Runs have their own sockets — stop only this one.
+            self._stop_own_run(minted[-1])
         raise exc
 
     def _on_stream_failure(
@@ -250,6 +349,7 @@ class Url4CloudTransport:
         attempts: int,
         budget_deadline: float,
         started: float,
+        token: str,
     ) -> int:
         """Sleep the backoff delay, or raise the terminal disconnect error.
 
@@ -260,8 +360,8 @@ class Url4CloudTransport:
         """
         if self._aborted or time.monotonic() >= budget_deadline:
             if not self._aborted:
-                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
-                self._sweep_after_disconnect()
+                _logger.warning("SF Engine reconnect budget exhausted; stopping the Run")
+                self._sweep_after_disconnect(token)
             raise _disconnected(exc, time.monotonic() - started) from exc
         delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
         _logger.warning(
@@ -272,22 +372,43 @@ class Url4CloudTransport:
         time.sleep(delay)
         return attempts + 1
 
-    def _sweep_after_disconnect(self) -> None:
-        """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).
+    def _sweep_after_disconnect(self, token: str) -> None:
+        """Stop THIS Run after its reconnect gives up (G3 OME-1020; OME-1067).
 
-        Best-effort: a failed sweep must not mask the disconnect itself — the sweep's own
-        failure is logged, not raised.
+        INVARIANT (spec 2026-09-28 run isolation, C3): one lost stream stops one Run. The
+        siblings are independently attached — in the 2026-09-01 incident, the sweep that
+        used to live here stopped a sibling with all of its cases complete.
+        AIDEV-NOTE: the name predates run isolation. `test_reconnect_recovery_window.py`
+        patches it by name, so it stays; the stop is best-effort (`_stop_own_run`).
         """
+        self._stop_own_run(token)
+
+    def _stop_own_run(self, token: str) -> None:
+        """Stop ONLY the Run this capability started (spec 2026-09-28 run isolation, §4).
+
+        WHY not `cancel_active`: that sweep stops every Run this Client owns, and it is the
+        OWNER's tool — an interrupt or a shutdown. One Run that cannot continue is not a
+        reason to kill healthy siblings (incident 2026-09-01, OME-1071).
+        Best-effort, like the sweep: a failed stop is logged and must not mask the Run's
+        own error. The capability leaves the registry first, so a later owner sweep does
+        not stop it a second time.
+        """
+        with self._active_lock:
+            self._active_tokens.discard(token)
         try:
-            self.cancel_active()
+            _stop_sync(self._http, token)
         except Exception as stop_error:  # noqa: BLE001 - see the WHY above
-            _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
+            _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
 
     def _remint_after_challenge(self, minted: list[str], trace: TraceContext) -> None:
         """Refresh Access auth and mint a fresh capability after a WS challenge.
 
-        WHY a NEW capability rather than the one in hand: its iat window is 60s and the
-        re-login can take minutes — see the async twin's inline comment.
+        Only BEFORE the Run starts: the capability in hand has not started anything yet,
+        so replacing it is free. WHY replace it at all: a re-authentication can take
+        minutes and the challenge may predate the last mint; a fresh capability keeps the
+        start independent of how long the login took. AIDEV-NOTE: the 60 s iat window that
+        first motivated this is gone (OME-1018); `test_an_access_challenge_retries_with_a_
+        freshly_minted_capability` still pins the pre-start remint.
         """
         self._caller_auth.reauthenticate()
         minted.append(_mint_sync(self._http, trace=trace))
@@ -297,8 +418,10 @@ class Url4CloudTransport:
     def cancel_active(self) -> None:
         """Stop every run currently owned by this synchronous Client."""
 
-        self._aborted = True
+        # WHY inside the lock: a Run starting between the flag and the snapshot could clear
+        # the flag (`_end_finished_abort`) for an abort that is only now taking effect.
         with self._active_lock:
+            self._aborted = True
             tokens = tuple(self._active_tokens)
         if not tokens:
             return
@@ -315,12 +438,20 @@ class Url4CloudTransport:
         if errors:
             raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
+    def _settled(self, step: _LifecycleStep, minted: list[str]) -> _RunOutcome | None:
+        """The Run's outcome if this step completed it — its capabilities retired first."""
+        if step.outcome is not None:
+            self._retire(minted)
+        return step.outcome
+
     def _run_connected(
         self,
         websocket: SyncConnection,
         lifecycle: _Lifecycle,
         on_event: SyncEventCallback | None,
+        minted: list[str],
     ) -> _RunOutcome:
+        outcome: _RunOutcome | None = None
         try:
             while True:
                 try:
@@ -331,13 +462,20 @@ class Url4CloudTransport:
                 if step.command is not None:
                     websocket.send(step.command)
                     continue
+                # INVARIANT (spec 2026-09-28 run isolation, 4.2): once the terminal frame is
+                # accepted the Run is complete, and `_settled` retires its capabilities NOW —
+                # before the caller's callback for this frame, the socket close and the
+                # artifact fetch — so no stop, own or owner sweep, can reach a finished Run.
+                outcome = self._settled(step, minted)
                 if step.event is not None and on_event is not None:
                     _observe_sync(on_event, step.event)
-                if step.outcome is not None:
-                    return step.outcome
-        # WHY: interruption must stop otherwise-invisible paid work.
+                if outcome is not None:
+                    return outcome
+        # WHY: interruption must stop otherwise-invisible paid work — but a complete Run is
+        # not running, so a callback that raises on its terminal frame sends no stop.
         except BaseException as exc:
-            _record_stop_failure(exc, _try_send_sync(websocket, lifecycle.stop()))
+            if outcome is None:
+                _record_stop_failure(exc, _try_send_sync(websocket, lifecycle.stop()))
             raise
 
     def close(self) -> None:
@@ -366,6 +504,7 @@ class AsyncUrl4CloudTransport:
         *,
         reconnect_budget_s: float = _RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = _RECONNECT_BASE_DELAY_S,
+        admission_budget_s: float = _ADMISSION_BUDGET_S,
     ) -> None:
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
@@ -383,11 +522,35 @@ class AsyncUrl4CloudTransport:
         # Test-only seams; production callers leave the defaults (spec §6 S3).
         self._reconnect_budget_s = reconnect_budget_s
         self._reconnect_base_delay_s = reconnect_base_delay_s
+        self._admission_budget_s = admission_budget_s
         # Set by `cancel_active`: once the OWNER has aborted, reconnecting is pointless —
-        # the sweep already stopped every Run this client owns. One loop per instance;
-        # plain bool, no lock (see the class INVARIANT above).
-        self._aborted = False
+        # the sweep already stopped every Run this client owns. Cleared as in the sync
+        # twin; an Event for the same reason. One loop per instance, no lock (class
+        # INVARIANT). AIDEV-NOTE: imported by name, not via `asyncio.`, because tests
+        # replace this module's `asyncio` with a namespace of `sleep` and `wait_for` only.
+        self._abort = _AsyncEvent()
         self._active_tokens: set[str] = set()
+        # In-flight `run()` calls; see the sync twin (spec 4.3).
+        self._running = 0
+
+    @property
+    def _aborted(self) -> bool:
+        return self._abort.is_set()
+
+    @_aborted.setter
+    def _aborted(self, value: bool) -> None:
+        if value:
+            self._abort.set()
+        else:
+            self._abort.clear()
+
+    async def _wait_unless_aborted(self, delay: float) -> bool:
+        """Wait `delay` seconds; True at once if the owner aborts meanwhile (spec B3)."""
+        try:
+            await asyncio.wait_for(self._abort.wait(), timeout=delay)
+        except TimeoutError:
+            return False
+        return True
 
     async def cancel_active(self) -> None:
         """Stop every Run currently owned by this asynchronous Client."""
@@ -420,7 +583,9 @@ class AsyncUrl4CloudTransport:
         # INVARIANT (OME-967): see the sync twin — the trace precedes the first call.
         trace = new_trace_context()
         minted = [await _mint_async(self._http, trace=trace)]
+        self._end_finished_abort()
         self._active_tokens.add(minted[0])
+        self._running += 1
         cancelled = False
         started = time.monotonic()
         lifecycle = _Lifecycle(candidate)
@@ -447,8 +612,18 @@ class AsyncUrl4CloudTransport:
         except (WebSocketException, OSError, TimeoutError) as exc:
             raise _disconnected(exc, time.monotonic() - started) from exc
         finally:
+            self._running -= 1
             if not cancelled:
-                self._active_tokens.difference_update(minted)
+                self._retire(minted)
+
+    def _retire(self, minted: list[str]) -> None:
+        """Async twin of the sync `_retire`; no lock (class INVARIANT)."""
+        self._active_tokens.difference_update(minted)
+
+    def _end_finished_abort(self) -> None:
+        """Async twin of the sync `_end_finished_abort` (spec B1); no lock (class INVARIANT)."""
+        if self._running == 0:
+            self._aborted = False
 
     async def _run_reconnecting(
         self,
@@ -473,6 +648,7 @@ class AsyncUrl4CloudTransport:
                     },
                     open_timeout=30,
                     close_timeout=10,
+                    ping_interval=_KEEPALIVE_PING_S,
                     max_size=_MAX_FRAME_BYTES,
                     ssl=self._ssl,
                 ) as websocket:
@@ -485,40 +661,70 @@ class AsyncUrl4CloudTransport:
                             candidate.url4,
                             trace=trace,
                             answer_seed=candidate.answer_seed,
+                            admission=_new_admission(
+                                self._admission_budget_s, self._reconnect_base_delay_s
+                            ),
+                            on_event=on_event,
+                            wait=self._wait_unless_aborted,
                         )
                         run_started = True
                     else:
                         await websocket.send(lifecycle.resume_attach())
+                        _notify_connection(on_event, "reconnected")
                     recovery.connected(time.monotonic())
-                    outcome = await self._run_connected(websocket, lifecycle, on_event)
+                    outcome = await self._run_connected(websocket, lifecycle, on_event, minted)
                 # FEATURE OME-892: redeem outside the socket scope — see the sync twin.
                 return await _materialize_async(self._http, outcome)
             except InvalidStatus as exc:
-                await self._on_handshake_rejection(exc, minted, run_started, trace)
-                recovery.attempts += 1
-                continue
+                if run_started and _is_transient_rejection(exc):
+                    await self._back_off(recovery, exc, started, on_event, minted[-1])
+                else:
+                    await self._on_handshake_rejection(exc, minted, run_started, trace, recovery)
+                    recovery.attempts += 1
             except (WebSocketException, OSError, TimeoutError) as exc:
-                deadline = recovery.failed(time.monotonic())
-                recovery.attempts = await self._on_stream_failure(
-                    exc, recovery.attempts, deadline, started
-                )
-                continue
+                await self._back_off(recovery, exc, started, on_event, minted[-1])
+
+    async def _back_off(
+        self,
+        recovery: _RecoveryWindow,
+        exc: WebSocketException | OSError | TimeoutError,
+        started: float,
+        on_event: AsyncEventCallback | None,
+        token: str,
+    ) -> None:
+        """Async twin of the sync `_back_off`."""
+        deadline = recovery.failed(time.monotonic())
+        recovery.attempts = await self._on_stream_failure(
+            exc, recovery.attempts, deadline, started, token
+        )
+        _notify_connection(on_event, "reconnecting", recovery.attempts)
 
     async def _on_handshake_rejection(
-        self, exc: InvalidStatus, minted: list[str], run_started: bool, trace: TraceContext
+        self,
+        exc: InvalidStatus,
+        minted: list[str],
+        run_started: bool,
+        trace: TraceContext,
+        recovery: _RecoveryWindow,
     ) -> None:
         """Async twin of the sync handshake classification — see its docstring (D5, G3)."""
         if _is_access_websocket_rejection(exc):
-            await self._caller_auth.reauthenticate_async()
-            # WHY a NEW capability rather than the one already in hand: a
-            # re-authentication can take minutes, and the challenge may predate the
-            # last mint. Minting is unauthenticated and per-Run, so replacing the
-            # token is cheaper than widening any window.
-            minted.append(await _mint_async(self._http, trace=trace))
-            self._active_tokens.add(minted[-1])
-            return
+            if not run_started:
+                await self._caller_auth.reauthenticate_async()
+                # WHY a NEW capability before the start: see the sync `_remint_after_challenge`.
+                minted.append(await _mint_async(self._http, trace=trace))
+                self._active_tokens.add(minted[-1])
+                return
+            # INVARIANT (spec 2026-09-28 F1): see the sync twin — the SAME capability, and a
+            # re-login bounded by the outage budget and the challenge cap.
+            allowed_s = recovery.admit_challenge(time.monotonic())
+            if allowed_s is not None:
+                await self._caller_auth.reauthenticate_async(timeout=allowed_s)
+                return
+            _logger.warning("SF Engine reconnect re-login limit reached; stopping the Run")
         if run_started:
-            await self._sweep_after_disconnect()
+            # INVARIANT (spec 2026-09-28 run isolation, C2): see the sync twin.
+            await self._stop_own_run(minted[-1])
         raise exc
 
     async def _on_stream_failure(
@@ -527,12 +733,13 @@ class AsyncUrl4CloudTransport:
         attempts: int,
         budget_deadline: float,
         started: float,
+        token: str,
     ) -> int:
         """Async twin of the sync backoff/terminal decision — see its docstring."""
         if self._aborted or time.monotonic() >= budget_deadline:
             if not self._aborted:
-                _logger.warning("SF Engine reconnect budget exhausted; stopping Runs")
-                await self._sweep_after_disconnect()
+                _logger.warning("SF Engine reconnect budget exhausted; stopping the Run")
+                await self._sweep_after_disconnect(token)
             raise _disconnected(exc, time.monotonic() - started) from exc
         delay = _reconnect_delay(attempts, self._reconnect_base_delay_s)
         _logger.warning(
@@ -543,23 +750,32 @@ class AsyncUrl4CloudTransport:
         await asyncio.sleep(delay)
         return attempts + 1
 
-    async def _sweep_after_disconnect(self) -> None:
-        """Stop every Run this client owns after a reconnect gives up (G3, OME-1020).
+    async def _sweep_after_disconnect(self, token: str) -> None:
+        """Async twin of the sync `_sweep_after_disconnect`: THIS Run only (C3)."""
+        await self._stop_own_run(token)
 
-        Best-effort: a failed sweep must not mask the disconnect itself — the sweep's own
-        failure is logged, not raised.
-        """
+    async def _stop_own_run(self, token: str) -> None:
+        """Async twin of the sync `_stop_own_run` — this Run only, best-effort."""
+        self._active_tokens.discard(token)
         try:
-            await self.cancel_active()
-        except Exception as stop_error:  # noqa: BLE001 - see the WHY above
-            _logger.warning("Stopping active SF Engine runs also failed: %s", stop_error)
+            await _stop_async(self._http, token)
+        except Exception as stop_error:  # noqa: BLE001 - see the sync twin
+            _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
+
+    def _settled(self, step: _LifecycleStep, minted: list[str]) -> _RunOutcome | None:
+        """The Run's outcome if this step completed it — its capabilities retired first."""
+        if step.outcome is not None:
+            self._retire(minted)
+        return step.outcome
 
     async def _run_connected(
         self,
         websocket: AsyncClientConnection,
         lifecycle: _Lifecycle,
         on_event: AsyncEventCallback | None,
+        minted: list[str],
     ) -> _RunOutcome:
+        outcome: _RunOutcome | None = None
         try:
             while True:
                 try:
@@ -573,14 +789,18 @@ class AsyncUrl4CloudTransport:
                 if step.command is not None:
                     await websocket.send(step.command)
                     continue
+                # INVARIANT (spec 4.2): see the sync twin. This also keeps a completed Run off
+                # the list a CANCELLED Run leaves behind for the sweep.
+                outcome = self._settled(step, minted)
                 if step.event is not None and on_event is not None:
                     await _observe_async(on_event, step.event)
-                if step.outcome is not None:
-                    return step.outcome
-        # WHY: cancellation must stop otherwise-invisible paid work.
+                if outcome is not None:
+                    return outcome
+        # WHY: cancellation must stop otherwise-invisible paid work — not a complete Run.
         except BaseException as exc:
-            stop_error = await _try_send_async(websocket, lifecycle.stop())
-            _record_stop_failure(exc, stop_error)
+            if outcome is None:
+                stop_error = await _try_send_async(websocket, lifecycle.stop())
+                _record_stop_failure(exc, stop_error)
             raise
 
     async def close(self) -> None:
@@ -607,6 +827,24 @@ async def _observe_async(callback: AsyncEventCallback, event: Event) -> None:
     # WHY: preserve arbitrary application callback errors and cancellation without translation.
     except BaseException as exc:
         raise _ObserverRaised(exc) from exc
+
+
+def _notify_connection(
+    on_event: object, state: _ConnectionState, attempt: int | None = None
+) -> None:
+    """Tell the built-in progress output about one reconnect step (spec 2026-09-28 R4).
+
+    Sent after the backoff sleep, right before the connect it announces, so the line reads
+    true: attempt n is under way. A plain `on_event` function is not a listener and gets
+    nothing — the public Event stream is unchanged.
+    """
+    if not isinstance(on_event, _ConnectionListener):
+        return
+    try:
+        on_event.connection(_ConnectionNotice(state=state, attempt=attempt))
+    # WHY: progress is decorative; a renderer defect must never end a paid Run.
+    except Exception:  # noqa: BLE001 - see the WHY above
+        _logger.warning("ScreamingFace progress could not show a reconnect step", exc_info=True)
 
 
 def _event_stream_timeout() -> ExecutionError:
@@ -672,7 +910,41 @@ def _start_sync(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    admission: _AdmissionWait | None = None,
+    on_event: object = None,
+    wait: Callable[[float], bool] | None = None,
 ) -> None:
+    """Start the Run; while the Engine has no free capacity (503), wait and send it again.
+
+    FEATURE OME-1066: a 503 on start schedules nothing (spec 2026-09-28 E3), so the SAME
+    start is re-sent after the Engine's `Retry-After`, inside one bounded budget. `wait`
+    returns True when the owner aborted meanwhile — then the start is never re-sent (B3).
+    AIDEV-NOTE: the defaults keep the old call shape (`_start_sync(http, token, url4)`)
+    valid for direct callers; the transport always passes all three.
+    """
+    admission = admission or _new_admission(_ADMISSION_BUDGET_S, _RECONNECT_BASE_DELAY_S)
+    wait = wait or _sleep_unaborted
+    trace_id = trace.trace_id if trace else None
+    while True:
+        response = _send_start_sync(http, token, url4, trace=trace, answer_seed=answer_seed)
+        delay = _readmission_delay(response, admission, trace_id)
+        if delay is None:
+            break
+        _notify_connection(on_event, "waiting_for_capacity", admission.attempts)
+        if wait(delay):
+            raise _start_abandoned(trace_id)
+    _finish_start(response, admission, on_event, trace_id)
+
+
+def _send_start_sync(
+    http: httpx.Client,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None,
+    answer_seed: int | None,
+) -> httpx.Response:
+    """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             time.sleep(delay)
@@ -695,7 +967,126 @@ def _start_sync(
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response, trace_id=trace.trace_id if trace else None)
+    return response
+
+
+# The Engine's answer when it did not admit a start (OME-1091, #1098) — and ONLY this status
+# means "not admitted": another 5xx keeps failing at once (OME-1066 acceptance).
+_NOT_ADMITTED = 503
+
+
+def _is_engine_refusal(response: httpx.Response) -> bool:
+    """A 503 the ENGINE wrote: RFC 9457 problem+json carrying `Retry-After`.
+
+    INVARIANT (review fix 1): only the Engine's own refusal proves nothing was scheduled
+    (spec E3). An edge proxy's 503 (Envoy "reset before headers", an HTML page) may hide a
+    start the Engine took, so it is not re-sent — it stays today's fatal error.
+    """
+    media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
+    return (
+        response.status_code == _NOT_ADMITTED
+        and media_type == "application/problem+json"
+        and "retry-after" in response.headers
+    )
+
+
+def _readmission_delay(
+    response: httpx.Response, admission: _AdmissionWait, trace_id: str | None
+) -> float | None:
+    """Seconds to wait before re-sending the start, or None when `response` ends the loop.
+
+    Raises the not-admitted error once the budget is spent. Shared by both twins.
+    """
+    if not _is_engine_refusal(response):
+        return None
+    delay = admission.next_delay(response, now=time.monotonic())
+    if delay is None:
+        raise _not_admitted(response, admission.waited_s(now=time.monotonic()), trace_id)
+    return delay
+
+
+def _finish_start(
+    response: httpx.Response,
+    admission: _AdmissionWait,
+    on_event: object,
+    trace_id: str | None,
+) -> None:
+    """Accept the start's final answer, and tell the progress output it was admitted.
+
+    INVARIANT (review fix 1): after a re-send, `409 a run already exists` is THIS Run. One
+    capability names one topic, so the only run there is one that an earlier attempt
+    scheduled although its answer was a refusal (a queue-unavailable 503 after a publish
+    whose ack was lost). Raising here would drop the capability unstopped and leave a paid
+    Run with no reader; the WebSocket is already attached to its topic, so read it instead.
+    """
+    if not (admission.attempts and response.status_code == 409):
+        _accepted(response, trace_id=trace_id)
+    if admission.attempts:
+        _notify_connection(on_event, "admitted")
+
+
+def _new_admission(budget_s: float, base_delay_s: float) -> _AdmissionWait:
+    """The ONE place a start's capacity wait is set up (both twins, and direct callers).
+
+    The floor and the fallback backoff reuse the reconnect pacing: the same full-jitter
+    helper, so a start and a reconnect back off alike.
+    """
+    return _AdmissionWait(
+        budget_s=budget_s,
+        floor_s=base_delay_s,
+        backoff=lambda attempt: _reconnect_delay(attempt, base_delay_s),
+    )
+
+
+def _sleep_unaborted(delay: float) -> bool:
+    time.sleep(delay)
+    return False
+
+
+async def _sleep_unaborted_async(delay: float) -> bool:
+    await asyncio.sleep(delay)
+    return False
+
+
+def _not_admitted(
+    response: httpx.Response, waited_s: float, trace_id: str | None
+) -> ExecutionError:
+    """The Engine kept refusing the start until the budget ran out (OME-1066).
+
+    INVARIANT: a capacity refusal names Engine capacity — not a generic transport failure —
+    so a researcher knows that waiting (or fewer Candidates at once) is the remedy. Any
+    other refusal (a run-queue outage, #1098) says what the Engine said and nothing more.
+    """
+    detail, _code, problem = _problem_parts(response)
+    if "capacity" in detail.casefold():
+        return ExecutionError(
+            f"SF Engine run capacity stayed full for {waited_s:.0f} s, so the Run did not "
+            f"start: {detail}",
+            code="engine_at_capacity",
+            status=response.status_code,
+            permanent=False,
+            details=problem,
+            hint="The Engine is busy with other Runs. Retry later, or evaluate fewer "
+            "Candidates at once.",
+            trace_id=trace_id,
+        )
+    return ExecutionError(
+        f"SF Engine did not admit the Run for {waited_s:.0f} s: {detail}",
+        code="engine_not_admitted",
+        status=response.status_code,
+        permanent=False,
+        details=problem,
+        hint="The Engine could not queue the Run. Retry later.",
+        trace_id=trace_id,
+    )
+
+
+def _start_abandoned(trace_id: str | None) -> ExecutionError:
+    return ExecutionError(
+        "SF Engine Run start was abandoned because the Client stopped its Runs",
+        code="run_aborted",
+        trace_id=trace_id,
+    )
 
 
 def _stop_sync(http: httpx.Client, token: str) -> None:
@@ -750,7 +1141,34 @@ async def _start_async(
     *,
     trace: TraceContext | None = None,
     answer_seed: int | None = None,
+    admission: _AdmissionWait | None = None,
+    on_event: object = None,
+    wait: Callable[[float], Awaitable[bool]] | None = None,
 ) -> None:
+    """Async twin of `_start_sync` — the same capacity wait (OME-1066)."""
+    admission = admission or _new_admission(_ADMISSION_BUDGET_S, _RECONNECT_BASE_DELAY_S)
+    wait = wait or _sleep_unaborted_async
+    trace_id = trace.trace_id if trace else None
+    while True:
+        response = await _send_start_async(http, token, url4, trace=trace, answer_seed=answer_seed)
+        delay = _readmission_delay(response, admission, trace_id)
+        if delay is None:
+            break
+        _notify_connection(on_event, "waiting_for_capacity", admission.attempts)
+        if await wait(delay):
+            raise _start_abandoned(trace_id)
+    _finish_start(response, admission, on_event, trace_id)
+
+
+async def _send_start_async(
+    http: httpx.AsyncClient,
+    token: str,
+    url4: str,
+    *,
+    trace: TraceContext | None,
+    answer_seed: int | None,
+) -> httpx.Response:
+    """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
         if delay:
             await asyncio.sleep(delay)
@@ -773,7 +1191,7 @@ async def _start_async(
             ) from exc
         if not _attachment_is_still_registering(response):
             break
-    _accepted(response, trace_id=trace.trace_id if trace else None)
+    return response
 
 
 def _answer_seed_header(answer_seed: int | None) -> dict[str, str]:
@@ -992,20 +1410,7 @@ def _raise_response(
     # here — mint, start, stop, artifact. A pre-first-frame failure is far more often an
     # Engine problem+json than an httpx transport error, so attaching the id only on the
     # transport branch would miss the common case.
-    code: str | None = None
-    problem: object = None
-    detail = _body_summary(response)
-    media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
-    if media_type == "application/problem+json":
-        try:
-            problem = response.json()
-        except ValueError:
-            problem = None
-        if isinstance(problem, dict):
-            if isinstance(problem.get("detail"), str):
-                detail = problem["detail"]
-            if isinstance(problem.get("type"), str):
-                code = problem["type"]
+    detail, code, details = _problem_parts(response)
     exception = AuthenticationError if response.status_code in {401, 403} else ExecutionError
     if exception is AuthenticationError:
         raise AuthenticationError(
@@ -1013,7 +1418,7 @@ def _raise_response(
             code=code,
             status=response.status_code,
             permanent=True,
-            details=problem if media_type == "application/problem+json" else None,
+            details=details,
             trace_id=trace_id,
         )
     raise ExecutionError(
@@ -1021,9 +1426,29 @@ def _raise_response(
         code=code,
         status=response.status_code,
         permanent=response.status_code < 500,
-        details=problem if media_type == "application/problem+json" else None,
+        details=details,
         trace_id=trace_id,
     )
+
+
+def _problem_parts(response: httpx.Response) -> tuple[str, str | None, object]:
+    """A failed response's (detail, code, details): the Engine's RFC 9457 fields, if any."""
+    code: str | None = None
+    problem: object = None
+    detail = _body_summary(response)
+    media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
+    if media_type != "application/problem+json":
+        return detail, code, None
+    try:
+        problem = response.json()
+    except ValueError:
+        problem = None
+    if isinstance(problem, dict):
+        if isinstance(problem.get("detail"), str):
+            detail = problem["detail"]
+        if isinstance(problem.get("type"), str):
+            code = problem["type"]
+    return detail, code, problem
 
 
 def _websocket_ssl_context(engine_url: str) -> ssl.SSLContext | None:
@@ -1069,6 +1494,22 @@ def _trace_headers(trace: TraceContext | None) -> dict[str, str]:
 
 def _http_origin(http: httpx.Client | httpx.AsyncClient) -> str:
     return str(http.base_url).rstrip("/")
+
+
+def _is_transient_rejection(error: InvalidStatus) -> bool:
+    """A handshake refusal from the edge or a restarting App, not from the credentials.
+
+    WHY (spec 2026-08-26 §6 S3, "connect refused / 5xx / timeout -> BACKOFF"): while the
+    App restarts, the edge answers the reconnect with 502/503. Treating that as FATAL
+    swept every Run at exactly the moment the reconnect loop exists for.
+    WHY `_RETRYABLE_STATUS` and not ">= 500": the reconnect crosses the same Cloudflare
+    edge as the HTTP calls, so the same set applies (502-504, 520-524, 408, 429); 501/505
+    say the server cannot speak the protocol, and waiting does not change that.
+    WHY `Retry-After` is ignored here: the full-jitter backoff is already bounded by the
+    outage budget, which must stay inside the engine's 120 s reaper grace — obeying a
+    longer server hint would only let the reaper win.
+    """
+    return error.response.status_code in _RETRYABLE_STATUS
 
 
 def _is_access_websocket_rejection(error: InvalidStatus) -> bool:

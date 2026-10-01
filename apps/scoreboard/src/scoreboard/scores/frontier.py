@@ -1,101 +1,272 @@
-"""Open/closed frontier computation (OME-323, spec §5/§6).
+"""The open share of the cost/score Pareto frontier (OME-1145, contract from OME-1179).
 
-Pure function, no I/O — takes already-fetched schemas so it's directly
-unit-testable without a DB.
+FEATURE: the "N% open" card on a benchmark page: of the entries the table marks as best score for
+the money, how many can someone else run end to end on downloadable weights.
+
+Pure functions, no I/O. The route supplies the ranked table's own inputs, so the card and the
+table's Pareto marks are one definition (D-L).
+
+WHY this replaced OME-323's statistic: that one counted every row, Baselines included, across
+every benchmark revision, and traced a score-only "who holds the top" trend. The owner superseded
+it on 2026-09-10 (D-L, D-N): the frontier is cost/score, the unit is the entry (D1), and the trend
+is the open share over time.
+
+AIDEV-NOTE: the frontier itself comes from `pareto.py`, never re-derived here. Two copies of the
+domination rule would drift, and the card would then disagree with the table's marks.
 """
 
 from __future__ import annotations
 
-from scoreboard.classification.openness import classify_baseline, classify_score
+import logging
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from decimal import Decimal
 
-from .schemas import BaselineSchema, FrontierPoint, FrontierResult, ScoreSchema
+from scoreboard.classification.openness import EntryVerdict, Openness, classify_entry
+
+from .pareto import ParetoEntry, compute_pareto_frontier_ids
+from .schemas import FrontierPoint, FrontierResult
+
+# D-T (owner, 2026-09-25): the routes are already public in `url4_expression`; the cap only bounds
+# the response when a registry is badly out of date.
+MAX_UNRECOGNISED_MODELS = 20
+
+logger = logging.getLogger(__name__)
 
 
-def _current_split(
-    scores: list[ScoreSchema], baselines: list[BaselineSchema]
-) -> tuple[int, int, float]:
-    """`open_count`/`closed_count`/`open_share` over ALL rows, Scores and Baselines
-    together — the "how much of the frontier is open right now" number."""
-    openness_calls = [classify_score(score) for score in scores]
-    openness_calls += [classify_baseline(baseline) for baseline in baselines]
-    open_count = sum(1 for openness in openness_calls if openness == "open")
-    closed_count = len(openness_calls) - open_count
-    total = open_count + closed_count
-    open_share = open_count / total if total else 0.0
-    return open_count, closed_count, open_share
+@dataclass(frozen=True)
+class HistoryRow:
+    """One comparable submission, for replaying the frontier as it stood over time."""
+
+    source_id: str
+    spec_id: str
+    score: float
+    run_cost_usd: Decimal | None
+    submitted_at: datetime
+    enriched_at: datetime | None = None
+
+    @property
+    def effective_at(self) -> datetime:
+        """When the row's CURRENT values first existed (review round 3, 2026-09-29).
+
+        WHY: a replay can fill a stored row's cost or models later. The trend replays current
+        values, so placing the row at `submitted_at` would show an enrichment on a day before it
+        happened. The later of the two times is the first moment the row looked like this.
+        """
+        if self.enriched_at is None:
+            return self.submitted_at
+        return max(self.submitted_at, self.enriched_at)
 
 
-def _compute_trend(scores: list[ScoreSchema]) -> tuple[FrontierPoint | None, list[FrontierPoint]]:
-    """Walks Score rows ONLY, ordered by `submitted_at`. A Baseline's `imported_at`
-    isn't a trustworthy real-world timestamp, so a Baseline never enters this walk
-    at all — not merely "excluded from the printed list". The holder advances only
-    on a strict score improvement — an exact tie leaves the existing holder in
-    place (spec §6's tie-breaking resolution).
+@dataclass(frozen=True)
+class FrontierMember:
+    """What classifying one frontier entry needs, and nothing else (OME-1179 constraint 4)."""
+
+    source_id: str
+    models: tuple[str, ...] | None
+    openness_override: Openness | None
+
+
+@dataclass(frozen=True)
+class _Split:
+    open_count: int
+    closed_count: int
+    unidentified_count: int
+    unrecognised: frozenset[str]
+
+    @property
+    def open_share(self) -> float | None:
+        classified = self.open_count + self.closed_count
+        return self.open_count / classified if classified else None
+
+
+_Verdict = tuple[EntryVerdict, tuple[str, ...]]
+
+
+def classify_members(members: Mapping[str, FrontierMember]) -> dict[str, _Verdict]:
+    """Classify every member ONCE (review round 1, 2026-09-26), and log the misses together.
+
+    Shared by the "N% open" card and the table's per-row verdict, so the two cannot disagree and
+    neither can log per route.
+
+    WHY: the trend visits the same members at every step. Classifying per visit repeated the
+    work and logged each unrecognised route once per step, a log flood a crafted board could
+    drive. Each member is now classified once per request, and the misses are logged together.
     """
-    trend: list[FrontierPoint] = []
-    current: FrontierPoint | None = None
-    for score in sorted(scores, key=lambda s: s.submitted_at):
-        if current is not None and score.score <= current.score:
-            continue
-        current = FrontierPoint(
-            at=score.submitted_at,
-            score=score.score,
-            openness=classify_score(score),
-            holder="score",
-            label=score.spec_id,
+    verdicts: dict[str, _Verdict] = {
+        source_id: classify_entry(member.models, member.openness_override)
+        for source_id, member in members.items()
+    }
+    _log_unrecognised(verdicts)
+    return verdicts
+
+
+def _log_unrecognised(verdicts: Mapping[str, _Verdict]) -> None:
+    """ONE bounded warning per request for every route the registry did not recognise.
+
+    INVARIANT (review round 3, 2026-09-29): the log volume of a public read does not grow with the
+    board. `classify_entry` is silent; this line carries the count and a capped, sorted sample.
+    WHY keep a log at all: a miss is a model the registry does not know yet, quietly understating
+    "open" until someone updates the list.
+    """
+    unknown = sorted({route for _, routes in verdicts.values() for route in routes})
+    if unknown:
+        logger.warning(
+            "%d unrecognized model routes for openness classification, first %d: %r",
+            len(unknown),
+            min(len(unknown), MAX_UNRECOGNISED_MODELS),
+            unknown[:MAX_UNRECOGNISED_MODELS],
         )
-        trend.append(current)
-    return current, trend
 
 
-def _comparable(scores: list[ScoreSchema], registered_case_count: int | None) -> list[ScoreSchema]:
-    """Drop runs that covered fewer cases than the benchmark defines (OME-1056).
+def _split(ids: frozenset[str], verdicts: Mapping[str, _Verdict]) -> _Split:
+    open_count = closed_count = unidentified_count = 0
+    unrecognised: set[str] = set()
+    for source_id in ids:
+        # A frontier row the models read did not return says nothing about what it ran:
+        # unidentified, never guessed.
+        verdict, unknown = verdicts.get(source_id, ("unidentified", ()))
+        unrecognised.update(unknown)
+        if verdict == "open":
+            open_count += 1
+        elif verdict == "closed":
+            closed_count += 1
+        else:
+            unidentified_count += 1
+    return _Split(open_count, closed_count, unidentified_count, frozenset(unrecognised))
 
-    INVARIANT: the same rule the RANKING applies, applied here too. It lived only in
-    `_build_leaderboard_query`, so a one-case run scoring 1.0 was hidden from the table while
-    this frontier still published it — on the same page, from the same benchmark. A partial run
-    is advantaged rather than merely admitted, because fewer cases makes a perfect score easier.
 
-    WHY it matters more here than in the ranking: `_compute_trend` advances the holder only on a
-    STRICT improvement, so a partial 1.0 becomes `current` and no complete run — 0.99, anything
-    short of a tie-break — can ever displace it. The table's version of this bug is a wrong row
-    ordering; this one is permanent.
+@dataclass(frozen=True)
+class FrontierReplay:
+    """The frontier as it stood at the end of each UTC day that had submissions.
 
-    `None` means the board has no registered count, so nothing is comparable-or-not and every row
-    stands, exactly as before this change.
+    Built once per request by `replay_frontier` and shared by `frontier_member_ids` and the trend.
+
+    WHY daily (review round 1, owner 2026-09-26): the first version recomputed the whole frontier
+    after EVERY submission, on a public endpoint, twice per request. With spec ids client-chosen,
+    every row can stay non-dominated, so the cost was O(n * m log m): 2,000 crafted rows took about
+    7 s per request before any database work. Recomputing once per day with submissions costs
+    O(days * m log m). A burst of any size within one day is one step, and a submitter cannot
+    create days.
     """
-    if registered_case_count is None:
-        return scores
-    return [score for score in scores if score.total_questions >= registered_case_count]
+
+    steps: tuple[tuple[datetime, frozenset[str]], ...]
+
+    @property
+    def member_ids(self) -> frozenset[str]:
+        ids: set[str] = set()
+        for _, frontier in self.steps:
+            ids |= frontier
+        return frozenset(ids)
 
 
-def compute_frontier(
-    scores: list[ScoreSchema],
-    baselines: list[BaselineSchema],
-    registered_case_count: int | None = None,
+def replay_frontier(history: Sequence[HistoryRow]) -> FrontierReplay:
+    """Replay ``history`` in event order, one frontier per UTC day.
+
+    INVARIANT: best-per-spec exactly as the ranked query collapses it: highest score wins, and on
+    a tie the newer row (`store._build_leaderboard_query`'s `score DESC, submitted_at DESC`). A
+    spec that improved must not count twice on a historical frontier.
+
+    Each step is stamped with the last event of its day, a real event time. A row's event is its
+    `effective_at`: its submission, or its later enrichment by a replay.
+    """
+    best: dict[str, HistoryRow] = {}
+    steps: list[tuple[datetime, frozenset[str]]] = []
+    ordered = sorted(history, key=lambda r: (r.effective_at, r.source_id))
+    for index, row in enumerate(ordered):
+        held = best.get(row.spec_id)
+        # WHY compare `submitted_at` on a tie, not arrival order: rows now arrive by
+        # `effective_at`, so an old row enriched late would otherwise beat a newer submission of
+        # the same score, and the last step would disagree with the table's collapse.
+        if held is None or (row.score, row.submitted_at) >= (held.score, held.submitted_at):
+            best[row.spec_id] = row
+        following = ordered[index + 1] if index + 1 < len(ordered) else None
+        if following is not None and _day(following.effective_at) == _day(row.effective_at):
+            continue
+        frontier = compute_pareto_frontier_ids(
+            [
+                # The revision is fixed by the history read (registered revision only), so one
+                # cohort: the same thing `leaderboard_pareto_inputs` hands the table.
+                ParetoEntry(r.source_id, r.spec_id, None, r.score, r.run_cost_usd)
+                for r in best.values()
+            ]
+        )
+        steps.append((row.effective_at, frontier))
+    return FrontierReplay(tuple(steps))
+
+
+def _day(at: datetime) -> date:
+    return at.astimezone(UTC).date()
+
+
+def frontier_member_ids(
+    current: Sequence[ParetoEntry], replay: FrontierReplay, *, pinned: bool
+) -> frozenset[str]:
+    """Every row that is, or ever was, on the frontier: the only rows whose models are read."""
+    if not pinned:
+        return frozenset()
+    return frozenset(compute_pareto_frontier_ids(current)) | replay.member_ids
+
+
+def _trend(replay: FrontierReplay, verdicts: Mapping[str, _Verdict]) -> list[FrontierPoint]:
+    """A point each day the frontier's open share changed (D-L, daily since review round 1)."""
+    points: list[FrontierPoint] = []
+    last: float | None = None
+    for at, frontier in replay.steps:
+        split = _split(frontier, verdicts)
+        share = split.open_share
+        if share == last and (points or share is None):
+            continue
+        points.append(
+            FrontierPoint(
+                at=at,
+                open_share=share,
+                open_count=split.open_count,
+                closed_count=split.closed_count,
+            )
+        )
+        last = share
+    return points
+
+
+def compute_frontier_openness(
+    current: Sequence[ParetoEntry],
+    replay: FrontierReplay,
+    members: Mapping[str, FrontierMember],
+    *,
+    pinned: bool,
 ) -> FrontierResult:
-    """Two independent passes (spec §6's baseline-timing resolution — deliberately
-    NOT one merged computation): the current open/closed split over all rows
-    (`_current_split`), and the trend over Score rows only (`_compute_trend`).
+    """The open share of the full-board Pareto frontier, and its trend.
 
-    Both passes see only comparable runs — see `_comparable`.
+    ``current`` is exactly what the table's marks are computed from
+    (`leaderboard_pareto_inputs`); ``replay`` is `replay_frontier` over every comparable
+    submission; ``members`` holds the models of every row in `frontier_member_ids`.
 
-    AIDEV-NOTE: `registered_case_count` defaults to None, meaning "rank everything" — the weaker
-    of the two signatures, chosen deliberately. Required is safer and is what
-    `_build_leaderboard_query` does, but seven prior tests call this function and rule 5 makes
-    editing them an owner decision a keyword default does not justify. The realistic regression is
-    someone editing the route, not a second caller appearing, and
-    `test_the_frontier_route_passes_the_registered_case_count` pins that. If a second production
-    caller does appear, make this required and take the seven-site approval then (OME-1056).
+    INVARIANT (D12): ``pinned`` false means the board has no registered revision, and the table
+    makes no frontier claim. Nor does this: `frontier_available` false and no share.
     """
-    scores = _comparable(scores, registered_case_count)
-    open_count, closed_count, open_share = _current_split(scores, baselines)
-    current, trend = _compute_trend(scores)
-
+    if not pinned:
+        return FrontierResult(
+            frontier_available=False,
+            frontier_size=0,
+            open_count=0,
+            closed_count=0,
+            unidentified_count=0,
+            unrecognised_models=[],
+            open_share=None,
+            trend=[],
+        )
+    frontier = compute_pareto_frontier_ids(current)
+    verdicts = classify_members(members)
+    split = _split(frontier, verdicts)
     return FrontierResult(
-        open_count=open_count,
-        closed_count=closed_count,
-        open_share=open_share,
-        current=current,
-        trend=trend,
+        frontier_available=True,
+        frontier_size=len(frontier),
+        open_count=split.open_count,
+        closed_count=split.closed_count,
+        unidentified_count=split.unidentified_count,
+        unrecognised_models=sorted(split.unrecognised)[:MAX_UNRECOGNISED_MODELS],
+        open_share=split.open_share,
+        trend=_trend(replay, verdicts),
     )

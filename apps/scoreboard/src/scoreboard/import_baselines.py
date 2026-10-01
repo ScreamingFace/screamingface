@@ -10,6 +10,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from .config import Settings
 from .db import close_db, init_db
+from .logs import configure as configure_logging
 from .scores.baseline_store import BaselineStore
 from .scores.schemas import BaselineImportRow, BaselineSchema
 
@@ -61,6 +62,8 @@ async def _run(raw_json: str) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    # WHY: the baseline-import Job is its own process and never runs uvicorn (OME-937).
+    configure_logging()
     parser = _build_parser()
     args = parser.parse_args(argv)
     raw_json = args.baselines_json or os.getenv(SEED_BASELINES_ENV, "[]")

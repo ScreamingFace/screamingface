@@ -249,7 +249,10 @@ def _candidate_row_html(row: _CandidateProgress, elapsed: float | None) -> str:
         "timed_out": "Timeout",
         "not_run": "Skipped",
     }[row.status]
-    if row.status == "running" and row.stage is not None:
+    if row.status in {"queued", "running"} and row.connection is not None:
+        # WHY first: while the stream is down, the last stage is stale news.
+        status = escape(row.connection)
+    elif row.status == "running" and row.stage is not None:
         status = escape(row.stage)
     details: list[str] = []
     if row.status == "running" and elapsed is not None:

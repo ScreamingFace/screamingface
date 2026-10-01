@@ -19,6 +19,7 @@ INVARIANTS:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, get_args
 
@@ -33,6 +34,8 @@ from .types import (
     OutputTokenUsage,
     TokenUsage,
     UsageEvidenceStatus,
+    is_valid_cache_observed_at,
+    is_valid_cache_response_model,
 )
 
 if TYPE_CHECKING:  # avoids a circular import with ``session``, which imports this module
@@ -225,6 +228,21 @@ def cache_entry_metadata_from_session(
         return None
 
 
+def _informational(name: str, value: str | None, valid: Callable[[object], bool]) -> str | None:
+    """A stored informational field, or ``None`` when it is absent or fails its check.
+
+    WHY drop rather than raise: the field is informational. A malformed one must not cost the
+    hit its certified price through the S11 fallback, so it is simply not returned — the same
+    answer an older row without the field gives.
+    """
+    if value is None or valid(value):
+        return value
+    # INVARIANT: the NAME only, never the value — a malformed stored string is untrusted and
+    # unbounded, and a log line is not the place to replay it.
+    logger.warning("cache-entry metadata field dropped field=%s", name)
+    return None
+
+
 def cache_reference_from_entry_metadata(meta: CacheEntryMetadata) -> CacheReference:
     """Map a stored block to the hit-path reference (ERD §3.5).
 
@@ -249,6 +267,10 @@ def cache_reference_from_entry_metadata(meta: CacheEntryMetadata) -> CacheRefere
             usage=usage,
             direct_cost=direct_cost,
             provider_latency_ms=meta.provider_latency_ms,
+            response_model=_informational(
+                "response_model", meta.response_model, is_valid_cache_response_model
+            ),
+            observed_at=_informational("observed_at", meta.observed_at, is_valid_cache_observed_at),
         )
     except (ValueError, TypeError) as exc:
         raise CacheEntryMetadataReferenceError(

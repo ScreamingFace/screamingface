@@ -1,9 +1,9 @@
 ---
 ticket: OME-1146
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-09-10
-finished:
+finished: 2026-09-30
 ---
 
 # OME-1146 (part 1) — Rename the Pareto chart

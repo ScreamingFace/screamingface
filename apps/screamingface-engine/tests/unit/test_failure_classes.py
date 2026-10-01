@@ -10,13 +10,13 @@ from __future__ import annotations
 import pytest
 
 from screamingface_engine.benchmarks.contract import DECLARED_FAILURE_CODES
-from screamingface_engine.benchmarks.evaluation import benchmark_unavailable
 from screamingface_engine.benchmarks.failure_classes import (
     UPSTREAM_FALLBACK_CODE,
     benchmark_contract_error,
     benchmark_definition_error,
     judge_failure,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable
 from url4.core.errors import ResolutionError
 
 # INVARIANT: every code a class helper can produce is on the declared list —
@@ -126,7 +126,7 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "polarity_mismatch",
             "missing_answer_asset",
             "missing_target_asset",
-            # spine failure_messages table codes
+            # shared-grading failure_messages table codes
             "missing_case_row",
             "missing_rubric_asset",
             "case_error",

@@ -20,15 +20,15 @@ import json
 
 import pytest
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.draco import grade as agg
-from screamingface_engine.benchmarks.draco.case_evaluation import (
-    bind_case_evaluation,
-    bind_criterion_evaluation,
+from screamingface_engine.benchmarks.draco.case_grade import (
+    build_case_grade,
+    build_criterion_grade,
 )
 from screamingface_engine.benchmarks.draco.records import CASE_SCHEMA, CHECK_SCHEMA
 from screamingface_engine.benchmarks.draco.verdict import SCHEMA as VERDICT_SCHEMA
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 
 
 def _rubric(criterion: str) -> dict[str, object]:
@@ -85,13 +85,13 @@ def _row(criterion: str, *, case: int | None = None, status: str = "MET") -> obj
             "criterion_type": "positive",
             "requirement": f"Requirement {criterion}",
         }
-        return case_execution_payload(
+        return graded_answer_payload(
             case,
             encode_candidate_invocation(f"Answer {case}", "stop", None),
             [
-                bind_case_evaluation(
+                build_case_grade(
                     case,
-                    [bind_criterion_evaluation(case, case_record, check_record, verdicts)],
+                    [build_criterion_grade(case, case_record, check_record, verdicts)],
                 )
             ],
         )

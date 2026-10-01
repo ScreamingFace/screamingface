@@ -1,7 +1,7 @@
-"""The GDPval text board — identity, revision inputs, and the expression contract.
+"""The GDPval text benchmark — identity, revision inputs, and the expression contract.
 
 INVARIANT under test: everything a Candidate's score depends on is folded into the revision, and
-every route carries it. An exam that changed what it asks, how it filters, or who judges — while
+every route carries it. A benchmark that changed what it asks, how it filters, or who judges — while
 keeping its addresses — would silently re-grade published submissions.
 """
 
@@ -11,11 +11,11 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.gdpval.definition import (
     GDPVAL_TEXT,
     TEXT_CASE_COUNT,
-    TEXT_EXAM,
+    TEXT_VARIANT,
 )
-from screamingface_engine.benchmarks.gdpval.exam import exam_revision
-from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL
+from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL
 from screamingface_engine.benchmarks.gdpval.subset import TEXT_SUBSET_TASK_IDS, subset_sha
+from screamingface_engine.benchmarks.gdpval.variant import variant_revision
 from url4 import render
 from url4.core.grammar import parse
 
@@ -26,35 +26,35 @@ _BASE = {
 }
 
 
-def test_the_text_board_is_registered_under_its_id() -> None:
-    """INVARIANT: this board is PUBLIC — dropping it is a leaderboard regression.
+def test_the_text_benchmark_is_registered_under_its_id() -> None:
+    """INVARIANT: this benchmark is PUBLIC — dropping it is a leaderboard regression.
 
-    The shared cross-benchmark tests iterate the registry, so a board deleted from
+    The shared cross-benchmark tests iterate the registry, so a benchmark deleted from
     `builtins.py` stops being iterated and they all still pass (OME-1095). Membership is
-    pinned here, in the board's own module, where a new board costs one line.
+    pinned here, in the benchmark's own module, where a new benchmark costs one line.
     """
 
     assert BUILTIN_BENCHMARKS.get("gdpval-text") is GDPVAL_TEXT
 
 
-def test_the_text_board_links_the_openai_gdpval_dataset() -> None:
+def test_the_text_benchmark_links_the_openai_gdpval_dataset() -> None:
     # WHY the literal: the leaderboard renders this as a clickable target for the public, and
-    # the shared suite can only check that boards sharing a bundle agree on it.
+    # the shared suite can only check that benchmarks sharing a bundle agree on it.
     assert GDPVAL_TEXT.dataset_url == "https://huggingface.co/datasets/openai/gdpval"
 
 
-def test_the_board_serves_the_frozen_selection() -> None:
+def test_the_benchmark_serves_the_frozen_selection() -> None:
     assert TEXT_CASE_COUNT == len(TEXT_SUBSET_TASK_IDS) == 102
     assert GDPVAL_TEXT.case_count == 102
-    assert TEXT_EXAM.case_ids == tuple(range(1, 103))
+    assert TEXT_VARIANT.case_ids == tuple(range(1, 103))
 
 
 def test_every_route_carries_the_revision() -> None:
-    revision = TEXT_EXAM.revision
-    routes = TEXT_EXAM.routes
+    revision = TEXT_VARIANT.revision
+    routes = TEXT_VARIANT.routes
     for route in (
         routes.cases,
-        routes.tasks,
+        routes.judge_requests,
         routes.verdict,
         routes.rubric_evaluation,
         routes.case_evaluation,
@@ -65,28 +65,28 @@ def test_every_route_carries_the_revision() -> None:
 
 
 def test_the_published_revision_matches_its_inputs() -> None:
-    assert TEXT_EXAM.revision == exam_revision(**_BASE)
-    assert GDPVAL_TEXT.revision == TEXT_EXAM.revision
+    assert TEXT_VARIANT.revision == variant_revision(**_BASE)
+    assert GDPVAL_TEXT.revision == TEXT_VARIANT.revision
 
 
 def test_changing_the_selection_changes_the_revision() -> None:
-    assert exam_revision(**{**_BASE, "selection_sha": "different"}) != TEXT_EXAM.revision
+    assert variant_revision(**{**_BASE, "selection_sha": "different"}) != TEXT_VARIANT.revision
 
 
 def test_changing_the_scoring_rule_changes_the_revision() -> None:
-    # INVARIANT: the metric's identity is part of the exam's. Two boards over one answer key that
-    # total it differently must not share an address.
-    assert exam_revision(**{**_BASE, "scoring": "other-mean-v1"}) != TEXT_EXAM.revision
+    # INVARIANT: the metric's identity is part of the benchmark's. Two benchmarks over one answer
+    # key that total it differently must not share an address.
+    assert variant_revision(**{**_BASE, "scoring": "other-mean-v1"}) != TEXT_VARIANT.revision
 
 
 def test_changing_the_protocol_changes_the_revision() -> None:
-    assert exam_revision(**{**_BASE, "protocol_revision": "v2"}) != TEXT_EXAM.revision
+    assert variant_revision(**{**_BASE, "protocol_revision": "v2"}) != TEXT_VARIANT.revision
 
 
 def test_the_expression_parses_and_addresses_this_revision() -> None:
     rendered = render(GDPVAL_TEXT.build(5))
     parse(rendered)
-    assert TEXT_EXAM.revision in rendered
+    assert TEXT_VARIANT.revision in rendered
 
 
 def test_the_expression_nests_the_judge_for_retry() -> None:
@@ -111,7 +111,7 @@ def test_the_judge_route_throttles_thinking_and_doubles_the_verdict_budget() -> 
 def test_a_partial_run_slices_without_changing_the_address() -> None:
     five = render(GDPVAL_TEXT.build(5))
     full = render(GDPVAL_TEXT.build(TEXT_CASE_COUNT))
-    assert TEXT_EXAM.revision in five and TEXT_EXAM.revision in full
+    assert TEXT_VARIANT.revision in five and TEXT_VARIANT.revision in full
     assert five != full
 
 

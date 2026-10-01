@@ -6,28 +6,28 @@ import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks import evaluation, stages
+from screamingface_engine.benchmarks import grading_endpoints, phases
 from screamingface_engine.observations import ModelCall, RunObservations
 from url4.peer.server import Request
 
 
-@pytest.mark.parametrize("factory", ["aggregate", "case_evaluation", "attempt_records"])
+@pytest.mark.parametrize("factory", ["aggregate", "case_grade", "attempt_records"])
 def test_shared_endpoint_emits_without_an_installation_wrapper(monkeypatch, factory):
     records = []
     monkeypatch.setattr(
-        stages,
+        phases,
         "current_log_sink",
         lambda: lambda body, attributes, **kw: records.append(attributes),
     )
     if factory == "aggregate":
-        handler = evaluation.aggregate_endpoint(
+        handler = grading_endpoints.aggregate_endpoint(
             label="example", available_case_count=1, aggregate=lambda rows, count: {"score": 1}
         )
         context, intent, kind = "[]", "aggregate:1", "aggregation"
     else:
-        builder = getattr(evaluation, f"{factory}_endpoint")
+        builder = getattr(grading_endpoints, f"{factory}_endpoint")
         handler = builder(label="example", item_name="record", bind=lambda case, rows: {"score": 1})
-        context = "[{}]" if factory == "case_evaluation" else '{"attempt_1": {}}'
+        context = "[{}]" if factory == "case_grade" else '{"attempt_1": {}}'
         intent, kind = "1", "grading"
     # INVARIANT: neither the handler nor its registration is decorated by the caller.
     with RunObservations((ActivityObserver,)).bind():
@@ -47,11 +47,11 @@ async def test_decorator_covers_awaited_work_and_preserves_parentage(monkeypatch
     def emit(body, attributes=None, **kwargs):
         records.append(attributes)
 
-    monkeypatch.setattr(stages, "current_log_sink", lambda: emit)
+    monkeypatch.setattr(phases, "current_log_sink", lambda: emit)
     error = ValueError("private")
     run = RunObservations((ActivityObserver,))
 
-    @stages.observe_stage(ActivityKind.ANSWERING)
+    @phases.observe_phase(ActivityKind.ANSWERING)
     async def answer():
         async with ModelCall("writer", emit):
             await asyncio.sleep(0)
@@ -70,12 +70,12 @@ async def test_decorator_covers_awaited_work_and_preserves_parentage(monkeypatch
 def test_decorator_observes_shared_vocabulary_without_registration(monkeypatch):
     records = []
     monkeypatch.setattr(
-        stages,
+        phases,
         "current_log_sink",
         lambda: lambda body, attributes, **kw: records.append(attributes),
     )
 
-    @stages.observe_stage(ActivityKind.GRADING)
+    @phases.observe_phase(ActivityKind.GRADING)
     def check():
         return "checked"
 

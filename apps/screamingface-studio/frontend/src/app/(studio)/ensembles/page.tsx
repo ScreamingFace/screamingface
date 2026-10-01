@@ -10,21 +10,38 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useEnsembleStore } from "@/lib/ensemble-store";
-import { PROVIDER_COLORS, useModelStore } from "@/lib/model-store";
+import { useModelStore, useProviders } from "@/lib/model-store";
+import { providerPresentation } from "@/lib/provider-presentation";
+import { describeRecipeKind } from "@/lib/recipe";
+
+const LEGACY_STRATEGY_LABEL = {
+  majority_vote: "Majority Vote",
+  weighted_avg: "Weighted Average",
+  best_of_n: "Best-of-N",
+  merge: "Merge",
+} as const;
 
 export default function EnsemblesPage() {
   const router = useRouter();
   const [importing, setImporting] = useState(false);
   const [importValue, setImportValue] = useState("");
   const [importError, setImportError] = useState("");
-  const hasProviderConnected = useModelStore((state) =>
-    state.providers.some((provider) => provider.connected),
+  const providers = useProviders();
+  const catalogLoad = useModelStore((state) => state.load);
+  const catalog = useModelStore((state) => state.models);
+  const refreshCatalog = useModelStore((state) => state.refresh);
+  const hasProviderConnected = providers.some(
+    (provider) => provider.connected && provider.models.length > 0,
   );
+
+  useEffect(() => {
+    if (catalogLoad === "idle") void refreshCatalog();
+  }, [catalogLoad, refreshCatalog]);
   const ensembles = useEnsembleStore((state) => state.ensembles);
 
   function importRecipe() {
@@ -36,23 +53,25 @@ export default function EnsemblesPage() {
       return;
     }
 
-    const knownModelIds = new Set([
-      "ol-1", "ol-2", "ol-3", "ol-4",
-      "or-1", "or-2", "or-3", "or-4", "or-5", "or-6",
-      "hf-1", "hf-2",
-      "cs-1", "cs-2", "cs-3",
-      "cx-1", "cx-2",
-      "gs-1", "gs-2",
-      "an-1", "an-2", "an-3",
-      "oa-1", "oa-2", "oa-3", "oa-4",
-      "dm-1", "dm-2", "dm-3",
-      "px-1", "px-2", "px-3",
-    ]);
+    if (catalogLoad !== "ready") {
+      setImportError(
+        "The model catalog hasn't loaded. Is the local ScreamingFace runtime running?",
+      );
+      return;
+    }
+    const knownModelIds = new Set(catalog.map((model) => model.id));
     const params = new URLSearchParams(match[2]);
-    const models = (params.get("models") ?? "").split(/[+\s]+/);
+    const models = (params.get("models") ?? "")
+      .split(/[+\s]+/)
+      .filter(Boolean);
+    const unknown = models.filter((model) => !knownModelIds.has(model));
 
-    if (!models.some((model) => knownModelIds.has(model))) {
-      setImportError("No known models found in that url4.");
+    if (models.length === 0) {
+      setImportError("No models found in that url4.");
+      return;
+    }
+    if (unknown.length > 0) {
+      setImportError(`Unknown models: ${unknown.join(", ")}`);
       return;
     }
 
@@ -129,7 +148,7 @@ export default function EnsemblesPage() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") importRecipe();
                 }}
-                placeholder="url4://my-recipe?models=an-1+dm-1&reduce=majority_vote"
+                placeholder="url4://my-recipe?models=anthropic/claude-opus-5+codex/gpt-5&reduce=majority_vote"
                 className="h-9 rounded-lg font-mono text-xs"
               />
               <Button size="sm" onClick={importRecipe}>
@@ -192,14 +211,9 @@ export default function EnsemblesPage() {
                     </h2>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {ensemble.slots.length} models ·{" "}
-                      {
-                        {
-                          majority_vote: "Majority Vote",
-                          weighted_avg: "Weighted Average",
-                          best_of_n: "Best-of-N",
-                          merge: "Merge",
-                        }[ensemble.strategy]
-                      }
+                      {ensemble.root
+                        ? describeRecipeKind(ensemble.root)
+                        : LEGACY_STRATEGY_LABEL[ensemble.strategy]}
                     </p>
                   </div>
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
@@ -211,9 +225,9 @@ export default function EnsemblesPage() {
                         key={slot.id ?? `${slot.model.id}-${index}`}
                         className="size-2 rounded-full"
                         style={{
-                          background:
-                            PROVIDER_COLORS[slot.model.providerId] ??
-                            "var(--primary)",
+                          background: providerPresentation(
+                            slot.model.providerId,
+                          ).color,
                         }}
                       />
                     ))

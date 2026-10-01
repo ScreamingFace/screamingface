@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from screamingface_engine.metrics import Metrics
+from screamingface_engine.readiness import stream_readiness
 from screamingface_engine.schemas import build_asyncapi
 
 router = APIRouter()
@@ -69,9 +70,47 @@ def livez() -> dict[str, str]:
 
 
 @router.get("/readyz", tags=["Ops"], summary="Readiness probe", include_in_schema=False)
-def readyz() -> dict[str, str]:
-    """Readiness probe: reports whether the app is wired and ready to serve."""
-    return {"status": "ready"}
+async def readyz(request: Request) -> Response:
+    """Readiness probe: 200 when this pod's event stream can serve, 503 when it cannot.
+
+    WHY this asks the stream (OME-942): until now it was the literal `{"status": "ready"}`, so
+    the probe could not fail whatever the state of the pod's NATS connection. That defect is
+    established by reading this endpoint and the chart — NO incident is claimed, here or in the
+    ledger. A probe that cannot fail is a constant the operator mistakes for evidence.
+
+    SCOPE, stated exactly (review round 2): this asks `app.state.stream`, the App's JetStream
+    CONSUMER — its frame bridge. The queue runner (`QueueJobRunner`) holds SEPARATE NATS
+    connections (`RunQueue`, `JetStreamPublisher`, `ControlClient`) and is NOT probed. A pod
+    whose runner connections are dead while the consumer's is live therefore still reports
+    ready. That is a deliberate limit, not an oversight: widening the probe widens the blast
+    radius of a broker outage across every endpoint this Service fronts (ledger D7).
+
+    INVARIANT: the rendered `reason` is never adapter- or transport-authored text. It is capped
+    and scrubbed by `stream_readiness`, and the detail is logged server-side — `/readyz` has no
+    auth dependency and the chart routes a single `/` PathPrefix here, so this body is public.
+
+    INVARIANT: readiness only, never liveness — `/livez` above stays broker-blind on purpose.
+    A broker outage must take pods OUT OF ROTATION, not restart every one of them.
+
+    DECISION (ledger D8, owner): readiness gates the COLD START only. The probe asks the stream
+    until the first ready answer, then latches ready for the life of this App and never asks
+    again. WHY: the chart pins the App to ONE replica, so there is nothing to route around — a
+    NATS blip that emptied the Service would 503 every route, including those that need no
+    broker (token mint, catalog REST, `/docs`, artifact GETs). What stays is the rollout gate:
+    a new pod that cannot reach NATS never takes traffic. A later broker outage surfaces where
+    it belongs — the stream's own logs and the run paths that need it — not as a whole-API 503.
+
+    AIDEV-NOTE: the latch is per App (`app.state`), not module-global, so a second App in the
+    same process starts un-latched.
+    """
+    state = request.app.state
+    if getattr(state, "stream_ready_latched", False):
+        return JSONResponse({"status": "ready"})
+    reason = await stream_readiness(getattr(state, "stream", None))
+    if reason is not None:
+        return JSONResponse({"status": "not_ready", "reason": reason}, status_code=503)
+    state.stream_ready_latched = True
+    return JSONResponse({"status": "ready"})
 
 
 @router.get("/metrics", tags=["Ops"], summary="OpenMetrics scrape", include_in_schema=False)

@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.benchmarks.draco import assets as draco_assets
-from screamingface_engine.benchmarks.draco.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
-    bind_criterion_evaluation,
+from screamingface_engine.benchmarks.draco.case_grade import (
+    CASE_GRADE_SCHEMA,
+    build_criterion_grade,
 )
 from screamingface_engine.benchmarks.draco.definition import (
-    CANONICAL_EXAM,
-    CASE_EVALUATION_ROUTE,
+    CANONICAL_VARIANT,
+    CASE_GRADE_ROUTE,
     CASES_ROUTE,
     CRITERION_EVALUATION_ROUTE,
     DRACO,
@@ -70,14 +70,14 @@ def test_draco_builds_exact_criterion_and_case_evaluations() -> None:
 
     assert isinstance(url4, str)
     assert url4.count(CRITERION_EVALUATION_ROUTE) == 1
-    assert url4.count(CASE_EVALUATION_ROUTE) == 1
+    assert url4.count(CASE_GRADE_ROUTE) == 1
 
 
 @pytest.mark.asyncio
 async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Path) -> None:
     _canonical_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, CANONICAL_EXAM)
+    install(node, tmp_path, CANONICAL_VARIANT)
     case = {
         "schema": CASE_SCHEMA,
         "case_id": 1,
@@ -126,10 +126,10 @@ async def test_runtime_packs_one_criterion_then_one_case_evaluation(tmp_path: Pa
         "1",
     )
 
-    result = await _call(node, CASE_EVALUATION_ROUTE, [criterion], "1")
+    result = await _call(node, CASE_GRADE_ROUTE, [criterion], "1")
 
     assert result == {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case": case,
         "checks": [check],
         "evidence": verdicts,
@@ -169,13 +169,13 @@ def test_case_record_requires_explicit_execution_provenance() -> None:
     }
 
     with pytest.raises(ValueError, match="invalid Case record"):
-        bind_criterion_evaluation(1, case, check, [evidence])
+        build_criterion_grade(1, case, check, [evidence])
 
 
 # WHY these two tests were REWRITTEN (OME-999, owner-approved): install used to validate
 # assets ATOMICALLY, refusing to register routes over a broken asset set. That eager read
-# meant a Runner world — which installs EVERY registered board — required DRACO's assets to
-# run any other board. Install is now lazy (the shared contract HealthBench's install
+# meant a Runner world — which installs EVERY registered benchmark — required DRACO's assets to
+# run any other benchmark. Install is now lazy (the shared contract HealthBench's install
 # documents); the protection moves to resolution: a DRACO run's first touch is its cases
 # route, so a broken asset still fails before any model spend, with the same named error —
 # on EVERY resolution, since failures are never memoized.
@@ -192,7 +192,7 @@ async def _fetch_cases(node: Url4Node) -> str:
 @pytest.mark.asyncio
 async def test_missing_assets_fail_every_cases_resolution_by_name(tmp_path: Path) -> None:
     node = Url4Node("test")
-    install(node, tmp_path, CANONICAL_EXAM)
+    install(node, tmp_path, CANONICAL_VARIANT)
 
     for _attempt in range(2):  # never memoized: the second resolution fails identically
         with pytest.raises(ResolutionError, match="could not read DRACO cases"):
@@ -205,7 +205,7 @@ async def test_a_truncated_case_set_fails_resolution_with_the_expected_count(
 ) -> None:
     _one_case_assets(tmp_path)
     node = Url4Node("test")
-    install(node, tmp_path, CANONICAL_EXAM)
+    install(node, tmp_path, CANONICAL_VARIANT)
 
     with pytest.raises(ResolutionError, match="expected 100 DRACO cases"):
         await _fetch_cases(node)

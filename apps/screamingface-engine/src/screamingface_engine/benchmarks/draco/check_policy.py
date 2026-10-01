@@ -1,4 +1,4 @@
-"""Versioned semantics for DRACO's mid-run check surface — `draco-pass.v1`.
+"""Versioned semantics for DRACO's mid-run draft-feedback offer — `draco-pass.v1`.
 
 DRACO grades; it does not pass or fail. A corrective loop needs a boolean, so this
 module *invents* one — and because an invented boolean decides which draft a run
@@ -15,7 +15,7 @@ grading spends 5 passes x N criteria (median 38) per case — at loop rates (mem
 rounds) that is hundreds of judge calls per case. The check is a STEERING instrument,
 not the scorer: canonical grading still produces the published number.
 
-The marking WORK lives in `benchmarks.rubric_check`; this file is DRACO's paperwork.
+The marking WORK lives in `benchmarks.rubric_draft_feedback`; this file is DRACO's paperwork.
 """
 
 from __future__ import annotations
@@ -25,9 +25,9 @@ from screamingface_engine.benchmarks.draco.definition import (
     JUDGE_MODEL,
     JUDGE_PARAMS,
 )
-from screamingface_engine.benchmarks.rubric_check import (
-    RubricCheck,
-    RubricShape,
+from screamingface_engine.benchmarks.rubric_draft_feedback import (
+    RubricDraftFeedback,
+    RubricFileLayout,
 )
 
 # Normalized weighted score in [0, 1]; >= passes. 0.7 is the reviewed v1 position:
@@ -37,7 +37,7 @@ CHECK_THRESHOLD = 0.7
 
 # DRACO keeps criteria in weighted axis sections; the axis names are what sanitized
 # feedback is allowed to say.
-DRACO_RUBRIC_SHAPE = RubricShape(
+DRACO_RUBRIC_SHAPE = RubricFileLayout(
     layout="sections",
     items="sections",
     nested="criteria",
@@ -57,7 +57,7 @@ CHECK_JUDGE_PARAMS = tuple(
     (name, "32768" if name == "max_tokens" else value) for name, value in JUDGE_PARAMS
 )
 
-DRACO_CHECK = RubricCheck(
+DRACO_DRAFT_FEEDBACK = RubricDraftFeedback(
     label="DRACO",
     criterion=CHECK_CRITERION,
     threshold=CHECK_THRESHOLD,
@@ -68,4 +68,4 @@ DRACO_CHECK = RubricCheck(
     question="text",
 )
 
-__all__ = ["CHECK_CRITERION", "CHECK_THRESHOLD", "DRACO_CHECK"]
+__all__ = ["CHECK_CRITERION", "CHECK_THRESHOLD", "DRACO_DRAFT_FEEDBACK"]

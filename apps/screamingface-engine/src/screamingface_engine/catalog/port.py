@@ -190,7 +190,16 @@ class ModelParameterSource(Protocol):
         self,
         credential: Credential,
         model: str,
-    ) -> ModelParameterResponse: ...
+        *,
+        traceparent: str | None = None,
+    ) -> ModelParameterResponse:
+        """Fetch one contract; ``traceparent`` is the inbound caller's, or ``None`` to send none.
+
+        INVARIANT (OME-1134): the trace is a per-call ARGUMENT, never a ``Credential`` field —
+        ``Credential`` derives the catalog cache key, and a per-request value there would give
+        every request its own cache entry.
+        """
+        ...
 
 
 __all__ = [

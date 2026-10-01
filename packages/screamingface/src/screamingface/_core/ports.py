@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from screamingface._evaluation.model import Candidate
@@ -61,6 +61,43 @@ class _RunOutcome:
     # including for a run whose frames never arrived.
     trace_id: str | None = None
     client_version: str | None = None
+    # FEATURE (OME-1441, spec 2026-09-30-cached-run-not-complete): how many of this run's gateway
+    # round trips the response cache served. A hit spends nothing upstream, so any hit means the
+    # spend is not the run's cost, and the submission must not publish it as `complete`.
+    cache_hits: int = 0
+
+
+# FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
+# (`waiting_for_capacity`, with its attempt) and the start it finally admitted (`admitted`).
+type _ConnectionState = Literal["reconnecting", "reconnected", "waiting_for_capacity", "admitted"]
+
+
+@dataclass(frozen=True, slots=True)
+class _ConnectionNotice:
+    """One reconnect step of a Run's event stream, for the built-in progress output only.
+
+    FEATURE: OME-1016 — the "reconnecting (attempt n)" progress line (spec 2026-09-28 R4).
+    INVARIANT: it carries no URL, token, close code or exception text — only the step and
+    its attempt number — so no renderer can leak transport internals.
+    AIDEV-NOTE: deliberately NOT a public `Event`, and only the transport builds one, so
+    the `Literal` is the whole contract — no runtime validation. Whether the user's
+    `on_event` should also see it is an owner decision (spec 2026-09-28 Q1).
+    """
+
+    state: _ConnectionState
+    # Set for `reconnecting` and `waiting_for_capacity` (the attempt now under way).
+    attempt: int | None = None
+
+
+@runtime_checkable
+class _ConnectionListener(Protocol):
+    """An `on_event` observer that also renders connection notices.
+
+    WHY a capability check and not a second `run()` argument: the transport port stays
+    unchanged for every implementation, and only the runner's bound observer opts in.
+    """
+
+    def connection(self, notice: _ConnectionNotice) -> None: ...
 
 
 class SyncRunTransport(Protocol):

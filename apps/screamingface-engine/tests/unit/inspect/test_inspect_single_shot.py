@@ -1,6 +1,6 @@
 # pyright: reportMissingImports=false
-# WHY file-level: the assembled board's scorer factory touches the `inspect` extra.
-"""The imported-board assembly line — identity, routes, registration (spec §3/§6).
+# WHY file-level: the assembled benchmark's scorer factory touches the `inspect` extra.
+"""The imported-benchmark assembly line — identity, routes, registration (spec §3/§6).
 
 Runs only with the `inspect` extra installed.
 """
@@ -12,17 +12,17 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
-from screamingface_engine_inspect.single_shot import single_shot_board  # noqa: E402
+from screamingface_engine_inspect.single_shot import single_shot_benchmark  # noqa: E402
 
 
-def _board(
+def _benchmark(
     key: str = "probe",
     *,
     case_count: int = 3,
     revision_pins: tuple[str, ...] = ("dataset", "rev-a", "split=test"),
 ):
-    return single_shot_board(
-        board_key=key,
+    return single_shot_benchmark(
+        benchmark_key=key,
         title="Probe",
         description="One non-comparable structural probe.",
         focus="Probing",
@@ -38,18 +38,18 @@ def _board(
 
 
 def test_identity_is_flat_and_revision_addressed() -> None:
-    board = _board().benchmark
-    assert board.id == "inspect-probe"
-    assert len(board.revision) == 16
-    int(board.revision, 16)
+    benchmark = _benchmark().benchmark
+    assert benchmark.id == "inspect-probe"
+    assert len(benchmark.revision) == 16
+    int(benchmark.revision, 16)
 
 
 def test_revision_is_deterministic_and_pin_sensitive() -> None:
-    """§6: same pins → same revision; changed pins → a new exam identity."""
+    """§6: same pins → same revision; changed pins → a new benchmark identity."""
 
-    assert _board().benchmark.revision == _board().benchmark.revision
-    other = single_shot_board(
-        board_key="probe2",
+    assert _benchmark().benchmark.revision == _benchmark().benchmark.revision
+    other = single_shot_benchmark(
+        benchmark_key="probe2",
         title="Probe",
         description="One non-comparable structural probe.",
         focus="Probing",
@@ -62,39 +62,39 @@ def test_revision_is_deterministic_and_pin_sensitive() -> None:
         with_check_surface=False,
         difficulty="easy",
     )
-    assert other.benchmark.revision != _board().benchmark.revision
+    assert other.benchmark.revision != _benchmark().benchmark.revision
 
 
 def test_registration_and_protocol_are_complete() -> None:
-    board = _board("probe3")
-    assert board.registration.benchmark is board.benchmark
-    assert board.registration.asset_bundle.id == "inspect-probe3"
-    assert board.benchmark.revision in board.aggregate_route
-    board.benchmark.protocol(2)  # builds and type-checks without rendering
+    benchmark = _benchmark("probe3")
+    assert benchmark.registration.benchmark is benchmark.benchmark
+    assert benchmark.registration.asset_bundle.id == "inspect-probe3"
+    assert benchmark.benchmark.revision in benchmark.aggregate_route
+    benchmark.benchmark.protocol(2)  # builds and type-checks without rendering
 
 
 def test_case_count_rides_the_revision() -> None:
-    """§6: the factory hashes the subset size ITSELF — a board author who forgets
-    it in revision_pins cannot get a subset change with an unchanged exam identity."""
+    """§6: the factory hashes the subset size ITSELF — a benchmark author who forgets
+    it in revision_pins cannot get a subset change with an unchanged benchmark identity."""
 
     assert (
-        _board("count-a", case_count=3).benchmark.revision
-        != _board("count-b", case_count=4).benchmark.revision
+        _benchmark("count-a", case_count=3).benchmark.revision
+        != _benchmark("count-b", case_count=4).benchmark.revision
     )
 
 
-def test_duplicate_board_key_with_different_pins_is_refused() -> None:
-    """Copy-paste guard: a board module that kept the donor's key must fail loudly
-    at assembly, never silently steal the first board's route resolution."""
+def test_duplicate_benchmark_key_with_different_pins_is_refused() -> None:
+    """Copy-paste guard: a benchmark module that kept the donor's key must fail loudly
+    at assembly, never silently steal the first benchmark's route resolution."""
 
-    _board("dup")
+    _benchmark("dup")
     with pytest.raises(ValueError, match="already assembled"):
-        _board("dup", revision_pins=("dataset", "rev-OTHER", "split=test"))
+        _benchmark("dup", revision_pins=("dataset", "rev-OTHER", "split=test"))
 
 
 def test_a_revision_pin_with_a_newline_is_refused() -> None:
     """Newline-joined hashing: an embedded newline would let two different pin
-    lists collide into one exam identity."""
+    lists collide into one benchmark identity."""
 
     with pytest.raises(ValueError, match="newline"):
-        _board("nl", revision_pins=("dataset", "rev-a\nsplit=test"))
+        _benchmark("nl", revision_pins=("dataset", "rev-a\nsplit=test"))

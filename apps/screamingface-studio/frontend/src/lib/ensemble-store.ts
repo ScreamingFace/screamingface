@@ -3,6 +3,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import type { RecipeNode } from "./recipe";
+
 export type SavedModel = {
   id: string;
   name: string;
@@ -34,6 +36,8 @@ export type SavedRun = {
   benchmarkName: string;
   sampleSize: number;
   full: boolean;
+  useCache: boolean;
+  saveCache: boolean;
   compute: "own" | "om";
   score: number;
   baseline: number;
@@ -45,6 +49,10 @@ export type SavedRun = {
 export type SavedEnsemble = {
   id: string;
   name: string;
+  // The recipe-native builder tree — the source of truth for the composer. Optional so
+  // ensembles persisted before the recipe rework still hydrate (migrated on load from
+  // `slots`/`judge` via `fusionFromSlots`).
+  root?: RecipeNode;
   slots: SavedSlot[];
   strategy: "majority_vote" | "weighted_avg" | "best_of_n" | "merge";
   customReduce: boolean;

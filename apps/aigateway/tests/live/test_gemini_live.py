@@ -89,7 +89,7 @@ def _gemini_request_headers(client: TestClient) -> dict[str, str]:
     assert profile is not None
     if profile["state"] != "authenticated":
         pytest.skip(f"gemini-cli:default profile is {profile['state']!r}, not 'authenticated'")
-    return {"X-Profile": "default"}
+    return {}
 
 
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")

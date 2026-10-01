@@ -1,10 +1,10 @@
 """OME-1097: pin gdpval's published metric vocabulary byte-identical.
 
 gdpval-text has NO e2e golden yet (OME-1098), so this pin is the only net proving the
-shared scored path did not move the board's published surface. The keys are the class
+shared scored path did not move the benchmark's published surface. The keys are the class
 results a leaderboard reader parses; renaming one silently breaks every consumer.
 
-INVARIANT: the metric key set — and the exam-payload keys around it — stay exactly as
+INVARIANT: the metric key set — and the benchmark-payload keys around it — stay exactly as
 the pre-extraction `gdpval/aggregate.py` emitted them.
 """
 
@@ -13,19 +13,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from screamingface_engine.benchmarks.case_execution import case_execution_payload
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-from screamingface_engine.benchmarks.gdpval.case_evaluation import (
-    CASE_EVALUATION_SCHEMA,
+from screamingface_engine.benchmarks.gdpval.case_grade import (
+    CASE_GRADE_SCHEMA,
     RUBRIC_EVALUATION_SCHEMA,
 )
 from screamingface_engine.benchmarks.gdpval.grade import aggregate
 from screamingface_engine.benchmarks.gdpval.records import CASE_SCHEMA, RUBRIC_SCHEMA
 from screamingface_engine.benchmarks.gdpval.scoring import mean
 from screamingface_engine.benchmarks.gdpval.verdict import SCHEMA as VERDICT_SCHEMA
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
 
 
-def _bake(root: Path, case_id: int, points: list[int]) -> None:
+def _prepare(root: Path, case_id: int, points: list[int]) -> None:
     cases_path = root / "cases.json"
     cases = json.loads(cases_path.read_text()) if cases_path.exists() else []
     cases.append({"id": case_id, "input": f"input-{case_id}"})
@@ -47,7 +47,7 @@ def _bake(root: Path, case_id: int, points: list[int]) -> None:
 
 def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
     grading = {
-        "schema": CASE_EVALUATION_SCHEMA,
+        "schema": CASE_GRADE_SCHEMA,
         "case_id": case_id,
         "case": {
             "schema": CASE_SCHEMA,
@@ -87,16 +87,16 @@ def _case_row(case_id: int, verdicts: dict[int, bool]) -> dict[str, object]:
             for rubric_id, met in verdicts.items()
         ],
     }
-    return case_execution_payload(
+    return graded_answer_payload(
         case_id, encode_candidate_invocation(f"output-{case_id}", "stop", None), [grading]
     )
 
 
-def test_gdpval_metric_keys_are_byte_identical_to_the_pre_extraction_board(
+def test_gdpval_metric_keys_are_byte_identical_to_the_pre_extraction_benchmark(
     tmp_path: Path,
 ) -> None:
-    _bake(tmp_path, 1, [5, 3, -3])
-    _bake(tmp_path, 2, [4])
+    _prepare(tmp_path, 1, [5, 3, -3])
+    _prepare(tmp_path, 2, [4])
     rows = json.dumps([_case_row(1, {1: True, 2: False, 3: True}), _case_row(2, {1: True})])
 
     result = aggregate(
@@ -116,7 +116,7 @@ def test_gdpval_metric_keys_are_byte_identical_to_the_pre_extraction_board(
         "verdict_coverage",
         "judge_invalid_replies",
     }
-    # And the surrounding exam payload keeps its published shape and math:
+    # And the surrounding benchmark payload keeps its published shape and math:
     # case 1 = (5-3)/8 = 0.25, case 2 = 4/4 = 1.0, mean = 0.625.
     assert result["score"] == 0.625
     assert result["coverage"] == 1.0

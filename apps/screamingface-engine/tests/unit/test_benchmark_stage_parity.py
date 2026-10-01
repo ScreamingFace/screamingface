@@ -1,10 +1,10 @@
-"""Healthy, deterministic board runs preserve complete results with activity on/off."""
+"""Healthy, deterministic benchmark runs preserve complete results with activity on/off."""
 
 import json
 
 import pytest
 from test_draco_corrective_loop_e2e import _assets as draco_assets
-from test_healthbench_dual_board_runtime import _write_full_assets as healthbench_assets
+from test_healthbench_dual_benchmark_runtime import _write_full_assets as healthbench_assets
 from test_ifeval_case_evaluation_route import _assets as ifeval_assets
 from test_medxpert_protocol_turns import _assets as medxpert_assets
 
@@ -51,7 +51,7 @@ class Events:
         self.events.append(event)
 
 
-async def run_board(registration, root, enabled):
+async def run_benchmark(registration, root, enabled):
     node = Url4Node("parity")
     registration.benchmark.install(node, root)
     install_candidate_invocation(node)
@@ -67,8 +67,10 @@ async def run_board(registration, root, enabled):
         return '{"explanation":"ok","criteria_met":true,"criterion_status":"MET"}'
 
     from screamingface_engine.benchmarks.draco.definition import JUDGE_MODEL as draco_judge
-    from screamingface_engine.benchmarks.gdpval.pins import JUDGE_MODEL as gdpval_judge
-    from screamingface_engine.benchmarks.healthbench.pins import JUDGE_MODEL as health_judge
+    from screamingface_engine.benchmarks.gdpval.revision_inputs import JUDGE_MODEL as gdpval_judge
+    from screamingface_engine.benchmarks.healthbench.revision_inputs import (
+        JUDGE_MODEL as health_judge,
+    )
 
     for model in {draco_judge, gdpval_judge, health_judge}:
         node.endpoint("/" + model)(judge)
@@ -87,17 +89,17 @@ async def run_board(registration, root, enabled):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("registration", BUILTIN_REGISTRATIONS, ids=lambda r: r.benchmark.id)
-async def test_healthy_boards_preserve_requests_and_full_results(
+async def test_healthy_benchmarks_preserve_requests_and_full_results(
     tmp_path, monkeypatch, registration
 ):
     assets(registration, tmp_path, monkeypatch)
-    plain, requests, off = await run_board(registration, tmp_path, False)
-    observed, observed_requests, events = await run_board(registration, tmp_path, True)
+    plain, requests, off = await run_benchmark(registration, tmp_path, False)
+    observed, observed_requests, events = await run_benchmark(registration, tmp_path, True)
     assert observed == plain
     assert observed_requests == requests
     assert observed["score"] is not None, observed
     assert not [e for e in off if isinstance(e, Log)]
-    logs = [e for e in events if isinstance(e, Log)]
+    logs = [e for e in events if isinstance(e, Log) and e.attributes.get("sf.activity.schema")]
     completed = {
         e.attributes["sf.activity.kind"]
         for e in logs

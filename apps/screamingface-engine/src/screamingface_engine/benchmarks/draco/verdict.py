@@ -1,27 +1,27 @@
-"""DRACO's verdict dialect — a shape declaration over the shared spine parser.
+"""DRACO's verdict dialect — a shape declaration over the shared grading parser.
 
 INVARIANT: Case, criterion, sequence, and producer identity come from Engine-owned URL4
 bindings; the Judge supplies only the verdict payload and cannot relabel its Evidence.
 
-The parsing work lives once in ``spine.verdict`` (OME-1099); this module keeps what is
-DRACO's to own: its ``MET``/``UNMET`` enum dialect with a required explanation, its
-reason vocabulary, and its own ``call``/``binding_key`` — DRACO's binding carries a
-``sequence`` and an opaque criterion id, unlike the rubric boards' integer pair.
+The parsing work lives once in ``shared_grading.judge_evidence`` (OME-1099); this module keeps what
+is DRACO's to own: its ``MET``/``UNMET`` enum dialect with a required explanation, its
+reason vocabulary, and its own ``call``/``evidence_record_key`` — DRACO's key carries a
+``sequence`` and an opaque criterion id, unlike the rubric benchmarks' integer pair.
 """
 
 from __future__ import annotations
 
 from screamingface_engine.benchmarks.draco.validation import require_text
-from screamingface_engine.benchmarks.spine.verdict import (
-    VerdictShape,
-    parse_verdict,
+from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
+    JudgeReplyFormat,
+    parse_judge_evidence,
     require_positive_int,
 )
 from url4 import Node, RelExpr, Text, render
 
 SCHEMA = "screamingface.criterion-verdict.v1"
 
-SHAPE = VerdictShape(
+SHAPE = JudgeReplyFormat(
     schema=SCHEMA,
     status_field="criterion_status",
     statuses=("MET", "UNMET"),
@@ -64,7 +64,7 @@ def call(
     )
 
 
-def binding_key(value: str) -> tuple[int, int, str]:
+def evidence_record_key(value: str) -> tuple[int, int, str]:
     """Decode ``case_id:sequence:criterion_id`` while preserving criterion-id colons."""
 
     case_text, first, remainder = value.partition(":")
@@ -85,7 +85,7 @@ def binding_key(value: str) -> tuple[int, int, str]:
     return case_id, sequence, require_text(criterion_id, "criterion_id")
 
 
-def bind(
+def build_evidence_record(
     raw: str,
     *,
     case_id: int,
@@ -99,7 +99,7 @@ def bind(
     require_positive_int(sequence, "sequence")
     selected_id = require_text(criterion_id, "criterion_id")
     selected_producer = require_text(producer_id, "producer_id")
-    return parse_verdict(
+    return parse_judge_evidence(
         raw,
         shape=SHAPE,
         identity=(("case_id", case_id), ("criterion_id", selected_id), ("sequence", sequence)),
@@ -107,4 +107,4 @@ def bind(
     ).record()
 
 
-__all__ = ["SCHEMA", "bind", "binding_key", "call"]
+__all__ = ["SCHEMA", "build_evidence_record", "evidence_record_key", "call"]

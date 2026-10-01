@@ -45,7 +45,7 @@
     <div class="note">
       <span class="kicker">Read this first</span>
       The top of this board is the best submitted result: the current SOTA. Every row keeps
-      its URL4 expression, so you can rerun any claim before trusting it.
+      its URL4 expression, so you can rerun any claim, score, or cost, before trusting it.
     </div>
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
@@ -82,17 +82,14 @@
           <span class="pareto-chart-key"><span class="pareto-chart-key__leader" aria-hidden="true"></span>highest score</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__unpriced" aria-hidden="true"></span>cost n/a</span>
           <span id="pareto-chart-meta"></span>
-          <span>Costs are self-reported, not verified by re-running.</span>
           <span>Frontier membership considers the full board; this chart plots only the submissions shown on this page.</span>
         </figcaption>
       </figure>
     </section>
 
-    <!-- OME-923: the Cost column pushes this table's min-content past the container between
-         roughly 700px and 1010px of viewport, so it scrolls horizontally there. Keeping the
-         scroll rather than dropping a column is an owner decision (2026-08-31); the columns
-         stay for now.
-         A scrollable region MUST be focusable or a keyboard-only user cannot reach what is
+    <!-- The Cost column pushes this table's min-content past the container at intermediate
+         viewport widths, so the complete column set scrolls horizontally there.
+         A scrollable region must be focusable or a keyboard-only user cannot reach what is
          off-screen — here that is the whole "Run Locally" Copy button (WCAG 2.1.1). tabindex
          makes it arrow-scrollable; role+aria-label give the now-focusable region a name, which
          a focusable region requires. -->
@@ -110,17 +107,14 @@
       </table>
     </div>
 
-    <!-- OME-923 part B: the marks are unreadable without a key — the mark column header is
-         deliberately empty and the per-row label is sr-only, so a sighted reader had nothing.
-         The provenance line is OME-770 D11: the frontier is computed over self-reported costs
-         and the UI must say so rather than present them as verified. -->
+    <!-- The mark column header is deliberately empty and its per-row label is screen-reader-only,
+         so the visible legend names each mark. -->
     <p id="leaderboard-legend" class="meta legend" hidden>
       <span id="legend-pareto" class="legend-item" hidden>
         <span class="pareto-mark" aria-hidden="true"></span>
         <span>on the Pareto frontier — no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement</span>
       </span>
       <span class="legend-item">gold row = highest score</span>
-      <span class="legend-item">costs are self-reported, not verified by re-running</span>
     </p>
 
     <div class="foot">

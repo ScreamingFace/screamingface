@@ -78,3 +78,57 @@ Before implementation, confirm:
 - CorrectiveLoop nested detail and failed-path accounting remain deferred;
 - the live evaluation widget remains unchanged;
 - implementation may begin with `OME-1030`.
+
+## Client delivery notes — 2026-09-28
+
+OME-1032 already delivered steps 1–2 of the Client slice. The owner authorized the remaining
+OME-1031 implementation and a draft PR with a Jupyter review notebook on 2026-09-28.
+
+- `CandidateResult.accounting` returns immutable derived rows and grouped summaries via
+  `by_stage`, `by_operation`, `by_model`, `by_member`, and `by_case`.
+- Member totals use exact direct-model operation identity in every retained Case. Composite
+  members and loop internals stay unavailable rather than infer ownership from DAG dependencies.
+- Missing records poison group totals. Cost reconciliation subtracts only existing, priced,
+  disjoint Engine-owned records; unpriced retained records or an unknown root prevent a remainder.
+- Duplicate/unknown operation identities and negative cost remainders disable the view with a
+  payload-free diagnostic. Equal accounting values on different legitimate owners are not duplicates.
+- Completed Report HTML uses native disclosures and a keyboard-scrollable table; no new JavaScript.
+- `examples/14_report_accounting.ipynb` is an output-free deterministic, offline review notebook
+  with explicitly synthetic observations. Its executable assertions also run in Client tests.
+
+Owner review follow-up (2026-09-28): simplify the first view to activity, cost and labelled cache
+outcomes; retain the full required operation columns in a collapsed details table. Keep Case
+expansion within those details. Hide zero remainder in the first view, preserve it in details.
+
+Owner approved the final layout: remove the separate accounting section, use native radio tabs
+inside each Case (Answer & grading / Cost & usage), and show labelled activity blocks without
+tables. Whole-run totals and any Unattributed run cost remain above the Cases. This supersedes
+the prior cost-summary/disclosure design.
+
+Approved visual polish: underline-only case tabs; operation title and cost share a header.
+Group calls/cache, input/output tokens, and provider time into three stable columns. Move
+explanations into a native About these numbers disclosure. Keep exact pricing and unknowns.
+
+Owner follow-up: remove About these numbers and its explanation entirely; retain compact blocks.
+
+Owner approved removing the grey rule above the first cost block; retain inter-operation rules.
+
+Review fixes approved: render nonzero costs below USD 0.0001 with exact decimal precision,
+including run remainders. Type AccountingRow.stage as generation | synthesis | grading.
+
+## Approved review correction — 2026-09-29
+
+1. Add regression tests for incomplete per-model totals, declared model attribution,
+   ambiguous synthesis, and judge IDs differing from request model names.
+2. Resolve missing identities from unambiguous declarations with no conflicting retained
+   request identity. Unknown identity invalidates every named model summary; preserve the
+   strict anonymous bucket and all other grouping behavior.
+3. Run the full Client gates against the pre-follow-up PR head for append-only protection,
+   record the result, commit and push to the existing PR branch.
+
+## Partial-token review correction — 2026-09-29
+
+1. Reproduce the owner's P2 report through evaluation, member usage projection and HTML.
+2. Require both counts for a token total; render missing split components as `—`.
+3. Preserve existing tests; verify partial counts in both directions, zero, unknown and
+   complete controls, then run full Client gates and update PR #1097.

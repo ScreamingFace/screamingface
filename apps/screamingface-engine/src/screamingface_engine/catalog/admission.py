@@ -91,7 +91,15 @@ class AdmissionAnswer:
 class ModelAdmissionSource(Protocol):
     """Anything that can ask the gateway to admit one model for a caller."""
 
-    async def admit_model(self, credential: Credential, model: str) -> AdmissionAnswer: ...
+    async def admit_model(
+        self,
+        credential: Credential,
+        model: str,
+        *,
+        traceparent: str | None = None,
+    ) -> AdmissionAnswer:
+        """Ask for admission; ``traceparent`` is the asking request's (OME-1134), or ``None``."""
+        ...
 
 
 __all__ = [

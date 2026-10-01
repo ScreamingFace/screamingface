@@ -24,9 +24,15 @@ public Candidate kinds.
 _Avoid_: Ensemble when referring to all Candidate kinds
 
 **Recipe**:
-An immutable, network-free description of Candidate-owned answer production. Model, Fusion, and
-Pipeline are the public Recipe values and may compose recursively.
+An immutable, network-free description of Candidate-owned answer production. Model, Fusion,
+Pipeline, Corrective Loop, and Self-Corrective are the public Recipe values and may compose
+recursively.
 _Avoid_: Candidate when the Recipe is nested inside another Recipe
+
+**Corrective Loop**:
+A Recipe that drafts an answer, asks the Benchmark for Draft Feedback, and revises until the draft
+passes or a round limit is reached. A Self-Corrective loop uses one Model as both drafter and reviser.
+_Avoid_: Retry, refinement loop
 
 **Complete Recipe**:
 A Recipe that accepts one input and produces one final answer. Every constructible public Model,
@@ -174,3 +180,99 @@ _Avoid_: Score Submission
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.
 _Avoid_: Reduction
+
+**Draft Feedback**:
+A Benchmark's mid-run answer to "is this draft good enough yet?", offered only by Benchmarks whose
+feedback cannot leak the answer. Corrective Loops use it; it never produces a Case Grade.
+_Avoid_: Check, check surface
+
+**Benchmark Revision**:
+The content hash that identifies one exact Benchmark: its Cases, prompts, Grading, and
+Benchmark-owned Models. Changing any of them yields a new revision.
+_Avoid_: Version
+
+**Benchmark key**:
+A Benchmark's short machine name, such as `gsm8k`: one per Benchmark, used to look up its
+declarations and to build its Benchmark id (`inspect-gsm8k`). It is not the title people read
+(`GSM8K`), and not the inspect eval behind it: one eval can become several Benchmarks, each with
+its own key (`mgsm_en`).
+_Avoid_: Benchmark name, eval name, key alone
+
+**Grading Material**:
+The private part of a Case that the Candidate never sees: the answer key, choices, or Rubric used
+in Grading. A Case graded only by a Judge prompt may carry no answer key.
+_Avoid_: Target, answer, ground truth
+
+**Answer key**:
+The correct answers a Benchmark grades against, stored per Case in its Grading Material: e.g.
+`42` for "What is 6 times 7?". A Benchmark that compares the answer to it needs no Judge; some
+give it to a Judge instead, and some have none and are graded only by a Judge prompt.
+_Avoid_: Key alone ("published key", "private key" read as a Benchmark key or a credential),
+target, ground truth
+
+**Case Preparation**:
+The image-build step that downloads a Benchmark's Cases from its pinned Case Sources and freezes
+them, with their Grading Material, into the Benchmark image.
+_Avoid_: Bake, snapshot
+
+**Case Source**:
+One pinned upstream place Case Preparation fetches Cases from: a Hugging Face dataset revision, a
+URL with a commit or sha256, or a file inside the Inspect package.
+_Avoid_: Dataset, data file
+
+**Case Digest**:
+The sha256 of an Imported Benchmark's prepared Cases, fixed at import and checked at every Case
+Preparation. A different digest means different Cases, so none are served.
+_Avoid_: Snapshot hash, checksum
+
+**Coverage**:
+The share of a Benchmark's Cases that received a valid Case Grade, reported beside the score.
+_Avoid_: Completion rate
+
+**Failure Policy**:
+A Benchmark's declared rule for how a Case without a valid Case Grade affects its score: counted
+as a failure, or excluded and reported through Coverage.
+_Avoid_: Error handling
+
+**Inspect**:
+The external evaluation framework (`inspect_ai`, with its eval catalogue `inspect_evals`) that
+Imported Benchmarks come from. A name that starts with `inspect` means it touches that framework:
+the `screamingface_engine_inspect` plugin, `inspect-<key>` Benchmark ids, the `inspect` install
+extra, `InspectTaskFacts`, `read_inspect_task`, `inspect_grade_case`.
+Inspect's own words name only inspect's own objects, in the plugin code that calls inspect.
+Everywhere else, including our own concepts inside the plugin, use our word:
+- inspect Task (`@task`): one eval definition (dataset, solver, scorer) → the eval an Imported
+  Benchmark is copied from
+- inspect Sample: one question with its target → a Case, but only after Case Preparation keeps
+  it; before that step it is still a Sample, and a Sample it drops never becomes a Case
+- inspect Dataset (`hf_dataset`, `record_to_sample`): how a Task loads its Samples → the dataset
+  that Case Preparation pins
+- inspect Target: the correct answer on a Sample → part of the Case's Grading Material
+- inspect Solver (`prompt_template`, `multiple_choice`, `system_message`): the steps that build the
+  prompt and call the model → the Case input that Case Preparation writes
+- inspect Scorer: grades one answer → an Imported Benchmark's Grading
+- inspect model role (`model_role="grader"`): a named model slot a Scorer fills → the Benchmark's
+  Judge
+- inspect ModelAPI: a pluggable model provider → the gateway Judge provider
+_Avoid_: inspect or introspect as a verb in our identifiers (say read or check), so an `inspect`
+name always means the framework; Sample, Target, Solver and Scorer for our own concepts
+
+**Imported Benchmark**:
+A Benchmark generated from an external eval catalogue, whose Cases are exactly the items the
+upstream eval would run (apart from any Named Deviation) and whose Grading is the upstream eval's
+own grading code. Today the only source is Inspect.
+_Avoid_: Board, inspect board
+
+**Named Deviation**:
+A declared, reviewable difference between an Imported Benchmark and its upstream eval, such as
+dropped questions or a system message delivered as input text. It is written on the Benchmark
+and included in its Benchmark Revision.
+_Avoid_: Patch, tweak
+
+**Inverted Grade**:
+A mark on an Imported Benchmark whose upstream grade counts the behaviour we don't want, such as
+a judge's grade for going along with an unsafe prompt. Each Case scores 1 − that grade, so higher
+is still better and the Benchmark's score is a refusal rate, not a compliance rate. It is part of
+the Benchmark Revision and shown in the Report; it says the score is already flipped, never that
+anyone should flip it again.
+_Avoid_: Reversed score, lower-is-better Benchmark

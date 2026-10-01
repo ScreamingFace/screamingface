@@ -3,7 +3,7 @@
 import pytest
 
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks.stages import observe_stage
+from screamingface_engine.benchmarks.phases import observe_phase
 
 
 def test_only_four_stage_kinds_and_model_call_detail_exist():
@@ -18,4 +18,4 @@ def test_only_four_stage_kinds_and_model_call_detail_exist():
 
 def test_model_call_is_not_a_benchmark_stage():
     with pytest.raises(ValueError, match="model"):
-        observe_stage(ActivityKind.MODEL_CALL)
+        observe_phase(ActivityKind.MODEL_CALL)

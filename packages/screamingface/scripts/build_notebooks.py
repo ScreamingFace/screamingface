@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import tomllib
 from pathlib import Path
 
@@ -43,6 +44,10 @@ _DRACO_SYNTHESIS_PROMPT = "".join(_DRACO_SYNTHESIS_PROMPT_PARTS)
 
 
 def notebooks() -> dict[str, NotebookNode]:
+    # WHY: resolve the companion from this checkout even when loaded through runpy.
+    accounting_cells = runpy.run_path(str(Path(__file__).with_name("accounting_notebook.py")))[
+        "cells"
+    ]
     return {
         "00_quickstart.ipynb": _quickstart(),
         "01_client_tour.ipynb": _client_tour(),
@@ -55,6 +60,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "11_medxpert.ipynb": _medxpert_e2e(),
         "12_inspect_evals_benchmarks.ipynb": _inspect_evals_boards(),
         "13_contracteval.ipynb": _contracteval_e2e(),
+        "14_report_accounting.ipynb": _notebook(*accounting_cells()),
     }
 
 

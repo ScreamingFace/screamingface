@@ -6,7 +6,7 @@
 """The gateway-backed judge provider — an imported eval's judge is one of OUR calls.
 
 Think of it as a switchboard plug: an imported scorer asks inspect for a model named
-``screamingface/<gateway-model-id>`` and, instead of dialing OpenAI or Anthropic
+``screamingface/<gateway-model-id>`` and, instead of calling OpenAI or Anthropic
 directly, the call comes out of the engine's own wall socket — the node route the
 aigateway connector serves. There it is routed, metered into the run's usage sink
 (and so into ``cost_usd``), and identity-stamped like every other model call in the
@@ -27,9 +27,9 @@ Stages, in execution order (see :meth:`_GatewayJudgeModelAPI.generate`):
     Stage 3 — encode the sub-request URL (``/<model>?[params&]q=(envelope)``,
               the wire codec's own encoder) and fetch it through the transport.
               The route is the model name's tail verbatim: ``screamingface/x/y``
-              dials route ``/x/y`` — no second mapping to drift.
+              calls route ``/x/y`` — no second mapping to drift.
     Stage 4 — return the completion text as inspect's ``ModelOutput``. Errors
-              propagate: the shim's Stage-3 catch turns them into the Case's
+              propagate: the scorer adapter's Stage-3 catch turns them into the Case's
               named ``scorer_error``, never an aborted aggregate.
 
 INVARIANT: this module never talks HTTP and holds no credentials — the transport's
@@ -44,8 +44,21 @@ import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
-from inspect_ai.model import ChatMessage, GenerateConfig, ModelAPI, ModelOutput, modelapi
+from inspect_ai.model import (
+    ChatMessage,
+    GenerateConfig,
+    ModelAPI,
+    ModelOutput,
+    get_model,
+    model_roles,
+    modelapi,
+)
+
+# WHY the private import: init_model_roles is the setter inspect's own eval() uses
+# to bind roles; the public model_roles() is read-only (OME-1370).
+from inspect_ai.model._model import init_model_roles
 from inspect_ai.tool import ToolChoice, ToolInfo
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
@@ -70,12 +83,12 @@ class JudgeTransport:
         fetch: the node's in-process relative fetch (``Url4Node.fetch`` bound with
             ``relative=True``) — the ONLY exit a judge call has.
         params: protocol params pinned at import time (e.g. ``temperature``),
-            emitted on the wire before ``q=``; part of the judge's exam identity.
+            emitted on the wire before ``q=``; part of the judge's benchmark identity.
     """
 
     fetch: JudgeFetch
     params: Sequence[tuple[str, str]] = ()
-    #: The board the judge grades for (OME-1240 observability): with it set, every
+    #: The benchmark the judge grades for (OME-1240 observability): with it set, every
     #: judge call registers against its Case's evidence, so the run's payload-free
     #: grading join attributes the judge's tokens/cost/latency per Case.
     benchmark_id: str | None = None
@@ -90,8 +103,8 @@ _transport: contextvars.ContextVar[JudgeTransport | None] = contextvars.ContextV
 def bound_judge_transport(transport: JudgeTransport) -> Iterator[None]:
     """Bind the judge wall socket for the duration of one grading pass.
 
-    INVARIANT: the binding never leaks past its context — the next board's grade
-    starts unplugged, so a board that pins no judge cannot ride another's socket.
+    INVARIANT: the binding never leaks past its context — the next benchmark's grade
+    starts unplugged, so a benchmark that pins no judge cannot ride another's socket.
     """
 
     token: contextvars.Token[JudgeTransport | None] = _transport.set(transport)
@@ -101,8 +114,33 @@ def bound_judge_transport(transport: JudgeTransport) -> Iterator[None]:
         _transport.reset(token)
 
 
+@contextmanager
+def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
+    """Fill one inspect model role with our gateway judge for one grading pass.
+
+    Most inspect judges never name a model — they call ``get_model(role="grader")``
+    and expect the eval runner to have bound the role. Outside inspect's own eval
+    loop nobody has, so this binds ``role`` to ``screamingface/<model>``: the scorer's
+    lookup then resolves to THIS provider, and the call rides the bound transport
+    like any named judge (OME-1370).
+
+    WHY save-and-restore through ``init_model_roles``: inspect exposes no token for
+    its ``model_roles`` ContextVar, so the previous mapping is put back by value.
+    INVARIANT: the binding never leaks past its context — an unbound role falls
+    back to inspect's own resolution, which outside an eval raises (verified
+    against inspect 0.3.263 and 0.3.266), so the next benchmark cannot ride this benchmark's judge.
+    """
+
+    previous: dict[str, Any] = dict(model_roles())
+    init_model_roles({**previous, role: get_model(f"{PROVIDER_NAME}/{model}")})
+    try:
+        yield
+    finally:
+        init_model_roles(previous)
+
+
 @modelapi(name=PROVIDER_NAME)
-def screamingface() -> type[ModelAPI]:
+def gateway_judge_provider() -> type[ModelAPI]:
     """Register the provider under inspect's registry key (their factory idiom)."""
 
     return _GatewayJudgeModelAPI
@@ -147,7 +185,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
                 "silently different exam (OME-1240)"
             )
         _refuse_config_overrides(config)
-        # Stage 2-3 — envelope the messages, dial the route.
+        # Stage 2-3 — envelope the messages, call the route.
         context: str = json.dumps(
             {
                 "schema": CANDIDATE_INPUT_SCHEMA,
@@ -162,7 +200,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
         completion: str = await transport.fetch(target)
         if not completion.strip():
             # A blank completion can never be a grade — refuse loudly; a scorer
-            # coercing silence into a score is a silently wrong exam.
+            # coercing silence into a score is a silently wrong benchmark.
             raise RuntimeError(f"the gateway judge at {self.model_name!r} returned an empty reply")
         # Stage 4 — their output form, the text verbatim.
         return ModelOutput.from_content(model=self.model_name, content=completion)
@@ -171,7 +209,7 @@ class _GatewayJudgeModelAPI(ModelAPI):
 #: GenerateConfig fields that change DELIVERY, never the grade — the only ones an
 #: eval may set. Everything else is ALLOWLIST-refused by name: the wire carries only
 #: the JudgeSpec's pinned params, so any other field would be dropped silently and
-#: the judge would grade a different exam (persistbench's reasoning_effort="high"
+#: the judge would grade a different benchmark (persistbench's reasoning_effort="high"
 #: is the live example). A forbidden-list here would go stale on every inspect
 #: field addition; the allowlist refuses new fields by default.
 #: WHY cache: inspect passes an eval's max_connections, adaptive_connections,
@@ -221,9 +259,9 @@ def _register_against_the_case(transport: JudgeTransport, path: str, context: st
     The identity must be byte-identical to what the connector records
     (``operation_call_identity`` on the decoded Request): the path, the decoded
     params, the envelope context, and the empty intent the wire carries when
-    ``encode_subrequest`` is given none. The owner names the shim's fixed
+    ``encode_subrequest`` is given none. The owner names the scorer adapter's fixed
     evidence shape (one check "1", sequence 1). A no-op outside a run's capture
-    or when the transport carries no board — tests and the check surface stay
+    or when the transport carries no benchmark — tests and the draft-feedback offer stay
     join-free.
     """
 
@@ -262,4 +300,10 @@ def _message(message: ChatMessage) -> dict[str, str]:
     return {"role": role, "content": message.text}
 
 
-__all__ = ["PROVIDER_NAME", "JudgeFetch", "JudgeTransport", "bound_judge_transport"]
+__all__ = [
+    "PROVIDER_NAME",
+    "JudgeFetch",
+    "JudgeTransport",
+    "judge_filling_model_role",
+    "bound_judge_transport",
+]

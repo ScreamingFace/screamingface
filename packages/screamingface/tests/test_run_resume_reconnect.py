@@ -38,6 +38,7 @@ from screamingface._evaluation.model import (
     _compiled_candidate,
     _compiled_operation,
 )
+from screamingface._evaluation.outcome import _CandidatesFailed
 from screamingface._evaluation.runner import _run_candidates_sync
 from screamingface.errors import AuthenticationError, ExecutionError
 
@@ -402,25 +403,40 @@ def test_cancel_active_raises_when_delete_is_rejected() -> None:
     assert any(isinstance(error, AuthenticationError) for error in group.exceptions)
 
 
-def test_abort_sweep_records_note_when_stop_rejected() -> None:
-    """PIN (OME-1017, still honored): the evaluation abort path records a failed sweep
-    as a note on the original error."""
+class _SweepCountingTransport:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+        self.cancel_calls = 0
 
-    class _FakeTransport:
-        def __init__(self) -> None:
-            self.cancel_calls = 0
+    def run(self, candidate: Candidate, on_event: object = None) -> object:
+        raise self.error
 
-        def run(self, candidate: Candidate, on_event: object = None) -> object:
-            raise ExecutionError("Run stream lost", code="websocket_disconnected")
+    def cancel_active(self) -> None:
+        self.cancel_calls += 1
+        raise RuntimeError("DELETE / failed with 401")
 
-        def cancel_active(self) -> None:
-            self.cancel_calls += 1
-            raise RuntimeError("DELETE / failed with 401")
 
-    fake = _FakeTransport()
-    with pytest.raises(ExecutionError) as caught:
+def test_an_ordinary_candidate_failure_calls_no_sweep() -> None:
+    """PIN (spec 2026-09-28 §4.1 C1b; replaces the OME-1017 pin, owner Q1 of 2026-09-29).
+
+    The failed Run's own transport already stopped that Run, so the Evaluation stops
+    nothing else: the old sweep only destroyed healthy siblings (OME-1071 incident).
+    """
+    fake = _SweepCountingTransport(ExecutionError("Run stream lost", code="websocket_disconnected"))
+    with pytest.raises(_CandidatesFailed):
         _run_candidates_sync(fake, (_candidate(), _candidate()), None)  # type: ignore[arg-type]
-    assert caught.value.code == "websocket_disconnected"
+    assert fake.cancel_calls == 0
+
+
+def test_owner_abort_sweep_records_note_when_stop_rejected() -> None:
+    """PIN (OME-1017, still honored for an owner abort — spec §4.1 C1a, owner Q1).
+
+    A KeyboardInterrupt stops every Run the Client owns, and a failed sweep is recorded as a
+    note on the interrupt itself.
+    """
+    fake = _SweepCountingTransport(KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt) as caught:
+        _run_candidates_sync(fake, (_candidate(), _candidate()), None)  # type: ignore[arg-type]
     assert any(
         "Stopping active SF Engine runs also failed" in note
         for note in getattr(caught.value, "__notes__", ())

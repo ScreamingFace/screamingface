@@ -16,20 +16,20 @@ from screamingface_engine.world.connector import (  # noqa: E402
     AigatewayConfig,
     build_aigateway_world,
 )
-from screamingface_engine_inspect.boards import imported_board  # noqa: E402
+from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
 from url4.dag import run as execute  # noqa: E402
 from url4.observe import Log  # noqa: E402
 
 
-def _board(tmp_path, format_name):
-    board = imported_board("frontierscience")
-    root = tmp_path / board.benchmark.id
+def _benchmark(tmp_path, format_name):
+    benchmark = imported_benchmark("frontierscience")
+    root = tmp_path / benchmark.benchmark.id
     (root / "targets").mkdir(parents=True)
     (root / "cases.json").write_text(json.dumps([{"id": 1, "input": "Explain."}]))
     (root / "targets" / "1.json").write_text(
         json.dumps({"target": "Reference", "metadata": {"format": format_name}})
     )
-    return board
+    return benchmark
 
 
 def _transport(format_name, calls, judge_model):
@@ -50,7 +50,7 @@ def _transport(format_name, calls, judge_model):
 @pytest.mark.parametrize("format_name", ["olympic", "research"])
 @pytest.mark.parametrize("fusion", [False, True], ids=["solo", "fusion"])
 async def test_frontierscience_limit_one_activity(tmp_path, format_name, fusion):
-    board = _board(tmp_path, format_name)
+    benchmark = _benchmark(tmp_path, format_name)
     calls = []
     judge_model = "openrouter/openai/gpt-5.4"
     events = []
@@ -75,7 +75,7 @@ async def test_frontierscience_limit_one_activity(tmp_path, format_name, fusion)
             client=client,
         )
         install_candidate_invocation(world.node)
-        board.benchmark.install(world.node, tmp_path)
+        benchmark.benchmark.install(world.node, tmp_path)
         candidate = "(answer:0.0:/writer($input)!'Answer')!'$answer'"
         if fusion:
             candidate = (
@@ -87,7 +87,7 @@ async def test_frontierscience_limit_one_activity(tmp_path, format_name, fusion)
             with run.bind():
                 result = json.loads(
                     await execute(
-                        link_candidate(candidate, board.benchmark.protocol(1)),
+                        link_candidate(candidate, benchmark.benchmark.protocol(1)),
                         io=world.node,
                         observer=Collector(),
                     )

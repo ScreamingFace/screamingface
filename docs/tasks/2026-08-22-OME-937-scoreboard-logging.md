@@ -1,7 +1,7 @@
 ---
 id: OME-937
 linear_url: https://linear.app/openmined/issue/OME-937/fix-scoreboard-logging-configure-a-handler-and-honor-scoreboard-log
-status: backlog
+status: in_review
 type: improvement
 priority: 3
 labels: [scoreboard, agentic, autonomous]
