@@ -1538,8 +1538,7 @@ def main(
     *,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     count_rows: Callable[[InspectTaskFacts, str], int] | None = None,
-    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport]
-    | None = None,
+    import_by_task_replay: Callable[..., TaskReplayImport] | None = None,
 ) -> int:
     """Stage 1 → 2 → 3, then tell the dev to review the diff.
 
@@ -1579,6 +1578,13 @@ def main(
         type=Path,
         default=Path(__file__).resolve().parent,
         help="directory holding pins.py/prepare.py/benchmarks.py (default: this package)",
+    )
+    parser.add_argument(
+        "--choice-template",
+        default=None,
+        metavar="MODULE:ATTR",
+        help="Task replay only: a constant holding the choice template the task builds at run "
+        "time (agieval); refused unless it equals the template the task holds",
     )
     parser.add_argument(
         "--task-replay",
@@ -1655,7 +1661,7 @@ def _read_or_route(task_ref: str, task_args: Mapping[str, Any]) -> InspectTaskFa
 def _import_by_task_replay_cli(
     args: argparse.Namespace,
     dataset_info: Callable[[str, str | None], Any] | None,
-    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport] | None,
+    import_by_task_replay: Callable[..., TaskReplayImport] | None,
 ) -> None:
     """The CLI's Task-replay path: two replays, the card license, the two rows (OME-1273).
 
@@ -1675,8 +1681,13 @@ def _import_by_task_replay_cli(
         write_task_replay_rows,
     )
 
-    imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
-        args.task_ref, _parse_task_args(args.task_arg)
+    replay: Callable[..., TaskReplayImport] = import_by_task_replay or replay_both_times
+    task_args: dict[str, Any] = _parse_task_args(args.task_arg)
+    # WHY only when given: an injected import (tests) need not know the flag exists.
+    imported: TaskReplayImport = (
+        replay(args.task_ref, task_args, choice_template=args.choice_template)
+        if args.choice_template
+        else replay(args.task_ref, task_args)
     )
     card: CardLicense = card_license_of(
         imported.case_sources, dataset_info=dataset_info or _hub_dataset_info

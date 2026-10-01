@@ -2604,3 +2604,30 @@ def test_the_command_reports_a_task_replay_refusal_as_an_error_line(
     assert completed.returncode == 1
     assert "ERROR: fake_cli_eval:broken: replay failed" in completed.stderr
     assert "Traceback" not in completed.stderr.split("ERROR:")[-1]
+
+
+def test_the_choice_template_flag_reaches_the_task_replay_import(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
+) -> None:
+    """agieval's template is built at run time; the importing agent names our constant."""
+
+    module = _install_fake_eval(monkeypatch, sums=_free_text_task)
+    del module.hf_dataset  # type: ignore[attr-defined]
+    seen: list[str | None] = []
+
+    def fake_import(
+        task_ref: str, task_args: Mapping[str, Any] | None, *, choice_template: str | None = None
+    ) -> TaskReplayImport:
+        """Record the template reference the CLI forwarded."""
+
+        seen.append(choice_template)
+        return _sealed_import()
+
+    code: int = main(
+        [f"{_FAKE_MODULE}:sums", "--key", "sums_tpl", "--engine-src", str(engine_src_copy)]
+        + ["--choice-template", "screamingface_engine_inspect.upstream_templates:X"],
+        import_by_task_replay=fake_import,
+    )
+
+    assert code == 0
+    assert seen == ["screamingface_engine_inspect.upstream_templates:X"]

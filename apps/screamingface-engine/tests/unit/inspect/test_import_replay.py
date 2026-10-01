@@ -356,3 +356,79 @@ def test_two_runs_that_disagree_are_refused(fake_eval: str) -> None:
 
     assert refusal is not None
     assert "different Cases" in str(refusal)
+
+
+# ── a verified choice-template constant for a template built at run time (PR 4) ──
+
+#: A stand-in eval that builds its choice template inside the task function, as agieval does
+#: (`MULTIPLE_CHOICE_TEMPLATE_EN.format(fewshot_string="", ...)`), so no module attribute
+#: holds it. It proves the override wiring; it does not prove agieval's own template.
+COMPUTED_TEMPLATE_EVAL: str = textwrap.dedent(
+    """
+    import os
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import FieldSpec, json_dataset
+    from inspect_ai.scorer import choice
+    from inspect_ai.solver import multiple_choice
+
+    PARTS = "{fewshot}Pick one of {letters}.\\n\\n{question}\\n\\n{choices}"
+
+    @task
+    def computed_quiz() -> Task:
+        template = PARTS.format(fewshot="", letters="{letters}", question="{question}",
+                                choices="{choices}")
+        return Task(dataset=json_dataset(os.environ["FAKE_IMPORT_EVAL_QUIZ"],
+                                         FieldSpec(input="q", target="a", id="id",
+                                                   choices="choices")),
+                    solver=multiple_choice(template=template), scorer=choice())
+    """
+)
+
+#: Our side's constants: the faithful copy, and one that drifted by a word.
+TEMPLATE_CONSTANTS: str = textwrap.dedent(
+    """
+    RENDERED = "Pick one of {letters}.\\n\\n{question}\\n\\n{choices}"
+    DRIFTED = "Choose one of {letters}.\\n\\n{question}\\n\\n{choices}"
+    """
+)
+
+
+@pytest.fixture
+def computed_template_eval(fake_eval: str, tmp_path: Path) -> str:
+    """Add the computed-template stand-in and our constants beside the first stand-in."""
+
+    (tmp_path / "fake_computed_eval.py").write_text(COMPUTED_TEMPLATE_EVAL, encoding="utf-8")
+    (tmp_path / "fake_template_constants.py").write_text(TEMPLATE_CONSTANTS, encoding="utf-8")
+    return "fake_computed_eval:computed_quiz"
+
+
+def test_a_run_time_template_is_flagged_without_a_constant(computed_template_eval: str) -> None:
+    """Without the override the Case would be rendered with inspect's default template."""
+
+    replay: ImportReplay = replay_for_import(computed_template_eval, None)
+
+    assert replay.facts.choice_template is None
+    assert any("custom choice template" in flag for flag in replay.facts.unreproduced_solvers)
+
+
+def test_a_verified_template_constant_renders_the_cases(computed_template_eval: str) -> None:
+    """The constant equals what the Task holds, so the Cases carry the eval's own wording."""
+
+    replay: ImportReplay = replay_for_import(
+        computed_template_eval, None, choice_template="fake_template_constants:RENDERED"
+    )
+
+    assert replay.facts.choice_template == "fake_template_constants:RENDERED"
+    assert replay.facts.unreproduced_solvers == ()
+    assert replay.prepared[0]["case"]["input"].startswith("Pick one of A,B.")
+
+
+def test_a_template_constant_that_differs_from_the_task_is_refused(
+    computed_template_eval: str,
+) -> None:
+    """INVARIANT: the override can point at the eval's wording, never invent a prompt."""
+
+    with pytest.raises(ImporterError, match="does not equal the template"):
+        import_by_task_replay(
+            computed_template_eval, None, choice_template="fake_template_constants:DRIFTED"
+        )

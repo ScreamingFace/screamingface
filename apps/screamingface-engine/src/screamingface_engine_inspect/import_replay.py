@@ -44,10 +44,12 @@ from screamingface_engine_inspect.importer import (
     _custom_metrics,
     _scorer_reference,
     _solver_facts,
+    _solver_list,
 )
 from screamingface_engine_inspect.prepare import (
     PreparedCase,
     TaskReplayCasesSpec,
+    _resolve,
     case_digest,
     case_records,
 )
@@ -65,6 +67,8 @@ UNSEALED_DIGEST: str = "0" * 64
 
 #: inspect's own scorers live here; none of them reads the Sample metadata (D11).
 _INSPECT_SCORER_PREFIX: str = "inspect_ai.scorer:"
+#: The review flag the importer writes for a choice template no module attribute holds.
+_UNPREPARED_TEMPLATE_FLAG: str = "(custom choice template is not prepared)"
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,7 @@ def replay_for_import(
     task_ref: str,
     task_args: Mapping[str, Any] | None,
     *,
+    choice_template: str | None = None,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> ImportReplay:
     """Run the import child once and read back Cases, Case Sources and facts.
@@ -106,6 +111,9 @@ def replay_for_import(
     Args:
         task_ref: ``"module:attr"`` of the eval's task function.
         task_args: forwarded to the task function; None for none.
+        choice_template: ``"module:attr"`` of a constant holding the choice template the
+            Task builds at run time (agieval); the child refuses it unless it equals the
+            template the Task's multiple_choice solver holds. None to read the Task as is.
         timeout: seconds before a stalled replay is abandoned.
 
     Returns:
@@ -126,6 +134,7 @@ def replay_for_import(
             "task": task_ref,
             "task_args": dict(task_args) if task_args else None,
             "cache_root": str(cache_root),
+            "choice_template": choice_template,
         }
         request_path.write_text(json.dumps(request), encoding="utf-8")
         command: list[str] = [sys.executable, "-m", __name__, str(request_path), str(result_path)]
@@ -176,13 +185,19 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
 
 
 def _facts_of(
-    task: Any, module: Any, task_ref: str, task_args: dict[str, Any] | None
+    task: Any,
+    module: Any,
+    task_ref: str,
+    task_args: dict[str, Any] | None,
+    choice_template: str | None,
 ) -> TaskReplayFacts:
     """Stage 3a — read the built Task with the Hugging Face reader's own readers."""
 
     template_ref, choice_ref, system_ref, custom, uses_multiple_choice = _solver_facts(
         task, module, task_ref
     )
+    if choice_template is not None:
+        choice_ref, custom = _verified_choice_template(task, choice_template, custom)
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
     return TaskReplayFacts(
         task_ref=task_ref,
@@ -203,6 +218,47 @@ def _facts_of(
     )
 
 
+def _verified_choice_template(
+    task: Any, reference: str, flags: tuple[str, ...]
+) -> tuple[str, tuple[str, ...]]:
+    """Accept a template constant only when it IS the template the Task's solver holds.
+
+    WHY: some evals build their choice template at run time (agieval fills
+    ``MULTIPLE_CHOICE_TEMPLATE_EN`` with an empty few-shot and CoT string), so no module
+    attribute holds it and the Case would otherwise render with inspect's default wording.
+    INVARIANT: the override can point at the eval's own wording, never invent a prompt.
+
+    Returns:
+        The reference, and the flags without the "template is not prepared" one it resolves.
+
+    Raises:
+        ImporterError: no multiple_choice solver holds a template, or it differs.
+    """
+
+    held: str | None = _held_choice_template(task)
+    if held is None or _resolve(reference) != held:
+        raise ImporterError(
+            f"choice template {reference} does not equal the template the Task's "
+            f"multiple_choice solver holds ({held!r})"
+        )
+    return reference, tuple(flag for flag in flags if not flag.endswith(_UNPREPARED_TEMPLATE_FLAG))
+
+
+def _held_choice_template(task: Any) -> str | None:
+    """The template the Task's multiple_choice solver was built with, if it has one."""
+
+    from inspect_ai._util.registry import registry_info, registry_params
+
+    solvers: list[Any] = [*_solver_list(task.setup), *_solver_list(task.solver)]
+    for solver in solvers:
+        name: str = registry_info(solver).name.rpartition("/")[2]
+        if name == "chain" and hasattr(solver, "__iter__"):
+            solvers.extend(solver)  # a solver list is one chain; its links hold the facts
+        elif name == "multiple_choice":
+            return registry_params(solver).get("template")
+    return None
+
+
 def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     """Stages 2 to 4 — the child's half."""
 
@@ -217,7 +273,9 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     recorder.install()
     task: Any = getattr(module, attribute)(**(task_args or {}))
     # Stage 3 — facts from the built Task, then the Cases through the shared writer.
-    facts: TaskReplayFacts = _facts_of(task, module, task_ref, task_args)
+    facts: TaskReplayFacts = _facts_of(
+        task, module, task_ref, task_args, request.get("choice_template")
+    )
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=task_ref,
         case_count=0,
@@ -254,6 +312,7 @@ def import_by_task_replay(
     task_ref: str,
     task_args: Mapping[str, Any] | None,
     *,
+    choice_template: str | None = None,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
 ) -> TaskReplayImport:
     """Import one eval by Task replay: run 1 reads, the declaration is sealed, run 2 proves it.
@@ -276,6 +335,8 @@ def import_by_task_replay(
     Args:
         task_ref: ``"module:attr"`` of the eval's task function.
         task_args: forwarded to the task function in both runs; None for none.
+        choice_template: a verified choice-template constant (see replay_for_import); the
+            sealed declaration points at it, so run 2 renders with it too.
         timeout: seconds before either run is abandoned.
 
     Returns:
@@ -287,7 +348,9 @@ def import_by_task_replay(
 
     # Stage 1
     try:
-        first: ImportReplay = replay_for_import(task_ref, task_args, timeout=timeout)
+        first: ImportReplay = replay_for_import(
+            task_ref, task_args, choice_template=choice_template, timeout=timeout
+        )
     except TaskReplayError as exc:
         raise ImporterError(str(exc)) from exc
     # Stage 2
