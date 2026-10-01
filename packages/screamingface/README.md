@@ -470,6 +470,62 @@ judge without that weight, or a judge that returns labels each raise `ValueError
 built, before any call is paid (the Engine reads `score:judge` strictly, so a lone half would fail
 after the member calls). A judge that is not an `sf.Judge` raises `TypeError`.
 
+### Pick and merge JSON fields
+
+If the members reply with JSON, a rule can choose or build the answer. No model writes it.
+
+```python
+by_confidence = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max"))
+by_answer = sf.Fusion(routes, synthesizer=sf.Pick("answer", equals="yes", normalize="text"))
+
+merged = sf.Fusion(
+    routes,
+    synthesizer=sf.Merge(
+        fields={
+            "answer": sf.FieldRule.majority(normalize="text"),
+            "score": sf.FieldRule.max(),
+            "source": sf.FieldRule.from_member(2),
+            "synonyms": sf.FieldRule.union(normalize="text"),
+            "summary": sf.FieldRule.model("anthropic/claude-sonnet-5", prompt="Write one summary."),
+        }
+    ),
+)
+```
+
+`sf.Pick(field, order="max"|"min")` reads one field from each member. It returns the text of the
+member with the largest or smallest value, byte for byte. `sf.Pick(field, equals=value)` returns the
+first member whose value is equal to `value`. `field` is a JSON path such as `confidence`, `a.b` or
+`a[0].b`. With `normalize="text"` or `normalize="numeric"`, the value of each member and `value`
+itself go through the same normalizer before the compare. A number or a boolean in `equals` is
+compared in its JSON spelling (`1` is not `1.0`), unless you use `normalize="numeric"`. A tie goes to
+the first member in author order and sets `tie`.
+
+`sf.Merge(fields={...})` builds one JSON object. The object has exactly the fields that you declare,
+in sorted key order. Each field has one rule:
+
+* `majority(normalize=None)`: the value that most members give. The first group wins a tie.
+* `max()`: the largest number. A value that is not a number is skipped.
+* `from_member(n)`: the value of member `n` (the first member is 1). It is `null` when that member
+  is not JSON or has no such field. `n` that is larger than the member count raises `ValueError`
+  when the Fusion is built.
+* `union(normalize=None)`: the items of all list values. Each item is kept once, in its first
+  spelling, in author order.
+* `model(route, prompt=..., params=None)`: a model writes the field (see below).
+
+A member whose reply is not a JSON object is skipped, and the report shows the status `not_json`.
+A field with a JSON `null` value counts as absent. If no member gives a usable value for a
+`majority`, `max` or `union` field, or no member is usable at all, the case fails with
+`combine_no_votes`. The report shows the value of each member for each field and the result.
+
+**Model-written field.** A `FieldRule.model` field adds two calls for that field. The first call is
+a pure projection (`synthesis_N`): it builds one JSON object of the values of that field, by member.
+The second call is the writer model (`writer_N`). The writer sees only that projection. It does not
+see the question and it does not see the other fields. Put the task in the prompt. The reply of the
+writer is the value of the field, as text. If the writer call fails, the case fails and no partial
+object is returned. Each writer call is a synthesis row in the accounting breakdown. The name
+`binding` is reserved in `params`. This needs an Engine whose operator catalog has `json_field@1`,
+`json_object@1`, `values@1`, `by_field@1`, `field_rules@1`, `project_field@1` and `built@1`.
+
 ## Install
 
 ```bash

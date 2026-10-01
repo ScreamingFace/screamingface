@@ -1,0 +1,496 @@
+"""sf.Pick and sf.Merge: choose a member by one JSON field, or build one object by field rules.
+
+FEATURE: members that return JSON are joined by declared rules, not rewritten by a model (OME-1289).
+STORY: as a researcher, Pick returns the member whose field is the largest, the smallest or equal to
+a value, with that member's own JSON unchanged; Merge returns one canonical JSON object that holds
+exactly the fields I declared, each built by its own rule.
+
+A ``FieldRule.model(...)`` field is the one place a model writes part of the answer. Its writer sees
+only that field's values (a projection), never the question and never the other fields.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any, ClassVar, Literal, cast
+
+from screamingface import _candidate_policy
+from screamingface._candidate_policy import GenerationParams
+from screamingface.recipe import _model_route
+from screamingface.reducer import (
+    _REDUCER_CLASSES,
+    FIELD_PATH,
+    Reducer,
+    _cannot_rebuild,
+    _ModelSignal,
+    _op_name,
+    _ReducerKind,
+    _ReducerName,
+    _spec_steps,
+    _Step,
+    _Steps,
+)
+
+type FieldNormalizer = Literal["text", "numeric"]
+type _Rule = Literal["majority", "max", "from_member", "union", "model"]
+type _Order = Literal["max", "min"]
+
+_NORMALIZERS: tuple[str, ...] = ("text", "numeric")
+# INVARIANT: the Engine's field_rules@1 `_FIELD` and `_MEMBER` (operators/fields.py), copied; a name
+# or position outside them is refused here, before any call is made.
+_FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+_MEMBER_ID = re.compile(r"member_[1-9][0-9]*")
+_MAX_FIELDS = 64
+_MAX_PATH_CHARS = 256
+WRITER_KEY_PREFIX = "writer_"
+_RULE_KEYS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "majority": frozenset({"field", "rule", "normalize"}),
+        "max": frozenset({"field", "rule"}),
+        "from_member": frozenset({"field", "rule", "member"}),
+        "union": frozenset({"field", "rule", "normalize"}),
+        "model": frozenset({"field", "rule"}),
+    }
+)
+_INVALID_SIGNALS = "URL4 Candidate has invalid Reducer topology metadata"
+
+
+def _normalizer(value: object, label: str) -> FieldNormalizer | None:
+    if value is not None and value not in _NORMALIZERS:
+        raise ValueError(f"{label} normalize must be 'text' or 'numeric', not {value!r}")
+    return cast("FieldNormalizer | None", value)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class FieldRule:
+    """How one field of a Merge is built. Make one with a constructor method, not FieldRule()."""
+
+    rule: _Rule
+    normalize: FieldNormalizer | None
+    member: int | None
+    # WHY `route` and not `model`: ``FieldRule.model(...)`` is the constructor of a model rule.
+    route: str | None
+    prompt: str | None
+    params: GenerationParams
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "build a FieldRule with FieldRule.majority(), .max(), .from_member(), .union() "
+            "or .model()"
+        )
+
+    @classmethod
+    def _make(
+        cls,
+        rule: _Rule,
+        *,
+        normalize: FieldNormalizer | None = None,
+        member: int | None = None,
+        route: str | None = None,
+        prompt: str | None = None,
+        params: GenerationParams | None = None,
+    ) -> FieldRule:
+        made = object.__new__(cls)
+        for name, value in (
+            ("rule", rule),
+            ("normalize", normalize),
+            ("member", member),
+            ("route", route),
+            ("prompt", prompt),
+            ("params", MappingProxyType({}) if params is None else params),
+        ):
+            object.__setattr__(made, name, value)
+        return made
+
+    @classmethod
+    def majority(cls, *, normalize: FieldNormalizer | None = None) -> FieldRule:
+        """The value most members give; the earliest group wins a tie."""
+
+        return cls._make("majority", normalize=_normalizer(normalize, "FieldRule"))
+
+    @classmethod
+    def max(cls) -> FieldRule:
+        """The largest number among the members' values; a non-number is skipped."""
+
+        return cls._make("max")
+
+    @classmethod
+    def from_member(cls, position: int) -> FieldRule:
+        """The value of one member, by its 1-based author position (null if it has none)."""
+
+        if isinstance(position, bool) or not isinstance(position, int):
+            raise TypeError("FieldRule.from_member position must be an integer")
+        if position < 1:
+            raise ValueError("FieldRule.from_member position must be at least 1")
+        return cls._make("from_member", member=position)
+
+    @classmethod
+    def union(cls, *, normalize: FieldNormalizer | None = None) -> FieldRule:
+        """The items of every list value, each once, as its first spelling, in author order."""
+
+        return cls._make("union", normalize=_normalizer(normalize, "FieldRule"))
+
+    @classmethod
+    def model(
+        cls,
+        model: str,
+        *,
+        prompt: str,
+        params: Mapping[str, str | int | float | bool] | None = None,
+    ) -> FieldRule:
+        """A model writes this field. It sees only this field's values, as one JSON object."""
+
+        if not isinstance(prompt, str):
+            raise TypeError("FieldRule.model prompt must be a string")
+        selected = _candidate_policy.prompt(prompt, "FieldRule.model prompt")
+        assert selected is not None  # a str never comes back as None
+        return cls._make(
+            "model",
+            route=_model_route(model),
+            prompt=selected,
+            params=_candidate_policy.params(params, "FieldRule.model params"),
+        )
+
+    def _wire(self, field: str) -> dict[str, object]:
+        """This rule as the Engine's ``field_rules@1`` rule object (exact keys per rule)."""
+
+        wire: dict[str, object] = {"field": field, "rule": self.rule}
+        if "normalize" in _RULE_KEYS[self.rule]:
+            wire["normalize"] = self.normalize
+        if self.member is not None:
+            wire["member"] = f"member_{self.member}"
+        return wire
+
+    @classmethod
+    def _from_wire(cls, entry: Mapping[str, object], signal: _ModelSignal | None) -> FieldRule:
+        """Rebuild a rule from a decoded spec entry plus its writer call (a model rule only)."""
+
+        rule = entry.get("rule")
+        if not isinstance(rule, str) or set(entry) != _RULE_KEYS.get(rule):
+            raise _cannot_rebuild("merge")
+        if rule == "model":
+            if signal is None:
+                raise ValueError(_INVALID_SIGNALS)
+            made = cls.model(signal.model, prompt=signal.prompt, params=signal.params)
+        elif rule == "from_member":
+            made = cls.from_member(_member_position(entry["member"]))
+        elif rule == "max":
+            made = cls.max()
+        else:
+            normalize = _normalizer(entry["normalize"], "FieldRule")
+            made = (
+                cls.majority(normalize=normalize)
+                if rule == "majority"
+                else cls.union(normalize=normalize)
+            )
+        return made
+
+    def _render(self, prefix: str) -> str:
+        """The constructor call that rebuilds this rule; ``prefix`` is "" or "sf."."""
+
+        arguments = {
+            "majority": lambda: self._keyword("normalize", self.normalize),
+            "union": lambda: self._keyword("normalize", self.normalize),
+            "max": lambda: "",
+            "from_member": lambda: repr(self.member),
+            "model": self._model_arguments,
+        }[self.rule]()
+        return f"{prefix}FieldRule.{self.rule}({arguments})"
+
+    @staticmethod
+    def _keyword(name: str, value: object) -> str:
+        return "" if value is None else f"{name}={value!r}"
+
+    def _model_arguments(self) -> str:
+        params = f", params={dict(self.params)!r}" if self.params else ""
+        return f"{self.route!r}, prompt={self.prompt!r}{params}"
+
+    def __repr__(self) -> str:
+        return self._render("")
+
+    __hash__: ClassVar[Any] = None
+
+
+def _member_position(value: object) -> int:
+    if not isinstance(value, str) or _MEMBER_ID.fullmatch(value) is None:
+        raise _cannot_rebuild("merge")
+    return int(value.removeprefix("member_"))
+
+
+def _field_name(name: object) -> str:
+    if not isinstance(name, str) or _FIELD_NAME.fullmatch(name) is None:
+        raise ValueError(
+            f"Merge field name {name!r} must start with a letter or underscore, then use only "
+            "letters, digits and underscores (at most 64 characters)"
+        )
+    return name
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Merge(Reducer):
+    """One JSON object with exactly the declared fields, each built by its own rule.
+
+    A member that is not a JSON object is skipped and the report says so. A model-written field
+    adds one projection call and one writer call; the writer sees only that field's values.
+    """
+
+    name: str
+    fields: Mapping[str, FieldRule]
+
+    def __init__(self, fields: Mapping[str, FieldRule]) -> None:
+        if not isinstance(fields, Mapping):
+            raise TypeError("Merge fields must be a mapping of field name to FieldRule")
+        if not fields:
+            raise ValueError("Merge needs at least one field")
+        if len(fields) > _MAX_FIELDS:
+            raise ValueError(f"Merge takes at most {_MAX_FIELDS} fields, not {len(fields)}")
+        selected: dict[str, FieldRule] = {}
+        for field, rule in fields.items():
+            selected[_field_name(field)] = rule
+            if not isinstance(rule, FieldRule):
+                raise TypeError(f"Merge field {field!r} must be a FieldRule")
+        object.__setattr__(self, "name", "merge")
+        object.__setattr__(self, "fields", MappingProxyType(selected))
+
+    @property
+    def _reducer(self) -> _ReducerName:
+        return "merge"
+
+    @property
+    def _kind(self) -> _ReducerKind:
+        return "answer"
+
+    def _steps(self) -> _Steps:
+        rules = [rule._wire(field) for field, rule in self.fields.items()]
+        return _Steps(
+            extract=_Step("json_object"),
+            reduce=_Step("field_rules", {"fields": rules}),
+            select=_Step("built"),
+        )
+
+    def _signals(self) -> tuple[_ModelSignal, ...]:
+        signals: list[_ModelSignal] = []
+        for field, rule in self.fields.items():
+            if rule.rule == "model":
+                assert rule.route is not None and rule.prompt is not None
+                signals.append(
+                    _ModelSignal(
+                        f"{WRITER_KEY_PREFIX}{field}", rule.route, rule.prompt, rule.params, field
+                    )
+                )
+        return tuple(signals)
+
+    def _check_members(self, count: int) -> None:
+        for field, rule in self.fields.items():
+            if rule.member is not None and rule.member > count:
+                raise ValueError(
+                    f"FieldRule.from_member({rule.member}) for field {field!r} needs "
+                    f"{rule.member} members; the Fusion has {count}"
+                )
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Merge:
+        return cls._rebuild(spec, ())
+
+    @classmethod
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Merge:
+        entries = _merge_entries(spec)
+        writers = {signal.key: signal for signal in signals}
+        if len(writers) != len(signals):
+            raise ValueError(_INVALID_SIGNALS)
+        fields: dict[str, FieldRule] = {}
+        for entry in entries:
+            field = _field_name(entry.get("field"))
+            key = f"{WRITER_KEY_PREFIX}{field}"
+            writer = writers.pop(key, None) if entry.get("rule") == "model" else None
+            if writer is not None and writer.field != field:
+                raise ValueError(_INVALID_SIGNALS)
+            fields[field] = FieldRule._from_wire(entry, writer)
+        if writers:
+            raise ValueError(_INVALID_SIGNALS)
+        return cls(fields)
+
+    def __eq__(self, other: object) -> bool:
+        # WHY order counts: the field order is the spec order, so it changes the compiled bytes.
+        return isinstance(other, Merge) and list(self.fields.items()) == list(other.fields.items())
+
+    def _render(self, prefix: str) -> str:
+        items = ", ".join(
+            f"{field!r}: {rule._render(prefix)}" for field, rule in self.fields.items()
+        )
+        return f"{prefix}Merge(fields={{{items}}})"
+
+    def _python(self) -> str:
+        return self._render("sf.")
+
+    def __repr__(self) -> str:
+        return self._render("")
+
+    __hash__: ClassVar[Any] = None
+
+
+def _merge_entries(spec: Mapping[str, object]) -> list[Mapping[str, object]]:
+    """The rule objects of a decoded Merge spec, else refuse (a hand-edited url4)."""
+
+    steps = _spec_steps(spec)
+    extract, reduce, select = steps["extract"], steps["reduce"], steps["select"]
+    if (
+        spec["weights"] is not None
+        or steps["normalize"] is not None
+        or extract is None
+        or reduce is None
+        or select is None
+        or (_op_name(extract[0]), extract[1]) != ("json_object", {})
+        or (_op_name(select[0]), select[1]) != ("built", {})
+        or _op_name(reduce[0]) != "field_rules"
+    ):
+        raise _cannot_rebuild("merge")
+    rules = reduce[1].get("fields")
+    if set(reduce[1]) != {"fields"} or not isinstance(rules, list):
+        raise _cannot_rebuild("merge")
+    if not all(isinstance(rule, Mapping) for rule in rules):
+        raise _cannot_rebuild("merge")
+    return cast("list[Mapping[str, object]]", rules)
+
+
+def _target_text(value: object) -> str:
+    """The text a Pick compares to: a string as written, a number or boolean as JSON."""
+
+    if isinstance(value, str):
+        return value
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"Pick equals must be finite, not {value!r}")
+    if isinstance(value, (bool, int, float)):
+        return json.dumps(value)
+    raise TypeError("Pick equals must be a string, number or boolean")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Pick(Reducer):
+    """The member whose JSON field is the largest, the smallest or equal to a value, unchanged.
+
+    ``order="max"|"min"`` compares numbers. ``equals=<value>`` compares text; ``normalize`` applies
+    the same ``text`` or ``numeric`` normalizer to every member's value and to the target. A member
+    that is not JSON, or lacks the field, is skipped and the report says so.
+    """
+
+    name: str
+    field: str
+    order: Literal["max", "min"] | None
+    equals: str | None
+    normalize: FieldNormalizer | None
+
+    def __init__(
+        self,
+        field: str,
+        *,
+        order: Literal["max", "min"] | None = None,
+        equals: str | int | float | bool | None = None,
+        normalize: FieldNormalizer | None = None,
+    ) -> None:
+        if not isinstance(field, str):
+            raise TypeError("Pick field must be a string")
+        if len(field) > _MAX_PATH_CHARS or FIELD_PATH.fullmatch(field) is None:
+            raise ValueError(
+                f"Pick field {field!r} must be a JSON path like 'confidence', 'a.b' or 'a[0].b' "
+                f"(at most {_MAX_PATH_CHARS} characters)"
+            )
+        if order is not None and order not in ("max", "min"):
+            raise ValueError(f"Pick order must be 'max' or 'min', not {order!r}")
+        if order is not None and equals is not None:
+            raise ValueError("Pick takes order='max'|'min' or equals=<value>, not both")
+        if order is None and equals is None:
+            raise ValueError("Pick takes order='max'|'min' or equals=<value>")
+        if normalize is not None and equals is None:
+            raise ValueError("Pick normalize applies to equals only")
+        object.__setattr__(self, "name", "pick")
+        object.__setattr__(self, "field", field)
+        object.__setattr__(self, "order", order)
+        object.__setattr__(self, "equals", None if equals is None else _target_text(equals))
+        object.__setattr__(self, "normalize", _normalizer(normalize, "Pick"))
+
+    @property
+    def _reducer(self) -> _ReducerName:
+        return "pick"
+
+    @property
+    def _kind(self) -> _ReducerKind:
+        return "answer"
+
+    def _steps(self) -> _Steps:
+        # WHY exact ids for the normalizer: by_field@1 assumes the v1 output form of text@1 and
+        # numeric@1, so a newer normalizer in the catalog must never change what a Pick means.
+        if self.order is not None:
+            normalizer, select = "numeric", {"order": self.order}
+        else:
+            normalizer = self.normalize
+            select = {"order": "equals", "value": self.equals, "normalize": self.normalize}
+        return _Steps(
+            extract=_Step("json_field", {"path": self.field}),
+            normalize=None if normalizer is None else _Step(f"{normalizer}@1"),
+            reduce=_Step("values", {"field": self.field}),
+            select=_Step("by_field", select),
+        )
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Pick:
+        field, normalizer, args = _pick_parts(spec)
+        order, value, chosen = args.get("order"), args.get("value"), args.get("normalize")
+        if order in ("max", "min") and set(args) == {"order"} and normalizer == "numeric@1":
+            return cls(field, order=cast("_Order", order))
+        if (
+            order == "equals"
+            and set(args) == {"order", "value", "normalize"}
+            and isinstance(value, str)
+            and chosen in (None, *_NORMALIZERS)
+            and normalizer == (None if chosen is None else f"{chosen}@1")
+        ):
+            return cls(field, equals=value, normalize=cast("FieldNormalizer | None", chosen))
+        raise _cannot_rebuild("pick")
+
+    def __repr__(self) -> str:
+        if self.order is not None:
+            return f"Pick({self.field!r}, order={self.order!r})"
+        normalize = "" if self.normalize is None else f", normalize={self.normalize!r}"
+        return f"Pick({self.field!r}, equals={self.equals!r}{normalize})"
+
+    __hash__: ClassVar[Any] = None
+
+
+def _pick_parts(spec: Mapping[str, object]) -> tuple[str, str | None, dict[str, object]]:
+    """(field, normalizer id, by_field args) of a decoded Pick spec, else refuse (hand-edited)."""
+
+    steps = _spec_steps(spec)
+    extract, normalize, reduce, select = (
+        steps["extract"],
+        steps["normalize"],
+        steps["reduce"],
+        steps["select"],
+    )
+    if (
+        spec["weights"] is not None
+        or extract is None
+        or reduce is None
+        or select is None
+        or _op_name(extract[0]) != "json_field"
+        or _op_name(reduce[0]) != "values"
+        or _op_name(select[0]) != "by_field"
+        or (normalize is not None and bool(normalize[1]))
+    ):
+        raise _cannot_rebuild("pick")
+    field = extract[1].get("path")
+    if not isinstance(field, str) or dict(extract[1]) != {"path": field}:
+        raise _cannot_rebuild("pick")
+    if dict(reduce[1]) != {"field": field}:
+        raise _cannot_rebuild("pick")
+    return field, None if normalize is None else normalize[0], dict(select[1])
+
+
+_REDUCER_CLASSES.update(pick=Pick, merge=Merge)
+
+__all__ = ["FieldNormalizer", "FieldRule", "Merge", "Pick"]
