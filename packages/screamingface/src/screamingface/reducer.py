@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, get_args
+from typing import Any, ClassVar, Literal, get_args
 
 from screamingface._immutable_json import freeze_mapping
 
@@ -81,8 +81,145 @@ class Reducer(ABC):
         return None
 
 
-# Concrete reducers register here (later units: {"vote": Vote, "median": Median}, ...).
+# Concrete reducers register here (later units add more names beside vote and median).
 _REDUCER_CLASSES: dict[str, type[Reducer]] = {}
 
 
-__all__ = ["Reducer"]
+_MEDIAN_SELECTS: frozenset[str] = frozenset({"nearest", "value"})
+_STEP_STAGES = ("extract", "normalize", "reduce", "select")
+
+
+def _op_name(op: str) -> str:
+    return op.split("@", 1)[0]
+
+
+def _cannot_rebuild(name: str) -> ValueError:
+    return ValueError(f"URL4 Candidate has a {name} spec this SDK version cannot rebuild")
+
+
+def _spec_ops(spec: Mapping[str, object], name: str) -> dict[str, str | None]:
+    """stage -> pinned op id (None for an absent step). Refuses step args: v1 takes none."""
+
+    ops: dict[str, str | None] = {}
+    for stage in _STEP_STAGES:
+        step = spec[stage]
+        if step is None:
+            ops[stage] = None
+            continue
+        assert isinstance(step, Mapping)
+        if step["args"]:
+            raise _cannot_rebuild(name)
+        ops[stage] = str(step["op"])
+    return ops
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Vote(Reducer):
+    """Plurality vote: the first member (author order) holding the most common answer, verbatim."""
+
+    name: str
+    extract: str
+    normalize: str | None
+
+    def __init__(self, *, extract: str = "last_line", normalize: str | None = "text") -> None:
+        _Step(extract)  # TypeError for a non-str or blank name
+        if normalize is not None:
+            _Step(normalize)
+        object.__setattr__(self, "name", "vote")
+        object.__setattr__(self, "extract", extract)
+        object.__setattr__(self, "normalize", normalize)
+
+    @property
+    def _reducer(self) -> _ReducerName:
+        return "vote"
+
+    @property
+    def _kind(self) -> _ReducerKind:
+        return "answer"
+
+    def _steps(self) -> _Steps:
+        return _Steps(
+            extract=_Step(self.extract),
+            normalize=None if self.normalize is None else _Step(self.normalize),
+            reduce=_Step("mode"),
+            select=_Step("first_holder"),
+        )
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Vote:
+        ops = _spec_ops(spec, "vote")
+        extract = ops["extract"]
+        if (
+            extract is None
+            or _op_name(str(ops["reduce"])) != "mode"
+            or _op_name(str(ops["select"])) != "first_holder"
+            or spec["weights"] is not None
+        ):
+            raise _cannot_rebuild("vote")
+        return cls(extract=extract, normalize=ops["normalize"])
+
+    def __repr__(self) -> str:
+        return f"Vote(extract={self.extract!r}, normalize={self.normalize!r})"
+
+    __hash__: ClassVar[Any] = None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Median(Reducer):
+    """Median of the members' numeric answers: the nearest member's text, or the number itself."""
+
+    name: str
+    extract: str
+    select: str
+
+    def __init__(self, *, extract: str = "last_number", select: str = "nearest") -> None:
+        _Step(extract)
+        _Step(select)
+        if _op_name(select) not in _MEDIAN_SELECTS:
+            raise ValueError(f"Median select must be 'nearest' or 'value', not {select!r}")
+        object.__setattr__(self, "name", "median")
+        object.__setattr__(self, "extract", extract)
+        object.__setattr__(self, "select", select)
+
+    @property
+    def _reducer(self) -> _ReducerName:
+        return "median"
+
+    @property
+    def _kind(self) -> _ReducerKind:
+        return "answer"
+
+    def _steps(self) -> _Steps:
+        return _Steps(
+            extract=_Step(self.extract),
+            normalize=_Step("numeric"),
+            reduce=_Step("median"),
+            select=_Step(self.select),
+        )
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Median:
+        ops = _spec_ops(spec, "median")
+        extract = ops["extract"]
+        select = ops["select"]
+        if (
+            extract is None
+            or ops["normalize"] is None
+            or _op_name(ops["normalize"]) != "numeric"
+            or _op_name(str(ops["reduce"])) != "median"
+            or select is None
+            or _op_name(select) not in _MEDIAN_SELECTS
+            or spec["weights"] is not None
+        ):
+            raise _cannot_rebuild("median")
+        return cls(extract=extract, select=select)
+
+    def __repr__(self) -> str:
+        return f"Median(extract={self.extract!r}, select={self.select!r})"
+
+    __hash__: ClassVar[Any] = None
+
+
+_REDUCER_CLASSES.update(vote=Vote, median=Median)
+
+__all__ = ["Median", "Reducer", "Vote"]

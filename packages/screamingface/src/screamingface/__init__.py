@@ -52,6 +52,7 @@ from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
+from screamingface.reducer import Median, Vote
 from screamingface.report import (
     CandidateResult,
     CaseGrade,
@@ -115,6 +116,7 @@ __all__ = [
     "LeaderboardScore",
     "matches",
     "MemberResult",
+    "Median",
     "Model",
     "ModelCapability",
     "ModelDetails",
@@ -139,6 +141,7 @@ __all__ = [
     "OperationCache",
     "Usage",
     "Url4",
+    "Vote",
     "benchmarks",
     "events",
     "leaderboards",

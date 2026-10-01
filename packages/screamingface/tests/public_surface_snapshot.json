@@ -32,6 +32,7 @@
       "LeaderboardInfo",
       "LeaderboardRankingNotice",
       "LeaderboardScore",
+      "Median",
       "MemberResult",
       "Model",
       "ModelCapability",
@@ -56,6 +57,7 @@
       "SelfCorrective",
       "Url4",
       "Usage",
+      "Vote",
       "__version__",
       "benchmarks",
       "close",
@@ -530,6 +532,15 @@
           "version": "field"
         }
       },
+      "Median": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, extract: 'str' = 'last_number', select: 'str' = 'nearest') -> 'None'",
+          "extract": "field",
+          "name": "field",
+          "select": "field"
+        }
+      },
       "MemberResult": {
         "kind": "class",
         "members": {
@@ -815,6 +826,15 @@
           "output_tokens": "field",
           "reasoning_tokens": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "Vote": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text') -> 'None'",
+          "extract": "field",
+          "name": "field",
+          "normalize": "field"
         }
       },
       "__version__": {

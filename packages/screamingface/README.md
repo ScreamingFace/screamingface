@@ -265,6 +265,27 @@ history wrap structured turns in the versioned Candidate-input envelope; the Run
 their roles while the SDK continues to treat `$input` as opaque. This supports multi-turn and
 stateful protocols without a Client-interpreted workflow language.
 
+### Deterministic synthesizers
+
+A Fusion can combine its members with a rule instead of a model:
+
+```python
+routes = [
+    "openrouter/openai/gpt-5.5",
+    "openrouter/anthropic/claude-opus-4.8",
+    "openrouter/google/gemini-3.1-pro-preview",
+]
+
+by_vote = sf.Fusion(routes, synthesizer=sf.Vote(extract="last_number", normalize="numeric"))
+by_median = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", select="value"))
+```
+
+The combine step makes no model call. The answer is one member's text byte for byte, or the median
+number itself for `select="value"`. A tie goes to the first member in author order and sets `tie`.
+A member with no usable value does not vote, and a run with no votes fails with
+`combine_no_votes`. The evidence (the reading per member, the tally, the agreement and the chosen
+member) is in `CaseOperation.combine`. This needs an Engine that serves `GET /v1/operators`.
+
 ## Install
 
 ```bash
