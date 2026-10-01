@@ -9,6 +9,7 @@ differs on disk always has a different digest, and nothing else can move it.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -60,3 +61,23 @@ def test_written_files_are_utf8_so_the_digest_matches_what_is_on_disk(tmp_path: 
 
     assert "— vier" in (tmp_path / "cases.json").read_text(encoding="utf-8")
     assert (tmp_path / "targets" / "2.json").read_text(encoding="utf-8") == '{"target":"4"}'
+
+
+def test_case_digest_is_the_same_before_and_after_a_json_round_trip() -> None:
+    """INVARIANT: a Case Digest means one thing wherever it is computed.
+
+    WHY: JSON turns integer keys into strings, and strings sort differently (2 < 10, but
+    "10" < "2"). Without normalising, Cases whose metadata has integer keys would seal to
+    one digest in the child and another after the parent reads result.json back, and that
+    Benchmark would go SKIPPED at every build (found in review of PR #1150).
+    """
+
+    prepared: list[PreparedCase] = [
+        {
+            "case": {"id": 1, "case_id": "1", "input": "Which page?"},
+            "grading_material": {"target": "A", "metadata": {2: "two", 10: "ten"}},
+        }
+    ]
+    round_tripped: list[PreparedCase] = json.loads(json.dumps(prepared))
+
+    assert case_digest(prepared) == case_digest(round_tripped)

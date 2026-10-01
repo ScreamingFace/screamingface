@@ -72,6 +72,8 @@ PR image job runs strict and fails on any changed Cases. Covers spec R5, R9, R10
   log; added tests that the written files re-seal to the pinned digest and that strict mode
   ignores a gated-token skip; the stand-in eval prepends to PYTHONPATH. Spec gained a Known
   limitation: Task replay has no gated-dataset path.
-- **Carry to PR 3:** capture the import-time Case Digest through `replayed_cases` (the JSON
-  round trip), never in-process `case_records`: metadata with integer keys re-sorts after the
-  round trip, and an in-process digest would SKIP that Benchmark at every build.
+- **JSON round trip fixed here, not carried to PR 3:** `case_digest` now round-trips the Cases
+  through JSON before hashing, so integer metadata keys (which come back as strings and sort
+  differently) can't make the child's digest and the parent's disagree. Pinned by
+  `test_case_digest_is_the_same_before_and_after_a_json_round_trip`; the pinned literal is
+  unchanged.

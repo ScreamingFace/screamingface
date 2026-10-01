@@ -337,7 +337,8 @@ def case_digest(prepared: Sequence[PreparedCase]) -> str:
     """Fingerprint the prepared Cases: the sha256 of exactly what the writer writes (OME-1273).
 
     Think of it as a seal on the envelope of Cases: any change to any Case's id, input or
-    Grading Material, or to their order, breaks the seal. Canonical JSON (sorted keys, no
+    Grading Material, or to their order, breaks the seal. The Cases first go through a JSON
+    round trip (what result.json does to them), then canonical JSON (sorted keys, no
     whitespace, UTF-8 without escapes) keeps the seal independent of dict order.
 
     Example: the two Cases in ``test_case_digest.py`` seal to ``765b3955…``; changing one
@@ -350,9 +351,12 @@ def case_digest(prepared: Sequence[PreparedCase]) -> str:
         64 lowercase hex characters.
     """
 
-    canonical: str = json.dumps(
-        list(prepared), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
+    # INVARIANT: the digest means one thing wherever it is computed. WHY the round trip
+    # first: JSON turns integer keys into strings, which sort differently (2 < 10, but
+    # "10" < "2"), so the child's Cases and the parent's copy read back from result.json
+    # would otherwise seal to different digests.
+    as_json: list[Any] = json.loads(json.dumps(list(prepared), ensure_ascii=False))
+    canonical: str = json.dumps(as_json, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
