@@ -7,7 +7,9 @@ Reviewer: `@IrinaMBejan`.
 
 ## 1. Code against docs
 
-List every `CHANGELOG.md` entry, across all packages, since the last big release:
+List every `CHANGELOG.md` entry, across all packages, since the last big release. Include
+each file's "Unreleased" section: a package with no cut release yet still has shipped,
+undocumented behavior sitting there.
 
 - `apps/aigateway/CHANGELOG.md`
 - `apps/aigateway-ui/CHANGELOG.md`
