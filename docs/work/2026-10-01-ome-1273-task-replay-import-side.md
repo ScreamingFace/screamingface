@@ -80,5 +80,10 @@ run through the image-side path), and write the `TaskReplayCasesSpec` declaratio
     ruff, format and pyright on its files plus its tests.
   - The branch is ~2,570 lines (≈1,000 source, ≈1,500 tests), over the spec's ~500-line PR cap;
     the owner chose one PR anyway (2026-10-01), with no review-agent pass.
+  - After PR-open, two fixes from PR 4's first real import (b357437b): a Task-replay refusal
+    from `python -m …importer` escaped as a traceback (`__main__` held a second ImporterError
+    class), and our own solver-flag wording was refused as code; plus two write tests moved
+    off the sample key `agieval_lsat_ar`, which PR 4 makes a real Benchmark (owner granted
+    `--skip-append-only` for that commit, 2026-10-01).
 - **Owner-verify:** run the importer for `agieval_lsat_ar` locally before PR 4 (the first real
   fetch; nothing here touched the network).
