@@ -192,6 +192,7 @@ def _facts_of(
     task_ref: str,
     task_args: dict[str, Any] | None,
     choice_template: str | None,
+    samples_carry_choices: bool,
 ) -> TaskReplayFacts:
     """Stage 3a — read the built Task with the Hugging Face reader's own readers."""
 
@@ -208,9 +209,11 @@ def _facts_of(
         choice_template=choice_ref,
         system_message=system_ref,
         unreproduced_solvers=custom,
-        # INVARIANT: the same two MCQ witnesses as read_inspect_task — the multiple_choice
-        # solver, OR the choice scorer (mmlu hides its solver inside its own @solver).
-        mcq=uses_multiple_choice or scorer_name == "choice",
+        # INVARIANT: the Hugging Face reader's two MCQ witnesses — the multiple_choice solver,
+        # OR the choice scorer (mmlu hides its solver inside its own @solver) — plus a third
+        # only a replay can see: Samples that carry choices (worldsense asks for "1"/"2"/"3"
+        # with generate() and a pattern scorer). Any of them refuses mid-run feedback (OME-796).
+        mcq=uses_multiple_choice or scorer_name == "choice" or samples_carry_choices,
         scorer=scorer_ref,
         scorer_kwargs=scorer_kwargs,
         custom_metrics=_custom_metrics(task),
@@ -277,9 +280,15 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
     recorder.install()
     task: Any = getattr(module, attribute)(**(task_args or {}))
+    samples: list[Any] = list(task.dataset)
     # Stage 3 — facts from the built Task, then the Cases through the shared writer.
     facts: TaskReplayFacts = _facts_of(
-        task, module, task_ref, task_args, request.get("choice_template")
+        task,
+        module,
+        task_ref,
+        task_args,
+        request.get("choice_template"),
+        any(sample.choices for sample in samples),
     )
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=task_ref,
@@ -292,7 +301,6 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         keep_sample_metadata=facts.keep_sample_metadata,
         render_choices=facts.render_choices,
     )
-    samples: list[Any] = list(task.dataset)
     prepared: list[PreparedCase] = case_records(samples, spec)
     # Stage 4 — one file back to the parent. WHY sample_ids: the writer numbers Cases 1..N,
     # so the upstream ids R4's duplicate check reads exist only here.

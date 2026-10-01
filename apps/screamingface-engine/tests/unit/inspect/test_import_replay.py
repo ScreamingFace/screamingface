@@ -489,3 +489,14 @@ def test_an_mcq_task_still_renders_its_options(fake_eval: str) -> None:
     imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:quiz", None)
 
     assert imported.declaration.render_choices is True
+
+
+def test_samples_with_choices_are_mcq_even_without_a_choice_solver(numbered_eval: str) -> None:
+    """OME-796: pass/fail feedback over a handful of options is an elimination attack, so a
+    Case that carries choices is MCQ-shaped whatever its solver and scorer are called
+    (worldsense: generate() + pattern scorer over three numbered options)."""
+
+    replay: ImportReplay = replay_for_import(numbered_eval, None)
+
+    assert replay.facts.mcq is True
+    assert replay.facts.render_choices is False
