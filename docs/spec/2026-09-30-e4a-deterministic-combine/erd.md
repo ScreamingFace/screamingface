@@ -45,7 +45,7 @@ erDiagram
     COMBINE_CONTEXT {
         string input
         map outputs "member id -> text"
-        map signals "judge or writer.<field> -> text, optional"
+        map signals "judge or writer_<field> -> text, optional"
     }
     COMBINE_EVIDENCE {
         string schema "screamingface.combine-evidence.v1"

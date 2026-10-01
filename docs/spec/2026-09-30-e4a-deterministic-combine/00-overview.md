@@ -102,3 +102,26 @@ Under the cross-cutting rule, implementation needs one sub-issue for each landin
 - **E4d** calls the same reducer once per round.
 - **E4e** registers user operators in the same registry, through a sandbox.
 - **E10e** reuses `samples()` for pass@k, and it will share a code extractor operator.
+
+## 8. Implementation errata (2026-10-01)
+
+The build found these points where the PRDs did not match the real code or needed a decision. The
+code follows this list. Each item names the PRD it corrects.
+
+| # | PRD | Was | Is now | Why |
+|---|---|---|---|---|
+| E1 | erd.md, pick-and-merge.md | signal key `writer.<field>` | `writer_<field>` | url4 struct keys allow only `[A-Za-z0-9_]` |
+| E2 | reducer-slot.md, contracts K3 | spec `$` written as `$$` | `$` written as the JSON escape `\u0024` | url4 rewrites `$` in an intent; `$$` is not safe there |
+| E3 | operator-framework.md | the combine endpoint lives in `combine/endpoint.py` | `combine/` is url4-free (`run_combine`); the url4 route adapter is `world/combine.py` | hexagonal rule; the url4 guard test lists allowed importers |
+| E4 | judge-pick.md, contracts K8 | judge/writer calls are plain model calls | they carry the model param `binding=judge_N`/`writer_N`, which the engine strips before the gateway | a judge on a member's model would share its attribution fingerprint |
+| E5 | judge-pick.md | `judge-template@1` "in the spec" | the template id is the first line of the judge system prompt | the combine spec rejects unknown keys |
+| E6 | samples.md SM-E1, SM-3 | `ValueError` for a model without `seed` | `PlanningError(code="unsupported_model_parameter")` from the existing preflight | the preflight already refuses before any model call |
+| E7 | samples.md SM-D4, SM-10 | `model_parameter_invalid` | `upstream_error` with `metadata.source_code="unsupported_parameters"` | that is what the connector and aggregation produce |
+| E8 | samples.md | seeds as strings (`"0"`) | seeds as integers | the gateway seed schema is `integer` |
+| E9 | combine-evidence.md EV-10 | corrective rounds keep the last evidence | a CorrectiveLoop case carries no `operations` today; EV-10 is a characterization test | lifting corrective member operations is a follow-up |
+| E10 | pick-and-merge.md PM-D4 | a skipped max value has status `not_numeric` | the skip shows only as `values` vs `result` in the field reading | v1 evidence has no per-field status |
+| E11 | pick-and-merge.md | (silent) | union over only empty lists gives `[]`; union keeps non-string items (`[1,"1"]` gives `[1]`); projection keys are in canonical JSON order (`member_10` before `member_2`) | pinned v1 behavior |
+| E12 | concatenate.md CC-4 | collision = the split does not give the parts back | collision = an extra (overlapping) separator match | the split rule missed overlaps that end inside the next part |
+| E13 | answer-operators.md | `last_number@1` reads a grouped number | it returns the whole digit-and-comma run; `numeric@1` marks bad grouping `not_numeric` | a bad grouping must not become a silent wrong vote |
+| E14 | weighted-vote.md | weights are positive and finite | also at most `sys.float_info.max / 256`, in the SDK and the engine | the summed score must stay finite |
+| E15 | majority-vote-and-median.md | median accepts any normalizer | a median spec must use a normalizer named `numeric` | the median of non-canonical text is undefined |

@@ -1,8 +1,8 @@
 # Plan — E4a deterministic combine (OME-1289)
 
 **Spec:** [docs/spec/2026-09-30-e4a-deterministic-combine/](../spec/2026-09-30-e4a-deterministic-combine/00-overview.md)
-(approved by the user, 2026-09-30). **Status:** ready. Implementation has not started. It starts
-only when the user says so in plain words.
+(approved by the user, 2026-09-30). **Status:** implemented on local stacked branches (2026-10-01), not yet pushed; see the errata in the spec 00-overview §8. It started
+on the user's plain-words go.
 
 ## 1. Rules for every unit
 

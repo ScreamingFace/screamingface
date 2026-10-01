@@ -47,7 +47,7 @@ sf.Merge(fields={
      `{"member_1": <value>, …}` as JSON (`kind = projection`);
   2. a model call `writer_N` with that projection as its context and the author prompt as its
      intent;
-  3. the final merge combine call reads `signals: {"writer.F": $writer_N}`, and uses the writer's
+  3. the final merge combine call reads `signals: {"writer_F": $writer_N}`, and uses the writer's
      text as the value of F.
   The writer sees only the values of F `[stated prompt]`.
 
