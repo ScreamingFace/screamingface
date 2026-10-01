@@ -6,7 +6,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Literal, cast
+from typing import Literal, cast, get_args
 
 from url4 import Expression, Node, Source, Text, src
 
@@ -24,6 +24,9 @@ type _TopologyKind = Literal[
     "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer"
 ]
 type _OperationRole = Literal["model", "synthesis", "judge"]
+# The roles of the model calls a reducer reads (its signals); each is also an _OperationRole.
+type _SignalRole = Literal["judge"]
+_SIGNAL_ROLES: tuple[str, ...] = get_args(_SignalRole.__value__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,8 +442,8 @@ def _decode_signals(value: object) -> tuple[_SignalTopology, ...]:
     return signals
 
 
-def _signal_role(key: object) -> _OperationRole | None:
-    """The role of the model call a signal key names (None: not a signal this SDK knows)."""
+def _signal_role(key: object) -> _SignalRole | None:
+    """The ONE key -> role rule: the role of the model call a signal key names, else None."""
 
     return "judge" if key == "judge" else None
 

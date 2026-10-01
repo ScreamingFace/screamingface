@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import pytest
+from _combine_flow_fixtures import flow_operators
 from _reducer_fixtures import compiled_vote_url4, fixture_operators, reducer_fusion
 from url4 import Expression, Source, Text, build, render, struct
 
+import screamingface as sf
 from screamingface._evaluation.candidate import (
     _CandidateCompiler,
     _fusion_context,
     _ResolvedRecipe,
     compile_candidate,
 )
+from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.topology import _operation_shape, _RecipeTopology
-from screamingface.reducer import FIELD_PATH
+from screamingface.reducer import FIELD_PATH, _spec_ops, _spec_steps
 
 
 def test_a_reducer_without_signals_compiles_as_before() -> None:
@@ -101,3 +104,22 @@ def test_field_path_matches_the_engine_grammar_for_valid_paths(path: str) -> Non
 )
 def test_field_path_matches_the_engine_grammar_for_invalid_paths(path: str) -> None:
     assert FIELD_PATH.fullmatch(path) is None
+
+
+def test_spec_steps_read_every_stage_with_its_args() -> None:
+    spec = decode_combine_spec(
+        combine_spec_text(
+            sf.Judge("provider/j", returns="scores", rubric="Score."),
+            member_count=2,
+            operators=flow_operators(),
+        )
+    )
+
+    assert _spec_steps(spec) == {
+        "extract": None,
+        "normalize": None,
+        "reduce": ("scores@1", {"source": "judge"}),
+        "select": ("max_score@1", {}),
+    }
+    with pytest.raises(ValueError, match="cannot rebuild"):
+        _spec_ops(spec, "scores")

@@ -10,10 +10,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal
 
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
+from screamingface._evaluation.operators import STAGES
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
     _REDUCER_CLASSES,
@@ -23,6 +24,7 @@ from screamingface.reducer import (
     _op_name,
     _ReducerKind,
     _ReducerName,
+    _spec_steps,
     _Step,
     _Steps,
 )
@@ -58,14 +60,12 @@ JUDGE_TEMPLATES: Mapping[str, str] = MappingProxyType(
         for returns in ("label", "scores")
     }
 )
-# stage steps -> returns: what a decoded spec must hold for a Judge to rebuild from it.
-_SPEC_STEPS: Mapping[str, tuple[tuple[str, dict[str, object]], tuple[str, dict[str, object]]]] = (
-    MappingProxyType(
-        {
-            "label": (("label", {}), ("by_label", {})),
-            "scores": (("scores", {"source": "judge"}), ("max_score", {})),
-        }
-    )
+# The ONE description of the two judge shapes: Judge._steps() writes it, _returns_of() reads it.
+_JUDGE_STEPS: Mapping[JudgeReturns, _Steps] = MappingProxyType(
+    {
+        "label": _Steps(reduce=_Step("label"), select=_Step("by_label")),
+        "scores": _Steps(reduce=_Step("scores", {"source": "judge"}), select=_Step("max_score")),
+    }
 )
 
 
@@ -100,10 +100,10 @@ class Judge(Reducer):
     ) -> None:
         if returns not in ("label", "scores"):
             raise ValueError(f"Judge returns must be 'label' or 'scores', not {returns!r}")
-        if rubric is None:
+        if not isinstance(rubric, str):
             raise TypeError("judge rubric must be a string")
         selected_rubric = _candidate_policy.prompt(rubric, "judge rubric")
-        assert selected_rubric is not None
+        assert selected_rubric is not None  # a str never comes back as None
         object.__setattr__(self, "name", "judge")
         object.__setattr__(self, "model", _model_route(model))
         object.__setattr__(self, "returns", returns)
@@ -119,9 +119,7 @@ class Judge(Reducer):
         return "answer"
 
     def _steps(self) -> _Steps:
-        if self.returns == "label":
-            return _Steps(reduce=_Step("label"), select=_Step("by_label"))
-        return _Steps(reduce=_Step("scores", {"source": "judge"}), select=_Step("max_score"))
+        return _JUDGE_STEPS[self.returns]
 
     def _signals(self) -> tuple[_ModelSignal, ...]:
         return (
@@ -158,18 +156,22 @@ def judge_from_signals(signals: tuple[_ModelSignal, ...], returns: JudgeReturns)
 def _returns_of(spec: Mapping[str, object]) -> JudgeReturns:
     """Which judge shape a decoded spec is, else refuse (a hand-edited url4)."""
 
-    if spec["extract"] is not None or spec["normalize"] is not None or spec["weights"] is not None:
+    if spec["weights"] is not None:
         raise _cannot_rebuild("judge")
-    observed = (_step_shape(spec["reduce"]), _step_shape(spec["select"]))
-    for returns, expected in _SPEC_STEPS.items():
-        if observed == expected:
-            return cast(JudgeReturns, returns)
+    observed = _spec_steps(spec)
+    for returns, expected in _JUDGE_STEPS.items():
+        if all(_step_matches(observed[stage], getattr(expected, stage)) for stage in STAGES):
+            return returns
     raise _cannot_rebuild("judge")
 
 
-def _step_shape(step: object) -> tuple[str, dict[str, object]]:
-    assert isinstance(step, Mapping)
-    return (str(_op_name(str(step["op"]))), dict(cast("Mapping[str, object]", step["args"])))
+def _step_matches(
+    observed: tuple[str, Mapping[str, object]] | None, expected: _Step | None
+) -> bool:
+    if observed is None or expected is None:
+        return observed is None and expected is None
+    op_id, args = observed
+    return _op_name(op_id) == expected.op and dict(args) == dict(expected.args)
 
 
 _REDUCER_CLASSES["judge"] = Judge

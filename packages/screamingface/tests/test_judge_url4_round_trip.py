@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, judge_fusion, members3
-from url4 import expr, render, src, text
+from url4 import Expression, build, expr, render, src, text
 
 import screamingface as sf
 from screamingface._evaluation.benchmark import _CheckSurface
@@ -16,6 +16,7 @@ from screamingface._evaluation.combine_spec import combine_spec_text, decode_com
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface.judge import JUDGE_TEMPLATES
 from screamingface.reducer import _ModelSignal
+from screamingface.url4 import _calls
 
 _SURFACE = _CheckSurface(
     check_route="/benchmarks/ifeval/revision-1/check-surface",
@@ -132,6 +133,21 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
             '"reduce":{"args":{"source":"judge"},"op":"scores@1"}',
             "cannot rebuild",
         ),
+        "signal key renamed in the combine context": (
+            "signals: {judge: '$judge_1'}",
+            "signals: {jury: '$judge_1'}",
+            _MODEL_CALLS,
+        ),
+        "signals removed from the combine context": (
+            ", signals: {judge: '$judge_1'}",
+            "",
+            _MODEL_CALLS,
+        ),
+        "binding param on a member": (
+            "/provider/a($input)",
+            "/provider/a?binding=model_1&q=($input)",
+            _MODEL_CALLS,
+        ),
         "no signals": (signals, '"signals":[]', _INVALID_REDUCER),
         "signal key": ('{"key":"judge","source"', '{"key":"jury","source"', _INVALID_REDUCER),
         "source role": (
@@ -224,4 +240,56 @@ def test_corrective_replay_recompiles_a_judge_member() -> None:
     replayed = _candidate_from_url4(_linked(compiled.url4))
     assert replayed.kind == "corrective_loop"
     assert "ensemble/combine/v1" not in replayed.models
+    assert "provider/j" in replayed.models
+    # each round recompiles the member Fusion, so the judge call is numbered per round
+    operations = {operation.id: operation for operation in compiled.operations}
+    for round_number in (1, 2):
+        judge = operations[f"op_judge_{round_number}"]
+        combine = operations[f"op_synthesis_{round_number}"]
+        assert judge.kind == "judge"
+        assert judge.label == "a+b+c judge"
+        assert combine.depends_on == (*judge.depends_on, judge.id)
+        assert len(judge.depends_on) == 3
+    assert operations["op_judge_1"].depends_on != operations["op_judge_2"].depends_on
+    root = build(compiled.url4)
+    assert isinstance(root, Expression)
+    calls = _calls(root)
+    for round_number in (1, 2):
+        assert calls[f"judge_{round_number}"].params == (("binding", f"judge_{round_number}"),)
+        assert f"judge_{round_number}" in calls[f"synthesis_{round_number}"].dependencies
+
+
+def _nested_shapes() -> dict[str, sf.Recipe]:
+    scores = sf.Judge("provider/k", returns="scores", rubric="Score each member.")
+    return {
+        "judge inside judge": sf.Fusion([judge_fusion(), "provider/d"], synthesizer=scores),
+        "judge in a recipe synthesizer": sf.Fusion(
+            members3(), synthesizer=sf.Pipeline([judge_fusion("scores"), "provider/s"])
+        ),
+        "judge fusion in a model fusion": sf.Fusion(
+            [judge_fusion(), "provider/d"], synthesizer="provider/s"
+        ),
+        "judge fusion in a pipeline": sf.Pipeline([judge_fusion(), judge_fusion("scores")]),
+    }
+
+
+@pytest.mark.parametrize("shape", sorted(_nested_shapes()))
+def test_nested_judge_shapes_round_trip_and_replay_equal(shape: str) -> None:
+    compiled = _compiled(_nested_shapes()[shape])
+
+    assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
+    replayed = _candidate_from_url4(_linked(compiled.url4))
+    assert replayed.operations == compiled.operations
+    assert replayed.models == compiled.models
+    assert [member.operation_id for member in replayed.members] == [
+        member.operation_id for member in compiled.members
+    ]
+
+
+def test_a_self_corrective_judge_round_trips() -> None:
+    compiled = _compiled(sf.SelfCorrective(judge_fusion(), max_rounds=2))
+
+    assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
+    replayed = _candidate_from_url4(_linked(compiled.url4))
+    assert replayed.kind == "self_corrective"
     assert "provider/j" in replayed.models

@@ -15,4 +15,8 @@ TOPOLOGY_BINDING = re.compile(rf"{_BODY}|loop_candidate")
 # A reducer node is a combine call, and every combine call takes the next synthesis_N.
 SYNTHESIS_BINDING = re.compile(r"synthesis_\d+")
 
+# The model/combine call param that names the call for attribution (never forwarded by the Engine).
+# Every attributed combine, judge and writer call carries it FIRST; a user param cannot use it.
+OPERATION_BINDING_PARAM = "binding"
+
 __all__: list[str] = []

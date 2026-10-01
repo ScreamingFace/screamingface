@@ -418,7 +418,8 @@ nothing else. With `returns="scores"`, the judge must reply with one JSON object
 member id one finite number. The highest score wins, and a tie goes to the first member in author
 order. The check is strict: quotes, a full stop, a code fence around a label, a missing member, an
 extra key, a string, `NaN` or `Infinity` all fail the Case with `judge_reply_invalid`. The prose of the
-judge is never used as the answer, and the SDK does not retry the judge call.
+judge is never used as the answer, and a reply that does not parse is not retried. (A transient
+transport error still gets the normal retry of the connector.)
 
 The judge call is the operation `op_judge_1`. Its output is the raw reply of the judge, and its cost
 is in the accounting breakdown as a synthesis row. The combine step is `op_synthesis_1`. Its `combine`

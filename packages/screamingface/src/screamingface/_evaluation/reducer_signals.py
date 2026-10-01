@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from url4 import RelExpr, Text, src
 
@@ -23,7 +23,14 @@ from screamingface._evaluation.candidate import (
 )
 from screamingface._evaluation.model import _compiled_operation
 from screamingface._evaluation.policy import resolved_params
-from screamingface._evaluation.topology import _operation_shape, _RecipeTopology, _SignalTopology
+from screamingface._evaluation.topology import (
+    _operation_shape,
+    _RecipeTopology,
+    _signal_role,
+    _SignalRole,
+    _SignalTopology,
+)
+from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface.fusion import Fusion
 from screamingface.reducer import Reducer, _ModelSignal
 
@@ -50,27 +57,33 @@ def _compile_signals(
 ) -> _CompiledSignals:
     """Attach one source per signal, in declared order, and describe them for the combine call."""
 
+    signals = reducer._signals()
+    if not signals:
+        return _CompiledSignals(MappingProxyType({}), (), (), ())
     # WHY no signals in the signal calls' own context: a signal reads the members, not itself.
     context = _fusion_context(input_context, members)
     references: dict[str, str] = {}
     topology: list[_SignalTopology] = []
     operation_ids: list[str] = []
     models: list[str] = []
-    for signal in reducer._signals():
-        if signal.key != "judge":
+    for signal in signals:
+        role = _signal_role(signal.key)
+        if role is None:
             raise ValueError("unsupported reducer signal")
+        route = _canonical_model(signal.model)
         source = _model_signal_source(
             compiler,
             fusion,
             signal,
-            role="judge",
+            route=route,
+            role=role,
             context=context,
             dependencies=dependencies,
         )
         references[signal.key] = f"${source.binding}"
         topology.append(_SignalTopology(signal.key, source))
         operation_ids.append(f"op_{source.binding}")
-        models.append(_canonical_model(signal.model))
+        models.append(route)
     return _CompiledSignals(
         references=MappingProxyType(references),
         topology=tuple(topology),
@@ -84,14 +97,14 @@ def _model_signal_source(
     fusion: Fusion,
     signal: _ModelSignal,
     *,
-    role: Literal["judge"],
+    route: str,
+    role: _SignalRole,
     context: str,
     dependencies: tuple[str, ...],
 ) -> _RecipeTopology:
     """One signal model call: its source, its operation and its parameter assignment."""
 
     binding = compiler._next_binding(role)
-    route = _canonical_model(signal.model)
     # WHY the binding param first: the Engine attributes an operation's output by the call's
     # (path, params) fingerprint, so this keeps the call apart from a member on the same route.
     compiler._append_source(
@@ -100,7 +113,7 @@ def _model_signal_source(
                 path=_model_route(route),
                 context=context,
                 intent=Text(_url4_text(signal.prompt)),
-                params=(("binding", binding), *resolved_params(signal.params)),
+                params=((OPERATION_BINDING_PARAM, binding), *resolved_params(signal.params)),
             ),
             name=binding,
             weight=0.0,

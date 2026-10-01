@@ -67,3 +67,14 @@ once by design: a reducer without signals compiles as before (SL-1), the existin
   the reduce name alone. `_signal_role` (topology decoder) maps the key `judge` to the role `judge`
   and is the one place unit 9 adds `writer_<field>`. `_operation_shape` returns (kind, suffix) for the
   node only; the writer label with its field name (`{fusion} write {F}`) is for unit 9 to extend.
+
+## Review round 1 (coordinator, ACCEPT-WITH-FIXES)
+
+Applied: `_append_combine` helper (the one place a combine source and operation are built);
+`reducer._spec_steps` (shared by `_spec_ops` and the Judge rebuild) and one `_JUDGE_STEPS` mapping for
+`Judge._steps()` and `_returns_of`; `topology._signal_role`/`_SIGNAL_ROLES` as the one key-to-role
+rule; the combine context's signal keys must equal the topology node's keys; `binding` refused on a
+member or synthesis call; `OPERATION_BINDING_PARAM` in `_operation_bindings.py`; the signal params
+label comes from the role; rubric must be a `str`; `_compile_signals` returns early without signals
+and computes the route once; README retry sentence; CHANGELOG order; comment fix; nested shape
+round-trip and replay tests; per-round `judge_N` numbering pinned. No deviations.

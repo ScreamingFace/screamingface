@@ -6,13 +6,15 @@ import math
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from screamingface._operation_bindings import OPERATION_BINDING_PARAM
+
 type GenerationScalar = str | int | float | bool
 type GenerationParams = Mapping[str, GenerationScalar]
 
 _EXECUTION_OWNED_PARAMS = frozenset(
     {
-        # WHY (OME-1289): the Engine reads "binding" for attribution and never forwards it
-        "binding",
+        # WHY (OME-1289): the Engine reads this name for attribution and never forwards it
+        OPERATION_BINDING_PARAM,
         "input",
         "messages",
         "model",
