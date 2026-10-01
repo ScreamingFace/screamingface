@@ -107,6 +107,7 @@ __all__ = [
     "EvaluationWarning",
     "evaluate",
     "reproduce",
+    "samples",
     "Failure",
     "Fusion",
     "Leaderboard",
@@ -148,5 +149,4 @@ __all__ = [
     "events",
     "leaderboards",
     "models",
-    "samples",
 ]

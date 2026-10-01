@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import builtins
 import sys
+from pathlib import Path
+
+# WHY here: warnings emitted from inside the SDK blame the caller's line with
+# ``skip_file_prefixes=(SDK_PACKAGE_ROOT,)``, and two modules need the same root.
+SDK_PACKAGE_ROOT = str(Path(__file__).resolve().parent)
 
 
 def running_in_notebook() -> bool:

@@ -189,6 +189,7 @@ def test_contract_lookup_failure_raises_engine_unavailable() -> None:
 
     # WHY: an unreachable contract must never be read as "seed supported".
     assert transport.called is False
+    assert engine.lookups == ["/v1/model-parameters"]
 
 
 @pytest.mark.asyncio
@@ -206,6 +207,7 @@ async def test_async_contract_lookup_failure_raises_engine_unavailable() -> None
     await client.aclose()
 
     assert transport.called is False
+    assert engine.lookups == ["/v1/model-parameters"]
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,9 @@ from collections.abc import Mapping, Sequence
 from screamingface.model import Model
 
 _MAX_SAMPLES = 256
+# The gateway's seed is an integer; a signed 64-bit value is what providers can carry.
+_SEED_MIN = -(2**63)
+_SEED_MAX = 2**63 - 1
 _SEED_PARAM_ERROR = "samples() sets the seed; pass seeds= instead"
 
 
@@ -29,13 +32,12 @@ def samples(
     A reducer over these members counts ``n`` real answers, not one cached answer ``n`` times.
     The seed is an ``int`` because the gateway's seed schema is ``integer``. A model whose
     provider does not accept ``seed`` fails the ordinary preflight with
-    ``PlanningError(code="unsupported_model_parameter")`` before any request is sent.
+    ``PlanningError(code="unsupported_model_parameter")`` before the run starts and before any
+    model is called.
     """
 
     count = _sample_count(n)
     base = model if isinstance(model, Model) else Model(model)
-    if "seed" in base.params:
-        raise ValueError(_SEED_PARAM_ERROR)
     selected_seeds = _sample_seeds(seeds, count)
     selected_prompts = _sample_prompts(prompts, count)
     shared = _sample_params(base, params, temperature)
@@ -64,6 +66,8 @@ def _sample_seeds(seeds: object, count: int) -> tuple[int, ...]:
         raise TypeError("samples() seeds must be a sequence of ints")
     if any(isinstance(seed, bool) or not isinstance(seed, int) for seed in seeds):
         raise TypeError("samples() seeds must be ints")
+    if any(not _SEED_MIN <= seed <= _SEED_MAX for seed in seeds):
+        raise ValueError("samples() seeds must fit in a signed 64-bit integer")
     if len(seeds) != count:
         raise ValueError(f"samples() got {len(seeds)} seeds for {count} samples")
     if len(set(seeds)) != count:
@@ -86,13 +90,12 @@ def _sample_params(
 ) -> dict[str, str | int | float | bool]:
     if params is not None and not isinstance(params, Mapping):
         raise TypeError("samples() params must be a mapping or None")
-    extra = {} if params is None else dict(params)
-    if "seed" in extra:
+    shared = {**base.params, **({} if params is None else params)}
+    if "seed" in shared:
         raise ValueError(_SEED_PARAM_ERROR)
-    shared = {**base.params, **extra}
     if temperature is None:
         return shared
-    if "temperature" in extra:
+    if "temperature" in shared:
         raise ValueError("pass temperature either as temperature= or in params, not both")
     if isinstance(temperature, bool) or not isinstance(temperature, int | float):
         raise TypeError("samples() temperature must be a number")

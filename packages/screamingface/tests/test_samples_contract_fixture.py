@@ -16,7 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from _reducer_fixtures import FixtureVote
+from _reducer_fixtures import FixtureVote, _entry
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -42,14 +42,7 @@ def samples_vote_url4() -> str:
         {
             "object": "list",
             "data": [
-                {
-                    "id": f"{name}@1",
-                    "name": name,
-                    "version": 1,
-                    "stage": stage,
-                    "args_schema": {},
-                    "summary": f"{name}.",
-                }
+                _entry(name, 1, stage)
                 for stage, names in _ENGINE_OPERATORS.items()
                 for name in names
             ],

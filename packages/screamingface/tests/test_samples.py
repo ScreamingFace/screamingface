@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -90,6 +91,8 @@ def test_samples_compile_to_member_calls_that_differ_only_in_the_seed() -> None:
             ValueError,
             "pass temperature either as temperature= or in params, not both",
         ),
+        ({"seeds": [1, 2, 2**63]}, ValueError, "seeds must fit in a signed 64-bit integer"),
+        ({"seeds": [1, 2, -(2**63) - 1]}, ValueError, "seeds must fit in a signed 64-bit integer"),
         ({"temperature": True}, TypeError, "temperature"),
         ({"temperature": "hot"}, TypeError, "temperature"),
         ({"temperature": float("nan")}, ValueError, "temperature"),
@@ -99,7 +102,7 @@ def test_samples_compile_to_member_calls_that_differ_only_in_the_seed() -> None:
 def test_samples_prompts_and_seeds_length_and_uniqueness_checks(
     kwargs: dict[str, Any], error: type[Exception], message: str
 ) -> None:
-    with pytest.raises(error, match=message.replace("(", r"\(").replace(")", r"\)")):
+    with pytest.raises(error, match=re.escape(message)):
         sf.samples("provider/a", 3, **kwargs)
 
 
@@ -128,3 +131,19 @@ def test_samples_n_bounds_accept_the_edges_and_reject_non_integers() -> None:
         sf.samples("provider/a", True)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         sf.samples("provider/a", 2.0)  # type: ignore[arg-type]
+
+
+def test_samples_accepts_the_signed_64_bit_seed_edges() -> None:
+    built = sf.samples("provider/a", 2, seeds=[-(2**63), 2**63 - 1])
+
+    assert _seeds(built) == [-(2**63), 2**63 - 1]
+
+
+def test_temperature_is_one_rule_for_params_and_a_base_model() -> None:
+    base = sf.Model("provider/a", params={"temperature": 0.2})
+    message = "pass temperature either as temperature= or in params, not both"
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        sf.samples(base, 2, temperature=0.5)
+    # Without temperature= the base value is simply inherited.
+    assert [model.params["temperature"] for model in sf.samples(base, 2)] == [0.2, 0.2]

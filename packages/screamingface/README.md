@@ -215,17 +215,19 @@ propagation for these compositions.
 vote over them counts `n` real answers and not one cached answer `n` times:
 
 ```python
-votes = sf.samples("openrouter/openai/gpt-5.5", 5, temperature=0.7)
-candidate = sf.Fusion(list(votes), synthesizer="openrouter/anthropic/claude-opus-4.8")
+candidate = sf.Fusion(
+    sf.samples("openrouter/openai/gpt-5.5", 5, temperature=0.7),
+    synthesizer=sf.Vote(extract="last_number", normalize="numeric"),
+)
 ```
 
 Seeds default to `0` through `n - 1`; pass `seeds=[...]` (unique ints) to choose them. `prompts=[...]`
 gives member `i` its own prompt (for example one per language), `temperature=` and `params=` apply
 to every member, and a `sf.Model` as the first argument is the base whose prompt and params the
-samples inherit. A model whose provider does not accept `seed` fails before any request is sent, with
-`sf.PlanningError` (code `unsupported_model_parameter`). A reducer Fusion with two members that send
-the same request raises `sf.DuplicateMembersWarning`, because the gateway may serve them from one
-cached answer.
+samples inherit. A model whose provider does not accept `seed` fails with `sf.PlanningError` (code
+`unsupported_model_parameter`) before the run starts and before any model is called. The SDK emits
+`sf.DuplicateMembersWarning` when a reducer Fusion has two members that send the same request,
+because the gateway may serve them from one cached answer.
 
 ### Serial and recursive composition
 

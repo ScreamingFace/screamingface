@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 from url4 import Node, RelExpr, RenderError, Text, expr, render, src, struct
 
+from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.combine_spec import COMBINE_ROUTE, combine_spec_text
 from screamingface._evaluation.model import (
     _compiled_operation,
@@ -140,6 +141,7 @@ class _CandidateCompiler:
         self._operations: list[OperationInfo] = []
         self._parameter_assignments: list[_ModelParameterAssignment] = []
         self._active: set[int] = set()
+        self._warned_fusions: set[int] = set()
         self._model_count = 0
         self._synthesis_count = 0
         self._panel_count = 0
@@ -498,12 +500,15 @@ class _CandidateCompiler:
         then read it in place of every member's output.
         """
 
-        _warn_duplicate_members(fusion)
         if self._operators is None:
             raise ValueError(
                 "a reducer needs the SF Engine operator catalog to compile; "
                 "evaluate it through an sf.Client"
             )
+        # WHY once per Fusion object: a corrective loop recompiles its member Fusion every round.
+        if id(fusion) not in self._warned_fusions:
+            self._warned_fusions.add(id(fusion))
+            _warn_duplicate_members(fusion)
         spec = combine_spec_text(
             reducer,
             member_count=len(members),
@@ -632,14 +637,20 @@ def _warn_duplicate_members(fusion: Fusion) -> None:
     """Warn for each group of direct Model members that send one identical request.
 
     WHY: the gateway keys its response cache on the request, so equal members may be served
-    by one cached answer and a vote would count it N times. Names do not reach the wire, and
-    Recipe members are skipped: their inner requests are compiled elsewhere.
+    by one cached answer and a vote would count it N times. The key is what the compiler
+    actually sends (canonical route, effective prompt, encoded params), so names never count
+    and a spelling that renders the same request is the same member. Recipe members are
+    skipped: their inner requests are compiled elsewhere.
     """
 
-    groups: dict[tuple[str, str | None, tuple[tuple[str, object], ...]], list[int]] = {}
+    groups: dict[tuple[str, str, tuple[tuple[str, str], ...]], list[int]] = {}
     for position, member in enumerate(fusion.members, start=1):
         if isinstance(member, Model):
-            key = (member.model, member.prompt, tuple(sorted(member.params.items())))
+            key = (
+                _canonical_model(member.model),
+                member.prompt or DEFAULT_ANSWER_PROMPT,
+                tuple(sorted(resolved_params(member.params))),
+            )
             groups.setdefault(key, []).append(position)
     for (route, _prompt, _params), positions in groups.items():
         if len(positions) >= 2:
@@ -648,7 +659,7 @@ def _warn_duplicate_members(fusion: Fusion) -> None:
                 f"to {route!r}; identical requests may be served by one cached answer. "
                 "Use sf.samples() for independent samples.",
                 DuplicateMembersWarning,
-                stacklevel=2,
+                skip_file_prefixes=(SDK_PACKAGE_ROOT,),
             )
 
 
