@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sqlite3
 from collections.abc import Sequence
 from html import escape
@@ -14,6 +13,7 @@ from uuid import uuid4
 from screamingface._ui.report_files import download_link
 from screamingface._ui.report_view import cases_page_html, report_html
 from screamingface._ui.style import NO_MATH_CLASSES
+from screamingface.accounting import _accounting_context
 from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
@@ -91,9 +91,12 @@ class ReportBrowser:
         self.entries = _Entries(report)
         self.matches: Sequence[int] = range(len(self.entries))
         self.page = 0
+        self._requested_page = 0
         self._exporting = False
         self._export_task = None
         self._search_task = None
+        self._paging = False
+        self._page_task = None
         self.directory = Path("screamingface-reports") / uuid4().hex
         self.snapshot = self.directory / "report.json"
         self.notice = widgets.HTML()
@@ -104,7 +107,7 @@ class ReportBrowser:
     def _controls(self) -> None:
         w = self.w
         self.search = w.Text(
-            placeholder="Search cases…",
+            placeholder="Search cases… press Enter",
             continuous_update=False,
             layout=w.Layout(width="auto", min_width="140px", flex="1 1 180px"),
         )
@@ -118,8 +121,11 @@ class ReportBrowser:
 
     def _assemble(self) -> None:
         w = self.w
+        self._accounting_contexts = {
+            id(owner): _accounting_context(owner) for owner in self.entries.owners
+        }
         self.exports = w.HTML(value=self._snapshot_link())
-        self.export = w.Button(description="Export")
+        self.export = w.Button(description="Download")
         self.export.on_click(self._export_json)
         self.export_slot = w.VBox([self.export])
         self._case_box()
@@ -127,7 +133,13 @@ class ReportBrowser:
         self.widget = w.VBox(
             [
                 w.HTML(
-                    value=_BROWSER_STYLE + report_html(self.report, cases=False, download=False)
+                    value=_BROWSER_STYLE
+                    + report_html(
+                        self.report,
+                        cases=False,
+                        download=False,
+                        accounting_contexts=self._accounting_contexts,
+                    )
                 ),
                 self.case_box,
             ]
@@ -160,16 +172,22 @@ class ReportBrowser:
         return download_link(self.snapshot, "Download")
 
     def _matching_indices(self, query: str) -> list[int]:
-        # INVARIANT: only one case is decoded at a time; matches retain positions only.
-        entries = ((owner, case) for owner in self.entries.owners for case in owner.cases)
-        return [
-            index
-            for index, (owner, case) in enumerate(entries)
-            if query in owner.name.casefold()
-            or query in json.dumps(case.to_dict(), ensure_ascii=False).casefold()
-        ]
+        matches = []
+        offset = 0
+        for owner in self.entries.owners:
+            # WHY: a candidate-name match needs only positions, never a full content scan.
+            positions = (
+                range(len(owner.cases))
+                if query in owner.name.casefold()
+                else owner.cases._matching_indices(query)
+            )
+            matches.extend(offset + index for index in positions)
+            offset += len(owner.cases)
+        return matches
 
     def _search(self, change: Any) -> None:
+        if self._paging:
+            return
         query = self.search.value.strip().casefold()
         self.notice.value = ""
         if not query:
@@ -211,21 +229,74 @@ class ReportBrowser:
         self.notice.value = f'<p role="alert">Search failed: {escape(str(exc))}</p>'
 
     def _move(self, direction: int) -> None:
+        if self.search.disabled and not self._paging:
+            return
         last = max(0, (len(self.matches) - 1) // _PAGE_SIZE)
-        self.page = min(last, max(0, self.page + direction))
-        self._render_page()
+        current = self._requested_page if self._paging else self.page
+        target = min(last, max(0, current + direction))
+        if target == current:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.page = target
+            self._render_page()
+            return
+        self._requested_page = target
+        # INVARIANT: navigation stays clickable; only the latest requested page is published.
+        self.previous.disabled = target == 0
+        self.next.disabled = target == last
+        self.previous.icon, self.next.icon = "chevron-left", "chevron-right"
+        selected = self.next if direction > 0 else self.previous
+        selected.icon = "spinner"
+        if not self._paging:
+            self._paging = True
+            self.search.disabled = True
+            self.notice.value = ""
+            self._page_task = loop.create_task(self._load_page())
 
-    def _render_page(self) -> None:
-        start = self.page * _PAGE_SIZE
+    async def _load_page(self) -> None:
+        # WHY: coalesce a click burst and discard stale renders without blocking widgets.
+        try:
+            await asyncio.sleep(0.075)
+            while self._requested_page != self.page:
+                target = self._requested_page
+                html = await asyncio.to_thread(self._page_html, target)
+                if target == self._requested_page:
+                    self.page = target
+                    self.cases.value = html
+                    break
+        except (OSError, sqlite3.Error, ScreamingFaceError) as exc:
+            self._requested_page = self.page
+            self.notice.value = f'<p role="alert">Could not load cases: {escape(str(exc))}</p>'
+        finally:
+            self._paging = False
+            self.search.disabled = False
+            self.previous.icon = "chevron-left"
+            self.next.icon = "chevron-right"
+            self._page_controls()
+
+    def _page_html(self, page: int) -> str:
+        start = page * _PAGE_SIZE
         indices = self.matches[start : start + _PAGE_SIZE]
-        self.count.value = (
-            f"{start + 1 if indices else 0}–{start + len(indices)} of {len(self.matches)}"
+        return cases_page_html(
+            self.report,
+            [self.entries[index] for index in indices],
+            framed=False,
+            accounting_contexts=self._accounting_contexts,
         )
+
+    def _page_controls(self) -> None:
+        start = self.page * _PAGE_SIZE
+        length = len(self.matches[start : start + _PAGE_SIZE])
+        self.count.value = f"{start + 1 if length else 0}–{start + length} of {len(self.matches)}"
         self.previous.disabled = self.page == 0
         self.next.disabled = start + _PAGE_SIZE >= len(self.matches)
-        self.cases.value = cases_page_html(
-            self.report, [self.entries[index] for index in indices], framed=False
-        )
+
+    def _render_page(self) -> None:
+        self._requested_page = self.page
+        self.cases.value = self._page_html(self.page)
+        self._page_controls()
 
     def _export_json(self, change: Any = None) -> None:
         # INVARIANT: queued clicks cannot start concurrent or repeated exports of this Report.
@@ -263,9 +334,9 @@ class ReportBrowser:
     def _export_failed(self, exc: Exception) -> None:
         self._exporting = False
         self.export.disabled = False
-        self.export.description = "Export"
+        self.export.description = "Download"
         self.export.icon = ""
-        self.notice.value = f'<p role="alert">Export failed: {escape(str(exc))}</p>'
+        self.notice.value = f'<p role="alert">Download failed: {escape(str(exc))}</p>'
 
     def _export_ready(self) -> None:
         self.exports.value = self._snapshot_link()

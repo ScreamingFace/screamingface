@@ -6,7 +6,7 @@ These views never serialize another accounting truth or recompute a score.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from types import MappingProxyType
@@ -169,18 +169,22 @@ def _declared_operation_models(candidate: CandidateResult) -> dict[str, str]:
 
 
 def _declared_judge_models(candidate: CandidateResult) -> dict[str, str]:
-    evidence = [
-        item
-        for case in candidate.cases
-        if case.grade is not None
-        for check in case.grade.checks
-        for item in check.evidence
-        if item.producer.type == "model"
-    ]
-    models = {item.producer.id: item.producer.id for item in evidence}
-    for item in evidence:
-        if item.accounting is not None and item.accounting.request_model != item.producer.id:
-            models.pop(item.producer.id, None)
+    models: dict[str, str] = {}
+    conflicts: set[str] = set()
+    # INVARIANT: judge evidence is streamed; raw outputs never accumulate across Cases.
+    for case in candidate.cases:
+        if case.grade is None:
+            continue
+        for check in case.grade.checks:
+            for item in check.evidence:
+                if item.producer.type != "model":
+                    continue
+                name = item.producer.id
+                if item.accounting is not None and item.accounting.request_model != name:
+                    conflicts.add(name)
+                    models.pop(name, None)
+                elif name not in conflicts:
+                    models[name] = name
     return models
 
 
@@ -239,28 +243,68 @@ def _grading_rows(case: CaseResult, models: Mapping[str, str]) -> list[Accountin
     return rows
 
 
-def _rows(candidate: CandidateResult) -> tuple[AccountingRow, ...]:
-    # WHY: declarations may name a different route than retained requests. Resolve
-    # across all Cases first so a missing record cannot split into an alias bucket.
-    operation_models = _declared_operation_models(candidate)
-    judge_models = _declared_judge_models(candidate)
-    rows = []
-    for case in candidate.cases:
+@dataclass(frozen=True, slots=True)
+class _AccountingContext:
+    operation_models: Mapping[str, str]
+    judge_models: Mapping[str, str]
+    unattributed_cost_usd: Decimal | None
+    consistent: bool = True
+
+
+def _iter_rows(
+    candidate: CandidateResult,
+    cases: Iterable[CaseResult],
+    operation_models: Mapping[str, str],
+    judge_models: Mapping[str, str],
+) -> Iterator[AccountingRow]:
+    for case in cases:
         # INVARIANT: loop internals are not attributable by this retained contract.
         if candidate.kind not in {"corrective_loop", "self_corrective"}:
-            rows.extend(_candidate_rows(candidate, case, operation_models))
-        rows.extend(_grading_rows(case, judge_models))
-    return tuple(rows)
+            yield from _candidate_rows(candidate, case, operation_models)
+        yield from _grading_rows(case, judge_models)
 
 
-def _remainder(root: Decimal | None, rows: tuple[AccountingRow, ...]) -> Decimal | None:
-    costs = [row.accounting.usage.cost_usd for row in rows if row.accounting is not None]
-    if root is None or any(cost is None for cost in costs):
+def _rows(candidate: CandidateResult) -> tuple[AccountingRow, ...]:
+    return tuple(
+        _iter_rows(
+            candidate,
+            candidate.cases,
+            _declared_operation_models(candidate),
+            _declared_judge_models(candidate),
+        )
+    )
+
+
+def _remainder(root: Decimal | None, rows: Iterable[AccountingRow]) -> Decimal | None:
+    total, unknown = Decimal(0), False
+    for row in rows:
+        if row.accounting is not None:
+            cost = row.accounting.usage.cost_usd
+            if cost is None:
+                unknown = True
+            elif root is not None:
+                total += cost
+    if root is None or unknown:
         return None
-    result = root - sum((cost for cost in costs if cost is not None), Decimal(0))
+    result = root - total
     if result < 0:
         raise ValueError("inconsistent accounting cost")
     return result
+
+
+def _accounting_context(candidate: CandidateResult) -> _AccountingContext:
+    # WHY: pages reuse only global attribution/consistency, never rows or Case payloads.
+    try:
+        operations = _declared_operation_models(candidate)
+        judges = _declared_judge_models(candidate)
+        remainder = _remainder(
+            candidate.usage.cost_usd,
+            _iter_rows(candidate, candidate.cases, operations, judges),
+        )
+        return _AccountingContext(MappingProxyType(operations), MappingProxyType(judges), remainder)
+    except ValueError:
+        _LOG.warning("completed accounting projection unavailable: ValueError")
+        return _AccountingContext({}, {}, None, consistent=False)
 
 
 def accounting_breakdown(candidate: CandidateResult) -> AccountingBreakdown:

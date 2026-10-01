@@ -25,8 +25,8 @@ box header, with responsive wrapping and a plain Case results title. No added Ca
 detail / Full content tabs or filter/sort controls. A search input sits between the
 title and range; submitted queries scan retained case fields and candidate names one
 case at a time without blocking the notebook widget loop. Preserve the
-original text previews; complete JSON export retains every field. A single export control changes from Export to disabled/spinning Preparing… to
-Download. Duplicate requests are ignored. Failure restores enabled Export with
+original text previews; complete JSON export retains every field. A single export control changes from Download to disabled/spinning Preparing… to
+Download. Duplicate requests are ignored. Failure restores enabled Download with
 a brief error; successful states have no separate status text or leftover export button. Persistence belongs to collection, not rendering.
 
 ## Verification
@@ -40,3 +40,11 @@ Saved reports use sf.reports.list(), get(id), get_async(id), and delete(id).
 List has one entry per evaluation (standalone URL4 results use their saved key).
 The persisted evaluation ID identifies the group across restarts and copies.
 Get returns the whole report; delete explicitly removes that same group.
+
+Pagination remains clickable during a load. Rapid clicks advance the requested
+position; rendering runs off the widget event loop and publishes only the latest
+requested page. Global accounting attribution/consistency is derived once per
+browser into a compact context, then only displayed cases are read for page costs.
+Search scans the existing disk JSON index without constructing CaseResult objects,
+and candidate-name matches require only positions. No duplicate full-text index is
+created; full-content queries still read the saved content.

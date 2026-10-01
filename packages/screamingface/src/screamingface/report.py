@@ -169,6 +169,16 @@ class _CaseResults(Sequence[CaseResult]):
     def __repr__(self) -> str:
         return repr(self._items)
 
+    def _matching_indices(self, query: str) -> Iterator[int]:
+        from screamingface._results.cases import DiskCases
+
+        if isinstance(self._items, DiskCases):
+            yield from self._items.matching_indices(query)
+        else:
+            for index, case in enumerate(self._items):
+                if query in json.dumps(case.to_dict(), ensure_ascii=False).casefold():
+                    yield index
+
     def by_id(self, case_id: CaseId) -> CaseResult:
         """Return the Case with this domain ID without treating integers as positions."""
 

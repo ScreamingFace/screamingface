@@ -18,6 +18,7 @@ from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
 if TYPE_CHECKING:
+    from screamingface.accounting import _AccountingContext
     from screamingface.case_result import CaseResult
     from screamingface.report import CandidateResult, MemberResult, Report
 
@@ -202,10 +203,21 @@ _STYLE = (
 )
 
 
-def report_html(report: Report, *, cases: bool = True, download: bool = True) -> str:
+def report_html(
+    report: Report,
+    *,
+    cases: bool = True,
+    download: bool = True,
+    accounting_contexts: Mapping[int, _AccountingContext] | None = None,
+) -> str:
     """Render a completed Report as one self-contained panel."""
 
-    cards = "".join(_card_html(item, report) for item in report.candidates)
+    cards = "".join(
+        _card_html(
+            item, report, context=accounting_contexts.get(id(item)) if accounting_contexts else None
+        )
+        for item in report.candidates
+    )
     return (
         f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
         "aria-label='ScreamingFace evaluation report'>"
@@ -287,7 +299,9 @@ def _strip_html(report: Report) -> str:
     )
 
 
-def _card_html(candidate: CandidateResult, report: Report) -> str:
+def _card_html(
+    candidate: CandidateResult, report: Report, *, context: _AccountingContext | None = None
+) -> str:
     """One candidate's result card: identity, the figures grid, then what it was made of."""
 
     metrics = candidate.metrics
@@ -334,7 +348,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
-        f"{run_accounting_note(candidate)}"
+        f"{run_accounting_note(candidate, context=context)}"
         f"{_recipe_html(candidate)}</div>"
     )
 
@@ -648,7 +662,12 @@ def _cases_html(report: Report) -> str:
 
 
 def cases_page_html(
-    report: Report, entries: list, *, preview: bool = False, framed: bool = True
+    report: Report,
+    entries: list,
+    *,
+    preview: bool = False,
+    framed: bool = True,
+    accounting_contexts: Mapping[int, _AccountingContext] | None = None,
 ) -> str:
     """Use the original rail and detail panes for one bounded page of cases."""
     if not entries:
@@ -657,11 +676,16 @@ def cases_page_html(
     # share a radio group and fight over the selection. Candidate run IDs are unique.
     group = f"sf-case-{_group_key(report)}"
     inputs, rail, panes = [], [], []
+    visible_owners = {id(owner) for owner, _ in entries}
     costs = {
         id(candidate): case_accounting(
-            candidate, case_ids={case.case_id for owner, case in entries if owner is candidate}
+            candidate,
+            case_ids={case.case_id for owner, case in entries if owner is candidate},
+            context=accounting_contexts.get(id(candidate)) if accounting_contexts else None,
+            cases=[case for owner, case in entries if owner is candidate],
         )
         for candidate in report.candidates
+        if id(candidate) in visible_owners
     }
     for index, (candidate, case) in enumerate(entries):
         item = f"{group}-{index}"

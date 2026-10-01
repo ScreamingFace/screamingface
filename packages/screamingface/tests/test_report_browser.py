@@ -129,9 +129,9 @@ def test_disk_errors_preserve_interactive_access(tmp_path, monkeypatch):
     assert browser.notice.value == ""
     assert list(browser.matches) == [0, 1]
     browser._export_json()
-    assert "Export failed" in browser.notice.value
+    assert "Download failed" in browser.notice.value
     assert not browser.export.disabled
-    assert browser.export.description == "Export"
+    assert browser.export.description == "Download"
     assert not browser.snapshot.exists()
     assert isinstance(browser.snapshot, Path)
 
@@ -285,7 +285,7 @@ async def test_async_export_failure_allows_retry(tmp_path, monkeypatch):
     await browser._export_task
     assert browser.export.disabled
     assert browser.export_slot.children == (browser.exports,)
-    assert "Export failed" not in browser.notice.value
+    assert "Download failed" not in browser.notice.value
 
 
 def test_export_replaces_one_control_without_redundant_status(tmp_path, monkeypatch):
@@ -297,7 +297,7 @@ def test_export_replaces_one_control_without_redundant_status(tmp_path, monkeypa
     )
     browser = ReportBrowser(large_report(1))
     assert browser.export_slot.children == (browser.export,)
-    assert browser.export.description == "Export"
+    assert browser.export.description == "Download"
     browser.export.click()
     assert browser.export_slot.children == (browser.exports,)
     assert browser.notice.value == ""
