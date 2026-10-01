@@ -171,3 +171,84 @@ def test_mgsm_en_offers_mid_run_feedback_and_the_mcq_rows_do_not() -> None:
     assert imported_benchmark("mgsm_en").benchmark.check_surface is not None
     for key in _MCQ_KEYS:
         assert imported_benchmark(key).benchmark.check_surface is None
+
+
+# ── OME-1273 PR 5a: the plain packages ──────────────────────────────────────────
+
+#: The PR 5a multiple-choice keys graded by inspect's choice scorer (worldsense has its own).
+_PLAIN_MCQ_KEYS: tuple[str, ...] = (
+    "bbq",
+    "piqa",
+    "cybermetric_80",
+    "cybermetric_500",
+    "cybermetric_2000",
+    "cybermetric_10000",
+    "sevenllm_mcq_zh",
+    "sevenllm_mcq_en",
+)
+
+#: Two worldsense-shaped Cases: the question lists its own numbered options and the answer
+#: key is the number, kept as written (render_choices=False). Stand-ins: they prove the
+#: grading path, not the content of the real 40,176.
+_NUMBERED_CASES: list[PreparedCase] = [
+    {
+        "case": {"id": 1, "case_id": "1", "input": "Ann is before Bo. (1) yes (2) no (3) unsure"},
+        "grading_material": {
+            "target": "1",
+            "choices": ["1", "2", "3"],
+            "metadata": {"tuple_ID": 1, "problemname": "Compl.trivial", "problemsize": 3},
+        },
+    },
+    {
+        "case": {"id": 2, "case_id": "2", "input": "Bo is before Ann. (1) yes (2) no (3) unsure"},
+        "grading_material": {
+            "target": "2",
+            "choices": ["1", "2", "3"],
+            "metadata": {"tuple_ID": 2, "problemname": "Compl.trivial", "problemsize": 3},
+        },
+    },
+]
+
+
+@pytest.mark.parametrize("key", [*_PLAIN_MCQ_KEYS, "worldsense"])
+def test_plain_package_declaration_is_sealed_licensed_and_registered(key: str) -> None:
+    """The seal, the owner's license decision, and a live registration with no check surface."""
+
+    spec = TASK_REPLAY_CASES[key]
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+
+    assert spec.license != LICENSE_TODO
+    assert benchmark.benchmark.case_count == spec.case_count > 0
+    assert benchmark.benchmark.check_surface is None  # OME-796: every one is choice-shaped
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", _PLAIN_MCQ_KEYS)
+async def test_a_plain_package_grades_with_no_network(
+    key: str, tmp_path: Path, no_network: None
+) -> None:
+    """Spec R17: the right letter scores 1.0 and a wrong one 0.0, with outbound network blocked."""
+
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+    node: Url4Node = _node(benchmark, _MCQ_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["ANSWER: B", "ANSWER: B"]) == [1.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_worldsense_grades_the_number_with_no_network(
+    tmp_path: Path, no_network: None
+) -> None:
+    """worldsense's own pattern scorer reads the leading number of the answer (spec R17)."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("worldsense")
+    node: Url4Node = _node(benchmark, _NUMBERED_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["1", "1"]) == [1.0, 0.0]
+
+
+def test_worldsense_keeps_its_question_as_written() -> None:
+    """Its question already lists the options; rendering them again would change the ask."""
+
+    assert TASK_REPLAY_CASES["worldsense"].render_choices is False
+    assert TASK_REPLAY_CASES["worldsense"].keep_sample_metadata is True

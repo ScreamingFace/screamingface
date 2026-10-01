@@ -1028,6 +1028,208 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # MCQ benchmarks must NOT set this (OME-796).
         with_check_surface=True,
     ),
+    BenchmarkSpec(
+        key="bbq",
+        title="BBQ",
+        description=(
+            "58,492 questions probing social bias across BBQ's 11 categories (age, disability, "
+            "gender identity, nationality, physical appearance, race and ethnicity, race by "
+            "income, race by gender, religion, income, sexual orientation), each set in an "
+            "ambiguous or a disambiguating context, imported from inspect_evals by Task replay: "
+            "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
+            "Graded by inspect's choice scorer against the published answer, so no judge tokens "
+            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
+            "surface (elimination attack over the options)."
+        ),
+        focus="Social bias in question answering (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/heegyu/bbq",
+        # Ambiguous contexts reward answering unknown over a stereotype; strong models still slip
+        #  (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.bbq.bbq:bbq.
+        # License: cc-by-4.0.
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="piqa",
+        title="PIQA",
+        description=(
+            "1,838 physical-commonsense questions: pick the better of two solutions to an everyday "
+            "goal (the PIQA validation set), imported from inspect_evals by Task replay: the Cases "
+            "are fetched the way inspect fetches them and sealed by a Case Digest. Two of its "
+            "three Case Sources are unpinned downloads, so the Case Digest is their only pin. "
+            "Graded by inspect's choice scorer against the published answer, so no judge tokens "
+            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
+            "surface (elimination attack over the options)."
+        ),
+        focus="Physical commonsense (two-way choice)",
+        dataset_url="https://huggingface.co/datasets/ybisk/piqa",
+        # Everyday physical commonsense frontier models nearly saturate (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.piqa.piqa:piqa.
+        # License: unknown (owner decision 2026-10-01: no license found; the ybisk/piqa card says
+        #  unknown and the original repo is gone).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="cybermetric_80",
+        title="CyberMetric-80",
+        description=(
+            "80 cybersecurity knowledge questions with four options each (CyberMetric-80), asked "
+            "with the eval's own system message, imported from inspect_evals by Task replay: the "
+            "Cases are fetched the way inspect fetches them and sealed by a Case Digest. Graded by "
+            "inspect's choice scorer against the published answer, so no judge tokens are spent. "
+            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over the options)."
+        ),
+        focus="Cybersecurity knowledge, 80-question set (multiple choice)",
+        dataset_url="https://github.com/cybermetric/CyberMetric",
+        # Textbook security knowledge frontier models mostly answer (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.cybermetric.cybermetric:cybermetric_80.
+        # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
+        #  file).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="cybermetric_500",
+        title="CyberMetric-500",
+        description=(
+            "500 cybersecurity knowledge questions with four options each (CyberMetric-500), asked "
+            "with the eval's own system message, imported from inspect_evals by Task replay: the "
+            "Cases are fetched the way inspect fetches them and sealed by a Case Digest. Graded by "
+            "inspect's choice scorer against the published answer, so no judge tokens are spent. "
+            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over the options)."
+        ),
+        focus="Cybersecurity knowledge, 500-question set (multiple choice)",
+        dataset_url="https://github.com/cybermetric/CyberMetric",
+        # Textbook security knowledge frontier models mostly answer (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.cybermetric.cybermetric:cybermetric_500.
+        # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
+        #  file).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="cybermetric_2000",
+        title="CyberMetric-2000",
+        description=(
+            "2,000 cybersecurity knowledge questions with four options each (CyberMetric-2000), "
+            "asked with the eval's own system message, imported from inspect_evals by Task replay: "
+            "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
+            "Graded by inspect's choice scorer against the published answer, so no judge tokens "
+            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
+            "surface (elimination attack over the options)."
+        ),
+        focus="Cybersecurity knowledge, 2,000-question set (multiple choice)",
+        dataset_url="https://github.com/cybermetric/CyberMetric",
+        # Textbook security knowledge frontier models mostly answer (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.cybermetric.cybermetric:cybermetric_2000.
+        # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
+        #  file).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="cybermetric_10000",
+        title="CyberMetric-10000",
+        description=(
+            "10,180 cybersecurity knowledge questions with four options each (CyberMetric-10000), "
+            "asked with the eval's own system message, imported from inspect_evals by Task replay: "
+            "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
+            "Graded by inspect's choice scorer against the published answer, so no judge tokens "
+            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
+            "surface (elimination attack over the options)."
+        ),
+        focus="Cybersecurity knowledge, 10,180-question set (multiple choice)",
+        dataset_url="https://github.com/cybermetric/CyberMetric",
+        # Textbook security knowledge frontier models mostly answer (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.cybermetric.cybermetric:cybermetric_10000.
+        # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
+        #  file).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="sevenllm_mcq_zh",
+        title="SEvenLLM MCQ (Chinese)",
+        description=(
+            "50 cybersecurity threat-analysis multiple-choice questions in Chinese from SEvenLLM, "
+            "asked with the eval's own prompt template, imported from inspect_evals by Task "
+            "replay: the Cases are fetched the way inspect fetches them and sealed by a Case "
+            "Digest. Graded by inspect's choice scorer against the published answer, so no judge "
+            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
+            "check surface (elimination attack over the options)."
+        ),
+        focus="Cyber threat analysis (Chinese, multiple choice)",
+        dataset_url="https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset",
+        # Applied threat-intelligence reading; a small set where strong models score well but not at
+        #  ceiling (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.sevenllm.sevenllm:sevenllm_mcq_zh.
+        # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on
+        #  Hugging Face).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="sevenllm_mcq_en",
+        title="SEvenLLM MCQ (English)",
+        description=(
+            "50 cybersecurity threat-analysis multiple-choice questions in English from SEvenLLM, "
+            "asked with the eval's own prompt template, imported from inspect_evals by Task "
+            "replay: the Cases are fetched the way inspect fetches them and sealed by a Case "
+            "Digest. Graded by inspect's choice scorer against the published answer, so no judge "
+            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
+            "check surface (elimination attack over the options)."
+        ),
+        focus="Cyber threat analysis (English, multiple choice)",
+        dataset_url="https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset",
+        # Applied threat-intelligence reading; a small set where strong models score well but not at
+        #  ceiling (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.sevenllm.sevenllm:sevenllm_mcq_en.
+        # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on
+        #  Hugging Face).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="worldsense",
+        title="WorldSense",
+        description=(
+            "40,176 questions about small described worlds (orderings and spatial relations) from "
+            "the WorldSense test set, each answered with one of three numbered alternatives or a "
+            "truth value, imported from inspect_evals by Task replay: the Cases are fetched the "
+            "way inspect fetches them and sealed by a Case Digest. Each Case keeps the question "
+            "exactly as written, since it already lists its own options. Graded by the eval's own "
+            "pattern scorer, so no judge tokens are spent. Benchmark score = plain accuracy over "
+            "the cases run; the eval's own bias-corrected accuracy and bias metrics are not "
+            "reported. No mid-run check surface (elimination attack over the options)."
+        ),
+        focus="Reasoning about described worlds (pick a numbered option)",
+        dataset_url="https://github.com/facebookresearch/worldsense",
+        # Simple-looking world reasoning where models stay far from ceiling and show answer bias
+        #  (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.worldsense.worldsense:worldsense.
+        # License: cc-by-nc-4.0 (owner decision 2026-10-01: CC-BY-NC-4.0,
+        #  facebookresearch/worldsense LICENSE; non-commercial use only).
+        scorer="inspect_evals.worldsense.worldsense:pattern_with_metadata",
+        scorer_kwargs={"pattern_str": "^\\(?\\s*(1|2|3|TRUE|FALSE|IMPOSSIBLE|POSSIBLE)\\s*\\)?"},
+        # The eval's own accuracy metric IS the board's mean per-case score.
+        # Its own metric inspect_ai/stderr is not reported; the description names that.
+        # Its own metric inspect_evals/ws_accuracy is not reported; the description names that.
+        # Its own metric inspect_evals/ws_bias is not reported; the description names that.
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

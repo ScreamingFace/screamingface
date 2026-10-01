@@ -914,6 +914,129 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: CC-BY-4.0, google-research/url-nlp mgsm/LICENSE.
         license="cc-by-4.0",
     ),
+    # bbq — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.bbq.bbq:bbq.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face heegyu/bbq
+    #     pin revision 5d6faae52070aa5eb71b46d1c0723d3ba7930209
+    "bbq": TaskReplayCasesSpec(
+        task="inspect_evals.bbq.bbq:bbq",
+        case_count=58492,
+        case_digest="8d7652ea42145db0b27d6ddbedfd81bc5fd4733bb4e78658218b15c0c8a5d28b",
+        license="cc-by-4.0",
+    ),
+    # piqa — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.piqa.piqa:piqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face ybisk/piqa
+    #     pin revision 2e8ac2dffd59bac8c3c6714948f4c551a0848bb0
+    #   url https://storage.googleapis.com/ai2-mosaic/public/physicaliqa/physicaliqa-train-dev.zip
+    #     pin unpinned (no upstream hash: the Case Digest is the only pin)
+    #   url https://yonatanbisk.com/piqa/data/tests.jsonl
+    #     pin unpinned (no upstream hash: the Case Digest is the only pin)
+    "piqa": TaskReplayCasesSpec(
+        task="inspect_evals.piqa.piqa:piqa",
+        case_count=1838,
+        case_digest="bc3ae6040b20a2eabe8976f96d58ac8ffae08bc821c73021c2d5b4289eca8958",
+        choice_template="inspect_evals.piqa.piqa:TEMPLATE",
+        # License: owner decision 2026-10-01: no license found; the ybisk/piqa card says unknown and
+        #  the original repo is gone.
+        license="unknown",
+    ),
+    # cybermetric_80 — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.cybermetric.cybermetric:cybermetric_80.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/cybermetric/CyberMetric/205262cdf5022ba890e792efd176fb19d42913fa/CyberMetric-80-v1.json
+    #     pin sha256 1624aeecc54761198bff4828442ce4a10de6cb87c9da3298088b34ae11e15ba0
+    "cybermetric_80": TaskReplayCasesSpec(
+        task="inspect_evals.cybermetric.cybermetric:cybermetric_80",
+        case_count=80,
+        case_digest="25fa5f98d03ae8aef3e381589b0fc2e6d0130d900c6d14e67766ec9816f73e56",
+        system_message="inspect_evals.cybermetric.cybermetric:SYSTEM_MESSAGE",
+        # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
+        license="unknown",
+    ),
+    # cybermetric_500 — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.cybermetric.cybermetric:cybermetric_500.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/cybermetric/CyberMetric/205262cdf5022ba890e792efd176fb19d42913fa/CyberMetric-500-v1.json
+    #     pin sha256 036747c989da9f38f39a6b33fa2d5ab14147c928df0274217bbecab20be88faa
+    "cybermetric_500": TaskReplayCasesSpec(
+        task="inspect_evals.cybermetric.cybermetric:cybermetric_500",
+        case_count=500,
+        case_digest="df8bfe73bc077e26d148a85200c4598dcd93e837cc1aec0459c6f27702b81fa8",
+        system_message="inspect_evals.cybermetric.cybermetric:SYSTEM_MESSAGE",
+        # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
+        license="unknown",
+    ),
+    # cybermetric_2000 — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.cybermetric.cybermetric:cybermetric_2000.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/cybermetric/CyberMetric/205262cdf5022ba890e792efd176fb19d42913fa/CyberMetric-2000-v1.json
+    #     pin sha256 3ccc4d425bc4e74d27e0e9790d62369e4626e325d2b661d851c61b1648a0cd4a
+    "cybermetric_2000": TaskReplayCasesSpec(
+        task="inspect_evals.cybermetric.cybermetric:cybermetric_2000",
+        case_count=2000,
+        case_digest="f5f42a83a438a7cdadd29e35b92b233ecdbd6f8c57ce016d8115f0300fb967c1",
+        system_message="inspect_evals.cybermetric.cybermetric:SYSTEM_MESSAGE",
+        # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
+        license="unknown",
+    ),
+    # cybermetric_10000 — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.cybermetric.cybermetric:cybermetric_10000.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/cybermetric/CyberMetric/205262cdf5022ba890e792efd176fb19d42913fa/CyberMetric-10000-v1.json
+    #     pin sha256 4e35bb62c73b60bd27e54512b2ace6f9286ff2921a45a3d5fe2da22401e04bbb
+    "cybermetric_10000": TaskReplayCasesSpec(
+        task="inspect_evals.cybermetric.cybermetric:cybermetric_10000",
+        case_count=10180,
+        case_digest="058be2a68b92708a1e1a99c504fcbbfcd6b8b6c561eb92be0d4124d343fdbe58",
+        system_message="inspect_evals.cybermetric.cybermetric:SYSTEM_MESSAGE",
+        # License: owner decision 2026-10-01: cybermetric/CyberMetric carries no license file.
+        license="unknown",
+    ),
+    # sevenllm_mcq_zh — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.sevenllm.sevenllm:sevenllm_mcq_zh.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset/raw/1de23ce55cadc984d3f3a7b52c4035a68c6cd5b0/test.jsonl
+    #     pin commit 1de23ce55cadc984d3f3a7b52c4035a68c6cd5b0
+    "sevenllm_mcq_zh": TaskReplayCasesSpec(
+        task="inspect_evals.sevenllm.sevenllm:sevenllm_mcq_zh",
+        case_count=50,
+        case_digest="d860352c24d4946ee0b82f9205cacab926a8da6cb24c6dfb1811a19deec98050",
+        prompt_template="inspect_evals.sevenllm.sevenllm:TEMPLATE",
+        # License: owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on Hugging Face.
+        license="apache-2.0",
+    ),
+    # sevenllm_mcq_en — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.sevenllm.sevenllm:sevenllm_mcq_en.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset/raw/1de23ce55cadc984d3f3a7b52c4035a68c6cd5b0/test.jsonl
+    #     pin commit 1de23ce55cadc984d3f3a7b52c4035a68c6cd5b0
+    "sevenllm_mcq_en": TaskReplayCasesSpec(
+        task="inspect_evals.sevenllm.sevenllm:sevenllm_mcq_en",
+        case_count=50,
+        case_digest="bce35ce9059c46f0ec8b61f0b950e67ac52e05140ea97a26112940f56e19cf6c",
+        prompt_template="inspect_evals.sevenllm.sevenllm:TEMPLATE",
+        # License: owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on Hugging Face.
+        license="apache-2.0",
+    ),
+    # worldsense — imported by Task replay on 2026-10-01 from
+    #   inspect_evals.worldsense.worldsense:worldsense.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://github.com/facebookresearch/worldsense/raw/bd81d945077f169cf95ff39207f788f86e4645e9/data/worldsense/test_set/trials.jsonl.bz2
+    #     pin sha256 00c94031fc435c5f13156d57fcf61dace875d5e7fa4c218a40029a2eb0f3deb9
+    "worldsense": TaskReplayCasesSpec(
+        task="inspect_evals.worldsense.worldsense:worldsense",
+        task_args={"shuffle": False},
+        case_count=40176,
+        case_digest="426b5a4e50aa171acc180de1e5836eb1f25b605a960ae8c6e08b1f414a3b079c",
+        keep_sample_metadata=True,
+        render_choices=False,
+        # License: owner decision 2026-10-01: CC-BY-NC-4.0, facebookresearch/worldsense LICENSE;
+        #  non-commercial use only.
+        license="cc-by-nc-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
