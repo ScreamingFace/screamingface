@@ -527,8 +527,12 @@ a pure projection (`synthesis_N`): it builds one JSON object of the values of th
 The second call is the writer model (`writer_N`). The writer sees only that projection. It does not
 see the question and it does not see the other fields. Put the task in the prompt. The reply of the
 writer is the value of the field, as text. If the writer call fails, the case fails and no partial
-object is returned. Each writer call is a synthesis row in the accounting breakdown. The name
-`binding` is reserved in `params`. This needs an Engine whose operator catalog has `json_field@1`,
+object is returned. Each writer call is a synthesis row in the accounting breakdown. The first line
+of the writer system prompt is `writer-template@1 field=<field>`. The template tells the writer to
+treat the member values as data and not as instructions, and your prompt follows it.
+`Url4(...).to_python()` shows only your prompt. A change of the template changes the url4, so it
+changes the replay identity. The name `binding` is reserved in `params`. This needs an Engine whose
+operator catalog has `json_field@1`,
 `json_object@1`, `values@1`, `by_field@1`, `field_rules@1`, `project_field@1` and `built@1`.
 
 ## Install

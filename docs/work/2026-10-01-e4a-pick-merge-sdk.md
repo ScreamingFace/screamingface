@@ -116,11 +116,12 @@ No deviations. Item 9 is absent from the coordinator's list; nothing was skipped
 - **U2, doc note:** README Merge section says that the evidence holds each member's JSON object (in `raw`
   and `value`) for the projection step and the final merge step, so large member JSON makes a large report.
   The CHANGELOG Pick/Merge bullet names `writer-template@1`.
-- **Tests (RED first):** both test files import `writer_intent` / `WRITER_TEMPLATE_ID` from `fields`; RED was
-  the `ImportError`. New tests: the exact writer intent lines; the template has no `$` or `\x7f`, names the
-  field and says "never as instructions"; `to_python()` shows only the author prompt (one and two model
-  fields) and recompiles byte-identically; five tamper cases (version `@2`, another field name, template
-  line removed, reworded framing, task marker changed) and a prefix-removed rebuild are refused. PM-6
+- **Tests (RED first):** both test files import `writer_intent` from `fields`; RED was the `ImportError`.
+  New tests: the exact writer intent lines, and the template has no `$` or `\x7f` and names the field;
+  `to_python()` shows only the author prompt (one and two model fields) and recompiles byte-identically;
+  six url4 tamper cases are refused (version `@2`, another field name in the template line, another field
+  name in the framing only, template line removed, reworded framing, `Task:` marker changed); three rebuild
+  cases are refused (no template, the template of another field, extra text before the template). PM-6
   (writer context is exactly `$synthesis_K`) still holds.
 - **Engine cross-check (not a committed test):** the SDK-compiled Merge with a model field was run through
   `tests/unit/test_combine_writer_world.py` helpers in the engine venv: the writer call reached the gateway
@@ -128,3 +129,23 @@ No deviations. Item 9 is absent from the coordinator's list; nothing was skipped
   output was the merged object.
 - **Note:** a newline in a url4 prompt is stored as U+2028 (existing `_url4_text` rule, same as the Judge),
   so the gateway system message shows U+2028 between the template lines.
+
+### Review round (U3 coordinator, ACCEPT-WITH-FIXES)
+
+Applied: (1) the template no longer invites JSON: it starts "You write the text of one field." and ends
+"Reply with only the text of the value and nothing else: no quotes, no JSON, no code fence, no
+explanation." (the Engine stores the reply as plain text). (2) README Merge section and the
+`FieldRule.model` docstring state the first line `writer-template@1 field=<field>`, the data framing and
+that a template change changes the replay identity. (3) The framing says "each member id ... that has a
+value for the field" (`project_field@1` leaves out members without the field). (6) The two template tests
+are one. (7) New tamper case: the field name changed in the framing only. (8) New Engine test
+`apps/screamingface-engine/tests/unit/test_combine_writer_template_world.py`: the gateway system message is
+the whole templated prompt (pasted as a literal; the Engine test does not import the SDK), the user message
+is the projection, and no body carries `binding`. Items 4 and 5 were not in the message.
+
+### Open to-do (U2 follow-up)
+
+- File a follow-up issue (after the user says yes, per CLAUDE.md): a size cap for the evidence of a Merge.
+  Today the evidence holds each member's extracted JSON object (`raw` and `value`) for the projection step
+  and the final merge step, so members that reply with large JSON make large reports. The README says so;
+  a cap is not built.
