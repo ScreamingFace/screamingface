@@ -77,14 +77,44 @@ to `spec.py` and `ports.py` does not change.
     keeps_every_operation` (EV-H3), `test_writer_failure_fails_case_without_partial_object`
     (PM-8), `test_catalog_lists_the_field_operators`; `test_field_rules_takes_at_most_64_fields`;
     `test_failures_name_the_rule_and_never_echo_values`.
-- **Commits:** `9a82100dd` feat(engine): add the pick and merge field operators; then a test
-  commit for two extra golden cases and this ledger.
-- **Gates:** `run_gates.py screamingface-engine --base e4a-judge-pick-engine`: ALL GATES GREEN,
-  append-only check clean (no offenders). `--skip-append-only`: ALL GATES GREEN. `repo`: ALL GATES
-  GREEN. The final numbers are in the report. `fields.py` and `extract.py` are at 100% line and
-  branch coverage.
+- **Commits** (after the coordinator rebased the branch onto unit 8 tip `4a2182430`):
+  `eed053b14` feat(engine): add the pick and merge field operators; `1a563f4be` test(engine):
+  cover a voter value that is not JSON in the field goldens; `978e1bb64` docs(work): record the
+  e4a pick merge engine ledger (the first ledger); `1477f66b9` fix(engine): compare real JSON
+  numbers as numbers and harden the field operators (review round 1); the last commit of the
+  branch, docs(work), carries this updated ledger.
+- **Gates (after review round 1, base `e4a-judge-pick-engine` at `4a2182430`):**
+  `run_gates.py screamingface-engine --base e4a-judge-pick-engine`: ALL GATES GREEN, append-only
+  check clean (no offenders). `--skip-append-only`: ALL GATES GREEN. `repo`: ALL GATES GREEN.
+  `fields.py` and `extract.py` are at 100% line and branch coverage.
+- **Review round 1 (coordinator, ACCEPT-WITH-FIXES), commit `1477f66b9`:**
+  - Item 1: the max rule reads a real JSON int or float (not bool) as `Decimal(repr(v))`, and only
+    a string goes through `numeric@1`. RED first: goldens `1e100` vs `3`, `10**70` vs `3`,
+    `1e-100` vs `0` failed (numeric@1 refuses a 2-digit-plus exponent and more than 64 chars),
+    GREEN after the fix.
+  - Item 3: `_object` runs `canonical_json` and turns an infinite number from another extractor
+    (`whole@1` + `{"x":1e999}`) into `combine_spec_invalid`. RED first (`ValueError` escaped),
+    GREEN. Item 4: the `operators/__init__.py` and `ports.py` docstrings now allow a sibling
+    plugin's pure functions (never its `OPERATORS`).
+  - Item 6: goldens for a union of empty lists and a union whose items are all rejected (both
+    `[]`), plus a golden for the `"true"` / `true` key conflation: CHAR, GREEN at once. Item 7:
+    AIDEV-NOTE on the conflation, golden renamed to "majority without normalizer keeps case apart".
+  - Item 8: `by_field` INVARIANT docstring. Item 12: the writer `messages` list is asserted whole.
+    Item 13: PM-8 pins `aigateway_http_400` and, with caplog, that the projection ran and the
+    final merge call (`synthesis_1`) never did. Item 16: new `combine_fields_support.py` holds
+    `step`, `pick_spec`, `merge_spec`, `project_spec`. Item 17: `_Rule` and `_Objects` private,
+    `str(normalize)` casts dropped. Items 12, 13, 16 and the 6/7 goldens need no RED (they pin
+    behavior that already held).
 - **Deviations:** none from the spec. Two readings of the spec text are recorded here:
   (1) `union` raises `combine_no_votes` when no member has a list value (the golden "union with
   no lists"); a union whose lists are all empty, or whose items the normalizer all rejects, gives
-  `[]`. (2) `values@1`, `by_field@1`, `field_rules@1` and `project_field@1` publish an
-  `args_schema` (the spec lists none) so the catalog does not claim "no args".
+  `[]` (pinned by goldens in round 1). (2) `values@1`, `by_field@1`, `field_rules@1` and
+  `project_field@1` publish an `args_schema` (the spec lists none) so the catalog does not claim
+  "no args".
+- **Process deviation:** these rows were written AFTER the code, so they were GREEN at once and
+  have no RED step: FW-3 `test_pick_and_merge_are_identical_across_hash_seeds` and its scenario
+  checks; the world tests `test_writer_sees_only_the_projection`,
+  `test_writer_on_a_member_route_keeps_every_operation`,
+  `test_writer_failure_fails_case_without_partial_object` and `test_catalog_lists_the_field_
+  operators`; `test_field_rules_takes_at_most_64_fields`; `test_failures_name_the_rule_and_never_
+  echo_values`.
