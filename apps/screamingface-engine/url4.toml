@@ -49,6 +49,8 @@
 [aigateway]
 base_url = "http://127.0.0.1:9105"
 default_route = "/anthropic/claude-haiku-4-5"
+# Provider execution budget. Admission separately defaults to this same budget.
+# Set queue_timeout_s to override admission; HTTP transport covers both plus 5s.
 timeout_s = 600.0
 web_tool_max_iterations = 12
 

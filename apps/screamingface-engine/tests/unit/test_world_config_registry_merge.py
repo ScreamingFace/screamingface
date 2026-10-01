@@ -121,3 +121,17 @@ def test_a_toml_only_world_still_builds_against_the_empty_registry() -> None:
 def test_a_world_that_would_declare_nothing_is_refused() -> None:
     with pytest.raises(WorldConfigError, match="at least one model"):
         _world({"default_route": "/x"}, EMPTY_MODEL_WORLD)
+
+
+def test_admission_budget_can_be_declared_separately():
+    section = _world(
+        {"default_route": "/anthropic/claude-haiku-4-5", "timeout_s": 600, "queue_timeout_s": 30}
+    )
+    assert section.timeout_s == 600
+    assert section.queue_timeout_s == 30
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True])
+def test_invalid_admission_budget_is_a_config_error(value):
+    with pytest.raises(WorldConfigError, match="finite and positive"):
+        _world({"default_route": "/anthropic/claude-haiku-4-5", "queue_timeout_s": value})
