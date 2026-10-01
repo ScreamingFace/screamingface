@@ -45,8 +45,12 @@ result (the report view's header). Plain words, existing styles only.
 - **Actual files:** as planned (`_engine/catalog_contract.py`, `_engine/catalog.py`,
   `discovery.py`, `_ui/cards.py`, `_ui/report_view.py`, snapshot, CHANGELOG), plus the new
   `tests/test_inverted_grade_views.py`; both OME-1400 and OME-1439 mirrors closed here (last PR).
-- **Commits:** `feat(screamingface): show the refusal-rate mark in the catalogue and report view`
-  (PR 3 of the OME-1400 stack).
+- **Commits** (hashes after the rebase onto PR 2's review fixes): `62874543d`
+  feat(screamingface): show the refusal-rate mark in the catalogue and report view (PR 3 of the
+  OME-1400 stack) · `94e166439` docs(screamingface): say the catalogue mark needs both Engine
+  changes deployed · then the review-fix commit: plain attribute access in the report view so
+  pyright catches a rename, the catalogue decoder reads the shared `INVERTED_GRADE_KEY`, and its
+  docstring no longer names PRs by number.
 - **Gates:** `run_gates.py screamingface --skip-append-only` green (ruff, format, pyright,
   pytest + coverage ≥95%, notebooks, build, distribution). The skip is owner-approved for the
   regenerated public-surface snapshot (`Benchmark` gains a defaulted field). Visual check: the

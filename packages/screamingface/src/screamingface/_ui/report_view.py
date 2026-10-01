@@ -229,7 +229,7 @@ def _head_html(report: Report) -> str:
 def _inverted_grade_html(report: Report) -> str:
     """One plain line under the header for a Benchmark scored by refusal rate (OME-1400)."""
 
-    if not getattr(report.benchmark, "inverted_grade", False):
+    if not report.benchmark.inverted_grade:
         return ""
     return f"<div class='sf-report__sub'>Inverted grade: {escape(INVERTED_GRADE_MEANING)}</div>"
 
