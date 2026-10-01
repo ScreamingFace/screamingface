@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEnsembleStore } from "@/lib/ensemble-store";
-import { PROVIDER_COLORS } from "@/lib/model-store";
+import { providerPresentation } from "@/lib/provider-presentation";
 import { cn } from "@/lib/utils";
 
 type LeaderboardEntry = {
@@ -87,7 +87,7 @@ function ProviderDots({ providers }: { providers: string[] }) {
             key={`${provider}-${index}`}
             className="size-2.5 rounded-full border border-background"
             style={{
-              background: PROVIDER_COLORS[provider] ?? "var(--primary)",
+              background: providerPresentation(provider).color,
             }}
           />
         ))}
