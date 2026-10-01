@@ -41,8 +41,10 @@ test steps with `-n auto`: the same tests, the same coverage floors, spread acro
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, no test changes. Both gate lines also take
-  `--dist worksteal` (see Deviations).
-- **Commits:** `chore(repo): run the Engine and SDK gate tests across every core`.
+  `--dist worksteal` (see Deviations). Owner-approved mid-review: the same flags on the CI test
+  steps of `.github/workflows/screamingface-engine-tests.yml` and `screamingface-tests.yml`.
+- **Commits:** `chore(repo): run the Engine and SDK gate tests across every core`;
+  `ci: run the Engine and SDK CI test steps across every runner core`.
 - **Gates:** measured on a 16-core Mac, same tree, test step only (`/usr/bin/time` real):
 
   | Suite | Serial | `-n auto` (load) | `-n auto --dist worksteal` | Counts (every run) | Coverage |
@@ -57,4 +59,8 @@ test steps with `-n auto`: the same tests, the same coverage floors, spread acro
   ~95s disconnect tests (`tests/test_client_protocol.py`) queued on one worker, so the step
   took 208s; worksteal lets an idle worker take the second, bringing it to ~110s, about the
   slowest single test. Those two tests are now the SDK gate's floor; making them faster is
-  test-side work outside this unit. CI workflows unchanged (2-4 core runners, not measured).
+  test-side work outside this unit.
+- **CI** (push-event runs, same base, pytest's own time, py3.12 / py3.13): Engine 237s / 143s →
+  127s / 93s on 4 workers; SDK 387s / 314s → 234s / 263s on 2 workers. Counts identical
+  (Engine 4368 passed, 65 skipped; SDK 2083 passed, 26 skipped). The SDK runners get 2 cores, so
+  its gain is smaller.

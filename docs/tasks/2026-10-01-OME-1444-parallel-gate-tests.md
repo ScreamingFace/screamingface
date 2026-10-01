@@ -15,7 +15,7 @@ closed: 2026-10-01
 The Engine and SDK gate test steps ran every test one after another on a single core. Both
 now run with `pytest -n auto` (pytest-xdist in each dev group), so the step waits on the
 slowest worker instead of the whole suite. Same tests, same coverage floors (80 Engine,
-95 SDK); CI workflows unchanged.
+95 SDK). The CI test steps of both workflows take the same flags.
 
 - 2026-10-01: filed before work; PR opened from branch `OME-1444-parallel-gate-tests`, ledger
   `docs/work/2026-10-01-parallel-gate-tests.md`.
