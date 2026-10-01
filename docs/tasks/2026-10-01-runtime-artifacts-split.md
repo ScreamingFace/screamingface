@@ -19,3 +19,5 @@ All SDK gates and 31 focused runtime tests passed independently, including legac
 Spec/plan/ledger: `docs/{spec,plan,work}/2026-10-01-runtime-artifacts-split.md`.
 
 Status hardening ledger: `docs/work/2026-10-01-runtime-status-hardening.md`. Unknown legacy locations provide restart guidance; inaccessible sizes remain null.
+
+Linear implementation notes refreshed on 2026-10-01 for branch `OME-1454-runtime-artifacts`, head `a85dd74c`, 31 focused tests and the final full green gates. Status remains In Review while PR #1217 is open.
