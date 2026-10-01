@@ -77,3 +77,13 @@ PR image job runs strict and fails on any changed Cases. Covers spec R5, R9, R10
   differently) can't make the child's digest and the parent's disagree. Pinned by
   `test_case_digest_is_the_same_before_and_after_a_json_round_trip`; the pinned literal is
   unchanged.
+- **Second review pass (2026-10-01), all fixed here:** the child's output is now decoded as
+  UTF-8 with replacement, because one Latin-1 byte on its stderr raised `UnicodeDecodeError`,
+  which no caller catches, and crashed the whole image build (spec R10). A cut-off
+  `result.json` from a child that exits 0 is now a SKIPPED reason, not a `JSONDecodeError`.
+  The SKIPPED reason now starts with the Benchmark's key, because assembly passes it, as R10
+  asks. The dead file-level pyright pragma in `task_replay.py` is gone; pyright is green
+  without it. Pinned by four appended tests: a non-UTF-8 byte, a cut-off result, the key
+  leading the reason, and an assembled Benchmark naming itself. `run_gates.py` is all green.
+  The PR's Known limitations now spell out that a short upstream outage during a main
+  build ships the board as unavailable, with only a WARNING line in the build log.

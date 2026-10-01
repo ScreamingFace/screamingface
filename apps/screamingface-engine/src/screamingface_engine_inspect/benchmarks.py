@@ -830,7 +830,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     prepare: Callable[[Path], dict[str, Any]]
     if isinstance(cases_spec, TaskReplayCasesSpec):
         identity_pins = _task_replay_pins(cases_spec)
-        prepare = partial(prepare_replayed_cases, cases_spec)
+        prepare = partial(prepare_replayed_cases, cases_spec, benchmark_key=spec.key)
     else:
         identity_pins = _revision_pins(cases_spec)
         prepare = partial(prepare_cases, cases_spec)

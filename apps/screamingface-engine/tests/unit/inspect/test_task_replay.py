@@ -292,3 +292,85 @@ def test_the_files_written_are_the_cases_the_digest_checked(fake_eval: str, tmp_
         for case in cases
     ]
     assert case_digest(on_disk) == spec.case_digest
+
+
+# ── review follow-ups: odd bytes and broken files never crash the image build ─
+
+#: Stand-in tasks with an odd edge: healthy Cases, but noisy bytes or a broken result file.
+ODD_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from fake_replay_eval import arithmetic
+
+    @task
+    def latin1_noise() -> Task:
+        # A healthy loader that logs one Latin-1 byte, which is not valid UTF-8.
+        import sys
+        sys.stderr.buffer.write(b"caf\\xe9 loaded\\n")
+        sys.stderr.buffer.flush()
+        return arithmetic()
+
+    @task
+    def truncated_result() -> Task:
+        # Exits 0 but leaves a cut-off result file, as a killed write would.
+        import atexit
+        import sys
+        result_path = sys.argv[2]
+        atexit.register(lambda: open(result_path, "w").write('[{"case":'))
+        return arithmetic()
+    """
+)
+
+
+@pytest.fixture
+def odd_eval(fake_eval: str, tmp_path: Path) -> str:
+    """Write the odd stand-in tasks beside the stand-in eval (same import path)."""
+
+    (tmp_path / "fake_odd_eval.py").write_text(ODD_EVAL, encoding="utf-8")
+    return "fake_odd_eval"
+
+
+def test_a_non_utf8_byte_on_stderr_still_prepares_the_cases(
+    fake_eval: str, odd_eval: str, tmp_path: Path
+) -> None:
+    """Spec R10: a loader that logs one Latin-1 byte must not crash the image build.
+
+    WHY: the child's output is only read for the log and the one-line reason, so a byte that
+    is not UTF-8 is replaced; decoding strictly raised UnicodeDecodeError, which no caller
+    catches, and every other Benchmark in the image was lost with it.
+    """
+
+    pinned = _pinned(fake_eval)
+    spec = TaskReplayCasesSpec(
+        task=f"{odd_eval}:latin1_noise", case_count=2, case_digest=pinned.case_digest
+    )
+
+    summary = prepare_replayed_cases(spec, tmp_path / "out")
+
+    assert summary["cases"] == 2
+    assert (tmp_path / "out" / "cases.json").is_file()
+
+
+def test_a_truncated_result_file_is_a_named_skip_not_a_crash(odd_eval: str, tmp_path: Path) -> None:
+    """Spec R10: a child that exits 0 with a cut-off result.json skips only its Benchmark."""
+
+    spec = TaskReplayCasesSpec(
+        task=f"{odd_eval}:truncated_result", case_count=2, case_digest=_UNPINNED
+    )
+
+    summary = prepare_replayed_cases(spec, tmp_path / "out")
+
+    assert "unreadable result" in summary[CHANGED_CASES_KEY]
+    assert (tmp_path / "out" / SKIPPED_MARKER).is_file()
+    assert not (tmp_path / "out" / "cases.json").exists()
+
+
+def test_a_skipped_reason_names_the_benchmark_first(fake_eval: str, tmp_path: Path) -> None:
+    """Spec R10: the reason a board visitor sees starts with the Benchmark's key, not the
+    inspect task path."""
+
+    spec = TaskReplayCasesSpec(task=f"{fake_eval}:broken", case_count=2, case_digest=_UNPINNED)
+
+    summary = prepare_replayed_cases(spec, tmp_path / "out", benchmark_key="arithmetic_demo")
+
+    assert summary[CHANGED_CASES_KEY].startswith("arithmetic_demo: ")

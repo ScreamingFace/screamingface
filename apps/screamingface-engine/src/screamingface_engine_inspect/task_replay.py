@@ -1,6 +1,3 @@
-# pyright: reportMissingImports=false
-# WHY file-level: the child half imports the `inspect` extra's packages, absent in the
-# default (extra-less) install the typecheck gate runs against.
 """Task replay: fetch an Imported Benchmark's Cases by calling the eval's own task function.
 
 FEATURE: Task-replay Imported Benchmarks (OME-1273) — evals whose Cases the importer cannot
@@ -20,9 +17,11 @@ Stages, in execution order:
               with the shared Case writer.
     Stage 3 — child: write the prepared Cases as JSON to the result file. WHY a file and
               not stdout: evals print while they load.
-    Stage 4 — parent: a non-zero exit, a timeout or a missing result is a TaskReplayError
-              carrying the child's final error line, so the SKIPPED reason names the cause;
-              the stderr tail goes to the build log.
+    Stage 4 — parent: a non-zero exit, a timeout, or a missing or unreadable result is a
+              TaskReplayError carrying the child's final error line, so the SKIPPED reason
+              names the cause; the stderr tail goes to the build log. The child's output is
+              decoded leniently: it only feeds the log and the reason, and one byte that is
+              not UTF-8 must not crash the whole image build.
     Stage 5 — Case Preparation (:func:`prepare_replayed_cases`): refuse a different Case
               count, then a different Case Digest; write the Cases only when both match,
               otherwise write the SKIPPED marker with the reason.
@@ -136,7 +135,11 @@ def replayed_cases(
                 command,
                 env=replay_environment(root / "cache", os.environ),
                 capture_output=True,
-                text=True,
+                # WHY lenient: this text only feeds the log and the one-line reason. Strict
+                # decoding raised UnicodeDecodeError on one Latin-1 byte, which no caller
+                # catches, so the whole image build crashed (spec R10).
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 check=False,
             )
@@ -150,23 +153,33 @@ def replayed_cases(
                 f"{spec.task}: replay failed (exit {completed.returncode}): "
                 f"{_failure_reason(completed.stderr)}"
             )
-        loaded: list[PreparedCase] = json.loads(result_path.read_text(encoding="utf-8"))
+        try:
+            loaded: list[PreparedCase] = json.loads(result_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # WHY: a child killed mid-write can exit 0 and leave a cut-off file; that is
+            # this Benchmark's failure, not the image build's (spec R10).
+            raise TaskReplayError(f"{spec.task}: replay wrote an unreadable result: {exc}") from exc
         return loaded
 
 
-def prepare_replayed_cases(spec: TaskReplayCasesSpec, out: Path) -> dict[str, Any]:
+def prepare_replayed_cases(
+    spec: TaskReplayCasesSpec, out: Path, *, benchmark_key: str | None = None
+) -> dict[str, Any]:
     """Case Preparation for a Task-replay Benchmark: replay, check the seal, then write.
 
     Stage 5 of the module docstring. Any refusal or replay failure writes the SKIPPED marker
     instead of Cases, so one broken Case Source never takes the other Benchmarks in the image
     down with it (spec R10); the strict prepare CLI then fails on ``CHANGED_CASES_KEY``.
 
-    Example: pinned ``case_count=2``; the task now yields 3 Cases → SKIPPED, reason
-    "… the task yielded 3 Cases, pinned case count is 2".
+    Example: Benchmark ``mgsm_en`` pinned ``case_count=2``; the task now yields 3 Cases →
+    SKIPPED, reason "mgsm_en: inspect_evals.mgsm.mgsm:mgsm: the task yielded 3 Cases, pinned
+    case count is 2".
 
     Args:
         spec: the Benchmark's Task-replay declaration.
         out: the empty directory to prepare into.
+        benchmark_key: the Benchmark the reason names first, as R10 asks, so a board visitor
+            reads the board's key before the inspect task path. Assembly always passes it.
 
     Returns:
         The summary: ``cases`` and ``case_digest`` on success; on a skip, ``cases`` 0 plus
@@ -187,7 +200,7 @@ def prepare_replayed_cases(spec: TaskReplayCasesSpec, out: Path) -> dict[str, An
             )
     except TaskReplayError as exc:
         # WHY SKIPPED, not a raise: deployed images keep every other Benchmark (spec R10).
-        reason: str = str(exc)
+        reason: str = f"{benchmark_key}: {exc}" if benchmark_key else str(exc)
         print(f"WARNING: skipping {reason}", file=sys.stderr, flush=True)
         out.mkdir(parents=True, exist_ok=True)
         (out / SKIPPED_MARKER).write_text(reason + "\n", encoding="utf-8")
