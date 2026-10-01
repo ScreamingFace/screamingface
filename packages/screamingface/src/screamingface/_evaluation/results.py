@@ -84,6 +84,8 @@ def _decoded_result_body(outcome: _RunOutcome) -> object:
 def report_from_outcomes(
     evaluation: _Evaluation,
     outcomes: tuple[tuple[Candidate, _RunOutcome], ...],
+    *,
+    mark_ready: bool = True,
 ) -> Report:
     """Build one stable Report from independently executed Candidate roots."""
 
@@ -97,7 +99,8 @@ def report_from_outcomes(
     )
     from screamingface._results.lifecycle import mark_report
 
-    mark_report(report, "ready")
+    if mark_ready:
+        mark_report(report, "ready")
     return report
 
 

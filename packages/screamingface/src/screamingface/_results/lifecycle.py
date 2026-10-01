@@ -47,12 +47,16 @@ def mark_report(report: Report, state: Literal["ready", "exporting", "rendering"
         except (OSError, ValueError, AttributeError):
             continue
     for path in paths:
-        try:
-            value = json.loads(path.read_text())
-            if "owner_pid" not in value:
-                continue  # WHY: legacy history must not be guessed to have crashed.
-            value.update(state=state, owner_pid=os.getpid())
-            atomic_json(path, value)
-        except (OSError, ValueError, AttributeError, TypeError):
-            # INVARIANT: optional lifecycle metadata cannot discard a usable Report.
-            _logger.debug("Could not update saved-report lifecycle", exc_info=True)
+        mark_evaluation(path, state)
+
+
+def mark_evaluation(path: Path, state: str) -> None:
+    try:
+        value = json.loads(path.read_text())
+        if "owner_pid" not in value:
+            return  # WHY: legacy history must not be guessed to have crashed.
+        value.update(state=state, owner_pid=os.getpid())
+        atomic_json(path, value)
+    except (OSError, ValueError, AttributeError, TypeError):
+        # INVARIANT: optional lifecycle metadata cannot discard a usable Report.
+        _logger.debug("Could not update saved-report lifecycle", exc_info=True)

@@ -6,6 +6,7 @@ Results are retained until ``delete`` is explicitly called. Set
 
 from __future__ import annotations
 
+import asyncio
 import builtins
 import hashlib
 import shutil
@@ -15,6 +16,7 @@ from pathlib import Path
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import _compiled_evaluation
 from screamingface._evaluation.results import report_from_outcomes, report_from_url4_outcome
+from screamingface._results.lifecycle import evaluation_path, mark_evaluation
 from screamingface._results.store import ResultStore, SavedRun
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError, ScreamingFaceError
@@ -131,7 +133,7 @@ async def _fetch_async(run: SavedRun) -> _RunOutcome:
     from screamingface._engine.transport import _mint_async
     from screamingface.client import AsyncClient
 
-    local = _local(run)
+    local = await asyncio.to_thread(_local, run)
     if local is not None:
         return local
     if run.outcome.artifact is None:
@@ -160,12 +162,12 @@ def _decode(run: SavedRun, outcome: _RunOutcome) -> Report:
     context = run.evaluation
     evaluation = _compiled_evaluation(
         benchmark=BenchmarkInfo(**context["benchmark"]),
-        limit=None,
+        limit=context["case_count"],
         case_count=context["case_count"],
         candidates=(run.candidate,),
         required_models=run.candidate.models,
     )
-    return report_from_outcomes(evaluation, ((run.candidate, outcome),))
+    return report_from_outcomes(evaluation, ((run.candidate, outcome),), mark_ready=False)
 
 
 def _finish(
@@ -207,6 +209,23 @@ def _error_messages(errors: dict[str, ScreamingFaceError]) -> dict[str, object]:
     return {"failure_messages": {name: str(exc) for name, exc in errors.items()}} if errors else {}
 
 
+def _mark_recovery(store: ResultStore, run: SavedRun, state: str) -> None:
+    path = evaluation_path(store.directory, _report_id(run))
+    if path is not None:
+        mark_evaluation(path, state)
+
+
+def _completed(
+    store: ResultStore,
+    selected: SavedRun,
+    reports: builtins.list[Report],
+    errors: dict[str, ScreamingFaceError],
+) -> Report:
+    report = _finish(selected, reports, errors)
+    _mark_recovery(store, selected, "ready")
+    return report
+
+
 def get(
     report_id: str, *, directory: str | Path | None = None, destination: str | Path | None = None
 ) -> Report:
@@ -217,6 +236,7 @@ def get(
     """
     store = _store(directory)
     selected = _selected(store, report_id)
+    _mark_recovery(store, selected, "running")
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):
@@ -226,7 +246,7 @@ def get(
             reports.append(_decode(run, _fetch(run)))
         except ScreamingFaceError as exc:
             errors[run.candidate.name] = exc
-    return _finish(selected, reports, errors)
+    return _completed(store, selected, reports, errors)
 
 
 async def get_async(
@@ -235,13 +255,15 @@ async def get_async(
     """Open a saved report asynchronously with the same local result contract."""
     store = _store(directory)
     selected = _selected(store, report_id)
+    _mark_recovery(store, selected, "running")
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):
         try:
             if destination is not None:
-                run = _store(destination).copy_run(run)
-            reports.append(_decode(run, await _fetch_async(run)))
+                run = await asyncio.to_thread(_store(destination).copy_run, run)
+            outcome = await _fetch_async(run)
+            reports.append(await asyncio.to_thread(_decode, run, outcome))
         except ScreamingFaceError as exc:
             errors[run.candidate.name] = exc
-    return _finish(selected, reports, errors)
+    return _completed(store, selected, reports, errors)

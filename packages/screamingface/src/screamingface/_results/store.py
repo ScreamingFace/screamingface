@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -153,9 +154,23 @@ class ResultStore:
         return matches[0]
 
     def list(self) -> list[SavedRun]:
-        return [self._load(path) for path in sorted(self.directory.glob("*/run.json"))]
+        runs = []
+        for path in sorted(self.directory.glob("*/run.json")):
+            try:
+                runs.append(self._load(path))
+            except (OSError, ExecutionError):
+                logging.getLogger(__name__).warning("Could not read saved run %s", path)
+        return runs
 
     def _load(self, path: Path) -> SavedRun:
+        try:
+            return self._decode_manifest(path)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise ExecutionError(
+                "Invalid saved run metadata", code="result_metadata_invalid"
+            ) from exc
+
+    def _decode_manifest(self, path: Path) -> SavedRun:
         data = json.loads(path.read_text(encoding="utf-8"))
         if data["schema"] != "screamingface.saved-run.v1":
             raise ExecutionError("Unsupported saved run version")
