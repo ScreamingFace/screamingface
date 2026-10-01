@@ -16,6 +16,7 @@ from screamingface._ui.report_files import download_link
 from screamingface._ui.report_view import (
     _card_html,
     _failures_html,
+    _group_key,
     cases_page_html,
     report_overview_html,
 )
@@ -42,6 +43,7 @@ _BROWSER_STYLE = """<style>
 .sf-cases-header>.widget-label{margin:0 8px;font-size:12px}
 .sf-cases-body.widget-html{margin:0;width:100%}
 .sf-cases-body>.widget-html-content{width:100%}
+.sf-cases-body .sf-rail__item>span{pointer-events:none}
 .sf-cases-header .widget-button,.sf-cases-header .widget-box{flex-shrink:0}
 .sf-report-browser .sf-browser-links a{display:inline-flex;align-items:center;
  justify-content:center;box-sizing:border-box;width:90px;min-height:28px;padding:2px 6px;
@@ -142,6 +144,11 @@ class ReportBrowser:
         self.next = w.Button(description="Next", icon="chevron-right")
         self.count = w.Label()
         self.cases = w.HTML()
+        from ipyevents import Event
+
+        # WHY: CSS selection stays instant; widget events synchronize only case identity.
+        self._case_events = Event(source=self.cases, watched_events=["click"])
+        self._case_events.on_dom_event(self._select_case)
         self.previous.on_click(lambda _: self._move(-1))
         self.next.on_click(lambda _: self._move(1))
 
@@ -241,17 +248,33 @@ class ReportBrowser:
             )
             self._request_page(target)
 
+    def _select_case(self, event: dict) -> None:
+        target = event.get("target", {}).get("id", "")
+        prefix = f"sf-case-{_group_key(self.report)}-"
+        if self._paging or not isinstance(target, str) or not target.startswith(prefix):
+            return
+        try:
+            index = int(target.removeprefix(prefix).removesuffix("-row"))
+            indices = self.navigation.indices(self.page)
+            if index < 0:
+                return
+            self._focus_id = self.entries[indices[index]][1].case_id
+        except (ValueError, IndexError):
+            return
+        if self.go_to.value.strip():
+            self._updating_go_to = True
+            self.go_to.value = str(self._focus_id)
+            self._updating_go_to = False
+
     def _select_candidate(self, change: Any) -> None:
         focused = (
-            str(self._focus_id)
-            if self._focus_id is not None
-            else str(self.navigation.focused_id(self.page))
+            self._focus_id if self._focus_id is not None else self.navigation.focused_id(self.page)
         )
         selected = self.candidate.value
         assert isinstance(selected, int)
         self.navigation.select(selected)
         try:
-            self.page = self.navigation.locate(focused)
+            self.page = self.navigation.locate_id(focused)
         except ValueError:
             self.page = 0
             self._focus_id = None

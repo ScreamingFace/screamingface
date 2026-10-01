@@ -60,3 +60,15 @@ def mark_evaluation(path: Path, state: str) -> None:
     except (OSError, ValueError, AttributeError, TypeError):
         # INVARIANT: optional lifecycle metadata cannot discard a usable Report.
         _logger.debug("Could not update saved-report lifecycle", exc_info=True)
+
+
+def copy_evaluation(source: Path, destination: Path, state: str) -> None:
+    # WHY: moving recovery must retain interruption discovery on both disks.
+    try:
+        value = json.loads(source.read_text())
+        if "owner_pid" not in value:
+            return
+        value.update(state=state, owner_pid=os.getpid())
+        atomic_json(destination, value)
+    except (OSError, ValueError, AttributeError, TypeError):
+        _logger.debug("Could not copy saved-report lifecycle", exc_info=True)

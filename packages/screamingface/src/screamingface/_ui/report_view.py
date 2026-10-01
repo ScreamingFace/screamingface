@@ -218,6 +218,12 @@ def report_html(
 ) -> str:
     """Render a completed Report as one self-contained panel."""
 
+    if accounting_contexts is None:
+        from screamingface._results.accounting import saved_accounting_context
+
+        accounting_contexts = {
+            id(item): saved_accounting_context(item) for item in report.candidates
+        }
     cards = "".join(
         _card_html(
             item, report, context=accounting_contexts.get(id(item)) if accounting_contexts else None
@@ -231,7 +237,7 @@ def report_html(
         f"{_strip_html(report)}"
         f"{cards}"
         f"{_failures_html(report)}"
-        f"{_cases_html(report) if cases else ''}</div>"
+        f"{_cases_html(report, accounting_contexts) if cases else ''}</div>"
     )
 
 
@@ -666,7 +672,9 @@ def _first_collected_error(failure: Any) -> str:
     return f" ({kind}: {message})" if kind else f" ({message})"
 
 
-def _cases_html(report: Report) -> str:
+def _cases_html(
+    report: Report, accounting_contexts: Mapping[int, _AccountingContext] | None = None
+) -> str:
     """Master/detail over every case: a rail of outcomes beside the selected case.
 
     Selection is pure CSS (a radio group + `:checked ~` sibling rules). Notebook HTML is
@@ -678,7 +686,7 @@ def _cases_html(report: Report) -> str:
             ((candidate, case) for candidate in report.candidates for case in candidate.cases), 25
         )
     )
-    return cases_page_html(report, entries, preview=True)
+    return cases_page_html(report, entries, preview=True, accounting_contexts=accounting_contexts)
 
 
 def cases_page_html(
@@ -817,7 +825,7 @@ def _rail_item(
         who = ""
     preview = _clip(case.prompt_preview, 90) if case.input is not None else "input unavailable"
     return (
-        f"<label class='sf-rail__item' for='{item}'>"
+        f"<label class='sf-rail__item' id='{item}-row' for='{item}'>"
         f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
         f"<span class='sf-rail__id'>case {escape(str(case.case_id))}</span>{who}"
         f"<span class='sf-rail__q'>{escape(preview)}</span></label>"

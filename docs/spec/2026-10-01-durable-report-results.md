@@ -123,3 +123,9 @@ recovery. POSIX liveness probing is conservative (including PID reuse and inacce
 owners); non-POSIX skips automatic interruption inference rather than using an unsafe
 os.kill probe. Completed tickets must exist; incomplete siblings retain partial-report
 behavior, and undownloaded artifacts remain subject to retention.
+
+## Follow-up validation and identity semantics
+
+Go-to resolves an exact string ID before trying its integer interpretation. If both a string and integer share the same displayed text, the exact string wins for typed text; clicking a row preserves its actual typed ID across candidate filters. Numeric fallback remains available when no exact string matches. Native notebook row clicks synchronize that identity through the ipyevents widget bridge without changing the CSS rail/detail presentation.
+
+Candidate report construction and progress callbacks have no lifecycle side effects. Final evaluation/handled-partial report boundaries and whole recovery boundaries own ready marking. Destination recovery retains lifecycle metadata and updates both copies deliberately. Per-candidate filesystem errors follow the SDK storage-error/partial-report contract. Static and widget-free rendering reuse the compact accounting projection instead of eagerly allocating accounting rows for all cases.

@@ -99,6 +99,10 @@ def raise_candidates_failed(evaluation: _Evaluation, settled: _Settled) -> NoRet
     )
     if unavailable is not None:
         error.add_note(f"The Partial Report could not be built: {unavailable}")
+    if partial is not None:
+        from screamingface._results.lifecycle import mark_report
+
+        mark_report(partial, "ready")
     raise error from failures[0][1]
 
 

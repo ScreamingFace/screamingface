@@ -58,19 +58,23 @@ class CaseNavigation:
 
     def resolve(self, query: str) -> CaseId:
         text = query.strip()
+        ids = self.groups if self.selected == -1 else self.identities[self.selected]
+        if text in ids:
+            return text
         try:
             case_id: CaseId = int(text)
         except ValueError:
-            case_id = text
-        ids = self.groups if self.selected == -1 else self.identities[self.selected]
-        if case_id not in ids and text in ids:
             case_id = text
         if case_id not in ids:
             raise ValueError(f"Case {text} not found. This selection contains {len(ids)} cases.")
         return case_id
 
     def locate(self, query: str) -> int:
-        case_id = self.resolve(query)
+        return self.locate_id(self.resolve(query))
+
+    def locate_id(self, case_id: CaseId) -> int:
+        if case_id not in self.groups:
+            raise ValueError(f"Case {case_id} not found")
         if self.selected == -1:
             return self.case_positions[self.groups[case_id][0]] // PAGE_SIZE
         return self.identities[self.selected].index(case_id) // PAGE_SIZE

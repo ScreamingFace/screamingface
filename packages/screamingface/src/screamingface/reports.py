@@ -10,6 +10,7 @@ import asyncio
 import builtins
 import hashlib
 import shutil
+import sqlite3
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import _compiled_evaluation
 from screamingface._evaluation.results import report_from_outcomes, report_from_url4_outcome
 from screamingface._results.lifecycle import evaluation_path, mark_evaluation
-from screamingface._results.store import ResultStore, SavedRun
+from screamingface._results.store import ResultStore, SavedRun, storage_error
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import ExecutionError, ScreamingFaceError
 from screamingface.report import CandidateResult, Report
@@ -167,7 +168,7 @@ def _decode(run: SavedRun, outcome: _RunOutcome) -> Report:
         candidates=(run.candidate,),
         required_models=run.candidate.models,
     )
-    return report_from_outcomes(evaluation, ((run.candidate, outcome),), mark_ready=False)
+    return report_from_outcomes(evaluation, ((run.candidate, outcome),))
 
 
 def _finish(
@@ -209,10 +210,18 @@ def _error_messages(errors: dict[str, ScreamingFaceError]) -> dict[str, object]:
     return {"failure_messages": {name: str(exc) for name, exc in errors.items()}} if errors else {}
 
 
-def _mark_recovery(store: ResultStore, run: SavedRun, state: str) -> None:
+def _mark_recovery(
+    store: ResultStore, run: SavedRun, state: str, destination: str | Path | None = None
+) -> None:
     path = evaluation_path(store.directory, _report_id(run))
     if path is not None:
         mark_evaluation(path, state)
+        if destination is not None:
+            from screamingface._results.lifecycle import copy_evaluation
+
+            copied = evaluation_path(_store(destination).directory, _report_id(run))
+            if copied is not None:
+                copy_evaluation(path, copied, state)
 
 
 def _completed(
@@ -220,9 +229,14 @@ def _completed(
     selected: SavedRun,
     reports: builtins.list[Report],
     errors: dict[str, ScreamingFaceError],
+    destination: str | Path | None,
 ) -> Report:
-    report = _finish(selected, reports, errors)
-    _mark_recovery(store, selected, "ready")
+    try:
+        report = _finish(selected, reports, errors)
+    except ExecutionError:
+        _mark_recovery(store, selected, "ready", destination)
+        raise
+    _mark_recovery(store, selected, "ready", destination)
     return report
 
 
@@ -236,7 +250,7 @@ def get(
     """
     store = _store(directory)
     selected = _selected(store, report_id)
-    _mark_recovery(store, selected, "running")
+    _mark_recovery(store, selected, "running", destination)
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):
@@ -244,9 +258,11 @@ def get(
             if destination is not None:
                 run = _store(destination).copy_run(run)
             reports.append(_decode(run, _fetch(run)))
+        except (OSError, sqlite3.Error) as exc:
+            errors[run.candidate.name] = storage_error(exc, run.key)
         except ScreamingFaceError as exc:
             errors[run.candidate.name] = exc
-    return _completed(store, selected, reports, errors)
+    return _completed(store, selected, reports, errors, destination)
 
 
 async def get_async(
@@ -255,7 +271,7 @@ async def get_async(
     """Open a saved report asynchronously with the same local result contract."""
     store = _store(directory)
     selected = _selected(store, report_id)
-    _mark_recovery(store, selected, "running")
+    _mark_recovery(store, selected, "running", destination)
     reports: builtins.list[Report] = []
     errors: dict[str, ScreamingFaceError] = {}
     for run in _group(store, selected):
@@ -264,6 +280,8 @@ async def get_async(
                 run = await asyncio.to_thread(_store(destination).copy_run, run)
             outcome = await _fetch_async(run)
             reports.append(await asyncio.to_thread(_decode, run, outcome))
+        except (OSError, sqlite3.Error) as exc:
+            errors[run.candidate.name] = storage_error(exc, run.key)
         except ScreamingFaceError as exc:
             errors[run.candidate.name] = exc
-    return _completed(store, selected, reports, errors)
+    return _completed(store, selected, reports, errors, destination)

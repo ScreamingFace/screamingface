@@ -19,8 +19,15 @@ from screamingface.report import Usage
 
 
 def candidate_data(candidate: Candidate) -> dict[str, object]:
+    # WHY: excluded preflight assignments contain mappingproxy values; never deep-copy them.
     return {
-        key: value for key, value in asdict(candidate).items() if key != "parameter_assignments"
+        "name": candidate.name,
+        "kind": candidate.kind,
+        "models": candidate.models,
+        "url4": candidate.url4,
+        "operations": [asdict(operation) for operation in candidate.operations],
+        "members": [asdict(member) for member in candidate.members],
+        "answer_seed": candidate.answer_seed,
     }
 
 

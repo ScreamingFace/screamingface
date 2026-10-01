@@ -114,8 +114,7 @@ def evaluate_sync(
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
-    _reconcile_event_observer(observer, report)
-    return report
+    return _returned_report(observer, report)
 
 
 async def evaluate_async(
@@ -172,8 +171,7 @@ async def evaluate_async(
     except BaseException as exc:
         _abort_event_observer(observer, exc)
         raise
-    _reconcile_event_observer(observer, report)
-    return report
+    return _returned_report(observer, report)
 
 
 def _settled_sync(
@@ -817,3 +815,11 @@ __all__: list[str] = []
 def _prepare_results(transport, evaluation, candidates) -> None:
     if isinstance(transport, _ResultPersistence):
         transport.prepare_results(evaluation, candidates)
+
+
+def _returned_report(observer, report: Report) -> Report:
+    from screamingface._results.lifecycle import mark_report
+
+    _reconcile_event_observer(observer, report)
+    mark_report(report, "ready")
+    return report
