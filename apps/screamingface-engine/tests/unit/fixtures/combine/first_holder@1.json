@@ -1,0 +1,194 @@
+{
+ "op": "first_holder@1",
+ "stage": "select",
+ "cases": [
+  {
+   "name": "18 x4 vs 26",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "26",
+      "value": "26",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_5",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "reduction": {
+     "tally": [
+      {
+       "value": "18",
+       "score": "4",
+       "holders": [
+        "member_1",
+        "member_2",
+        "member_4",
+        "member_5"
+       ]
+      },
+      {
+       "value": "26",
+       "score": "1",
+       "holders": [
+        "member_3"
+       ]
+      }
+     ],
+     "statistic": null
+    }
+   },
+   "args": {},
+   "expect": {
+    "chosen": [
+     "member_1"
+    ],
+    "output": null,
+    "tie": false,
+    "agreement": 0.8
+   }
+  },
+  {
+   "name": "7 9 tie",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "7",
+      "value": "7",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "7",
+      "value": "7",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "reduction": {
+     "tally": [
+      {
+       "value": "7",
+       "score": "2",
+       "holders": [
+        "member_1",
+        "member_3"
+       ]
+      },
+      {
+       "value": "9",
+       "score": "2",
+       "holders": [
+        "member_2",
+        "member_4"
+       ]
+      }
+     ],
+     "statistic": null
+    }
+   },
+   "args": {},
+   "expect": {
+    "chosen": [
+     "member_1"
+    ],
+    "output": null,
+    "tie": true,
+    "agreement": 0.5
+   }
+  },
+  {
+   "name": "tally null",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "26",
+      "value": "26",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_5",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "reduction": {
+     "tally": null,
+     "statistic": null
+    }
+   },
+   "args": {},
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  }
+ ]
+}

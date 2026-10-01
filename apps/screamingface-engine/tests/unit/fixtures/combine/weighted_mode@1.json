@@ -1,0 +1,165 @@
+{
+ "op": "weighted_mode@1",
+ "stage": "reduce",
+ "cases": [
+  {
+   "name": "9 9 12 12 12 weights 3 3 1 1 1",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": "3"
+     },
+     {
+      "member": "member_2",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": "3"
+     },
+     {
+      "member": "member_3",
+      "raw": "12",
+      "value": "12",
+      "status": "voted",
+      "weight": "1"
+     },
+     {
+      "member": "member_4",
+      "raw": "12",
+      "value": "12",
+      "status": "voted",
+      "weight": "1"
+     },
+     {
+      "member": "member_5",
+      "raw": "12",
+      "value": "12",
+      "status": "voted",
+      "weight": "1"
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "9",
+      "score": "6",
+      "holders": [
+       "member_1",
+       "member_2"
+      ]
+     },
+     {
+      "value": "12",
+      "score": "3",
+      "holders": [
+       "member_3",
+       "member_4",
+       "member_5"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  },
+  {
+   "name": "decimal weights add exactly",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "5",
+      "value": "5",
+      "status": "voted",
+      "weight": "0.1"
+     },
+     {
+      "member": "member_2",
+      "raw": "5",
+      "value": "5",
+      "status": "voted",
+      "weight": "0.2"
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "5",
+      "score": "0.3",
+      "holders": [
+       "member_1",
+       "member_2"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  },
+  {
+   "name": "weights null",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "empty member with weight not counted",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": "2"
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "empty",
+      "weight": "5"
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "9",
+      "score": "2",
+      "holders": [
+       "member_1"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  }
+ ]
+}

@@ -1,0 +1,177 @@
+{
+ "op": "numeric@1",
+ "stage": "normalize",
+ "cases": [
+  {
+   "name": "plain nine",
+   "input": "9",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9"
+   }
+  },
+  {
+   "name": "nine point zero",
+   "input": "9.0",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9"
+   }
+  },
+  {
+   "name": "nine point zero zero",
+   "input": "9.00",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9"
+   }
+  },
+  {
+   "name": "nine with period",
+   "input": "9.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9"
+   }
+  },
+  {
+   "name": "exponent 3",
+   "input": "1e3",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1000"
+   }
+  },
+  {
+   "name": "thousand point zero",
+   "input": "1000.0",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1000"
+   }
+  },
+  {
+   "name": "negative zero",
+   "input": "-0",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "0"
+   }
+  },
+  {
+   "name": "dollar grouped",
+   "input": "$1,200",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1200"
+   }
+  },
+  {
+   "name": "euro",
+   "input": "\u20ac5",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "5"
+   }
+  },
+  {
+   "name": "pound with space",
+   "input": "\u00a3 3.50",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "3.5"
+   }
+  },
+  {
+   "name": "unicode minus",
+   "input": "\u22123",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "-3"
+   }
+  },
+  {
+   "name": "fullwidth digit",
+   "input": "\uff13",
+   "args": {},
+   "expect": {
+    "status": "not_numeric",
+    "value": null
+   }
+  },
+  {
+   "name": "word",
+   "input": "twelve",
+   "args": {},
+   "expect": {
+    "status": "not_numeric",
+    "value": null
+   }
+  },
+  {
+   "name": "bad grouping",
+   "input": "1,2",
+   "args": {},
+   "expect": {
+    "status": "not_numeric",
+    "value": null
+   }
+  },
+  {
+   "name": "plus sign",
+   "input": "+7",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "7"
+   }
+  },
+  {
+   "name": "leading dot",
+   "input": ".5",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "0.5"
+   }
+  },
+  {
+   "name": "exponent of 3 digits",
+   "input": "1e100",
+   "args": {},
+   "expect": {
+    "status": "not_numeric",
+    "value": null
+   }
+  },
+  {
+   "name": "65 digits",
+   "input": "11111111111111111111111111111111111111111111111111111111111111111",
+   "args": {},
+   "expect": {
+    "status": "not_numeric",
+    "value": null
+   }
+  },
+  {
+   "name": "decimal with period",
+   "input": "12.50.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "12.5"
+   }
+  }
+ ]
+}

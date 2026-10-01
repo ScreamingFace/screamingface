@@ -1,0 +1,204 @@
+{
+ "op": "json_field@1",
+ "stage": "extract",
+ "cases": [
+  {
+   "name": "nested object",
+   "input": "{\"answer\":{\"value\":7}}",
+   "args": {
+    "path": "answer.value"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "7"
+   }
+  },
+  {
+   "name": "array index",
+   "input": "{\"a\":[{\"b\":1},{\"b\":\"x\"}]}",
+   "args": {
+    "path": "a[1].b"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "x"
+   }
+  },
+  {
+   "name": "fenced block",
+   "input": "Sure:\n```json\n{\"answer\": 7}\n```\nDone.",
+   "args": {
+    "path": "answer"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "7"
+   }
+  },
+  {
+   "name": "last fence wins",
+   "input": "```json\n{\"answer\": 1}\n```\nrather\n```json\n{\"answer\": 2}\n```",
+   "args": {
+    "path": "answer"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "2"
+   }
+  },
+  {
+   "name": "not json",
+   "input": "answer: 7",
+   "args": {
+    "path": "answer"
+   },
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "empty text is not json",
+   "input": "",
+   "args": {
+    "path": "answer"
+   },
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "field missing",
+   "input": "{\"other\":1}",
+   "args": {
+    "path": "answer"
+   },
+   "expect": {
+    "status": "field_missing",
+    "value": null
+   }
+  },
+  {
+   "name": "index out of range",
+   "input": "[1]",
+   "args": {
+    "path": "[3]"
+   },
+   "expect": {
+    "status": "field_missing",
+    "value": null
+   }
+  },
+  {
+   "name": "json null",
+   "input": "{\"a\":null}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "json empty string",
+   "input": "{\"a\":\"\"}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "json blank string",
+   "input": "{\"a\":\"  \"}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "array value is canonical json",
+   "input": "{\"a\":[1,2]}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "[1,2]"
+   }
+  },
+  {
+   "name": "true value",
+   "input": "{\"a\":true}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "true"
+   }
+  },
+  {
+   "name": "float 7.50",
+   "input": "{\"a\":7.50}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "7.5"
+   }
+  },
+  {
+   "name": "object value sorts keys",
+   "input": "{\"a\":{\"z\":1,\"b\":2}}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "{\"b\":2,\"z\":1}"
+   }
+  },
+  {
+   "name": "depth 65 is not json",
+   "input": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+   "args": {
+    "path": "[0]"
+   },
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "NaN is not json",
+   "input": "{\"a\":NaN}",
+   "args": {
+    "path": "a"
+   },
+   "expect": {
+    "status": "not_json",
+    "value": null
+   }
+  },
+  {
+   "name": "leading index",
+   "input": "[{\"a\":1}]",
+   "args": {
+    "path": "[0].a"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "1"
+   }
+  }
+ ]
+}

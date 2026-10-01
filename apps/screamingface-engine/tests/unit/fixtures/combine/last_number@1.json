@@ -1,0 +1,96 @@
+{
+ "op": "last_number@1",
+ "stage": "extract",
+ "cases": [
+  {
+   "name": "final boxed twelve",
+   "input": "\u2026 so x = 9, final \\boxed{12}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "12"
+   }
+  },
+  {
+   "name": "dollar thousands",
+   "input": "The total is $1,200.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1,200"
+   }
+  },
+  {
+   "name": "unicode minus kept raw",
+   "input": "fell to \u22123 degrees",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "\u22123"
+   }
+  },
+  {
+   "name": "last of fraction",
+   "input": "about 3.14159 or 22/7",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "7"
+   }
+  },
+  {
+   "name": "no digits",
+   "input": "no digits",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "trailing period dropped",
+   "input": "answer: 9.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9"
+   }
+  },
+  {
+   "name": "bad grouping reads tail",
+   "input": "1,23",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "23"
+   }
+  },
+  {
+   "name": "sign belongs to its own token",
+   "input": "-5 and 6",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "6"
+   }
+  },
+  {
+   "name": "negative alone",
+   "input": "-5",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "-5"
+   }
+  },
+  {
+   "name": "window of 128 chars",
+   "input": "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+   }
+  }
+ ]
+}

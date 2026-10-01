@@ -1,0 +1,96 @@
+{
+ "op": "boxed@1",
+ "stage": "extract",
+ "cases": [
+  {
+   "name": "simple",
+   "input": "so \\boxed{12}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "12"
+   }
+  },
+  {
+   "name": "last of two",
+   "input": "\\boxed{1} then \\boxed{2}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "2"
+   }
+  },
+  {
+   "name": "nested frac",
+   "input": "\\boxed{\\frac{1}{2}}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "\\frac{1}{2}"
+   }
+  },
+  {
+   "name": "empty box",
+   "input": "\\boxed{}",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "unclosed",
+   "input": "\\boxed{12",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "no box",
+   "input": "no box",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "depth 8 total",
+   "input": "\\boxed{{{{{{{{x}}}}}}}}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "{{{{{{{x}}}}}}}"
+   }
+  },
+  {
+   "name": "depth 9 total",
+   "input": "\\boxed{{{{{{{{{x}}}}}}}}}",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "spaces kept",
+   "input": "\\boxed{ 5 }",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": " 5 "
+   }
+  },
+  {
+   "name": "unclosed last box beats closed earlier",
+   "input": "\\boxed{1} \\boxed{2",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  }
+ ]
+}

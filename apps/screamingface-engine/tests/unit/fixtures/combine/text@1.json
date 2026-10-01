@@ -1,0 +1,60 @@
+{
+ "op": "text@1",
+ "stage": "normalize",
+ "cases": [
+  {
+   "name": "trim casefold period",
+   "input": "  Paris. ",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "paris"
+   }
+  },
+  {
+   "name": "comma kept",
+   "input": "Paris, France",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "paris, france"
+   }
+  },
+  {
+   "name": "collapse whitespace",
+   "input": "  A   B\tC  ",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "a b c"
+   }
+  },
+  {
+   "name": "casefold sharp s",
+   "input": "Stra\u00dfe",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "strasse"
+   }
+  },
+  {
+   "name": "only a period",
+   "input": ".",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "double period strips one",
+   "input": "end..",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "end."
+   }
+  }
+ ]
+}

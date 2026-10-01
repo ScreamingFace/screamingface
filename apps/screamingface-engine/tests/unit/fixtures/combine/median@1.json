@@ -1,0 +1,215 @@
+{
+ "op": "median@1",
+ "stage": "reduce",
+ "cases": [
+  {
+   "name": "3 9 9 12",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "3",
+      "value": "3",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "12",
+      "value": "12",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": null,
+    "statistic": "9"
+   }
+  },
+  {
+   "name": "2 4",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "2",
+      "value": "2",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "4",
+      "value": "4",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": null,
+    "statistic": "3"
+   }
+  },
+  {
+   "name": "10 12 30 40",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "10",
+      "value": "10",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "12",
+      "value": "12",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "30",
+      "value": "30",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "40",
+      "value": "40",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": null,
+    "statistic": "21"
+   }
+  },
+  {
+   "name": "not_numeric member skipped",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "4",
+      "value": "4",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "x",
+      "value": null,
+      "status": "not_numeric",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "8",
+      "value": "8",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": null,
+    "statistic": "6"
+   }
+  },
+  {
+   "name": "single",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "5",
+      "value": "5",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": null,
+    "statistic": "5"
+   }
+  },
+  {
+   "name": "odd unsorted",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "1",
+      "value": "1",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "5",
+      "value": "5",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": null,
+    "statistic": "5"
+   }
+  },
+  {
+   "name": "value x",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "x",
+      "value": "x",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  }
+ ]
+}

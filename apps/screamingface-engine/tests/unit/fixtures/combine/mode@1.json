@@ -1,0 +1,276 @@
+{
+ "op": "mode@1",
+ "stage": "reduce",
+ "cases": [
+  {
+   "name": "18 18 26 18 18",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "26",
+      "value": "26",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_5",
+      "raw": "18",
+      "value": "18",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "18",
+      "score": "4",
+      "holders": [
+       "member_1",
+       "member_2",
+       "member_4",
+       "member_5"
+      ]
+     },
+     {
+      "value": "26",
+      "score": "1",
+      "holders": [
+       "member_3"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  },
+  {
+   "name": "7 9 7 9 tie keeps first holder order",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "7",
+      "value": "7",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "7",
+      "value": "7",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "7",
+      "score": "2",
+      "holders": [
+       "member_1",
+       "member_3"
+      ]
+     },
+     {
+      "value": "9",
+      "score": "2",
+      "holders": [
+       "member_2",
+       "member_4"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  },
+  {
+   "name": "9 7 7 9 tie keeps first holder order",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "7",
+      "value": "7",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "7",
+      "value": "7",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "9",
+      "score": "2",
+      "holders": [
+       "member_1",
+       "member_4"
+      ]
+     },
+     {
+      "value": "7",
+      "score": "2",
+      "holders": [
+       "member_2",
+       "member_3"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  },
+  {
+   "name": "empty member excluded",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "5",
+      "value": "5",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "empty",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "5",
+      "value": "5",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "5",
+      "score": "2",
+      "holders": [
+       "member_1",
+       "member_3"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  },
+  {
+   "name": "later bigger group sorts first",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "1",
+      "value": "1",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": "2",
+      "value": "2",
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": "2",
+      "value": "2",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "2",
+      "score": "2",
+      "holders": [
+       "member_2",
+       "member_3"
+      ]
+     },
+     {
+      "value": "1",
+      "score": "1",
+      "holders": [
+       "member_1"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  }
+ ]
+}
