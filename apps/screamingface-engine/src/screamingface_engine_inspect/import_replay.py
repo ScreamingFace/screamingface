@@ -86,6 +86,8 @@ class TaskReplayFacts:
     scorer_kwargs: dict[str, Any]
     custom_metrics: tuple[str, ...]
     keep_sample_metadata: bool
+    #: False when the eval's own question lists the options (see TaskReplayCasesSpec).
+    render_choices: bool = True
 
 
 @dataclass(frozen=True)
@@ -215,6 +217,9 @@ def _facts_of(
         # WHY (D11): an eval's own scorer may read state.metadata (chembench), and the
         # metadata sits inside the Case Digest, so it is decided here, never by a hand edit.
         keep_sample_metadata=not scorer_ref.startswith(_INSPECT_SCORER_PREFIX),
+        # WHY only when nothing unreproduced runs: a solver we do not reproduce may render
+        # the options itself (sad), and dropping them would lose part of the question.
+        render_choices=uses_multiple_choice or scorer_name == "choice" or bool(custom),
     )
 
 
@@ -285,6 +290,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         choice_template=facts.choice_template,
         system_message=facts.system_message,
         keep_sample_metadata=facts.keep_sample_metadata,
+        render_choices=facts.render_choices,
     )
     samples: list[Any] = list(task.dataset)
     prepared: list[PreparedCase] = case_records(samples, spec)
@@ -365,6 +371,7 @@ def import_by_task_replay(
         choice_template=first.facts.choice_template,
         system_message=first.facts.system_message,
         keep_sample_metadata=first.facts.keep_sample_metadata,
+        render_choices=first.facts.render_choices,
     )
     # Stage 4
     try:

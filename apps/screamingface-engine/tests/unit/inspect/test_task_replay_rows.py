@@ -403,3 +403,14 @@ def test_a_comment_string_with_a_line_break_is_refused() -> None:
 
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", _imported(facts=facts), "TODO")
+
+
+def test_a_declaration_that_keeps_the_question_as_written_says_so() -> None:
+    """render_choices is inside the seal (it changes every rendered input), so the row says it."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "worldsense", _imported(render_choices=False), "TODO"
+    )
+
+    assert "        render_choices=False,\n" in rows.cases
+    assert _declared(rows)["worldsense"].render_choices is False

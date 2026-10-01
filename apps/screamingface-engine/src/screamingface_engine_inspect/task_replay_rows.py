@@ -214,6 +214,9 @@ def _declaration_lines(
     if declaration.keep_sample_metadata:
         # WHY written: the metadata is inside the Case Digest, so the row must say so (D11).
         lines.append("        keep_sample_metadata=True,")
+    if not declaration.render_choices:
+        # WHY written: it changes every rendered input, so the seal depends on it.
+        lines.append("        render_choices=False,")
     for solver_name in imported.facts.unreproduced_solvers:
         # WHY two lines: one would overflow the 100-column gate the generated file must pass.
         lines.append(f"        # TODO(review): solver {solver_name} is not reproduced by")

@@ -336,6 +336,11 @@ class TaskReplayCasesSpec:
     system_message: str | None = None
     keep_sample_metadata: bool = False
     has_answer_key: bool = True
+    #: False when the eval's question already lists its options and no multiple_choice
+    #: solver renders them (worldsense: "(1) … (2) …", answer a number): the Case is then the
+    #: question as written, the target need not be a letter, and the choices stay Grading
+    #: Material. The importer decides it from the Task's solvers; it is inside the seal.
+    render_choices: bool = True
     #: The dataset license, from the Hugging Face card when the one Case Source has one and
     #: it is on the cleared list, otherwise the owner's decision replacing LICENSE_TODO in
     #: the diff (spec R6, R7).
@@ -1046,9 +1051,15 @@ def case_records(
     )
     system_text: str | None = _resolved_system_text(spec)
     prepared: list[PreparedCase] = []
+    # WHY only Task replay can switch it off: a Hugging Face row always renders its choices.
+    render_choices: bool = not isinstance(spec, TaskReplayCasesSpec) or spec.render_choices
     for case_id, sample in enumerate(samples, start=1):
-        target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
-        input_text: str = _prompt(sample, choices, template, choice_template)
+        target, choices = _validated_answer_key(
+            sample, case_id, spec.has_answer_key, letter_target=render_choices
+        )
+        input_text: str = _prompt(
+            sample, choices if render_choices else None, template, choice_template
+        )
         if system_text is not None:
             # Named deviation (contracteval pattern): the eval's SYSTEM
             # instruction becomes the input's leading text, render untouched.
@@ -1389,12 +1400,14 @@ def _resolve(reference: str) -> Any:
 
 
 def _validated_answer_key(
-    sample: Sample, case_id: int, has_answer_key: bool = True
+    sample: Sample, case_id: int, has_answer_key: bool = True, letter_target: bool = True
 ) -> tuple[str, list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
     ``has_answer_key=False`` (a judged benchmark whose judge never reads a key) is the
     one place an empty answer key is accepted; the question itself is still required.
+    ``letter_target=False`` (a Task-replay declaration with ``render_choices=False``) keeps
+    the eval's own answer form, e.g. worldsense's "1", instead of requiring a letter.
     """
 
     if not isinstance(sample.input, str) or not sample.input.strip():
@@ -1410,7 +1423,7 @@ def _validated_answer_key(
     if not choices or any(not choice.strip() for choice in choices):
         raise PrepareError(f"case {case_id}: sample carries an empty choice")
     letters: str = "".join(chr(ord("A") + index) for index in range(len(choices)))
-    if target not in letters:
+    if letter_target and target not in letters:
         raise PrepareError(
             f"case {case_id}: target {target!r} is not a letter within {len(choices)} choices"
         )

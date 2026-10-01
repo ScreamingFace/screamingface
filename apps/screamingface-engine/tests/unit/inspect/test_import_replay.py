@@ -432,3 +432,60 @@ def test_a_template_constant_that_differs_from_the_task_is_refused(
         import_by_task_replay(
             computed_template_eval, None, choice_template="fake_template_constants:DRIFTED"
         )
+
+
+# ── choices the eval's question already lists (worldsense's shape, PR 5a) ────────
+
+#: A stand-in for worldsense: the question text lists the options and asks for a number, the
+#: Sample still carries `choices`, and no multiple_choice solver renders them. It proves the
+#: writer keeps the question as written; it does not prove worldsense's own scorer.
+NUMBERED_OPTIONS_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import FieldSpec, MemoryDataset, Sample, json_dataset
+    from inspect_ai.scorer import match
+    from inspect_ai.solver import generate
+    import os
+
+    @task
+    def numbered() -> Task:
+        rows = json_dataset(os.environ["FAKE_IMPORT_EVAL_DATA"],  # the one Case Source
+                            FieldSpec(input="q", target="a", id="id"))
+        samples = [
+            Sample(id=row.id, target="1", choices=["1", "2"],
+                   input=f"{row.input}\\nChoose one: (1) yes, (2) no. Answer with the number.")
+            for row in rows
+        ]
+        return Task(dataset=MemoryDataset(samples), solver=generate(), scorer=match())
+    """
+)
+
+
+@pytest.fixture
+def numbered_eval(fake_eval: str, tmp_path: Path) -> str:
+    """Add the numbered-options stand-in beside the first stand-in."""
+
+    (tmp_path / "fake_numbered_eval.py").write_text(NUMBERED_OPTIONS_EVAL, encoding="utf-8")
+    return "fake_numbered_eval:numbered"
+
+
+def test_options_the_question_already_lists_are_not_rendered_again(numbered_eval: str) -> None:
+    """INVARIANT: the Case asks exactly what the eval asks — no MCQ template on top, and the
+    eval's own number answer stays the target (no letter is forced on it)."""
+
+    imported: TaskReplayImport = import_by_task_replay(numbered_eval, None)
+    replay: ImportReplay = replay_for_import(numbered_eval, None)
+
+    assert imported.declaration.render_choices is False
+    assert replay.prepared[0]["case"]["input"] == (
+        "What is 6 times 7?\nChoose one: (1) yes, (2) no. Answer with the number."
+    )
+    assert replay.prepared[0]["grading_material"] == {"target": "1", "choices": ["1", "2"]}
+
+
+def test_an_mcq_task_still_renders_its_options(fake_eval: str) -> None:
+    """The multiple_choice solver renders the options, so the Case must too."""
+
+    imported: TaskReplayImport = import_by_task_replay(f"{fake_eval}:quiz", None)
+
+    assert imported.declaration.render_choices is True
