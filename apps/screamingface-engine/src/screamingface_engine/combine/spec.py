@@ -15,6 +15,7 @@ the ``$`` back, so this parser needs no url4 escape handling.
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -34,6 +35,12 @@ _OP_ID = r"^[a-z][a-z0-9_]{0,47}@[1-9][0-9]{0,5}$"
 _MEMBER = re.compile(r"member_[1-9][0-9]*")
 _SIGNAL = re.compile(r"judge|writer\.[A-Za-z_][A-Za-z0-9_]*")
 _MAX_ERRORS_SHOWN = 5
+_MAX_LOCATION_CHARS = 64
+MAX_MEMBERS = 256
+# WHY this cap: a reducer may sum weights, and a sum over every member must stay a finite float
+# (an `inf` score cannot be recorded as evidence). `MAX_MEMBERS` such weights sum to at most the
+# largest float.
+MAX_WEIGHT = sys.float_info.max / MAX_MEMBERS
 _MEDIAN_NORMALIZER = "numeric"
 
 Presence = Literal["required", "optional", "forbidden"]
@@ -41,26 +48,31 @@ Presence = Literal["required", "optional", "forbidden"]
 
 @dataclass(frozen=True, slots=True)
 class ReducerRule:
-    """Which optional stages a reducer needs, allows or forbids, and the evidence kind it makes."""
+    """What a reducer needs, allows or forbids, and the evidence kind it makes.
+
+    ``normalize_name`` is the one operator NAME (any version) its normalize step must have, or
+    None for any. This is the ONLY per-reducer operator rule; later units add none.
+    """
 
     kind: EvidenceKind
     extract: Presence
     normalize: Presence
+    weights: Presence
+    normalize_name: str | None = None
 
 
 # Global rule (also checked below): normalize present => extract present.
-# Median rule (also checked below): its normalize step is the `numeric` operator, any version.
-# AIDEV-NOTE: units 8-10 may tighten the rows of their own reducers.
+# AIDEV-NOTE: units 8-10 may tighten the rows of their own reducers (never add an operator rule).
 REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
     {
-        "vote": ReducerRule("answer", "required", "optional"),
-        "median": ReducerRule("answer", "required", "required"),
-        "judge": ReducerRule("answer", "forbidden", "forbidden"),
-        "pick": ReducerRule("answer", "required", "optional"),
-        "merge": ReducerRule("answer", "optional", "optional"),
-        "project": ReducerRule("projection", "optional", "optional"),
-        "rank": ReducerRule("selection", "optional", "optional"),
-        "concat": ReducerRule("selection", "forbidden", "forbidden"),
+        "vote": ReducerRule("answer", "required", "optional", "optional"),
+        "median": ReducerRule("answer", "required", "required", "forbidden", "numeric"),
+        "judge": ReducerRule("answer", "forbidden", "forbidden", "forbidden"),
+        "pick": ReducerRule("answer", "required", "optional", "forbidden"),
+        "merge": ReducerRule("answer", "optional", "optional", "forbidden"),
+        "project": ReducerRule("projection", "optional", "optional", "forbidden"),
+        "rank": ReducerRule("selection", "optional", "optional", "forbidden"),
+        "concat": ReducerRule("selection", "forbidden", "forbidden", "forbidden"),
     }
 )
 
@@ -110,32 +122,34 @@ def _check_weights(weights: dict[str, float] | None, members: list[str]) -> None
         return
     if set(weights) != set(members):
         raise ValueError("weights must name exactly the members")
-    if not all(weight > 0 for weight in weights.values()):
-        raise ValueError("weights must be greater than zero")
+    if not all(0 < weight <= MAX_WEIGHT for weight in weights.values()):
+        raise ValueError("weights must be greater than zero and at most the weight cap")
 
 
-def _check_stage(name: str, presence: Presence, step: StepSpec | None, reducer: str) -> None:
-    if presence == "required" and step is None:
+def _check_presence(name: str, presence: Presence, present: bool, reducer: str) -> None:
+    if presence == "required" and not present:
         raise ValueError(f"reducer {reducer} requires {name}")
-    if presence == "forbidden" and step is not None:
+    if presence == "forbidden" and present:
         raise ValueError(f"reducer {reducer} forbids {name}")
 
 
 def _check_stages(spec: CombineSpec) -> None:
     rule = REDUCER_RULES[spec.reducer]
-    _check_stage("extract", rule.extract, spec.extract, spec.reducer)
-    _check_stage("normalize", rule.normalize, spec.normalize, spec.reducer)
+    _check_presence("extract", rule.extract, spec.extract is not None, spec.reducer)
+    _check_presence("normalize", rule.normalize, spec.normalize is not None, spec.reducer)
+    _check_presence("weights", rule.weights, spec.weights is not None, spec.reducer)
     if spec.normalize is not None and spec.extract is None:
         raise ValueError("normalize needs extract")
-    if spec.reducer == "median" and spec.normalize is not None:
-        _check_median_normalizer(spec.normalize)
+    if rule.normalize_name is not None and spec.normalize is not None:
+        _check_normalize_name(spec.normalize, rule.normalize_name, spec.reducer)
 
 
-def _check_median_normalizer(normalize: StepSpec) -> None:
-    # WHY by NAME, any version: a median reads its values as decimals, so only the numeric
-    # normalizer family makes them decimals. The message names the rule, not the offending id.
-    if normalize.op.partition("@")[0] != _MEDIAN_NORMALIZER:
-        raise ValueError("reducer median requires a numeric normalize step")
+def _check_normalize_name(normalize: StepSpec, name: str, reducer: str) -> None:
+    # WHY by NAME, any version: the reducer reads its values in the family that name stands for
+    # (a median reads decimals, so only the numeric normalizer makes them decimals). The message
+    # names the rule, not the offending id.
+    if normalize.op.partition("@")[0] != name:
+        raise ValueError(f"reducer {reducer} requires a {name} normalize step")
 
 
 def parse_spec(intent: str) -> CombineSpec:
@@ -152,10 +166,18 @@ def parse_spec(intent: str) -> CombineSpec:
         raise SpecInvalid(f"combine spec is invalid: {_describe(exc)}") from exc
 
 
+def _clip(part: object) -> str:
+    text = str(part)
+    return text if len(text) <= _MAX_LOCATION_CHARS else text[:_MAX_LOCATION_CHARS] + "\u2026"
+
+
 def _describe(exc: ValidationError) -> str:
     # WHY loc + msg only: pydantic messages carry the rule that failed, and the ``input`` key of an
-    # error (the offending value) is the one part that could echo an arg or a member name.
-    parts = sorted({f"{'.'.join(map(str, e['loc'])) or 'spec'}: {e['msg']}" for e in exc.errors()})
+    # error (the offending value) is the one part that could echo an arg or a member name. A key
+    # of the spec can be any length, so each location part is cut to keep the message short.
+    parts = sorted(
+        {f"{'.'.join(map(_clip, e['loc'])) or 'spec'}: {e['msg']}" for e in exc.errors()}
+    )
     return "; ".join(parts[:_MAX_ERRORS_SHOWN])
 
 
@@ -171,7 +193,7 @@ class CombineContext:
 def parse_context(context: str, members: Sequence[str]) -> CombineContext:
     """Parse the combine context against the spec's members."""
     try:
-        decoded = loads_bounded(context)
+        decoded = loads_bounded(context, unique_keys=True)
     except ValueError as exc:
         raise SpecInvalid("combine context is not valid JSON") from exc
     if not isinstance(decoded, dict) or not {"input", "outputs"} <= decoded.keys() <= {
@@ -202,6 +224,8 @@ def _text_map(value: object) -> dict[str, str]:
 
 __all__ = [
     "COMBINE_SPEC_SCHEMA",
+    "MAX_MEMBERS",
+    "MAX_WEIGHT",
     "REDUCER_RULES",
     "CombineContext",
     "CombineSpec",

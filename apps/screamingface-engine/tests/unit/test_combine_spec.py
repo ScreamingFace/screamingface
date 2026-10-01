@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 from combine_support import context_text, vote_spec
 
+from screamingface_engine.combine import endpoint
 from screamingface_engine.combine.ports import SpecInvalid
-from screamingface_engine.combine.spec import CombineSpec, parse_context, parse_spec
+from screamingface_engine.combine.spec import (
+    MAX_MEMBERS,
+    MAX_WEIGHT,
+    CombineSpec,
+    parse_context,
+    parse_spec,
+)
 
 
 def _dump(spec: dict[str, Any]) -> str:
@@ -185,3 +193,58 @@ def test_spec_errors_name_locations_not_values() -> None:
     message = str(caught.value)
     assert "SECRET-ARG" not in message
     assert "extract.op" in message or "surprise" in message
+
+
+# --- weights: a cap that keeps every sum finite, and only the vote reducer takes them ---------
+
+
+def test_the_weight_cap_keeps_a_sum_over_every_member_finite() -> None:
+    assert MAX_MEMBERS == 256
+    assert endpoint.MAX_MEMBERS is MAX_MEMBERS
+    assert sys.float_info.max / MAX_MEMBERS == MAX_WEIGHT
+    assert MAX_WEIGHT * MAX_MEMBERS <= sys.float_info.max
+
+
+def test_a_weight_above_the_cap_is_invalid_and_the_cap_itself_is_accepted() -> None:
+    with pytest.raises(SpecInvalid):
+        parse_spec(_dump(vote_spec(2, weights={"member_1": 1e308, "member_2": 1e308})))
+    at_cap = parse_spec(_dump(vote_spec(2, weights={"member_1": MAX_WEIGHT, "member_2": 1})))
+    assert at_cap.weights == {"member_1": MAX_WEIGHT, "member_2": 1.0}
+
+
+_LEGAL_STAGES: dict[str, dict[str, Any]] = {
+    "vote": {},
+    "median": {"normalize": {"op": "numeric@1", "args": {}}},
+    "judge": {"extract": None, "normalize": None},
+    "pick": {},
+    "merge": {"extract": None, "normalize": None},
+    "project": {"normalize": None},
+    "rank": {"extract": None, "normalize": None},
+    "concat": {"extract": None, "normalize": None},
+}
+
+
+@pytest.mark.parametrize("reducer", [name for name in _LEGAL_STAGES if name != "vote"])
+def test_only_the_vote_reducer_takes_weights(reducer: str) -> None:
+    legal = vote_spec(2, reducer=reducer, **_LEGAL_STAGES[reducer])
+    assert parse_spec(_dump(legal)).reducer == reducer  # the spec is legal without weights
+    weighted = {**legal, "weights": {"member_1": 1.0, "member_2": 2.0}}
+    with pytest.raises(SpecInvalid, match="weights"):
+        parse_spec(_dump(weighted))
+
+
+# --- the context: unique keys; the error text is short ---------------------------------------
+
+
+def test_a_duplicate_member_key_in_the_context_is_invalid() -> None:
+    context = '{"input":"q","outputs":{"member_1":"a","member_1":"b"}}'
+    with pytest.raises(SpecInvalid):
+        parse_context(context, ["member_1"])
+
+
+def test_a_long_location_in_an_error_is_cut_to_64_characters() -> None:
+    with pytest.raises(SpecInvalid) as caught:
+        parse_spec(_dump(vote_spec(**{"k" * 200: 1})))
+    message = str(caught.value)
+    assert "k" * 64 + "\u2026" in message
+    assert "k" * 65 not in message
