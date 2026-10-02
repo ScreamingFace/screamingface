@@ -1,9 +1,9 @@
 ---
 ticket: OME-1136
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-10-02
-finished:
+finished: 2026-10-02
 ---
 
 # ome-1136-relay-sanitized-provider-error — Relay the provider's sanitized error message
@@ -90,6 +90,13 @@ poisoned body, cap, no relay on 401/429, Gate-1 parity fixture, engine contract,
 - Gates: `run_gates.py aigateway` normal run flags ONLY the 4 approved files. The
   `--skip-append-only` rerun was DENIED by the session permission classifier — pending owner.
   `run_gates.py screamingface-engine`: ALL GATES GREEN.
+
+## Final (2026-10-02)
+
+- Rebased onto origin/main after OME-1468 (#1232). `run_gates.py aigateway` (NO skip): the 4
+  approved files are exempted by blob pin, ALL GATES GREEN. `run_gates.py screamingface-engine`:
+  ALL GATES GREEN. Commits: `3a4908577 feat(aigateway): relay the provider's sanitized error
+  message` + this ledger/mirror commit.
 
 ## Design (copied from the approved draft)
 
