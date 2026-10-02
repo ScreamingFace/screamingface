@@ -389,7 +389,6 @@ class CandidateResult:
         )
         selected_operations = _operation_dag(operations)
         selected_cases = _CaseResults(cases)
-        _bind_graphs(selected_cases, selected_operations)
         _validate_candidate_outcome(
             selected_score,
             selected_coverage,
@@ -460,6 +459,9 @@ class CandidateResult:
         }
         for attribute, value in values.items():
             object.__setattr__(self, attribute, value)
+        # INVARIANT: last, after every validation. The binding is write-once, so a Candidate that
+        # fails must leave its Cases unbound for the next one.
+        _bind_graphs(selected_cases, selected_operations)
 
     @property
     def accounting(self) -> AccountingBreakdown:

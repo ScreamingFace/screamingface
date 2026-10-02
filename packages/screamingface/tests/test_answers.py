@@ -256,3 +256,36 @@ def test_candidate_result_binds_its_operation_graph_without_copying() -> None:
     assert again.cases[0] is first
     assert [a.text for a in first.answers()[:3]] == ["text 1", "text 2", "text 3"]
     assert first.to_dict() == before
+
+
+def _candidate_over(case: sf.CaseResult, *, coverage: float) -> sf.CandidateResult:
+    base = candidate("opus")
+    return sf.CandidateResult(
+        benchmark=base.benchmark,
+        run_id=base.run_id,
+        started_at=base.started_at,
+        completed_at=base.completed_at,
+        name=base.name,
+        kind=base.kind,
+        url4=base.url4,
+        models=base.models,
+        operations=fixture_graph(3),
+        score=1.0,
+        coverage=coverage,
+        metrics={},
+        cases=(case,),
+        members=(),
+        failures=(),
+        usage=base.usage,
+    )
+
+
+def test_a_candidate_that_fails_validation_leaves_its_cases_unbound() -> None:
+    case = fixture_case("vote_one_failed")
+
+    with pytest.raises(ValueError):
+        _candidate_over(case, coverage=0.5)
+    assert [a.text for a in case.answers()[:3]] == [None, None, None]
+
+    _candidate_over(case, coverage=1.0)
+    assert [a.text for a in case.answers()[:3]] == ["text 1", "text 2", "text 3"]
