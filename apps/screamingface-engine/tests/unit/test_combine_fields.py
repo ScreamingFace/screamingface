@@ -10,7 +10,7 @@ rule echoes member text in an error; field readings hold JSON values only.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from combine_fields_support import merge_spec, pick_spec, project_spec, step
@@ -22,7 +22,14 @@ from screamingface_engine.combine import ports
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.evidence import ResultRecord
 from screamingface_engine.combine.operators import extract
-from screamingface_engine.combine.ports import NoVotes, Reduction, SpecInvalid, canonical_json
+from screamingface_engine.combine.ports import (
+    NoVotes,
+    ReduceOp,
+    Reduction,
+    SelectOp,
+    SpecInvalid,
+    canonical_json,
+)
 
 _PICK_TEXTS = (
     '{"a": 1, "confidence": 0.4}',
@@ -211,15 +218,21 @@ def test_field_operators_ask_to_abstain_with_the_no_votes_reason() -> None:
     rules = {"fields": [{"field": "secretfield", "rule": "max"}]}
     target = {"order": "equals", "value": "SECRET-TARGET", "normalize": None}
     raised = [
-        _raised(lambda: find_builtin("field_rules@1").run(given, rules)),
-        _raised(lambda: find_builtin("project_field@1").run(given, {"field": "other"})),
-        _raised(lambda: find_builtin("by_field@1").run(Reduction(), given, target)),
+        _raised(lambda: _reduce_op("field_rules@1")(given, rules)),
+        _raised(lambda: _reduce_op("project_field@1")(given, {"field": "other"})),
+        _raised(
+            lambda: cast("SelectOp", find_builtin("by_field@1").run)(Reduction(), given, target)
+        ),
     ]
     assert [caught.reason for caught in raised] == ["no_votes"] * 3
     assert "field 1" in str(raised[0])
     for caught in raised:
         assert "SECRET" not in str(caught)
         assert "secretfield" not in str(caught)
+
+
+def _reduce_op(op_id: str) -> ReduceOp:
+    return cast("ReduceOp", find_builtin(op_id).run)
 
 
 def _raised(call: Any) -> NoVotes:
