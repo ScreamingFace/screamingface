@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from types import MappingProxyType
-from typing import cast
+from typing import cast, get_args
 
 from screamingface_engine.combine.ports import (
     CombineInput,
@@ -35,12 +35,13 @@ from screamingface_engine.combine.ports import (
     OperatorDescriptor,
     Reduction,
     Selection,
+    SignalOrder,
     SpecInvalid,
     canonical_json,
 )
 
 _MAX_K = 256
-_ORDERS = ("max", "min")
+_ORDERS = get_args(SignalOrder)
 _MARKS = frozenset({Decimal(0), Decimal(1)})
 _MAX_SEPARATOR_CHARS = 1024
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 import operator
 from decimal import Decimal
 from types import MappingProxyType
-from typing import cast
+from typing import cast, get_args
 
 from screamingface_engine.combine.operators.extract import check_regex_pattern, regex_finds
 from screamingface_engine.combine.ports import (
@@ -40,14 +40,11 @@ from screamingface_engine.combine.ports import (
     is_signal_key,
 )
 
-_ORDERS = ("max", "min")
+_ORDERS = get_args(SignalOrder)
 _COMPARE = MappingProxyType(
     {"gt": operator.gt, "ge": operator.ge, "lt": operator.lt, "le": operator.le, "eq": operator.eq}
 )
 _THRESHOLD_KEYS = frozenset({"key", "cmp", "value"})
-_FILTER_INVALID = (
-    'filter@1 takes {"key", "cmp", "value"} or {"pattern"} with an optional "ignore_case"'
-)
 
 
 def _check_by_signal_args(args: OpArgs) -> None:
@@ -117,7 +114,9 @@ def _check_filter_args(args: OpArgs) -> None:
     elif "pattern" in args and set(args) <= {"pattern", "ignore_case"}:
         check_regex_pattern(args)
     else:
-        raise SpecInvalid(_FILTER_INVALID)
+        raise SpecInvalid(
+            'filter@1 takes {"key", "cmp", "value"} or {"pattern"} with an optional "ignore_case"'
+        )
 
 
 def _filter_read(args: OpArgs) -> SignalRead | None:
