@@ -67,6 +67,10 @@ class CombineAnswerRow:
             raise ValueError("Combine answer row has a reason exactly when it failed")
         if self.status == "fail" and self.value is not None:
             raise ValueError("Combine answer row of a failed member has no value")
+        if self.status == "fail" and self.reason in ABSTAIN_REASONS:
+            raise ValueError(
+                "Combine answer row of a failed member has a failure reason, not an abstain reason"
+            )
         object.__setattr__(self, "signals", frozen_signals(self.signals, "Combine answer signals"))
         object.__setattr__(
             self, "weight", _optional_number(self.weight, "Combine answer row weight")

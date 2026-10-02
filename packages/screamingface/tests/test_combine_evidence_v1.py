@@ -106,6 +106,15 @@ def test_decoder_refuses_inconsistent_results() -> None:
             decode_combine_evidence(wire, _LABEL)
 
 
+@pytest.mark.parametrize("reason", ["no_votes", "cut_not_met"])
+def test_decoder_refuses_a_failed_member_with_an_abstain_reason(reason: str) -> None:
+    def put(wire: dict[str, Any]) -> None:
+        wire["members"][1]["reason"] = reason
+
+    with pytest.raises(ExecutionError, match="is invalid: .*failed member.*reason"):
+        decode_combine_evidence(_mutated("vote_one_failed", put), _LABEL)
+
+
 def test_answer_row_invariants() -> None:
     def row(**change: Any) -> CombineAnswerRow:
         values: dict[str, Any] = {
