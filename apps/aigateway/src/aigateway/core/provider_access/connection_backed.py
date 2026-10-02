@@ -17,13 +17,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..credential_blob import DispatchObservation, OperationalOutcome
 from ..oauth.models import OAuthConnection
 from .connection_authority import (
     MigratedBacking,
     authorize_migrated,
     availability_status_for,
+    begin_dispatch_migrated,
     migrated_target,
+    operational_availability_status_for,
     record_dispatch_failure_migrated,
+    record_dispatch_outcome_migrated,
+    require_operational_access_migrated,
 )
 from .pair_authority import PairAuthority, PairAuthorityStore
 from .profile_authorize import oauth_connection_store
@@ -64,11 +69,27 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
             # WHY: a selector naming no legacy document of this pair is exactly today's situation
             # — the Connection-label path, now locator-authoritative (`connection_target`), so the
             # effective Connection can be matched by label without being poisoned. Never a guess.
-            return await self._resolve_without_profile(
+            target = await self._resolve_without_profile(
                 account_id, provider, selector, plugin=plugin, policy=policy
             )
+            return await require_operational_access_migrated(
+                self._app,
+                target,
+                plugin=plugin,
+                provider=provider,
+                requested=selector.name,
+            )
         connection = await self._effective_connection(account_id, pair)
-        return migrated_target(account_id, provider, selector, document, connection, plugin=plugin)
+        target = migrated_target(
+            account_id, provider, selector, document, connection, plugin=plugin
+        )
+        return await require_operational_access_migrated(
+            self._app,
+            target,
+            plugin=plugin,
+            provider=provider,
+            requested=selector.name,
+        )
 
     async def _effective_connection(
         self, account_id: str, pair: PairAuthority
@@ -84,12 +105,44 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
             return await authorize_migrated(self._app, target, plugin=plugin, provider=provider)
         return await super().authorize(target, plugin=plugin, provider=provider)
 
+    async def begin_dispatch(
+        self, target: CredentialTarget, *, plugin: Any, provider: str
+    ) -> DispatchObservation | None:
+        if target.auth_type != "api_key":
+            return None
+        backing = target._backing
+        connection = backing.connection if isinstance(backing, MigratedBacking) else backing
+        if not isinstance(connection, OAuthConnection):
+            return None
+        pair = await self._markers.read(str(connection.account_id), connection.provider)
+        if pair.migration_state != "migrated" or pair.effective_connection_id != connection.id:
+            return None
+        return await begin_dispatch_migrated(self._app, target, plugin=plugin, provider=provider)
+
     async def record_dispatch_failure(
         self, target: CredentialTarget, status: int, detail: Any, *, plugin: Any
     ) -> dict[str, Any] | None:
         if isinstance(target._backing, MigratedBacking):
             return await record_dispatch_failure_migrated(self._app, target, detail, plugin=plugin)
         return await super().record_dispatch_failure(target, status, detail, plugin=plugin)
+
+    async def record_dispatch_outcome(
+        self,
+        target: CredentialTarget,
+        observation: DispatchObservation,
+        outcome: OperationalOutcome,
+        detail: Any,
+        *,
+        plugin: Any,
+    ) -> dict[str, Any] | None:
+        return await record_dispatch_outcome_migrated(
+            self._app,
+            target,
+            observation,
+            outcome,
+            detail,
+            plugin=plugin,
+        )
 
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
         """Op 6 reads the pair authority: a migrated provider reports its Connection's status.
@@ -109,5 +162,11 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
         statuses: dict[str, AvailabilityStatus] = {row.provider: row.status for row in rows}
         for pair in migrated:
             connection = await self._effective_connection(account_id, pair)
-            statuses[pair.provider] = availability_status_for(connection)
+            registry = getattr(self._app.state, "providers", None)
+            plugin = None if registry is None else registry.get(pair.provider)
+            statuses[pair.provider] = (
+                availability_status_for(connection)
+                if plugin is None
+                else await operational_availability_status_for(self._app, connection, plugin=plugin)
+            )
         return tuple(AvailabilityRow(provider, statuses[provider]) for provider in sorted(statuses))

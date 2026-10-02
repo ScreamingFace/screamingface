@@ -17,6 +17,7 @@ from fastapi import HTTPException
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
+from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
@@ -44,6 +45,18 @@ async def _set_connection_auth_type(account_id: str, connection_id: str, auth_ty
     assert connection is not None
     connection.auth_type = auth_type
     await connection.save(update_fields=["auth_type"])
+
+
+async def _make_connection_effective(account_id: str, connection_id: str) -> None:
+    markers = PairAuthorityStore()
+    current = await markers.read(account_id, "openrouter")
+    await markers.advance(
+        account_id,
+        "openrouter",
+        expected_generation=current.generation,
+        migration_state="migrated",
+        effective_connection_id=UUID(connection_id),
+    )
 
 
 # --- D1: normal auto-discovery, no loader/registry edits ---
@@ -128,6 +141,25 @@ def test_only_401_marks_credential_errored(status_code: int, should_mark: bool) 
     assert plugin.should_mark_profile_error_on_dispatch_status(status_code) is should_mark
 
 
+@pytest.mark.parametrize(
+    ("status_code", "detail", "outcome"),
+    [
+        (401, {"code": "auth_required"}, "needs_reauth"),
+        (402, {"code": "insufficient_credits"}, "insufficient_credits"),
+        (401, {"code": "provider_error"}, None),
+        (402, {"code": "provider_error"}, None),
+        (429, {"code": "rate_limited"}, None),
+        (500, {"code": "provider_unavailable"}, None),
+    ],
+)
+def test_operational_outcomes_require_openrouter_status_and_safe_code(
+    status_code: int, detail: dict[str, str], outcome: str | None
+) -> None:
+    assert (
+        _plugin(enabled=True).classify_dispatch_operational_outcome(status_code, detail) == outcome
+    )
+
+
 # --- D8: exactly one gateway prefix, validated upstream remainder ---
 
 
@@ -180,6 +212,21 @@ def enabled_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _explicit_operational_outcome_validation(request: pytest.FixtureRequest) -> None:
+    """Make OME-1250 route tests opt into validation instead of inheriting it silently."""
+    if not request.node.name.startswith(
+        (
+            "test_openrouter_insufficient_credits_",
+            "test_openrouter_auth_rejection_",
+            "test_openrouter_outcome_persistence_",
+            "test_unclassified_openrouter_401_",
+        )
+    ):
+        return
+    request.getfixturevalue("valid_api_key_readiness")
+
+
 def test_chat_openrouter_byok_end_to_end(
     enabled_openrouter, credential_blobs, authenticated_client
 ) -> None:
@@ -217,6 +264,203 @@ def test_chat_openrouter_byok_end_to_end(
     assert resp.status_code == 200, resp.text
     assert captured["model"] == "openrouter/anthropic/claude-fable-5"
     assert captured["api_key"] == "sk-or-v1-test"
+
+
+def test_openrouter_insufficient_credits_recovers_after_real_success(
+    enabled_openrouter, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    created = _create_openrouter_connection(authenticated_client)
+    authenticated_client.portal.call(_make_connection_effective, account_id, created["id"])
+    request = {
+        "model": "openrouter/anthropic/claude-fable-5",
+        "messages": [{"role": "user", "content": "quota"}],
+    }
+
+    async def insufficient(_self, _body):
+        raise HTTPException(
+            status_code=402,
+            detail={"code": "insufficient_credits", "message": "credits exhausted"},
+        )
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+        insufficient,
+    ):
+        refused = authenticated_client.post("/v1/chat/completions", json=request)
+
+    assert refused.status_code == 402
+    statuses = {
+        row["provider"]: row["status"]
+        for row in authenticated_client.get("/v1/provider-access").json()["providers"]
+    }
+    assert statuses["openrouter"] == "error"
+
+    async def malformed(_self, _body):
+        return object()
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+        malformed,
+    ):
+        conversion_failure = authenticated_client.post("/v1/chat/completions", json=request)
+
+    assert conversion_failure.status_code == 502
+    statuses = {
+        row["provider"]: row["status"]
+        for row in authenticated_client.get("/v1/provider-access").json()["providers"]
+    }
+    assert statuses["openrouter"] == "error"
+
+    async def success(_self, _body):
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "or-recovered", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+        success,
+    ):
+        recovered = authenticated_client.post("/v1/chat/completions", json=request)
+
+    assert recovered.status_code == 200, recovered.text
+    statuses = {
+        row["provider"]: row["status"]
+        for row in authenticated_client.get("/v1/provider-access").json()["providers"]
+    }
+    assert statuses["openrouter"] == "connected"
+
+
+def test_openrouter_auth_rejection_projects_needs_reauth_without_lifecycle_error(
+    enabled_openrouter, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    created = _create_openrouter_connection(authenticated_client)
+    authenticated_client.portal.call(_make_connection_effective, account_id, created["id"])
+    request = {
+        "model": "openrouter/anthropic/claude-fable-5",
+        "messages": [{"role": "user", "content": "auth"}],
+    }
+
+    async def rejected(_self, _body):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "auth_required", "message": "key rejected"},
+        )
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+        rejected,
+    ):
+        response = authenticated_client.post("/v1/chat/completions", json=request)
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == {
+        "code": "auth_required",
+        "message": "key rejected",
+        "reauth_url": f"/v1/oauth/connections/{created['id']}/api-key",
+    }
+    connection = authenticated_client.portal.call(
+        OAuthConnectionStore().get, account_id, UUID(created["id"])
+    )
+    assert connection is not None
+    assert connection.status == "active"
+    statuses = {
+        row["provider"]: row["status"]
+        for row in authenticated_client.get("/v1/provider-access").json()["providers"]
+    }
+    assert statuses["openrouter"] == "needs_reauth"
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion"
+    ) as dispatched:
+        blocked = authenticated_client.post("/v1/chat/completions", json=request)
+    assert blocked.status_code == 401
+    assert blocked.json()["detail"] == {
+        "code": "auth_required",
+        "provider": "openrouter",
+        "name": "default",
+        "reauth_url": "/v1/auth/openrouter/profiles/default",
+    }
+    dispatched.assert_not_called()
+
+
+def test_openrouter_outcome_persistence_failure_preserves_the_provider_response(
+    enabled_openrouter, authenticated_client, monkeypatch
+) -> None:
+    account_id = _account_id(authenticated_client)
+    created = _create_openrouter_connection(authenticated_client)
+    authenticated_client.portal.call(_make_connection_effective, account_id, created["id"])
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("store unavailable")
+
+    monkeypatch.setattr(
+        authenticated_client.app.state.credential_store,
+        "record_dispatch_outcome",
+        unavailable,
+    )
+
+    async def insufficient(_self, _body):
+        raise HTTPException(
+            status_code=402,
+            detail={"code": "insufficient_credits", "message": "credits exhausted"},
+        )
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+        insufficient,
+    ):
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openrouter/anthropic/claude-fable-5",
+                "messages": [{"role": "user", "content": "quota"}],
+            },
+        )
+
+    assert response.status_code == 402
+    assert response.json()["detail"] == {
+        "code": "insufficient_credits",
+        "message": "credits exhausted",
+    }
+
+
+def test_unclassified_openrouter_401_falls_back_to_legacy_connection_handling(
+    enabled_openrouter, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    created = _create_openrouter_connection(authenticated_client)
+    authenticated_client.portal.call(_make_connection_effective, account_id, created["id"])
+
+    async def unclassified(_self, _body):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "provider_policy", "message": "provider rejected the key"},
+        )
+
+    with patch(
+        "aigateway.plugins.openrouter_provider.plugin.OpenRouterProviderPlugin.chat_completion",
+        unclassified,
+    ):
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openrouter/anthropic/claude-fable-5",
+                "messages": [{"role": "user", "content": "auth"}],
+            },
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == {
+        "code": "provider_policy",
+        "message": "provider rejected the key",
+    }
+    connection = authenticated_client.portal.call(
+        OAuthConnectionStore().get, account_id, UUID(created["id"])
+    )
+    assert connection is not None
+    assert connection.status == "error"
 
 
 def test_chat_repairs_openrouter_oauth_connection_with_api_key_blob(

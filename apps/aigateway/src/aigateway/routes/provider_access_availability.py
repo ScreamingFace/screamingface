@@ -5,8 +5,9 @@
 # far along each one is. The Hosted Engine moves onto it at OME-1245.
 # INVARIANT (D17, spec §3.3 op 6): rows carry `provider` and `status` ONLY — no name, id, label,
 # default, auth method, account label, locator, reauth URL, credential name or secret-derived
-# field — and the route delegates to the provider-access port: no secret read, no refresh, no
-# mutation, no credential strategy. Inbound `X-Profile` selects nothing here and is never read.
+# field — and the route delegates to the provider-access port: migrated API-key rows may build a
+# strategy and read blob metadata, but never credential plaintext, refresh state, or mutation.
+# Inbound `X-Profile` selects nothing here and is never read.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.provider_access import AvailabilityStatus, provider_access_for
+from .provider_access_http import refusals_as_http
 
 router = APIRouter()
 
@@ -55,7 +57,8 @@ async def list_provider_access(
     carries nothing else. The listing is private to the caller and never cached. The `X-Profile`
     header is ignored: the listing is per caller, not per selection.
     """
-    rows = await provider_access_for(request.app).availability(str(current.id))
+    with refusals_as_http():
+        rows = await provider_access_for(request.app).availability(str(current.id))
     response.headers.update(_PRIVATE_CACHE_HEADERS)
     return ProviderAccessAvailability(
         providers=[

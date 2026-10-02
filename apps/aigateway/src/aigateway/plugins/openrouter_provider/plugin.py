@@ -15,8 +15,9 @@ An API-key-only provider (no OAuth) routed through LiteLLM's built-in
   copies the body — it never mutates the caller's dict.
 - Non-streaming in every mode (plan D5): the route rejects ``stream:true``
   before credentials are read.
-- Only 401 marks the stored credential unusable (plan D9); 402/403/408/429/5xx
-  are provider/billing states and must not invalidate a valid key.
+- A classified 401 projects ``needs_reauth`` and a classified 402 projects an
+  insufficient-credit error; neither mutates Connection lifecycle state. Other
+  provider and transport failures remain operationally neutral.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.cache_ports import CacheBypass
+from aigateway.core.credential_blob import OperationalOutcome
 from aigateway.core.parameter_discovery import (
     DiscoveryHttpClient,
     DiscoveryLimits,
@@ -277,6 +279,16 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # D9: only 401 proves the stored key is bad. 402 (credits), 403
         # (policy), 408/429/5xx (transient) must not invalidate a valid key.
         return status_code == 401
+
+    def classify_dispatch_operational_outcome(
+        self, status_code: int, detail: Any
+    ) -> OperationalOutcome | None:
+        code = detail.get("code") if isinstance(detail, Mapping) else None
+        if status_code == 401 and code == "auth_required":
+            return "needs_reauth"
+        if status_code == 402 and code == "insufficient_credits":
+            return "insufficient_credits"
+        return None
 
     def chat_parameter_rules(
         self, *, model: str, auth_type: AuthMode | None = None

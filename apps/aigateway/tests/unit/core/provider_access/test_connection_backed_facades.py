@@ -28,6 +28,7 @@ from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.profile_index import ProfileTransitionConflict
 from aigateway.core.profile_models import ProfileDefaults, ProfileState, credential_name_for
 from aigateway.core.provider_access import PairAuthorityStore
+from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 ADMIN = "admin@openmined.org"
 CHAT_COMPLETION = (
@@ -122,6 +123,49 @@ def test_a_rejected_dispatch_marks_the_connection_and_the_status_facade_agrees(m
     assert shown.status_code == 200
     assert shown.json()["state"] == "error"
     assert h.profile_state() == "error"
+
+
+def test_migrated_api_key_401_keeps_legacy_handling_without_observing_anthropic(
+    migrated,
+) -> None:
+    h = migrated
+    h.seed_profile(auth_type="api_key")
+    effective = h.migrated["default"]
+    calls = 0
+
+    async def rejecting(_self: Any, _body: dict[str, Any]) -> Any:
+        nonlocal calls
+        calls += 1
+        raise AuthenticationError(
+            "invalid x-api-key", llm_provider="anthropic", model="anthropic/claude-haiku-4-5"
+        )
+
+    first = chat(h, rejecting)
+
+    assert first.status_code == 401, first.text
+    assert first.json()["detail"] == {
+        "code": "auth_required",
+        "message": "The stored provider credential was rejected.",
+        "reauth_url": f"{REAUTH}/api-key",
+    }
+    assert connection(h, effective).status == "error"
+    listed = {
+        row["provider"]: row["status"]
+        for row in h.client.get("/v1/provider-access").json()["providers"]
+    }
+    assert listed[PROVIDER] == "error"
+
+    second = chat(h, rejecting)
+    assert second.status_code == 401
+    assert calls == 1, "resolve must reject the revoked key before a second provider dispatch"
+
+    state = h.call(
+        h.client.app.state.credential_store.operational_state,
+        credential_service_for(credential_name_for(h.account_id, "default")),
+        "default",
+    )
+    assert state is not None
+    assert state.next_dispatch_sequence == 0
 
 
 # --- status ------------------------------------------------------------------------------------

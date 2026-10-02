@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from ..credential_blob import DispatchObservation, OperationalOutcome
 from ..profile_models import AuthMode
 from .selector import Selector
 from .types import (
@@ -87,9 +88,32 @@ class ProviderAccess(Protocol):
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
         """Op 6 — the caller-scoped listing (D17): provider and status only.
 
-        No secret read, no refresh, no mutation. `needs_reauth` is never emitted in the
-        compatibility window.
+        No secret read, no refresh, no mutation. Operational evidence for an effective migrated
+        Connection may project `needs_reauth` without changing its lifecycle status.
         """
+        ...
+
+
+@runtime_checkable
+class ProviderOperationalAccess(ProviderAccess, Protocol):
+    """Ordered dispatch observations layered over the stable read port."""
+
+    async def begin_dispatch(
+        self, target: CredentialTarget, *, plugin: Any, provider: str
+    ) -> DispatchObservation | None:
+        """Reserve an observation for an eligible effective API-key Connection."""
+        ...
+
+    async def record_dispatch_outcome(
+        self,
+        target: CredentialTarget,
+        observation: DispatchObservation,
+        outcome: OperationalOutcome,
+        detail: Any,
+        *,
+        plugin: Any,
+    ) -> dict[str, Any] | None:
+        """Persist one informative outcome without changing lifecycle state."""
         ...
 
 

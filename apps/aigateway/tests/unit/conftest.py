@@ -28,6 +28,15 @@ _LEGACY_API_KEY_ROUTE_MODULES = frozenset(
     }
 )
 
+_EXPLICIT_API_KEY_VALIDATION_TESTS = frozenset(
+    {
+        "test_openrouter_insufficient_credits_recovers_after_real_success",
+        "test_openrouter_auth_rejection_projects_needs_reauth_without_lifecycle_error",
+        "test_openrouter_outcome_persistence_failure_preserves_the_provider_response",
+        "test_unclassified_openrouter_401_falls_back_to_legacy_connection_handling",
+    }
+)
+
 
 @pytest.fixture(autouse=True)
 def _legacy_api_key_validation_success(
@@ -35,7 +44,10 @@ def _legacy_api_key_validation_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     relative_path = Path(request.node.path).resolve().relative_to(_UNIT_ROOT).as_posix()
-    if relative_path not in _LEGACY_API_KEY_ROUTE_MODULES:
+    if (
+        relative_path not in _LEGACY_API_KEY_ROUTE_MODULES
+        or request.node.name in _EXPLICIT_API_KEY_VALIDATION_TESTS
+    ):
         return
 
     from aigateway.core.api_key_validation import (
