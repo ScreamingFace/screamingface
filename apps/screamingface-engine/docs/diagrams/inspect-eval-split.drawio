@@ -23,7 +23,7 @@
         <mxCell id="l2" value="② build the prompt for each Sample&#xa;the solver chain up to generate · run.py#L2647&#xa;⏱ per Sample, in parallel" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#1a2233;strokeColor=#8b98ab;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="230" width="520" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="r2" value="② Case Preparation renders the prompt into the Case&#xa;today: our rendering of the chain's facts · target: the real chain, stand-in generate (capture)&#xa;🧩 the Case input must be the bytes inspect would send" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="r2" value="② Case Preparation renders the prompt into the Case&#xa;today: our rendering of the chain's facts · capture (#1219): the real chain, stand-in generate&#xa;🧩 the Case input must be the bytes inspect would send" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0c2530;strokeColor=#2dd4bf;fontColor=#dbe4f0;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="680" y="230" width="580" height="80" as="geometry" />
         </mxCell>
         <mxCell id="st1" value="🗄️ prepared Cases&#xa;cases.json + targets/&#xa;💾 inside the Engine image" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#ede9fe;fontFamily=Courier New;fontSize=11;boundedLbl=1;" vertex="1" parent="1">

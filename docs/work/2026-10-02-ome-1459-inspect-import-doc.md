@@ -65,8 +65,12 @@ the three verdicts and the acceptance list, so no separate `docs/spec` artifact 
   path, and the doc marks the three states (on main / in open PRs / later) rather than
   describing the stack as built. No sandbox or agentic refusal exists on `main` (an unknown
   solver gets a `TODO(review)` flag); the doc says so and marks the refusal-by-name as later.
-  The how-to's grader-role line (`:39-42`, "not supported yet") is stale since OME-1370; left
-  as is, out of scope here.
+  The how-to's grader-role line ("not supported yet", stale since OME-1370) is corrected in this
+  PR after review, since the page it now links to says the opposite.
   Status marks were refreshed on 2026-10-02 after capture rendering landed as open PR #1219
   (the stack is now #1219 → #1191 → #1220 → #1221; #1194 and #1198 are closed): capture is 🔧,
-  not ⏳, and `capture.py` lines cite #1219 at `0ba6a62ea`.
+  not ⏳, and `capture.py` lines cite #1219 at its tip `1c2967c31`. Review round 1 (2026-10-02)
+  fixed: sevenllm's source is a Hub raw file, not GitHub; capture adds a rendering for Task-replay
+  Benchmarks and does not delete the imitation one (OME-1460 does); gsm8k and sad are not under
+  capture in the stack; the `no_network` grading test exists only on the Task-replay branches;
+  OME-1460's "27" counts xstest's two rows as one, `main` has 28 Hugging Face-path rows.
