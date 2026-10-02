@@ -16,7 +16,7 @@ from combine_golden_support import (
 )
 
 from screamingface_engine.combine.ports import (
-    MemberReading,
+    Answer,
     Reduction,
     Selection,
     SpecInvalid,
@@ -73,7 +73,7 @@ def test_weighted_mode_needs_weights() -> None:
 
 
 def test_mode_needs_extracted_values() -> None:
-    bare = (MemberReading("member_1", None, None, "voted", None),)
+    bare = (Answer("member_1", None, None, "answered", None),)
     with pytest.raises(SpecInvalid, match="extracted values"):
         reduce_result("mode@1", bare)
 
@@ -118,7 +118,7 @@ def test_median_rejects_non_numeric_values(bad: str) -> None:
 
 
 def test_median_rejects_a_voter_with_no_value() -> None:
-    bare = (MemberReading("member_1", None, None, "voted", None),)
+    bare = (Answer("member_1", None, None, "answered", None),)
     with pytest.raises(SpecInvalid, match="median@1 needs numeric values"):
         reduce_result("median@1", bare)
 
@@ -136,7 +136,7 @@ def test_nearest_rejects_non_canonical_numeric_values(bad: str) -> None:
 
 
 def test_nearest_rejects_a_voter_with_no_value() -> None:
-    bare = (MemberReading("member_1", None, None, "voted", None),)
+    bare = (Answer("member_1", None, None, "answered", None),)
     with pytest.raises(SpecInvalid, match="nearest@1 needs numeric values"):
         select_result("nearest@1", Reduction(statistic=Decimal(1)), bare)
 

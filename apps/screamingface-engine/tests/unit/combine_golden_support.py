@@ -6,6 +6,9 @@ runner, direct stage helpers, and real-operator specs for the built-in registry.
 here come from that module (``vote_spec``, ``spec_text``, ``context_text``, ``run``) and are never
 copied. Fixture format: ``fixtures/combine/<id>.json`` = ``{"op", "stage", "cases": [{"name",
 "input", "args", "expect"}]}``. Decimals are strings. See the unit 2 spec, section 2.6.
+
+The reduce/select fixture rows keep the stage-reading format (``member``, ``status`` "voted" or
+"empty"); ``readings_from_rows`` turns each into an ``Answer`` through the core's ``answer_status``.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import json
 from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, cast
 
 from combine_support import context_text, run, spec_text, vote_spec
@@ -21,20 +25,21 @@ from combine_support import context_text, run, spec_text, vote_spec
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.operators import extract, normalize, reduce, select
 from screamingface_engine.combine.ports import (
+    Answer,
     CombineError,
     CombineInput,
     Extractor,
-    MemberReading,
     Normalizer,
+    NoVotes,
     OpArgs,
     OperatorDescriptor,
-    ReadingStatus,
     ReduceOp,
     Reduction,
     Selection,
     SelectOp,
     StageResult,
     TallyRow,
+    answer_status,
     canonical_decimal,
 )
 
@@ -67,44 +72,55 @@ def load_fixtures() -> dict[str, dict[str, Any]]:
     return {fixture["op"]: fixture for fixture in loaded}
 
 
-def readings_from_rows(raw: list[dict[str, Any]]) -> tuple[MemberReading, ...]:
-    return tuple(
-        MemberReading(
-            member=row["member"],
-            raw=row.get("raw"),
-            value=row["value"],
-            status=row["status"],
-            weight=None if row["weight"] is None else Decimal(row["weight"]),
+def readings_from_rows(raw: list[dict[str, Any]]) -> tuple[Answer, ...]:
+    """Answers from fixture rows in the stage-reading format (the status goes through the core)."""
+    answers: list[Answer] = []
+    for row in raw:
+        status, reason = answer_status(row["status"])
+        signals = {k: None if v is None else float(v) for k, v in row.get("signals", {}).items()}
+        answers.append(
+            Answer(
+                member_id=row["member"],
+                raw=row.get("raw"),
+                value=row["value"],
+                status=status,
+                reason=reason,
+                signals=MappingProxyType(signals),
+                weight=None if row["weight"] is None else Decimal(row["weight"]),
+            )
         )
-        for row in raw
-    )
+    return tuple(answers)
 
 
-def combine_input(readings: tuple[MemberReading, ...]) -> CombineInput:
-    """A ``CombineInput`` over ``readings`` (outputs are empty strings; no signals)."""
-    return CombineInput(readings=readings, outputs={r.member: "" for r in readings}, signals={})
+def combine_input(answers: tuple[Answer, ...]) -> CombineInput:
+    """A ``CombineInput`` over ``answers`` (outputs are empty strings; no signals)."""
+    return CombineInput(answers=answers, outputs={a.member_id: "" for a in answers}, signals={})
 
 
 def member_readings(
-    values: Sequence[str | None], weights: Sequence[str | None] | None = None
-) -> tuple[MemberReading, ...]:
-    """Readings for member_1..member_N: a None value is an ``empty`` member, otherwise voted."""
-    rows: list[MemberReading] = []
+    values: Sequence[str | None],
+    weights: Sequence[str | None] | None = None,
+    signals: Sequence[dict[str, float | None]] | None = None,
+) -> tuple[Answer, ...]:
+    """Answers for member_1..member_N: a None value is a failed ``empty`` member, else answered.
+
+    ``signals`` is an optional per-member mapping (the signal the spec reads, if any).
+    """
+    rows: list[Answer] = []
     for index, value in enumerate(values):
         weight = None if weights is None or weights[index] is None else Decimal(str(weights[index]))
-        status: ReadingStatus = "voted" if value is not None else "empty"
-        rows.append(MemberReading(f"member_{index + 1}", value, value, status, weight))
+        status, reason = answer_status("voted" if value is not None else "empty")
+        own = MappingProxyType({} if signals is None else dict(signals[index]))
+        rows.append(Answer(f"member_{index + 1}", value, value, status, reason, own, weight))
     return tuple(rows)
 
 
-def reduce_result(op_id: str, readings: tuple[MemberReading, ...]) -> Reduction:
+def reduce_result(op_id: str, readings: tuple[Answer, ...]) -> Reduction:
     """Run one reduce operator (no args) over ``readings``."""
     return cast("ReduceOp", find(op_id).run)(combine_input(readings), {})
 
 
-def select_result(
-    op_id: str, reduction: Reduction, readings: tuple[MemberReading, ...]
-) -> Selection:
+def select_result(op_id: str, reduction: Reduction, readings: tuple[Answer, ...]) -> Selection:
     """Run one select operator (no args) on ``reduction``."""
     return cast("SelectOp", find(op_id).run)(reduction, combine_input(readings), {})
 
@@ -222,6 +238,8 @@ def run_case(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
     """What the operator did for one fixture case, in the fixture's ``expect`` shape."""
     try:
         return _run(descriptor, case)
+    except NoVotes as exc:
+        return {"abstain": exc.reason}
     except CombineError as exc:
         return {"error": exc.code}
 

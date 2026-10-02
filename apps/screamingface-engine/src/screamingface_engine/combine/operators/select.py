@@ -18,8 +18,8 @@ from decimal import Decimal, localcontext
 
 from screamingface_engine.combine.ports import (
     DECIMAL_CONTEXT,
+    Answer,
     CombineInput,
-    MemberReading,
     OpArgs,
     OperatorDescriptor,
     Reduction,
@@ -61,9 +61,9 @@ def max_weight_holder(
     """Highest-weight member holding the winning value; the first maximum wins."""
     rows = _rows(reduction, "max_weight_holder@1")
     weights = {
-        reading.member: reading.weight
-        for reading in combine_input.readings
-        if reading.weight is not None
+        answer.member_id: answer.weight
+        for answer in combine_input.answers
+        if answer.weight is not None
     }
     if not all(member in weights for member in rows[0].holders):
         raise SpecInvalid("max_weight_holder@1 needs weights")
@@ -72,14 +72,14 @@ def max_weight_holder(
     return Selection(chosen=(heaviest,), tie=tie, agreement=agreement)
 
 
-def _number(reading: MemberReading) -> Decimal:
-    if reading.value is None or _CANONICAL_NUMBER.fullmatch(reading.value) is None:
+def _number(answer: Answer) -> Decimal:
+    if answer.value is None or _CANONICAL_NUMBER.fullmatch(answer.value) is None:
         raise SpecInvalid("nearest@1 needs numeric values")
-    return Decimal(reading.value)
+    return Decimal(answer.value)
 
 
 def _numbers(combine_input: CombineInput) -> list[tuple[str, Decimal]]:
-    return [(reading.member, _number(reading)) for reading in combine_input.voters]
+    return [(answer.member_id, _number(answer)) for answer in combine_input.voters]
 
 
 def _median(reduction: Reduction, op_id: str) -> Decimal:

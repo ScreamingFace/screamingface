@@ -34,11 +34,11 @@ def test_vote_returns_first_holder_text_with_tally_18_to_4_and_26_to_1() -> None
         {"value": "26", "score": 1.0, "holders": ["member_3"]},
     ]
     assert [(m["raw"], m["value"], m["status"]) for m in evidence["members"]] == [
-        ("18", "18", "voted"),
-        ("18", "18", "voted"),
-        ("26", "26", "voted"),
-        ("18", "18", "voted"),
-        ("18.0", "18", "voted"),
+        ("18", "18", "answered"),
+        ("18", "18", "answered"),
+        ("26", "26", "answered"),
+        ("18", "18", "answered"),
+        ("18.0", "18", "answered"),
     ]
     assert evidence["chosen"] == ["member_1"]
     assert evidence["built"] is False
