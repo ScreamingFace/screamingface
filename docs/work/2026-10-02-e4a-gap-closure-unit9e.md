@@ -1,8 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-02
+finished: 2026-10-02
 ---
 
 # e4a-gap-closure unit 9E -- Engine pick and merge: abstain on no usable value
@@ -28,7 +29,8 @@ Branch `e4a-pick-merge-engine` is rebased onto `e4a-judge-pick-engine` (tip `0fa
 ## Test plan
 
 A: this ledger. B: repair, no RED. C: rows 1-6 (guards, they pass at once: F4). D: row 7 (RED),
-rows 8-9 (guard, docstring). E: results.
+rows 8-9 (guard, docstring). E: results. A later small commit types the operator-level calls
+(pyright found them; the tests were green).
 
 Rows with no RED by design: Commit B; Commit C (F4: the behavior change happened in the unit 1
 core, the raise sites already call `NoVotes`); row 8 (guard); row 9 (docstring).
@@ -69,4 +71,33 @@ Red set right after the rebase: the whole built-in registry fails to import
 
 ## Outcome
 
-(open)
+Rebased twice: first onto `e4a-judge-pick-engine` `0fa1f9ce2` (the conflict above), then onto its
+review-fix tip `4799df8d4` (`git rebase --onto e4a-judge-pick-engine 0fa1f9ce2`), which applied
+with no conflict.
+
+Red set after Commit B (the S3 set, by design): the six golden cases (`field_rules@1` x4,
+`by_field@1`, `project_field@1`) and four tests in `test_combine_fields.py` (the `pytest.raises`
+assertions made through `run`). Commit C turns them green.
+
+RED seen: row 7 only (`values_field_is_a_field_path` did not raise; the two new golden cases
+returned a reduction instead of `combine_spec_invalid`). Rows without RED: Commit B (repair),
+Commit C rows 1-6 (guards: the abstain came from the unit 1 core, F4), row 8 (guard), row 9
+(docstring).
+
+Deviations from the spec text:
+
+- Row 3 is two tests, not one parametrized test: the four reduce cases check `fields is None`, the
+  by_field case checks the kept `values@1` reading (F6).
+- F9: the evidence of a merge keeps each member's own text, so a whole-JSON `SECRET` check cannot
+  hold for the merge case. The test checks that `result` holds only the reason code, and for the
+  by_field target (which is not member text) that the whole evidence JSON holds no `SECRET`.
+
+Gates (base `e4a-judge-pick-engine`):
+
+- engine, `--skip-append-only`: ruff check, ruff format, pyright, check_layering, pytest with
+  coverage all green.
+- engine, with append-only: ALL GATES GREEN. The offender list is empty, as expected.
+- screamingface (SDK): not run, no SDK file changed. repo: ALL GATES GREEN.
+
+Errata for the orchestrator: AB-D4 covers `majority`, `max` and `union` only. `from_member` null
+and a `model` `""` are values (F5).
