@@ -220,11 +220,19 @@ def current_request_accounting() -> RequestAccountingRecorder | None:
     return active[-1] if active else None
 
 
+def current_operation_calls() -> tuple[OperationCall, ...] | None:
+    """A snapshot of the INNERMOST active capture scope's calls, or None outside every scope."""
+
+    active = _recorders.get()
+    return tuple(active[-1]) if active else None
+
+
 __all__ = [
     "OperationCall",
     "RequestAccounting",
     "capture_operation_calls",
     "capture_request_accounting",
+    "current_operation_calls",
     "current_request_accounting",
     "current_model_request_key",
     "operation_call_identity",
