@@ -49,8 +49,14 @@ docstring.
 - F2: `pick` extract is optional; `filter` is a new reducer and rule. Errata: the old P3 line
   "REDUCER_RULES does not change in units 8-10". SDK flag: `S/reducer.py` `_ReducerName` lacks
   `"filter"` until 10S adds it.
+  Review erratum: with `pick` extract optional, a hand-written `values@1` + `by_field@1` spec
+  without an extract is accepted. Its `equals` form abstains with `no_votes` (before:
+  `combine_spec_invalid`); its `max` and `min` forms still fail with `combine_spec_invalid`. The SDK
+  always writes the extract for a field pick. Pinned in `test_combine_signal_reducers.py`.
 - F3: the select step's `order` decides the pick; `by_signal@1`'s `order` is what `signal_read`
   reports. The engine does not cross-check the two. Errata (INVARIANT for the SDK: same value).
+  Pinned by a test: `by_signal` max + `best_holder` min picks the min holder, and the evidence says
+  max. A cross-check needs a core hook (follow-up).
 - F4: `by_signal@1` scores voters only. A member that failed keeps its number in the row, and has no
   score.
 - F5: missing signal gives `no_votes`; a short top-k cut gives `cut_not_met`; `best_holder@1` with
