@@ -8,6 +8,7 @@ from _reducer_fixtures import compiled_vote_url4, fixture_operators, reducer_fus
 from url4 import Expression, Source, Text, build, render, struct
 
 import screamingface as sf
+from screamingface import url4 as sdk_url4
 from screamingface._evaluation.candidate import (
     _CandidateCompiler,
     _fusion_context,
@@ -124,3 +125,17 @@ def test_spec_steps_read_every_stage_with_its_args() -> None:
     }
     with pytest.raises(ValueError, match="cannot rebuild"):
         _spec_ops(spec, "scores")
+
+
+def test_context_signal_keys_survive_a_sources_key() -> None:
+    members = _members()
+    sources = {"member_1": {"model_1": {"path": "/p/a", "params": ""}}, "member_2": {}}
+
+    both = _fusion_context("$input", members, {"judge": "$judge_1"}, sources=sources)
+    only_sources = _fusion_context("$input", members, sources=sources)
+    neither = _fusion_context("$input", members)
+
+    assert sdk_url4._context_signal_keys(both) == ("judge",)
+    assert sdk_url4._context_signal_keys(only_sources) == ()
+    assert sdk_url4._context_signal_keys(neither) == ()
+    assert both.index("outputs") < both.index("signals") < both.index("sources")

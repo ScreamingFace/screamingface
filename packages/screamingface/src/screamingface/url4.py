@@ -72,7 +72,9 @@ _NESTED_RECIPE_ROUTES = frozenset(
 )
 _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
-_CONTEXT_SIGNALS = re.compile(r"signals: \{([^{}]*)\}\}\Z")
+# WHY the optional sources tail: the combine context is {input, outputs, signals, sources}, and
+# `signals` holds only '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
+_CONTEXT_SIGNALS = re.compile(r"signals: \{([^{}]*)\}(?:, sources: \{.*\})?\}\Z", re.DOTALL)
 _SIGNAL_KEY = re.compile(r"([A-Za-z0-9_]+): '")
 
 
@@ -482,7 +484,7 @@ def _require_reducer_call(node: _RecipeTopology, call: _Call) -> None:
 
 
 def _context_signal_keys(context: str) -> tuple[str, ...]:
-    """The keys of the ``signals`` struct that ends a combine call's context (none if absent)."""
+    """The keys of the ``signals`` struct of a combine call's context (none if absent)."""
 
     match = _CONTEXT_SIGNALS.search(context)
     return () if match is None else tuple(_SIGNAL_KEY.findall(match.group(1)))
