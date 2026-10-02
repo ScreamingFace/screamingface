@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
+from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.medxpert.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
@@ -141,8 +142,8 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
             "refusal": attempt.get("refusal"),
             "execution": attempt.get("execution"),
             "operations": attempt.get("operations"),
-            # Written only when true (OME-1289), so rows without the mark are unchanged.
-            **({"candidate_abstained": True} if attempt.get("candidate_abstained") is True else {}),
+            # The abstain mark rides the hoisted row (OME-1289).
+            **abstain_mark(attempt),
             "metadata": fields,
         },
         "attempt": dict(attempt),

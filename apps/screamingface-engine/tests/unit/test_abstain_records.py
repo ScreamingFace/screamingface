@@ -122,36 +122,46 @@ def _hoisted(row: dict[str, Any]) -> dict[str, Any]:
     return case
 
 
+async def _hoisted_row(family: str, root: Path, reply: str) -> dict[str, Any]:
+    """The row one family's decoder hoists from the real check record for ``reply``."""
+    if family == "ifeval":
+        record = await _ifeval_record(root, reply)
+        specs = {1: {"instruction_id_list": ["punctuation:no_comma"]}}
+        return ifeval_grade._decode(specs)(ifeval_case_grade(1, [record]), 1)
+    if family == "contracteval":
+        record = _contracteval_record(root, reply)
+        return contracteval_aggregate._decode(contracteval_case_grade(1, [record]), 1)
+    record = _medxpert_record(reply)
+    return medxpert_aggregate._decode(medxpert_case_grade(1, [record]), 1)
+
+
 @pytest.mark.asyncio
-async def test_mark_reaches_each_family_record_and_candidate_fields(tmp_path: Path) -> None:
-    # IFEval: the check route writes the key, and the hoisting decoder keeps it.
+async def test_mark_reaches_the_check_record_of_each_family(tmp_path: Path) -> None:
     ifeval_marked = await _ifeval_record(tmp_path / "if_marked", _ABST)
+    contract_marked = _contracteval_record(tmp_path / "ce", _ABST)
+
     assert ifeval_marked.get("candidate_abstained") is True
     assert "candidate_abstained" not in await _ifeval_record(tmp_path / "if_plain", _PLAIN)
-    specs = {1: {"instruction_id_list": ["punctuation:no_comma"]}}
-    ifeval_row = ifeval_grade._decode(specs)(ifeval_case_grade(1, [ifeval_marked]), 1)
-    assert _hoisted(ifeval_row).get("candidate_abstained") is True
-
-    # ContractEval: the check verdict `abstained` stays the benchmark's own fact.
-    contract_marked = _contracteval_record(tmp_path / "ce", _ABST)
     assert contract_marked.get("candidate_abstained") is True
-    assert contract_marked["abstained"] is False
     assert "candidate_abstained" not in _contracteval_record(tmp_path / "ce_plain", _PLAIN)
-    contract_row = contracteval_aggregate._decode(contracteval_case_grade(1, [contract_marked]), 1)
-    assert _hoisted(contract_row).get("candidate_abstained") is True
+    # ContractEval's check verdict `abstained` stays the benchmark's own fact (F4).
+    assert contract_marked["abstained"] is False
     assert contract_marked["schema"] == CONTRACTEVAL_CHECK_SCHEMA
+    assert _medxpert_record(_ABST).get("candidate_abstained") is True
+    assert "candidate_abstained" not in _medxpert_record(_PLAIN)
 
-    # MedXpertQA: the commit turn's record keeps it through its decoder.
-    medxpert_marked = _medxpert_record(_ABST)
-    assert medxpert_marked.get("candidate_abstained") is True
-    medxpert_row = medxpert_aggregate._decode(medxpert_case_grade(1, [medxpert_marked]), 1)
-    assert _hoisted(medxpert_row).get("candidate_abstained") is True
-    for row in (ifeval_row, contract_row, medxpert_row):
-        assert _candidate_fields(row).abstained is True
-    plain = _hoisted(
-        medxpert_aggregate._decode(medxpert_case_grade(1, [_medxpert_record(_PLAIN)]), 1)
-    )
-    assert "candidate_abstained" not in plain
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family", ["ifeval", "contracteval", "medxpert"])
+async def test_a_marked_record_survives_its_hoist(family: str, tmp_path: Path) -> None:
+    """A hoist that forgets the mark would silently grade an abstained Case as answered."""
+    marked = await _hoisted_row(family, tmp_path / "marked", _ABST)
+    plain = await _hoisted_row(family, tmp_path / "plain", _PLAIN)
+
+    assert _hoisted(marked).get("candidate_abstained") is True
+    assert _candidate_fields(marked).abstained is True
+    assert "candidate_abstained" not in _hoisted(plain)
+    assert _candidate_fields(plain).abstained is False
 
 
 def _accepted(grading: dict[str, Any]) -> bool:

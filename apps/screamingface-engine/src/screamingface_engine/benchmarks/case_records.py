@@ -8,6 +8,26 @@ from collections.abc import Mapping
 from screamingface_engine.benchmarks.contract import validate_candidate_outcome
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer, positive_case_id
 
+# WHY `candidate_abstained` and not `abstained`: ContractEval's check record already carries a
+# benchmark verdict called `abstained` (the reply said "no related clause"), so the Candidate's own
+# mark gets a key no verdict uses (OME-1289).
+CANDIDATE_ABSTAINED = "candidate_abstained"
+
+
+def abstain_mark(source: Mapping[str, object]) -> dict[str, bool]:
+    """The mark to splat into a record or hoisted row: written only when true, else nothing.
+
+    A record with no mark stays byte-identical to what it was before the mark existed.
+    """
+
+    return {CANDIDATE_ABSTAINED: True} if source.get(CANDIDATE_ABSTAINED) is True else {}
+
+
+def answer_abstain_mark(candidate: CandidateAnswer) -> dict[str, bool]:
+    """The same mark, read off a decoded Candidate Invocation (the writer side)."""
+
+    return {CANDIDATE_ABSTAINED: True} if candidate.abstained else {}
+
 
 def build_case_record(
     raw_cases: str,
@@ -61,11 +81,7 @@ def build_case_record(
         record["operations"] = [
             operation.model_dump(by_alias=True) for operation in candidate.operations
         ]
-    # WHY `candidate_abstained` and not `abstained`: ContractEval's check record already carries
-    # a benchmark verdict called `abstained` (the reply said "no related clause"). Written only
-    # when true, so every other record stays byte-identical (OME-1289).
-    if candidate.abstained:
-        record["candidate_abstained"] = True
+    record.update(answer_abstain_mark(candidate))
     return record
 
 
@@ -86,4 +102,4 @@ def _optional_case_id(value: object) -> int | None:
         return None
 
 
-__all__ = ["build_case_record"]
+__all__ = ["CANDIDATE_ABSTAINED", "abstain_mark", "answer_abstain_mark", "build_case_record"]

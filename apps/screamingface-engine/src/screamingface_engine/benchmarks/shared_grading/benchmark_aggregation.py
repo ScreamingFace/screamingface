@@ -77,6 +77,7 @@ from screamingface_engine.benchmarks.aggregation import (
     refusal_case_result,
     scored_case_result,
 )
+from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult, Failure
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
@@ -985,7 +986,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
         execution=case.get("execution"),
         operations=case.get("operations"),
         metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
-        abstained=case.get("candidate_abstained") is True,
+        abstained=bool(abstain_mark(case)),
     )
 
 

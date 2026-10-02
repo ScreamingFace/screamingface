@@ -34,6 +34,7 @@ from typing import Any, Unpack
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_context import case_scope
+from screamingface_engine.benchmarks.case_records import abstain_mark, answer_abstain_mark
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import (
     CANDIDATE_RESULT_SCHEMA,
@@ -812,8 +813,7 @@ def _check(root: Path) -> Callable[[Request], str]:
                     ]
                 }
             ),
-            # Written only when true (OME-1289), so every other record stays byte-identical.
-            **({"candidate_abstained": True} if answer.abstained else {}),
+            **answer_abstain_mark(answer),
         }
         return compact_json(record)
 
@@ -1028,8 +1028,8 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
             "refusal": attempt.get("refusal"),
             "execution": attempt.get("execution"),
             "operations": attempt.get("operations"),
-            # Written only when true (OME-1289), so rows without the mark are unchanged.
-            **({"candidate_abstained": True} if attempt.get("candidate_abstained") is True else {}),
+            # The abstain mark rides the hoisted row (OME-1289).
+            **abstain_mark(attempt),
             "metadata": {},
         },
         "attempt": dict(attempt),

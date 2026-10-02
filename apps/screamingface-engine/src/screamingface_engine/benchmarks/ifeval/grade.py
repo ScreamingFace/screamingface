@@ -32,6 +32,7 @@ from screamingface_engine.benchmarks.aggregation import (
     failed_case_result,
     public_error,
 )
+from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseResult, Failure
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
 from screamingface_engine.benchmarks.ifeval.case_grade import CHECK_SCHEMA, graded_record
@@ -215,12 +216,8 @@ def _decode(specs: Mapping[int, Mapping[str, Any]]) -> Callable[[object, int], d
                 "refusal": record.get("refusal"),
                 "execution": record["execution"],
                 "operations": record.get("operations"),
-                # Written only when true (OME-1289), so rows without the mark are unchanged.
-                **(
-                    {"candidate_abstained": True}
-                    if record.get("candidate_abstained") is True
-                    else {}
-                ),
+                # The abstain mark rides the hoisted row (OME-1289).
+                **abstain_mark(record),
                 "metadata": {},
             },
             "record": record,

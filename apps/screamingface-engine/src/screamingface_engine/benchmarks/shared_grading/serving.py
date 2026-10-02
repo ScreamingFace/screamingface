@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_records import answer_abstain_mark
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.grading_endpoints import (
     CandidateAnswer,
@@ -307,10 +308,7 @@ def candidate_record(
         record["operations"] = [
             operation.model_dump(by_alias=True) for operation in reply.operations
         ]
-    # WHY `candidate_abstained`: the verdict a benchmark merges in may already own `abstained`
-    # (ContractEval); the Candidate's own mark gets a key no verdict uses (OME-1289).
-    if reply.abstained:
-        record["candidate_abstained"] = True
+    record.update(answer_abstain_mark(reply))
     return record
 
 

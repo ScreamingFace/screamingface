@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from screamingface_engine.benchmarks.case_records import CANDIDATE_ABSTAINED
 from screamingface_engine.benchmarks.contract import is_valid_corrective_execution
 from screamingface_engine.benchmarks.healthbench.records import CASE_SCHEMA, RUBRIC_SCHEMA
 from screamingface_engine.benchmarks.healthbench.verdict import SCHEMA as VERDICT_SCHEMA
@@ -177,9 +178,9 @@ def _valid_case_record(value: Mapping[str, Any], case_id: int) -> bool:
     # WHY: `operations` (OME-843) and `candidate_abstained` (OME-1289) are the two optional keys.
     # `operations` is present only when the Engine attributed named model outputs; the mark is
     # written only when true. Their absence keeps the legacy shape valid.
-    if set(value) - {"operations", "candidate_abstained"} != _CASE_RECORD_FIELDS:
+    if set(value) - {"operations", CANDIDATE_ABSTAINED} != _CASE_RECORD_FIELDS:
         return False
-    if value.get("candidate_abstained", True) is not True:
+    if value.get(CANDIDATE_ABSTAINED, True) is not True:
         return False
     answer = value.get("answer")
     status = value.get("status")
