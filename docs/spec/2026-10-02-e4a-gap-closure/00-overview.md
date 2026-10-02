@@ -131,3 +131,15 @@ recording (U5).
   layer (charges, refusals, `budget` trace entries), and adds the `branch` trace kind through
   `report-trace.v2`.
 - **E14** pins `report.v1`, `report-trace.v1` and the evidence schema with a submission.
+
+## 9. Build errata (2026-10-02)
+
+Found while writing the unit specs. The code follows this list.
+
+| # | Was | Is now | Why |
+|---|---|---|---|
+| GE1 | I-A1: `value is None` ⇔ `status != "answered"` | one direction: `status != "answered"` ⇒ `value is None`; the core rejects an answered member with no value only when the spec has an extract step | judge and concat members have no extract step, so they answer with no value |
+| GE2 | AR-3: a computed Answer's `value` is the built text | `result.value` is the built text for evidence kinds `answer` and `projection`, and `None` for `selection` | a selection (Rank envelope, Concat) contains member text, which evidence never carries (I-E1) |
+| GE3 | plan: the `weights: {"signal": key}` grammar is unit 2 work | unit 1 (it owns `combine/spec.py`); the core sets each member's weight from the signal; unit 2's `weighted_mode@1` treats a missing weight as "does not vote" | fold rule: the lowest unit that owns the code |
+| GE4 | signals delta 3: `CombineInput.accounting` | the adapter passes an `AccountingReader` port into `run_combine`; values land in `Answer.signals` | the adapter would otherwise parse a context of up to 64 MiB twice |
+| GE5 | "keys the spec reads" | an optional `OperatorDescriptor.signal_read` hook declares a reduce op's signal; at most one signal per spec | the core cannot know plugin argument meanings (`by_signal@1` arrives in unit 10E) |
