@@ -59,6 +59,8 @@ runtime = [
     "cryptography==50.0.2",
     "datasets==5.1.0",
     "fastapi>=0.141.1",
+    # WHY: the bundled Engine's regex@1 combine operator runs on RE2 (linear-time matching).
+    "google-re2>=1.1,<2",
     "immutabledict>=4.2.0",
     "langdetect>=1.0.9",
     "litellm==1.104.2",
