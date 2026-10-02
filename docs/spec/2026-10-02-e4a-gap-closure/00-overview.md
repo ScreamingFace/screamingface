@@ -92,6 +92,7 @@ recording (U5).
 | Q14 | O2: the shared Budget schema | "define it then for our side (method owners)" | E4a defines and freezes `budget.v1` and the charge rule; E4c enforces |
 | Q15 | O1: HealthBench abstain score | "yeah, that`s right": keep 0.0 and document it | recommended |
 | Q16 | O3: the Fusion recipe uses `Reduce.compute(context)`, not the PRD's `concat` | "ok, that`s fine. consider it approved." | approved by the user |
+| Q17 | How `regex@1` is made safe against catastrophic backtracking (the static ban let `(a+){10}$` run 56 s) | "Linear-time engine RE2 (Recommended)": `regex@1` runs on `google-re2`; the deny-list is removed | recommended |
 | — | Spec and plan approval | "1 - Approved" (2026-10-02) | code may start |
 
 ## 6. Global decisions `[proposed]`
@@ -146,3 +147,4 @@ Found while writing the unit specs. The code follows this list.
 | GE6 | G5 / erd §9: "a grader error on an abstained Case is ignored and logged" | ignored only when the grader still returned grade material (metrics or checks): scored 0.0 with that material. When the grading step left no material (the ladder grading-failure rung, or a hook failure with no metrics and no checks), the Case stays failed and the log says it was abstained | a scored Case with empty metrics breaks `mean_scorer` and `draco_scorer`, and makes a ContractEval positive row a false positive |
 | GE7 | erd §9: the mark is `abstained` on every record | the wire keys stay `abstained` (`CandidateInvocation`, `CaseResult`); intermediate url4 records and hoisted `row["case"]` use `candidate_abstained` | ContractEval's check record already has a benchmark verdict key `abstained` |
 | GE8 | erd §9: "final node" | the root intent is exactly `$name` and exactly one attributed `op_<name>` exists whose evidence `result.status == "abstain"`; prose intents, other roots and unattributed names are never marked | the design did not define "final node" |
+| GE9 | extract-rules RX-D1: a static ban over three backtracking shapes + timed golden; RX-D3: Python `re` Unicode rules | `regex@1` runs on RE2 (`google-re2`, one new engine dependency, the only third-party module a combine plugin may import): linear time, so no ban. RE2 has no lookarounds or backreferences, its repeat limit is 1000, and `\d`/`\w` are ASCII (`\p{L}`/`\p{N}` for Unicode). The SDK pre-spend check (RX#11) adds no dependency: it rejects the RE2-unsupported constructs visible in the stdlib parse tree; the engine's RE2 compile stays authoritative | ans:Q17; a deny-list is never complete (review measured 56 s, 2 s, 3 s bypasses) |
