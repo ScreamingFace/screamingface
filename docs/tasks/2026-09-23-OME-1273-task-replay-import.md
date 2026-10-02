@@ -32,3 +32,8 @@ the eval's own solvers (`docs/plan/2026-10-02-OME-1273-capture-rendering.md`, le
   `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-1.md`.
 - Nine more (bbq, piqa, cybermetric ×4, sevenllm ×2, worldsense) by capture: ledger
   `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-2.md`.
+- Four of SAD-mini's five tasks (facts_llms, facts_human_defaults, influence,
+  stages_oversight) by capture; stages_full refused (three Samples with an empty body).
+  cyberseceval_4's three deterministically graded tasks probed and refused by name
+  (no answer key; list-valued answer keys and a two-part score; a dead archive fetch):
+  ledger `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-3.md`.

@@ -98,6 +98,12 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # the judge answers in words, graded by the row's verdict map.
     "coconot_original": "judged",
     "coconot_contrast": "judged",
+    # OME-1273: SAD-mini's four importable tasks, choice-shaped and graded by the eval's
+    # own lenient scorer (stages_full is refused: three Samples have an empty body).
+    "sad_facts_llms": "mcq",
+    "sad_facts_human_defaults": "mcq",
+    "sad_influence": "mcq",
+    "sad_stages_oversight": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
