@@ -8,6 +8,7 @@ pass at once. They stop a later change from keying a warning on the synthesizer'
 
 from __future__ import annotations
 
+import functools
 import warnings
 from collections.abc import Callable
 
@@ -48,18 +49,24 @@ def _duplicates(synthesizer: Reducer) -> list[warnings.WarningMessage]:
     return list(recorded)
 
 
-@pytest.mark.parametrize(
-    "make",
-    [_vote, _plurality, _median, _weighted, FixtureVote],
-    ids=["vote", "reduce-plurality", "reduce-median", "reduce-weighted", "fixture-vote"],
-)
-def test_reduce_fusion_warns_on_duplicate_members_like_vote(make: Callable[[], Reducer]) -> None:
+@functools.cache
+def _vote_warning_text() -> str:
     expected = _duplicates(_vote())
     assert len(expected) == 1
     expected_text = str(expected[0].message)
     assert expected_text.startswith(
         "Fusion 'a+a+b': members 1 and 2 send the same request to 'provider/a'; "
     )
+    return expected_text
+
+
+@pytest.mark.parametrize(
+    "make",
+    [_vote, _plurality, _median, _weighted, FixtureVote],
+    ids=["vote", "reduce-plurality", "reduce-median", "reduce-weighted", "fixture-vote"],
+)
+def test_reduce_fusion_warns_on_duplicate_members_like_vote(make: Callable[[], Reducer]) -> None:
+    expected_text = _vote_warning_text()
 
     recorded = _duplicates(make())
 

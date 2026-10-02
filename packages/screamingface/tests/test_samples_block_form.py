@@ -103,9 +103,8 @@ def _handler(paths: list[str]) -> Any:
     return handle
 
 
-def _case_for(candidate: object) -> list[dict[str, Any]]:
-    url4 = getattr(candidate, "url4")
-    ops = spec_of(url4)
+def _case_for(candidate: Candidate) -> list[dict[str, Any]]:
+    ops = spec_of(candidate.url4)
     operators = [ops[stage]["op"] for stage in ("extract", "normalize", "reduce", "select")]  # type: ignore[index]
     values = ["4", "4", "4", "5", "5"]
     evidence = evidence_wire(
@@ -142,7 +141,9 @@ def _case_for(candidate: object) -> list[dict[str, Any]]:
 
 
 class _CountingTransport(ScriptedTransport):
-    runs = 0
+    def __init__(self) -> None:
+        super().__init__("fixture", "fixture-revision", _case_for)
+        self.runs = 0
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         self.runs += 1
@@ -151,7 +152,7 @@ class _CountingTransport(ScriptedTransport):
 
 def _evaluate(recipe: sf.Recipe) -> tuple[sf.Report, _CountingTransport, list[str]]:
     paths: list[str] = []
-    transport = _CountingTransport("fixture", "fixture-revision", _case_for)
+    transport = _CountingTransport()
     with sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_handler(paths)),
