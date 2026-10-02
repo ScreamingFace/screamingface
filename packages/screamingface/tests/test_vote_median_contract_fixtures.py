@@ -97,5 +97,6 @@ def test_engine_vote_median_fixtures_match_the_sdk_compiler() -> None:
 def test_engine_operator_names_are_registered_in_the_engine() -> None:
     # WHY a subset: units 8-10 add operators to the Engine without touching this helper.
     named = {f"{name}@1" for names in ENGINE_OPERATOR_NAMES.values() for name in names}
-    registered = {path.stem for path in ENGINE_GOLDEN_DIR.glob("*.json")}
+    # WHY rglob: the signal and filter operators' goldens live in fixtures/combine/flow (10E)
+    registered = {path.stem for path in ENGINE_GOLDEN_DIR.rglob("*.json")}
     assert named <= registered

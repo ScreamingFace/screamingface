@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._regex_rule import check_regex
-from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
+from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal, _Comparison
 from screamingface.reducer import (
     BENCHMARK_EXTRACT,
     Reducer,
@@ -335,9 +335,12 @@ def _check_rubric(op: str, value: object) -> str:
     return selected
 
 
-def _check_where(op: str, value: object) -> Matches:
-    if not isinstance(value, Matches):
-        raise TypeError(f"sf.Reduce({op!r}) option 'where' must be an sf.matches predicate")
+def _check_where(op: str, value: object) -> Matches | _Comparison:
+    if not isinstance(value, Matches | _Comparison):
+        raise TypeError(
+            f"sf.Reduce({op!r}) option 'where' must be an sf.matches predicate or a signal "
+            "comparison like sf.signal(key) >= 0.6"
+        )
     return value
 
 

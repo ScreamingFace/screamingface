@@ -17,7 +17,9 @@ if TYPE_CHECKING:
     from screamingface.judge import Judge
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
-type _ReducerName = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat"]
+type _ReducerName = Literal[
+    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter"
+]
 # One source for each vocabulary: the Literal above is the list, the sets are derived from it.
 REDUCER_NAMES: frozenset[str] = frozenset(get_args(_ReducerName.__value__))
 REDUCER_KINDS: frozenset[str] = frozenset(get_args(_ReducerKind.__value__))

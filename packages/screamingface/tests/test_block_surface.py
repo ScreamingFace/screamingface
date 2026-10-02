@@ -1,7 +1,8 @@
 """The public surface gains only the block names (OME-1289 gap, BK#11).
 
 GUARD: passes at once. It pins that unit 4 exports the five block names and nothing else of the
-reducer machinery (no Reducer, Signal, Matches or Filter at the top level).
+reducer machinery (no Reducer, Signal or Matches at the top level). Unit 10S adds ``sf.Filter``, the
+one new public name of the Filter block, and the signal comparison types stay private.
 """
 
 from __future__ import annotations
@@ -16,8 +17,10 @@ _SNAPSHOT = Path(__file__).parent / "public_surface_snapshot.json"
 
 def test_public_surface_adds_only_block_names() -> None:
     assert {"Extract", "Reduce", "signal", "matches", "Answer"} <= set(sf.__all__)
-    for hidden in ("Filter", "Reducer", "Signal", "Matches"):
+    assert "Filter" in sf.__all__
+    for hidden in ("Reducer", "Signal", "Matches", "_Comparison", "Comparison"):
         assert hidden not in sf.__all__
+        assert not hasattr(sf, hidden)
     assert not hasattr(sf, "Reducer")
     assert not hasattr(sf, "reducers")
 

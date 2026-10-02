@@ -222,6 +222,14 @@ _JUDGE = sf.Judge("provider/j", returns="scores", rubric="Score each answer.")
             sf.Reduce("top_k", k=3, by_signal=sf.signal("field:score")),
             sf.Rank(3, by_signal=sf.signal("field:score")),
         ),
+        (
+            sf.Reduce("filter", where=sf.signal("field:confidence") >= 0.6),  # type: ignore[arg-type]
+            sf.Filter(where=sf.signal("field:confidence") >= 0.6),  # type: ignore[arg-type]
+        ),
+        (
+            sf.Reduce("filter", where=sf.matches("yes", ignore_case=True)),
+            sf.Filter(where=sf.matches("yes", ignore_case=True)),
+        ),
         (sf.Reduce("concat"), sf.Concat()),
         (
             sf.Reduce("concat", separator="\n--\n", label=False),
@@ -233,6 +241,8 @@ _JUDGE = sf.Judge("provider/j", returns="scores", rubric="Score each answer.")
         "rank-field-min",
         "rank-signal-min",
         "rank-signal",
+        "filter-threshold",
+        "filter-pattern",
         "concat",
         "concat-options",
     ],

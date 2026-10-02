@@ -13,8 +13,17 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, cast
 
-from screamingface._signals import Signal
-from screamingface.blocks import _BLOCK_FORMS, _BlockForm
+from screamingface._signals import Signal, _Comparison, _comparison
+from screamingface.blocks import (
+    _BLOCK_FORMS,
+    Extract,
+    Matches,
+    _answer_steps,
+    _BlockForm,
+    _extract_from_spec,
+    _matches_args,
+    _normalize_from_spec,
+)
 from screamingface.judge import Judge, judge_from_signals
 from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
@@ -272,6 +281,119 @@ def _top_k_options(named: Reducer) -> Mapping[str, object]:
     return {"k": rank.k, **source, **({"order": "min"} if rank.order == "min" else {})}
 
 
+def _check_filter_where(where: object) -> None:
+    if not isinstance(where, Matches | _Comparison):
+        raise TypeError(
+            "Filter where must be sf.matches(...) or a signal comparison like sf.signal(key) >= 0.6"
+        )
+    if isinstance(where, _Comparison):
+        _refuse_judge_signal(
+            where.signal,
+            "Filter",
+            "sf.Rank(k, by=sf.Judge(..., returns='scores')), which keeps the k best-judged members",
+        )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Filter(Reducer):
+    """Keep the members that pass a test: the next stage gets their original texts, in author order.
+
+    ``where=sf.matches(pattern)`` keeps a member whose text (or, with ``extract=``, whose extracted
+    answer) matches the regex. ``where=sf.signal(key) >= 0.6`` keeps a member whose named signal
+    passes the comparison (``>``, ``>=``, ``<``, ``<=`` or ``==``; there is no ``!=``). A member
+    with no value for the signal, or one that failed to answer, is dropped. A Filter Fusion must be
+    followed by another Pipeline stage, and a Filter that keeps no member fails the Case.
+
+    ``sf.signal("field:x") == True`` also passes a numeric ``1.0``: a signal holds a float, so
+    ``True`` means ``1.0`` to the Engine. Compare with ``== 1`` for the number, or keep the bool in
+    your JSON and read it through ``sf.Extract`` and ``sf.matches``.
+    """
+
+    name: str
+    where: Matches | _Comparison
+    extract: Extract | None
+
+    def __init__(self, *, where: Matches | _Comparison, extract: Extract | None = None) -> None:
+        _check_filter_where(where)
+        if extract is not None and not isinstance(extract, Extract):
+            raise TypeError("Filter extract must be an sf.Extract")
+        object.__setattr__(self, "name", "filter")
+        object.__setattr__(self, "where", where)
+        object.__setattr__(self, "extract", extract)
+
+    def _plan(self) -> _ReducerPlan:
+        extract, normalize, benchmark = (
+            (None, None, False) if self.extract is None else _answer_steps(self.extract)
+        )
+        where = self.where
+        args = where._args() if isinstance(where, _Comparison) else _matches_args(where)
+        steps = _Steps(
+            extract=extract,
+            normalize=normalize,
+            reduce=_Step("filter", args),
+            select=_Step("kept"),
+        )
+        reads = where.signal if isinstance(where, _Comparison) else None
+        return _ReducerPlan("filter", "selection", steps, benchmark_rule=benchmark, reads=reads)
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Filter:
+        reduce = _spec_steps(spec)["reduce"]
+        where = _decoded("filter", _recovered_where, {} if reduce is None else reduce[1])
+        filtered = _decoded("filter", cls, where=where, extract=_recovered_extract(spec))
+        _require_steps(spec, filtered._plan().steps, "filter")
+        return filtered
+
+    def _python(self) -> str:
+        return self._render("sf.Filter")
+
+    def __repr__(self) -> str:
+        return self._render("Filter")
+
+    def _render(self, head: str) -> str:
+        extract = "" if self.extract is None else f", extract={self.extract._python()}"
+        return f"{head}(where={self.where._python()}{extract})"
+
+    __hash__: ClassVar[Any] = None
+
+
+def _recovered_where(args: Mapping[str, object]) -> Matches | _Comparison:
+    """The predicate a decoded filter step holds: a regex, or a signal comparison."""
+
+    if "pattern" in args:
+        return Matches(cast("str", args["pattern"]), args.get("ignore_case", False))  # type: ignore[arg-type]
+    key, cmp, value = args.get("key"), args.get("cmp"), args.get("value")
+    if not isinstance(key, str) or not isinstance(cmp, str):
+        raise ValueError("a filter step without a predicate")
+    return _comparison(Signal(key), cmp, value)
+
+
+def _recovered_extract(spec: Mapping[str, object]) -> Extract | None:
+    """The Extract a decoded filter spec reads its answers with, else refuse."""
+
+    if spec["extract"] is None:
+        return None
+    try:
+        return _extract_from_spec(spec, _normalize_from_spec(spec))
+    except (KeyError, TypeError, ValueError):
+        raise _cannot_rebuild("filter") from None
+
+
+def _filter_from_options(options: Mapping[str, object]) -> Filter:
+    return Filter(
+        where=cast("Matches | _Comparison", options["where"]),
+        extract=cast("Extract | None", options.get("extract")),
+    )
+
+
+def _filter_options(named: Reducer) -> Mapping[str, object]:
+    filtered = cast("Filter", named)
+    return {
+        "where": filtered.where,
+        **({} if filtered.extract is None else {"extract": filtered.extract}),
+    }
+
+
 def _concat_from_options(options: Mapping[str, object]) -> Concat:
     return Concat(
         cast("str", options.get("separator", _DEFAULT_SEPARATOR)),
@@ -288,8 +410,9 @@ def _concat_options(named: Reducer) -> Mapping[str, object]:
 
 
 _RANK_SOURCES = ("by", "by_field", "by_signal")
-_REDUCER_CLASSES.update(rank=Rank, concat=Concat)
+_REDUCER_CLASSES.update(rank=Rank, concat=Concat, filter=Filter)
 _BLOCK_FORMS["top_k"] = _BlockForm(build=_top_k_from_options, options=_top_k_options)
 _BLOCK_FORMS["concat"] = _BlockForm(build=_concat_from_options, options=_concat_options)
+_BLOCK_FORMS["filter"] = _BlockForm(build=_filter_from_options, options=_filter_options)
 
-__all__ = ["Concat", "Rank"]
+__all__ = ["Concat", "Filter", "Rank"]

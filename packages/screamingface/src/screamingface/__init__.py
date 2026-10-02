@@ -70,7 +70,7 @@ from screamingface.report import (
     Report,
     Usage,
 )
-from screamingface.selection import Concat, Rank
+from screamingface.selection import Concat, Filter, Rank
 from screamingface.url4 import Url4
 from screamingface.warnings import (
     DuplicateMembersWarning,
@@ -118,6 +118,7 @@ __all__ = [
     "samples",
     "Failure",
     "FieldRule",
+    "Filter",
     "FixedSeedSittingWarning",
     "Fusion",
     "Judge",

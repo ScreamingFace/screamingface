@@ -43,7 +43,9 @@ OPERATOR_WIRE: dict[str, object] = {
 }
 
 
-# The ids the Engine serves after units 1-3 (BUILTIN_OPERATORS.describe()): id -> stage. All @1.
+# The answer-stage ids the Engine serves (units 1-3, plus the signal and filter operators of 10E):
+# id -> stage. All @1. It still lacks the judge, pick, merge, rank and concat ids; the full
+# built-in set is FLOW_OPERATOR_IDS in _combine_flow_fixtures.py (the 10S flag, 8S F11).
 ENGINE_OPERATOR_IDS: dict[str, str] = {
     **dict.fromkeys(
         (
@@ -61,8 +63,18 @@ ENGINE_OPERATOR_IDS: dict[str, str] = {
     **dict.fromkeys(
         ("identity@1", "inspect_numeric@1", "numeric@1", "set@1", "text@1"), "normalize"
     ),
-    **dict.fromkeys(("median@1", "mode@1", "weighted_mode@1"), "reduce"),
-    **dict.fromkeys(("first_holder@1", "max_weight_holder@1", "nearest@1", "value@1"), "select"),
+    **dict.fromkeys(("by_signal@1", "filter@1", "median@1", "mode@1", "weighted_mode@1"), "reduce"),
+    **dict.fromkeys(
+        (
+            "best_holder@1",
+            "first_holder@1",
+            "kept@1",
+            "max_weight_holder@1",
+            "nearest@1",
+            "value@1",
+        ),
+        "select",
+    ),
 }
 
 

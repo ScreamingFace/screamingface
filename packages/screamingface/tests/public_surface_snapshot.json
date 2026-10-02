@@ -27,6 +27,7 @@
       "Extract",
       "Failure",
       "FieldRule",
+      "Filter",
       "FixedSeedSittingWarning",
       "Fusion",
       "Judge",
@@ -457,6 +458,15 @@
           "route": "field",
           "rule": "field",
           "union": "classmethod (*, normalize: 'FieldNormalizer | None' = None) -> 'FieldRule'"
+        }
+      },
+      "Filter": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, where: 'Matches | _Comparison', extract: 'Extract | None' = None) -> 'None'",
+          "extract": "field",
+          "name": "field",
+          "where": "field"
         }
       },
       "FixedSeedSittingWarning": {

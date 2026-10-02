@@ -250,21 +250,16 @@ def test_reduce_plurality_compiles_byte_identical_to_the_fixture_vote() -> None:
 
 
 def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
-    not_yet = [
-        sf.Reduce("filter", where=sf.matches("a")),
-    ]
-    for block in not_yet:
-        with pytest.raises(ValueError, match="does not compile in this SDK version yet"):
-            _compiled_text(block)
-    # 'context' is the first half of the Fusion recipe: only the recipe rewrite takes it (FR#10)
+    # every op but 'context' compiles now. 'context' is the first half of the Fusion recipe, and
+    # only the recipe rewrite takes it (FR#10).
     with pytest.raises(ValueError, match="first half of the Fusion recipe"):
         _compiled_text(sf.Reduce("context"))
-    # argmax and pick_field have Engine operators since 9S, but the fixture catalog (units 1-3)
-    # lacks them; they compile against the Engine's flow catalog
+    # argmax has operators in the fixture catalog since 10S (by_signal@1, best_holder@1);
+    # pick_field has Engine operators since 9S, but the fixture catalog lacks them, so it
+    # compiles against the Engine's flow catalog
     argmax = sf.Reduce("argmax", by_signal=sf.signal("cost_usd"))
     pick = sf.Reduce("pick_field", field="a", order="max")
-    with pytest.raises(ValueError, match="unknown reduce operator 'by_signal'"):
-        _compiled_text(argmax)
+    assert json.loads(_compiled_text(argmax))["reducer"] == "pick"
     with pytest.raises(ValueError, match="unknown reduce operator 'values'"):
         _compiled_text(pick)
     for block in (argmax, pick):
@@ -277,6 +272,10 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
         _compiled_text(top_k)
     spec = json.loads(combine_spec_text(top_k, member_count=3, operators=flow_operators()))
     assert spec["reducer"] == "rank"
+    # filter has Engine operators since 10E, and they are in the unit 1-3 fixture catalog now
+    assert json.loads(_compiled_text(sf.Reduce("filter", where=sf.matches("a"))))["reducer"] == (
+        "filter"
+    )
     # a signal-weighted block compiles since unit 7; only score:judge waits for the judge
     assert '"weights":{"signal":"field:c"}' in _compiled_text(
         sf.Reduce("weighted", extract=LAST, weights=sf.signal("field:c"))
@@ -346,6 +345,11 @@ def _roundtrip_cases() -> list[Reduce]:
             sf.Reduce("top_k", k=2, by_signal=sf.signal("field:confidence")),
             sf.Reduce("concat"),
             sf.Reduce("concat", separator="\n--\n", label=False),
+            sf.Reduce("filter", where=sf.signal("field:confidence") >= 0.6),  # type: ignore[arg-type]
+            sf.Reduce("filter", where=sf.matches("yes", ignore_case=True)),
+            sf.Reduce(
+                "filter", where=sf.matches("^y"), extract=sf.Extract("field", "text", path="answer")
+            ),
         ]
     )
     return cases
@@ -368,6 +372,7 @@ def _named_or_block(reducer: Reduce) -> type[Reducer]:
         "merge": sf.Merge,
         "top_k": sf.Rank,
         "concat": sf.Concat,
+        "filter": sf.Filter,
     }
     return sf.Vote if plain_vote else named.get(reducer.op, Reduce)
 
