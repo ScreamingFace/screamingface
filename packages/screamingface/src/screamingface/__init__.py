@@ -13,6 +13,7 @@ from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._signals import signal
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
+from screamingface.blocks import Extract, matches
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -94,6 +95,7 @@ __all__ = [
     "Evidence",
     "EvidenceProducer",
     "Event",
+    "Extract",
     "EngineCapabilityError",
     "EngineUnavailableError",
     "ExecutionError",
@@ -129,6 +131,7 @@ __all__ = [
     "ScreamingFaceError",
     "SelfCorrective",
     "signal",
+    "matches",
     "OperationAccounting",
     "OperationCache",
     "Usage",
