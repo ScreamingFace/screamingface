@@ -4,6 +4,11 @@
   Settled on this PR (owner, 2026-09-30): four refusals route to Task replay (R1), the strict
   image-job switch is approved (R11), the code ships as five PRs (Delivery), and the strict
   job's cost below is accepted.
+- Amended 2026-10-02 (owner direction): a Task-replay Case is **captured** from the eval's own
+  solvers, run up to their first `generate`, instead of rendered by our writer from template
+  fields on the declaration. R2, R6, R9, the Runs / Taken / Never-runs table and two Known
+  limitations changed; the declaration lost its three template fields. Plan:
+  `docs/plan/2026-10-02-OME-1273-capture-rendering.md`.
 - Component: `apps/screamingface-engine` (`screamingface_engine_inspect`).
 - Ticket: [OME-1273](https://linear.app/openmined/issue/OME-1273/import-the-single-turn-benchmarks-the-importer-still-refuses). Parent epic: OME-1299.
 - Ledger: `docs/work/2026-09-30-ome-1273-task-replay-spec.md`.
@@ -28,8 +33,10 @@ build.** The importer refuses 34 packages because it can't see where their Cases
 - an upstream bug at 0.20.0 gets in the way (bbh)
 
 The change: we fetch the Cases the way Inspect does, by calling the eval's own task function.
-Building its Task makes the eval load its dataset, which is the fetch we want. **This never runs
-an evaluation:** no solver, scorer, model or Judge runs, and nothing is paid for. We record every
+Building its Task makes the eval load its dataset, which is the fetch we want. Each Case's text
+is then captured from the eval's own solvers: they run on each Sample exactly as inspect runs
+them, and the moment they would ask the model, a stand-in writes down the prompt instead.
+**This never runs an evaluation:** no model, scorer or Judge runs, and nothing is paid for. We record every
 place the task fetched from (a **Case Source**) and fingerprint what it produced (the **Case
 Digest**). Every image build calls the task function again and serves nothing if the fingerprint
 differs.
@@ -68,9 +75,9 @@ question booklet, not to run the test.
 
 | | What happens |
 | -- | -- |
-| **Runs** | The eval's `@task` function, called with its task args (`mgsm(languages=["en"])`). To build its `Task`, the function loads its dataset: mgsm downloads its TSV and checks upstream's sha256; agieval downloads a JSONL at a pinned GitHub commit. |
-| **Taken** | `task.dataset` only: the Samples after the eval's own filtering and conversion. Our shared Case writer then renders each prompt and writes the Grading Material, as on the Hugging Face path. |
-| **Never runs** | inspect's `eval()`. The solver (no `generate()`), the scorer, and every model and Judge. No API call is made and nothing is paid for. |
+| **Runs** | The eval's `@task` function, called with its task args (`mgsm(languages=["en"])`). To build its `Task`, the function loads its dataset: mgsm downloads its TSV and checks upstream's sha256; agieval downloads a JSONL at a pinned GitHub commit. Then, per Sample, the Task's own `setup` and `solver` chain, up to its first `generate`: that call goes to a stand-in that records the messages and answers nothing (amended 2026-10-02). |
+| **Taken** | `task.dataset`: the Samples after the eval's own filtering and conversion. Per Sample, the messages the solvers had built when they first asked the model (system text, then the one user prompt): that text is the Case. Our shared Case writer writes it and the Grading Material, as on the Hugging Face path. |
+| **Never runs** | inspect's `eval()`. Any model: the stand-in `generate` never calls one, and the child's environment names no model (`INSPECT_EVAL_MODEL=none/none`), so a solver that builds its own with `get_model()` raises and the Sample is refused. The scorer, every Judge, a sandbox, a tool. A chain that asks twice, hands the model tools, or builds a multi-turn prompt is refused by name, never approximated. No API call is made and nothing is paid for. |
 
 This is not new ground: the importer already calls task functions today, and so does the
 question filter (OME-1269). Both swap `hf_dataset` for a stand-in; Task replay lets the real
@@ -93,9 +100,14 @@ fetch happen.
   (COPIED); the Case count and Case Digest go in as constants (CAPTURED). The reviewer judges
   *where* the Cases come from; the code enforces *what* they are.
 - **Task-replay Case Preparation calls the eval's own loading code, not a copy of it,** because
-  re-implementing each loader script by hand is exactly where silent mismatches come from. It
-  shares prompt rendering and the writer with the Hugging Face path, so the two paths can't
-  drift on how a Case is written.
+  re-implementing each loader script by hand is exactly where silent mismatches come from.
+- **The prompt is captured from the eval's own solvers, not imitated from declared template
+  fields** (amended 2026-10-02), because an imitation only knows the solvers it was written
+  for: sevenllm chains `prompt_template(TEMPLATE)` then `multiple_choice()`, and a writer that
+  renders choices from a template field dropped the first solver entirely, with both replays
+  agreeing because both ran the same writer. Capture runs the real chain, so a solver we never
+  saw renders right. The Hugging Face path keeps its imitation writer until the fold
+  (OME-1460); the two share the Case writer, so a Case is still written one way.
 - **A mismatch writes SKIPPED, not a crash,** so one changed URL can't take every other
   Benchmark in a deployed image dark. The PR image job runs strict, so the PR that caused a
   mismatch (usually a dependency bump) can't merge.
@@ -135,7 +147,22 @@ fetch happen.
   Case count as their only drift guard. Backfilling a digest changes their Benchmark Revisions,
   so it needs its own ticket (not filed).
 - **Two preparation paths live side by side.** Folding the Hugging Face path into Task replay
-  is a later decision, not this ticket's.
+  is a later decision, not this ticket's (OME-1460). Until then the Hugging Face path still
+  imitates the eval's render from template fields; only the Task-replay path captures it.
+- **A captured Case is system text then one user prompt.** An eval whose solvers build a
+  few-shot conversation (assistant turns), several user turns, or image content is refused by
+  name, not flattened. Accepted: none of the 14 packages needs it; the Case shape grows when
+  one does.
+- **A solver that names a model explicitly can still reach it.** The child's environment
+  names no model, so a bare `get_model()` raises and capture refuses the Sample; a solver
+  that writes `get_model("openai/gpt-4o")` or passes its own `default=` would still call
+  out, with the builder's keys. Accepted: none of the 14 packages does this in a solver we
+  import (cyberseceval_4's phishing solver uses the bare form and is refused); a reviewer
+  reads each Task's solvers at import, and the no-network grading test never covers the
+  import step.
+- **A solver that reorders choices after the dataset is read is refused.** inspect's
+  `multiple_choice(shuffle=…)` (deprecated upstream) shows the Candidate one order while the
+  Grading Material holds the Sample's; the task arg that disables the shuffle is the fix.
 - **Every count here is pinned to inspect_evals 0.20.0.** A version bump means re-running the
   sweep before trusting any number.
 
@@ -151,11 +178,16 @@ fetch happen.
   - `record_to_sample` is defined inside the task function (:491).
 
   Every existing import produces byte-identical generated code.
-- **R2. Task replay.** It calls the eval's task function with the declared task args, and only
-  that: it never calls inspect's `eval()`, so no solver, scorer or model runs. The call happens
-  in a child process whose `INSPECT_EVALS_CACHE_DIR` and Hugging Face cache point at a fresh, empty
-  directory. The Samples are the Task's dataset after the task's own filtering, shuffling and
-  conversion, as inspect would run them.
+- **R2. Task replay.** It calls the eval's task function with the declared task args, then
+  runs the Task's `setup` and `solver` chain on each Sample with a stand-in `generate` that
+  records the messages and answers with an empty reply (amended 2026-10-02). It never calls
+  inspect's `eval()`, so no model, scorer or Judge runs. The call happens in a child process
+  whose `INSPECT_EVALS_CACHE_DIR` and Hugging Face cache point at a fresh, empty directory. The
+  Samples are the Task's dataset after the task's own filtering, shuffling and conversion, as
+  inspect would run them; the Case text is the system messages then the one user prompt the
+  chain had built at its first `generate`. Refused by name, with the Case number: a Task that
+  declares a sandbox; a chain that never calls `generate`, calls it twice, hands the model
+  tools, builds a multi-turn or non-text prompt, reorders the choices, or raises.
 - **R3. Case Source recorder.** A pass-through wrap on each fetch primitive below records one
   Case Source per call: its kind (Hugging Face, URL, file inside the package), its location, and
   its pin (dataset revision, a commit in the URL, or an upstream sha256), or "unpinned".
@@ -179,8 +211,9 @@ fetch happen.
   code that writes the files, never from a second serialisation.
 - **R6. Generated declaration.** A Task-replay Imported Benchmark gets its own declaration
   type, not new optional fields on `CasesSpec`, because none of `CasesSpec`'s dataset-pin fields
-  apply. It carries the task reference and args, the prompt facts the importer already reads,
-  the Case count, the Case Digest, and a licence field. The importer writes each Case Source
+  apply. It carries the task reference and args, the Case count, the Case Digest, and a licence
+  field; no prompt fields, because the eval's own solvers render the prompt (R2, amended
+  2026-10-02). The importer writes each Case Source
   above it as a comment, and the licence as `TODO`. Where upstream supplied no hash, the comment
   says the Case Digest is the only pin.
 - **R7. Licence gate.** A test refuses any Task-replay declaration whose licence is still `TODO`,
@@ -193,9 +226,10 @@ fetch happen.
 
 ### Image side
 
-- **R9. Task-replay Case Preparation.** It calls the task function again in a child process (R2), renders
-  prompts with the same code as the Hugging Face path, then checks the Case count and the Case
-  Digest before writing anything.
+- **R9. Task-replay Case Preparation.** It calls the task function again in a child process and
+  captures each prompt from the Task's own solvers (R2), writes the Cases with the same writer
+  as the Hugging Face path, and checks the Case count and the Case Digest before writing
+  anything.
 - **R10. Mismatch.** A different Case Digest, a different count, or a failed fetch writes the
   existing `SKIPPED` marker with a reason naming the Benchmark and the expected and actual
   values, writes no Cases, and moves on to the next Benchmark. At run time the Benchmark answers
