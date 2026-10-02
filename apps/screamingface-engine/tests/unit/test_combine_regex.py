@@ -1,17 +1,14 @@
-"""regex@1 reads one group from the last 1024 characters, under a static ReDoS ban (OME-1289).
+"""regex@1 reads one group from the last 1024 characters, on the linear-time RE2 engine (OME-1289).
 
 FEATURE: an author names a regex; the engine runs it deterministically and fast.
 STORY: as an author of a majority-vote Candidate, I read the answer from a labelled line such as
-"Final: B", and a pattern that could freeze a worker is refused when the spec is checked.
-RX#1 to RX#7 (RX-D1 to RX-D5) of the E4a gap-closure; unit 2.
+"Final: B", and no pattern I write can freeze a worker: RE2 runs in linear time by construction.
+RX#1 to RX#7 (RX-D1 to RX-D5) of the E4a gap-closure; unit 2, after the RE2 decision.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import re
-import re._parser as _sre  # type: ignore[import-not-found]
-import sys
 import time
 from typing import Any
 
@@ -21,27 +18,20 @@ from combine_support import context_text, run, spec_text, vote_spec
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS, BUILTIN_REGISTRATIONS
 from screamingface_engine.combine.endpoint import CombineOutcome
-from screamingface_engine.combine.operators import _regex_ban
-from screamingface_engine.combine.operators._regex_ban import backtracking_shape
 from screamingface_engine.combine.ports import CombineError, SpecInvalid, StageResult
 from screamingface_engine.combine.registry import OperatorRegistry
 
-_REJECTED = [
-    ("nested_quantifier", "(a+)+"),
-    ("nested_quantifier", "(a*)*"),
-    ("nested_quantifier", "(a+)*b"),
-    ("nested_quantifier", r"(?:\d+,?)+"),
-    ("nested_quantifier", "(?>a+)+"),
-    ("quantified_alternation", "(a|aa)+"),
-    ("quantified_alternation", "(x|xy)*"),
-    ("quantified_alternation", "(?:ab|cd)+"),
-    ("adjacent_overlap", r"\d*\d*"),
-    ("adjacent_overlap", ".*.*"),
-    ("adjacent_overlap", r"\w+\d+"),
-    ("adjacent_overlap", r"\d*a?\d*"),
-    ("adjacent_overlap", r"(\d*)\d*"),
-    ("adjacent_overlap", "[a-z]+[A-Z]+"),
+_CATASTROPHIC = [
+    ("(a+){10}$", "a" * 1023 + "!"),
+    ("(a+)+$", "a" * 1023 + "!"),
+    ("(a|aa)+$", "a" * 1023 + "!"),
+    ("(a|aa){1,60}$", "a" * 1023 + "!"),
+    ("(?:a+)?(?:a+)?(?:a+)?$", "a" * 1023 + "!"),
+    (r"\d*\d*\d*x", "1" * 1024),
+    ("[^x]+X+[^x]+X+$", "aX" * 512),
+    ("(.*a){12}", "ab" * 512),
 ]
+_UNSUPPORTED = [r"(a)\1", "(?=a)", "(?!a)", "(?<=a)b", "(?<!a)b", "a{1,9999}", r"(?a:\w)"]
 _ACCEPTED_TIMED = [
     (r"Final: (\w+)", "Final: " * 146 + "xx"),
     (r"ANSWER:\s*([A-Da-d])", "ANSWER:" + " " * 1017),
@@ -51,6 +41,9 @@ _ACCEPTED_TIMED = [
     (r"(\d+(?:\.\d+)?)", "1." * 512),
     (r"#### (-?[0-9,]+)", "#### " + "1" * 1019),
     (r"(?P<ans>[A-D])\)", "A" * 1024),
+    # quadratic under the stdlib `re` (about 5 ms on a failing window); linear on RE2
+    (r"(\d+)\s*$", "1" * 1023 + "x"),
+    ("[a-z]+[0-9]+", "a" * 1024),
 ]
 
 
@@ -70,69 +63,39 @@ def _voted(value: str) -> StageResult:
     return StageResult(value, "voted")
 
 
-# --- RX#1: the ban ---------------------------------------------------------------------------
+# --- RX#1: RE2 runs in linear time ------------------------------------------------------------
 
 
-def test_regex_parse_tree_is_the_pinned_stdlib_shape() -> None:
-    assert sys.version_info[:2] in ((3, 12), (3, 13))
-    expected = {
-        "(a|aa)+": (
-            "[(MAX_REPEAT, (1, MAXREPEAT, [(SUBPATTERN, (1, 0, 0, [(LITERAL, 97), "
-            "(BRANCH, (None, [[], [(LITERAL, 97)]]))]))]))]"
-        ),
-        "(x|y)*": (
-            "[(MAX_REPEAT, (0, MAXREPEAT, [(SUBPATTERN, (1, 0, 0, "
-            "[(IN, [(LITERAL, 120), (LITERAL, 121)])]))]))]"
-        ),
-        r"\d*a?\d*": (
-            "[(MAX_REPEAT, (0, MAXREPEAT, [(IN, [(CATEGORY, CATEGORY_DIGIT)])])), "
-            "(MAX_REPEAT, (0, 1, [(LITERAL, 97)])), "
-            "(MAX_REPEAT, (0, MAXREPEAT, [(IN, [(CATEGORY, CATEGORY_DIGIT)])]))]"
-        ),
-    }
-    for pattern, tree in expected.items():
-        assert repr(list(_sre.parse(pattern, 0).data)) == tree, pattern
+def _best_of_three(pattern: str, text: str, **more: Any) -> float:
+    best = float("inf")
+    for _ in range(3):
+        started = time.perf_counter()
+        stage("regex@1", text, _args(pattern, **more))
+        best = min(best, time.perf_counter() - started)
+    return best
 
 
-@pytest.mark.parametrize(("shape", "pattern"), _REJECTED)
-def test_backtracking_shapes_are_rejected(shape: str, pattern: str) -> None:
-    assert backtracking_shape(pattern) == shape
+@pytest.mark.parametrize(("pattern", "text"), _CATASTROPHIC)
+def test_catastrophic_patterns_run_in_linear_time(pattern: str, text: str) -> None:
+    assert len(text) <= 1024
+    _check(_args(pattern))
+    best = _best_of_three(pattern, text)
+    assert best < 0.005, f"{pattern} took {best:.5f}s"
+
+
+@pytest.mark.parametrize("pattern", _UNSUPPORTED)
+def test_re2_unsupported_syntax_is_spec_invalid(pattern: str) -> None:
     with pytest.raises(SpecInvalid) as raised:
         _check(_args(pattern))
-    assert shape in str(raised.value)
+    assert "RE2" in str(raised.value)
     assert pattern not in str(raised.value)
-
-
-def test_category_pairs_called_disjoint_share_no_code_point() -> None:
-    sources = _regex_ban._CATEGORY_SOURCE
-    compiled = {name: re.compile(source) for name, source in sources.items()}
-    pairs = [tuple(sorted(pair)) for pair in _regex_ban._DISJOINT]
-    assert all(len(pair) == 2 for pair in pairs)
-    for code in range(0x110000):
-        char = chr(code)
-        hits = {name for name, pattern in compiled.items() if pattern.fullmatch(char)}
-        for first, second in pairs:
-            assert not (first in hits and second in hits), (first, second, hex(code))
-
-
-@pytest.mark.parametrize(
-    "pattern",
-    ["(x|y)*", r"\s*(\w+)", "[a-z]+[0-9]+", r"\d+\s*\.", "a++", r"Final: (\w+)"],
-)
-def test_acceptance_decisions_are_pinned(pattern: str) -> None:
-    # (x|y)* is a character set to sre (F4); a quadratic scan is accepted on purpose (F9).
-    assert backtracking_shape(pattern) is None
 
 
 @pytest.mark.parametrize(("pattern", "text"), _ACCEPTED_TIMED)
 def test_accepted_patterns_finish_under_5ms_on_worst_input(pattern: str, text: str) -> None:
     assert len(text) <= 1024
     _check(_args(pattern))
-    best = float("inf")
-    for _ in range(5):
-        started = time.perf_counter()
-        stage("regex@1", text, _args(pattern))
-        best = min(best, time.perf_counter() - started)
+    best = min(_best_of_three(pattern, text) for _ in range(2))
     assert best < 0.005, f"{pattern} took {best:.5f}s"
 
 
@@ -142,14 +105,14 @@ def test_accepted_patterns_finish_under_5ms_on_worst_input(pattern: str, text: s
 @pytest.mark.parametrize(
     "args",
     [
-        _args("("),
+        _args("bad(group"),
         _args(""),
         _args("a" * 257),
         _args(5),
-        {"pattern": "a", "flags": "i"},
+        {"pattern": "secret_xyz", "flags": "i"},
         {"group": 0},
-        _args("a", ignore_case="yes"),
-        _args("a", occurrence="middle"),
+        _args("secret_xyz", ignore_case="yes"),
+        _args("secret_xyz", occurrence="middle"),
     ],
     ids=[
         "does-not-compile",
@@ -163,8 +126,11 @@ def test_accepted_patterns_finish_under_5ms_on_worst_input(pattern: str, text: s
     ],
 )
 def test_regex_pattern_that_does_not_compile_is_spec_invalid(args: dict[str, Any]) -> None:
-    with pytest.raises(SpecInvalid):
+    with pytest.raises(SpecInvalid) as raised:
         _check(args)
+    pattern = args.get("pattern")
+    if isinstance(pattern, str) and pattern:
+        assert pattern not in str(raised.value)
 
 
 def test_regex_spec_invalid_is_raised_before_any_member_is_read() -> None:
@@ -176,7 +142,7 @@ def test_regex_spec_invalid_is_raised_before_any_member_is_read() -> None:
     )
     spec = vote_spec(
         2,
-        extract={"op": "regex@1", "args": _args("(")},
+        extract={"op": "regex@1", "args": _args("bad(group")},
         normalize={"op": "text@1", "args": {}},
         reduce={"op": "mode@1", "args": {}},
         select={"op": "first_holder@1", "args": {}},
@@ -242,14 +208,28 @@ def test_regex_scans_only_last_1024_characters() -> None:
     assert stage("regex@1", "Final: AB" + "x" * 1016, args) == StageResult(None, "no_match")
 
 
-# --- RX#7 ------------------------------------------------------------------------------------
+# --- RX#7: RE2's Unicode rules ----------------------------------------------------------------
 
 
-def test_regex_unicode_rules_are_pinned() -> None:
-    assert stage("regex@1", "name \u00dc", _args(r"(\w+)$", group=1)) == _voted("\u00dc")
-    assert stage("regex@1", "total \uff11\uff12", _args(r"(\d+)", group=1)) == _voted(
+def test_regex_unicode_rules_are_pinned_to_re2() -> None:
+    # RE2: \w and \d are ASCII; \p{L} and \p{N} name the Unicode classes.
+    no_match = StageResult(None, "no_match")
+    assert stage("regex@1", "name \u00dc", _args(r"(\w+)$", group=1)) == no_match
+    assert stage("regex@1", "name \u00dc", _args(r"(\w+)", group=1)) == _voted("name")
+    assert stage("regex@1", "name \u00dc", _args(r"(\p{L}+)$", group=1)) == _voted("\u00dc")
+    assert stage("regex@1", "total \uff11\uff12", _args(r"(\d+)", group=1)) == no_match
+    assert stage("regex@1", "total \uff11\uff12", _args(r"(\p{N}+)", group=1)) == _voted(
         "\uff11\uff12"
     )
     ignore = {"ignore_case": True, "group": 1}
     assert stage("regex@1", "FINAL: B", _args("final: (b)", **ignore)) == _voted("B")
     assert stage("regex@1", "\u00dc", _args("(\u00fc)", **ignore)) == _voted("\u00dc")
+
+
+def test_regex_reads_text_with_a_lone_surrogate_without_failing() -> None:
+    # JSON can carry "\ud800"; RE2 takes UTF-8 only, so the window reads it as U+FFFD.
+    text = "x\ud800y Final: B"
+    assert stage("regex@1", text, _FINAL) == _voted("B")
+    assert stage("regex@1", "a\ud800b", _args("(a.b)", group=1)) == _voted("a\ufffdb")
+    with pytest.raises(SpecInvalid):
+        _check(_args("a\ud800"))

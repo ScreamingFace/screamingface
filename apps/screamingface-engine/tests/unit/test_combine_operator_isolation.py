@@ -12,7 +12,7 @@ from types import MappingProxyType
 
 from combine_golden_support import MODULE_OPERATORS, find, load_fixtures, run_case
 
-from screamingface_engine.combine.operators import _regex_ban, extract, normalize, reduce, select
+from screamingface_engine.combine.operators import extract, normalize, reduce, select
 
 _ROUNDS = 50
 _MUTABLE = (list, dict, set, bytearray)
@@ -56,7 +56,7 @@ def _mutable_paths(value: object, path: str, *, tolerate_dicts: bool) -> list[st
 
 
 def test_plugin_modules_hold_no_mutable_module_state() -> None:
-    for module in (extract, normalize, reduce, select, _regex_ban):
+    for module in (extract, normalize, reduce, select):
         for name, value in vars(module).items():
             if name.startswith("__"):
                 continue

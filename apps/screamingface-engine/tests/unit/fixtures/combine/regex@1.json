@@ -87,30 +87,6 @@
    }
   },
   {
-   "name": "unicode word characters",
-   "input": "name Ü",
-   "args": {
-    "pattern": "(\\w+)$",
-    "group": 1
-   },
-   "expect": {
-    "status": "voted",
-    "value": "Ü"
-   }
-  },
-  {
-   "name": "unicode digits",
-   "input": "total １２",
-   "args": {
-    "pattern": "(\\d+)",
-    "group": 1
-   },
-   "expect": {
-    "status": "voted",
-    "value": "１２"
-   }
-  },
-  {
    "name": "ignore case keeps the text case",
    "input": "FINAL: B",
    "args": {
@@ -121,19 +97,6 @@
    "expect": {
     "status": "voted",
     "value": "B"
-   }
-  },
-  {
-   "name": "ignore case folds unicode",
-   "input": "Ü",
-   "args": {
-    "pattern": "(ü)",
-    "group": 1,
-    "ignore_case": true
-   },
-   "expect": {
-    "status": "voted",
-    "value": "Ü"
    }
   },
   {
@@ -238,30 +201,146 @@
    }
   },
   {
-   "name": "nested quantifier is banned",
-   "input": "aaa",
+   "name": "word class is ASCII: no word at the end",
+   "input": "name Ü",
    "args": {
-    "pattern": "(a+)+"
+    "pattern": "(\\w+)$",
+    "group": 1
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "word class is ASCII: the last word",
+   "input": "name Ü",
+   "args": {
+    "pattern": "(\\w+)",
+    "group": 1
+   },
+   "expect": {
+    "status": "voted",
+    "value": "name"
+   }
+  },
+  {
+   "name": "letter property reads Unicode",
+   "input": "name Ü",
+   "args": {
+    "pattern": "(\\p{L}+)$",
+    "group": 1
+   },
+   "expect": {
+    "status": "voted",
+    "value": "Ü"
+   }
+  },
+  {
+   "name": "digit class is ASCII",
+   "input": "total １２",
+   "args": {
+    "pattern": "(\\d+)",
+    "group": 1
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "number property reads Unicode",
+   "input": "total １２",
+   "args": {
+    "pattern": "(\\p{N}+)",
+    "group": 1
+   },
+   "expect": {
+    "status": "voted",
+    "value": "１２"
+   }
+  },
+  {
+   "name": "ignore case folds unicode",
+   "input": "Ü",
+   "args": {
+    "pattern": "(ü)",
+    "group": 1,
+    "ignore_case": true
+   },
+   "expect": {
+    "status": "voted",
+    "value": "Ü"
+   }
+  },
+  {
+   "name": "nested quantifier runs in linear time",
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!",
+   "args": {
+    "pattern": "(a+){10}$"
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "quantified alternation runs in linear time",
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!",
+   "args": {
+    "pattern": "(a|aa)+$"
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "adjacent unbounded repeats run in linear time",
+   "input": "111111111111111111111111111111",
+   "args": {
+    "pattern": "\\d*\\d*\\d*x"
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "backreference does not compile",
+   "input": "a",
+   "args": {
+    "pattern": "(a)\\1"
    },
    "expect": {
     "error": "combine_spec_invalid"
    }
   },
   {
-   "name": "quantified alternation is banned",
-   "input": "aaa",
+   "name": "lookahead does not compile",
+   "input": "a",
    "args": {
-    "pattern": "(a|aa)+"
+    "pattern": "(?=a)"
    },
    "expect": {
     "error": "combine_spec_invalid"
    }
   },
   {
-   "name": "adjacent overlap is banned",
-   "input": "123",
+   "name": "lookbehind does not compile",
+   "input": "a",
    "args": {
-    "pattern": "\\d*\\d*"
+    "pattern": "(?<=a)b"
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "repeat over the RE2 limit does not compile",
+   "input": "a",
+   "args": {
+    "pattern": "a{1,9999}"
    },
    "expect": {
     "error": "combine_spec_invalid"

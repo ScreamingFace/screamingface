@@ -8,10 +8,14 @@ of text (the last 128 characters ending at the last digit; 4096 characters after
 a hostile 1 MiB reply costs them the same as a short one. The other three make one linear pass
 over the text at C speed (a strip, a ``json.loads`` or a ``rfind``).
 
-regex reads only the last 1024 characters under a static backtracking ban. The two Inspect rules
-follow the grader exactly: they are linear in the text but slower than the rest on adversarial
-input (digit-free prose is a C-speed exit; a text of many ``1a`` words is about 1 s per MiB), and
-the boxed step is linear (the upstream regex is quadratic).
+regex runs on RE2 (google-re2), whose matching is linear in the text, so no pattern can freeze a
+worker; it reads only the last 1024 characters. RE2 syntax: ``\\d`` and ``\\w`` are ASCII (use
+``\\p{L}`` and ``\\p{N}`` for Unicode classes), and lookarounds and backreferences do not
+compile.
+
+The two Inspect rules follow the grader exactly: they are linear in the text but slower than
+the rest on adversarial input (digit-free prose is a C-speed exit; a text of many ``1a``
+words is about 1 s per MiB), and the boxed step is linear (the upstream regex is quadratic).
 
 INVARIANT: each extractor is pure and O(n); this module holds no mutable state.
 WHY ASCII digits only: ``[0-9]``, never ``\\d``.
@@ -23,14 +27,15 @@ from __future__ import annotations
 
 import re
 from types import MappingProxyType
-from typing import cast
+from typing import Any, cast
+
+import re2
 
 from screamingface_engine.combine.operators._inspect_vendor import (
     _find_last_substantive_line,
     _is_number,
     strip_numeric_punctuation,
 )
-from screamingface_engine.combine.operators._regex_ban import backtracking_shape
 from screamingface_engine.combine.ports import (
     FIELD_PATH,
     OpArgs,
@@ -121,11 +126,8 @@ def json_field(text: str, args: OpArgs, /) -> StageResult:
 
 _REGEX_WINDOW = 1024  # characters; the scan reads text[-_REGEX_WINDOW:]
 _REGEX_MAX_PATTERN = 256
+_SURROGATE = re.compile("[\ud800-\udfff]")
 _REGEX_ARGS = frozenset({"pattern", "group", "occurrence", "ignore_case"})
-
-
-def _regex_flags(args: OpArgs) -> int:
-    return re.IGNORECASE if args.get("ignore_case") else 0
 
 
 def _check_regex_keys(args: OpArgs) -> None:
@@ -147,14 +149,18 @@ def _check_regex_values(args: OpArgs) -> None:
         raise SpecInvalid("regex@1 occurrence must be last or first")
 
 
-def _compile(args: OpArgs) -> re.Pattern[str]:
+def _compile(args: OpArgs) -> Any:
+    """The RE2 object for the args (RE2 caches compiled patterns itself; a compile is ~10 us)."""
+    source = ("(?i)" if args.get("ignore_case") else "") + str(args["pattern"])
     try:
-        return re.compile(str(args["pattern"]), _regex_flags(args))
-    except (re.error, OverflowError):
-        raise SpecInvalid("regex@1 pattern does not compile") from None
+        return re2.compile(source)
+    except (re2.error, UnicodeError):  # UnicodeError: a lone surrogate has no UTF-8 form
+        raise SpecInvalid(
+            "regex@1 pattern does not compile under RE2 (no lookarounds or backreferences)"
+        ) from None
 
 
-def _group_exists(group: object, compiled: re.Pattern[str]) -> bool:
+def _group_exists(group: object, compiled: Any) -> bool:
     if isinstance(group, str):
         return group in compiled.groupindex
     return isinstance(group, int) and not isinstance(group, bool) and 0 <= group <= compiled.groups
@@ -163,15 +169,11 @@ def _group_exists(group: object, compiled: re.Pattern[str]) -> bool:
 def _check_regex_args(args: OpArgs) -> None:
     _check_regex_keys(args)
     _check_regex_values(args)
-    compiled = _compile(args)
-    shape = backtracking_shape(str(args["pattern"]))
-    if shape is not None:
-        raise SpecInvalid(f"regex@1 pattern has a banned backtracking shape: {shape}")
-    if not _group_exists(args.get("group", 0), compiled):
+    if not _group_exists(args.get("group", 0), _compile(args)):
         raise SpecInvalid("regex@1 group must name a group of the pattern")
 
 
-def _last_match(compiled: re.Pattern[str], window: str) -> re.Match[str] | None:
+def _last_match(compiled: Any, window: str) -> Any:
     last = None
     for last in compiled.finditer(window):
         pass
@@ -179,9 +181,10 @@ def _last_match(compiled: re.Pattern[str], window: str) -> re.Match[str] | None:
 
 
 def regex(text: str, args: OpArgs, /) -> StageResult:
-    """The chosen group of the last (or first) match in the last 1024 characters."""
-    compiled = _compile(args)  # re keeps its own cache of compiled patterns
-    window = text[-_REGEX_WINDOW:]
+    """The chosen group of the last (or first) match in the last 1024 characters, by RE2."""
+    compiled = _compile(args)
+    # WHY: RE2 reads UTF-8 only, so a lone surrogate (JSON can carry one) reads as U+FFFD.
+    window = _SURROGATE.sub("\ufffd", text[-_REGEX_WINDOW:])
     first = args.get("occurrence", "last") == "first"
     match = compiled.search(window) if first else _last_match(compiled, window)
     if match is None:
@@ -270,7 +273,7 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "regex",
         1,
         "extract",
-        "One regex group from the last 1024 characters.",
+        "One regex group (RE2 syntax) from the last 1024 characters.",
         regex,
         args_schema=MappingProxyType(
             {
