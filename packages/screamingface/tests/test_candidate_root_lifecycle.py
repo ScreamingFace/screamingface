@@ -8,6 +8,7 @@ from test_live_candidate_progress import candidate
 
 from screamingface._engine.contract import _RunState
 from screamingface._ui.evaluation_state import _EvaluationProgress
+from screamingface.errors import ExecutionError
 
 
 @pytest.mark.parametrize("early_child", [False, True])
@@ -35,9 +36,11 @@ def test_decoded_child_lifecycle_does_not_finish_candidate(early_child, child_sa
 
     if early_child:
         accept("ai.url4.started", {"url4": "()!'early child'"}, "/early")
-        accept("ai.url4.terminated", {"status": "succeeded", "error": None}, "/early")
-        assert progress.rows[0].status == "running"
-        assert progress.rows[0].root_identity is None
+        # INVARIANT: an unknown root makes termination fatal rather than an endless wait.
+        with pytest.raises(ExecutionError, match="run root was never identified.*URL4 mismatch"):
+            accept("ai.url4.terminated", {"status": "succeeded", "error": None}, "/early")
+        assert (progress.rows[0].status, progress.rows[0].root_identity) == ("running", None)
+        return
     accept("ai.url4.started", {"url4": item.url4}, elapsed=2.0)
     accept(
         "ai.url4.started",

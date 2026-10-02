@@ -259,6 +259,9 @@ class _RunState:
             raise ExecutionError("SF Engine termination status is invalid")
         selected_status = _termination_status(status)
         event = events.Terminated(**envelope, status=selected_status, error=error)
+        # WHY: heartbeats can keep recv alive forever after an unrecognized root terminates.
+        if self._root_source is None:
+            raise ExecutionError("SF Engine run root was never identified (URL4 mismatch)")
         if envelope["source"] != self._root_source:
             return _Accepted(event=event)
         if status != "succeeded":
