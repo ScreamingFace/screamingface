@@ -227,9 +227,11 @@ def _recovered_signal(key: object) -> Signal:
 
 
 def _recovered_member_weights(weights: object, members: object) -> tuple[float, ...]:
-    if not isinstance(weights, Mapping) or not isinstance(members, list):
-        raise _cannot_rebuild("vote")
-    if set(weights) != set(members):
+    if (
+        not isinstance(weights, Mapping)
+        or not isinstance(members, list)
+        or set(weights) != set(members)
+    ):
         raise _cannot_rebuild("vote")
     # member order, not the weights' key order: canonical JSON sorts member_10 before member_2
     values = [weights[member] for member in members]
@@ -238,7 +240,7 @@ def _recovered_member_weights(weights: object, members: object) -> tuple[float, 
     return tuple(values)
 
 
-def _source(value: object) -> str:
+def _as_python(value: object) -> str:
     return value._python() if isinstance(value, Signal) else repr(value)
 
 
@@ -306,7 +308,7 @@ class Vote(Reducer):
         return self._render("Vote", repr)
 
     def _python(self) -> str:
-        return self._render("sf.Vote", _source)
+        return self._render("sf.Vote", _as_python)
 
     def _render(self, head: str, show: Callable[[object], str]) -> str:
         weights = "" if self.weights is None else f", weights={show(self.weights)}"

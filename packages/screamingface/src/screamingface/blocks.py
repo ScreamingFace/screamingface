@@ -18,6 +18,7 @@ from screamingface._signals import FIELD_PATH, Signal
 from screamingface.reducer import (
     BENCHMARK_EXTRACT,
     Reducer,
+    _recovered_weights,
     _ReducerPlan,
     _Step,
     _Steps,
@@ -553,22 +554,13 @@ def _rebuild_vote(spec: Mapping[str, object]) -> Reduce:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
     extract = _extract_from_spec(spec, _normalize_from_spec(spec))
-    weights = spec["weights"]
+    weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
     pair = (_op_name(spec["reduce"]), _op_name(spec["select"]))
     if pair == ("mode", "first_holder") and weights is None:
         return Reduce("plurality", extract=extract)
-    if pair == ("weighted_mode", "max_weight_holder") and isinstance(weights, Mapping):
-        return Reduce("weighted", extract=extract, weights=_block_weights(weights, spec["members"]))
+    if pair == ("weighted_mode", "max_weight_holder") and weights is not None:
+        return Reduce("weighted", extract=extract, weights=weights)
     raise ValueError("a vote shape this SDK version cannot rebuild")
-
-
-def _block_weights(weights: Mapping[str, object], members: object) -> Signal | list[object]:
-    if set(weights) == {"signal"}:
-        return Signal(weights["signal"])  # type: ignore[arg-type]  # a non-text key raises TypeError
-    if not isinstance(members, list) or set(weights) != set(members):
-        raise ValueError("a vote shape this SDK version cannot rebuild")
-    # member order, not the weights' key order: canonical JSON sorts member_10 before member_2
-    return [weights[member] for member in members]
 
 
 _MEDIAN_MODES: Mapping[str, ReduceMode] = MappingProxyType(

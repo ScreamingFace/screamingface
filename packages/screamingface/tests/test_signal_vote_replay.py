@@ -15,10 +15,12 @@ from _combine_contract import GSM8K_RULE_WIRE, engine_operators
 from _vote_run_fixtures import ScriptedTransport, benchmark_resource, case_wire, engine_handler
 from test_client_run import _engine
 from test_signal_vote_contract_fixture import signal_vote_url4
+from url4 import build, render
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import Candidate
+from screamingface.url4 import _candidate_expression
 
 _GSM8K = "inspect-gsm8k"
 _CATALOG = ("/v1/operators", "/v1/benchmarks")
@@ -58,6 +60,8 @@ def test_signal_reduce_replays_identically_from_cache() -> None:
     url4 = report.candidates[0].url4
     original = compile_candidate(_vote(), operators=engine_operators()).url4
     assert "sources: {member_1: {model_1: {path: '/provider/a'" in original
+    # the evaluated Candidate is the plain compile, linked to the benchmark
+    assert render(_candidate_expression(build(url4))[0]) == original
 
     replay = ScriptedTransport(_GSM8K, "fixture-revision", _one_case)
     paths: list[str] = []

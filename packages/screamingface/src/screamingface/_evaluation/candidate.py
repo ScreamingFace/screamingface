@@ -189,6 +189,8 @@ class _CandidateCompiler:
 
     @property
     def warned_fusions(self) -> set[int]:
+        """The Fusions that already warned about duplicate members (pass 2 must not warn again)."""
+
         return self._warned_fusions
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
@@ -574,7 +576,7 @@ class _CandidateCompiler:
         # The combine call reads the same question-and-panel value a Model synthesizer does;
         # building it here keeps a later extra input (signals) a local change.
         context = _fusion_context(
-            input_context, members, self._accounting_sources(reducer, members), panel=panel
+            input_context, members, self._claim_accounting_sources(reducer, members), panel=panel
         )
         self._sources.append(
             src(
@@ -617,7 +619,7 @@ class _CandidateCompiler:
             calls=_member_calls(members),
         )
 
-    def _accounting_sources(
+    def _claim_accounting_sources(
         self, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
     ) -> dict[str, dict[str, dict[str, str]]] | None:
         """The context `sources`, only when the reducer reads an accounting signal (SG#5, SG#6)."""
