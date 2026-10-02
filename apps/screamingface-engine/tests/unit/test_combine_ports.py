@@ -24,6 +24,7 @@ from screamingface_engine.combine.ports import (
     canonical_decimal,
     decode_json_reply,
     field_signal_value,
+    finite_float,
     is_signal_key,
     loads_bounded,
     rejected,
@@ -174,3 +175,26 @@ def test_only_a_reduce_operator_may_declare_a_signal_read() -> None:
     descriptor = OperatorDescriptor("early_read", 1, "reduce", "s", _reduce, signal_read=_hook)
     assert descriptor.signal_read is _hook
     assert "signal_read" not in descriptor.catalog_entry()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (3, 3.0),
+        (0.5, 0.5),
+        (-2, -2.0),
+        (Decimal("0.0042"), 0.0042),
+        (10**400, None),
+        (Decimal("1E+400"), None),
+        (float("inf"), None),
+        (float("nan"), None),
+        (Decimal("NaN"), None),
+        (True, None),
+        (False, None),
+        ("1.5", None),
+        (None, None),
+        ([1], None),
+    ],
+)
+def test_finite_float_is_the_one_finite_number_rule(value: object, expected: float | None) -> None:
+    assert finite_float(value) == expected

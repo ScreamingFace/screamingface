@@ -20,14 +20,13 @@ owner decision. Anthropic authors no cost at all and therefore stays unpriced.
 
 from __future__ import annotations
 
-import contextlib
-import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
 from typing import Any, Literal
 
+from screamingface_engine.combine.ports import finite_float
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     OperationCache,
@@ -511,16 +510,6 @@ def retained_operation_accounting(
     )
 
 
-def _as_float(value: int | Decimal | None) -> float | None:
-    """A count or amount as a finite float; one too large for a float is unknown."""
-    if value is None:
-        return None
-    number: float | None = None
-    with contextlib.suppress(OverflowError):
-        number = float(value)
-    return number if number is not None and math.isfinite(number) else None
-
-
 def _reference_signal_accounting(aigw: object) -> SignalAccounting:
     """The numbers of the call a cache hit replays: ``cache.reference`` (cost, usage, latency)."""
     envelope = _mapping(aigw)
@@ -532,10 +521,10 @@ def _reference_signal_accounting(aigw: object) -> SignalAccounting:
     usage = _mapping(reference.get("usage")) or {}
     latency = _mapping(reference.get("latency")) or {}
     return SignalAccounting(
-        cost_usd=_as_float(avoided_usd_from_aigw(aigw).usd),
-        latency_ms=_as_float(_count(latency.get("provider_latency_ms"))),
-        tokens_in=_as_float(_count((_mapping(usage.get("input")) or {}).get("total"))),
-        tokens_out=_as_float(_count((_mapping(usage.get("output")) or {}).get("total"))),
+        cost_usd=finite_float(avoided_usd_from_aigw(aigw).usd),
+        latency_ms=finite_float(_count(latency.get("provider_latency_ms"))),
+        tokens_in=finite_float(_count((_mapping(usage.get("input")) or {}).get("total"))),
+        tokens_out=finite_float(_count((_mapping(usage.get("output")) or {}).get("total"))),
     )
 
 
@@ -564,10 +553,10 @@ def _attempt_signal_accounting(aigw: object) -> SignalAccounting:
     priced = direct_cost is not None and direct_cost.get("status") in _SAVED_COST_PROVENANCES
     usage = _attempt_usage(attempt)
     return SignalAccounting(
-        cost_usd=_as_float(_saved_cost_usd(direct_cost)) if priced and direct_cost else None,
-        latency_ms=_as_float(_attempt_latency(attempt)),
-        tokens_in=_as_float(usage[0]),
-        tokens_out=_as_float(usage[1]),
+        cost_usd=finite_float(_saved_cost_usd(direct_cost)) if priced and direct_cost else None,
+        latency_ms=finite_float(_attempt_latency(attempt)),
+        tokens_in=finite_float(usage[0]),
+        tokens_out=finite_float(usage[1]),
     )
 
 

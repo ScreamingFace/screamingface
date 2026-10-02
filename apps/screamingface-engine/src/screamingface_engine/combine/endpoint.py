@@ -22,7 +22,6 @@ reason stays the members' common reason; the operation's own finish reason is ``
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import math
 import re
@@ -71,6 +70,7 @@ from screamingface_engine.combine.ports import (
     answer_status,
     canonical_decimal,
     field_signal_value,
+    finite_float,
     is_signal_key,
     utf8_exceeds,
 )
@@ -216,15 +216,6 @@ def _combine(
     return CombineOutcome(output, evidence)
 
 
-def _finite_or_none(value: object) -> float | None:
-    """A number from the accounting reader, kept only when it is a finite int or float."""
-    number: float | None = None
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        with contextlib.suppress(OverflowError):  # an int too large for a float
-            number = float(value)
-    return number if number is not None and math.isfinite(number) else None
-
-
 def _signal_values(
     read: SignalRead | None,
     spec: CombineSpec,
@@ -240,7 +231,7 @@ def _signal_values(
         sources = context.sources
         assert sources is not None  # parse_context required it for an accounting key
         looked = {} if accounting is None else accounting(sources)
-        return {m: _finite_or_none(looked.get(m, {}).get(read.key)) for m in spec.members}
+        return {m: finite_float(looked.get(m, {}).get(read.key)) for m in spec.members}
     path = read.key[len(FIELD_SIGNAL_PREFIX) :]
     return {
         member: None

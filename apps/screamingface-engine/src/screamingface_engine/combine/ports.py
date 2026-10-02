@@ -422,24 +422,27 @@ def is_signal_key(key: object) -> bool:
     )
 
 
-def _signal_number(value: object) -> float | None:
-    if isinstance(value, bool):  # before int: bool is an int subclass
-        return 1.0 if value else 0.0
+def finite_float(value: object) -> float | None:
+    """A finite float from an int, float or Decimal; None for a bool, anything else, a value too
+    large for a float, or a non-finite number."""
     number: float | None = None
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
         with contextlib.suppress(OverflowError):  # an int too large for a float
             number = float(value)
     return number if number is not None and math.isfinite(number) else None
 
 
 def field_signal_value(text: str, path: str) -> float | None:
-    """decode_json_reply -> walk_field_path; bool -> 1.0/0.0; int/float -> float when finite;
+    """decode_json_reply -> walk_field_path; bool -> 1.0/0.0 (before ``finite_float``, which rejects
+    bool); int/float -> float when finite;
     anything else, not JSON, or path absent -> None. Never raises (I-S2, SG-D8, SG-D11)."""
     try:
         found, value = walk_field_path(decode_json_reply(text), path)
     except ValueError:
         return None
-    return _signal_number(value) if found else None
+    if not found:
+        return None
+    return float(value) if isinstance(value, bool) else finite_float(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -589,6 +592,7 @@ __all__ = [
     "canonical_json",
     "decode_json_reply",
     "field_signal_value",
+    "finite_float",
     "is_signal_key",
     "json_depth",
     "loads_bounded",
