@@ -17,6 +17,8 @@ on:
       # the engine's signal-key grammar and corpus that tests/unit/test_signal_key_conformance.py reads
       - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
       - "apps/screamingface-engine/tests/unit/test_combine_ports.py"
+      # the canonical_params source that tests/unit/test_canonical_params_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
@@ -34,6 +36,8 @@ on:
       # the engine's signal-key grammar and corpus that tests/unit/test_signal_key_conformance.py reads
       - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
       - "apps/screamingface-engine/tests/unit/test_combine_ports.py"
+      # the canonical_params source that tests/unit/test_canonical_params_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 

@@ -9,7 +9,7 @@ from typing import NoReturn, cast
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule, resolve_benchmark_rule
 from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
-from screamingface._signals import Signal
+from screamingface._signals import ACCOUNTING_SIGNALS, Signal
 from screamingface.reducer import REDUCER_NAMES, Reducer, _Step
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
@@ -93,6 +93,18 @@ def _pinned_step(
     if step is None:
         return None
     return {"op": operators.pin(stage, step.op), "args": thaw_mapping(step.args)}
+
+
+def accounting_signal(reducer: Reducer) -> str | None:
+    """The accounting key (cost_usd, latency_ms, tokens_in, tokens_out) the reducer's plan reads.
+
+    SEAM (9S/10S): by_signal reads join here.
+    """
+
+    weights = reducer._plan().weights
+    if isinstance(weights, Signal) and weights.key in ACCOUNTING_SIGNALS:
+        return weights.key
+    return None
 
 
 def decode_combine_spec(raw_intent: str) -> dict[str, object]:
