@@ -120,6 +120,7 @@ async def _safe_dispatch_failure_response(
     with the final, sanitized exception in hand — so recording here gives exactly one
     terminal record per failing request without each branch having to remember to log.
     """
+    handler_error_type: str | None = None
     try:
         final = await _dispatch_failure_response(
             request,
@@ -129,13 +130,8 @@ async def _safe_dispatch_failure_response(
             observation=observation,
         )
     except Exception as failure:
-        logger.error(
-            "dispatch failure handling error type=%s provider=%s account=%s profile=%s",
-            type(failure).__name__,
-            provider,
-            account_id,
-            profile_name,
-        )
+        # OME-1461: folded into the ONE terminal record below instead of a second ERROR line.
+        handler_error_type = type(failure).__name__
         final = _unknown_provider_exception()
     log_dispatch_failure(
         final,
@@ -143,6 +139,7 @@ async def _safe_dispatch_failure_response(
         error_type=error_type,
         account_id=account_id,
         profile_name=profile_name,
+        handler_error_type=handler_error_type,
     )
     return final
 
@@ -167,25 +164,34 @@ def log_dispatch_failure(
     error_type: str | None,
     account_id: str,
     profile_name: str,
+    handler_error_type: str | None = None,
 ) -> None:
     """Emit the terminal record of a failed non-streaming dispatch (OME-968).
 
     WHY ERROR for 5xx and WARNING for 4xx: an operator alerting on WARNING+ must see every
     failing call (the defect was ZERO records), while a caller's own bad request should not
-    page anyone the way a provider outage does.
+    page anyone the way a provider outage does. The exceptions are `_record_level`'s.
     `gateway_call_id`/`trace_id` are NOT arguments: the OME-938 record factory stamps them
     from the request scope, as on every other line.
-    INVARIANT: class-name-only — `error_type` is `type(exc).__name__`, never `str(exc)`.
+    INVARIANT: class-name-only — `error_type` is `type(exc).__name__`, never `str(exc)`, and
+    `handler_error_type` likewise names only the class that broke failure handling.
+    INVARIANT (OME-1461): exactly one record per failing call — a raising failure handler is
+    `outcome=handler_error` on THIS line, never a line of its own.
     """
+    outcome = "mapped" if handler_error_type is None else "handler_error"
+    suffix = "" if handler_error_type is None else f" handler_type={handler_error_type}"
     logger.log(
-        logging.ERROR if exc.status_code >= 500 else logging.WARNING,
-        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s",
+        _record_level(exc.status_code),
+        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s "
+        "outcome=%s%s",
         provider,
         failure_classification(exc.detail),
         exc.status_code,
         error_type or "HTTPException",
         account_id,
         profile_name,
+        outcome,
+        suffix,
     )
 
 
@@ -214,6 +220,18 @@ async def _record_dispatch_success(
             account_id,
             profile_name,
         )
+
+
+# WHY (OME-1461 log-level policy, reasons in docs/work/2026-10-02-ome-1461-*.md): 499 means the
+# client left — nothing an operator can act on, so INFO (still countable, never alerting).
+# 429/503 are back-pressure (rate limiting, admission shedding), not breakage: under overload
+# they arrive one per rejected call, so WARNING keeps them visible without paging on ERROR.
+_STATUS_LEVELS = {499: logging.INFO, 429: logging.WARNING, 503: logging.WARNING}
+
+
+def _record_level(status: int) -> int:
+    default = logging.ERROR if status >= 500 else logging.WARNING
+    return _STATUS_LEVELS.get(status, default)
 
 
 def _retry_after_headers(exc: Exception) -> dict[str, str]:
