@@ -9,6 +9,12 @@ CALLED, never reimplemented.** If you find yourself writing a `grade_case` or a 
 file under `benchmarks/`, you are on the wrong page — that is
 [`adding-a-benchmark-manually.md`](adding-a-benchmark-manually.md).
 
+Before the steps, read [`importing-an-inspect-eval.md`](importing-an-inspect-eval.md): for
+every field of an inspect `Task` it says whether we take it, read it as a gate, or replace it
+with our own rule, and for every step of inspect's `eval()` which ScreamingFace component does
+it instead. It also marks what is built today (the Hugging Face path below) against what is
+decided (Task replay, capture rendering, one fetch path), which this how-to does not yet cover.
+
 Onboarding is **AI-first** (owner decision 2026-09-16): an agent runs the command and
 writes everything; a human's whole job is verifying the resulting diff. The journey:
 
@@ -37,9 +43,9 @@ check:
 - **Model-graded (LLM-judged) evals are importable since OME-1240**, with three extra
   conditions:
   - The scorer takes its judge as an explicit model argument (xstest's `model=`,
-    frontierscience's `model=`). A scorer that only resolves inspect's grader *role*
-    (`get_model(role="grader")` with no model kwarg) is not supported yet — assembly
-    refuses it by name.
+    frontierscience's `model=`), or resolves inspect's grader *role*
+    (`get_model(role="grader")` with no model kwarg), which the row's `JudgeSpec` fills
+    since OME-1370; any other role is refused by name.
   - The scorer must not carry its own generation settings or tools into the judge
     call. The wire carries ONLY the row's `JudgeSpec.params`; at grading, the
     provider refuses by name any `GenerateConfig` field the eval sets beyond
