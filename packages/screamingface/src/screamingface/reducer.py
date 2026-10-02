@@ -159,6 +159,11 @@ class Reducer(ABC):
         """Raise ValueError when this reducer cannot serve ``count`` members (Fusion build time)."""
         return None
 
+    def _compiles_to_combine(self) -> bool:
+        """Whether this reducer compiles to a combine call. sf.Reduce('context') does not: the
+        Fusion recipe rewrite removes it, so it needs no operators and has no member cap."""
+        return True
+
 
 # Concrete reducers register here (later units add more names beside vote and median).
 _REDUCER_CLASSES: dict[str, type[Reducer]] = {}

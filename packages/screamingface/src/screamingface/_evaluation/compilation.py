@@ -10,6 +10,7 @@ from screamingface._evaluation.candidate import (
     _CompiledCandidate,
     compile_candidate,
 )
+from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
 from screamingface._evaluation.linking import _prepare_benchmark
 from screamingface._evaluation.model import (
     _compiled_candidate,
@@ -32,6 +33,9 @@ def compile_evaluation(
     # FEATURE (GP-1): extract="benchmark" resolves here, at the plan seam, from the resource
     # already fetched; the compiled url4 then pins the rule's concrete operator ids.
     benchmark_rule = _BenchmarkAnswerRule(resource.info.id, resource.answer_rule)
+    # WHY rewritten first: the Fusion recipe rewrite changes the name of a block form (the Fusion it
+    # becomes is "a+b", not "a+b->s"), so a candidate is named from the rewritten value.
+    rewritten = tuple(rewrite_fusion_recipe(recipe) for recipe in recipes)
     compiled = tuple(
         compile_candidate(
             recipe,
@@ -39,14 +43,14 @@ def compile_evaluation(
             operators=operators,
             benchmark_rule=benchmark_rule,
         )
-        for recipe in recipes
+        for recipe in rewritten
     )
     # WHY: the Benchmark is identical for every Candidate — parse it once and bind
     # each compiler-produced (already canonical) Candidate expression into it.
     prepared = _prepare_benchmark(resource.url4)
     linked = tuple(prepared.bind(value.url4) for value in compiled)
     candidates = []
-    for recipe, value, result in zip(recipes, compiled, linked, strict=True):
+    for recipe, value, result in zip(rewritten, compiled, linked, strict=True):
         candidates.append(
             _compiled_candidate(
                 name=recipe.name,

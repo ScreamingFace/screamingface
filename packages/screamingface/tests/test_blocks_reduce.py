@@ -254,11 +254,13 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
         sf.Reduce("top_k", k=1, by_field="a"),
         sf.Reduce("filter", where=sf.matches("a")),
         sf.Reduce("concat"),
-        sf.Reduce("context"),
     ]
     for block in not_yet:
         with pytest.raises(ValueError, match="does not compile in this SDK version yet"):
             _compiled_text(block)
+    # 'context' is the first half of the Fusion recipe: only the recipe rewrite takes it (FR#10)
+    with pytest.raises(ValueError, match="first half of the Fusion recipe"):
+        _compiled_text(sf.Reduce("context"))
     # argmax and pick_field have Engine operators since 9S, but the fixture catalog (units 1-3)
     # lacks them; they compile against the Engine's flow catalog
     argmax = sf.Reduce("argmax", by_signal=sf.signal("cost_usd"))

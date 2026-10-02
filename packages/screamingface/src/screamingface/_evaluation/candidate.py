@@ -19,6 +19,7 @@ from screamingface._evaluation.combine_spec import (
     accounting_signal,
     combine_spec_text,
 )
+from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
 from screamingface._evaluation.model import (
     _compiled_operation,
     _member_projection,
@@ -99,6 +100,7 @@ def compile_candidate(
     ``benchmark_rule`` is the benchmark's answer rule, read only by ``extract='benchmark'``.
     """
 
+    recipe = rewrite_fusion_recipe(recipe)
     try:
         first = _CandidateCompiler(
             check_surface=check_surface, operators=operators, benchmark_rule=benchmark_rule
@@ -133,7 +135,7 @@ def recipes_need_operators(recipes: Sequence[Recipe]) -> bool:
 
 def _needs_operators(value: Recipe | Reducer) -> bool:
     if isinstance(value, Reducer):
-        needed = True
+        needed = value._compiles_to_combine()
     else:
         needed = any(_needs_operators(child) for child in _children(value))
     return needed

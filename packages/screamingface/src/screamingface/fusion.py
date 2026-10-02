@@ -18,6 +18,11 @@ class Fusion(Recipe):
     Member Recipes marked ``optional=True`` tolerate failure; required members
     must succeed. ``all`` requires every member; zero permits
     synthesis with no successful member. The synthesizer itself stays required.
+
+    ``sf.Fusion(members, synthesizer=sf.Model(p))`` is the named recipe Fan-out →
+    ``Reduce.compute(context)`` → Model. Its block form,
+    ``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce("context")), sf.Model(p)])``,
+    compiles to the same url4 byte for byte.
     """
 
     name: str
@@ -88,7 +93,7 @@ def _quorum(value: object, member_count: int) -> int | Literal["all"]:
 
 def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer:
     if isinstance(value, Reducer):
-        if len(members) > _MAX_REDUCER_MEMBERS:
+        if value._compiles_to_combine() and len(members) > _MAX_REDUCER_MEMBERS:
             raise ValueError(
                 f"a reducer Fusion supports at most {_MAX_REDUCER_MEMBERS} members, "
                 f"not {len(members)}"

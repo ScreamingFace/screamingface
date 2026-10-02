@@ -251,6 +251,10 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
 )
 _MAX_K = 256
 _MAX_SEPARATOR = 1024
+CONTEXT_MISUSE = (
+    "sf.Reduce('context') is the first half of the Fusion recipe: put the synthesizer right after "
+    "it, as sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce('context')), synthesizer, ...])"
+)
 
 
 def _check_extract(op: str, value: object) -> Extract:
@@ -441,7 +445,14 @@ class Reduce(Reducer):
         parts.extend(f"{name}={show(value)}" for name, value in self.options.items())
         return f"{head}({', '.join(parts)})"
 
+    def _compiles_to_combine(self) -> bool:
+        # WHY: 'context' is the first half of the Fusion recipe; the recipe rewrite removes it
+        # before compile, so it never makes a combine call (no operators, no member cap).
+        return self.op != "context"
+
     def _plan(self) -> _ReducerPlan:
+        if self.op == "context":
+            raise ValueError(CONTEXT_MISUSE)
         build = _PLANS.get(self.op)
         if build is not None:
             return build(self)
