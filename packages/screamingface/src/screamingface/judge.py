@@ -132,9 +132,17 @@ class Judge(Reducer):
         params = f", params={dict(self.params)!r}" if self.params else ""
         return f"Judge({self.model!r}, returns={self.returns!r}, rubric={self.rubric!r}{params})"
 
+    def _key(self) -> tuple[object, ...]:
+        # WHY the type is in the key: Python's True == 1 == 1.0, but a bool, an int and a float
+        # compile to different url4 text, so they must stay three different judges (as Reduce._key).
+        params = tuple((name, type(value), value) for name, value in sorted(self.params.items()))
+        return (self.model, self.returns, self.rubric, params)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Judge) and self._key() == other._key()
+
     def __hash__(self) -> int:
-        # WHY by hand: params is a read-only mapping, which the generated field hash cannot take.
-        return hash((self.model, self.returns, self.rubric, tuple(sorted(self.params.items()))))
+        return hash(self._key())
 
 
 def _with_rubric(judge: Judge, rubric: object) -> Judge:

@@ -96,3 +96,24 @@ def test_the_judge_block_form_is_registered_and_keeps_a_judge_unchanged_without_
     assert _with_rubric(judge, _OVERRIDE) == sf.Judge(
         "provider/j", returns="label", rubric=_OVERRIDE
     )
+
+
+def test_judge_equality_and_hash_keep_the_param_value_types() -> None:
+    # True == 1 == 1.0 in Python, but a bool, an int and a float compile to different url4 text.
+    judges = [
+        sf.Judge("provider/j", returns="label", rubric=RUBRIC, params={"temperature": value})
+        for value in (True, 1, 1.0)
+    ]
+    blocks = [sf.Reduce("judge", judge=judge) for judge in judges]
+
+    assert judges[0] != judges[1] != judges[2]
+    assert judges[0] != judges[2]
+    assert len({hash(judge) for judge in judges}) == 3
+    assert blocks[0] != blocks[1] != blocks[2]
+    assert blocks[0] != blocks[2]
+    assert len(set(blocks)) == 3
+    assert len({_url4(judge) for judge in judges}) == 3
+    twin = sf.Judge("provider/j", returns="label", rubric=RUBRIC, params={"temperature": 1})
+    assert twin == judges[1]
+    assert hash(twin) == hash(judges[1])
+    assert _url4(twin) == _url4(judges[1])
