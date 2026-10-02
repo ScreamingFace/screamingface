@@ -4,7 +4,7 @@ FEATURE: the next stage receives original member texts only: the k best in rank 
 all of them in author order (concat). No model rewrites them.
 STORY: as a researcher, "focus on the best three" is enforced by the engine, not requested in a
 prompt, and a multi-document hand-off never goes through a summarizing model.
-INVARIANT defended: a cut that cannot be met fails with ``combine_no_votes``; a tie at the cut
+INVARIANT defended: a cut that cannot be met abstains with ``cut_not_met``; a tie at the cut
 goes to author order; no byte of a member text changes; concat makes no network call.
 """
 
@@ -19,6 +19,7 @@ from combine_selection_support import DEFAULT_SEPARATOR, concat_spec, rank_spec
 from combine_support import context_text, run, spec_text
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
+from screamingface_engine.combine.evidence import ResultRecord
 from screamingface_engine.combine.ports import CombineError, canonical_json
 
 _FOUR = ["A", "B", "C", "D"]
@@ -123,16 +124,39 @@ def test_top_k_compares_scores_exactly_beyond_28_digits() -> None:
 # --- RK-7 -------------------------------------------------------------------------------------
 
 
-def test_fewer_usable_than_k_fails_with_combine_no_votes() -> None:
+def test_fewer_usable_than_k_abstains_cut_not_met() -> None:
     texts = [canonical_json({"score": 1}), canonical_json({"score": 2}), '{"score": "x"}']
 
-    assert _error(texts, rank_spec(3, 3, "field")) == "combine_no_votes"
+    outcome = run(
+        spec_text(rank_spec(3, 3, "field")), context_text(texts), registry=BUILTIN_OPERATORS
+    )
+
+    assert outcome.output == ""
+    assert outcome.evidence.result == ResultRecord(
+        member_id=None, value=None, status="abstain", reason="cut_not_met"
+    )
+    assert outcome.evidence.chosen == []
+    assert outcome.evidence.built is False
+    assert [m.score for m in outcome.evidence.members] == [1.0, 2.0, None]
 
 
-def test_k_above_the_judged_member_count_fails_with_combine_no_votes() -> None:
+def test_k_above_the_judged_member_count_abstains_cut_not_met() -> None:
     reply = canonical_json({"member_1": 1, "member_2": 2})
 
-    assert _error(["A", "B"], rank_spec(2, 3), {"judge": reply}) == "combine_no_votes"
+    outcome = run(
+        spec_text(rank_spec(2, 3)),
+        context_text(["A", "B"], {"judge": reply}),
+        registry=BUILTIN_OPERATORS,
+    )
+
+    assert outcome.output == ""
+    assert outcome.evidence.result == ResultRecord(
+        member_id=None, value=None, status="abstain", reason="cut_not_met"
+    )
+    assert outcome.evidence.chosen == []
+    assert outcome.evidence.built is False
+    assert [m.score for m in outcome.evidence.members] == [1.0, 2.0]
+    assert outcome.evidence.judge is not None
 
 
 # --- RK-8 -------------------------------------------------------------------------------------

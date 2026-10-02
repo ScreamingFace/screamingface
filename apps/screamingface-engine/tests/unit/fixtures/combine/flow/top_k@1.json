@@ -209,7 +209,7 @@
     }
    },
    "expect": {
-    "error": "combine_no_votes"
+    "abstain": "cut_not_met"
    }
   },
   {
@@ -587,7 +587,7 @@
     }
    },
    "expect": {
-    "error": "combine_no_votes"
+    "abstain": "cut_not_met"
    }
   },
   {

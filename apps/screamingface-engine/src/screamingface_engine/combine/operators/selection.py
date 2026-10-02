@@ -63,7 +63,9 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
         reverse=True,
     )
     if len(ranked) < k:
-        raise NoVotes(f"top_k@1 needs {k} scored members, {len(ranked)} have a score")
+        raise NoVotes(
+            f"top_k@1 needs {k} scored members, {len(ranked)} have a score", reason="cut_not_met"
+        )
     chosen = tuple(member for member, _ in ranked[:k])
     selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
     return Selection(
