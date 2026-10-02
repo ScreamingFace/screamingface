@@ -50,7 +50,6 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         # Accepted so this fake still satisfies the port; the mock run it publishes never reaches
         # a gateway, so there is nothing here for a cache policy — or an answer seed — to change.

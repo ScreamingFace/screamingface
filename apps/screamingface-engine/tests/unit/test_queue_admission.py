@@ -229,7 +229,6 @@ class _AtCapacityRunner(IdentityAwareJobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,

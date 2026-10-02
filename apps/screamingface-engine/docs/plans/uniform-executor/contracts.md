@@ -115,9 +115,7 @@ both sides, and the tests that pin it (PRD + test ID). Tags as in `erd.md`.
 ## C10 — Model call: Child → aigateway, sync, HTTP `POST /v1/chat/completions`
 
 - **Shape and policies.** Unchanged: headers `X-User-Email`, `traceparent`; no
-  `Authorization`. `[existing world/connector.py:1048-1080]` `X-Profile` only for a legacy
-  run whose message still carries `AIGATEWAY_PROFILE` (accepted before OME-1381), until the
-  drain.
+  `Authorization` and no `X-Profile`. `[existing world/connector.py:1048-1080]`
 - **Delta.** Direct runs now make this call from a child process instead of from a node pod.
   The aigateway NetworkPolicy already admits the runner pods (`url4-runner`).
   `[existing apps/aigateway/charts/aigateway/values-prod.yaml:66-72]`

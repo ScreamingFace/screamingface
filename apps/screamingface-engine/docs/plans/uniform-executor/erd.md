@@ -27,7 +27,6 @@ erDiagram
         string expression "url4 text, or direct target"
         float  job_deadline_s
         string identity_user_email
-        string aigateway_profile
         string traceparent
         string spec_version "NEW, '2'"
     }
@@ -81,8 +80,8 @@ subject per caller hash. `[existing runner_queue.py:434-442]`
 
 **Current shape.** The body is a JSON object of per-run environment keys. It has no
 version field. `[existing runner_queue.py:245-275]` The keys are the `job_env` constants:
-`TOPIC`, `EXPRESSION`, `JOB_DEADLINE_S`, `TRACEPARENT`, `AIGATEWAY_PROFILE`, the identity
-key mapped from `X-User-Email`, `ANSWER_SEED`, `CACHE_PARTICIPATE`, `CACHE_MAX_AGE_S`,
+`TOPIC`, `EXPRESSION`, `JOB_DEADLINE_S`, `TRACEPARENT`, the identity key mapped from
+`X-User-Email`, `ANSWER_SEED`, `CACHE_PARTICIPATE`, `CACHE_MAX_AGE_S`,
 `EXTRA_MODELS`, `IO_CONCURRENCY`, `STREAM_GRACE_S`. `[existing runner_queue.py:31-471]`
 Headers: `Nats-Msg-Id = topic`, `Url4-Enqueued-At = <ISO-8601 UTC>`.
 `[existing runner_queue.py:487-490]` The subject is `url4-runq.<bucket>`, where the bucket

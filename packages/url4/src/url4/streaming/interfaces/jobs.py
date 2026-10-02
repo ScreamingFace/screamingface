@@ -85,7 +85,6 @@ class JobRunner(ABC):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
     ) -> str: ...
 
     @abstractmethod

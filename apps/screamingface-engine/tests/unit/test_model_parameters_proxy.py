@@ -1,4 +1,4 @@
-"""OME-480: the Engine exposes AI Gateway's profile-bound model-parameter contract."""
+"""OME-480: the Engine exposes AI Gateway's identity-bound model-parameter contract."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from screamingface_engine.testing import InMemoryEventStream
 
 pytestmark = pytest.mark.asyncio
 
-# FEATURE: profile-bound model-parameter discovery through the Engine.
+# FEATURE: identity-bound model-parameter discovery through the Engine.
 # INVARIANT: valid Gateway JSON crosses this proxy byte-for-byte, under private/no-store headers.
 _MODEL = "openrouter/openai/gpt-5.5"
 _IDENTITY = {"X-User-Email": "alice@example.com"}
@@ -69,7 +69,7 @@ async def test_adapter_returns_model_details_verbatim_for_the_callers_scope() ->
     )
     source = AigatewayCatalogSource(client)
     response = await source.fetch_model_parameters(
-        Credential.derive("research", _IDENTITY),
+        Credential.derive(_IDENTITY),
         _MODEL,
     )
     assert response.status == 200
@@ -77,7 +77,7 @@ async def test_adapter_returns_model_details_verbatim_for_the_callers_scope() ->
     assert seen[0].url.path == "/v1/model-parameters"
     assert dict(seen[0].url.params) == {"model": _MODEL}
     assert seen[0].headers["X-User-Email"] == "alice@example.com"
-    assert seen[0].headers["X-Profile"] == "research"
+    assert "X-Profile" not in seen[0].headers
     assert "authorization" not in seen[0].headers
 
 
@@ -258,9 +258,7 @@ class _FailingParameterSource:
 
 
 async def test_engine_returns_model_details_for_the_verified_identity() -> None:
-    """OME-1381: was `..._for_the_verified_identity_and_profile`, which sent `X-Profile: research`
-    and pinned `credential.profile == "research"`. A stated selector is now refused (see
-    `test_selector_refusal.py`); the verbatim, private contract for the identity is unchanged."""
+    """A stated selector is refused; the private contract is keyed only by verified identity."""
     source = _ParameterSource(ModelParameterResponse(status=200, content=_json_content(_CONTRACT)))
     app = create_app(
         Settings(jwt_secret="model-details-test"),
@@ -282,7 +280,6 @@ async def test_engine_returns_model_details_for_the_verified_identity() -> None:
     assert response.headers["Vary"] == "X-Profile, X-User-Email"
     credential, model = source.seen[0]
     assert model == _MODEL
-    assert credential.profile is None
     assert credential.identity == _IDENTITY
 
 

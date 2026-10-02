@@ -118,14 +118,13 @@ async def test_schedule_builds_the_same_job_env_contract_a_job_would_get() -> No
     stream = InMemoryEventStream()
     runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_BASE_URL: "http://gw"})
 
-    await runner.schedule(TOPIC, "/m('x')!'go'", 42, traceparent=None, profile="p")
+    await runner.schedule(TOPIC, "/m('x')!'go'", 42, traceparent=None)
     await _drain_until_terminal(stream, TOPIC)
 
     env = seen[0]
     assert env[job_env.TOPIC] == TOPIC
     assert env[job_env.EXPRESSION] == "/m('x')!'go'"
     assert env[job_env.JOB_DEADLINE_S] == "42"
-    assert env[job_env.AIGATEWAY_PROFILE] == "p"
     # the ambient deploy-time half survives, exactly as `envFrom` would supply it
     assert env[job_env.AIGATEWAY_BASE_URL] == "http://gw"
 

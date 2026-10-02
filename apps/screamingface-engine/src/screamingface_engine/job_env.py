@@ -28,18 +28,19 @@ from typing import Literal
 
 from url4.streaming.protocol import CachePolicy
 
+_RETIRED_ENV_KEYS = frozenset({"AIGATEWAY_PROFILE"})
+
+
+def without_retired_keys(env: Mapping[str, str]) -> dict[str, str]:
+    """Copy an environment without retired per-run carriers."""
+    return {name: value for name, value in env.items() if name not in _RETIRED_ENV_KEYS}
+
+
 # --- per-run: written by the App onto the Job spec -------------------------------------------
 TOPIC = "URL4_CLOUD_TOPIC"
 EXPRESSION = "URL4_CLOUD_EXPRESSION"
 JOB_DEADLINE_S = "URL4_CLOUD_JOB_DEADLINE_S"
 TRACEPARENT = "URL4_CLOUD_TRACEPARENT"
-
-AIGATEWAY_PROFILE = "AIGATEWAY_PROFILE"
-"""Per-request profile selection; absent means the gateway's default.
-
-Orthogonal to identity: it selects WHICH of the resolved account's stored credentials to use, not
-who the caller is, so it is forwarded on its own merits.
-"""
 
 IDENTITY_HEADER_ENV: Mapping[str, str] = MappingProxyType(
     {
@@ -108,11 +109,20 @@ def identity_from_env(env: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def identity_for_forwarding(identity: Mapping[str, str]) -> dict[str, str]:
+    """Retain only canonical verified-identity headers for an outbound request."""
+    return {
+        header: value
+        for header, value in identity.items()
+        if value and header in IDENTITY_HEADER_ENV
+    }
+
+
 CACHE_PARTICIPATE = "URL4_CLOUD_CACHE_PARTICIPATE"
 """Whether this run may participate in the gateway's response cache — `"true"` / `"false"`.
 
-Per-run for the same reason ``AIGATEWAY_PROFILE`` is: it does not exist until a caller states it,
-so Helm cannot supply it and the App must. INVARIANT: it is written per RUN and never onto shared
+Per-run because it does not exist until a caller states it, so Helm cannot supply it and the App
+must. INVARIANT: it is written per RUN and never onto shared
 world configuration — the run mode's ``AigatewayConfig`` describes the gateway for every run in the
 process, and a per-run value parked there is one caller's directive another caller's run can read.
 
@@ -124,8 +134,8 @@ Absent means the App stated nothing, which the run mode carries through as
 ANSWER_SEED = "URL4_CLOUD_ANSWER_SEED"
 """The run's declared answer seed — one integer stamped onto every answer call (OME-1038).
 
-Per-run for the same reason ``AIGATEWAY_PROFILE`` is: it does not exist until a caller declares
-it, so Helm cannot supply it and the App must. Absent means the run declared nothing, and the
+Per-run because it does not exist until a caller declares it, so Helm cannot supply it and the App
+must. Absent means the run declared nothing, and the
 connector then adds NO seed param at all — egress stays byte-identical to an unseeded run's,
 which is what keeps every request-keyed replay fixture valid.
 """
@@ -505,7 +515,6 @@ WRITTEN_BY_APP = frozenset(
         JOB_DEADLINE_S,
         STREAM_GRACE_S,
         TRACEPARENT,
-        AIGATEWAY_PROFILE,
         ANSWER_SEED,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,
@@ -554,7 +563,6 @@ DEPLOY_TIME = frozenset(
 __all__ = [
     "AIGATEWAY_BASE_URL",
     "AIGATEWAY_MODEL",
-    "AIGATEWAY_PROFILE",
     "ARTIFACTS_DIR",
     "BRIDGE_MEMORY_BUDGET_BYTES",
     "CACHE_MAX_AGE_S",
@@ -596,6 +604,7 @@ __all__ = [
     "extra_models_to_env",
     "identity_from_env",
     "identity_from_headers",
+    "identity_for_forwarding",
     "identity_to_env",
     "number_from_env",
 ]

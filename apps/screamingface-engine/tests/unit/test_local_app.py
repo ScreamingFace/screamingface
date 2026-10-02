@@ -111,9 +111,9 @@ def test_an_explicit_runner_config_is_never_overridden() -> None:
 
 
 def test_the_fallback_leaves_the_rest_of_the_environment_alone() -> None:
-    resolved = _with_runner_config({job_env.AIGATEWAY_PROFILE: "team-a"})
+    resolved = _with_runner_config({"UNRELATED_SETTING": "value"})
 
-    assert resolved[job_env.AIGATEWAY_PROFILE] == "team-a"
+    assert resolved["UNRELATED_SETTING"] == "value"
 
 
 def test_importing_the_serving_app_does_not_pull_in_local_mode_or_the_run_mode() -> None:

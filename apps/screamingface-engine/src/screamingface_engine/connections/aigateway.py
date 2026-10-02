@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
 
+from screamingface_engine import job_env
 from screamingface_engine.connections.port import (
     AuthMethod,
     Caller,
@@ -208,10 +209,7 @@ class AigatewayConnections:
         return [_validate_row(row) for row in rows]
 
     async def _availability(self, caller: Caller) -> dict[str, ConnectionStatus]:
-        # WHY `replace(caller, profile=None)`: the availability listing is caller-scoped and
-        # `X-Profile` is non-selecting on it (D17), so the selector is not forwarded on this one
-        # request. Identity and `traceparent` still travel through `_headers`, unchanged.
-        response = await self._request("GET", _PROVIDER_ACCESS_PATH, replace(caller, profile=None))
+        response = await self._request("GET", _PROVIDER_ACCESS_PATH, caller)
         if response.status_code != 200:
             raise ConnectionBadResponse()
         return decode_provider_access(_decode_object(response))
@@ -389,24 +387,17 @@ def _is_uuid(value: object) -> bool:
 
 
 def _headers(caller: Caller) -> dict[str, str]:
-    """The upstream headers for one caller-scoped request: identity, then what we own.
+    """The upstream headers for one caller-scoped request: identity, then trace context.
 
     INVARIANT: the gateway-owned headers are written LAST, the same rule
     ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. `caller.identity` is
     built from inbound request headers, and although the mesh guarantees the identity header
     itself is not forged, nothing guarantees the mapping holds ONLY that key — so a caller
-    cannot displace this request's own trace or routing profile by sending their own.
+    cannot displace this request's own trace by sending their own.
 
-    FEATURE (OME-1119): before this, `/v1/providers` and every other connections call went out
-    with identity alone — no `traceparent`, and no `X-Profile` either, which was the same
-    header-assembly gap in the same place.
-
-    Absent values are OMITTED, never sent blank: an empty `X-Profile` is not "no profile" to a
-    gateway that parses it, and a zero traceparent parses everywhere while joining nothing.
+    A zero traceparent is omitted rather than sent: it parses everywhere while joining nothing.
     """
-    headers = dict(caller.identity)
-    if caller.profile is not None:
-        headers["X-Profile"] = caller.profile
+    headers = job_env.identity_for_forwarding(caller.identity)
     if caller.traceparent is not None:
         headers["traceparent"] = caller.traceparent
     return headers

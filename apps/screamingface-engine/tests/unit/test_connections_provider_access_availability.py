@@ -131,12 +131,10 @@ async def test_hosted_availability_is_caller_scoped_and_secret_free() -> None:
 async def test_the_availability_request_carries_identity_and_trace_but_no_selector() -> None:
     adapter, seen = _adapter(_gateway(_availability(("openrouter", "connected"))))
 
-    await adapter.list(Caller(ALICE, traceparent=TRACEPARENT, profile="team"))
+    await adapter.list(Caller(ALICE, traceparent=TRACEPARENT))
 
     catalogue, availability = seen
-    # WHY: `X-Profile` is non-selecting on the successor (D17), so it is not forwarded on that
-    # one request. The catalogue call is outside this unit and keeps today's carrier behaviour.
-    assert catalogue.headers["X-Profile"] == "team"
+    assert "X-Profile" not in catalogue.headers
     assert "X-Profile" not in availability.headers
     assert availability.headers["X-User-Email"] == "alice@example.com"
     assert availability.headers["traceparent"] == TRACEPARENT

@@ -54,7 +54,7 @@ async def _run_loop(monkeypatch: pytest.MonkeyPatch, fetch) -> str:
     monkeypatch.setattr(connector_module, "_fetch_completion", fetch)
     # WHY the cast: the loop never touches the client once `_fetch_completion` is stubbed — the
     # client exists only to be forwarded to the stub. F2: the per-request values travel in the
-    # scope, so an anonymous scope is exactly the pre-F2 `profile=None, identity_headers=None`.
+    # scope, so an anonymous scope is exactly the pre-F2 `identity_headers=None`.
     return await _chat_completion_loop(
         http_client=cast(httpx.AsyncClient, None),
         cfg=AigatewayConfig(default_model=_MODEL, models=(ModelSpec(id=_MODEL),)),

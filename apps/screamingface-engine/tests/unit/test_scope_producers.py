@@ -93,10 +93,7 @@ async def test_a_handler_called_with_no_producer_raises_request_scope_error() ->
 async def test_the_run_path_binds_the_scope_before_the_handler_runs() -> None:
     _assert_nothing_bound()
     gw = _MockAigateway((MODEL,))
-    env = {
-        **job_env.identity_to_env({"X-User-Email": "run@x.test"}),
-        job_env.AIGATEWAY_PROFILE: "run-profile",
-    }
+    env = job_env.identity_to_env({"X-User-Email": "run@x.test"})
 
     async with gw.client() as client:
         executor = build_executor(env, _config(), client=client)
@@ -105,7 +102,7 @@ async def test_the_run_path_binds_the_scope_before_the_handler_runs() -> None:
 
     (outbound,) = gw.posts_to(MODEL)
     assert outbound.headers["X-User-Email"] == "run@x.test"
-    assert outbound.headers["X-Profile"] == "run-profile"
+    assert "X-Profile" not in outbound.headers
     _assert_nothing_bound()  # the run's binding is reset once it ends
 
 

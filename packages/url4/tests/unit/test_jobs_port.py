@@ -14,7 +14,12 @@ from __future__ import annotations
 import inspect
 
 import url4.streaming.interfaces.jobs as jobs_module
-from url4.streaming.interfaces.jobs import JobRunnerAtCapacity
+from url4.streaming.interfaces.jobs import JobRunner, JobRunnerAtCapacity
+
+
+def test_schedule_port_has_no_profile_selector() -> None:
+    """INVARIANT: scheduling cannot represent the retired Profile selector."""
+    assert "profile" not in inspect.signature(JobRunner.schedule).parameters
 
 
 def test_capacity_docstring_has_no_cluster_backed_carve_out() -> None:
