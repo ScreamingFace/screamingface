@@ -91,7 +91,8 @@ confidence), so that I can rerun confidence- and cost-aware joins without code.
   existing weighted-vote golden case stays green.
 - **SR-D7** Judge signal as weight `[stated ans:Q4]` (M×L): `sf.Vote(weights=sf.signal("score:judge"),
   judge=sf.Judge(…, returns="scores"))` weights each voter by its judge score; the judge call is
-  one call, as today.
+  one call, as today. The evidence has `judge: None`; the scores are in `members[].signals["score:judge"]`
+  and `weight` ([erd.md](../erd.md) I-E4b).
 
 ## 4. Non-functional requirements
 

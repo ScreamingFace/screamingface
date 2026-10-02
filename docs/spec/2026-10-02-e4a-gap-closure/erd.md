@@ -127,6 +127,8 @@ are equal, the engine gives both claimants that output, and `text` is set.)
   **only** from `result.status` `[proposed]`.
 - I-E3: `len(members) == len(spec.members)`, in spec order `[existing E/combine/evidence.py:69]`.
 - I-E4: `dropped == count(members where status == "fail")` `[proposed]`.
+- I-E4b: a vote weighted by `score:judge` has `judge: None`. Its judge reading is in each
+  `members[].signals["score:judge"]` and `weight`; the raw reply stays on `op_judge_N` (GE30).
 - I-E5: the shared fixture `ET/data/combine_contract/evidence_cases.json` is regenerated from real
   engine output and pins the engine encoder and the SDK decoder to one shape
   `[existing ET/test_combine_evidence_contract_fixture.py:1]`.
@@ -142,7 +144,7 @@ are equal, the engine gives both claimants that output, and `text` is set.)
 | `tokens_in` | `SIGNAL_ACCOUNTING.tokens_in`, summed | same |
 | `tokens_out` | `SIGNAL_ACCOUNTING.tokens_out`, summed | same |
 | `field:<path>` | the member's JSON reply at `<path>` (the `json_field@1` path grammar), when the value is a finite number or a bool (`true` = 1.0, `false` = 0.0) | not JSON, path absent, not a number or bool |
-| `score:judge` | the judge reading of this combine call, one score per member (the `scores@1` parse) | the reducer has no judge |
+| `score:judge` | the judge reading of this combine call, one score per member (the `scores@1` parse) | never `None`: a spec that reads it without a judge is `combine_spec_invalid`; a malformed, non-finite or oversize judge reply is `judge_reply_invalid`; both fail before any extractor runs (GE29) |
 
 Sources `[stated ans:Q4]`. **Who computes them** `[proposed]`: the **core**, before the reduce
 step, for exactly the keys the spec reads. The core cannot import a plugin
@@ -155,7 +157,8 @@ from the adapter (§6).
 - I-S1: a key is one of `cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`, `score:judge`, or
   `field:<path>` where `<path>` matches the `_PATH` grammar of `json_field@1`; the SDK and the
   engine validate with one pattern (copied, with a conformance test) `[proposed]`.
-- I-S2: a value is finite or `None`; `NaN` and `±inf` become `None` `[proposed]`.
+- I-S2: a value is finite or `None`; `NaN` and `±inf` become `None` `[proposed]`. The exception is
+  `score:judge`: a `NaN` or `±inf` in the judge reply is `judge_reply_invalid`, never `None` (GE29).
 - I-S3: the core writes only the keys the spec reads; otherwise `signals: {}` `[proposed]`.
 
 ### 4.2 `SIGNAL_REF`
