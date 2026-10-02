@@ -1308,9 +1308,13 @@ def _validated_answer_key(
     if not choices or any(not choice.strip() for choice in choices):
         raise PrepareError(f"case {case_id}: sample carries an empty choice")
     letters: str = "".join(chr(ord("A") + index) for index in range(len(choices)))
-    if target not in letters:
+    # WHY by value too: an eval that lists its options inside the question and asks for a
+    # number (worldsense: choices "1" "2" "3", target "2") keys its answer by the choice's
+    # value, not a letter; its own scorer reads it that way. Either form names one option.
+    if target not in letters and target not in choices:
         raise PrepareError(
-            f"case {case_id}: target {target!r} is not a letter within {len(choices)} choices"
+            f"case {case_id}: target {target!r} is neither a letter within {len(choices)} "
+            "choices nor one of them"
         )
     return target, choices
 

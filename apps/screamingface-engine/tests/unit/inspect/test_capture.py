@@ -38,7 +38,7 @@ from inspect_ai.solver import (  # noqa: E402
 from inspect_ai.tool import tool  # noqa: E402
 
 from screamingface_engine_inspect.capture import CaptureError, captured_case_records  # noqa: E402
-from screamingface_engine_inspect.prepare import TaskReplayCasesSpec  # noqa: E402
+from screamingface_engine_inspect.prepare import PrepareError, TaskReplayCasesSpec  # noqa: E402
 from screamingface_engine_inspect.task_replay import replayed_cases  # noqa: E402
 
 #: A stand-in for an eval's own instruction template (sevenllm's TEMPLATE shape).
@@ -144,6 +144,30 @@ def test_a_task_with_no_solver_serves_the_raw_input() -> None:
 
     assert prepared[0]["case"]["input"] == "What is 6 times 7?"
     assert prepared[0]["grading_material"] == {"target": "42"}
+
+
+def test_a_question_that_lists_its_own_options_keeps_its_answer_by_value() -> None:
+    """worldsense's shape: the question already lists numbered options, the chain is a bare
+    generate(), and the answer key is the option's value, not a letter. The Case is the
+    question as written and the key stays "2"; nothing renders the options again."""
+
+    sample = Sample(
+        input="Ann is before Bo. (1) yes (2) no (3) unsure", choices=["1", "2", "3"], target="2"
+    )
+    task = Task(dataset=MemoryDataset([sample]))
+
+    prepared = captured_case_records(task, _spec())
+
+    assert prepared[0]["case"]["input"] == "Ann is before Bo. (1) yes (2) no (3) unsure"
+    assert prepared[0]["grading_material"] == {"target": "2", "choices": ["1", "2", "3"]}
+
+
+def test_an_answer_key_that_names_no_option_is_refused() -> None:
+    sample = Sample(input="Which?", choices=["1", "2"], target="7")
+    task = Task(dataset=MemoryDataset([sample]))
+
+    with pytest.raises(PrepareError, match="neither a letter within 2 choices nor"):
+        captured_case_records(task, _spec())
 
 
 def test_kept_metadata_rides_the_grading_material() -> None:
