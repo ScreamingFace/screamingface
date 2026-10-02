@@ -16,17 +16,21 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal
+from urllib.parse import quote, unquote
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from screamingface_engine.combine.ports import (
+    CallFingerprint,
     EvidenceKind,
+    MemberSources,
     Reducer,
     SpecInvalid,
+    is_signal_key,
     loads_bounded,
 )
 
@@ -36,6 +40,7 @@ _MEMBER = re.compile(r"member_[1-9][0-9]*")
 # WHY "writer_" and not "writer.": the SDK builds the context with url4 struct, whose keys are
 # [A-Za-z0-9_]+ only, so a dotted signal key cannot be written (OME-1289 unit 8-10 spec, P1).
 _SIGNAL = re.compile(r"judge|writer_[A-Za-z_][A-Za-z0-9_]*")
+_CALL_KEY = re.compile(r"[A-Za-z0-9_]+")
 _MAX_ERRORS_SHOWN = 5
 _MAX_LOCATION_CHARS = 64
 MAX_MEMBERS = 256
@@ -92,6 +97,19 @@ class StepSpec(_SpecModel):
     args: dict[str, Any]
 
 
+class SignalWeights(_SpecModel):
+    """``weights: {"signal": key}``: each member's vote weight comes from the named signal."""
+
+    signal: str
+
+    @field_validator("signal")
+    @classmethod
+    def _known_signal(cls, value: str) -> str:
+        if not is_signal_key(value):
+            raise ValueError("weights.signal must be a known signal key")
+        return value
+
+
 class CombineSpec(_SpecModel):
     """``screamingface.combine-spec.v1``: every key required, ``null`` only where typed."""
 
@@ -102,7 +120,7 @@ class CombineSpec(_SpecModel):
     normalize: StepSpec | None
     reduce: StepSpec
     select: StepSpec
-    weights: dict[str, float] | None
+    weights: dict[str, float] | SignalWeights | None
 
     @model_validator(mode="after")
     def _check(self) -> CombineSpec:
@@ -119,8 +137,8 @@ def _check_members(members: list[str]) -> None:
         raise ValueError("members must be named member_1, member_2, ...")
 
 
-def _check_weights(weights: dict[str, float] | None, members: list[str]) -> None:
-    if weights is None:
+def _check_weights(weights: dict[str, float] | SignalWeights | None, members: list[str]) -> None:
+    if weights is None or isinstance(weights, SignalWeights):
         return
     if set(weights) != set(members):
         raise ValueError("weights must name exactly the members")
@@ -190,10 +208,25 @@ class CombineContext:
     input: str
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
+    sources: MemberSources | None = None
 
 
-def parse_context(context: str, members: Sequence[str]) -> CombineContext:
-    """Parse the combine context against the spec's members."""
+def canonical_params(pairs: Iterable[tuple[str, str]]) -> str:
+    """The one text form of a call's params: sorted pairs, each percent-encoded, joined by ``&``.
+
+    INVARIANT: the SDK builds ``sources[...].params`` with this very expression (SDK unit 7), and
+    ``parse_context`` accepts only text that equals it, so a fingerprint has exactly one spelling.
+    """
+    return "&".join(f"{quote(k, safe='')}={quote(v, safe='')}" for k, v in sorted(pairs))
+
+
+def parse_context(
+    context: str, members: Sequence[str], *, sources_expected: bool = False
+) -> CombineContext:
+    """Parse the combine context against the spec's members.
+
+    ``sources`` must be present exactly when the spec reads an accounting signal.
+    """
     try:
         decoded = loads_bounded(context, unique_keys=True)
     except ValueError as exc:
@@ -202,6 +235,7 @@ def parse_context(context: str, members: Sequence[str]) -> CombineContext:
         "input",
         "outputs",
         "signals",
+        "sources",
     }:
         raise SpecInvalid("combine context has the wrong shape")
     question = decoded["input"]
@@ -213,7 +247,58 @@ def parse_context(context: str, members: Sequence[str]) -> CombineContext:
         raise SpecInvalid("combine context outputs do not match the spec members")
     if not all(_SIGNAL.fullmatch(name) for name in signals):
         raise SpecInvalid("combine context has an invalid signal name")
-    return CombineContext(question, MappingProxyType(outputs), MappingProxyType(signals))
+    if ("sources" in decoded) != sources_expected:
+        raise SpecInvalid(
+            "combine context sources are present exactly when the spec reads an accounting signal"
+        )
+    sources = _parse_sources(decoded["sources"], outputs) if sources_expected else None
+    return CombineContext(question, MappingProxyType(outputs), MappingProxyType(signals), sources)
+
+
+def _parse_sources(value: object, outputs: Mapping[str, str]) -> MemberSources:
+    """``{member: {call_key: {"path": str, "params": canonical text}}}`` with every member named."""
+    if not isinstance(value, dict) or set(value) != set(outputs):
+        raise SpecInvalid("combine context sources do not match the spec members")
+    parsed: dict[str, Mapping[str, CallFingerprint]] = {}
+    for member, calls in value.items():
+        if not isinstance(calls, dict):
+            raise SpecInvalid("combine context sources have the wrong shape")
+        parsed[member] = MappingProxyType(
+            {key: _parse_call(key, entry) for key, entry in calls.items()}
+        )
+    return MappingProxyType(parsed)
+
+
+def _parse_call(key: str, entry: object) -> CallFingerprint:
+    if (
+        _CALL_KEY.fullmatch(key) is None
+        or not isinstance(entry, dict)
+        or set(entry) != {"path", "params"}
+    ):
+        raise SpecInvalid("combine context sources have the wrong shape")
+    path, params = entry["path"], entry["params"]
+    if not isinstance(path, str) or not path or not isinstance(params, str):
+        raise SpecInvalid("combine context sources have the wrong shape")
+    return path, _decode_params(params)
+
+
+def _decode_params(text: str) -> tuple[tuple[str, str], ...]:
+    """The pairs of a canonical params text; anything that is not canonical is ``SpecInvalid``."""
+    if text == "":
+        return ()
+    pairs: list[tuple[str, str]] = []
+    try:
+        for part in text.split("&"):
+            raw_key, separator, raw_value = part.partition("=")
+            if not separator:
+                raise SpecInvalid("combine context sources params are not canonical")
+            pairs.append((unquote(raw_key, errors="strict"), unquote(raw_value, errors="strict")))
+    except UnicodeDecodeError as exc:
+        raise SpecInvalid("combine context sources params are not canonical") from exc
+    names = [name for name, _ in pairs]
+    if "" in names or len(set(names)) != len(names) or canonical_params(pairs) != text:
+        raise SpecInvalid("combine context sources params are not canonical")
+    return tuple(pairs)
 
 
 def _text_map(value: object) -> dict[str, str]:
@@ -233,7 +318,9 @@ __all__ = [
     "CombineSpec",
     "Presence",
     "ReducerRule",
+    "SignalWeights",
     "StepSpec",
+    "canonical_params",
     "parse_context",
     "parse_spec",
 ]

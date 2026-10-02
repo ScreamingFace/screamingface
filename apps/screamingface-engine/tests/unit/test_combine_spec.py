@@ -17,6 +17,8 @@ from screamingface_engine.combine.spec import (
     MAX_MEMBERS,
     MAX_WEIGHT,
     CombineSpec,
+    SignalWeights,
+    canonical_params,
     parse_context,
     parse_spec,
 )
@@ -248,3 +250,122 @@ def test_a_long_location_in_an_error_is_cut_to_64_characters() -> None:
     message = str(caught.value)
     assert "k" * 64 + "\u2026" in message
     assert "k" * 65 not in message
+
+
+# --- the signal weights grammar and the context sources (gap-closure unit 1) ------------------
+
+_CALL = {"path": "/provider/alpha", "params": "temperature=0.0"}
+
+
+def _sources(**overrides: Any) -> dict[str, Any]:
+    sources: dict[str, Any] = {"member_1": {"model_1": dict(_CALL)}, "member_2": {}}
+    sources.update(overrides)
+    return sources
+
+
+def _parse_sources(sources: Any, *, expected: bool = True) -> Any:
+    return parse_context(
+        context_text(["a", "b"], sources=sources),
+        ["member_1", "member_2"],
+        sources_expected=expected,
+    )
+
+
+def test_well_formed_sources_parse_to_read_only_fingerprints() -> None:
+    context = _parse_sources(_sources(member_2={"c_2": {"path": "/provider/beta", "params": ""}}))
+    assert context.sources is not None
+    assert dict(context.sources["member_1"]) == {
+        "model_1": ("/provider/alpha", (("temperature", "0.0"),))
+    }
+    assert dict(context.sources["member_2"]) == {"c_2": ("/provider/beta", ())}
+    with pytest.raises(TypeError):
+        context.sources["member_1"]["x"] = ("/p", ())  # type: ignore[index]
+    assert _parse_sources({"member_1": {}, "member_2": {}}).sources is not None
+    assert parse_context(context_text(["a", "b"]), ["member_1", "member_2"]).sources is None
+
+
+_BAD_SOURCES: dict[str, Any] = {
+    "keys-differ-from-outputs": {"member_1": {}},
+    "extra-member": _sources(member_3={}),
+    "member-not-a-dict": _sources(member_1=[]),
+    "entry-missing-path": _sources(member_1={"c": {"params": ""}}),
+    "entry-missing-params": _sources(member_1={"c": {"path": "/p"}}),
+    "entry-extra-key": _sources(member_1={"c": {**_CALL, "extra": 1}}),
+    "entry-not-a-dict": _sources(member_1={"c": ["/p", ""]}),
+    "path-not-a-str": _sources(member_1={"c": {"path": 1, "params": ""}}),
+    "path-empty": _sources(member_1={"c": {"path": "", "params": ""}}),
+    "params-not-a-str": _sources(member_1={"c": {"path": "/p", "params": 1}}),
+    "call-key-bad": _sources(member_1={"a-b": dict(_CALL)}),
+    "call-key-empty": _sources(member_1={"": dict(_CALL)}),
+    "params-unsorted": _sources(member_1={"c": {"path": "/p", "params": "b=1&a=2"}}),
+    "params-over-encoded": _sources(member_1={"c": {"path": "/p", "params": "%41=1"}}),
+    "params-duplicate-key": _sources(member_1={"c": {"path": "/p", "params": "a=1&a=2"}}),
+    "params-part-without-equals": _sources(member_1={"c": {"path": "/p", "params": "abc"}}),
+    "params-empty-key": _sources(member_1={"c": {"path": "/p", "params": "=1"}}),
+    "params-bad-utf8": _sources(member_1={"c": {"path": "/p", "params": "%ff=1"}}),
+    "params-empty-part": _sources(member_1={"c": {"path": "/p", "params": "a=1&"}}),
+    "sources-a-list": [],
+    "sources-a-string": "x",
+}
+
+
+@pytest.mark.parametrize("sources", _BAD_SOURCES.values(), ids=list(_BAD_SOURCES))
+def test_malformed_sources_is_spec_invalid(sources: Any) -> None:
+    with pytest.raises(SpecInvalid):
+        _parse_sources(sources)
+
+
+def test_sources_are_present_exactly_when_the_spec_reads_an_accounting_signal() -> None:
+    with pytest.raises(SpecInvalid) as present:
+        _parse_sources(_sources(), expected=False)
+    with pytest.raises(SpecInvalid) as absent:
+        parse_context(context_text(["a", "b"]), ["member_1", "member_2"], sources_expected=True)
+    for caught in (present, absent):
+        assert "sources" in str(caught.value)
+        assert "/provider/alpha" not in str(caught.value)
+
+
+def test_a_sources_error_never_echoes_a_path_or_params() -> None:
+    bad = _sources(member_1={"c": {"path": "/SECRET-PATH", "params": "z=SECRET&a=1"}})
+    with pytest.raises(SpecInvalid) as caught:
+        _parse_sources(bad)
+    assert "SECRET" not in str(caught.value)
+
+
+def test_canonical_params_round_trip() -> None:
+    text = canonical_params((("x.y", "1"), ("a", "b c")))
+    assert text == "a=b%20c&x.y=1"
+    context = _parse_sources(_sources(member_1={"c": {"path": "/p", "params": text}}))
+    assert context.sources is not None
+    assert context.sources["member_1"]["c"] == ("/p", (("a", "b c"), ("x.y", "1")))
+    assert canonical_params(()) == ""
+    assert canonical_params((("k", "a&b=c%"),)) == "k=a%26b%3Dc%25"
+    empty = _parse_sources(_sources(member_1={"c": {"path": "/p", "params": ""}}))
+    assert empty.sources is not None and empty.sources["member_1"]["c"] == ("/p", ())
+
+
+def test_weights_accept_a_signal_ref_and_reject_unknown_keys() -> None:
+    for key in ("field:confidence", "cost_usd", "field:a.b[0]", "tokens_out"):
+        parsed = parse_spec(_dump(vote_spec(2, weights={"signal": key})))
+        assert parsed.weights == SignalWeights(signal=key)
+    bad_weights = [
+        {"signal": "score:judge"},
+        {"signal": "logprob_mean"},
+        {"signal": "field:a..b"},
+        {"signal": "cost_usd", "member_1": 1},
+        {"signal": 1},
+        {"signal": "cost_usd", "extra": "x"},
+    ]
+    for weights in bad_weights:
+        with pytest.raises(SpecInvalid) as caught:
+            parse_spec(_dump(vote_spec(2, weights=weights)))
+        for leaked in ("score:judge", "logprob_mean", "a..b"):
+            assert leaked not in str(caught.value)
+    median = vote_spec(
+        3,
+        reducer="median",
+        normalize={"op": "numeric@1", "args": {}},
+        weights={"signal": "cost_usd"},
+    )
+    with pytest.raises(SpecInvalid, match="weights"):
+        parse_spec(_dump(median))

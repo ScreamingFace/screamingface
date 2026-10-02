@@ -15,6 +15,7 @@ from typing import Any
 
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE, CombineOutcome, run_combine
 from screamingface_engine.combine.ports import (
+    AccountingReader,
     CombineInput,
     FieldReading,
     JudgeReading,
@@ -23,6 +24,8 @@ from screamingface_engine.combine.ports import (
     OperatorDescriptor,
     Reduction,
     Selection,
+    SignalOrder,
+    SignalRead,
     SpecInvalid,
     StageResult,
     TallyRow,
@@ -100,6 +103,43 @@ def fake_empty_join(
 ) -> Selection:
     """A join of every member that happens to be the empty text."""
     return Selection(chosen=tuple(combine_input.members), output="")
+
+
+def _check_signal_score_args(args: OpArgs) -> None:
+    if set(args) != {"key", "order"} or not isinstance(args["key"], str):
+        raise SpecInvalid("expected exactly the args key and order")
+    if args["order"] not in ("max", "min"):
+        raise SpecInvalid("order must be max or min")
+
+
+def _signal_read(args: OpArgs) -> SignalRead:
+    order: SignalOrder = "max" if args["order"] == "max" else "min"
+    key = args["key"]
+    assert isinstance(key, str)
+    return SignalRead(key, order)
+
+
+def fake_signal_score(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """Scores each member by the one signal the spec reads; a member without it has no score."""
+    key = args["key"]
+    scores = {
+        answer.member_id: Decimal(str(value))
+        for answer in combine_input.answers
+        if (value := answer.signals.get(str(key))) is not None
+    }
+    return Reduction(scores=scores)
+
+
+def fake_best(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
+    """The member with the top score (first in author order on a tie); none scored -> abstain."""
+    scores = reduction.scores or {}
+    best: str | None = None
+    for member in combine_input.members:
+        if member in scores and (best is None or scores[member] > scores[best]):
+            best = member
+    if best is None:
+        raise NoVotes("no member has a score")
+    return Selection(chosen=(best,))
 
 
 def fake_constant(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
@@ -194,6 +234,16 @@ FAKE_REGISTRY = OperatorRegistry(
             "fake_all_parts_scores", 1, "reduce", "Fills every part, scores.", fake_all_parts_scores
         ),
         OperatorDescriptor("fake_no_votes", 1, "reduce", "Abstains.", fake_no_votes),
+        OperatorDescriptor(
+            "fake_signal_score",
+            1,
+            "reduce",
+            "Scores by one signal.",
+            fake_signal_score,
+            check_args=_check_signal_score_args,
+            signal_read=_signal_read,
+        ),
+        OperatorDescriptor("fake_best", 1, "select", "Top score.", fake_best),
         OperatorDescriptor("fake_first", 1, "select", "First holder.", fake_first),
         OperatorDescriptor("fake_cut", 1, "select", "Cut not met.", fake_cut),
         OperatorDescriptor("fake_empty_join", 1, "select", "Joins to ''.", fake_empty_join),
@@ -229,13 +279,19 @@ def spec_text(spec: Mapping[str, Any]) -> str:
     return canonical_json(spec)
 
 
-def context_text(outputs: Sequence[str], signals: Mapping[str, str] | None = None) -> str:
+def context_text(
+    outputs: Sequence[str],
+    signals: Mapping[str, str] | None = None,
+    sources: Any = None,
+) -> str:
     body: dict[str, Any] = {
         "input": "q",
         "outputs": {f"member_{index}": text for index, text in enumerate(outputs, start=1)},
     }
     if signals is not None:
         body["signals"] = dict(signals)
+    if sources is not None:
+        body["sources"] = sources
     return json.dumps(body)
 
 
@@ -254,10 +310,11 @@ def run(
     *,
     registry: OperatorRegistry = FAKE_REGISTRY,
     params: Mapping[str, str] | None = None,
+    accounting: AccountingReader | None = None,
 ) -> CombineOutcome:
     """Run the pure combine core (no url4, no recording)."""
     binding = {"binding": "synthesis_1"} if params is None else params
-    return run_combine(registry, binding, context, intent)
+    return run_combine(registry, binding, context, intent, accounting=accounting)
 
 
 def run_recorded(

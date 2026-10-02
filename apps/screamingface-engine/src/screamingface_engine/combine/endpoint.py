@@ -22,6 +22,7 @@ reason stays the members' common reason; the operation's own finish reason is ``
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import re
@@ -39,11 +40,15 @@ from screamingface_engine.combine.evidence import (
     FieldReadingRecord,
     JudgeReadingRecord,
     ResultRecord,
+    SignalRecord,
     TallyRowRecord,
 )
 from screamingface_engine.combine.ports import (
+    ACCOUNTING_SIGNALS,
+    FIELD_SIGNAL_PREFIX,
     READING_TO_ANSWER,
     AbstainReason,
+    AccountingReader,
     Answer,
     CombineError,
     CombineInput,
@@ -59,19 +64,24 @@ from screamingface_engine.combine.ports import (
     Reduction,
     Selection,
     SelectOp,
+    SignalRead,
     SpecInvalid,
     Stage,
     StageResult,
     answer_status,
     canonical_decimal,
+    field_signal_value,
+    is_signal_key,
     utf8_exceeds,
 )
 from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.combine.spec import (
     MAX_MEMBERS,
+    MAX_WEIGHT,
     REDUCER_RULES,
     CombineContext,
     CombineSpec,
+    SignalWeights,
     StepSpec,
     parse_context,
     parse_spec,
@@ -104,6 +114,7 @@ class _Plan:
     normalize: _Step[Normalizer] | None
     reduce: _Step[ReduceOp]
     select: _Step[SelectOp]
+    signal: SignalRead | None = None
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -145,7 +156,12 @@ class CombineOutcome:
 
 
 def run_combine(
-    registry: OperatorRegistry, params: Mapping[str, str], context: str, intent: str
+    registry: OperatorRegistry,
+    params: Mapping[str, str],
+    context: str,
+    intent: str,
+    *,
+    accounting: AccountingReader | None = None,
 ) -> CombineOutcome:
     """Run one combine spec. Raises ``CombineError`` (a declared code) on any declared failure.
 
@@ -153,7 +169,7 @@ def run_combine(
     """
     trace = _Trace()
     try:
-        outcome = _combine(registry, params, context, intent, trace)
+        outcome = _combine(registry, params, context, intent, trace, accounting)
     except CombineError as exc:
         trace.log(exc.code)
         raise
@@ -172,6 +188,7 @@ def _combine(
     context_text: str,
     intent: str,
     trace: _Trace,
+    accounting: AccountingReader | None,
 ) -> CombineOutcome:
     trace.binding = _binding(params)
     _check_sizes(intent, context_text)
@@ -180,8 +197,13 @@ def _combine(
     if len(spec.members) > MAX_MEMBERS:
         raise InputTooLarge(f"a combine call takes at most {MAX_MEMBERS} members")
     plan = _plan(spec, registry)
-    context = parse_context(context_text, spec.members)
-    combine_input = _read_members(spec, plan, context)
+    context = parse_context(
+        context_text,
+        spec.members,
+        sources_expected=plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS,
+    )
+    values = _signal_values(plan.signal, spec, context, accounting)
+    combine_input = _read_members(spec, plan, context, values)
     trace.voters = str(len(combine_input.voters))
     reduction, selection = _reduce_select(plan, combine_input)
     if isinstance(selection, str):  # an AbstainReason
@@ -192,6 +214,40 @@ def _combine(
     result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
     evidence = _evidence(spec, plan, combine_input, reduction, selection, result)
     return CombineOutcome(output, evidence)
+
+
+def _finite_or_none(value: object) -> float | None:
+    """A number from the accounting reader, kept only when it is a finite int or float."""
+    number: float | None = None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        with contextlib.suppress(OverflowError):  # an int too large for a float
+            number = float(value)
+    return number if number is not None and math.isfinite(number) else None
+
+
+def _signal_values(
+    read: SignalRead | None,
+    spec: CombineSpec,
+    context: CombineContext,
+    accounting: AccountingReader | None,
+) -> dict[str, float | None] | None:
+    """Each member's number for the one signal the spec reads; None when it reads none."""
+    if read is None:
+        return None
+    if read.key in ACCOUNTING_SIGNALS:
+        # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
+        # what each source call cost. Without a reader every member's number is unknown.
+        sources = context.sources
+        assert sources is not None  # parse_context required it for an accounting key
+        looked = {} if accounting is None else accounting(sources)
+        return {m: _finite_or_none(looked.get(m, {}).get(read.key)) for m in spec.members}
+    path = read.key[len(FIELD_SIGNAL_PREFIX) :]
+    return {
+        member: None
+        if utf8_exceeds(context.outputs[member], MAX_OUTPUT_READ_BYTES)
+        else field_signal_value(context.outputs[member], path)
+        for member in spec.members
+    }
 
 
 def _reduce_select(
@@ -263,30 +319,81 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     normalize = _resolve(registry, spec.normalize, "normalize")
     reduce = _resolve(registry, spec.reduce, "reduce")
     select = _resolve(registry, spec.select, "select")
+    bound_reduce = cast("_Step[ReduceOp]", _bind(reduce, spec.reduce))
     return _Plan(
         extract=cast("_Step[Extractor] | None", _bind(extract, spec.extract)),
         normalize=cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize)),
-        reduce=cast("_Step[ReduceOp]", _bind(reduce, spec.reduce)),
+        reduce=bound_reduce,
         select=cast("_Step[SelectOp]", _bind(select, spec.select)),
+        signal=_signal_read(spec, reduce, bound_reduce),
     )
 
 
-def _read_members(spec: CombineSpec, plan: _Plan, context: CombineContext) -> CombineInput:
-    weights = {} if spec.weights is None else {m: Decimal(str(w)) for m, w in spec.weights.items()}
+def _signal_read(
+    spec: CombineSpec, reduce: OperatorDescriptor | None, bound: _Step[ReduceOp]
+) -> SignalRead | None:
+    """The one signal the spec reads: from ``weights``, or from the reduce step's args (F6)."""
+    from_weights = (
+        SignalRead(spec.weights.signal) if isinstance(spec.weights, SignalWeights) else None
+    )
+    hook = None if reduce is None else reduce.signal_read
+    from_reduce = None if hook is None else hook(bound.args)
+    if from_reduce is not None:
+        if not is_signal_key(from_reduce.key):
+            raise SpecInvalid(f"{bound.op_id} reads an unknown signal")
+        if from_reduce.order not in (None, "max", "min"):
+            raise RuntimeError(f"{bound.op_id} returned an invalid signal read")  # a plugin bug
+    if from_weights is not None and from_reduce is not None:
+        raise SpecInvalid("a combine step reads at most one signal")
+    return from_reduce if from_weights is None else from_weights
+
+
+def _read_members(
+    spec: CombineSpec,
+    plan: _Plan,
+    context: CombineContext,
+    values: Mapping[str, float | None] | None,
+) -> CombineInput:
+    """One ``Answer`` per member in spec order; ``values`` is the signal the spec reads (I-S3)."""
+    fixed = {} if not isinstance(spec.weights, dict) else spec.weights
     answers = tuple(
-        _answer(member, context.outputs[member], plan, weights.get(member))
+        _answer(
+            member,
+            context.outputs[member],
+            plan,
+            MappingProxyType({})
+            if values is None or plan.signal is None
+            else MappingProxyType({plan.signal.key: values[member]}),
+            _weight(spec, fixed, member, None if values is None else values[member]),
+        )
         for member in spec.members
     )
     return CombineInput(answers=answers, outputs=context.outputs, signals=context.signals)
 
 
-def _answer(member_id: str, text: str, plan: _Plan, weight: Decimal | None) -> Answer:
+def _weight(
+    spec: CombineSpec, fixed: Mapping[str, float], member: str, signal: float | None
+) -> Decimal | None:
+    """A fixed weight as authored; a signal weight only when it is a usable positive number."""
+    if isinstance(spec.weights, SignalWeights):
+        usable = signal is not None and 0 < signal <= MAX_WEIGHT
+        return Decimal(str(signal)) if usable else None
+    return Decimal(str(fixed[member])) if member in fixed else None
+
+
+def _answer(
+    member_id: str,
+    text: str,
+    plan: _Plan,
+    signals: Mapping[str, float | None],
+    weight: Decimal | None,
+) -> Answer:
     status, raw, value = _stages(text, plan)
     answer_state, reason = answer_status(status)
     if plan.extract is not None and answer_state == "answered" and value is None:
         # A checked stage result cannot get here; the guard keeps I-A1 true if a stage changes.
         raise RuntimeError(f"{plan.extract.op_id} returned an answered member without a value")
-    return Answer(member_id, raw, value, answer_state, reason, weight=weight)
+    return Answer(member_id, raw, value, answer_state, reason, signals, weight)
 
 
 def _stages(text: str, plan: _Plan) -> tuple[ReadingStatus, str | None, str | None]:
@@ -407,7 +514,9 @@ def _evidence(
         median=None if statistic is None else canonical_decimal(statistic),
         presentation_order="author" if "judge" in combine_input.signals else None,
         separator_collision=reduction.separator_collision,
-        signal=None,
+        signal=None
+        if plan.signal is None
+        else SignalRecord(key=plan.signal.key, order=plan.signal.order),
         result=result,
         dropped=sum(answer.status == "fail" for answer in combine_input.answers),
         finish_reason="stop",

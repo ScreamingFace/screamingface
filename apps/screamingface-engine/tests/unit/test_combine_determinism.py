@@ -87,3 +87,91 @@ def test_endpoint_is_identical_over_100_in_process_runs() -> None:
     assert len(results) == 1
     output = next(iter(results))[0]
     assert output == texts[0]  # a (2), b (2), c (2), é (2): the first holder of the first tie
+
+
+# --- signals (gap-closure unit 1, SG#16) ------------------------------------------------------
+
+# Twelve members with JSON replies; the w values tie (2 and 1.5 each appear several times) and the
+# unicode words casefold to one value. The second scenario reads cost_usd through a pure reader.
+_SIGNAL_BODY = """
+import json
+
+from combine_support import context_text, run, spec_text, vote_spec
+
+
+def _wire(evidence) -> str:
+    return json.dumps(evidence.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))
+
+_WORDS = ["\\u00c9", "stra\\u00dfe", "\\u00e9", "STRASSE", "x", "y", "x", "y",
+          "\\u4e16\\u754c", "k", "\\u4e16\\u754c", "z"]
+_WEIGHTS = [2, 1.5, 2, 1.5, 1, 1, 0.5, 2, True, -1, "0.5", 1.5]
+
+
+def _reader(sources):
+    return {
+        member: {"cost_usd": None if index % 5 == 0 else (index % 3) * 0.25}
+        for index, member in enumerate(sorted(sources))
+    }
+
+
+def scenario() -> str:
+    texts = [json.dumps({"w": w, "x": word}) for w, word in zip(_WEIGHTS, _WORDS)]
+    weighted = vote_spec(
+        12,
+        weights={"signal": "field:w"},
+        reduce={"op": "fake_weighted@1", "args": {}},
+    )
+    lenient = vote_spec(12, weights={"signal": "field:w"})
+    first = run(spec_text(lenient), context_text(texts))
+    sources = {f"member_{i}": {"model_1": {"path": "/provider/alpha", "params": ""}}
+               for i in range(1, 13)}
+    scored = vote_spec(
+        12,
+        reduce={"op": "fake_signal_score@1", "args": {"key": "cost_usd", "order": "min"}},
+        select={"op": "fake_best@1", "args": {}},
+    )
+    second = run(spec_text(scored), context_text(texts, sources=sources), accounting=_reader)
+    parts = [
+        first.output + "\\n" + _wire(first.evidence),
+        second.output + "\\n" + _wire(second.evidence),
+    ]
+    try:
+        run(spec_text(weighted), context_text(texts))
+    except Exception as exc:
+        parts.append(type(exc).__name__)
+    return "\\n".join(parts)
+"""
+_SIGNAL_SCRIPT = _SIGNAL_BODY + "\nprint(scenario(), end='')\n"
+
+
+def _signal_in_process() -> str:
+    namespace: dict[str, Any] = {}
+    exec(_SIGNAL_BODY, namespace)
+    return namespace["scenario"]()
+
+
+def _signal_in_new_process(seed: int) -> str:
+    here = str(Path(__file__).parent)
+    env = {
+        **os.environ,
+        "PYTHONHASHSEED": str(seed),
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONPATH": os.pathsep.join(filter(None, [here, os.environ.get("PYTHONPATH")])),
+    }
+    done = subprocess.run(
+        [sys.executable, "-c", _SIGNAL_SCRIPT],
+        env=env,
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+        timeout=120,
+    )
+    return done.stdout
+
+
+def test_signals_are_deterministic_across_hash_seeds() -> None:
+    expected = _signal_in_process()
+    assert "field:w" in expected and "cost_usd" in expected
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        outputs = list(pool.map(_signal_in_new_process, _SEEDS))
+    assert set(outputs) == {expected}

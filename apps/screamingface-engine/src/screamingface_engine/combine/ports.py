@@ -14,8 +14,11 @@ One combine call runs four stages over the members, always in author order:
 
 1. extract   -- one member text -> a raw value, or a status          (``Extractor``)
 2. normalize -- one raw value   -> a comparable value, or a status   (``Normalizer``)
-3. reduce    -- every reading   -> one ``Reduction``                  (``ReduceOp``)
+3. reduce    -- every answer    -> one ``Reduction``                  (``ReduceOp``)
 4. select    -- the reduction   -> one ``Selection``                  (``SelectOp``)
+
+Before reduce the core resolves the one signal the spec reads (a ``field:`` number from the member
+text, or an accounting number through an injected ``AccountingReader``) onto each ``Answer``.
 
 INVARIANT: an operator is a pure function of its arguments. No I/O, no clock, no environment, no
 module-level mutable state, and no result that depends on dict or set iteration order. A behavior
@@ -24,6 +27,7 @@ change is a new ``@version``, never an edit: golden fixtures pin every registere
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import math
@@ -327,6 +331,7 @@ class OperatorDescriptor:
 
     ``args_schema`` is published as-is: ``{}`` for an operator without args, a JSON Schema object
     otherwise. ``check_args`` is what enforces the args, once per call, before any output is read.
+    ``signal_read`` (reduce only) tells the core which signal these args read; it is not published.
     """
 
     name: str
@@ -336,6 +341,7 @@ class OperatorDescriptor:
     run: Operator
     args_schema: Mapping[str, object] = field(default_factory=_empty_schema)
     check_args: ArgsCheck = no_args
+    signal_read: Callable[[OpArgs], SignalRead | None] | None = None
 
     def __post_init__(self) -> None:
         version_ok = not isinstance(self.version, bool) and 1 <= self.version <= 999_999
@@ -343,6 +349,8 @@ class OperatorDescriptor:
             raise ValueError(f"invalid combine operator {self.name!r} version {self.version!r}")
         if self.stage not in STAGES:
             raise ValueError(f"invalid combine operator stage {self.stage!r}")
+        if self.signal_read is not None and self.stage != "reduce":
+            raise ValueError("only a reduce operator may declare a signal_read")
 
     @property
     def id(self) -> str:
@@ -357,6 +365,100 @@ class OperatorDescriptor:
             "args_schema": copy.deepcopy(dict(self.args_schema)),
             "summary": self.summary,
         }
+
+
+# --- signals ----------------------------------------------------------------------------------
+# AIDEV-NOTE: a copy of url4's field-path grammar (dag/semantics/ensemble.py `_PATH`), extended with
+# a leading `[N]` segment; it lives in ports so json_field@1 (unit 2) and the core share one walk.
+_FIELD_KEY = r"[A-Za-z_][A-Za-z0-9_]*"
+_FIELD_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
+FIELD_PATH = re.compile(rf"(?:{_FIELD_KEY}|{_FIELD_INDEX})(?:\.{_FIELD_KEY}|{_FIELD_INDEX})*")
+_FIELD_STEP = re.compile(rf"\.?({_FIELD_KEY})|\[(0|[1-9][0-9]*)\]")
+_FENCE_OPEN = "```json"
+_FENCE_CLOSE = "```"
+
+
+def decode_json_reply(text: str) -> object:
+    """The whole trimmed text as JSON, else the last ```json fenced block; ValueError if neither."""
+    try:
+        return loads_bounded(text.strip())
+    except ValueError:
+        pass
+    opened = text.rfind(_FENCE_OPEN)
+    closed = text.find(_FENCE_CLOSE, opened + len(_FENCE_OPEN))
+    if opened < 0 or closed < 0:
+        raise ValueError("no JSON and no fenced block")
+    return loads_bounded(text[opened + len(_FENCE_OPEN) : closed])
+
+
+def walk_field_path(node: object, path: str) -> tuple[bool, object]:
+    """Follow a FIELD_PATH-valid ``path`` through ``node``: (found, value)."""
+    for step in _FIELD_STEP.finditer(path):
+        key, index = step.group(1), step.group(2)
+        if key is not None and isinstance(node, dict) and key in node:
+            node = node[key]
+        elif index is not None and isinstance(node, list) and int(index) < len(node):
+            node = node[int(index)]
+        else:
+            return False, None
+    return True, node
+
+
+ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
+FIELD_SIGNAL_PREFIX = "field:"
+
+
+def is_signal_key(key: object) -> bool:
+    """I-S1 for E4a unit 1: an accounting key or field:<FIELD_PATH>.
+
+    ``score:judge`` is not a signal key yet; unit 8E adds it.
+    """
+    if not isinstance(key, str):
+        return False
+    if key in ACCOUNTING_SIGNALS:
+        return True
+    return key.startswith(FIELD_SIGNAL_PREFIX) and (
+        FIELD_PATH.fullmatch(key[len(FIELD_SIGNAL_PREFIX) :]) is not None
+    )
+
+
+def _signal_number(value: object) -> float | None:
+    if isinstance(value, bool):  # before int: bool is an int subclass
+        return 1.0 if value else 0.0
+    number: float | None = None
+    if isinstance(value, (int, float)):
+        with contextlib.suppress(OverflowError):  # an int too large for a float
+            number = float(value)
+    return number if number is not None and math.isfinite(number) else None
+
+
+def field_signal_value(text: str, path: str) -> float | None:
+    """decode_json_reply -> walk_field_path; bool -> 1.0/0.0; int/float -> float when finite;
+    anything else, not JSON, or path absent -> None. Never raises (I-S2, SG-D8, SG-D11)."""
+    try:
+        found, value = walk_field_path(decode_json_reply(text), path)
+    except ValueError:
+        return None
+    return _signal_number(value) if found else None
+
+
+@dataclass(frozen=True, slots=True)
+class SignalRead:
+    """The one signal a spec reads, and the order a reducer asked for (None: no order)."""
+
+    key: str
+    order: SignalOrder | None = None
+
+
+# Same shape as ``benchmarks/operation_outputs._Fingerprint``: (call.path, call.params).
+CallFingerprint = tuple[str, tuple[tuple[str, str], ...]]
+MemberSources = Mapping[str, Mapping[str, CallFingerprint]]
+
+
+class AccountingReader(Protocol):
+    """A port the adapter implements: member -> accounting key -> number (None: unknown)."""
+
+    def __call__(self, sources: MemberSources, /) -> Mapping[str, Mapping[str, float | None]]: ...
 
 
 # --- shared pure helpers ----------------------------------------------------------------------
@@ -443,11 +545,16 @@ __all__ = [
     "MAX_JSON_DEPTH",
     "READING_TO_ANSWER",
     "STAGES",
+    "ACCOUNTING_SIGNALS",
+    "FIELD_PATH",
+    "FIELD_SIGNAL_PREFIX",
     "AbstainReason",
+    "AccountingReader",
     "Answer",
     "AnswerReason",
     "AnswerStatus",
     "ArgsCheck",
+    "CallFingerprint",
     "CombineError",
     "CombineInput",
     "EvidenceKind",
@@ -456,6 +563,7 @@ __all__ = [
     "InputTooLarge",
     "JudgeReading",
     "JudgeReplyInvalid",
+    "MemberSources",
     "MemberStatus",
     "NoVotes",
     "Normalizer",
@@ -470,6 +578,7 @@ __all__ = [
     "SelectOp",
     "Selection",
     "SignalOrder",
+    "SignalRead",
     "SpecInvalid",
     "Stage",
     "StageResult",
@@ -478,9 +587,13 @@ __all__ = [
     "answer_status",
     "canonical_decimal",
     "canonical_json",
+    "decode_json_reply",
+    "field_signal_value",
+    "is_signal_key",
     "json_depth",
     "loads_bounded",
     "no_args",
     "rejected",
     "utf8_exceeds",
+    "walk_field_path",
 ]
