@@ -7,6 +7,8 @@ Built like ``test_operation_output_capture.py``: a real aigateway world over a M
 
 from __future__ import annotations
 
+import logging
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -27,6 +29,7 @@ from screamingface_engine.world.connector import (
     build_aigateway_world,
 )
 from url4 import RelExpr, expr, render, src, text
+from url4.core.errors import ResolutionError
 
 _EXPECTED = SignalAccounting(0.002, 30.0, 10.0, 4.0)
 
@@ -84,6 +87,27 @@ def _miss_body(finish_reason: str = "stop") -> dict[str, Any]:
     }
 
 
+def _tool_round_body() -> dict[str, Any]:
+    """A miss whose turn ends in a web_search tool call, so the loop makes another round trip."""
+    body = _miss_body()
+    body["choices"] = [
+        {
+            "message": {
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "web_search", "arguments": '{"query":"q"}'},
+                    }
+                ],
+            },
+            "finish_reason": "tool_calls",
+        }
+    ]
+    return body
+
+
 def _hit_body() -> dict[str, Any]:
     reference = {
         "usage": {"input": {"total": 10}, "output": {"total": 4}},
@@ -121,14 +145,23 @@ def _responder(
 
 
 async def _world(
-    replies: list[tuple[str, dict[str, Any]]],
+    replies: list[tuple[str, dict[str, Any]]], *, web_tools: bool = False
 ) -> tuple[AigatewayWorld, httpx.AsyncClient]:
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(_responder(replies)), base_url="http://aigateway.test"
     )
+    tavily = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"results": []})),
+        base_url="https://api.tavily.test",
+    )
     world = await build_aigateway_world(
-        AigatewayConfig(default_model="provider/alpha", models=(ModelSpec(id="provider/alpha"),)),
+        AigatewayConfig(
+            default_model="provider/alpha",
+            models=(ModelSpec(id="provider/alpha", web_search=web_tools),),
+        ),
         client=client,
+        tavily_api_key="test-token" if web_tools else None,
+        tavily_client=tavily if web_tools else None,
     )
     return world, client
 
@@ -163,11 +196,12 @@ async def test_refusal_record_carries_signal_accounting() -> None:
     world, client = await _world([("miss", _miss_body("content_filter"))])
     try:
         with capture_operation_calls() as calls:
-            with pytest.raises(Exception, match=r"refus|filter|provider"):
+            with pytest.raises(ResolutionError) as caught:
                 await world.node.evaluate(_expression(), env={"input": "q"})
     finally:
         await world.aclose()
         await client.aclose()
+    assert caught.value.code == "provider_refusal"
     assert [call.output for call in calls] == [""]
     assert calls[0].signal_accounting == _EXPECTED
 
@@ -191,3 +225,43 @@ def test_record_operation_call_puts_signal_accounting_on_the_call() -> None:
             record_operation_call("out", "stop", None, signal)
             record_operation_call("plain", "stop")
     assert [call.signal_accounting for call in calls] == [signal, None]
+
+
+@pytest.mark.asyncio
+async def test_tool_loop_rounds_sum_signal_accounting() -> None:
+    world, client = await _world(
+        [("miss", _tool_round_body()), ("miss", _miss_body())], web_tools=True
+    )
+    try:
+        calls = await _call(world)
+    finally:
+        await world.aclose()
+        await client.aclose()
+    assert len(calls) == 1  # one logical call: only the terminal round is recorded
+    assert calls[0].signal_accounting == SignalAccounting(
+        math.fsum([0.002, 0.002]), 60.0, 20.0, 8.0
+    )
+
+
+@pytest.mark.asyncio
+async def test_unexpected_signal_accounting_failure_does_not_fail_a_successful_answer(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail_accounting(*_args: object) -> None:
+        raise ValueError("private accounting payload")
+
+    monkeypatch.setattr(
+        "screamingface_engine.world.connector.signal_accounting_from_aigw", fail_accounting
+    )
+    world, client = await _world([("miss", _miss_body())])
+    try:
+        with caplog.at_level(logging.WARNING):
+            calls = await _call(world)
+    finally:
+        await world.aclose()
+        await client.aclose()
+    assert [call.output for call in calls] == ["an answer"]
+    assert calls[0].signal_accounting == SignalAccounting()
+    assert "signal accounting unavailable after ValueError" in caplog.text
+    assert "private accounting payload" not in caplog.text
+    assert "an answer" not in caplog.text
