@@ -1,0 +1,98 @@
+[
+  {
+    "text": "Unsupported parameter: 'temperature' is not supported with this model.",
+    "withheld": false
+  },
+  {
+    "text": "This model requires age verification [via Meta]",
+    "withheld": false
+  },
+  {
+    "text": "Insufficient credits. Add more using [url]",
+    "withheld": false
+  },
+  {
+    "text": "Traceback (most recent call last): boom",
+    "withheld": true
+  },
+  {
+    "text": "File \"/app/x.py\", line 3",
+    "withheld": true
+  },
+  {
+    "text": "see /var/run/secrets/token",
+    "withheld": true
+  },
+  {
+    "text": "relative ./config.yaml",
+    "withheld": true
+  },
+  {
+    "text": "C:\\Users\\me\\key.txt",
+    "withheld": true
+  },
+  {
+    "text": "\\\\server\\share\\file",
+    "withheld": true
+  },
+  {
+    "text": "api_key=abc",
+    "withheld": true
+  },
+  {
+    "text": "x-api-key: abc",
+    "withheld": true
+  },
+  {
+    "text": "Authorization: Basic Zm9v",
+    "withheld": true
+  },
+  {
+    "text": "password = hunter2",
+    "withheld": true
+  },
+  {
+    "text": "Bearer abc.def",
+    "withheld": true
+  },
+  {
+    "text": "AKIAAAAAAAAAAAAAAAAA",
+    "withheld": true
+  },
+  {
+    "text": "sk-aaaaaaaaaaaaaaaaaaaa",
+    "withheld": true
+  },
+  {
+    "text": "-----BEGIN RSA PRIVATE KEY-----",
+    "withheld": true
+  },
+  {
+    "text": "max_tokens must be at most 4096",
+    "withheld": false
+  },
+  {
+    "text": "token limit exceeded",
+    "withheld": false
+  },
+  {
+    "text": "and/or the input/output was invalid",
+    "withheld": false
+  },
+  {
+    "text": "",
+    "withheld": true
+  },
+  {
+    "text": "Ошибка: неверный параметр",
+    "withheld": false
+  },
+  {
+    "text": "[redacted] key [redacted] jwt [redacted] see [url]",
+    "withheld": false
+  },
+  {
+    "text": "the /home/ directory",
+    "withheld": true
+  }
+]

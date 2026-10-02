@@ -356,11 +356,12 @@ def test_embedded_top_level_error_is_sanitized_and_does_not_invalidate(
     # OME-927: a 402 gets its own dedicated code/message instead of the generic
     # "provider_error" fallback, so the client can tell the caller to top up.
     assert resp.json()["detail"]["code"] == "insufficient_credits"
-    assert (
-        resp.json()["detail"]["message"] == "The upstream provider reported insufficient credits."
+    assert resp.json()["detail"]["message"] == (
+        "The upstream provider reported insufficient credits (402): "
+        "Insufficient credits: topping up at [url]"
     )
-    # Raw provider message/metadata is discarded, never echoed.
-    assert "Insufficient credits" not in resp.text
+    # OME-1136: the provider message is relayed only sanitized (the URL is redacted).
+    assert resp.json()["detail"]["upstream_message"] == "Insufficient credits: topping up at [url]"
     assert "secret-internal-router" not in resp.text
     assert _active_labels(authenticated_client, account_id) == ["work-or"]
 
@@ -405,7 +406,8 @@ def test_embedded_choice_error_with_native_finish_reason_maps_status(
 
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "provider_unavailable"
-    assert "upstream boom" not in resp.text
+    # OME-1136: the provider message is relayed only sanitized.
+    assert resp.json()["detail"]["upstream_message"] == "Provider returned error: upstream boom"
 
 
 @pytest.mark.parametrize(
