@@ -13,8 +13,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+from _answer_fixtures import evidence_wires
 from _combine_contract import ENGINE_OPERATOR_NAMES, operators_wire
 from test_client_run import BENCHMARK, _engine
+from test_operation_accounting_decode import _accounting_wire
 from url4 import Expression, build
 
 from screamingface._core.ports import _RunOutcome
@@ -140,3 +142,55 @@ def spec_of(url4: str) -> dict[str, object]:
     candidate, _ = _candidate_expression(build(url4))
     assert isinstance(candidate, Expression)
     return decode_combine_spec(_calls(candidate)["synthesis_1"].raw_intent)
+
+
+def operation_wire(
+    op_id: str,
+    output: str,
+    *,
+    accounting: dict[str, Any] | None = None,
+    combine: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    wire: dict[str, Any] = {
+        "operation_id": op_id,
+        "output": output,
+        "finish_reason": "stop",
+        "accounting": accounting,
+    }
+    if combine is not None:
+        wire["combine"] = combine
+    return wire
+
+
+def vote_case(
+    texts: Sequence[str],
+    evidence_name: str,
+    *,
+    model_ops: Sequence[str],
+    accounting: bool = False,
+    output: str | None = None,
+    synthesis_id: str = "op_synthesis_1",
+) -> dict[str, Any]:
+    """A scored Case of a Fusion: one operation per model call, then the combine step.
+
+    ``texts`` aligns with ``model_ops``. The combine output is ``output`` or, by default, the text
+    of the model call that answers the evidence's first chosen member (the m-th of ``model_ops``).
+    """
+
+    evidence = copy.deepcopy(evidence_wires()[evidence_name])
+    operations = [
+        operation_wire(
+            op_id,
+            text,
+            accounting=_accounting_wire(request_model=f"provider/{chr(ord('a') + index)}")
+            if accounting
+            else None,
+        )
+        for index, (op_id, text) in enumerate(zip(model_ops, texts, strict=True))
+    ]
+    chosen = evidence["chosen"]
+    if output is None:
+        position = int(chosen[0].removeprefix("member_")) - 1 if chosen else 0
+        output = texts[position] if chosen else ""
+    operations.append(operation_wire(synthesis_id, output, combine=evidence))
+    return case_wire(output, operations)
