@@ -64,6 +64,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "aigateway_bad_response",
         "aigateway_empty_response",
         "aigateway_transport_error",
+        # WHY declared (OME-939, owner decision 2026-10-02): the gateway family's one named
+        # code — aigateway's catch-all 500. Sits beside `aigateway_http_<status>`: gateway-
+        # attributed and retryable (permanent=False from the 5xx), never `upstream_error`.
+        "gateway_internal_error",
         "invalid_candidate_input",
         "web_tool_loop_limit",
         "web_retrieval_invalid",

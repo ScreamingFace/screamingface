@@ -1,0 +1,18 @@
+{
+  "issue": "OME-939",
+  "branch": "bershadsky/ome-939-add-an-aigateway-catch-all-exception-handler-class-name-only",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-10-01",
+  "scope": "Assertion only: in test_a_persistent_index_fault_at_the_resolver_read_renders_a_bare_500, the bare-text assertion `resp.text == \"Internal Server Error\"` is replaced by assertions on the structured 500 (detail.code == gateway_internal_error, detail.gateway_call_id present). No other edits to that test or file. Update 2026-10-02: code renamed per owner decision 2026-10-02 (internal_error -> gateway_internal_error); the one asserted value changes, nothing else. Update 2026-10-02 (engine): one added entry gateway_internal_error in the declared-code set (engine + SDK mirror) in test_failure_classes.py::test_the_declared_vocabulary_is_exactly_the_agreed_set; nothing else in that test or file.",
+  "reason": "OME-939 registers an app-wide catch-all Exception handler whose acceptance is a structured JSON 500 carrying gateway_call_id. The OME-1198 characterisation pinned the legacy bare Starlette 500 for an unhandled profile-index fault; its own AIDEV-NOTE defers changing that to a later decision, which the owner made on 2026-10-01. Code renamed per owner decision 2026-10-02: internal_error is url4's engine-fault default, so a gateway 500 under it read as an engine fault. Owner decision 2026-10-02: gateway 500s keep a gateway-family code in benchmark reports.",
+  "files": {
+    "apps/aigateway/tests/unit/test_profile_resolution_characterisation.py": {
+      "base_blob": "ab8e8c69bf325424ebd5efe13a6c4e6f217b36ff",
+      "approved_blob": "f53cd217d1b9985efabb8cf949e4d7788234a3bc"
+    },
+    "apps/screamingface-engine/tests/unit/test_failure_classes.py": {
+      "base_blob": "5502d1219da51a4d8c4a3a8df948848f9ccaf704",
+      "approved_blob": "54595344e83a2ed946f868e2f126c80da7d9daf3"
+    }
+  }
+}

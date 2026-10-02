@@ -1,7 +1,7 @@
 ---
 id: OME-939
 linear_url: https://linear.app/openmined/issue/OME-939/add-an-aigateway-catch-all-exception-handler-class-name-only-call-id
-status: backlog
+status: in_review
 type: improvement
 priority: 3
 labels: [aigateway, agentic, autonomous]
