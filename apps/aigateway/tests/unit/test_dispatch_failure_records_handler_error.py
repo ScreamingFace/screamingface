@@ -100,7 +100,7 @@ def test_a_client_disconnect_is_recorded_below_warning(
     [
         (499, logging.INFO),  # the client left — not an operator-actionable failure
         (429, logging.WARNING),  # back-pressure, not breakage
-        (503, logging.WARNING),  # overload / admission shedding, same semantics as 429
+        (503, logging.ERROR),  # unknown-origin 503 stays alertable
         (400, logging.WARNING),  # unchanged: the caller's own bad request
         (403, logging.WARNING),
         (500, logging.ERROR),  # unchanged: gateway/provider breakage
@@ -126,3 +126,33 @@ def test_the_terminal_record_level_follows_the_ome_1461_policy(
     assert len(records) == 1
     assert records[0].levelno == level
     assert f"status={status}" in records[0].getMessage()
+
+
+@pytest.mark.parametrize(
+    ("detail", "level"),
+    [
+        # The gateway's own back-pressure (#1153 / OME-1162 admission shedding): expected volume
+        # under overload, so WARNING.
+        ({"code": "provider_queue_timeout", "message": "m"}, logging.WARNING),
+        # An upstream provider 503 that survived the retry loop: an outage, so it stays alertable.
+        ({"code": "provider_unavailable", "message": "m"}, logging.ERROR),
+        # Unknown origin fails loud: only a named gateway back-pressure code earns WARNING.
+        ("free text from somewhere", logging.ERROR),
+    ],
+)
+def test_a_503_is_levelled_by_its_origin_not_its_status(
+    detail: object,
+    level: int,
+    captured,  # noqa: F811
+) -> None:
+    log_dispatch_failure(
+        HTTPException(status_code=503, detail=detail),
+        provider="anthropic",
+        error_type=None,
+        account_id="acct",
+        profile_name="default",
+    )
+
+    records = [r for r in captured.records if r.getMessage().startswith("dispatch failed ")]
+    assert len(records) == 1
+    assert records[0].levelno == level

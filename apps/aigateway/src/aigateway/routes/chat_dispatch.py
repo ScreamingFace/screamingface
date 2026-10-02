@@ -139,12 +139,13 @@ def log_dispatch_failure(
     """
     outcome = "mapped" if handler_error_type is None else "handler_error"
     suffix = "" if handler_error_type is None else f" handler_type={handler_error_type}"
+    classification = failure_classification(exc.detail)
     logger.log(
-        _record_level(exc.status_code),
+        _record_level(exc.status_code, classification),
         "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s "
         "outcome=%s%s",
         provider,
-        failure_classification(exc.detail),
+        classification,
         exc.status_code,
         error_type or "HTTPException",
         account_id,
@@ -156,12 +157,21 @@ def log_dispatch_failure(
 
 # WHY (OME-1461 log-level policy, reasons in docs/work/2026-10-02-ome-1461-*.md): 499 means the
 # client left — nothing an operator can act on, so INFO (still countable, never alerting).
-# 429/503 are back-pressure (rate limiting, admission shedding), not breakage: under overload
-# they arrive one per rejected call, so WARNING keeps them visible without paging on ERROR.
-_STATUS_LEVELS = {499: logging.INFO, 429: logging.WARNING, 503: logging.WARNING}
+# 429 is back-pressure, not breakage: under overload it arrives one per rejected call, so
+# WARNING keeps it visible without paging on ERROR.
+_STATUS_LEVELS = {499: logging.INFO, 429: logging.WARNING}
+
+# WHY (owner decision 2026-10-02): a 503 is levelled by ORIGIN, not status. The gateway's own
+# back-pressure (#1153 / OME-1162 admission shedding) is expected overload volume → WARNING; an
+# upstream 503 still failing after retries is an outage and must stay alertable → ERROR.
+# INVARIANT: allowlist, fail loud — only a named gateway back-pressure code is downgraded; an
+# unknown or provider-originated 503 keeps ERROR.
+_GATEWAY_BACKPRESSURE_CODES = frozenset({"provider_queue_timeout"})
 
 
-def _record_level(status: int) -> int:
+def _record_level(status: int, classification: str) -> int:
+    if status == 503 and classification in _GATEWAY_BACKPRESSURE_CODES:
+        return logging.WARNING
     default = logging.ERROR if status >= 500 else logging.WARNING
     return _STATUS_LEVELS.get(status, default)
 
