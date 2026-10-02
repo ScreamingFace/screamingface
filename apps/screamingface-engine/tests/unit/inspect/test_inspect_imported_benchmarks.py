@@ -82,6 +82,17 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "agieval_logiqa_en": "mcq",
     "medqa": "mcq",
     "mgsm_en": "free_text",
+    # OME-1273: the plain packages. worldsense is MCQ by its Samples' choices (three
+    # numbered options), though it asks with generate() and a pattern scorer.
+    "bbq": "mcq",
+    "piqa": "mcq",
+    "cybermetric_80": "mcq",
+    "cybermetric_500": "mcq",
+    "cybermetric_2000": "mcq",
+    "cybermetric_10000": "mcq",
+    "worldsense": "mcq",
+    "sevenllm_mcq_zh": "mcq",
+    "sevenllm_mcq_en": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
