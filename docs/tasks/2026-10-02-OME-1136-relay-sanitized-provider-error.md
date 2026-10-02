@@ -1,7 +1,7 @@
 ---
 id: OME-1136
 linear_url: https://linear.app/openmined/issue/OME-1136/every-rejected-model-call-says-only-the-upstream-provider-returned-an
-status: in_progress
+status: in_review
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
