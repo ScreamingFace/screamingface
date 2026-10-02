@@ -23,6 +23,7 @@ from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.topology import _writer_key
 from screamingface._signals import FIELD_PATH
+from screamingface.blocks import _BLOCK_FORMS, _BlockForm
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
     _REDUCER_CLASSES,
@@ -247,7 +248,17 @@ class FieldRule:
     def __repr__(self) -> str:
         return self._render("")
 
-    __hash__: ClassVar[Any] = None
+    def _key(self) -> tuple[object, ...]:
+        # WHY the type is in the key: Python's True == 1 == 1.0, but a bool, an int and a float
+        # param compile to different JSON, so they must stay three different rules.
+        params = tuple((name, type(value), value) for name, value in sorted(self.params.items()))
+        return (self.rule, self.normalize, self.member, self.route, self.prompt, params)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, FieldRule) and self._key() == other._key()
+
+    def __hash__(self) -> int:
+        return hash(self._key())
 
 
 def _member_position(value: object) -> int:
@@ -263,6 +274,27 @@ def _field_name(name: object) -> str:
             "letters, digits and underscores (at most 64 characters)"
         )
     return name
+
+
+@dataclass(frozen=True, slots=True)
+class _FieldRules:
+    """The canonical ``fields=`` value of an ``sf.Reduce('merge')`` block: the rules in order.
+
+    WHY not a mapping: it must hash (the block is a hashable value), and the field order is the
+    spec order, so it is part of the value.
+    """
+
+    items: tuple[tuple[str, FieldRule], ...]
+
+    def __repr__(self) -> str:
+        return self._render("")
+
+    def _python(self) -> str:
+        return self._render("sf.")
+
+    def _render(self, prefix: str) -> str:
+        shown = ", ".join(f"{field!r}: {rule._render(prefix)}" for field, rule in self.items)
+        return f"{{{shown}}}"
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -542,6 +574,37 @@ def _pick_parts(spec: Mapping[str, object]) -> tuple[str, str | None, dict[str, 
     return field, None if normalize is None else normalize[0], dict(select[1])
 
 
+def _pick_from_options(options: Mapping[str, object]) -> Pick:
+    return Pick(
+        cast("str", options["field"]),
+        order=cast("Literal['max', 'min'] | None", options.get("order")),
+        equals=cast("str | int | float | bool | None", options.get("equals")),
+        normalize=cast("FieldNormalizer | None", options.get("normalize")),
+    )
+
+
+def _pick_options(named: Reducer) -> Mapping[str, object]:
+    """The canonical options of a pick_field block, in op-table row order (F5)."""
+
+    pick = cast("Pick", named)
+    if pick.order is not None:
+        return {"field": pick.field, "order": pick.order}
+    normalize = {} if pick.normalize is None else {"normalize": pick.normalize}
+    return {"field": pick.field, **normalize, "equals": pick.equals}
+
+
+def _merge_from_options(options: Mapping[str, object]) -> Merge:
+    fields = options["fields"]
+    if isinstance(fields, _FieldRules):
+        return Merge(dict(fields.items))
+    return Merge(cast("Mapping[str, FieldRule]", fields))
+
+
 _REDUCER_CLASSES.update(pick=Pick, merge=Merge)
+_BLOCK_FORMS["pick_field"] = _BlockForm(build=_pick_from_options, options=_pick_options)
+_BLOCK_FORMS["merge"] = _BlockForm(
+    build=_merge_from_options,
+    options=lambda named: {"fields": _FieldRules(tuple(cast("Merge", named).fields.items()))},
+)
 
 __all__ = ["FieldNormalizer", "FieldRule", "Merge", "Pick"]

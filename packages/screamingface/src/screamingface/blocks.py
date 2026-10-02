@@ -244,13 +244,7 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
         "concat": _OpRow("concat", ("compute",), (), ("separator", "label"), named="sf.Concat"),
         "median": _OpRow("median", ("select", "compute"), ("extract",), named="sf.Median"),
         "judge": _OpRow("judge", ("select",), ("judge",), ("rubric",), named="sf.Judge"),
-        "merge": _OpRow(
-            "merge",
-            ("compute",),
-            ("fields",),
-            reserved=frozenset({"fields"}),
-            named="sf.Merge",
-        ),
+        "merge": _OpRow("merge", ("compute",), ("fields",), named="sf.Merge"),
         "context": _OpRow("context", ("compute",), (), named="the Fusion recipe rewrite"),
     }
 )
@@ -271,6 +265,17 @@ def _check_weights(op: str, value: object) -> Signal | tuple[float, ...]:
 def _check_by_signal(op: str, value: object) -> Signal:
     if not isinstance(value, Signal):
         raise TypeError(f"sf.Reduce({op!r}) option 'by_signal' must be an sf.signal")
+    return value
+
+
+def _check_fields(op: str, value: object) -> object:
+    # WHY lazy: fields.py imports this module to register its block forms (F10)
+    from screamingface.fields import _FieldRules
+
+    if not isinstance(value, Mapping | _FieldRules):
+        raise TypeError(
+            f"sf.Reduce({op!r}) option 'fields' must be a mapping of field name to sf.FieldRule"
+        )
     return value
 
 
@@ -362,6 +367,7 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
         "extract": _check_extract,
         "weights": _check_weights,
         "by_signal": _check_by_signal,
+        "fields": _check_fields,
         "order": _check_order,
         "k": _check_k,
         "by_field": _check_path("by_field"),

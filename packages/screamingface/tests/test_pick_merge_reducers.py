@@ -74,8 +74,8 @@ def test_field_rule_constructors_validate_and_repr() -> None:
     for rule in rules:
         assert eval(repr(rule), {"FieldRule": sf.FieldRule}) == rule  # noqa: S307 - the repr is the contract
     assert sf.FieldRule.majority() != sf.FieldRule.majority(normalize="text")
-    with pytest.raises(TypeError):
-        hash(rules[0])
+    assert hash(rules[0]) == hash(sf.FieldRule.majority())
+    assert len({*rules, *rules}) == len(rules)
 
 
 def test_field_rule_constructors_refuse_bad_arguments() -> None:

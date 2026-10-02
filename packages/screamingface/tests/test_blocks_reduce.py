@@ -96,8 +96,8 @@ def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
         sf.Reduce("top_k", k=2, by="x")
     with pytest.raises(TypeError, match="option 'judge' must be an sf.Judge"):
         sf.Reduce("judge", judge="m")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="arrives with sf.Merge"):
-        sf.Reduce("merge", fields={"a": "b"})
+    with pytest.raises(TypeError, match="option 'fields' must be a mapping of field name"):
+        sf.Reduce("merge", fields=["a"])  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="sf.Judge"):
         sf.Reduce("judge", judge="m", rubric="r")  # type: ignore[arg-type]
 
@@ -156,6 +156,7 @@ def _one_per_row() -> list[Reduce]:
         sf.Reduce("filter", where=sf.matches("a+", ignore_case=True), extract=NUMERIC),
         sf.Reduce("pick_field", field="verdict", normalize="text", equals="yes"),
         sf.Reduce("pick_field", field="score", order="max"),
+        sf.Reduce("merge", fields={"summary": sf.FieldRule.model("provider/w", prompt="Write.")}),
         sf.Reduce("concat", separator="\n--\n", label=True),
         sf.Reduce("median", mode="compute", extract=LAST),
         sf.Reduce(
@@ -202,6 +203,7 @@ def test_reduce_names_follow_the_spec_reducers() -> None:
         "concat": "concat",
         "median": "median",
         "judge": "judge",
+        "merge": "merge",
         "context": "context",
     }
 
@@ -252,13 +254,18 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
         sf.Reduce("argmax", by_signal=sf.signal("cost_usd")),
         sf.Reduce("top_k", k=1, by_field="a"),
         sf.Reduce("filter", where=sf.matches("a")),
-        sf.Reduce("pick_field", field="a", order="max"),
         sf.Reduce("concat"),
         sf.Reduce("context"),
     ]
     for block in not_yet:
         with pytest.raises(ValueError, match="does not compile in this SDK version yet"):
             _compiled_text(block)
+    # pick_field has Engine operators since 9S, but the fixture catalog (units 1-3) lacks them
+    pick = sf.Reduce("pick_field", field="a", order="max")
+    with pytest.raises(ValueError, match="unknown reduce operator 'values'"):
+        _compiled_text(pick)
+    spec = json.loads(combine_spec_text(pick, member_count=3, operators=flow_operators()))
+    assert spec["reducer"] == "pick"
     # a signal-weighted block compiles since unit 7; only score:judge waits for the judge
     assert '"weights":{"signal":"field:c"}' in _compiled_text(
         sf.Reduce("weighted", extract=LAST, weights=sf.signal("field:c"))
@@ -313,6 +320,14 @@ def _roundtrip_cases() -> list[Reduce]:
         sf.Reduce("judge", judge=sf.Judge("provider/j", returns=returns, rubric="Pick one."))  # type: ignore[arg-type]
         for returns in ("label", "scores")
     )
+    cases.extend(
+        [
+            sf.Reduce("pick_field", field="score", order="min"),
+            sf.Reduce("pick_field", field="verdict", normalize="text", equals="yes"),
+            sf.Reduce("merge", fields={"a": sf.FieldRule.majority(normalize="text")}),
+            sf.Reduce("merge", fields={"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
+        ]
+    )
     return cases
 
 
@@ -325,21 +340,27 @@ def _named_or_block(reducer: Reduce) -> type[Reducer]:
         and isinstance(extract, sf.Extract)
         and not extract.args
     )
-    named: dict[str, type[Reducer]] = {"median": sf.Median, "judge": sf.Judge}
+    named: dict[str, type[Reducer]] = {
+        "median": sf.Median,
+        "judge": sf.Judge,
+        "pick_field": sf.Pick,
+        "merge": sf.Merge,
+    }
     return sf.Vote if plain_vote else named.get(reducer.op, Reduce)
 
 
 @pytest.mark.parametrize("reducer", _roundtrip_cases(), ids=lambda value: repr(value)[:90])
 def test_reduce_to_python_round_trips(reducer: Reduce) -> None:
     fusion = sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=reducer)
-    # the judge ops (label, scores, ...) come with the Engine's flow catalog, not units 1-3
-    operators = flow_operators() if reducer.op == "judge" else engine_operators()
+    # the judge, pick and merge ops come with the Engine's flow catalog, not units 1-3
+    flow = reducer.op in ("judge", "pick_field", "merge")
+    operators = flow_operators() if flow else engine_operators()
     url4 = compile_candidate(fusion, operators=operators).url4
 
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102
 
-    # The named form wins when it holds the spec exactly (Vote, Median, Judge); else sf.Reduce.
+    # The named form wins when it holds the spec exactly (Vote, Median, Judge, Pick, Merge).
     assert type(namespace["candidate"].synthesizer) is _named_or_block(reducer)
     if isinstance(namespace["candidate"].synthesizer, Reduce):
         assert namespace["candidate"] == fusion

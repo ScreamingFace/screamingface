@@ -146,3 +146,37 @@ def test_a_judge_url4_is_recovered_as_the_named_judge_for_both_forms() -> None:
         recovered = _recovered(compile_candidate(_fusion(source), operators=flow_operators()).url4)
         assert type(recovered) is sf.Judge
         assert recovered._python() == judge._python()
+
+
+@pytest.mark.parametrize(
+    ("block", "named"),
+    [
+        (
+            sf.Reduce("pick_field", field="score", order="max"),
+            sf.Pick("score", order="max"),
+        ),
+        (
+            sf.Reduce("pick_field", field="verdict", normalize="text", equals="yes"),
+            sf.Pick("verdict", equals="yes", normalize="text"),
+        ),
+        (
+            sf.Reduce("merge", fields={"a": sf.FieldRule.majority(), "b": sf.FieldRule.max()}),
+            sf.Merge({"a": sf.FieldRule.majority(), "b": sf.FieldRule.max()}),
+        ),
+        (
+            sf.Reduce("merge", fields={"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
+            sf.Merge({"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
+        ),
+    ],
+    ids=["pick-order", "pick-equals", "merge", "merge-model-field"],
+)
+def test_a_pick_or_merge_url4_is_recovered_as_the_named_class_for_both_forms(
+    block: sf.Reduce, named: Reducer
+) -> None:
+    url4 = compile_candidate(_fusion(named), operators=flow_operators()).url4
+
+    assert compile_candidate(_fusion(block), operators=flow_operators()).url4 == url4
+    for source in (named, block):
+        recovered = _recovered(compile_candidate(_fusion(source), operators=flow_operators()).url4)
+        assert type(recovered) is type(named)
+        assert recovered._python() == named._python()
