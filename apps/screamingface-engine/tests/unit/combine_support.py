@@ -7,8 +7,10 @@ core test cannot pass or fail because of a real operator's behavior.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE, CombineOutcome, run_combine
@@ -38,15 +40,31 @@ def fake_last_word(text: str, args: OpArgs, /) -> StageResult:
     return accepted(words[-1]) if words else rejected("empty")
 
 
+def fake_digits(text: str, args: OpArgs, /) -> StageResult:
+    """The last run of digits, else ``empty``."""
+    runs = re.findall(r"[0-9]+", text)
+    return accepted(runs[-1]) if runs else rejected("empty")
+
+
+def fake_bad_stage(text: str, args: OpArgs, /) -> Any:
+    """A plugin bug: "voted" with no value (a duck-typed object skips StageResult's own check)."""
+    return SimpleNamespace(value=None, status="voted")
+
+
+def fake_abstain_stage(text: str, args: OpArgs, /) -> Any:
+    """A plugin bug: a member reading is never "abstain" (I-A3)."""
+    return SimpleNamespace(value=None, status="abstain")
+
+
 def fake_lower(raw: str, args: OpArgs, /) -> StageResult:
     return accepted(raw.casefold())
 
 
 def fake_count(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     groups: dict[str, list[str]] = {}
-    for reading in combine_input.voters:
-        assert reading.value is not None
-        groups.setdefault(reading.value, []).append(reading.member)
+    for answer in combine_input.voters:
+        assert answer.value is not None
+        groups.setdefault(answer.value, []).append(answer.member_id)
     rows = [
         TallyRow(value, Decimal(len(holders)), tuple(holders)) for value, holders in groups.items()
     ]
@@ -85,10 +103,10 @@ def fake_boom(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /
 def fake_weighted(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """Like fake_count, but each vote scores the member's weight."""
     groups: dict[str, list[tuple[str, Decimal]]] = {}
-    for reading in combine_input.voters:
-        if reading.value is None or reading.weight is None:
+    for answer in combine_input.voters:
+        if answer.value is None or answer.weight is None:
             raise SpecInvalid("fake_weighted@1 needs weights")
-        groups.setdefault(reading.value, []).append((reading.member, reading.weight))
+        groups.setdefault(answer.value, []).append((answer.member_id, answer.weight))
     rows = [
         TallyRow(value, sum((weight for _, weight in held), Decimal(0)), tuple(m for m, _ in held))
         for value, held in groups.items()
@@ -145,6 +163,11 @@ def fake_args(text: str, args: OpArgs, /) -> StageResult:
 FAKE_REGISTRY = OperatorRegistry(
     (
         OperatorDescriptor("fake_last_word", 1, "extract", "Last word.", fake_last_word),
+        OperatorDescriptor("fake_digits", 1, "extract", "Last digit run.", fake_digits),
+        OperatorDescriptor("fake_bad_stage", 1, "extract", "Voted, no value.", fake_bad_stage),
+        OperatorDescriptor(
+            "fake_abstain_stage", 1, "extract", "Abstain status.", fake_abstain_stage
+        ),
         OperatorDescriptor("fake_lower", 1, "normalize", "Casefold.", fake_lower),
         OperatorDescriptor("fake_count", 1, "reduce", "One vote each.", fake_count),
         OperatorDescriptor("fake_weighted", 1, "reduce", "One weight each.", fake_weighted),

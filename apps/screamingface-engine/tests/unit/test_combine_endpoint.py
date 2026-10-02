@@ -23,7 +23,7 @@ from combine_support import (
 from pydantic import ValidationError
 
 from screamingface_engine.combine.endpoint import CombineOutcome
-from screamingface_engine.combine.evidence import CombineEvidence, MemberReadingRecord
+from screamingface_engine.combine.evidence import AnswerRecord, CombineEvidence
 from screamingface_engine.combine.ports import (
     CombineError,
     CombineInput,
@@ -67,12 +67,12 @@ def test_vote_evidence_has_every_pinned_field() -> None:
         "reducer": "vote",
         "operators": ["fake_last_word@1", "fake_lower@1", "fake_count@1", "fake_first@1"],
         "members": [
-            {"member": "member_1", "raw": "x", "value": "x", "status": "voted",
-             "weight": None, "score": None},
-            {"member": "member_2", "raw": None, "value": None, "status": "empty",
-             "weight": None, "score": None},
-            {"member": "member_3", "raw": "X", "value": "x", "status": "voted",
-             "weight": None, "score": None},
+            {"member_id": "member_1", "raw": "x", "value": "x", "status": "answered",
+             "reason": None, "signals": {}, "weight": None, "score": None},
+            {"member_id": "member_2", "raw": None, "value": None, "status": "fail",
+             "reason": "empty", "signals": {}, "weight": None, "score": None},
+            {"member_id": "member_3", "raw": "X", "value": "x", "status": "answered",
+             "reason": None, "signals": {}, "weight": None, "score": None},
         ],
         "tally": [{"value": "x", "score": 2.0, "holders": ["member_1", "member_3"]}],
         "judge": None,
@@ -84,6 +84,9 @@ def test_vote_evidence_has_every_pinned_field() -> None:
         "median": None,
         "presentation_order": None,
         "separator_collision": None,
+        "signal": None,
+        "result": {"member_id": "member_1", "value": "x", "status": "answered", "reason": None},
+        "dropped": 1,
         "finish_reason": "stop",
     }  # fmt: skip
 
@@ -93,7 +96,7 @@ def test_evidence_keys_are_in_the_pinned_order() -> None:
     assert list(json.loads(outcome.evidence.model_dump_json(by_alias=True))) == [
         "schema", "kind", "reducer", "operators", "members", "tally", "judge", "fields",
         "chosen", "built", "agreement", "tie", "median", "presentation_order",
-        "separator_collision", "finish_reason",
+        "separator_collision", "signal", "result", "dropped", "finish_reason",
     ]  # fmt: skip
 
 
@@ -171,9 +174,16 @@ def test_evidence_rejects_a_chosen_member_outside_the_members() -> None:
         CombineEvidence.model_validate({**data, "chosen": ["member_9"]})
     with pytest.raises(ValidationError):
         CombineEvidence.model_validate({**data, "chosen": ["member_1", "member_1"]})
-    row = MemberReadingRecord.model_validate(data["members"][0]).model_dump()
+    row = AnswerRecord.model_validate(data["members"][0]).model_dump()
     with pytest.raises(ValidationError):
         CombineEvidence.model_validate({**data, "members": [row, row]})
+    with pytest.raises(ValidationError):
+        CombineEvidence.model_validate({**data, "dropped": 1})  # no member failed
+    abstain = {"member_id": None, "value": None, "status": "abstain", "reason": "no_votes"}
+    with pytest.raises(ValidationError):
+        CombineEvidence.model_validate({**data, "result": abstain})  # abstain with a chosen member
+    with pytest.raises(ValidationError):
+        CombineEvidence.model_validate({**data, "built": True})  # built with a member result
 
 
 # --- FW-5 -----------------------------------------------------------------------------------
@@ -261,8 +271,13 @@ def test_oversize_member_output_gets_too_large_status() -> None:
     outcome = run(spec_text(vote_spec(3)), context_text(texts))
     evidence = outcome.evidence
     skipped = evidence.members[1]
-    assert (skipped.status, skipped.raw, skipped.value) == ("too_large", None, None)
-    assert [row.status for row in evidence.members] == ["voted", "too_large", "voted"]
+    assert (skipped.status, skipped.reason, skipped.raw, skipped.value) == (
+        "fail",
+        "too_large",
+        None,
+        None,
+    )
+    assert [row.status for row in evidence.members] == ["answered", "fail", "answered"]
     assert evidence.agreement == 1.0
 
 
@@ -395,7 +410,7 @@ def test_failure_messages_never_echo_member_text(case: str) -> None:
 def test_members_follow_the_spec_order_not_the_context_key_order() -> None:
     spec = vote_spec(3, members=["member_3", "member_1", "member_2"])
     voted = run(spec_text(spec), context_text(["a x", "b y", "c y"]))
-    assert [row.member for row in voted.evidence.members] == ["member_3", "member_1", "member_2"]
+    assert [row.member_id for row in voted.evidence.members] == ["member_3", "member_1", "member_2"]
     assert voted.evidence.tally is not None
     assert voted.evidence.tally[0].holders == ["member_3", "member_2"]
     assert voted.output == "c y"  # y wins; its first holder in SPEC order is member_3

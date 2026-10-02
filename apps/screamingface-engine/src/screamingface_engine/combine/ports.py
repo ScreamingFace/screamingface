@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -36,7 +37,24 @@ from typing import ClassVar, Literal, Protocol
 Stage = Literal["extract", "normalize", "reduce", "select"]
 Reducer = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat"]
 EvidenceKind = Literal["answer", "selection", "projection"]
-ReadingStatus = Literal["voted", "empty", "not_numeric", "not_json", "field_missing", "too_large"]
+ReadingStatus = Literal[
+    "voted", "empty", "not_numeric", "not_json", "field_missing", "too_large", "no_match"
+]
+AnswerStatus = Literal["answered", "abstain", "fail"]
+MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
+AbstainReason = Literal["no_votes", "cut_not_met"]
+AnswerReason = Literal[
+    "empty",
+    "not_numeric",
+    "not_json",
+    "field_missing",
+    "too_large",
+    "no_match",
+    "no_votes",
+    "cut_not_met",
+]
+ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met")
+SignalOrder = Literal["max", "min"]
 OpArgs = Mapping[str, object]
 
 STAGES: tuple[Stage, ...] = ("extract", "normalize", "reduce", "select")
@@ -118,36 +136,86 @@ def rejected(status: ReadingStatus) -> StageResult:
     return StageResult(None, status)
 
 
+READING_TO_ANSWER: Mapping[ReadingStatus, tuple[MemberStatus, AnswerReason | None]] = (
+    MappingProxyType(
+        {
+            "voted": ("answered", None),
+            "empty": ("fail", "empty"),
+            "not_numeric": ("fail", "not_numeric"),
+            "not_json": ("fail", "not_json"),
+            "field_missing": ("fail", "field_missing"),
+            "too_large": ("fail", "too_large"),
+            "no_match": ("fail", "no_match"),
+        }
+    )
+)
+
+
+def answer_status(status: object) -> tuple[MemberStatus, AnswerReason | None]:
+    """Total map from a stage status to the member's (status, reason) (AR-D1).
+
+    A status that is not a str, or not a key of ``READING_TO_ANSWER``, is a plugin bug and raises
+    ``RuntimeError``; there is never a default.
+    """
+    for known, answer in READING_TO_ANSWER.items():
+        if known == status:
+            return answer
+    raise RuntimeError("a combine stage returned an unknown status")
+
+
+def _empty_signals() -> Mapping[str, float | None]:
+    return MappingProxyType({})
+
+
 @dataclass(frozen=True, slots=True)
-class MemberReading:
+class Answer:
     """What the core read for one member: ``raw`` after extract, ``value`` after normalize.
 
-    With no extract step (judge, concat) a readable member is "voted" with both values None.
+    ``status`` is "answered" or "fail" (I-A3: a member never abstains); ``reason`` is set exactly
+    when the member failed. With no extract step (judge, concat) a readable member is "answered"
+    with ``raw`` and ``value`` both None. ``signals`` holds only the signal the spec reads.
     """
 
-    member: str
+    member_id: str
     raw: str | None
     value: str | None
-    status: ReadingStatus
-    weight: Decimal | None
+    status: MemberStatus
+    reason: AnswerReason | None
+    signals: Mapping[str, float | None] = field(default_factory=_empty_signals)
+    weight: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        if self.status not in ("answered", "fail"):
+            raise ValueError("an Answer status is 'answered' or 'fail'")
+        if (self.reason is None) != (self.status == "answered"):
+            raise ValueError("an Answer has a reason exactly when it failed")
+        if self.status != "answered" and self.value is not None:
+            raise ValueError("a failed Answer has no value")
+        for number in self.signals.values():
+            if number is not None and (
+                isinstance(number, bool)
+                or not isinstance(number, float)
+                or not math.isfinite(number)
+            ):
+                raise ValueError("an Answer signal is None or a finite float")
 
 
 @dataclass(frozen=True, slots=True)
 class CombineInput:
     """Everything a reduce or select step may read. ``outputs`` holds every member's original
-    text (also members marked too_large); never iterate it for order -- use ``readings``."""
+    text (also members marked too_large); never iterate it for order -- use ``answers``."""
 
-    readings: tuple[MemberReading, ...]
+    answers: tuple[Answer, ...]
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
 
     @property
     def members(self) -> tuple[str, ...]:
-        return tuple(reading.member for reading in self.readings)
+        return tuple(answer.member_id for answer in self.answers)
 
     @property
-    def voters(self) -> tuple[MemberReading, ...]:
-        return tuple(reading for reading in self.readings if reading.status == "voted")
+    def voters(self) -> tuple[Answer, ...]:
+        return tuple(answer for answer in self.answers if answer.status == "answered")
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,9 +433,15 @@ def utf8_exceeds(text: str, limit: int) -> bool:
 
 
 __all__ = [
+    "ABSTAIN_REASONS",
     "DECIMAL_CONTEXT",
     "MAX_JSON_DEPTH",
+    "READING_TO_ANSWER",
     "STAGES",
+    "AbstainReason",
+    "Answer",
+    "AnswerReason",
+    "AnswerStatus",
     "ArgsCheck",
     "CombineError",
     "CombineInput",
@@ -377,7 +451,7 @@ __all__ = [
     "InputTooLarge",
     "JudgeReading",
     "JudgeReplyInvalid",
-    "MemberReading",
+    "MemberStatus",
     "NoVotes",
     "Normalizer",
     "OpArgs",
@@ -390,11 +464,13 @@ __all__ = [
     "Reduction",
     "SelectOp",
     "Selection",
+    "SignalOrder",
     "SpecInvalid",
     "Stage",
     "StageResult",
     "TallyRow",
     "accepted",
+    "answer_status",
     "canonical_decimal",
     "canonical_json",
     "json_depth",

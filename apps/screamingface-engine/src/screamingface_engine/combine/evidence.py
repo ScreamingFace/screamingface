@@ -19,7 +19,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from screamingface_engine.combine.ports import EvidenceKind, ReadingStatus, Reducer
+from screamingface_engine.combine.ports import (
+    AbstainReason,
+    AnswerReason,
+    EvidenceKind,
+    MemberStatus,
+    Reducer,
+    SignalOrder,
+)
 
 COMBINE_EVIDENCE_SCHEMA = "screamingface.combine-evidence.v1"
 
@@ -30,15 +37,49 @@ class _EvidenceModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
 
 
-class MemberReadingRecord(_EvidenceModel):
+class AnswerRecord(_EvidenceModel):
     """One spec member, in author order."""
 
-    member: str
+    member_id: str
     raw: str | None
     value: str | None
-    status: ReadingStatus
+    status: MemberStatus
+    reason: AnswerReason | None
+    signals: dict[str, float | None]
     weight: float | None
     score: float | None
+
+    @model_validator(mode="after")
+    def _check(self) -> AnswerRecord:
+        if (self.reason is None) != (self.status == "answered"):
+            raise ValueError("an answer has a reason exactly when it failed")
+        if self.status == "fail" and self.value is not None:
+            raise ValueError("a failed answer has no value")
+        return self
+
+
+class ResultRecord(_EvidenceModel):
+    """The computed answer of the step: a member's text, a built text, or an abstain."""
+
+    member_id: str | None
+    value: str | None
+    status: Literal["answered", "abstain"]
+    reason: AbstainReason | None
+
+    @model_validator(mode="after")
+    def _check(self) -> ResultRecord:
+        if (self.reason is None) != (self.status == "answered"):
+            raise ValueError("a result has a reason exactly when it abstained")
+        if self.status == "abstain" and (self.value is not None or self.member_id is not None):
+            raise ValueError("an abstain result has no value and no member")
+        return self
+
+
+class SignalRecord(_EvidenceModel):
+    """The one signal the spec reads, and the order a reducer asked for (None: no order)."""
+
+    key: str
+    order: SignalOrder | None
 
 
 class TallyRowRecord(_EvidenceModel):
@@ -75,7 +116,7 @@ class CombineEvidence(_EvidenceModel):
     kind: EvidenceKind
     reducer: Reducer
     operators: list[str]
-    members: list[MemberReadingRecord]
+    members: list[AnswerRecord]
     tally: list[TallyRowRecord] | None
     judge: JudgeReadingRecord | None
     fields: list[FieldReadingRecord] | None
@@ -86,23 +127,36 @@ class CombineEvidence(_EvidenceModel):
     median: str | None
     presentation_order: Literal["author"] | None
     separator_collision: bool | None
+    signal: SignalRecord | None
+    result: ResultRecord
+    dropped: int
     finish_reason: Literal["stop"]
 
     @model_validator(mode="after")
     def _check(self) -> CombineEvidence:
-        member_ids = [row.member for row in self.members]
+        member_ids = [row.member_id for row in self.members]
         if len(set(member_ids)) != len(member_ids):
             raise ValueError("combine evidence member ids must be unique")
         if len(set(self.chosen)) != len(self.chosen) or not set(self.chosen) <= set(member_ids):
             raise ValueError("combine evidence chosen must be unique members")
+        if self.dropped != sum(row.status == "fail" for row in self.members):
+            raise ValueError("combine evidence dropped must count the failed members")
+        if self.result.status == "abstain" and (self.chosen or self.built):
+            raise ValueError("an abstained combine evidence chooses and builds nothing")
+        if self.result.member_id is not None and (
+            self.built or self.chosen != [self.result.member_id]
+        ):
+            raise ValueError("a member result must be the one chosen member and not built")
         return self
 
 
 __all__ = [
     "COMBINE_EVIDENCE_SCHEMA",
+    "AnswerRecord",
     "CombineEvidence",
     "FieldReadingRecord",
     "JudgeReadingRecord",
-    "MemberReadingRecord",
+    "ResultRecord",
+    "SignalRecord",
     "TallyRowRecord",
 ]

@@ -32,18 +32,21 @@ from typing import Any, cast
 from pydantic import ValidationError
 
 from screamingface_engine.combine.evidence import (
+    AnswerRecord,
     CombineEvidence,
     FieldReadingRecord,
     JudgeReadingRecord,
-    MemberReadingRecord,
+    ResultRecord,
     TallyRowRecord,
 )
 from screamingface_engine.combine.ports import (
+    READING_TO_ANSWER,
+    Answer,
     CombineError,
     CombineInput,
+    EvidenceKind,
     Extractor,
     InputTooLarge,
-    MemberReading,
     Normalizer,
     NoVotes,
     OpArgs,
@@ -55,6 +58,8 @@ from screamingface_engine.combine.ports import (
     SelectOp,
     SpecInvalid,
     Stage,
+    StageResult,
+    answer_status,
     canonical_decimal,
     utf8_exceeds,
 )
@@ -182,7 +187,8 @@ def _combine(
     output = _output(selection, plan.select.op_id, context)
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
     trace.tie = "true" if selection.tie else "false"
-    evidence = _evidence(spec, plan, combine_input, reduction, selection)
+    result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
+    evidence = _evidence(spec, plan, combine_input, reduction, selection, result)
     return CombineOutcome(output, evidence)
 
 
@@ -235,16 +241,20 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
 
 def _read_members(spec: CombineSpec, plan: _Plan, context: CombineContext) -> CombineInput:
     weights = {} if spec.weights is None else {m: Decimal(str(w)) for m, w in spec.weights.items()}
-    readings = tuple(
-        _reading(member, context.outputs[member], plan, weights.get(member))
+    answers = tuple(
+        _answer(member, context.outputs[member], plan, weights.get(member))
         for member in spec.members
     )
-    return CombineInput(readings=readings, outputs=context.outputs, signals=context.signals)
+    return CombineInput(answers=answers, outputs=context.outputs, signals=context.signals)
 
 
-def _reading(member: str, text: str, plan: _Plan, weight: Decimal | None) -> MemberReading:
+def _answer(member_id: str, text: str, plan: _Plan, weight: Decimal | None) -> Answer:
     status, raw, value = _stages(text, plan)
-    return MemberReading(member, raw, value, status, weight)
+    answer_state, reason = answer_status(status)
+    if plan.extract is not None and answer_state == "answered" and value is None:
+        # A checked stage result cannot get here; the guard keeps I-A1 true if a stage changes.
+        raise RuntimeError(f"{plan.extract.op_id} returned an answered member without a value")
+    return Answer(member_id, raw, value, answer_state, reason, weight=weight)
 
 
 def _stages(text: str, plan: _Plan) -> tuple[ReadingStatus, str | None, str | None]:
@@ -256,13 +266,26 @@ def _stages(text: str, plan: _Plan) -> tuple[ReadingStatus, str | None, str | No
     return _extract_then_normalize(text, plan.extract, plan.normalize)
 
 
+def _checked(result: StageResult, op_id: str) -> StageResult:
+    """A plugin's stage result, verified: a duck-typed object is a plugin bug, not a vote."""
+    status, value = getattr(result, "status", None), getattr(result, "value", None)
+    if (
+        not isinstance(status, str)
+        or status not in READING_TO_ANSWER
+        or not (value is None or isinstance(value, str))
+        or (status == "voted") != (value is not None)
+    ):
+        raise RuntimeError(f"{op_id} returned an invalid stage result")
+    return result
+
+
 def _extract_then_normalize(
     text: str, extract: _Step[Extractor], normalize: _Step[Normalizer] | None
 ) -> tuple[ReadingStatus, str | None, str | None]:
-    raw = extract.run(text, extract.args)
+    raw = _checked(extract.run(text, extract.args), extract.op_id)
     if raw.value is None or normalize is None:
         return raw.status, raw.value, raw.value
-    normalized = normalize.run(raw.value, normalize.args)
+    normalized = _checked(normalize.run(raw.value, normalize.args), normalize.op_id)
     return normalized.status, raw.value, normalized.value
 
 
@@ -278,6 +301,20 @@ def _output(selection: Selection, op_id: str, context: CombineContext) -> str:
     if utf8_exceeds(output, MAX_RESULT_BYTES):
         raise InputTooLarge("the combine output exceeds 8 MiB")
     return output
+
+
+def _result(
+    selection: Selection, kind: EvidenceKind, output: str, combine_input: CombineInput
+) -> ResultRecord:
+    """The computed answer: the chosen member's value, or (built) the output for answer and
+    projection kinds. A selection kind keeps no value (I-E1: it would carry member text)."""
+    if selection.output is None:
+        winner = next(a for a in combine_input.answers if a.member_id == selection.chosen[0])
+        return ResultRecord(
+            member_id=winner.member_id, value=winner.value, status="answered", reason=None
+        )
+    value = output if kind in ("answer", "projection") else None
+    return ResultRecord(member_id=None, value=value, status="answered", reason=None)
 
 
 def _check_tally(reduction: Reduction, members: tuple[str, ...], op_id: str) -> None:
@@ -313,6 +350,7 @@ def _evidence(
     combine_input: CombineInput,
     reduction: Reduction,
     selection: Selection,
+    result: ResultRecord,
 ) -> CombineEvidence:
     scores = reduction.scores or {}
     statistic = reduction.statistic
@@ -320,7 +358,7 @@ def _evidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
         operators=list(plan.operators),
-        members=[_member_record(reading, scores) for reading in combine_input.readings],
+        members=[_member_record(answer, scores) for answer in combine_input.answers],
         tally=_tally_records(reduction),
         judge=_judge_record(reduction),
         fields=_field_records(reduction, plan.reduce.op_id),
@@ -331,18 +369,23 @@ def _evidence(
         median=None if statistic is None else canonical_decimal(statistic),
         presentation_order="author" if "judge" in combine_input.signals else None,
         separator_collision=reduction.separator_collision,
+        signal=None,
+        result=result,
+        dropped=sum(answer.status == "fail" for answer in combine_input.answers),
         finish_reason="stop",
     )
 
 
-def _member_record(reading: MemberReading, scores: Mapping[str, Decimal]) -> MemberReadingRecord:
-    return MemberReadingRecord(
-        member=reading.member,
-        raw=reading.raw,
-        value=reading.value,
-        status=reading.status,
-        weight=None if reading.weight is None else _finite(reading.weight),
-        score=_finite(scores[reading.member]) if reading.member in scores else None,
+def _member_record(answer: Answer, scores: Mapping[str, Decimal]) -> AnswerRecord:
+    return AnswerRecord(
+        member_id=answer.member_id,
+        raw=answer.raw,
+        value=answer.value,
+        status=answer.status,
+        reason=answer.reason,
+        signals=dict(answer.signals),
+        weight=None if answer.weight is None else _finite(answer.weight),
+        score=_finite(scores[answer.member_id]) if answer.member_id in scores else None,
     )
 
 
