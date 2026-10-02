@@ -25,7 +25,8 @@ Applies to the terminal `dispatch failed` record only (`log_dispatch_failure`):
 |---|---|---|
 | 499 (`client_disconnected`, arrives with #1153 / OME-1162) | INFO | The client left; nothing failed that an operator can act on, and it is not a gateway or provider fault. Kept at INFO (not dropped) so a disconnect storm is still countable. |
 | 429 | WARNING | Back-pressure, not breakage: rate-limited upstream (after the retry loop) or admission shedding. One record per rejected call under overload is expected volume; WARNING keeps it visible to WARNING+ alerting without paging on ERROR. |
-| 503 | WARNING | Same overload semantics as 429 (retryable, `Retry-After`): #1153's `provider_queue_timeout` admission shedding, or an upstream 503 that survived the retry loop. Deliberately status-keyed, not classification-keyed, so both sources get one rule. |
+| 503, gateway back-pressure (`provider_queue_timeout`, #1153 admission) | WARNING | Expected volume under overload — the gateway shedding its own load, one record per rejected call; WARNING stays visible without paging. |
+| 503, any other origin (upstream `provider_unavailable` after retries, unknown/free-text) | ERROR | Owner decision 2026-10-02: an upstream outage must stay alertable. Decided by classification code, not status; allowlist so an unknown 503 fails loud. |
 | other 5xx | ERROR | unchanged (OME-968) — gateway/provider breakage. |
 | other 4xx | WARNING | unchanged (OME-968). |
 | any, `outcome=handler_error` | by final status (502 → ERROR) | the handler failing is a gateway bug; the rendered status is the sanitized 502. |
@@ -47,7 +48,7 @@ possible follow-up. Per-retry `aigw upstream overload` WARNINGs in `core/retry.p
   → exactly one WARNING+ record, ERROR, `outcome=handler_error handler_type=RuntimeError`,
   `status=502`, call id stamped, no provider text / exc_info.
 - RED: a normal mapped failure carries `outcome=mapped`.
-- RED: level table — 499 → INFO (and zero WARNING+ records end-to-end), 429/503 → WARNING,
+- RED: level table — 499 → INFO (and zero WARNING+ records end-to-end), 429 → WARNING, 503 by origin (see table),
   500/502 → ERROR, 403 → WARNING (parametrized on `log_dispatch_failure`).
 
 ## Acceptance
@@ -61,11 +62,14 @@ possible follow-up. Per-retry `aigw upstream overload` WARNINGs in `core/retry.p
   `tests/unit/test_dispatch_failure_records_handler_error.py` (12 tests), this ledger, mirror
   `docs/tasks/2026-10-02-ome-1461-one-dispatch-failure-record.md`. `routes/chat.py` untouched.
 - **Commits:** `fix(aigateway): keep dispatch failures at one record when the handler raises`
-  (single commit on the branch).
+  then `fix(aigateway): level a 503 by origin, not status`.
 - **Gates:** `run_gates.py aigateway` → ALL GATES GREEN (append-only check, ruff, format,
   pyright, check_no_enterprise, pytest cov ≥80).
 - **Deviations:** every `dispatch failed` record now carries `outcome=mapped|handler_error`
-  (additive field). An upstream 503 that survives the retry loop drops from ERROR to WARNING —
-  intended by the status-keyed policy. Overlap: open PR #1153 (OME-1162) edits the
+  (additive field). Revision 2 (owner decision 2026-10-02, second commit): 503 is levelled by
+  origin — only `provider_queue_timeout` is WARNING; upstream/unknown 503 stays ERROR. The
+  first commit's `(503, WARNING)` parametrize case (added by this same unmerged PR, new file vs
+  `origin/main`) was changed to `(503, ERROR)` with coordinator approval; gates run with
+  `--base $(git merge-base origin/main HEAD)`, append-only check green. Overlap: open PR #1153 (OME-1162) edits the
   `_dispatch_with_backpressure` / import hunks of the same file; this change touches only
   `_safe_dispatch_failure_response` and `log_dispatch_failure`, so the hunks do not intersect.

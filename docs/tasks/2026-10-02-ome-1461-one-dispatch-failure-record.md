@@ -14,7 +14,7 @@ closed:
 
 When `_dispatch_failure_response` raises, the request now emits one `dispatch failed` record
 carrying `outcome=handler_error handler_type=<Class>` instead of two ERROR records. Log levels:
-499 → INFO, 429/503 → WARNING, other 5xx → ERROR, other 4xx → WARNING (policy in the ledger).
+499 → INFO, 429 → WARNING, gateway back-pressure 503 → WARNING, upstream/unknown 503 → ERROR, other 5xx → ERROR, other 4xx → WARNING (policy in the ledger).
 
 - 2026-10-02: work started on branch
   `bershadsky/ome-1461-keep-gateway-dispatch-failures-at-exactly-one-record-when`, ledger
