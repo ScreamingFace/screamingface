@@ -1034,12 +1034,12 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="medqa",
         title="MedQA (USMLE)",
         description=(
-            "1,273 US medical-licensing-exam style questions with four options each (the MedQA "
+            "1,273 US medical-licensing-exam style questions with five options each (the MedQA "
             "English test set), imported from inspect_evals by Task replay: the Cases are fetched "
             "the way inspect fetches them (the bigbio/med_qa repository at a pinned revision, read "
             "by its loader script) and sealed by a Case Digest. Graded by inspect's choice scorer "
             "against the published answer, so no judge tokens are spent. Benchmark score = plain "
-            "accuracy over the cases run. No mid-run check surface (elimination attack over four "
+            "accuracy over the cases run. No mid-run check surface (elimination attack over five "
             "options)."
         ),
         focus="Medical licensing exam questions (multiple choice)",

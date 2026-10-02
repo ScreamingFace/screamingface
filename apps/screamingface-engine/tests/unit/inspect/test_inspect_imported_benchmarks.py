@@ -94,6 +94,8 @@ def test_catalogue_holds_every_imported_benchmark() -> None:
     """OME-1116 acceptance: ≥10 imported benchmarks; the row table IS the catalogue."""
 
     assert {spec.key for spec in BENCHMARKS} == set(_EXPECTED_FAMILIES)
+    # OME-1273: a second registry joins the catalogue; the owner granted the edit of this
+    # prior assertion (--skip-append-only, first on #1194).
     assert set(BENCHMARK_CASES) | set(TASK_REPLAY_CASES) == set(_EXPECTED_FAMILIES)
     assert not set(BENCHMARK_CASES) & set(TASK_REPLAY_CASES)
     ids = [registration.benchmark.id for registration in benchmark_registrations()]
@@ -189,7 +191,8 @@ def test_benchmark_row_prose_is_filled_not_todo(key: str) -> None:
     spec = next(spec for spec in BENCHMARKS if spec.key == key)
     for prose in (spec.title, spec.description, spec.focus, spec.dataset_url):
         assert prose and "TODO" not in prose
-    # A Task-replay row links wherever its Cases live (a GitHub repo for agieval).
+    # A Task-replay row links wherever its Cases live (a GitHub repo for agieval); the owner
+    # granted the edit of this prior assertion (--skip-append-only, first on #1194).
     hub_only: bool = key not in TASK_REPLAY_CASES
     assert spec.dataset_url.startswith(
         "https://huggingface.co/datasets/" if hub_only else "https://"

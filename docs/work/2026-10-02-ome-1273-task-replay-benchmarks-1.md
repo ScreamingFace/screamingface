@@ -66,4 +66,8 @@ mechanism code: this PR is rows, prose and tests.
   skip covers the two contract-table edits, as the owner granted on #1194).
 - **Deviations:** none. `upstream_templates.py`, its pin test and `--choice-template` are
   gone: capture renders agieval's run-time template directly and the digests prove it.
+  The declaration rows carry no `choice_template=` line (medqa's and the eight agieval ones
+  had one on #1194); nothing else in a row changed but the import date.
+  Review fix (2026-10-02): medqa's prose said four options; the replayed bigbio
+  `med_qa_en_bigbio_qa` subset has five per Case, so the description now says five.
 - **Owner-verify:** none outstanding; every import ran (two replays each, no model calls).
