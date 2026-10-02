@@ -36,10 +36,15 @@ from inspect_ai.solver import (  # noqa: E402
     use_tools,
 )
 from inspect_ai.tool import tool  # noqa: E402
+from inspect_ai.util import store  # noqa: E402
 
 from screamingface_engine_inspect.capture import CaptureError, captured_case_records  # noqa: E402
 from screamingface_engine_inspect.prepare import PrepareError, TaskReplayCasesSpec  # noqa: E402
-from screamingface_engine_inspect.task_replay import replayed_cases  # noqa: E402
+from screamingface_engine_inspect.task_replay import (  # noqa: E402
+    TaskReplayError,
+    replay_environment,
+    replayed_cases,
+)
 
 #: A stand-in for an eval's own instruction template (sevenllm's TEMPLATE shape).
 TEMPLATE: str = "You are a security analyst. {prompt}"
@@ -177,6 +182,80 @@ def test_kept_metadata_rides_the_grading_material() -> None:
     prepared = captured_case_records(task, _spec(keep_sample_metadata=True))
 
     assert prepared[0]["grading_material"] == {"target": "443", "metadata": {"domain": "web"}}
+
+
+# ── the per-Sample context inspect's sample runner gives a solver ─────────────
+
+
+def test_a_solver_after_generate_cannot_rewrite_the_case() -> None:
+    """The Case is what was SENT: a rewrite after the answer must not reach it (review
+    finding on #1219: the stand-in kept the live message objects)."""
+
+    sample = Sample(input="What is 6 times 7?", target="42")
+    task = Task(
+        dataset=MemoryDataset([sample]), solver=[generate(), prompt_template("AFTER: {prompt}")]
+    )
+
+    prepared = captured_case_records(task, _spec())
+
+    assert prepared[0]["case"]["input"] == "What is 6 times 7?"
+
+
+@solver
+def _counts_in_the_store() -> Solver:
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        seen: int = store().get("seen", 0) + 1
+        store().set("seen", seen)
+        state.user_prompt.text = f"seen {seen}"
+        return state
+
+    return solve
+
+
+def test_each_sample_gets_its_own_store() -> None:
+    """Under eval() every Sample starts with an empty store; a counting solver renders
+    "seen 1" for each. One shared store would render seen 1, seen 2, seen 3."""
+
+    samples = [Sample(input="Q?", target="A") for _ in range(3)]
+    task = Task(dataset=MemoryDataset(samples), solver=[_counts_in_the_store(), generate()])
+
+    prepared = captured_case_records(task, _spec())
+
+    assert [item["case"]["input"] for item in prepared] == ["seen 1", "seen 1", "seen 1"]
+
+
+@solver
+def _writes_metadata() -> Solver:
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        state.metadata["leak"] = True
+        return state
+
+    return solve
+
+
+def test_a_solver_writing_metadata_never_reaches_the_grading_material() -> None:
+    """inspect deep-copies the Sample before building the state; so does capture, or a
+    solver's scratch note would land inside the sealed Grading Material."""
+
+    sample = Sample(input="Q?", target="A", metadata={"k": 1})
+    task = Task(dataset=MemoryDataset([sample]), solver=[_writes_metadata(), generate()])
+
+    prepared = captured_case_records(task, _spec(keep_sample_metadata=True))
+
+    assert prepared[0]["grading_material"] == {"target": "A", "metadata": {"k": 1}}
+    assert sample.metadata == {"k": 1}
+
+
+def test_a_one_message_list_input_is_one_prompt() -> None:
+    """A Sample may carry its input as a single chat message; that is one prompt, not a
+    conversation, and the writer must not refuse it as "not text"."""
+
+    sample = Sample(input=[ChatMessageUser(content="What is 6 times 7?")], target="42")
+    task = Task(dataset=MemoryDataset([sample]))
+
+    prepared = captured_case_records(task, _spec())
+
+    assert prepared[0]["case"]["input"] == "What is 6 times 7?"
 
 
 # ── what capture refuses, each by name and Case number ───────────────────────
@@ -332,3 +411,65 @@ def test_the_image_side_child_renders_by_capture(chained_eval: str) -> None:
     prepared = replayed_cases(spec)
 
     assert prepared[0]["case"]["input"] == EXPECTED_CHAINED_INPUT
+
+
+# ── no model is reachable from the child ─────────────────────────────────────
+
+#: A solver that builds its own model instead of using the generate it was handed. Stand-in
+#: for cyberseceval_4's multiturn_phishing solver; it proves the child's environment, not
+#: that eval's prompt.
+OWN_MODEL_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.model import get_model
+    from inspect_ai.solver import Generate, Solver, TaskState, generate, solver
+
+    @solver
+    def own_model() -> Solver:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            reply = await get_model().generate("hello")
+            state.user_prompt.text = f"{state.user_prompt.text} [model said {reply.completion!r}]"
+            return state
+        return solve
+
+    @task
+    def phishing() -> Task:
+        return Task(dataset=MemoryDataset([Sample(input="Q?", target="A")]),
+                    solver=[own_model(), generate()])
+    """
+)
+
+
+@pytest.fixture
+def own_model_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the stand-in eval where the child process can import it, with a model name in
+    the parent's environment as a builder's shell might carry."""
+
+    (tmp_path / "fake_own_model_eval.py").write_text(OWN_MODEL_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    monkeypatch.setenv("INSPECT_EVAL_MODEL", "mockllm/model")
+    return "fake_own_model_eval"
+
+
+def test_the_child_environment_names_no_model(tmp_path: Path) -> None:
+    env = replay_environment(tmp_path, {"INSPECT_EVAL_MODEL": "mockllm/model", "PATH": "/bin"})
+
+    assert env["INSPECT_EVAL_MODEL"] == "none/none"
+
+
+def test_a_solver_that_builds_its_own_model_is_refused_in_the_child(own_model_eval: str) -> None:
+    """INVARIANT: nothing in the child reaches a model. A solver that calls get_model()
+    bypasses the stand-in; with the parent's INSPECT_EVAL_MODEL set, the model's words would
+    land inside the Case (review finding on #1219). The child's environment names no model,
+    so the call raises and capture refuses the Sample by name."""
+
+    spec = TaskReplayCasesSpec(
+        task=f"{own_model_eval}:phishing", case_count=1, case_digest=_UNSEALED
+    )
+
+    with pytest.raises(TaskReplayError, match="case 1: the solver raised PrerequisiteError"):
+        replayed_cases(spec)

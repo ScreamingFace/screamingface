@@ -1295,8 +1295,7 @@ def _validated_answer_key(
     one place an empty answer key is accepted; the question itself is still required.
     """
 
-    if not isinstance(sample.input, str) or not sample.input.strip():
-        raise PrepareError(f"case {case_id}: sample input is empty or not text")
+    _require_a_question(sample, case_id)
     target: object = sample.target
     if not has_answer_key and target in ("", []) and sample.choices is None:
         return "", None
@@ -1317,6 +1316,18 @@ def _validated_answer_key(
             "choices nor one of them"
         )
     return target, choices
+
+
+def _require_a_question(sample: Sample, case_id: int) -> None:
+    """Refuse a Sample with nothing to ask. WHY a list is accepted: a Sample may carry its
+    input as chat messages; capture decides whether that shape is one prompt, this boundary
+    only refuses an empty question."""
+
+    if isinstance(sample.input, list):
+        if not sample.input:
+            raise PrepareError(f"case {case_id}: sample input is an empty message list")
+    elif not isinstance(sample.input, str) or not sample.input.strip():
+        raise PrepareError(f"case {case_id}: sample input is empty or not text")
 
 
 def _validated_metadata(metadata: dict[str, Any], case_id: int) -> dict[str, Any]:

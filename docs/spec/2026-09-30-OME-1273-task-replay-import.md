@@ -77,7 +77,7 @@ question booklet, not to run the test.
 | -- | -- |
 | **Runs** | The eval's `@task` function, called with its task args (`mgsm(languages=["en"])`). To build its `Task`, the function loads its dataset: mgsm downloads its TSV and checks upstream's sha256; agieval downloads a JSONL at a pinned GitHub commit. Then, per Sample, the Task's own `setup` and `solver` chain, up to its first `generate`: that call goes to a stand-in that records the messages and answers nothing (amended 2026-10-02). |
 | **Taken** | `task.dataset`: the Samples after the eval's own filtering and conversion. Per Sample, the messages the solvers had built when they first asked the model (system text, then the one user prompt): that text is the Case. Our shared Case writer writes it and the Grading Material, as on the Hugging Face path. |
-| **Never runs** | inspect's `eval()`. Any model (the stand-in `generate` never calls one), the scorer, every Judge, a sandbox, a tool. A chain that asks twice, hands the model tools, or builds a multi-turn prompt is refused by name, never approximated. No API call is made and nothing is paid for. |
+| **Never runs** | inspect's `eval()`. Any model: the stand-in `generate` never calls one, and the child's environment names no model (`INSPECT_EVAL_MODEL=none/none`), so a solver that builds its own with `get_model()` raises and the Sample is refused. The scorer, every Judge, a sandbox, a tool. A chain that asks twice, hands the model tools, or builds a multi-turn prompt is refused by name, never approximated. No API call is made and nothing is paid for. |
 
 This is not new ground: the importer already calls task functions today, and so does the
 question filter (OME-1269). Both swap `hf_dataset` for a stand-in; Task replay lets the real
@@ -153,6 +153,13 @@ fetch happen.
   few-shot conversation (assistant turns), several user turns, or image content is refused by
   name, not flattened. Accepted: none of the 14 packages needs it; the Case shape grows when
   one does.
+- **A solver that names a model explicitly can still reach it.** The child's environment
+  names no model, so a bare `get_model()` raises and capture refuses the Sample; a solver
+  that writes `get_model("openai/gpt-4o")` or passes its own `default=` would still call
+  out, with the builder's keys. Accepted: none of the 14 packages does this in a solver we
+  import (cyberseceval_4's phishing solver uses the bare form and is refused); a reviewer
+  reads each Task's solvers at import, and the no-network grading test never covers the
+  import step.
 - **A solver that reorders choices after the dataset is read is refused.** inspect's
   `multiple_choice(shuffle=…)` (deprecated upstream) shows the Candidate one order while the
   Grading Material holds the Sample's; the task arg that disables the shuffle is the fix.

@@ -15,9 +15,10 @@ What runs: the Task's ``setup`` and ``solver`` chain, per Sample, up to the firs
 a tool. Stages, in execution order:
 
     Stage 1 — refuse a Task that declares a sandbox: its solvers expect a container.
-    Stage 2 — per Sample: build the TaskState inspect would build (the Sample's input as
-              messages, its choices, target and metadata), run ``setup`` then ``solver``
-              with the stand-in ``generate``.
+    Stage 2 — per Sample: build the TaskState inspect would build (a deep copy of the
+              Sample's input as messages, its choices, target and metadata), give it its own
+              store and register it as the active sample state, as inspect's sample runner
+              does, then run ``setup`` then ``solver`` with the stand-in ``generate``.
     Stage 3 — the stand-in, on its one allowed call: refuse tools; record the messages and
               the choices as shown; answer with an empty ModelOutput so post-answer solver
               work (answer parsing) runs as it would on a blank reply.
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -88,7 +90,9 @@ class _StandIn:
                 f"case {self.case_id}: the solver gave the model {len(state.tools)} tool(s); "
                 "a tool-using eval is not a single-answer Benchmark"
             )
-        self.messages = list(state.messages)
+        # WHY a deep copy: the chain keeps mutating these message objects after the answer
+        # (a solver placed after generate rewrites the prompt); the Case is what was SENT.
+        self.messages = deepcopy(list(state.messages))
         self.choices = [choice.value for choice in state.choices] if state.choices else None
         # WHY an empty answer and not a stop: solvers parse the reply after generate
         # (multiple_choice reads ANSWER: letters); on a blank reply they find nothing, so the
@@ -157,10 +161,16 @@ async def _capture_one(task: Task, sample: Sample, case_id: int) -> tuple[str, l
     from inspect_ai.model import ModelName
     from inspect_ai.scorer import Target
     from inspect_ai.solver import TaskState, chain
+    from inspect_ai.solver._task_state import set_sample_state
+    from inspect_ai.util._store import init_subtask_store
 
-    # AIDEV-NOTE: sample_messages is a private inspect helper (inspect_ai._eval.task.util),
-    # the same one task_run_sample uses to turn a Sample's input into messages — safe under
-    # the exact == pin; re-verify on any pin bump.
+    # AIDEV-NOTE: sample_messages, set_sample_state and init_subtask_store are private
+    # inspect helpers, the same ones task_run_sample uses to build a Sample's messages and
+    # give each Sample its own store and active state — safe under the exact == pin;
+    # re-verify on any pin bump.
+    # WHY a deep copy of the Sample: inspect copies it before building the state, so a solver
+    # that writes state.metadata never reaches the Sample, and so never the Grading Material.
+    sample = deepcopy(sample)
     state: TaskState = TaskState(
         model=ModelName(STAND_IN_MODEL),
         sample_id=sample.id if sample.id is not None else case_id,
@@ -171,6 +181,10 @@ async def _capture_one(task: Task, sample: Sample, case_id: int) -> tuple[str, l
         messages=sample_messages(sample),
         metadata=sample.metadata,
     )
+    # INVARIANT: one store per Sample, as under eval(); without this, store() is one object
+    # across every Sample in the child and a counting solver renders "seen 1, seen 2, …".
+    init_subtask_store(state.store)
+    set_sample_state(state)
     stand_in: _StandIn = _StandIn(case_id)
     steps: list[Any] = ([task.setup] if task.setup is not None else []) + [task.solver]
     try:

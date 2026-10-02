@@ -64,7 +64,7 @@ plan step 6).
 - **Actual files:** as planned. `capture.py` (new, 230 lines), `prepare.py` (declaration
   trimmed, `case_records` narrowed to `CasesSpec`, new shared `prepared_case`),
   `task_replay.py` (child calls `captured_case_records`), `tests/unit/inspect/test_capture.py`
-  (new, 15 tests), the spec, this plan, the OME-1273 mirror note.
+  (new, 22 tests), the spec, this plan, the OME-1273 mirror note.
 - **Commits:** see the PR; one `feat(screamingface-engine)` commit carries code, tests and docs.
 - **Gates:** `run_gates.py screamingface-engine` ALL GATES GREEN (append-only, ruff, format,
   pyright, layering, pytest with coverage ≥ 80). Two reds on the way: one E501 in a docstring,
@@ -74,5 +74,11 @@ plan step 6).
   empty `ModelOutput` instead of stopping the chain at the first `generate`, so a chain that
   asks twice is seen (and refused) rather than hidden; post-answer solver work runs on a blank
   reply, and a solver that raises on it is refused with its error.
+- **Review fixes (2026-10-02):** the child's environment sets `INSPECT_EVAL_MODEL=none/none`
+  so a solver calling `get_model()` is refused instead of a real model's words landing in a
+  Case (reproduced with mockllm before the fix); the stand-in deep-copies the messages it
+  records; each Sample gets its own store and active state and a deep-copied Sample, as
+  inspect's sample runner does; a one-message list input is accepted; the macOS cache note
+  in task_replay.py was wrong at this platformdirs pin and now says so.
 - **Owner-verify:** none pending. No paid run, no deploy; main has zero Task-replay Benchmarks,
   so no Case re-seals. PR #1191 rebases onto this branch and drops its template facts next.

@@ -13,7 +13,8 @@ Stages, in execution order:
 
     Stage 1 — parent: write the declaration to a temp file; build the child's environment
               with its own empty inspect_evals and Hugging Face caches (a cache hit would
-              skip the fetch, and a stale cache would hide a dead URL).
+              skip the fetch, and a stale cache would hide a dead URL) and no model name in
+              INSPECT_EVAL_MODEL, so nothing in the child can reach a model.
     Stage 2 — child: call the task function with its args, take the Task's dataset (after
               the eval's own filtering, shuffling and conversion), and render each Sample
               by capture, then write it with the shared Case writer.
@@ -73,10 +74,15 @@ def replay_environment(cache_root: Path, base: Mapping[str, str]) -> dict[str, s
     # INVARIANT: on Linux, where images are built, every cache a Case Source fetch reads is
     # redirected, so each replay really fetches. XDG_CACHE_HOME moves inspect_ai's own cache
     # (platformdirs), which its hf_dataset reads back when called without a revision.
-    # AIDEV-NOTE: macOS ignores XDG_CACHE_HOME, so on a dev Mac inspect_ai's cache stays
-    # shared; it only matters for hf_dataset calls with no revision, and none of OME-1273's
-    # packages make one. HF_HOME is left alone on purpose: it also holds a cached login token.
+    # AIDEV-NOTE: platformdirs honours XDG_CACHE_HOME on macOS too at this pin (4.11), so a
+    # dev Mac redirects inspect_ai's cache as Linux does; an earlier note here said otherwise.
+    # HF_HOME is left alone on purpose: it also holds a cached login token.
     env["XDG_CACHE_HOME"] = str(cache_root / "xdg")
+    # INVARIANT: no model is reachable from the child. Capture hands the solvers a stand-in
+    # generate, but a solver that calls get_model() itself reads INSPECT_EVAL_MODEL, and the
+    # builder's shell may carry one; "none/none" makes that call raise, so capture refuses
+    # the Sample by name instead of a real model's words landing inside a Case.
+    env["INSPECT_EVAL_MODEL"] = "none/none"
     env["INSPECT_EVALS_CACHE_DIR"] = str(cache_root / "inspect_evals")
     env["HF_DATASETS_CACHE"] = str(cache_root / "hf_datasets")
     env["HF_HUB_CACHE"] = str(cache_root / "hf_hub")
