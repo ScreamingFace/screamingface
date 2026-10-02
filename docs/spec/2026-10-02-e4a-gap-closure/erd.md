@@ -210,7 +210,7 @@ Every key stays always present; unknown keys are rejected `[existing E/combine/s
 
 | Field | Change | Source |
 |---|---|---|
-| `sources` | **New, optional.** Present only when the spec reads an accounting signal (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`), like `signals` `[existing E/combine/spec.py:195]`. Shape: `{member_id: {"<call key>": {"path": str, "params": "<canonical params>"}}}` — one entry per **model call** in the member's subtree (combine, judge and writer calls left out). `params` is one string: the call's string params sorted by key, each `key=value` percent-encoded, joined by `&` (url4 struct keys allow only `[A-Za-z0-9_]`, and param keys may hold `.` `[existing packages/url4/src/url4/core/_annotations.py:63]`). A member whose every call is ambiguous (I-C2) has `{}`. | [proposed] |
+| `sources` | **New, optional.** Present only when the spec reads an accounting signal (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`), like `signals` `[existing E/combine/spec.py:195]`. Shape: `{member_id: {"<call key>": {"path": str, "params": "<canonical params>"}}}` — one entry per **model call** in the member's subtree (combine, judge and writer calls left out). `params` is one string: the call's string params sorted by key, each `key=value` percent-encoded, joined by `&` (url4 struct keys allow only `[A-Za-z0-9_]`, and param keys may hold `.` `[existing packages/url4/src/url4/core/_annotations.py:63]`). A member with any ambiguous call (I-C2) has `{}`, so a partial sum never reaches a reducer. | [proposed] |
 | `input`, `outputs`, `signals` | unchanged | [existing E/combine/spec.py:186] |
 
 **Why this shape.** Member model calls carry no `binding` param; only combine, judge and writer
