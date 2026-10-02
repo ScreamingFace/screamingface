@@ -32,7 +32,7 @@ before logging; the record factory then stamps them like any other line.
 
 ## Test plan
 
-- An unhandled exception in a route → status 500, JSON `{"detail": {"code": "internal_error", ...,
+- An unhandled exception in a route → status 500, JSON `{"detail": {"code": "gateway_internal_error", ...,
   "gateway_call_id": <id>}}`, `x-aigw-trace-id` echoed.
 - Exactly one `aigateway` ERROR record for it; it carries the same `gateway_call_id` as the body; it
   names the exception class; the exception's message text is absent; `exc_info` is None.

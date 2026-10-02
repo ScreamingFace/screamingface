@@ -37,6 +37,7 @@ from aigateway.middleware.call_id import TRACE_RESPONSE_HEADER
 
 logger = logging.getLogger(__name__)
 
+_CODE = "gateway_internal_error"
 _MESSAGE = "The gateway hit an unexpected error."
 
 
@@ -58,7 +59,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     else:
         _log(request, exc)
 
-    detail: dict[str, str] = {"code": "internal_error", "message": _MESSAGE}
+    # WHY not `internal_error` (owner decision 2026-10-02): that is url4's engine-fault default, so
+    # a gateway 500 under it reads as an engine fault in the engine's error surface. A
+    # gateway-prefixed code keeps the failure attributed to this service.
+    detail: dict[str, str] = {"code": _CODE, "message": _MESSAGE}
     headers: dict[str, str] = {}
     if call_id is not None:
         detail["gateway_call_id"] = call_id

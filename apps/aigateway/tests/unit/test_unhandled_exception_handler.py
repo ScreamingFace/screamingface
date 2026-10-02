@@ -73,7 +73,7 @@ def test_an_unhandled_exception_returns_a_structured_500_naming_the_call(boom_cl
 
     assert response.status_code == 500
     detail = response.json()["detail"]
-    assert detail["code"] == "internal_error"
+    assert detail["code"] == "gateway_internal_error"
     assert detail["gateway_call_id"].startswith("call_")
     # The streaming-safe correlation channel is kept even though this response bypassed the
     # middleware's send wrapper.
@@ -116,7 +116,7 @@ async def test_without_published_ids_the_500_is_still_structured(captured) -> No
 
     assert response.status_code == 500
     assert b"gateway_call_id" not in response.body
-    assert b"internal_error" in response.body
+    assert b'"code":"gateway_internal_error"' in response.body
     assert "x-aigw-trace-id" not in response.headers
     [record] = _errors(captured)
     assert record_call_id(record) is None
