@@ -200,6 +200,40 @@ def test_a_too_large_member_with_the_top_score_is_kept_whole() -> None:
     assert [m.score for m in outcome.evidence.members] == [0.1, 0.9]
 
 
+# --- top_k order ------------------------------------------------------------------------------
+
+
+def _rank_ordered(scores: list[float], k: int, order: Any) -> Any:
+    reply = canonical_json({f"member_{i}": s for i, s in enumerate(scores, start=1)})
+    spec = rank_spec(len(scores), k)
+    spec["select"] = {"op": "top_k@1", "args": {"k": k, "order": order}}
+    texts = [chr(64 + i) for i in range(1, len(scores) + 1)]
+    return run(spec_text(spec), context_text(texts, {"judge": reply}), registry=BUILTIN_OPERATORS)
+
+
+def test_top_k_order_min_keeps_the_lowest_in_order() -> None:
+    outcome = _rank_ordered([0.1, 0.8, 0.3, 0.9], 2, "min")
+
+    assert outcome.evidence.chosen == ["member_1", "member_3"]
+    assert outcome.output == _selected(("member_1", "A"), ("member_3", "C"))
+    assert outcome.evidence.tie is False
+
+    tied = _rank_ordered([0.5, 0.1, 0.5, 0.5], 2, "min")
+    assert tied.evidence.chosen == ["member_2", "member_1"]
+    assert tied.evidence.tie is True
+
+    highest = _rank_ordered([0.1, 0.8, 0.3, 0.9], 2, "max")
+    assert highest.evidence.chosen == ["member_4", "member_2"]
+
+
+@pytest.mark.parametrize("order", ["middle", 1, None, True, "MIN"])
+def test_top_k_rejects_a_bad_order(order: Any) -> None:
+    spec = rank_spec(3, 2)
+    spec["select"] = {"op": "top_k@1", "args": {"k": 2, "order": order}}
+
+    _args_error(spec, "top_k@1")
+
+
 # --- top_k args -------------------------------------------------------------------------------
 
 

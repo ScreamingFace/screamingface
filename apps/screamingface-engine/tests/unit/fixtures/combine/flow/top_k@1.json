@@ -950,6 +950,384 @@
    "expect": {
     "error": "combine_spec_invalid"
    }
+  },
+  {
+   "name": "order min keeps the lowest in score order",
+   "args": {
+    "k": 2,
+    "order": "min"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "B",
+     "member_3": "C",
+     "member_4": "D"
+    },
+    "reduction": {
+     "scores": {
+      "member_1": "0.1",
+      "member_2": "0.8",
+      "member_3": "0.3",
+      "member_4": "0.9"
+     }
+    }
+   },
+   "expect": {
+    "chosen": [
+     "member_1",
+     "member_3"
+    ],
+    "output": "{\"selected\":[{\"id\":\"member_1\",\"text\":\"A\"},{\"id\":\"member_3\",\"text\":\"C\"}]}",
+    "tie": false,
+    "agreement": null
+   }
+  },
+  {
+   "name": "order min tie at the cut goes to author order",
+   "args": {
+    "k": 2,
+    "order": "min"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "B",
+     "member_3": "C",
+     "member_4": "D"
+    },
+    "reduction": {
+     "scores": {
+      "member_1": "0.5",
+      "member_2": "0.1",
+      "member_3": "0.5",
+      "member_4": "0.5"
+     }
+    }
+   },
+   "expect": {
+    "chosen": [
+     "member_2",
+     "member_1"
+    ],
+    "output": "{\"selected\":[{\"id\":\"member_2\",\"text\":\"B\"},{\"id\":\"member_1\",\"text\":\"A\"}]}",
+    "tie": true,
+    "agreement": null
+   }
+  },
+  {
+   "name": "order max given explicitly",
+   "args": {
+    "k": 2,
+    "order": "max"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_4",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "B",
+     "member_3": "C",
+     "member_4": "D"
+    },
+    "reduction": {
+     "scores": {
+      "member_1": "0.1",
+      "member_2": "0.8",
+      "member_3": "0.3",
+      "member_4": "0.9"
+     }
+    }
+   },
+   "expect": {
+    "chosen": [
+     "member_4",
+     "member_2"
+    ],
+    "output": "{\"selected\":[{\"id\":\"member_4\",\"text\":\"D\"},{\"id\":\"member_2\",\"text\":\"B\"}]}",
+    "tie": false,
+    "agreement": null
+   }
+  },
+  {
+   "name": "order min with negative scores",
+   "args": {
+    "k": 1,
+    "order": "min"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "B",
+     "member_3": "C"
+    },
+    "reduction": {
+     "scores": {
+      "member_1": "-3",
+      "member_2": "-1",
+      "member_3": "2"
+     }
+    }
+   },
+   "expect": {
+    "chosen": [
+     "member_1"
+    ],
+    "output": "{\"selected\":[{\"id\":\"member_1\",\"text\":\"A\"}]}",
+    "tie": false,
+    "agreement": null
+   }
+  },
+  {
+   "name": "args: order is not max or min",
+   "args": {
+    "k": 2,
+    "order": "middle"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "B",
+     "member_3": "C"
+    },
+    "reduction": {
+     "scores": {
+      "member_1": "1",
+      "member_2": "2",
+      "member_3": "3"
+     }
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: order is a number",
+   "args": {
+    "k": 2,
+    "order": 1
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "B",
+     "member_3": "C"
+    },
+    "reduction": {
+     "scores": {
+      "member_1": "1",
+      "member_2": "2",
+      "member_3": "3"
+     }
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: order without k",
+   "args": {
+    "order": "min"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "A",
+     "member_2": "B",
+     "member_3": "C"
+    },
+    "reduction": {
+     "scores": {
+      "member_1": "1",
+      "member_2": "2",
+      "member_3": "3"
+     }
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
   }
  ]
 }

@@ -1,8 +1,8 @@
 """Selection operators: keep the top k originals, or join every original (OME-1289, E4a).
 
 FEATURE: rank and concat hand the NEXT stage original member texts, never a rewrite. ``top_k``
-keeps the k best-scored members in score order; ``join`` and ``all`` join every member, in author
-order, with visible boundaries.
+keeps the k best-scored members in score order (the highest, or with ``order`` "min" the lowest);
+``join`` and ``all`` join every member, in author order, with visible boundaries.
 STORY: as a researcher, "focus on the best three" is enforced by the engine and not asked of a
 prompt, and a multi-document hand-off does not go through a model that summarizes.
 
@@ -16,7 +16,7 @@ author order of the members -- ties at a score keep it (a stable sort), and ``jo
 WHY ``sorted(..., reverse=True)`` and not a negated key: the sort does no arithmetic, so it needs
 no ``DECIMAL_CONTEXT``, and a Decimal comparison is exact. Negating a score would round it to the
 thread's default 28-digit context, and two long numeric field values could then compare equal.
-``reverse=True`` keeps equal scores in author order.
+``reverse=True`` keeps equal scores in author order, and the "min" sort is stable too.
 AIDEV-NOTE: the selection JSON shape, the cut-tie rule and the collision rule are v1 behavior
 pinned by the golden fixtures. A change is a new ``@version``, never an edit.
 """
@@ -38,20 +38,31 @@ from screamingface_engine.combine.ports import (
 )
 
 _MAX_K = 256
+_ORDERS = ("max", "min")
 _MAX_SEPARATOR_CHARS = 1024
 
 
 def _check_top_k_args(args: OpArgs) -> None:
     k = args.get("k")
-    if set(args) != {"k"} or isinstance(k, bool) or not isinstance(k, int) or not 1 <= k <= _MAX_K:
-        raise SpecInvalid(f'top_k@1 takes exactly {{"k": an integer from 1 to {_MAX_K}}}')
+    if (
+        not {"k"} <= set(args) <= {"k", "order"}
+        or isinstance(k, bool)
+        or not isinstance(k, int)
+        or not 1 <= k <= _MAX_K
+        or args.get("order", "max") not in _ORDERS
+    ):
+        raise SpecInvalid(
+            f'top_k@1 takes {{"k": an integer from 1 to {_MAX_K}}}'
+            ' and an optional "order": "max" | "min"'
+        )
 
 
 def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
-    """The k highest-scored members in score order; the output is the selection JSON.
+    """The k best-scored members in score order; the output is the selection JSON.
 
-    A tie keeps author order (stable sort). ``tie`` says the cut fell inside a group of equal
-    scores: the last kept member and the first dropped one have the same score.
+    ``order`` "max" (the default) keeps the highest scores, "min" the lowest. A tie keeps author
+    order (stable sort). ``tie`` says the cut fell inside a group of equal scores: the last kept
+    member and the first dropped one have the same score.
     """
     k = cast("int", args["k"])  # check_args ran first
     scores = reduction.scores
@@ -60,7 +71,7 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
     ranked = sorted(
         ((member, scores[member]) for member in combine_input.members if member in scores),
         key=lambda pair: pair[1],
-        reverse=True,
+        reverse=args.get("order", "max") == "max",
     )
     if len(ranked) < k:
         raise NoVotes(
@@ -136,14 +147,17 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "top_k",
         1,
         "select",
-        "The k members with the highest scores, in score order.",
+        "The k members with the highest (or lowest) scores, in score order.",
         top_k,
         # AIDEV-NOTE: the top level is read-only; the nested "properties" stays a plain dict because
         # ports.catalog_entry deep-copies the schema and a mappingproxy cannot be deep-copied.
         args_schema=MappingProxyType(
             {
                 "type": "object",
-                "properties": {"k": {"type": "integer", "minimum": 1, "maximum": _MAX_K}},
+                "properties": {
+                    "k": {"type": "integer", "minimum": 1, "maximum": _MAX_K},
+                    "order": {"enum": _ORDERS},
+                },
                 "required": ("k",),
                 "additionalProperties": False,
             }

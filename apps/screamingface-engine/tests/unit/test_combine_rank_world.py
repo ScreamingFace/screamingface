@@ -253,7 +253,9 @@ async def test_catalog_lists_the_selection_operators() -> None:
         op_id: entry["stage"] for op_id, entry in by_id.items()
     }.items()
     assert by_id["top_k@1"]["args_schema"]["properties"] == {
-        "k": {"type": "integer", "minimum": 1, "maximum": 256}
+        "k": {"type": "integer", "minimum": 1, "maximum": 256},
+        "order": {"enum": ["max", "min"]},
     }
+    assert by_id["top_k@1"]["args_schema"]["required"] == ["k"]
     assert by_id["join@1"]["args_schema"]["required"] == ["separator", "label"]
     assert by_id["all@1"]["args_schema"] == {}
