@@ -173,3 +173,23 @@ def test_endpoint_rejects_spec_with_bad_weights(name: str) -> None:
     assert caught.value.code == "combine_spec_invalid"
     assert caught.value.permanent is True
     assert list(calls) == []
+
+
+def test_sdk_written_field_signal_vote_picks_heaviest_answer() -> None:
+    """SR-1 CHAR: weights read from each Answer's own `confidence`, in the SDK-written spec."""
+    texts = [
+        '{"answer":"A","confidence":0.9}',
+        '{"answer":"B","confidence":0.3}',
+        '{"answer":"B","confidence":0.4}',
+    ]
+    output, evidence = _evidence("weighted_signal_field_3", texts)
+    assert output == texts[0]
+    assert evidence["signal"] == {"key": "field:confidence", "order": None}
+    # WHY lower case: the text normalizer folds the case of a group value; the output keeps it.
+    assert [(value, holders) for value, _, holders in _tally(evidence)] == [
+        ("a", ["member_1"]),
+        ("b", ["member_2", "member_3"]),
+    ]
+    assert [score for _, score, _ in _tally(evidence)] == pytest.approx([0.9, 0.7])
+    assert [member["weight"] for member in evidence["members"]] == [0.9, 0.3, 0.4]
+    assert evidence["chosen"] == ["member_1"]

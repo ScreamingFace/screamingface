@@ -36,9 +36,22 @@ _WEIGHTS: dict[str, tuple[float, ...]] = {
 }
 
 
+# name -> (reducer, member count): weights read from a named number on each Answer (unit 7, SR-1)
+_SIGNAL_SPECS: dict[str, tuple[sf.Reduce, int]] = {
+    "weighted_signal_field_3": (
+        sf.Reduce(
+            "weighted",
+            extract=sf.Extract("field", path="answer", normalize="text"),
+            weights=sf.signal("field:confidence"),
+        ),
+        3,
+    ),
+}
+
+
 def weighted_vote_specs() -> dict[str, str]:
     operators = engine_operators()
-    return {
+    constant = {
         name: combine_spec_text(
             sf.Vote(extract="last_number", normalize="numeric", weights=weights),
             member_count=len(weights),
@@ -46,6 +59,11 @@ def weighted_vote_specs() -> dict[str, str]:
         )
         for name, weights in _WEIGHTS.items()
     }
+    signal = {
+        name: combine_spec_text(reducer, member_count=count, operators=operators)
+        for name, (reducer, count) in _SIGNAL_SPECS.items()
+    }
+    return {**constant, **signal}
 
 
 def write_fixture() -> None:
