@@ -23,10 +23,14 @@ _BINDING = TOPOLOGY_BINDING
 type _TopologyKind = Literal[
     "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer"
 ]
-type _OperationRole = Literal["model", "synthesis", "judge"]
+type _OperationRole = Literal["model", "synthesis", "judge", "writer"]
 # The roles of the model calls a reducer reads (its signals); each is also an _OperationRole.
-type _SignalRole = Literal["judge"]
+type _SignalRole = Literal["judge", "writer"]
 _SIGNAL_ROLES: tuple[str, ...] = get_args(_SignalRole.__value__)
+# INVARIANT: the Engine's `_SIGNAL` (combine/spec.py): `judge`, or `writer_` and a field name. The
+# field name is capped at 64 characters, like a Merge field. tests/unit/test_signal_key_conformance
+# binds the two.
+_WRITER_KEY = re.compile(r"writer_([A-Za-z_][A-Za-z0-9_]{0,63})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +39,8 @@ class _SignalTopology:
 
     key: str
     source: _RecipeTopology
+    # A writer's input: the combine call that projects one field's values (not the Fusion context).
+    projection: _RecipeTopology | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,11 +68,36 @@ class _RecipeTopology:
     signals: tuple[_SignalTopology, ...] = ()
 
 
-def _operation_shape(node: _RecipeTopology) -> tuple[str, str]:
-    """(operation kind, label suffix): the ONE rule the compiler and the url4 replay share."""
+def _writer_key(field: str) -> str:
+    """The ONE writer signal key rule: the key of the writer call that writes ``field``."""
+
+    return f"writer_{field}"
+
+
+def _writer_field(key: str) -> str | None:
+    """The field a ``writer_<field>`` signal key names, None if the key is not a writer key."""
+
+    match = _WRITER_KEY.fullmatch(key)
+    return None if match is None else match.group(1)
+
+
+def _signal_field(signal: str | None) -> str:
+    field = None if signal is None else _writer_field(signal)
+    if field is None:
+        raise ValueError("a projection or writer call needs a writer signal key")
+    return field
+
+
+def _operation_shape(node: _RecipeTopology, signal: str | None = None) -> tuple[str, str]:
+    """(operation kind, label suffix): the ONE rule the compiler and the url4 replay share.
+
+    ``signal`` is the signal key a node serves (a projection or a writer call), else None.
+    """
 
     if node.kind == "reducer":
-        shape = ("combine", "combine")
+        shape = ("combine", "combine" if signal is None else f"project {_signal_field(signal)}")
+    elif node.role == "writer":
+        shape = ("writer", f"write {_signal_field(signal)}")
     elif node.role == "judge":
         shape = ("judge", "judge")
     elif node.role == "synthesis":
@@ -83,6 +114,8 @@ class _TopologyBinding:
     node: _RecipeTopology
     context_dependencies: tuple[str, ...]
     operation_dependencies: tuple[str, ...]
+    # The signal key this call serves (a signal source or its projection), None for any other call.
+    signal: str | None = None
 
 
 def _topology_bindings(value: _RecipeTopology) -> dict[str, _TopologyBinding]:
@@ -145,8 +178,9 @@ class _TopologyWalker:
         node: _RecipeTopology,
         context: tuple[str, ...],
         operations: tuple[str, ...],
+        signal: str | None = None,
     ) -> None:
-        entry = _TopologyBinding(node, context, operations)
+        entry = _TopologyBinding(node, context, operations, signal)
         previous = self._selected.setdefault(node.binding, entry)
         if previous != entry:
             raise ValueError("Evaluation URL4 has conflicting Recipe topology metadata")
@@ -195,13 +229,27 @@ class _TopologyWalker:
         fusion_context = tuple(dict.fromkeys((*context, *member_bindings)))
         # A reducer's signal calls read the members; the reducer's own call then reads them too.
         for signal in reducer.signals:
-            self._model(signal.source, fusion_context, member_bindings)
+            self._signal(signal, fusion_context, member_bindings)
         signal_bindings = tuple(signal.source.binding for signal in reducer.signals)
         self._visit(
             reducer,
             tuple(dict.fromkeys((*fusion_context, *signal_bindings))),
             (*member_bindings, *signal_bindings),
         )
+
+    def _signal(
+        self,
+        signal: _SignalTopology,
+        context: tuple[str, ...],
+        members: tuple[str, ...],
+    ) -> None:
+        if signal.projection is None:
+            self._model(signal.source, context, members, signal.key)
+            return
+        # A writer reads only its projection, which reads the members (PM-6).
+        projection = signal.projection.binding
+        self._model(signal.projection, context, members, signal.key)
+        self._model(signal.source, (projection,), (projection,), signal.key)
 
 
 def _topology_source(value: _RecipeTopology) -> Node:
@@ -311,9 +359,19 @@ def _encode_reducer(value: _RecipeTopology) -> dict[str, object]:
     # INVARIANT: the spec is the combine call's intent, so the node carries no spec and no role.
     encoded: dict[str, object] = {"binding": value.binding, "kind": value.kind, "name": value.name}
     if value.signals:  # written only when present, so a reducer without signals keeps its bytes
-        encoded["signals"] = [
-            {"key": signal.key, "source": _encode_model(signal.source)} for signal in value.signals
-        ]
+        encoded["signals"] = [_encode_signal(signal) for signal in value.signals]
+    return encoded
+
+
+def _encode_signal(signal: _SignalTopology) -> dict[str, object]:
+    encoded: dict[str, object] = {"key": signal.key, "source": _encode_model(signal.source)}
+    if signal.projection is not None:
+        projection = signal.projection
+        encoded["projection"] = {
+            "binding": projection.binding,
+            "kind": projection.kind,
+            "name": projection.name,
+        }
     return encoded
 
 
@@ -445,18 +503,41 @@ def _decode_signals(value: object) -> tuple[_SignalTopology, ...]:
 def _signal_role(key: object) -> _SignalRole | None:
     """The ONE key -> role rule: the role of the model call a signal key names, else None."""
 
-    return "judge" if key == "judge" else None
+    if key == "judge":
+        return "judge"
+    return "writer" if isinstance(key, str) and _writer_field(key) is not None else None
 
 
 def _decode_signal(value: object) -> _SignalTopology:
-    if not isinstance(value, dict) or set(value) != {"key", "source"}:
+    if not isinstance(value, dict):
         raise ValueError(_REDUCER_INVALID)
-    key = value["key"]
+    key = value.get("key")
     role = _signal_role(key)
-    source = value["source"]
-    if role is None or not isinstance(key, str) or not isinstance(source, dict):
+    if role is None or not isinstance(key, str):
         raise ValueError(_REDUCER_INVALID)
-    if set(source) != {"binding", "kind", "name", "named", "role"}:
+    # A writer reads a projection of its field; a judge reads the Fusion context directly.
+    if set(value) != ({"key", "source"} if role == "judge" else {"key", "projection", "source"}):
+        raise ValueError(_REDUCER_INVALID)
+    projection = _decode_projection(value["projection"]) if role == "writer" else None
+    return _SignalTopology(key, _decode_signal_source(value["source"], role), projection)
+
+
+def _decode_projection(value: object) -> _RecipeTopology:
+    if not isinstance(value, dict) or set(value) != {"binding", "kind", "name"}:
+        raise ValueError(_REDUCER_INVALID)
+    binding = value["binding"]
+    if (
+        value["kind"] != "reducer"
+        or value["name"] != "project"
+        or not isinstance(binding, str)
+        or SYNTHESIS_BINDING.fullmatch(binding) is None
+    ):
+        raise ValueError(_REDUCER_INVALID)
+    return _RecipeTopology(kind="reducer", name="project", binding=binding)
+
+
+def _decode_signal_source(source: object, role: _SignalRole) -> _RecipeTopology:
+    if not isinstance(source, dict) or set(source) != {"binding", "kind", "name", "named", "role"}:
         raise ValueError(_REDUCER_INVALID)
     binding = source["binding"]
     if (
@@ -467,10 +548,9 @@ def _decode_signal(value: object) -> _SignalTopology:
         or re.fullmatch(rf"{role}_\d+", binding) is None
     ):
         raise ValueError(_REDUCER_INVALID)
-    node = _RecipeTopology(
+    return _RecipeTopology(
         kind="model", name=_text(source["name"]), binding=binding, named=source["named"], role=role
     )
-    return _SignalTopology(key, node)
 
 
 def _decode_corrective_loop(

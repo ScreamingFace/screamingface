@@ -19,6 +19,8 @@ on:
       - "apps/screamingface-engine/tests/unit/test_combine_ports.py"
       # the canonical_params source that tests/unit/test_canonical_params_conformance.py binds
       - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
+      # the field_rules@1 grammars that tests/unit/test_signal_key_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
@@ -38,6 +40,8 @@ on:
       - "apps/screamingface-engine/tests/unit/test_combine_ports.py"
       # the canonical_params source that tests/unit/test_canonical_params_conformance.py binds
       - "apps/screamingface-engine/src/screamingface_engine/combine/spec.py"
+      # the field_rules@1 grammars that tests/unit/test_signal_key_conformance.py binds
+      - "apps/screamingface-engine/src/screamingface_engine/combine/operators/fields.py"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 

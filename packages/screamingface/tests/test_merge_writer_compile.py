@@ -7,6 +7,7 @@ field's values from the members, never the other fields or the question.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -24,7 +25,7 @@ from screamingface._evaluation.operators import decode_operator_catalog
 from screamingface._evaluation.topology import _signal_field, _writer_field, _writer_key
 from screamingface.fields import writer_intent
 from screamingface.operation import OperationInfo
-from screamingface.reducer import _ModelSignal
+from screamingface.reducer import _ModelSignal, _ReducerPlan
 from screamingface.url4 import _REFERENCE
 
 _COMBINE_PATH = "/ensemble/combine/v1"
@@ -316,8 +317,8 @@ class _MergeWithSignals(sf.Merge):
 
     _replaced: tuple[_ModelSignal, ...] = ()
 
-    def _signals(self) -> tuple[_ModelSignal, ...]:
-        return self._replaced
+    def _plan(self) -> _ReducerPlan:
+        return replace(super()._plan(), signal_calls=self._replaced)
 
 
 def _bad_signal(key: str, field: str | None) -> _ModelSignal:
@@ -367,8 +368,16 @@ def test_the_writer_key_rule_is_one_pair_of_functions() -> None:
 
 def _projection_evidence() -> dict[str, Any]:
     members = [
-        {"member": f"member_{index}", "raw": "{}", "value": "{}", "status": "voted"}
-        | {"weight": None, "score": None}
+        {
+            "member_id": f"member_{index}",
+            "raw": "{}",
+            "value": "{}",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        }
         for index in (1, 2, 3)
     ]
     return evidence_wire(
@@ -380,6 +389,7 @@ def _projection_evidence() -> dict[str, Any]:
         agreement=None,
         kind="projection",
         built=True,
+        result={"member_id": None, "value": "{}", "status": "answered", "reason": None},
     )
 
 

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.operators import STAGES
-from screamingface._immutable_json import freeze_mapping
+from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._signals import JUDGE_SIGNAL, Signal
 
 if TYPE_CHECKING:
@@ -51,10 +51,13 @@ class _Steps:
 class _ModelSignal:
     """One model call whose reply the combine call reads as ``context.signals[key]``."""
 
-    key: str  # "judge"; 9S adds "writer_<field>"
+    key: str  # "judge" or "writer_<field>"
     model: str  # the route as sf.Model stores it
     prompt: str  # the full system text in Python form ("\n" newlines)
     params: GenerationParams
+    # The field a writer call writes. It marks a call fed by a projection of that field's values
+    # (not by the Fusion context), so the compiler adds the projection combine call before it.
+    field: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +99,12 @@ class Reducer(ABC):
     @classmethod
     @abstractmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Reducer:
-        """Rebuild an equal reducer (pinned ids) from a decoded combine spec."""
+        """Rebuild an equal reducer from a decoded combine spec.
+
+        An operator the reducer names without a version (for example ``last_line``) is written as a
+        short name, so the editable Python of ``Url4.to_python`` pins it again to the newest version
+        of the catalog it is compiled against.
+        """
 
     @classmethod
     def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
@@ -142,6 +150,38 @@ def _spec_steps(spec: Mapping[str, object]) -> dict[str, tuple[str, Mapping[str,
         assert isinstance(step, Mapping)
         steps[stage] = (str(step["op"]), cast("Mapping[str, object]", step["args"]))
     return steps
+
+
+def _step_matches(
+    observed: tuple[str, Mapping[str, object]] | None, expected: _Step | None
+) -> bool:
+    """Does a decoded spec step equal the step a reducer writes?
+
+    The op NAME must be equal. When the expected op is pinned (``name@v``) the id must be equal
+    too. The args must be equal.
+    """
+
+    if observed is None or expected is None:
+        return observed is None and expected is None
+    op_id, args = observed
+    same_op = op_id == expected.op if "@" in expected.op else _op_name(op_id) == expected.op
+    return same_op and dict(args) == thaw_mapping(expected.args)
+
+
+def _steps_match(spec: Mapping[str, object], steps: _Steps) -> bool:
+    """Do all four stages of a decoded spec equal ``steps``, and the spec has no weights?"""
+
+    observed = _spec_steps(spec)
+    return spec["weights"] is None and all(
+        _step_matches(observed[stage], getattr(steps, stage)) for stage in STAGES
+    )
+
+
+def _require_steps(spec: Mapping[str, object], steps: _Steps, name: str) -> None:
+    """Refuse (a hand-edited url4) unless the spec is exactly what ``steps`` would write."""
+
+    if not _steps_match(spec, steps):
+        raise _cannot_rebuild(name)
 
 
 def _spec_ops(spec: Mapping[str, object], name: str) -> dict[str, str | None]:

@@ -36,12 +36,14 @@ from screamingface._evaluation.combine_spec import (
 )
 from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
+from screamingface._evaluation.reducer_signals import _ProjectionReducer
 from screamingface._evaluation.topology import (
     _SIGNAL_ROLES,
     _RecipeTopology,
     _SignalTopology,
     _topology_bindings,
     _topology_from_expression,
+    _writer_key,
 )
 from screamingface._operation_bindings import (
     OPERATION_BINDING,
@@ -538,6 +540,7 @@ def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSig
         {name: _scalar(value) for name, value in call.params[1:]},
         f"{signal.source.role} params",
     )
+    field = _projected_field(signal, calls, call)
     prompt = call.prompt
     if signal.key == _JUDGE_CALL:
         # Lazy: screamingface.judge imports the reducer registry that this module also feeds.
@@ -546,7 +549,23 @@ def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSig
         prompt = outputs_form_prompt(
             prompt, reads_panel=_PANEL_CONTEXT.search(call.context) is not None
         )
-    return _ModelSignal(signal.key, call.model, prompt, params)
+    return _ModelSignal(signal.key, call.model, prompt, params, field)
+
+
+def _projected_field(signal: _SignalTopology, calls: dict[str, _Call], writer: _Call) -> str | None:
+    """The field a writer writes: the one its projection call projects, else None (a judge)."""
+
+    if signal.projection is None:
+        return None
+    projection = calls.get(signal.projection.binding)
+    if projection is None or writer.context != f"${signal.projection.binding}":
+        raise ValueError(_MODEL_CALLS)
+    # The whole spec must be what a projection writes (refuses a stray extract, arg or step).
+    field = _ProjectionReducer._from_spec(decode_combine_spec(projection.raw_intent)).field
+    # INVARIANT: the signal key names the field the projection projects; any drift is a hand edit.
+    if signal.key != _writer_key(field):
+        raise ValueError(_MODEL_CALLS)
+    return field
 
 
 def _validate_compiled_corrective(

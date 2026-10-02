@@ -14,7 +14,6 @@ from typing import Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
-from screamingface._evaluation.operators import STAGES
 from screamingface.blocks import _BLOCK_FORMS, _BlockForm
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
@@ -22,11 +21,10 @@ from screamingface.reducer import (
     Reducer,
     _cannot_rebuild,
     _ModelSignal,
-    _op_name,
     _ReducerPlan,
-    _spec_steps,
     _Step,
     _Steps,
+    _steps_match,
 )
 
 type JudgeReturns = Literal["label", "scores"]
@@ -225,22 +223,10 @@ def judge_from_signals(signals: tuple[_ModelSignal, ...], returns: JudgeReturns)
 def _returns_of(spec: Mapping[str, object]) -> JudgeReturns:
     """Which judge shape a decoded spec is, else refuse (a hand-edited url4)."""
 
-    if spec["weights"] is not None:
-        raise _cannot_rebuild("judge")
-    observed = _spec_steps(spec)
     for returns, expected in _JUDGE_STEPS.items():
-        if all(_step_matches(observed[stage], getattr(expected, stage)) for stage in STAGES):
+        if _steps_match(spec, expected):
             return returns
     raise _cannot_rebuild("judge")
-
-
-def _step_matches(
-    observed: tuple[str, Mapping[str, object]] | None, expected: _Step | None
-) -> bool:
-    if observed is None or expected is None:
-        return observed is None and expected is None
-    op_id, args = observed
-    return _op_name(op_id) == expected.op and dict(args) == dict(expected.args)
 
 
 _REDUCER_CLASSES["judge"] = Judge

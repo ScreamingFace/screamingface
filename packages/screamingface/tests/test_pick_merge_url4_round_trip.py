@@ -435,7 +435,7 @@ def test_a_pick_spec_edited_by_hand_is_refused(name: str) -> None:
     pick = sf.Pick("confidence", order="max")
     spec = _spec_of(pick)
     assert sf.Pick._from_spec(spec) == pick
-    assert pick._kind == "answer"
+    assert pick._plan().kind == "answer"
 
     with pytest.raises(ValueError, match=_CANNOT_REBUILD_PICK):
         sf.Pick._from_spec({**spec, **_pick_edits()[name]})
@@ -496,7 +496,7 @@ def test_a_merge_spec_edited_by_hand_is_refused(name: str) -> None:
     )
     spec = _spec_of(merge)
     assert sf.Merge._from_spec(spec) == merge
-    assert merge._kind == "answer"
+    assert merge._plan().kind == "answer"
     edit, message = _merge_edits()[name]
 
     with pytest.raises(ValueError, match=message):

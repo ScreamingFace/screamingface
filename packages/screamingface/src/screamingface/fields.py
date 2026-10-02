@@ -22,16 +22,16 @@ from typing import Any, ClassVar, Literal, cast
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.topology import _writer_key
+from screamingface._signals import FIELD_PATH
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
     _REDUCER_CLASSES,
-    FIELD_PATH,
     Reducer,
     _cannot_rebuild,
     _ModelSignal,
     _op_name,
-    _ReducerKind,
-    _ReducerName,
+    _ReducerPlan,
+    _require_steps,
     _spec_steps,
     _Step,
     _Steps,
@@ -291,37 +291,14 @@ class Merge(Reducer):
         object.__setattr__(self, "name", "merge")
         object.__setattr__(self, "fields", MappingProxyType(selected))
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "merge"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "answer"
-
-    def _steps(self) -> _Steps:
+    def _plan(self) -> _ReducerPlan:
         rules = [rule._wire(field) for field, rule in self.fields.items()]
-        return _Steps(
+        steps = _Steps(
             extract=_Step("json_object"),
             reduce=_Step("field_rules", {"fields": rules}),
             select=_Step("built"),
         )
-
-    def _signals(self) -> tuple[_ModelSignal, ...]:
-        signals: list[_ModelSignal] = []
-        for field, rule in self.fields.items():
-            if rule.rule == "model":
-                assert rule.route is not None and rule.prompt is not None
-                signals.append(
-                    _ModelSignal(
-                        _writer_key(field),
-                        rule.route,
-                        writer_intent(field, rule.prompt),
-                        rule.params,
-                        field,
-                    )
-                )
-        return tuple(signals)
+        return _ReducerPlan("merge", "answer", steps, signal_calls=_writer_calls(self.fields))
 
     def _check_members(self, count: int) -> None:
         for field, rule in self.fields.items():
@@ -352,7 +329,9 @@ class Merge(Reducer):
             fields[field] = FieldRule._from_wire(entry, writer)
         if writers:
             raise ValueError(_INVALID_SIGNALS)
-        return cls(fields)
+        merge = cls(fields)
+        _require_steps(spec, merge._plan().steps, "merge")
+        return merge
 
     def __eq__(self, other: object) -> bool:
         # WHY order counts: the field order is the spec order, so it changes the compiled bytes.
@@ -371,6 +350,25 @@ class Merge(Reducer):
         return self._render("")
 
     __hash__: ClassVar[Any] = None
+
+
+def _writer_calls(fields: Mapping[str, FieldRule]) -> tuple[_ModelSignal, ...]:
+    """The writer call of each model-written field, in field order (the plan's signal calls)."""
+
+    calls: list[_ModelSignal] = []
+    for field, rule in fields.items():
+        if rule.rule == "model":
+            assert rule.route is not None and rule.prompt is not None
+            calls.append(
+                _ModelSignal(
+                    _writer_key(field),
+                    rule.route,
+                    writer_intent(field, rule.prompt),
+                    rule.params,
+                    field,
+                )
+            )
+    return tuple(calls)
 
 
 def _merge_entries(spec: Mapping[str, object]) -> list[Mapping[str, object]]:
@@ -471,15 +469,7 @@ class Pick(Reducer):
         object.__setattr__(self, "equals", target)
         object.__setattr__(self, "normalize", _normalizer(normalize, "Pick"))
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "pick"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "answer"
-
-    def _steps(self) -> _Steps:
+    def _plan(self) -> _ReducerPlan:
         # WHY exact ids for the normalizer: by_field@1 assumes the v1 output form of text@1 and
         # numeric@1, so a newer normalizer in the catalog must never change what a Pick means.
         if self.order is not None:
@@ -487,28 +477,32 @@ class Pick(Reducer):
         else:
             normalizer = self.normalize
             select = {"order": "equals", "value": self.equals, "normalize": self.normalize}
-        return _Steps(
+        steps = _Steps(
             extract=_Step("json_field", {"path": self.field}),
             normalize=None if normalizer is None else _Step(f"{normalizer}@1"),
             reduce=_Step("values", {"field": self.field}),
             select=_Step("by_field", select),
         )
+        return _ReducerPlan("pick", "answer", steps)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Pick:
         field, normalizer, args = _pick_parts(spec)
         order, value, chosen = args.get("order"), args.get("value"), args.get("normalize")
         if order in ("max", "min") and set(args) == {"order"} and normalizer == "numeric@1":
-            return cls(field, order=cast("Literal['max', 'min']", order))
-        if (
+            pick = cls(field, order=cast("Literal['max', 'min']", order))
+        elif (
             order == "equals"
             and set(args) == {"order", "value", "normalize"}
             and isinstance(value, str)
             and chosen in (None, *_NORMALIZERS)
             and normalizer == (None if chosen is None else f"{chosen}@1")
         ):
-            return cls(field, equals=value, normalize=cast("FieldNormalizer | None", chosen))
-        raise _cannot_rebuild("pick")
+            pick = cls(field, equals=value, normalize=cast("FieldNormalizer | None", chosen))
+        else:
+            raise _cannot_rebuild("pick")
+        _require_steps(spec, pick._plan().steps, "pick")
+        return pick
 
     def __repr__(self) -> str:
         if self.order is not None:

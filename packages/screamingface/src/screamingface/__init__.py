@@ -39,6 +39,7 @@ from screamingface.errors import (
     ScreamingFaceError,
 )
 from screamingface.events import Event
+from screamingface.fields import FieldRule, Merge, Pick
 from screamingface.fusion import Fusion
 from screamingface.judge import Judge
 from screamingface.leaderboard import (
@@ -114,6 +115,7 @@ __all__ = [
     "reproduce",
     "samples",
     "Failure",
+    "FieldRule",
     "FixedSeedSittingWarning",
     "Fusion",
     "Judge",
@@ -127,6 +129,7 @@ __all__ = [
     "matches",
     "MemberResult",
     "Median",
+    "Merge",
     "Model",
     "ModelCapability",
     "ModelDetails",
@@ -135,6 +138,7 @@ __all__ = [
     "ModelParameterSchema",
     "OperationInfo",
     "OAuthFlow",
+    "Pick",
     "PlanningError",
     "Pipeline",
     "ProviderConnectionError",

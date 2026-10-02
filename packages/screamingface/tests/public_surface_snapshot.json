@@ -25,6 +25,7 @@
       "ExecutionError",
       "Extract",
       "Failure",
+      "FieldRule",
       "FixedSeedSittingWarning",
       "Fusion",
       "Judge",
@@ -37,6 +38,7 @@
       "LeaderboardScore",
       "Median",
       "MemberResult",
+      "Merge",
       "Model",
       "ModelCapability",
       "ModelDetails",
@@ -47,6 +49,7 @@
       "OperationAccounting",
       "OperationCache",
       "OperationInfo",
+      "Pick",
       "Pipeline",
       "PlanningError",
       "ProviderConnectionError",
@@ -428,6 +431,23 @@
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },
+      "FieldRule": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *args: 'object', **kwargs: 'object') -> 'None'",
+          "from_member": "classmethod (position: 'int') -> 'FieldRule'",
+          "majority": "classmethod (*, normalize: 'FieldNormalizer | None' = None) -> 'FieldRule'",
+          "max": "classmethod () -> 'FieldRule'",
+          "member": "field",
+          "model": "classmethod (model: 'str', *, prompt: 'str', params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'FieldRule'",
+          "normalize": "field",
+          "params": "field",
+          "prompt": "field",
+          "route": "field",
+          "rule": "field",
+          "union": "classmethod (*, normalize: 'FieldNormalizer | None' = None) -> 'FieldRule'"
+        }
+      },
       "FixedSeedSittingWarning": {
         "catches_as": [
           "EvaluationWarning",
@@ -590,6 +610,14 @@
           "usage": "field"
         }
       },
+      "Merge": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, fields: 'Mapping[str, FieldRule]') -> 'None'",
+          "fields": "field",
+          "name": "field"
+        }
+      },
       "Model": {
         "kind": "class",
         "members": {
@@ -722,6 +750,17 @@
           "id": "field",
           "kind": "field",
           "label": "field"
+        }
+      },
+      "Pick": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, field: 'str', *, order: \"Literal['max', 'min'] | None\" = None, equals: 'str | int | float | bool | None' = None, normalize: 'FieldNormalizer | None' = None) -> 'None'",
+          "equals": "field",
+          "field": "field",
+          "name": "field",
+          "normalize": "field",
+          "order": "field"
         }
       },
       "Pipeline": {

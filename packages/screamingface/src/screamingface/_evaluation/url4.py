@@ -236,7 +236,7 @@ def _replayed_operation(
     fusion_names: dict[str, str],
 ) -> OperationInfo:
     node = binding.node
-    kind, suffix = _operation_shape(node)
+    kind, suffix = _operation_shape(node, binding.signal)
     return _compiled_operation(
         id=f"op_{name}",
         kind=kind,
@@ -258,9 +258,12 @@ def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
             visit(node.synthesizer)
             if node.synthesizer.kind in {"model", "reducer"}:
                 selected[node.binding] = node.name
-            # a reducer's signal calls are named after their Fusion too ("a+b+c judge")
+            # a reducer's signal calls are named after their Fusion too ("a+b+c judge",
+            # "a+b+c project s", "a+b+c write s")
             for signal in node.synthesizer.signals:
                 selected[signal.source.binding] = node.name
+                if signal.projection is not None:
+                    selected[signal.projection.binding] = node.name
 
     visit(value)
     return selected
