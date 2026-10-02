@@ -24,6 +24,7 @@ from screamingface._signals import (
 # parents[4] = the monorepo root (tests/unit -> tests -> screamingface -> packages -> root)
 _ENGINE_APP = Path(__file__).resolve().parents[4] / "apps" / "screamingface-engine"
 _ENGINE_PORTS = _ENGINE_APP / "src" / "screamingface_engine" / "combine" / "ports.py"
+_ENGINE_PORTS_TEST = _ENGINE_APP / "tests" / "unit" / "test_combine_ports.py"
 _SDK_SIGNALS = Path(__file__).resolve().parents[2] / "src" / "screamingface" / "_signals.py"
 
 
@@ -61,12 +62,42 @@ def test_sdk_field_path_and_accounting_keys_match_the_engine_ports() -> None:
     assert FIELD_PATH.fullmatch("a.b[0]") and not FIELD_PATH.fullmatch("a..b")
 
 
+def _engine_corpus() -> tuple[list[object], list[object]]:
+    """The accepted and rejected keys of the Engine's own signal-key test, read by AST."""
+
+    assert _ENGINE_PORTS_TEST.exists(), "engine test_combine_ports.py moved - update the bind"
+    tree = ast.parse(_ENGINE_PORTS_TEST.read_text(encoding="utf-8"))
+    tests = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "test_signal_keys_are_the_accounting_keys_and_field_paths"
+    ]
+    assert len(tests) == 1, "engine signal-key test not found - update the bind"
+    loops = [node.iter for node in ast.walk(tests[0]) if isinstance(node, ast.For)]
+    assert len(loops) == 2, "engine signal-key corpus changed shape - update the bind"
+    return _elements(loops[0]), _elements(loops[1])
+
+
+def _elements(node: ast.expr) -> list[object]:
+    assert isinstance(node, ast.Tuple)
+    found: list[object] = []
+    for item in node.elts:
+        if isinstance(item, ast.Starred):
+            assert ast.unparse(item.value) == "ACCOUNTING_SIGNALS"
+            found.extend(ACCOUNTING_SIGNALS)
+        else:
+            found.append(ast.literal_eval(item))
+    return found
+
+
 @pytest.mark.skipif(not _ENGINE_APP.exists(), reason="engine app not present (installed run)")
 def test_sdk_signal_key_corpus_agrees_with_the_engine_corpus() -> None:
-    # The Engine's unit 1 corpus (tests/unit/test_combine_ports.py); `score:judge` is accepted by
-    # the SDK now (I-S1) and by the Engine from unit 8E, so it is left out of the comparison.
-    accepted = (*ACCOUNTING_SIGNALS, "field:c", "field:a.b[0]", "field:[0].x")
-    rejected = ("logprob_mean", "field:", "field:a..b", "Cost_usd", "", 1, None)
+    accepted, rejected = _engine_corpus()
 
+    assert "field:a.b[0]" in accepted and "logprob_mean" in rejected
     assert all(is_signal_key(key) for key in accepted)
-    assert not any(is_signal_key(key) for key in rejected)
+    # `score:judge` is accepted by the SDK now (I-S1) and by the Engine from unit 8E, so it is the
+    # one key the two corpora are allowed to disagree on.
+    assert not any(is_signal_key(key) for key in rejected if key != "score:judge")
+    assert is_signal_key("score:judge")
