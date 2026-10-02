@@ -334,6 +334,12 @@ def test_reduce_from_spec_refuses_shapes_it_cannot_rebuild() -> None:
 
     broken = [
         changed(plurality, reducer="judge"),
+        changed(plurality, extract=None),
+        changed(plurality, extract={"op": "boxed@1", "args": None}),
+        changed(plurality, reduce=None),
+        changed(plurality, select="first_holder@1"),
+        changed(weighted, members="member_1"),
+        changed(median, extract=None),
         changed(plurality, reduce={"op": "mode@1", "args": {"x": 1}}),
         changed(plurality, select={"op": "max_weight_holder@1", "args": {}}),
         changed(plurality, extract={"op": "bogus@1", "args": {}}),

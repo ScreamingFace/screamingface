@@ -522,26 +522,29 @@ _REVERSE_RULES: Mapping[str, str] = MappingProxyType(
 )
 
 
-def _op_name(step: object) -> str:
-    """The short name of a pinned spec step; its args must be empty unless told otherwise."""
+def _step(value: object) -> Mapping[str, object]:
+    """A spec step as data from a url4 (which a person may have edited): a mapping, or refuse."""
 
-    assert isinstance(step, Mapping)
-    return str(step["op"]).split("@")[0]
+    if not isinstance(value, Mapping):
+        raise ValueError("a spec step that is not an object")
+    return value
+
+
+def _op_name(step: object) -> str:
+    """The short name of a pinned spec step."""
+
+    return str(_step(step)["op"]).split("@")[0]
 
 
 def _no_args(step: object) -> None:
-    assert isinstance(step, Mapping)
-    if step["args"]:
+    if _step(step)["args"]:
         raise ValueError("a reduce or select step with args")
 
 
 def _extract_from_spec(spec: Mapping[str, object], normalize: str | None) -> Extract:
-    step = spec["extract"]
-    assert isinstance(step, Mapping)
-    rule = _REVERSE_RULES[_op_name(step)]
-    args = step["args"]
-    assert isinstance(args, Mapping)
-    return Extract(rule, normalize, **args)  # type: ignore[arg-type]
+    step = _step(spec["extract"])
+    args = _step(step["args"])
+    return Extract(_REVERSE_RULES[_op_name(step)], normalize, **args)  # type: ignore[arg-type]
 
 
 def _normalize_from_spec(spec: Mapping[str, object]) -> str | None:
@@ -555,16 +558,19 @@ def _normalize_from_spec(spec: Mapping[str, object]) -> str | None:
 def _rebuild_vote(spec: Mapping[str, object]) -> Reduce:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
-    extract = _extract_from_spec(spec, _normalize_from_spec(spec))  # type: ignore[arg-type]
+    extract = _extract_from_spec(spec, _normalize_from_spec(spec))
     weights = spec["weights"]
     pair = (_op_name(spec["reduce"]), _op_name(spec["select"]))
     if pair == ("mode", "first_holder") and weights is None:
         return Reduce("plurality", extract=extract)
     members = spec["members"]
-    assert isinstance(members, list)
-    if pair == ("weighted_mode", "max_weight_holder") and isinstance(weights, Mapping):
-        if set(weights) != set(members):
-            raise ValueError("weights do not match the members")
+    if (
+        pair == ("weighted_mode", "max_weight_holder")
+        and isinstance(weights, Mapping)
+        and isinstance(members, list)
+        and set(weights) == set(members)
+    ):
+        # member order, not the weights' key order: canonical JSON sorts member_10 before member_2
         return Reduce("weighted", extract=extract, weights=[weights[m] for m in members])
     raise ValueError("a vote shape this SDK version cannot rebuild")
 
@@ -577,9 +583,8 @@ _MEDIAN_MODES: Mapping[str, ReduceMode] = MappingProxyType(
 def _rebuild_median(spec: Mapping[str, object]) -> Reduce:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
-    if spec["weights"] is not None or _normalize_from_spec(spec) != "numeric":
-        raise ValueError("a median shape this SDK version cannot rebuild")
-    if _op_name(spec["reduce"]) != "median":
+    numeric = spec["weights"] is None and _normalize_from_spec(spec) == "numeric"
+    if not numeric or _op_name(spec["reduce"]) != "median":
         raise ValueError("a median shape this SDK version cannot rebuild")
     extract = _extract_from_spec(spec, "numeric")
     return Reduce("median", mode=_MEDIAN_MODES[_op_name(spec["select"])], extract=extract)
