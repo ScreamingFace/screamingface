@@ -355,3 +355,95 @@ async def test_sad_reads_only_the_start_of_a_reply(tmp_path: Path, no_network: N
     node: Url4Node = _node(benchmark, _MCQ_CASES, tmp_path)
 
     assert await _scores(node, benchmark, ["ANSWER: B", "no idea"]) == [0.0, 0.5]
+
+
+# ── OME-1273: pre_flight and bbeh ────────────────────────────────────────────────
+
+#: Two bbeh-shaped Cases: the eval's own suffix asks the Candidate to end with "The answer
+#: is:" and a bare answer, and the answer key is a listed option's bracketed letter or a
+#: number (its 4,519 keys are free text, numbers, letters and yes/no). Stand-ins, as above:
+#: they prove the grading path, not the content of the real Cases.
+_BBEH_CASES: list[PreparedCase] = [
+    {
+        "case": {
+            "id": 1,
+            "case_id": "1",
+            "input": "Which is larger? (a) seven (b) three. Think step by step ... The answer is:",
+        },
+        "grading_material": {
+            "target": "(a)",
+            "metadata": {"task": "boolean expressions", "mini": False},
+        },
+    },
+    {
+        "case": {"id": 2, "case_id": "2", "input": "What is 6 times 7? ... The answer is:"},
+        "grading_material": {
+            "target": "42",
+            "metadata": {"task": "multistep arithmetic", "mini": True},
+        },
+    },
+]
+
+
+@pytest.mark.parametrize("key", ["pre_flight", "bbeh"])
+def test_pre_flight_and_bbeh_declarations_are_sealed_licensed_and_registered(key: str) -> None:
+    """The seal, the owner's license decision, and a live registration."""
+
+    spec = TASK_REPLAY_CASES[key]
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+
+    assert spec.license != LICENSE_TODO
+    assert benchmark.benchmark.case_count == spec.case_count > 0
+
+
+def test_pre_flight_is_choice_shaped_and_bbeh_is_free_text() -> None:
+    """OME-796: pre_flight's four or five options refuse Draft Feedback; bbeh's bare free-text
+    answers offer it, as the other free-text rows do."""
+
+    assert imported_benchmark("pre_flight").benchmark.check_surface is None
+    assert imported_benchmark("bbeh").benchmark.check_surface is not None
+
+
+@pytest.mark.asyncio
+async def test_pre_flight_grades_with_no_network(tmp_path: Path, no_network: None) -> None:
+    """Spec R17: inspect's choice scorer, the right letter 1.0 and a wrong one 0.0, with
+    outbound network blocked."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("pre_flight")
+    node: Url4Node = _node(benchmark, _MCQ_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["ANSWER: B", "ANSWER: B"]) == [1.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_bbeh_grades_with_its_own_matcher_and_no_network(
+    tmp_path: Path, no_network: None
+) -> None:
+    """Spec R17: the eval's own rule-based matcher reads the text after "The answer is:" and
+    accepts a bare letter against a bracketed key; a wrong number grades 0.0."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("bbeh")
+    node: Url4Node = _node(benchmark, _BBEH_CASES, tmp_path)
+
+    answers: list[str] = ["Seven is larger.\nThe answer is: a", "The answer is: 41"]
+    assert await _scores(node, benchmark, answers) == [1.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_bbeh_matcher_reads_numbers_by_value_and_letters_by_option(
+    tmp_path: Path, no_network: None
+) -> None:
+    """The paper's evaluate.py: 42.0 equals 42, and the other bracketed letter is wrong."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("bbeh")
+    node: Url4Node = _node(benchmark, _BBEH_CASES, tmp_path)
+
+    answers: list[str] = ["The answer is: (b)", "6 * 7 = 42\nThe answer is: 42.0"]
+    assert await _scores(node, benchmark, answers) == [0.0, 1.0]
+
+
+def test_bbeh_keeps_the_task_metadata_its_metric_groups_by() -> None:
+    """The eval's harmonic-mean metric groups by each Sample's task, so the task name sits
+    inside the Case Digest and a full run can be regrouped the paper's way."""
+
+    assert TASK_REPLAY_CASES["bbeh"].keep_sample_metadata is True

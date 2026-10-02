@@ -1132,6 +1132,32 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
         license="cc-by-4.0",
     ),
+    # pre_flight — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.pre_flight.pre_flight:pre_flight.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face AirsideLabs/pre-flight-06
+    #     pin revision 439d2d118fed7d9b009c1f87b9eb1205ab94766e
+    "pre_flight": TaskReplayCasesSpec(
+        task="inspect_evals.pre_flight.pre_flight:pre_flight",
+        case_count=300,
+        case_digest="eda28835a8b5c4dd45f2531315d6fcc2d2301d5ca59b1854346ff0e3c32ffd3f",
+        # License: owner decision 2026-10-01: MIT, the AirsideLabs/pre-flight-06 card on
+        #  Hugging Face.
+        license="mit",
+    ),
+    # bbeh — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.bbeh.bbeh:bbeh.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face BBEH/bbeh
+    #     pin revision 08e07a803851822c04399782ece3c4a07ce419f9
+    "bbeh": TaskReplayCasesSpec(
+        task="inspect_evals.bbeh.bbeh:bbeh",
+        case_count=4519,
+        case_digest="94e806ce381463c0f748ac90cbe5b4ba4b9d5b0ae88dec3f4350d34d11fd239b",
+        keep_sample_metadata=True,
+        # License: owner decision 2026-10-01: Apache-2.0, the BBEH/bbeh card on Hugging Face.
+        license="apache-2.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
