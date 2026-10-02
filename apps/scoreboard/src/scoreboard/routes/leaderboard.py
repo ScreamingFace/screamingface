@@ -209,7 +209,10 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
         authors=score.authors,
         verified_by_screamingface=score.verified_by_screamingface,
         run_cost_usd=reproduction_cost(
-            score.run_cost_usd, score.run_cost_status, score.cache_saved_cost_usd
+            score.run_cost_usd,
+            score.run_cost_status,
+            score.cache_saved_cost_usd,
+            score.cache_saved_cost_archive_usd,
         ),
     )
 

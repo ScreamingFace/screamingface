@@ -129,18 +129,25 @@ class BaseScore(BaseScoreboardModel):
     # destroy the submitter's real bill and leave a figure that cannot be recomputed when the
     # gateway's pricing coverage improves (OME-1287).
     #
-    # INVARIANT: this is the PROVIDER-AUTHORED total only. The engine also tracks an
-    # `archive_matched` figure — real measured money, but from a DIFFERENT call of the same model
-    # and kind, so not provably this row's. OME-1251 D3 keeps it unpublished, and url4 holds the
-    # two apart "precisely so the two can never be summed". Never add a second column for it.
+    # INVARIANT: this is the PROVIDER-AUTHORED total only. The `archive_matched` total is its own
+    # column below: url4 keeps the two provenances apart, and so does the board.
     #
     # INVARIANT: NULL means "not reported", which is NOT the same as 0 — the same rule
     # `run_cost_usd` carries above. A run that genuinely saved nothing is a legitimate 0.
     #
-    # AIDEV-NOTE: nothing ranks on this yet. The Pareto frontier still reads `run_cost_usd`
-    # alone; switching it to the sum is gated on OME-1287, because until every call is priced
-    # this total is a LOWER BOUND and a frontier ranked on it would be quietly wrong.
+    # Ranked on since OME-1382: `scores/reproduction_cost.py` adds it to the spend for a
+    # `complete` row.
     cache_saved_cost_usd = fields.DecimalField(max_digits=12, decimal_places=6, null=True)
+    # FEATURE: OME-1382 / OME-1251 D7 (owner, 2026-10-02, reverses D3) — what this run's cache hits
+    # would have cost, priced from the ARCHIVE: a measured amount from another call of the same
+    # model and kind, rather than one the provider authored for this call.
+    #
+    # WHY a column of its own rather than folded into `cache_saved_cost_usd`: D7 publishes it as
+    # part of the cost, but the owner kept room to label it later (for example "of which
+    # estimated"). That needs the provenance on the row; a merged total would lose it for good.
+    #
+    # INVARIANT: NULL means "no archive-priced hit reported", NOT 0, as for the reported saving.
+    cache_saved_cost_archive_usd = fields.DecimalField(max_digits=12, decimal_places=6, null=True)
     # INVARIANT: sha256 hex over the submission's recipe identity (benchmark, spec,
     # url4 expression, result numbers, provider order) — NOT submitted_by or client
     # metadata. Unique so the DB itself rejects a duplicate recipe, independent of

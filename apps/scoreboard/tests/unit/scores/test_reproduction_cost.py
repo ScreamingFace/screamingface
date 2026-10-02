@@ -52,3 +52,23 @@ def test_a_legacy_row_with_a_saving_but_no_status_is_not_summed() -> None:
 
 def test_no_spend_means_no_cost() -> None:
     assert reproduction_cost(None, None, None) is None
+
+
+# --- D7 (owner, 2026-10-02): archive-matched money is published too ------------------------------
+
+
+def test_a_complete_row_sums_spend_reported_and_archive_saving() -> None:
+    assert reproduction_cost(
+        Decimal("0.010000"), "complete", Decimal("1.000000"), Decimal("3.990000")
+    ) == Decimal("5.000000")
+
+
+def test_a_complete_row_with_only_an_archive_saving_sums_it() -> None:
+    """The draco-3pass seed archive is all archive-matched: this is the case D7 exists for."""
+    assert reproduction_cost(Decimal("0"), "complete", None, Decimal("4.250000")) == Decimal(
+        "4.250000"
+    )
+
+
+def test_an_archive_saving_beside_partial_is_never_a_cost() -> None:
+    assert reproduction_cost(None, "partial", None, Decimal("4.250000")) is None

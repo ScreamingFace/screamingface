@@ -204,3 +204,38 @@ async def test_the_export_keeps_the_stored_spend_status_and_saving(tortoise_db: 
     assert Decimal(exported[CACHED]["run_cost_usd"]) == Decimal("0.010000")
     assert exported[CACHED]["run_cost_status"] == "complete"
     assert Decimal(exported[CACHED]["cache_saved_cost_usd"]) == Decimal("4.990000")
+
+
+# --- D7: the archive-matched saving joins the sum ------------------------------------------------
+
+
+async def test_the_table_and_frontier_include_an_archive_saving(
+    client: httpx.AsyncClient,
+) -> None:
+    """The draco-3pass seed is all archive-matched; its rows rank on what they cost to reproduce."""
+    await ScoreStore().register_benchmark(
+        benchmark_id=BOARD, display_name="Draco 3-pass", revision=REV, case_count=100
+    )
+    outcome = await ScoreStore().submit(
+        ScoreSubmission(
+            benchmark_id=BOARD,
+            spec_id=CACHED,
+            url4_expression=f"url4://{CACHED}",
+            submitted_by="tester@example.test",
+            score=0.80,
+            total_questions=100,
+            ran_with_providers=["openrouter"],
+            run_cost_usd=Decimal("0.010000"),
+            run_cost_status="complete",
+            cache_saved_cost_usd=Decimal("1.000000"),
+            cache_saved_cost_archive_usd=Decimal("3.990000"),
+            metadata={"benchmark_revision": REV},
+        )
+    )
+    await Score.filter(id=outcome.score.id).update(submitted_at=T0, benchmark_revision=REV)
+    await _score(HONEST, 0.70, spend="2.000000", status="complete", saving=None, hours=24)
+
+    rows = await _rows(client)
+
+    assert rows[CACHED]["run_cost_usd"] == "5.000000"
+    assert rows[HONEST]["on_pareto_frontier"] is True

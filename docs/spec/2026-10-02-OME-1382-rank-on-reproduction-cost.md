@@ -2,21 +2,35 @@
 
 Parent `OME-1251` (D5: the board sums spend and saving at the point of use; nothing stores the sum).
 
-## Rule
+## Rule (amended by `OME-1251` D7, owner 2026-10-02)
 
 ```
-reproduction_cost(spend, status, saving) =
-    spend + saving   when status == "complete" and spend is not None and saving is not None
-    spend            otherwise
+reproduction_cost(spend, status, reported, archive) =
+    spend + reported + archive   when status == "complete" and spend is not None
+                                 (an absent saving adds nothing)
+    spend                        otherwise
 ```
 
-- `complete` asserts the spend is exact. A saving beside it is the provider-reported money the
-  cache avoided. From the `client-sf` half on, the SDK sends `complete` for a cached run only when
-  every hit was provider-priced (owner, 2026-10-02, D1), so the sum is the full reproduction cost.
+- `complete` asserts the spend is exact. D7 (reverses D3) publishes BOTH cache savings: the
+  provider-reported one and the archive-matched one (measured from another call of the same model
+  and kind). The SDK sends a cached run as `complete` only when every hit carries a price,
+  reported or archive; any hit with no price makes it `partial` (the `client-sf` half).
 - `partial` and `unavailable` carry no amount (`schemas.py`, `validate_cost_matches_its_status`),
   so they serve `None` and stay off the frontier, as today. A saving beside `partial` is never
   promoted to a cost.
 - A legacy row (`status` null) and a row with no saving serve their stored spend unchanged.
+
+## The archive saving (D7)
+
+- New `cache_saved_cost_archive_usd`: optional on `ScoreSubmission` (same money domain as the
+  reported saving), a nullable `DECIMAL(12, 6)` column (migration `0017`, not backfilled), and a
+  `ScoreSchema` field excluded when absent so no pre-existing export changes its bytes.
+- `unavailable` beside it is refused; an absent status beside only it resolves to `partial`, the
+  same rules the reported saving follows.
+- It joins the one-execution replay snapshot: a replay fills spend, status and both savings
+  together, and only when all four are empty (`OME-1325`).
+- **Owner, 2026-10-02:** not labelled "estimated" now, but kept as its own column and export field
+  so it can be labelled later without a data change. Only `reproduction_cost` ever merges it.
 
 ## Where it applies
 

@@ -52,7 +52,7 @@ deploys first (owner, 2026-10-02, D3).
   updated). `scores/reproduction_cost.py` (new); `scores/store.py` (`_serve_reproduction_cost`,
   `cache_saved_cost_usd` added to the raw-row conversion, both raw queries select status and
   saving, five read paths served); `routes/leaderboard.py` (`_history_submission`).
-- **Commits:** one, `Refs: OME-1382`.
+- **Commits:** two, `Refs: OME-1382` (board half, then the D7 extension).
 - **Gates:** `run_gates.py scoreboard --base origin/main` ALL GATES GREEN with NO skip (no prior
   test changed): ruff, format, pyright, pytest 871 passed / 7 skipped, coverage 90% (floor 80),
   `reproduction_cost.py` 100%, `store.py` 98%; portal Node suite green.
@@ -67,3 +67,26 @@ deploys first (owner, 2026-10-02, D3).
   participant's own view would show a different cost from the card. The 2026-09-29 note that the
   export emits no cost field was wrong (it dumps all three), so the sum stays out of
   `_score_to_schema`.
+
+## D7 extension (2026-10-02, same PR, owner's choice)
+
+`OME-1251` D7 (owner, 12:57, reverses D3) publishes archive-matched cache money and supersedes the
+"every hit provider-reported" rule recorded on OME-1382 at 12:17. Owner chose to extend #1227 rather
+than stack a follow-up, and to keep the archive saving unlabelled now but separately stored.
+
+- **Files:** `scores/models/score.py` (column), `scores/migrations/0017_score_cache_saved_cost_archive.py`,
+  `scores/schemas.py` (submission field, validators, `ScoreSchema` field excluded when absent),
+  `scores/store.py` (create, replay snapshot, receipt, both raw queries, all five read paths),
+  `scores/reproduction_cost.py` (third operand), `routes/leaderboard.py`.
+- **Tests:** `tests/unit/scores/test_cache_saved_archive.py` (12: contract, storage, receipt,
+  export present/absent, replay fill, replay never on a priced row, guard on a direct-write row),
+  3 more pure tests, 1 route test. RED first: 6 failed on `extra_forbidden`, 3 pure on the missing
+  operand. The `unavailable` refusal test first passed for the wrong reason (it matched the field
+  name in the unknown-field error); tightened to the real message.
+- **Migration:** applied 0001-0017 to a fresh SQLite file; `tortoise makemigrations` then reports
+  "No changes detected".
+- **Mutations (all caught):** archive not summed (3 tests); archive left out of the replay guard
+  (the direct-write guard test, added because no API path reached that branch); archive always
+  exported (export-omits test); archive dropped on the read path (route test).
+- **Gates:** `run_gates.py scoreboard --base origin/main` ALL GATES GREEN with no skip; 887 passed,
+  7 skipped; coverage 90%; `reproduction_cost.py` 100%.

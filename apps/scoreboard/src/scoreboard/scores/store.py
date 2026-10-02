@@ -38,10 +38,18 @@ from .schemas import (
 
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
-_RAW_ROW_FIELDS = ("ran_with_providers", "authors", "run_cost_usd", "cache_saved_cost_usd")
+_RAW_ROW_FIELDS = (
+    "ran_with_providers",
+    "authors",
+    "run_cost_usd",
+    "cache_saved_cost_usd",
+    "cache_saved_cost_archive_usd",
+)
 # Columns whose DTO type admits None, so an unreadable value can degrade in place.
 # Anything not listed here forces the row to be dropped instead — see _to_python_rows.
-_NULLABLE_RAW_FIELDS = frozenset({"authors", "run_cost_usd", "cache_saved_cost_usd"})
+_NULLABLE_RAW_FIELDS = frozenset(
+    {"authors", "run_cost_usd", "cache_saved_cost_usd", "cache_saved_cost_archive_usd"}
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +76,14 @@ async def _chunked_values(
 def _serve_reproduction_cost(row: dict[str, Any]) -> Decimal | None:
     """Replace a raw row's stored spend with what reproducing it costs, in place (OME-1382).
 
-    Pops the two columns only the rule reads, so the row still matches its read DTO, which has no
+    Pops the three columns only the rule reads, so the row still matches its read DTO, which has no
     status or saving field. Returns the served cost for callers that build the DTO themselves.
     """
     served = reproduction_cost(
         cast("Decimal | None", row["run_cost_usd"]),
         cast("RunCostStatus | None", row.pop("run_cost_status")),
         cast("Decimal | None", row.pop("cache_saved_cost_usd")),
+        cast("Decimal | None", row.pop("cache_saved_cost_archive_usd")),
     )
     row["run_cost_usd"] = served
     return served
@@ -149,6 +158,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         # this field, so it was stored and never left the database, and a purge-certifying
         # export would have omitted data the purge deletes (review of PR #1055, P1).
         cache_saved_cost_usd=model.cache_saved_cost_usd,
+        cache_saved_cost_archive_usd=model.cache_saved_cost_archive_usd,
     )
 
 
@@ -205,6 +215,7 @@ _REPLAY_FIELDS: tuple[str, ...] = (
     "run_cost_usd",
     "run_cost_status",
     "cache_saved_cost_usd",
+    "cache_saved_cost_archive_usd",
 )
 
 # INVARIANT (OME-1145, review round 3): filling any of these changes what the frontier reads, so
@@ -284,10 +295,13 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
         existing.run_cost_usd is None
         and existing.run_cost_status is None
         and existing.cache_saved_cost_usd is None
+        and existing.cache_saved_cost_archive_usd is None
     ):
         updates["run_cost_status"] = submission.run_cost_status
         updates["run_cost_usd"] = submission.run_cost_usd
         updates["cache_saved_cost_usd"] = submission.cache_saved_cost_usd
+        # OME-1251 D7: the archive saving belongs to the same execution, so it joins the snapshot.
+        updates["cache_saved_cost_archive_usd"] = submission.cache_saved_cost_archive_usd
     elif existing.run_cost_status is None and existing.run_cost_usd is not None:
         # A migrated priced row. The money is published and stays untouched; the missing label is
         # recoverable without asking the client, because an amount IS the claim `complete` makes.
@@ -344,6 +358,8 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         # submitter's real bill and leave a figure nothing could recompute.
         # Deliberately absent from _content_hash for the same reason as the amount.
         "cache_saved_cost_usd": submission.cache_saved_cost_usd,
+        # OME-1251 D7: stored apart from the reported saving; summed only at the point of use.
+        "cache_saved_cost_archive_usd": submission.cache_saved_cost_archive_usd,
         "content_hash": content_hash,
     }
 
@@ -654,6 +670,7 @@ def _build_leaderboard_query(
             scores.run_cost_usd,
             scores.run_cost_status,
             scores.cache_saved_cost_usd,
+            scores.cache_saved_cost_archive_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -697,6 +714,7 @@ def _build_leaderboard_query(
             ranked.run_cost_usd,
             ranked.run_cost_status,
             ranked.cache_saved_cost_usd,
+            ranked.cache_saved_cost_archive_usd,
         )
         .where(ranked.rn == 1)
         .orderby(ranked.score, order=Order.desc)
@@ -741,6 +759,7 @@ def _build_pareto_inputs_query(
             scores.run_cost_usd,
             scores.run_cost_status,
             scores.cache_saved_cost_usd,
+            scores.cache_saved_cost_archive_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -760,6 +779,7 @@ def _build_pareto_inputs_query(
             ranked.run_cost_usd,
             ranked.run_cost_status,
             ranked.cache_saved_cost_usd,
+            ranked.cache_saved_cost_archive_usd,
         )
         .where(ranked.rn == 1)
     )
@@ -1561,6 +1581,7 @@ class ScoreStore:
                     row.run_cost_usd,
                     cast("RunCostStatus | None", row.run_cost_status),
                     row.cache_saved_cost_usd,
+                    row.cache_saved_cost_archive_usd,
                 ),
             )
             for row in rows
@@ -1680,6 +1701,7 @@ class ScoreStore:
             "run_cost_usd",
             "run_cost_status",
             "cache_saved_cost_usd",
+            "cache_saved_cost_archive_usd",
             "submitted_at",
             "enriched_at",
         )
@@ -1692,6 +1714,7 @@ class ScoreStore:
                     cast("Decimal | None", row["run_cost_usd"]),
                     cast("RunCostStatus | None", row["run_cost_status"]),
                     cast("Decimal | None", row["cache_saved_cost_usd"]),
+                    cast("Decimal | None", row["cache_saved_cost_archive_usd"]),
                 ),
                 submitted_at=cast(datetime, row["submitted_at"]),
                 enriched_at=cast("datetime | None", row["enriched_at"]),
