@@ -235,6 +235,17 @@ class AvoidedCost:
             raise ValueError("AvoidedCost usd and provenance must be set together or not at all")
 
 
+def _cache_reference(aigw: object) -> Mapping[str, Any] | None:
+    """The record of the call a cache hit replays, or `None`.
+
+    This is `_aigw.usage_accounting.cache.reference`, written by the gateway at write time.
+    """
+    envelope = _mapping(aigw)
+    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
+    cache = _mapping(accounting.get("cache")) if accounting is not None else None
+    return _mapping(cache.get("reference")) if cache is not None else None
+
+
 def _cache_reference_direct_cost(aigw: object) -> Mapping[str, Any] | None:
     """The stored cost the gateway attached to a cache hit, or `None`.
 
@@ -242,10 +253,7 @@ def _cache_reference_direct_cost(aigw: object) -> Mapping[str, Any] | None:
     write time from the raw provider response (PRD §2.4) — never a value inferred from the
     cached body.
     """
-    envelope = _mapping(aigw)
-    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
-    cache = _mapping(accounting.get("cache")) if accounting is not None else None
-    reference = _mapping(cache.get("reference")) if cache is not None else None
+    reference = _cache_reference(aigw)
     return _mapping(reference.get("direct_cost")) if reference is not None else None
 
 
@@ -512,19 +520,16 @@ def retained_operation_accounting(
 
 def _reference_signal_accounting(aigw: object) -> SignalAccounting:
     """The numbers of the call a cache hit replays: ``cache.reference`` (cost, usage, latency)."""
-    envelope = _mapping(aigw)
-    accounting = _mapping(envelope.get("usage_accounting")) if envelope is not None else None
-    cache = _mapping(accounting.get("cache")) if accounting is not None else None
-    reference = _mapping(cache.get("reference")) if cache is not None else None
+    reference = _cache_reference(aigw)
     if reference is None:
         return SignalAccounting()
-    usage = _mapping(reference.get("usage")) or {}
     latency = _mapping(reference.get("latency")) or {}
+    usage = _attempt_usage(reference)  # the reference holds an attempt's `usage` shape
     return SignalAccounting(
         cost_usd=finite_float(avoided_usd_from_aigw(aigw).usd),
         latency_ms=finite_float(_count(latency.get("provider_latency_ms"))),
-        tokens_in=finite_float(_count((_mapping(usage.get("input")) or {}).get("total"))),
-        tokens_out=finite_float(_count((_mapping(usage.get("output")) or {}).get("total"))),
+        tokens_in=finite_float(usage[0]),
+        tokens_out=finite_float(usage[1]),
     )
 
 
@@ -541,7 +546,7 @@ def _final_succeeded_attempt(aigw: object) -> Mapping[str, Any] | None:
         or any(_mapping(attempt) is None for attempt in raw_attempts)
     ):
         return None
-    succeeded = [m for a in raw_attempts if (m := _mapping(a)) and a.get("outcome") == "succeeded"]
+    succeeded = [m for a in raw_attempts if (m := _mapping(a)) and m.get("outcome") == "succeeded"]
     return succeeded[-1] if succeeded else None
 
 
@@ -550,10 +555,12 @@ def _attempt_signal_accounting(aigw: object) -> SignalAccounting:
     if attempt is None:
         return SignalAccounting()
     direct_cost = _mapping(attempt.get("direct_cost"))
-    priced = direct_cost is not None and direct_cost.get("status") in _SAVED_COST_PROVENANCES
+    cost = None
+    if direct_cost is not None and direct_cost.get("status") in _SAVED_COST_PROVENANCES:
+        cost = _saved_cost_usd(direct_cost)
     usage = _attempt_usage(attempt)
     return SignalAccounting(
-        cost_usd=finite_float(_saved_cost_usd(direct_cost)) if priced and direct_cost else None,
+        cost_usd=finite_float(cost),
         latency_ms=finite_float(_attempt_latency(attempt)),
         tokens_in=finite_float(usage[0]),
         tokens_out=finite_float(usage[1]),

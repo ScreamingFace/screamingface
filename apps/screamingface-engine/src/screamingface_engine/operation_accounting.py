@@ -10,6 +10,8 @@ from decimal import Decimal, localcontext
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from screamingface_engine.combine.ports import ACCOUNTING_SIGNALS
+
 _FIXED_POINT_USD = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 
 
@@ -124,12 +126,8 @@ class SignalAccounting:
 
     def as_signals(self) -> dict[str, float | None]:
         """The numbers keyed by the combine accounting signal names, in their pinned order."""
-        return {
-            "cost_usd": self.cost_usd,
-            "latency_ms": self.latency_ms,
-            "tokens_in": self.tokens_in,
-            "tokens_out": self.tokens_out,
-        }
+        numbers = (self.cost_usd, self.latency_ms, self.tokens_in, self.tokens_out)
+        return dict(zip(ACCOUNTING_SIGNALS, numbers, strict=True))
 
 
 def combine_signal_accounting(rounds: Sequence[SignalAccounting]) -> SignalAccounting:
