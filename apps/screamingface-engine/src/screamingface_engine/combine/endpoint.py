@@ -202,18 +202,12 @@ def _combine(
         spec.members,
         sources_expected=plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS,
     )
-    values = _signal_values(plan.signal, spec, context, accounting)
-    combine_input = _read_members(spec, plan, context, values)
+    signals = _signal_values(plan.signal, spec, context, accounting)
+    combine_input = _read_members(spec, plan, context, signals)
     trace.voters = str(len(combine_input.voters))
-    reduction, selection = _reduce_select(plan, combine_input)
-    if isinstance(selection, str):  # an AbstainReason
-        return _abstain(spec, plan, combine_input, reduction, selection)
-    output = _output(selection, plan.select.op_id, context)
-    trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
-    trace.tie = "true" if selection.tie else "false"
-    result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
-    evidence = _evidence(spec, plan, combine_input, reduction, selection, result)
-    return CombineOutcome(output, evidence)
+    if not combine_input.voters:
+        return _abstain(spec, plan, combine_input, None, "no_votes")
+    return _decide(spec, plan, combine_input, context, trace)
 
 
 def _signal_values(
@@ -221,41 +215,52 @@ def _signal_values(
     spec: CombineSpec,
     context: CombineContext,
     accounting: AccountingReader | None,
-) -> dict[str, float | None] | None:
-    """Each member's number for the one signal the spec reads; None when it reads none."""
+) -> dict[str, dict[str, float | None]]:
+    """Each member's signals: the one number the spec reads, or none at all."""
     if read is None:
-        return None
+        return {member: {} for member in spec.members}
     if read.key in ACCOUNTING_SIGNALS:
         # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
         # what each source call cost. Without a reader every member's number is unknown.
-        sources = context.sources
-        assert sources is not None  # parse_context required it for an accounting key
-        looked = {} if accounting is None else accounting(sources)
-        return {m: finite_float(looked.get(m, {}).get(read.key)) for m in spec.members}
+        if context.sources is None:  # parse_context required them for an accounting key
+            raise RuntimeError("combine context sources are missing for an accounting signal")
+        looked = {} if accounting is None else accounting(context.sources)
+        return {m: {read.key: finite_float(looked.get(m, {}).get(read.key))} for m in spec.members}
     path = read.key[len(FIELD_SIGNAL_PREFIX) :]
     return {
-        member: None
-        if utf8_exceeds(context.outputs[member], MAX_OUTPUT_READ_BYTES)
-        else field_signal_value(context.outputs[member], path)
+        member: {
+            read.key: None
+            if utf8_exceeds(context.outputs[member], MAX_OUTPUT_READ_BYTES)
+            else field_signal_value(context.outputs[member], path)
+        }
         for member in spec.members
     }
 
 
-def _reduce_select(
-    plan: _Plan, combine_input: CombineInput
-) -> tuple[Reduction | None, Selection | AbstainReason]:
-    """Run reduce, then select. Returns the reduction (None when reduce did not finish) and the
-    selection, or the reason to abstain. Only a reduce or select step may abstain."""
-    reduction: Reduction | None = None
-    outcome: Selection | AbstainReason = "no_votes"
+def _decide(
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    trace: _Trace,
+) -> CombineOutcome:
+    """Run reduce, then select. Only these two steps may abstain (by raising ``NoVotes``)."""
     try:
-        if combine_input.voters:
-            reduction = plan.reduce.run(combine_input, plan.reduce.args)
-            _check_tally(reduction, combine_input.members, plan.reduce.op_id)
-            outcome = plan.select.run(reduction, combine_input, plan.select.args)
+        reduction = plan.reduce.run(combine_input, plan.reduce.args)
+        _check_tally(reduction, combine_input.members, plan.reduce.op_id)
     except NoVotes as exc:
-        outcome = exc.reason
-    return reduction, outcome
+        return _abstain(spec, plan, combine_input, None, exc.reason)
+    try:
+        selection = plan.select.run(reduction, combine_input, plan.select.args)
+    except NoVotes as exc:
+        return _abstain(spec, plan, combine_input, reduction, exc.reason)
+    output = _output(selection, plan.select.op_id, context)
+    trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
+    trace.tie = "true" if selection.tie else "false"
+    result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
+    return CombineOutcome(
+        output, _evidence(spec, plan, combine_input, reduction, selection, result)
+    )
 
 
 def _abstain(
@@ -308,7 +313,7 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     # reduce, select.
     extract = _resolve(registry, spec.extract, "extract")
     normalize = _resolve(registry, spec.normalize, "normalize")
-    reduce = _resolve(registry, spec.reduce, "reduce")
+    reduce = registry.resolve(spec.reduce.op, "reduce")
     select = _resolve(registry, spec.select, "select")
     bound_reduce = cast("_Step[ReduceOp]", _bind(reduce, spec.reduce))
     return _Plan(
@@ -321,13 +326,13 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
 
 
 def _signal_read(
-    spec: CombineSpec, reduce: OperatorDescriptor | None, bound: _Step[ReduceOp]
+    spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
 ) -> SignalRead | None:
     """The one signal the spec reads: from ``weights``, or from the reduce step's args (F6)."""
     from_weights = (
         SignalRead(spec.weights.signal) if isinstance(spec.weights, SignalWeights) else None
     )
-    hook = None if reduce is None else reduce.signal_read
+    hook = reduce.signal_read
     from_reduce = None if hook is None else hook(bound.args)
     if from_reduce is not None:
         if not is_signal_key(from_reduce.key):
@@ -343,33 +348,29 @@ def _read_members(
     spec: CombineSpec,
     plan: _Plan,
     context: CombineContext,
-    values: Mapping[str, float | None] | None,
+    signals: Mapping[str, Mapping[str, float | None]],
 ) -> CombineInput:
-    """One ``Answer`` per member in spec order; ``values`` is the signal the spec reads (I-S3)."""
-    fixed = {} if not isinstance(spec.weights, dict) else spec.weights
+    """One ``Answer`` per member in spec order; ``signals`` holds only the signal read (I-S3)."""
     answers = tuple(
         _answer(
             member,
             context.outputs[member],
             plan,
-            MappingProxyType({})
-            if values is None or plan.signal is None
-            else MappingProxyType({plan.signal.key: values[member]}),
-            _weight(spec, fixed, member, None if values is None else values[member]),
+            MappingProxyType(dict(signals[member])),
+            _weight(spec, member, signals[member]),
         )
         for member in spec.members
     )
     return CombineInput(answers=answers, outputs=context.outputs, signals=context.signals)
 
 
-def _weight(
-    spec: CombineSpec, fixed: Mapping[str, float], member: str, signal: float | None
-) -> Decimal | None:
-    """A fixed weight as authored; a signal weight only when it is a usable positive number."""
-    if isinstance(spec.weights, SignalWeights):
-        usable = signal is not None and 0 < signal <= MAX_WEIGHT
-        return Decimal(str(signal)) if usable else None
-    return Decimal(str(fixed[member])) if member in fixed else None
+def _weight(spec: CombineSpec, member: str, signals: Mapping[str, float | None]) -> Decimal | None:
+    """The member's vote weight from its one source: as authored, or a usable signal number."""
+    weights = spec.weights
+    if isinstance(weights, SignalWeights):
+        number = signals[weights.signal]
+        return Decimal(str(number)) if number is not None and 0 < number <= MAX_WEIGHT else None
+    return None if weights is None else Decimal(str(weights[member]))
 
 
 def _answer(
