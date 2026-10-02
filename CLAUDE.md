@@ -79,6 +79,10 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    epic. Never one mega-ticket. Single-landing work is still a leaf under an epic.
 9. **Linear via MCP only** (`/mcp` to activate). API tokens / raw GraphQL are forbidden;
    MCP-uncovered operations are owner actions in the Linear UI.
+10. **No narrative.** Commits, PR bodies, ticket descriptions, and docs artifacts state
+    facts directly. No self-referential commentary about process, no restating what was
+    asked, no explaining why a sentence was written. Cut a sentence if it narrates rather
+    than states.
 
 ## Architecture — MANDATORY
 
