@@ -113,22 +113,27 @@ def test_score_judge_without_a_judge_signal_is_spec_invalid() -> None:
 
 
 _BAD_REPLIES = [
-    '{"member_1": 1}',
-    "I like member 2",
-    '{"member_1": NaN, "member_2": 1, "member_3": 1}',
-    "member_1" + " " * 65536,
+    ('{"member_1": 1}', ports._SCORES_INVALID),
+    ("I like member 2", ports._SCORES_INVALID),
+    ('{"member_1": NaN, "member_2": 1, "member_3": 1}', ports._SCORES_INVALID),
+    ("member_1" + " " * 65536, ports._JUDGE_REPLY_TOO_LARGE),
 ]
 
 
-@pytest.mark.parametrize("reply", _BAD_REPLIES, ids=["missing", "prose", "nan", "oversize"])
-def test_a_malformed_or_oversized_judge_reply_fails_the_signal_read(reply: str) -> None:
+@pytest.mark.parametrize(
+    ("reply", "message"), _BAD_REPLIES, ids=["missing", "prose", "nan", "oversize"]
+)
+def test_a_malformed_or_oversized_judge_reply_fails_the_signal_read(
+    reply: str, message: str
+) -> None:
     spec = _argmax_spec(extract={"op": "fake_bad_stage@1", "args": {}})
     context = context_text(["a x", "b y", "c z"], {"judge": reply})
     # F11: the signal read runs before any extractor, so the bad extractor is never reached.
     with pytest.raises(CombineError) as caught:
         run(spec_text(spec), context, registry=FAKE_REGISTRY)
     assert caught.value.code == "judge_reply_invalid"
-    assert reply.strip()[:20] not in str(caught.value)
+    # The whole message is the fixed rule text, so it cannot hold any of the reply.
+    assert str(caught.value) == message
 
     with capture_operation_calls() as calls:
         with pytest.raises(ResolutionError) as resolved:

@@ -6,6 +6,8 @@ INVARIANT: no iteration order of a dict or set, and no hash seed, reaches an out
 
 from __future__ import annotations
 
+import json
+
 from combine_judge_scenarios import label_scenario, score_weight_scenario, scores_scenario
 from hash_seed_support import stdout_across_seeds
 
@@ -30,4 +32,6 @@ def test_the_scores_scenario_picks_the_first_of_the_tied_members() -> None:
 def test_the_score_weight_scenario_ties_two_rows_and_picks_the_first_holder() -> None:
     result = score_weight_scenario()
     assert result.startswith("member 1: ")
-    assert '"tie":true' in result
+    evidence = json.loads(result.partition("\n")[2])
+    assert evidence["tie"] is True
+    assert [row["score"] for row in evidence["tally"][:2]] == [1.0, 1.0]
