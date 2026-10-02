@@ -237,6 +237,11 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-worldsense": ("coverage_declare", "single_shot", "hard"),
         "inspect-sevenllm_mcq_zh": ("coverage_declare", "single_shot", "medium"),
         "inspect-sevenllm_mcq_en": ("coverage_declare", "single_shot", "medium"),
+        # OME-1273: SAD-mini; tiers as their rows argue them from the eval's own report.
+        "inspect-sad_facts_llms": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sad_facts_human_defaults": ("coverage_declare", "single_shot", "easy"),
+        "inspect-sad_influence": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sad_stages_oversight": ("coverage_declare", "single_shot", "hard"),
     }
     actual = {
         benchmark.id: (

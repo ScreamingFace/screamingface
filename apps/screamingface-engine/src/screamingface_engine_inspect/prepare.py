@@ -1044,6 +1044,94 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #  non-commercial use only.
         license="cc-by-nc-4.0",
     ),
+    # sad_facts_llms — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.sad.sad:sad_facts_llms.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/human_defaults/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 fb5085dab38cecfac0a8e9fcbd663baab96c4837079fae80f9a7f4a823074650
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/llms/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/influence/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 63ed83e878320cd742f81a4c7f1d6ee413c508e68c053482453615cc48156881
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/oversight/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 5b620b7bf45d04a2f79b1c7d2e825069fe774d853beeaff11b8b43c442c50ebb
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/full/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 9bf272835a6b51c4b66010f8159dea3c92e62b587add54a1ec95148cf862293e
+    "sad_facts_llms": TaskReplayCasesSpec(
+        task="inspect_evals.sad.sad:sad_facts_llms",
+        task_args={"seed": 7},
+        case_count=249,
+        case_digest="a84c6535db4e44841640423c96ab9030291eba2821896141494a9dfe0e8b9137",
+        keep_sample_metadata=True,
+        # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
+        license="cc-by-4.0",
+    ),
+    # sad_facts_human_defaults — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.sad.sad:sad_facts_human_defaults.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/human_defaults/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 fb5085dab38cecfac0a8e9fcbd663baab96c4837079fae80f9a7f4a823074650
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/llms/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/influence/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 63ed83e878320cd742f81a4c7f1d6ee413c508e68c053482453615cc48156881
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/oversight/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 5b620b7bf45d04a2f79b1c7d2e825069fe774d853beeaff11b8b43c442c50ebb
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/full/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 9bf272835a6b51c4b66010f8159dea3c92e62b587add54a1ec95148cf862293e
+    "sad_facts_human_defaults": TaskReplayCasesSpec(
+        task="inspect_evals.sad.sad:sad_facts_human_defaults",
+        task_args={"seed": 7},
+        case_count=1200,
+        case_digest="faa75981e823a803b89f5aa3d47e2eddf58bf78075c2951b6db17a9347120980",
+        keep_sample_metadata=True,
+        # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
+        license="cc-by-4.0",
+    ),
+    # sad_influence — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.sad.sad:sad_influence.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/human_defaults/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 fb5085dab38cecfac0a8e9fcbd663baab96c4837079fae80f9a7f4a823074650
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/llms/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/influence/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 63ed83e878320cd742f81a4c7f1d6ee413c508e68c053482453615cc48156881
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/oversight/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 5b620b7bf45d04a2f79b1c7d2e825069fe774d853beeaff11b8b43c442c50ebb
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/full/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 9bf272835a6b51c4b66010f8159dea3c92e62b587add54a1ec95148cf862293e
+    "sad_influence": TaskReplayCasesSpec(
+        task="inspect_evals.sad.sad:sad_influence",
+        task_args={"seed": 7},
+        case_count=255,
+        case_digest="cf1ebc85a3cb5b09f59bfc941fe5c162ad80f0b97a90f118fdc37eed39dd1c0b",
+        keep_sample_metadata=True,
+        # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
+        license="cc-by-4.0",
+    ),
+    # sad_stages_oversight — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.sad.sad:sad_stages_oversight.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/human_defaults/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 fb5085dab38cecfac0a8e9fcbd663baab96c4837079fae80f9a7f4a823074650
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/facts/llms/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/influence/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 63ed83e878320cd742f81a4c7f1d6ee413c508e68c053482453615cc48156881
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/oversight/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 5b620b7bf45d04a2f79b1c7d2e825069fe774d853beeaff11b8b43c442c50ebb
+    #   url https://api.github.com/repos/LRudL/sad/contents/sad/stages/full/structs.zip?ref=dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3
+    #     pin sha256 9bf272835a6b51c4b66010f8159dea3c92e62b587add54a1ec95148cf862293e
+    "sad_stages_oversight": TaskReplayCasesSpec(
+        task="inspect_evals.sad.sad:sad_stages_oversight",
+        task_args={"seed": 7},
+        case_count=400,
+        case_digest="da1c29f15006c59da2807cca60390829efb2ad69c27552d63c265d091da13911",
+        keep_sample_metadata=True,
+        # License: owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no dataset card.
+        license="cc-by-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
