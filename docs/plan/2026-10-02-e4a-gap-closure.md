@@ -79,7 +79,7 @@ Units run one at a time in stack order. Units 1, 3 and 4 are the largest.
 | A1 Answer | answer-record | met (typed record; url4 stays text by ans:Q2) |
 | A2 Extract = grader | grader-parity, extract-rules | met for the benchmark rule on GSM8K and AIME; MATH waits (ans:Q5); built-in rules differ by design |
 | A3 Reduce ops replay | block-api, signal-reduce, filter, signals | met (7 ops; cached replay identical, ans:Q9) |
-| A4 Fusion byte-identical | fusion-recipe | met (`context`, not `concat`; needs Irina's sign-off) |
+| A4 Fusion byte-identical | fusion-recipe | met (`context`, not `concat`; approved, ans:Q16) |
 | A5 self-consistency | already met; BK#12 | met; live proof at the EV-12 recording (U5) |
 | A6 Report entries | report-trace | met (separate `report-trace.v1`, ans:Q13) |
 | S1 schemas frozen | report-trace RT-D1, budget-schema, erd §10–11 | met for Answer, spec, evidence, trace, Budget (method-owner side; E4c enforces) |
@@ -89,4 +89,4 @@ Units run one at a time in stack order. Units 1, 3 and 4 are the largest.
 1. ~~Approve the spec and this plan~~ — approved 2026-10-02.
 2. ~~O1, O2~~ — decided (ans:Q15, ans:Q14).
 3. Record the two replay lanes (EV-12 and Fusion), under $0.10 each, when the unit 11 PR opens (U5).
-4. Irina signs off the `concat` → `context` deviation ([fusion-recipe §2](../spec/2026-10-02-e4a-gap-closure/prd/fusion-recipe.md)).
+4. ~~`concat` → `context` deviation~~ — approved (ans:Q16) ([fusion-recipe §2](../spec/2026-10-02-e4a-gap-closure/prd/fusion-recipe.md)).

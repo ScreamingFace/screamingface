@@ -20,7 +20,7 @@ existing entries reproduce byte for byte.
 - "sf.Fusion becomes a named recipe: Fan-out → Reduce.compute(context) → Model. The 'context' op
   lowers at compile time to today's url4 struct, so url4 bytes and outputs stay identical. Golden
   url4 files and a replay prove it." `[stated ans:Q6]`
-- **Deviation from the PRD wording, for product sign-off:** the PRD names `concat`. A text concat
+- **Deviation from the PRD wording, approved `[stated ans:Q16]`:** the PRD names `concat`. A text concat
   can never be byte-identical, because today's synthesizer gets a url4 struct `{input, outputs}`, not
   joined text `[existing S/_evaluation/candidate.py:621]`. So the recipe uses a structured compute op
   named `context` `[stated ans:Q6]`. `sf.Concat` stays a separate text join.
@@ -108,7 +108,7 @@ Pipeline([Fusion(m, Reduce("context", mode="compute")), S, *rest])
 
 ## 6. Open questions
 
-None. (The `concat` → `context` deviation in §2 needs Irina's sign-off.)
+None. (The `concat` → `context` deviation in §2 is approved, ans:Q16.)
 
 ## 7. TDD plan
 

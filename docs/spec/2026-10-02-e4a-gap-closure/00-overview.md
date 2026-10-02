@@ -91,6 +91,7 @@ recording (U5).
 | Q13 | Trace in the Report, with the correct facts (report.v1 released, 5 main tests pin it) | "Separate trace export": `Report.trace_dict()` emits `report-trace.v1`; `report.v1` byte-identical | recommended |
 | Q14 | O2: the shared Budget schema | "define it then for our side (method owners)" | E4a defines and freezes `budget.v1` and the charge rule; E4c enforces |
 | Q15 | O1: HealthBench abstain score | "yeah, that`s right": keep 0.0 and document it | recommended |
+| Q16 | O3: the Fusion recipe uses `Reduce.compute(context)`, not the PRD's `concat` | "ok, that`s fine. consider it approved." | approved by the user |
 | — | Spec and plan approval | "1 - Approved" (2026-10-02) | code may start |
 
 ## 6. Global decisions `[proposed]`
@@ -109,7 +110,7 @@ recording (U5).
 - `extract="benchmark"` may not be combined with an explicit `normalize` in v1.
 - No new test dependency: schema freeze uses pydantic `model_json_schema()` snapshots and SDK
   field-set snapshots; property tests use a seeded `random.Random`.
-- The PRD's `concat` in the Fusion recipe becomes a structured `context` op, for Irina's sign-off.
+- The PRD's `concat` in the Fusion recipe becomes a structured `context` op (approved, ans:Q16).
 
 ## 7. Open and deferred
 
@@ -117,7 +118,7 @@ recording (U5).
 |---|---|---|
 | O1 | ~~HealthBench abstain score~~ | decided ans:Q15: 0.0, documented |
 | O2 | ~~Budget schema~~ | decided ans:Q14: [budget-schema](prd/budget-schema.md); E4c enforces, E13 estimates BYOM cost |
-| O3 | Irina signs off the `concat` → `context` wording ([fusion-recipe §2](prd/fusion-recipe.md)) | does not block code; a no is a rename |
+| O3 | ~~`concat` → `context` wording~~ | decided ans:Q16: approved |
 | D1 | MATH parity | when a MATH benchmark is imported (ans:Q5) |
 | D2 | Answer rules for multiple-choice and yes/no benchmarks | follow-up, same mechanism |
 | D3 | logprob and other declared signals; the key suffix rule | E4b |
