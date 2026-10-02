@@ -23,7 +23,7 @@ weight. Move `json_field@1` onto the ports field-path walk. The branch is rebase
   `Answer` rows from the stage-reading fixture format (F2).
 - `operators/extract.py`: `json_field@1` reads through `ports` (`FIELD_PATH`, `decode_json_reply`,
   `walk_field_path`); `regex@1`; `inspect_number@1`; `inspect_aime@1`.
-- `operators/_regex_ban.py` (new): static ReDoS ban over the stdlib parse tree.
+- ~~`operators/_regex_ban.py` (new): static ReDoS ban over the stdlib parse tree.~~ Removed: regex@1 runs on RE2 (overview Q17, GE9).
 - `operators/normalize.py`: `set@1`, `inspect_numeric@1`.
 - `operators/reduce.py`: `weighted_mode@1` skips a voter with no usable signal weight.
 - `operators/_inspect_vendor.py` (new): verbatim copies of the Inspect numeric rule + pins.
@@ -127,3 +127,23 @@ slow too. The user decided to run `regex@1` on the linear-time RE2 engine and de
 - Minors: the vendor structure test now allows only docstring, imports, functions and assignments;
   RX#2 cases check the message does not contain the pattern; `_listed` uses a cast; the
   `set@1` docstring states the JSON number spelling (F16).
+
+## RE2 review round (orchestrator, 2026-10-02)
+
+Opus review of the RE2 fix round: ACCEPT AFTER FIXES. Fixed in the main loop:
+- M1: RE2 logged a rejected pattern (and DFA out-of-memory lines) to stderr. `_compile` now builds
+  fresh `re2.Options()` per call with `log_errors = False` and `case_sensitive = not ignore_case`
+  (replaces the `(?i)` prefix; group numbering unchanged).
+- M2: RE2's `$` is the end of the text (not "before a final newline" as in `re`). Kept as RE2
+  semantics, documented in the module docstring (write `\s*$`) and pinned by a test.
+- MINOR 2: RE2 time grows with the compiled program (`(?:(.)|(.)|(.)|(.)){1000}x` 50 ms per call,
+  program size 40005). A cap `_REGEX_MAX_PROGRAM = 5000` instructions refuses such patterns at spec
+  check (real answer patterns measured 8–1203; `.{0,300}x` 2705 runs in 0.5 ms).
+- MINOR 4: the compile-error message now names the RE2 limits (lookarounds, backreferences, `\Z`,
+  possessive or atomic groups, repeat counts up to 1000), never the pattern.
+- MINOR 3 (core third-party scope): intended — the core imports pydantic; the rule is "no re2 in
+  the core". MINOR 5 (no musllinux wheels): noted; the engine image is glibc 2.36.
+- NITs: `google-re2>=1.1.20240702,<2` in both pyprojects (lock resolution unchanged at
+  1.1.20251105); `(.*a){12}` worst input is now a failing one.
+- Tests: `tests/unit/test_combine_regex_re2_options.py` (RED: stderr echo, message, program cap;
+  guards: `$` pin, case option, under-cap timing).

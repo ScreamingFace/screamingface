@@ -10,8 +10,9 @@ over the text at C speed (a strip, a ``json.loads`` or a ``rfind``).
 
 regex runs on RE2 (google-re2), whose matching is linear in the text, so no pattern can freeze a
 worker; it reads only the last 1024 characters. RE2 syntax: ``\\d`` and ``\\w`` are ASCII (use
-``\\p{L}`` and ``\\p{N}`` for Unicode classes), and lookarounds and backreferences do not
-compile.
+``\\p{L}`` and ``\\p{N}`` for Unicode classes), lookarounds and backreferences do not
+compile, and ``$`` is the end of the text (not "before a final newline" as in ``re``; write
+``\\s*$``). A pattern whose RE2 program is larger than 5000 instructions is refused at spec check.
 
 The two Inspect rules follow the grader exactly: they are linear in the text but slower than
 the rest on adversarial input (digit-free prose is a C-speed exit; a text of many ``1a``
@@ -126,6 +127,7 @@ def json_field(text: str, args: OpArgs, /) -> StageResult:
 
 _REGEX_WINDOW = 1024  # characters; the scan reads text[-_REGEX_WINDOW:]
 _REGEX_MAX_PATTERN = 256
+_REGEX_MAX_PROGRAM = 5000  # RE2 program instructions; real answer patterns stay under 2000
 _SURROGATE = re.compile("[\ud800-\udfff]")
 _REGEX_ARGS = frozenset({"pattern", "group", "occurrence", "ignore_case"})
 
@@ -149,15 +151,31 @@ def _check_regex_values(args: OpArgs) -> None:
         raise SpecInvalid("regex@1 occurrence must be last or first")
 
 
+def _options(ignore_case: bool) -> Any:
+    """Fresh RE2 options per call (plugins hold no module-level mutable state)."""
+    options = re2.Options()
+    # WHY: RE2 logs a rejected pattern to stderr by default; a pattern never reaches a log.
+    options.log_errors = False
+    options.case_sensitive = not ignore_case
+    return options
+
+
 def _compile(args: OpArgs) -> Any:
     """The RE2 object for the args (RE2 caches compiled patterns itself; a compile is ~10 us)."""
-    source = ("(?i)" if args.get("ignore_case") else "") + str(args["pattern"])
     try:
-        return re2.compile(source)
+        compiled = re2.compile(str(args["pattern"]), _options(bool(args.get("ignore_case"))))
     except (re2.error, UnicodeError):  # UnicodeError: a lone surrogate has no UTF-8 form
         raise SpecInvalid(
-            "regex@1 pattern does not compile under RE2 (no lookarounds or backreferences)"
+            "regex@1 pattern does not compile under RE2 (RE2 syntax: no lookarounds, "
+            "backreferences, \\Z, possessive or atomic groups; repeat counts up to 1000)"
         ) from None
+    # WHY: RE2 time is linear in the text but grows with the compiled program; a cap keeps one
+    # member call well under a millisecond on the 1024-character window.
+    if compiled.programsize > _REGEX_MAX_PROGRAM:
+        raise SpecInvalid(
+            f"regex@1 pattern is too large for RE2 (program size over {_REGEX_MAX_PROGRAM})"
+        )
+    return compiled
 
 
 def _group_exists(group: object, compiled: Any) -> bool:
