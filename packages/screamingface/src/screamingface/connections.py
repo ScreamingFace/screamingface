@@ -18,10 +18,17 @@ type ConnectionStatus = Literal[
     "connected",
     "needs_reauth",
     "error",
+    # FEATURE (OME-1250): authenticates, but the provider cannot serve it right now (402 /
+    # quota). Distinct from `error`, which means the credential itself was rejected.
+    "unavailable",
 ]
 
 _METHODS = frozenset({"api_key", "oauth"})
-_STATUSES = frozenset({"not_connected", "pending", "connected", "needs_reauth", "error"})
+# AIDEV-NOTE: STRICT by owner decision (2026-10-02) — an unknown status is refused, never
+# guessed. A new value ships here (published) BEFORE the gateway emits it.
+_STATUSES = frozenset(
+    {"not_connected", "pending", "connected", "needs_reauth", "error", "unavailable"}
+)
 _PROVIDER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*\Z", re.ASCII)
 
 
