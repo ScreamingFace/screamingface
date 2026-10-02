@@ -69,11 +69,8 @@ Decisions F1-F12 (from the unit spec):
 - **Commits:** B Answer + result, C abstain, D signals in the core, E signal accounting, F route
   lookup. Each RED was seen on a stub first; mutation checks were run for the spec/signal/accounting
   rules (every live mutation was killed).
-- **Not done:** row 34 (tool-loop rounds through a web-tool fake) is skipped: no cheap web-tool fake
-  exists. The fold itself is covered by `test_combine_signal_accounting_is_contagious_and_order_free`.
 - **Small choices the spec left open:** `fake_best@1` raises `NoVotes` when no member has a score;
-  `_observed_round_trip` gets `# noqa: PLR0915` (the two signal-accounting lines pass the 26
-  statement cap); `_reduce_select` and `_member_numbers` are small helpers added to stay under the
+  `_reduce_select` and `_member_numbers` are small helpers added to stay under the
   ruff branch/return caps; a `_checked` stage result also rejects a non-str value.
 - **Append-only:** the only base test file edited is `test_failure_classes.py` (the approved pin;
   the net diff from base is the three combine codes).
@@ -83,3 +80,18 @@ Decisions F1-F12 (from the unit spec):
   conformance and the notebook and distribution checks): ALL GATES GREEN. Repo gate: ALL GATES
   GREEN. The engine and SDK conformance tests both pass with the three-code set. No `url4` import
   under `combine/` and no plugin import in the core (check_layering).
+
+## Review round 1 (ACCEPT AFTER FIXES), all applied
+
+- Row 34 was NOT skipped for a good reason: a tool-loop fake exists (the Tavily MockTransport of
+  `test_operation_accounting_failure_boundaries.py`). `test_tool_loop_rounds_sum_signal_accounting`
+  now pins the summed `SignalAccounting` of a tool round plus the final round.
+- New tests: the fail-open `_signal_accounting` wrapper (log line names the type only), the concrete
+  refusal type (`ResolutionError`, code `provider_refusal`), and `finite_float`.
+- `_decide` owns the two `try/except NoVotes` blocks (no `Selection | str` return).
+- One public `finite_float` in `combine/ports.py` replaces three copies.
+- `world/accounting.py`: one `_cache_reference`; tokens via `_attempt_usage`; no `noqa` left:
+  `_retain_accounting` folds the round-trip accounting statements.
+- Nits: `answer_status` direct lookup, one weight source (`_weight`), explicit `RuntimeError`
+  instead of an `assert`, no impossible `reduce is None` branch, `as_signals` uses
+  `ACCOUNTING_SIGNALS`, sorted `__all__`, `MAX_WEIGHT` in the test, `internal_error` log asserted.
