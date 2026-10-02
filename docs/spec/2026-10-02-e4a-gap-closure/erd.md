@@ -144,7 +144,7 @@ are equal, the engine gives both claimants that output, and `text` is set.)
 | `tokens_in` | `SIGNAL_ACCOUNTING.tokens_in`, summed | same |
 | `tokens_out` | `SIGNAL_ACCOUNTING.tokens_out`, summed | same |
 | `field:<path>` | the member's JSON reply at `<path>` (the `json_field@1` path grammar), when the value is a finite number or a bool (`true` = 1.0, `false` = 0.0) | not JSON, path absent, not a number or bool |
-| `score:judge` | the judge reading of this combine call, one score per member (the `scores@1` parse) | never `None`: a spec that reads it without a judge is `combine_spec_invalid`; a malformed, non-finite or oversize judge reply is `judge_reply_invalid`; both fail before any extractor runs (GE29) |
+| `score:judge` | the judge reading of this combine call, one score per member (the `scores@1` parse) | never `None`: a spec that reads it without a judge is `combine_spec_invalid`; a malformed, non-finite or oversize judge reply is `judge_reply_invalid`; both fail before any extractor runs (GE15, GE29) |
 
 Sources `[stated ans:Q4]`. **Who computes them** `[proposed]`: the **core**, before the reduce
 step, for exactly the keys the spec reads. The core cannot import a plugin
