@@ -115,10 +115,17 @@ def _check_args(rule: str, args: Mapping[str, object]) -> None:
         if name not in (*required, *optional):
             raise ValueError(f"sf.Extract({rule!r}) does not take {name!r}")
         _check_scalar(rule, name, value)
-    if rule == "field" and FIELD_PATH.fullmatch(str(args["path"])) is None:
-        raise ValueError("sf.Extract('field') path must be a JSON path like 'a', 'a.b' or 'a[0].b'")
+    if rule == "field":
+        _check_field_path(args["path"])
     if rule == "regex":
         check_regex(args, "sf.Extract('regex')")
+
+
+def _check_field_path(path: object) -> None:
+    if not isinstance(path, str):
+        raise TypeError("sf.Extract('field') path must be text")
+    if FIELD_PATH.fullmatch(path) is None:
+        raise ValueError("sf.Extract('field') path must be a JSON path like 'a', 'a.b' or 'a[0].b'")
 
 
 def _check_scalar(rule: str, name: str, value: object) -> None:
