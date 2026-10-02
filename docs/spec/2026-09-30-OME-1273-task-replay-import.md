@@ -8,6 +8,10 @@
 - Ticket: [OME-1273](https://linear.app/openmined/issue/OME-1273/import-the-single-turn-benchmarks-the-importer-still-refuses). Parent epic: OME-1299.
 - Ledger: `docs/work/2026-09-30-ome-1273-task-replay-spec.md`.
 - Pinned to: `inspect-evals` 0.20.0, `inspect-ai` 0.3.263, main `42baa988`.
+- Architecture: `apps/screamingface-engine/docs/importing-an-inspect-eval.md` (OME-1459) is the
+  current picture of what we take from a `Task` and which component runs each `eval()` step; it
+  also records the two decisions taken after this spec (capture rendering, one fetch path). This
+  spec stays as the record of the Task-replay design and its requirements.
 
 ## TLDR
 
