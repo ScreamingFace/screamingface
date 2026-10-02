@@ -9,6 +9,7 @@ from typing import NoReturn, cast
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule, resolve_benchmark_rule
 from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
+from screamingface._signals import Signal
 from screamingface.reducer import REDUCER_NAMES, Reducer, _Step
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
@@ -56,7 +57,7 @@ def combine_spec_text(
         raise ValueError(f"{plan.reducer!r} is not a known reducer")
     steps = plan.steps
     weights = plan.weights
-    if weights is not None and len(weights) != member_count:
+    if isinstance(weights, tuple) and len(weights) != member_count:
         raise ValueError(f"{reducer.name} has {len(weights)} weights for {member_count} members")
     members = [f"member_{index}" for index in range(1, member_count + 1)]
     spec = {
@@ -67,13 +68,23 @@ def combine_spec_text(
         "normalize": _pinned_step("normalize", steps.normalize, operators),
         "reduce": _pinned_step("reduce", steps.reduce, operators),
         "select": _pinned_step("select", steps.select, operators),
-        "weights": None if weights is None else {m: float(w) for m, w in zip(members, weights)},
+        "weights": _spec_weights(weights, members),
     }
     text = canonical_json(spec)
     size = len(text.encode("utf-8"))
     if size > _MAX_SPEC_BYTES:
         raise ValueError(f"combine spec is {size} bytes; the limit is {_MAX_SPEC_BYTES}")
     return text
+
+
+def _spec_weights(
+    weights: tuple[float, ...] | Signal | None, members: list[str]
+) -> dict[str, object] | None:
+    if weights is None:
+        return None
+    if isinstance(weights, Signal):
+        return {"signal": weights.key}
+    return {member: float(weight) for member, weight in zip(members, weights)}
 
 
 def _pinned_step(

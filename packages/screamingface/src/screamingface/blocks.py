@@ -249,8 +249,6 @@ def _check_extract(op: str, value: object) -> Extract:
 
 
 def _check_weights(op: str, value: object) -> Signal | tuple[float, ...]:
-    if isinstance(value, Signal):
-        return value
     return _weights_option(value, f"sf.Reduce({op!r}) weights")
 
 
@@ -485,14 +483,9 @@ def _plurality_plan(block: Reduce) -> _ReducerPlan:
 
 
 def _weighted_plan(block: Reduce) -> _ReducerPlan:
-    if isinstance(block.options["weights"], Signal):
-        raise ValueError(
-            "sf.Reduce('weighted') with sf.signal weights does not compile in this SDK version "
-            "yet; it arrives with sf.Vote(weights=sf.signal(...))"
-        )
     extract, normalize, benchmark = _answer_steps(_extract_of(block))
     weights = block.options["weights"]
-    assert isinstance(weights, tuple)
+    assert isinstance(weights, tuple | Signal)
     return _vote_plan(extract, normalize, weights, benchmark_rule=benchmark)
 
 
@@ -564,16 +557,18 @@ def _rebuild_vote(spec: Mapping[str, object]) -> Reduce:
     pair = (_op_name(spec["reduce"]), _op_name(spec["select"]))
     if pair == ("mode", "first_holder") and weights is None:
         return Reduce("plurality", extract=extract)
-    members = spec["members"]
-    if (
-        pair == ("weighted_mode", "max_weight_holder")
-        and isinstance(weights, Mapping)
-        and isinstance(members, list)
-        and set(weights) == set(members)
-    ):
-        # member order, not the weights' key order: canonical JSON sorts member_10 before member_2
-        return Reduce("weighted", extract=extract, weights=[weights[m] for m in members])
+    if pair == ("weighted_mode", "max_weight_holder") and isinstance(weights, Mapping):
+        return Reduce("weighted", extract=extract, weights=_block_weights(weights, spec["members"]))
     raise ValueError("a vote shape this SDK version cannot rebuild")
+
+
+def _block_weights(weights: Mapping[str, object], members: object) -> Signal | list[object]:
+    if set(weights) == {"signal"}:
+        return Signal(weights["signal"])  # type: ignore[arg-type]  # a non-text key raises TypeError
+    if not isinstance(members, list) or set(weights) != set(members):
+        raise ValueError("a vote shape this SDK version cannot rebuild")
+    # member order, not the weights' key order: canonical JSON sorts member_10 before member_2
+    return [weights[member] for member in members]
 
 
 _MEDIAN_MODES: Mapping[str, ReduceMode] = MappingProxyType(

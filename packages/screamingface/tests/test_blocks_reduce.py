@@ -253,8 +253,10 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     for block in not_yet:
         with pytest.raises(ValueError, match="does not compile in this SDK version yet"):
             _compiled_text(block)
-    with pytest.raises(ValueError, match=r"arrives with sf.Vote\(weights=sf.signal"):
-        _compiled_text(sf.Reduce("weighted", extract=LAST, weights=sf.signal("field:c")))
+    # a signal-weighted block compiles since unit 7; only score:judge waits for the judge
+    assert '"weights":{"signal":"field:c"}' in _compiled_text(
+        sf.Reduce("weighted", extract=LAST, weights=sf.signal("field:c"))
+    )
     with pytest.raises(ValueError, match="unknown extract operator 'json_object'"):
         _compiled_text(sf.Reduce("plurality", extract=sf.Extract("json")))
     with pytest.raises(ValueError, match="has 3 weights for 2 members"):

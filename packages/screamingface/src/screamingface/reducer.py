@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, get_args
 
 from screamingface._evaluation.operators import STAGES
 from screamingface._immutable_json import freeze_mapping
+from screamingface._signals import JUDGE_SIGNAL, Signal
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
 type _ReducerName = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat"]
@@ -53,7 +54,7 @@ class _ReducerPlan:
     reducer: _ReducerName
     kind: _ReducerKind
     steps: _Steps
-    weights: tuple[float, ...] | None = None
+    weights: tuple[float, ...] | Signal | None = None
     # FEATURE (GP-1): extract and normalize come from the selected benchmark's answer rule; the
     # builder leaves both steps None and compile (resolve_benchmark_rule) fills them before pinning.
     benchmark_rule: bool = False
@@ -157,9 +158,11 @@ _MAX_REDUCER_MEMBERS = 256
 _MAX_WEIGHT = sys.float_info.max / _MAX_REDUCER_MEMBERS
 
 
-def _weights_option(value: object, label: str) -> tuple[float, ...]:
-    """One positive finite float per member: the one rule of sf.Vote and sf.Reduce('weighted')."""
+def _weights_option(value: object, label: str) -> tuple[float, ...] | Signal:
+    """A Signal as given, or one positive finite float per member (the one weights rule)."""
 
+    if isinstance(value, Signal):
+        return value
     if isinstance(value, str | bytes) or not isinstance(value, Sequence):
         raise _weights_type_error(label)
     if not value:
@@ -185,12 +188,17 @@ def _weights_type_error(label: str) -> TypeError:
 def _vote_plan(
     extract: _Step | None,
     normalize: _Step | None,
-    weights: tuple[float, ...] | None,
+    weights: tuple[float, ...] | Signal | None,
     *,
     benchmark_rule: bool,
 ) -> _ReducerPlan:
     """The one plan behind sf.Vote and sf.Reduce('plurality'|'weighted') (BK-1, BK#4)."""
 
+    if isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL:
+        raise ValueError(
+            "weights=sf.signal('score:judge') needs a judge on the same reducer; "
+            "it arrives with sf.Vote(..., judge=sf.Judge(...))"
+        )
     weighted = weights is not None
     steps = _Steps(
         reduce=_Step("weighted_mode" if weighted else "mode"),
@@ -201,13 +209,24 @@ def _vote_plan(
     return _ReducerPlan("vote", "answer", steps, weights, benchmark_rule=benchmark_rule)
 
 
-def _recovered_weights(spec: Mapping[str, object]) -> tuple[float, ...] | None:
-    """The weights of a decoded vote spec in member order, or ValueError when it is not one."""
+def _recovered_weights(spec: Mapping[str, object]) -> tuple[float, ...] | Signal | None:
+    """The weights of a decoded vote spec, or ValueError when they are not a Vote's."""
 
     weights = spec["weights"]
-    members = spec["members"]
     if weights is None:
         return None
+    if isinstance(weights, Mapping) and set(weights) == {"signal"}:
+        return _recovered_signal(weights["signal"])
+    return _recovered_member_weights(weights, spec["members"])
+
+
+def _recovered_signal(key: object) -> Signal:
+    if not isinstance(key, str):
+        raise _cannot_rebuild("vote")
+    return Signal(key)
+
+
+def _recovered_member_weights(weights: object, members: object) -> tuple[float, ...]:
     if not isinstance(weights, Mapping) or not isinstance(members, list):
         raise _cannot_rebuild("vote")
     if set(weights) != set(members):
@@ -217,6 +236,10 @@ def _recovered_weights(spec: Mapping[str, object]) -> tuple[float, ...] | None:
     if any(isinstance(v, bool) or not isinstance(v, int | float) for v in values):
         raise _cannot_rebuild("vote")
     return tuple(values)
+
+
+def _source(value: object) -> str:
+    return value._python() if isinstance(value, Signal) else repr(value)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -231,14 +254,14 @@ class Vote(Reducer):
     name: str
     extract: str
     normalize: str | None
-    weights: tuple[float, ...] | None
+    weights: tuple[float, ...] | Signal | None
 
     def __init__(
         self,
         *,
         extract: str = "last_line",
         normalize: str | None = _DEFAULT_NORMALIZE,
-        weights: Sequence[float] | None = None,
+        weights: Sequence[float] | Signal | None = None,
     ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
         object.__setattr__(self, "name", "vote")
@@ -262,7 +285,7 @@ class Vote(Reducer):
         )
 
     def _check_members(self, count: int) -> None:
-        if self.weights is not None and len(self.weights) != count:
+        if isinstance(self.weights, tuple) and len(self.weights) != count:
             raise ValueError(f"{self.name} has {len(self.weights)} weights for {count} members")
 
     @classmethod
@@ -280,10 +303,16 @@ class Vote(Reducer):
         return cls(extract=extract, normalize=ops["normalize"], weights=weights)
 
     def __repr__(self) -> str:
-        weights = "" if self.weights is None else f", weights={self.weights!r}"
+        return self._render("Vote", repr)
+
+    def _python(self) -> str:
+        return self._render("sf.Vote", _source)
+
+    def _render(self, head: str, show: Callable[[object], str]) -> str:
+        weights = "" if self.weights is None else f", weights={show(self.weights)}"
         if self._is_benchmark:
-            return f"Vote(extract={self.extract!r}{weights})"
-        return f"Vote(extract={self.extract!r}, normalize={self.normalize!r}{weights})"
+            return f"{head}(extract={self.extract!r}{weights})"
+        return f"{head}(extract={self.extract!r}, normalize={self.normalize!r}{weights})"
 
     __hash__: ClassVar[Any] = None
 
