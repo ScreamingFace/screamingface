@@ -418,6 +418,13 @@ def _spec_of(reducer: sf.Pick | sf.Merge) -> dict[str, Any]:
     )
 
 
+def _pick_path(path: str) -> dict[str, Any]:
+    return {
+        "extract": {"op": "json_field@1", "args": {"path": path}},
+        "reduce": {"op": "values@1", "args": {"field": path}},
+    }
+
+
 def _pick_edits() -> dict[str, dict[str, Any]]:
     return {
         "values field": {"reduce": {"op": "values@1", "args": {"field": "other"}}},
@@ -427,6 +434,16 @@ def _pick_edits() -> dict[str, dict[str, Any]]:
         "other select": {"select": {"op": "first_holder@1", "args": {}}},
         "bad order": {"select": {"op": "by_field@1", "args": {"order": "best"}}},
         "equals without value": {"select": {"op": "by_field@1", "args": {"order": "equals"}}},
+        # the constructor refuses these; a url4 decode says "cannot rebuild", never its text
+        "bad field path": _pick_path("a..b"),
+        "field path over 256 characters": _pick_path("a" * 257),
+        "blank equals": {
+            "normalize": None,
+            "select": {
+                "op": "by_field@1",
+                "args": {"order": "equals", "value": " ", "normalize": None},
+            },
+        },
     }
 
 
@@ -479,13 +496,15 @@ def _merge_edits() -> dict[str, tuple[dict[str, Any], str]]:
         "duplicate field": (_rules(_FROM_MEMBER, _MAJORITY, _FROM_MEMBER), _CANNOT_REBUILD_MERGE),
         "bad normalize": (
             _rules({"field": "a", "rule": "majority", "normalize": "lower"}),
-            "FieldRule normalize must be 'text' or 'numeric', not 'lower'",
+            _CANNOT_REBUILD_MERGE,
         ),
-        "bad field name": (
-            _rules({"field": "1a", "rule": "max"}),
-            "Merge field name '1a' must start with a letter",
+        # the constructor refuses these; a url4 decode says "cannot rebuild", never its text
+        "bad field name": (_rules({"field": "1a", "rule": "max"}), _CANNOT_REBUILD_MERGE),
+        "no fields": (_rules(), _CANNOT_REBUILD_MERGE),
+        "too many fields": (
+            _rules(*({"field": f"f{index}", "rule": "max"} for index in range(65))),
+            _CANNOT_REBUILD_MERGE,
         ),
-        "no fields": (_rules(), "Merge needs at least one field"),
     }
 
 
@@ -510,3 +529,19 @@ def test_a_writer_for_another_field_is_refused() -> None:
 
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
         sf.Merge._rebuild(spec, (other,))
+
+
+def test_a_writer_with_no_author_prompt_is_refused_as_cannot_rebuild() -> None:
+    merge = _merge()
+    spec = decode_combine_spec(combine_spec_text(merge, member_count=3, operators=flow_operators()))
+    writer = _ModelSignal(
+        "writer_summary",
+        "provider/w",
+        writer_intent("summary", ""),
+        {},
+        "summary",  # type: ignore[arg-type]
+    )
+
+    # FieldRule.model refuses an empty prompt; a url4 decode never shows that text
+    with pytest.raises(ValueError, match=_CANNOT_REBUILD_MERGE):
+        sf.Merge._rebuild(spec, (writer,))

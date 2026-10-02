@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
@@ -80,6 +80,19 @@ def writer_intent(field: str, prompt: str) -> str:
 
     framing = _WRITER_FRAMING.format(field=field)
     return f"{WRITER_TEMPLATE_ID} field={field}\n{framing}Task:\n{prompt}"
+
+
+def _decoded[T](name: str, build: Callable[..., T], *args: object, **kwargs: object) -> T:
+    """Run a public constructor on url4 data (a person may have edited it).
+
+    A refusal means the spec is not one this SDK writes, so it is the one "cannot rebuild" error
+    and never the constructor's own text.
+    """
+
+    try:
+        return build(*args, **kwargs)
+    except (TypeError, ValueError):
+        raise _cannot_rebuild(name) from None
 
 
 def _author_prompt(field: str, system_prompt: str) -> str:
@@ -211,20 +224,18 @@ class FieldRule:
         if rule == "model":
             if signal is None:
                 raise ValueError(_INVALID_SIGNALS)
-            prompt = _author_prompt(_field_name(entry["field"]), signal.prompt)
-            made = cls.model(signal.model, prompt=prompt, params=signal.params)
-        elif rule == "from_member":
-            made = cls.from_member(_member_position(entry["member"]))
-        elif rule == "max":
-            made = cls.max()
-        else:
-            normalize = _normalizer(entry["normalize"], "FieldRule")
-            made = (
-                cls.majority(normalize=normalize)
-                if rule == "majority"
-                else cls.union(normalize=normalize)
-            )
-        return made
+            prompt = _author_prompt(_decoded("merge", _field_name, entry["field"]), signal.prompt)
+            return _decoded("merge", cls.model, signal.model, prompt=prompt, params=signal.params)
+        return _decoded("merge", cls._plain_from_wire, rule, entry)
+
+    @classmethod
+    def _plain_from_wire(cls, rule: str, entry: Mapping[str, object]) -> FieldRule:
+        if rule == "from_member":
+            return cls.from_member(_member_position(entry["member"]))
+        if rule == "max":
+            return cls.max()
+        normalize = _normalizer(entry["normalize"], "FieldRule")
+        return (cls.majority if rule == "majority" else cls.union)(normalize=normalize)
 
     def _render(self, prefix: str) -> str:
         """The constructor call that rebuilds this rule; ``prefix`` is "" or "sf."."""
@@ -353,7 +364,7 @@ class Merge(Reducer):
             raise ValueError(_INVALID_SIGNALS)
         fields: dict[str, FieldRule] = {}
         for entry in entries:
-            field = _field_name(entry.get("field"))
+            field = _decoded("merge", _field_name, entry.get("field"))
             if field in fields:
                 raise _cannot_rebuild("merge")
             writer = writers.pop(_writer_key(field), None) if entry.get("rule") == "model" else None
@@ -362,7 +373,7 @@ class Merge(Reducer):
             fields[field] = FieldRule._from_wire(entry, writer)
         if writers:
             raise ValueError(_INVALID_SIGNALS)
-        merge = cls(fields)
+        merge = _decoded("merge", cls, fields)
         _require_steps(spec, merge._plan().steps, "merge")
         return merge
 
@@ -569,10 +580,8 @@ class Pick(Reducer):
         key, order = args.get("key"), args.get("order")
         if not isinstance(key, str) or order not in ("max", "min"):
             raise _cannot_rebuild("pick")
-        try:
-            pick = cls(by_signal=Signal(key), order=cast("Literal['max', 'min']", order))
-        except ValueError:  # a key or signal this SDK does not know is a hand edit
-            raise _cannot_rebuild("pick") from None
+        signal = _decoded("pick", Signal, key)  # a key this SDK does not know is a hand edit
+        pick = _decoded("pick", cls, by_signal=signal, order=order)
         _require_steps(spec, pick._plan().steps, "pick")
         return pick
 
@@ -581,7 +590,7 @@ class Pick(Reducer):
         field, normalizer, args = _pick_parts(spec)
         order, value, chosen = args.get("order"), args.get("value"), args.get("normalize")
         if order in ("max", "min") and set(args) == {"order"} and normalizer == "numeric@1":
-            pick = cls(field, order=cast("Literal['max', 'min']", order))
+            pick = _decoded("pick", cls, field, order=order)
         elif (
             order == "equals"
             and set(args) == {"order", "value", "normalize"}
@@ -589,7 +598,7 @@ class Pick(Reducer):
             and chosen in (None, *_NORMALIZERS)
             and normalizer == (None if chosen is None else f"{chosen}@1")
         ):
-            pick = cls(field, equals=value, normalize=cast("FieldNormalizer | None", chosen))
+            pick = _decoded("pick", cls, field, equals=value, normalize=chosen)
         else:
             raise _cannot_rebuild("pick")
         _require_steps(spec, pick._plan().steps, "pick")
