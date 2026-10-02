@@ -295,3 +295,63 @@ def test_worldsense_keeps_the_metadata_its_scorer_reads() -> None:
 
     assert TASK_REPLAY_CASES["worldsense"].keep_sample_metadata is True
     assert TASK_REPLAY_CASES["worldsense"].task_args == {"shuffle": False}
+
+
+# ── OME-1273: SAD-mini ───────────────────────────────────────────────────────────
+
+#: SAD-mini's four importable tasks (stages_full is refused: three Samples have an
+#: empty body). Each is graded by the eval's own lenient scorer, which reads the reply's first
+#: characters — "(B)", "B" or the option's text — and credits any other reply with
+#: 1/options, the chance term of the paper's SAD score.
+_SAD_KEYS: tuple[str, ...] = (
+    "sad_facts_llms",
+    "sad_facts_human_defaults",
+    "sad_influence",
+    "sad_stages_oversight",
+)
+
+#: The seed every sad row passes to its task: the eval shuffles each Sample's options and
+#: draws the stages tasks' question wording per Sample with Python's random, unseeded by
+#: default, so without it the two replays would disagree and nothing could be sealed.
+_SAD_SEED: int = 7
+
+
+@pytest.mark.parametrize("key", _SAD_KEYS)
+def test_sad_declaration_is_sealed_licensed_registered_and_seeded(key: str) -> None:
+    """The seal, the owner's license decision, a live registration with no check surface
+    (OME-796: every SAD-mini task is choice-shaped), and the seed the seal depends on."""
+
+    spec = TASK_REPLAY_CASES[key]
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+
+    assert spec.license != LICENSE_TODO
+    assert benchmark.benchmark.case_count == spec.case_count > 0
+    assert benchmark.benchmark.check_surface is None
+    assert spec.task_args == {"seed": _SAD_SEED}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", _SAD_KEYS)
+async def test_a_sad_benchmark_grades_with_no_network(
+    key: str, tmp_path: Path, no_network: None
+) -> None:
+    """Spec R17: the eval's own lenient scorer reads the reply's first characters, so "(B)"
+    scores 1.0 against B and 0.0 against A, with outbound network blocked."""
+
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+    node: Url4Node = _node(benchmark, _MCQ_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["(B)", "(B)"]) == [1.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_sad_reads_only_the_start_of_a_reply(tmp_path: Path, no_network: None) -> None:
+    """The eval asks for the label and nothing else, and its scorer reads only the start of
+    the reply: inspect's usual "ANSWER: B" begins with "A", so it is read as option A and
+    graded wrong against B; a reply in no recognised form earns 1/options, the chance term
+    of the paper's SAD score — so the board's mean per-case score IS the SAD score."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("sad_facts_llms")
+    node: Url4Node = _node(benchmark, _MCQ_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["ANSWER: B", "no idea"]) == [0.0, 0.5]
