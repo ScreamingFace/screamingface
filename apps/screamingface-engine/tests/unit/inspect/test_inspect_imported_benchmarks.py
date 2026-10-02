@@ -82,8 +82,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "agieval_logiqa_en": "mcq",
     "medqa": "mcq",
     "mgsm_en": "free_text",
-    # OME-1273: the plain packages. worldsense is MCQ by its Samples' choices (three
-    # numbered options), though it asks with generate() and a pattern scorer.
+    # OME-1273: the plain packages. worldsense is MCQ by its Samples' choices (two- or
+    # three-way: TRUE/FALSE, POSSIBLE/IMPOSSIBLE, or 1/2/3), though it asks with generate()
+    # and a pattern scorer.
     "bbq": "mcq",
     "piqa": "mcq",
     "cybermetric_80": "mcq",

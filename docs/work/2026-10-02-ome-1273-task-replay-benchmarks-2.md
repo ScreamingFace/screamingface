@@ -65,4 +65,9 @@ Benchmark lands with its sealed declaration, its catalogue row, the owner's lice
 - **Deviations:** none. `render_choices`, the letter-target exception and the agieval-style
   patches #1198 carried do not exist here: capture serves worldsense's question as written,
   and the writer accepts its answer key by value (#1219).
+  Rows changed against #1198 only by the import date, the dropped `choice_template=`
+  (piqa) and `render_choices=False` (worldsense) lines, and sevenllm's two digests.
+  Review (2026-10-02): a TRUE/FALSE grading pair joined worldsense's numbered one. Open
+  question for the owner: whether the four CyberMetric sets nest (80 ⊂ 500 ⊂ …); the
+  descriptions do not say, and the import did not keep the files to check.
 - **Owner-verify:** none; every import ran (two replays each, no model calls).

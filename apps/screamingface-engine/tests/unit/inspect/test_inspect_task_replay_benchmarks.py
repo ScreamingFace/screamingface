@@ -247,6 +247,49 @@ async def test_worldsense_grades_the_number_with_no_network(
     assert await _scores(node, benchmark, ["1", "1"]) == [1.0, 0.0]
 
 
+#: Two worldsense Cases of its commonest shape (83% of them are two-way): the question ends
+#: in a TRUE/FALSE ask and the answer key is the word. Stand-ins, as above.
+_TRUE_FALSE_CASES: list[PreparedCase] = [
+    {
+        "case": {
+            "id": 1,
+            "case_id": "1",
+            "input": "Ann sits left of Bo. Bo sits left of Cy. Is Ann left of Cy? TRUE or FALSE",
+        },
+        "grading_material": {
+            "target": "TRUE",
+            "choices": ["TRUE", "FALSE"],
+            "metadata": {"tuple_ID": 3, "problemname": "Infer.trivial", "problemsize": 3},
+        },
+    },
+    {
+        "case": {
+            "id": 2,
+            "case_id": "2",
+            "input": "Ann sits left of Bo. Is Bo left of Ann? TRUE or FALSE",
+        },
+        "grading_material": {
+            "target": "FALSE",
+            "choices": ["TRUE", "FALSE"],
+            "metadata": {"tuple_ID": 4, "problemname": "Infer.trivial", "problemsize": 2},
+        },
+    },
+]
+
+
+@pytest.mark.asyncio
+async def test_worldsense_grades_a_true_false_answer_with_no_network(
+    tmp_path: Path, no_network: None
+) -> None:
+    """worldsense's own pattern scorer also reads TRUE/FALSE, the shape most of its Cases
+    take; the numbered shape above covers the other 17% (spec R17)."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("worldsense")
+    node: Url4Node = _node(benchmark, _TRUE_FALSE_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["TRUE", "TRUE"]) == [1.0, 0.0]
+
+
 def test_worldsense_keeps_the_metadata_its_scorer_reads() -> None:
     """Its own scorer reads state.metadata, so the metadata sits inside the Case Digest."""
 
