@@ -100,21 +100,21 @@ change at line 109 (F4) is allowed.
   merged without a conflict, and their merged result equals the old 8S hunks. Commit B kept them and
   ported only the three conflicted files (`reducer.py`, `candidate.py`, `url4.py`) onto the plan. The
   resulting tree is the same as restore-then-reapply.
-- **N2 (F9, error text).** `url4._rebuilt_reducer` re-raises the named class's error when both the named
-  class and `sf.Reduce` refuse (spec F9 step 3). For a pure rule this changes the text of a refusal from
-  the `sf.Reduce` "cannot rebuild" to the named class's own error. Unit 5's
-  `test_benchmark_extract_op_in_a_hand_edited_url4_is_refused` pinned the old text; it is edited in place
-  (`match="benchmark"`, Commit B). The tamper tests of 8S pin the named text and pass.
+- **N2 (F9, error text) -- superseded by review fix 2.** `url4._rebuilt_reducer` re-raises the named
+  class's error when both refuse (F9 step 3). Commit B first loosened unit 5's
+  `test_benchmark_extract_op_in_a_hand_edited_url4_is_refused` to `match="benchmark"`. The review fix round
+  undoes that: `Vote._from_spec_parts` wraps its constructor call and raises `cannot rebuild` for a
+  url4 decode, so the test is back at `match="cannot rebuild"`. Unit 7's
+  `test_from_spec_applies_the_weight_cap` (stack file) now expects `cannot rebuild` and checks the cap error
+  as its `__cause__`.
 - **N3 (`_Call.context`).** `_Call` gets a new required field `context`. Unit 5's `_call_with` helper in
   `test_reducer_recovery_preference.py` builds a `_Call` by hand, so it passes `context=""` (Commit B).
 - **N4 (pure-rule test).** `test_a_pure_rule_reducer_refuses_signals` (replayed 8S test) used a plain
   `Vote`. A `Vote` now reads a scores judge call (F5), so the test uses `sf.Median` for "a pure rule
   refuses signals", and a new test pins that a `Vote` refuses a label-judge call (Commit E, in place).
-- **N5 (`Vote._from_spec`).** A `score:judge` spec with no judge call raises `_cannot_rebuild("vote")`
-  explicitly in `Vote._from_spec_parts` (the spec says the pairing rule "becomes the url4 cannot rebuild
-  error"; without it F9 step 3 would re-raise the pairing text).
-- **N6 (`_next_binding("synthesis")`).** The `synthesis` branch has no production caller (the old 8S code
-  had none either; `_fusion` still counts directly). A unit test covers it. Left as in 8S.
+- **N5 (`Vote._from_spec`).** The explicit `_reads_judge` guard of Commit E is gone: the constructor
+  wrap of review fix 2 covers a `score:judge` spec with no judge call.
+- **N6 (`_next_binding("synthesis")`).** Review fix 3: `_fusion` now calls it, so the counter has one copy.
 - **N7 (pyright on tests).** The gate runs pyright on the tests too. The new test files were fixed for it
   (folded into Commits D and E).
 - **N8 (sandbox).** The SDK tests that start a local HTTP/WebSocket server need the unsandboxed shell
@@ -125,6 +125,12 @@ change at line 109 (F4) is allowed.
   100 s tests are still alive). Both pass alone (`14 passed`). The same two fail on the parent tip
   `f4858fcfe` (SDK source archived from the branch, same venv, same two files: `2 failed, 58 passed`). They
   are an order-dependent failure of the reconnect transport, not of 8S. The orchestrator must decide.
+
+- **N10 (review fix round).** (1) `sf.Judge` equality and hash use a typed key
+  `(model, returns, rubric, ((name, type, value), ...))`, like `Reduce._key`. (2) see N2, N5. (3) see N6.
+  (4) comment on `_block_form_options` names the 9S/10S block forms. (5) `_append_combine` is a
+  `_CandidateCompiler` method; the copied comment is dropped. (6) `_rebuild_vote` builds its options with
+  one conditional dict.
 
 ## Outcome
 
