@@ -6,6 +6,8 @@ INVARIANT: both build a ``_ReducerPlan`` (the seam), so their url4 bytes are equ
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from _combine_contract import AIME24_RULE_WIRE, GSM8K_RULE_WIRE, rule
 from _reducer_fixtures import engine_operators
@@ -75,9 +77,9 @@ def test_every_median_row_matches_median(rule: str, select: str, mode: str | Non
     ("benchmark_id", "wire"),
     [("inspect-gsm8k", GSM8K_RULE_WIRE), ("inspect-aime24", AIME24_RULE_WIRE)],
 )
-def test_benchmark_rows_match_their_named_form(benchmark_id: str, wire: dict[str, object]) -> None:
+def test_benchmark_rows_match_their_named_form(benchmark_id: str, wire: dict[str, Any]) -> None:
     # BK#4, benchmark rows: both forms read the benchmark's own rule.
-    bound = _BenchmarkAnswerRule(benchmark_id, rule(wire))  # type: ignore[arg-type]
+    bound = _BenchmarkAnswerRule(benchmark_id, rule(wire))
     vote = sf.Vote(extract="benchmark")
     block = sf.Reduce("plurality", extract=sf.Extract("benchmark"))
 

@@ -167,30 +167,26 @@ def vote_case(
     evidence_name: str,
     *,
     model_ops: Sequence[str],
-    accounting: bool = False,
-    output: str | None = None,
+    output: str,
+    models: Sequence[str] = (),
     synthesis_id: str = "op_synthesis_1",
 ) -> dict[str, Any]:
     """A scored Case of a Fusion: one operation per model call, then the combine step.
 
-    ``texts`` aligns with ``model_ops``. The combine output is ``output`` or, by default, the text
-    of the model call that answers the evidence's first chosen member (the m-th of ``model_ops``).
+    ``texts`` aligns with ``model_ops``. ``output`` is the combine step's output, given by the
+    test (which member it names depends on the evidence). With ``models`` (one request model per
+    model call) each model operation carries accounting; without it none does.
     """
 
+    assert not models or len(models) == len(model_ops), "one request model per model call"
     evidence = copy.deepcopy(evidence_wires()[evidence_name])
     operations = [
         operation_wire(
             op_id,
             text,
-            accounting=_accounting_wire(request_model=f"provider/{chr(ord('a') + index)}")
-            if accounting
-            else None,
+            accounting=_accounting_wire(request_model=models[index]) if models else None,
         )
         for index, (op_id, text) in enumerate(zip(model_ops, texts, strict=True))
     ]
-    chosen = evidence["chosen"]
-    if output is None:
-        position = int(chosen[0].removeprefix("member_")) - 1 if chosen else 0
-        output = texts[position] if chosen else ""
     operations.append(operation_wire(synthesis_id, output, combine=evidence))
     return case_wire(output, operations)

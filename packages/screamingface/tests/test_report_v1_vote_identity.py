@@ -30,7 +30,8 @@ def _cases_for(candidate: Candidate) -> list[dict[str, object]]:
                 ["The answer is 42", "no idea", "So 42"],
                 "vote_one_failed",
                 model_ops=_VOTE_OPS,
-                accounting=True,
+                output="The answer is 42",
+                models=("provider/a", "provider/b", "provider/c"),
             )
         ]
     return [
@@ -38,7 +39,8 @@ def _cases_for(candidate: Candidate) -> list[dict[str, object]]:
             ["I think 10", "20", "maybe 40", "no number here"],
             "median_nearest",
             model_ops=_MEDIAN_OPS,
-            accounting=True,
+            output="20",
+            models=("provider/a", "provider/b", "provider/c", "provider/d"),
         )
     ]
 

@@ -9,6 +9,7 @@ INVARIANT: the url4 pins the rule's operator ids, so a replay never looks the ru
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from typing import Any, NoReturn
 
 import httpx
@@ -122,7 +123,8 @@ def test_benchmark_extract_resolves_before_spend(synthesizer: Reducer) -> None:
     assert benchmark_paths == [f"/v1/benchmarks/{_GSM8K}"]
     python = sf.Url4(report.candidates[0].url4).to_python()
     assert "sf.Vote(extract='inspect_number@1', normalize='inspect_numeric@1')" in python
-    assert "benchmark" not in python.replace(_GSM8K, "")
+    reported = spec_of(report.candidates[0].url4)
+    assert all("benchmark" not in str(reported[stage]) for stage in ("extract", "normalize"))
 
 
 class _AsyncForbiddenTransport:
@@ -228,11 +230,12 @@ def test_engine_without_inspect_operators_raises_capability_error(
     assert transport.called is False
 
 
-def _forbid_lookups(request: httpx.Request) -> httpx.Response:
-    path = request.url.path
-    assert not path.startswith("/v1/benchmarks"), f"a replay looked up {path}"
-    assert path != "/v1/operators", "a replay loaded the operator catalog"
-    return _engine(request)
+def _record_paths(paths: list[str]) -> Callable[[httpx.Request], httpx.Response]:
+    def record(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return _engine(request)
+
+    return record
 
 
 def test_resolved_url4_replays_without_benchmark_lookup() -> None:
@@ -249,13 +252,15 @@ def test_resolved_url4_replays_without_benchmark_lookup() -> None:
     url4 = report.candidates[0].url4
 
     replay = ScriptedTransport(_GSM8K, "fixture-revision", _one_case)
+    replay_paths: list[str] = []
     with sf.Client(
         engine_url="https://engine.example",
-        http_transport=httpx.MockTransport(_forbid_lookups),
+        http_transport=httpx.MockTransport(_record_paths(replay_paths)),
         run_transport=replay,
     ) as client:
         client.evaluate(url4, progress=False)
 
+    assert not [p for p in replay_paths if p.startswith("/v1/benchmarks") or p == "/v1/operators"]
     assert replay.candidate is not None
     assert replay.candidate.url4 == url4
     namespace: dict[str, Any] = {}

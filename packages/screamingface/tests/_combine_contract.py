@@ -11,6 +11,7 @@ from _reducer_fixtures import ENGINE_OPERATOR_IDS
 from _reducer_fixtures import engine_operators as engine_operators  # re-exported for the tests
 
 from screamingface._evaluation.answer_rule import _AnswerRule
+from screamingface._evaluation.operators import STAGES
 
 # parents[3] = the monorepo root (tests → screamingface → packages → root)
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -29,7 +30,7 @@ ENGINE_OPERATOR_NAMES: dict[str, tuple[str, ...]] = {
             if op_stage == stage
         )
     )
-    for stage in ("extract", "normalize", "reduce", "select")
+    for stage in STAGES
 }
 
 # The catalog of an Engine that predates the Inspect answer rules (units 1-2 only): GP#12.
