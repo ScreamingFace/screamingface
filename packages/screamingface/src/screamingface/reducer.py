@@ -129,21 +129,14 @@ class Vote(Reducer):
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "normalize", normalize)
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "vote"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "answer"
-
-    def _steps(self) -> _Steps:
-        return _Steps(
-            extract=_Step(self.extract),
-            normalize=None if self.normalize is None else _Step(self.normalize),
+    def _plan(self) -> _ReducerPlan:
+        steps = _Steps(
             reduce=_Step("mode"),
             select=_Step("first_holder"),
+            extract=_Step(self.extract),
+            normalize=None if self.normalize is None else _Step(self.normalize),
         )
+        return _ReducerPlan("vote", "answer", steps)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Vote:
@@ -181,21 +174,14 @@ class Median(Reducer):
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "median"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "answer"
-
-    def _steps(self) -> _Steps:
-        return _Steps(
-            extract=_Step(self.extract),
-            normalize=_Step("numeric"),
+    def _plan(self) -> _ReducerPlan:
+        steps = _Steps(
             reduce=_Step("median"),
             select=_Step(self.select),
+            extract=_Step(self.extract),
+            normalize=_Step("numeric"),
         )
+        return _ReducerPlan("median", "answer", steps)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Median:

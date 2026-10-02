@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
-
-from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
+from _reducer_fixtures import ENGINE_OPERATOR_IDS
+from _reducer_fixtures import engine_operators as engine_operators  # re-exported for the tests
 
 # parents[3] = the monorepo root (tests → screamingface → packages → root)
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -14,13 +16,43 @@ ENGINE_APP = REPO_ROOT / "apps" / "screamingface-engine"
 COMBINE_CONTRACT = ENGINE_APP / "tests" / "unit" / "data" / "combine_contract"
 ENGINE_GOLDEN_DIR = ENGINE_APP / "tests" / "unit" / "fixtures" / "combine"
 
-# The names the Engine registers today, all at version 1. The Engine may register more; see the
-# subset check in test_vote_median_contract_fixtures.
+# The names the Engine registers today (stage -> names, all at version 1), derived from the one
+# list the reducer tests share. The Engine may register more; see the subset check in
+# test_vote_median_contract_fixtures.
 ENGINE_OPERATOR_NAMES: dict[str, tuple[str, ...]] = {
+    stage: tuple(
+        sorted(
+            op_id.split("@")[0]
+            for op_id, op_stage in ENGINE_OPERATOR_IDS.items()
+            if op_stage == stage
+        )
+    )
+    for stage in ("extract", "normalize", "reduce", "select")
+}
+
+# The catalog of an Engine that predates the Inspect answer rules (units 1-2 only): GP#12.
+PRE_INSPECT_OPERATOR_NAMES: dict[str, tuple[str, ...]] = {
     "extract": ("boxed", "json_field", "last_line", "last_number", "whole"),
     "normalize": ("identity", "numeric", "text"),
     "reduce": ("median", "mode", "weighted_mode"),
     "select": ("first_holder", "max_weight_holder", "nearest", "value"),
+}
+
+# The answer_rule blocks the Engine writes in Benchmark._metadata() (unit 3).
+GSM8K_RULE_WIRE: dict[str, Any] = {
+    "extract": {"op": "inspect_number@1", "args": {}},
+    "normalize": {"op": "inspect_numeric@1", "args": {}},
+    "grader": "inspect_ai.scorer:match(numeric=True)@0.3.263",
+}
+AIME24_RULE_WIRE: dict[str, Any] = {
+    "extract": {"op": "inspect_aime@1", "args": {}},
+    "normalize": {"op": "inspect_numeric@1", "args": {}},
+    "grader": "inspect_evals.aime2024.aime2024:aime_scorer@0.20.0",
+}
+AIME25_RULE_WIRE: dict[str, Any] = {
+    "extract": {"op": "inspect_aime@1", "args": {}},
+    "normalize": {"op": "inspect_numeric@1", "args": {}},
+    "grader": "inspect_evals.aime2025.aime2025:aime_scorer@0.20.0",
 }
 
 requires_engine_app = pytest.mark.skipif(
@@ -28,24 +60,24 @@ requires_engine_app = pytest.mark.skipif(
 )
 
 
-def engine_operators() -> _OperatorCatalog:
-    return decode_operator_catalog(
-        {
-            "object": "list",
-            "data": [
-                {
-                    "id": f"{name}@1",
-                    "name": name,
-                    "version": 1,
-                    "stage": stage,
-                    "args_schema": {},
-                    "summary": f"{name}.",
-                }
-                for stage, names in ENGINE_OPERATOR_NAMES.items()
-                for name in names
-            ],
-        }
-    )
+def operators_wire(names: Mapping[str, Sequence[str]]) -> dict[str, Any]:
+    """The ``GET /v1/operators`` body for these stage -> names (all version 1)."""
+
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": f"{name}@1",
+                "name": name,
+                "version": 1,
+                "stage": stage,
+                "args_schema": {},
+                "summary": f"{name}.",
+            }
+            for stage, stage_names in names.items()
+            for name in stage_names
+        ],
+    }
 
 
 def read_contract(name: str) -> str:
