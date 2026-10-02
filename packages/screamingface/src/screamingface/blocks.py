@@ -11,7 +11,7 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._regex_rule import check_regex
@@ -521,7 +521,11 @@ _CANONICAL: Mapping[str, Callable[[dict[str, object]], None]] = MappingProxyType
 
 
 def _block_form_options(op: str, checked: dict[str, object]) -> dict[str, object]:
-    """The options of the named reducer a registered op builds, in row order (BK-1)."""
+    """The options of the named reducer a registered op builds, in row order (BK-1).
+
+    The wrapper below is for the block forms 9S and 10S register (Pick, Merge, Rank, Concat,
+    Filter): their named constructors raise their own messages, and the block names the op.
+    """
 
     form = _BLOCK_FORMS.get(op)
     if form is None:
@@ -627,9 +631,8 @@ def _rebuild_vote(spec: Mapping[str, object], *, judge: Judge | None = None) -> 
     if pair == ("mode", "first_holder") and weights is None:
         return Reduce("plurality", extract=extract)
     if pair == ("weighted_mode", "max_weight_holder") and weights is not None:
-        if judge is None:
-            return Reduce("weighted", extract=extract, weights=weights)
-        return Reduce("weighted", extract=extract, weights=weights, judge=judge)
+        options: dict[str, Any] = {"judge": judge} if judge else {}
+        return Reduce("weighted", extract=extract, weights=weights, **options)
     raise ValueError("a vote shape this SDK version cannot rebuild")
 
 

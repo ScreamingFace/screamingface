@@ -412,8 +412,7 @@ class _CandidateCompiler:
         context: str | None = None,
         panel: str | None = None,
     ) -> _ResolvedRecipe:
-        self._synthesis_count += 1
-        binding = f"synthesis_{self._synthesis_count}"
+        binding = self._next_binding("synthesis")
         operation_id = f"op_{binding}"
         dependencies = tuple(member.operation_id for member in members)
         synthesizer = fusion.synthesizer
@@ -590,8 +589,7 @@ class _CandidateCompiler:
         )
         # The combine call reads the same question-and-panel value a Model synthesizer does,
         # plus the references of the model calls it reads (the signals).
-        _append_combine(
-            self,
+        self._append_combine(
             binding=binding,
             operation_id=operation_id,
             context=_fusion_context(
@@ -681,6 +679,34 @@ class _CandidateCompiler:
             calls=calls,
         )
 
+    def _append_combine(
+        self,
+        *,
+        binding: str,
+        operation_id: str,
+        context: str,
+        spec_text: str,
+        label: str,
+        depends_on: tuple[str, ...],
+    ) -> None:
+        """Attach one ``/ensemble/combine/v1`` source and its ``combine`` operation."""
+
+        self._sources.append(
+            src(
+                RelExpr(
+                    path=COMBINE_ROUTE,
+                    context=context,
+                    intent=Text(spec_text),
+                    params=((OPERATION_BINDING_PARAM, binding),),
+                ),
+                name=binding,
+                weight=0.0,
+            )
+        )
+        self._operations.append(
+            _compiled_operation(id=operation_id, kind="combine", label=label, depends_on=depends_on)
+        )
+
     def _next_binding(self, prefix: Literal["synthesis", "judge", "writer"]) -> str:
         """The next ``<prefix>_N`` binding; each prefix counts on its own."""
 
@@ -715,39 +741,6 @@ class _CandidateCompiler:
                 params=params,
             )
         )
-
-
-def _append_combine(
-    compiler: _CandidateCompiler,
-    *,
-    binding: str,
-    operation_id: str,
-    context: str,
-    spec_text: str,
-    label: str,
-    depends_on: tuple[str, ...],
-) -> None:
-    """Attach one ``/ensemble/combine/v1`` source and its ``combine`` operation.
-
-    WHY the ``binding`` param: every combine call shares one path, so the binding is what keeps
-    two combine calls' evidence apart (the Engine matches an output by ``(path, params)``).
-    """
-
-    compiler._append_source(
-        src(
-            RelExpr(
-                path=COMBINE_ROUTE,
-                context=context,
-                intent=Text(spec_text),
-                params=((OPERATION_BINDING_PARAM, binding),),
-            ),
-            name=binding,
-            weight=0.0,
-        )
-    )
-    compiler._append_operation(
-        _compiled_operation(id=operation_id, kind="combine", label=label, depends_on=depends_on)
-    )
 
 
 def _fusion_context(
