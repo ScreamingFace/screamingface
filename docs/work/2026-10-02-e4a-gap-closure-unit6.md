@@ -1,8 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-02
+finished: 2026-10-02
 ---
 
 # e4a-gap-closure unit 6 -- samples: block-form parity for the duplicate-members and fixed-seed warnings
@@ -44,7 +45,10 @@ Pre-check (`git diff --stat 7323f57e2 e4a-vote-median -- <19 paths>`): the overl
 seven expected paths (`CHANGELOG.md`, `README.md`, `__init__.py`, `url4.py`,
 `_evaluation/candidate.py`, `_evaluation/runner.py`, `public_surface_snapshot.json`). No surprise.
 
-`e4a-vote-median` tip at the rebase: `f3b77817220524b8085475483696470ecf4b265b`.
+`e4a-vote-median` tip at the first rebase: `f3b77817220524b8085475483696470ecf4b265b`. Unit 5 then
+took a review fix round (tip `eaa7c504cdb5282ef0d1d73375f60c6bfb2b4ab3`), so after commits A-D I ran a
+second `git rebase --onto e4a-vote-median f3b77817 e4a-samples`. It replayed all eleven commits with
+no conflict. The final merge-base is the `eaa7c504c` tip.
 
 Stops:
 
@@ -92,4 +96,56 @@ Post-rebase run (red set: none):
 
 ## Outcome
 
-(Filled in the last commit.)
+Commits (after the second rebase, on `eaa7c504c`): the seven replayed unit 6 commits, then
+A `docs(work): add the e4a gap-closure unit 6 ledger`, B `test(sdk): pin that sf.Reduce warns like
+sf.Vote on duplicate members and fixed seeds`, C `test(sdk): run self-consistency in block form
+through a fake transport`, D `docs(sdk): show self-consistency in block form`, E this ledger.
+
+Guard table (all pass at once by design, F1; none RED):
+
+| # | Row | Test | Result |
+|---|-----|------|--------|
+| 1 | BK#14 | `test_reduce_fusion_warns_on_duplicate_members_like_vote` (5 rows) | guard, green at once |
+| 2 | BK#14 | `test_reduce_fusion_in_a_corrective_loop_warns_once_and_never_on_recovery` | guard, green at once |
+| 3 | BK#14 | `test_reduce_fusion_without_duplicates_does_not_warn` | guard, green at once |
+| 4 | U1 | `test_reduce_synthesizer_warns_fixed_seed_like_vote` | guard, green at once |
+| 5 | BK#12 | `test_samples_with_reduce_plurality_runs_self_consistency` | guard, green at once |
+| 6 | BK#12 | `test_block_form_samples_vote_compiles_to_the_engine_fixture` (2 rows) | guard, green at once |
+
+Rule 9 mutation probe (BK#14, not committed): in `_reducer_synthesizer` the call became
+`if type(reducer).__name__ != "Reduce": _warn_duplicate_members(fusion)`. Result: 4 failed, 4
+passed. Failed: the `reduce-plurality`, `reduce-median` and `reduce-weighted` rows of test 1 and the
+corrective-loop test (each "DID NOT WARN"). The `vote` and `fixture-vote` rows and the other
+tests stayed green. Reverted with `git checkout -- candidate.py`; the tree was clean. BK#12 needed
+no probe (its byte-identity assertion fails once the two compiles differ).
+
+Deviations from the spec text (smallest faithful alternatives):
+
+- The second rebase (above) was not in the spec: the parent moved while I worked.
+- `test_samples_contract_fixture.py`: I extracted `_catalog()` and `_samples_url4(synthesizer)` from
+  `samples_vote_url4()` (same behaviour) so the appended test reuses the 4-op catalog.
+- `test_samples_block_form.py`: the "one transport run each" check uses a small
+  `_CountingTransport(ScriptedTransport)`, because the unit 5 transport does not count runs. The
+  body of the BK#12 test is split into three assert helpers for the 26-statement limit.
+- `test_reduce_block_warnings.py` copies the corrective-loop helpers instead of importing them.
+- The spec's `STU/` (`tests/unit/`) does not exist; the SDK tests are flat in `tests/`.
+- The CHANGELOG double blank line after the FixedSeed bullet was removed in commit D.
+
+Gates (from the worktree, base `e4a-vote-median`):
+
+- `run_gates.py screamingface --base e4a-vote-median` (append-only on): FAILED on one offender,
+  `tests/public_surface_snapshot.json` (the regenerated snapshot; expected). No other file.
+- `run_gates.py screamingface --base e4a-vote-median --skip-append-only`: ALL GATES GREEN (ruff,
+  format, pyright, pytest with coverage 96.74 % against the 95 % floor, notebooks, build,
+  distribution).
+- `run_gates.py screamingface-engine --base e4a-vote-median --skip-append-only`: ruff and format
+  pass; the pyright step fails in the gate venv only because `inspect_ai` is not installed there
+  (5 `reportMissingImports` errors in `tests/unit/inspect/test_combine_grader_parity.py`, a file
+  this unit does not touch). With `uv run --extra inspect` pyright is clean (0 errors) and the
+  gate's pytest step passes (5915 passed; coverage 94.30 % against the 80 % floor).
+- `run_gates.py repo`: ALL GATES GREEN.
+- Focused SDK run (spec section 5): 84 passed. Engine samples seed contract: 4 passed.
+- `git diff e4a-vote-median -- packages/screamingface/src` shows unit 6's original changes plus the
+  section 2.1 docstring. `samples_vote_candidate.url4` is byte-unchanged from `298c12c4f`.
+
+Notes F1 to F8 above stand; F8 is the errata for the orchestrator.
