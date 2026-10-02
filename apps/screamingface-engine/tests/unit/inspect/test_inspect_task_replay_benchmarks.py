@@ -1,0 +1,173 @@
+# pyright: reportMissingImports=false
+# WHY file-level: this module imports the `inspect` extra's packages, absent in the
+# default (extra-less) install the typecheck gate runs against.
+"""The first Task-replay Benchmarks (OME-1273): agieval, medqa and mgsm_en grade with no network.
+
+FEATURE: Task-replay Imported Benchmarks. Their Cases come from calling each eval's own task
+function at image build (sealed by a Case Digest); grading must then read only the prepared
+Cases in the image and download nothing (spec R16, R17).
+
+INVARIANT: every test here that grades runs under `no_network`, so a scorer that reaches the
+internet fails in CI instead of in a run pod that has no egress.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("inspect_ai")
+pytest.importorskip("inspect_evals")
+
+from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
+from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
+from screamingface_engine_inspect.benchmarks import (  # noqa: E402
+    ImportedBenchmark,
+    imported_benchmark,
+)
+from screamingface_engine_inspect.envelopes import CHECK_SCHEMA, build_case_grade  # noqa: E402
+from screamingface_engine_inspect.prepare import (  # noqa: E402
+    LICENSE_TODO,
+    TASK_REPLAY_CASES,
+    PreparedCase,
+    _write_cases,
+)
+from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
+from url4.peer.server import Url4Node  # noqa: E402
+
+#: The multiple-choice keys: graded by inspect's own choice scorer against the answer key.
+_MCQ_KEYS: tuple[str, ...] = (
+    "agieval_lsat_ar",
+    "agieval_lsat_lr",
+    "agieval_lsat_rc",
+    "agieval_sat_math",
+    "agieval_sat_en",
+    "agieval_sat_en_without_passage",
+    "agieval_aqua_rat",
+    "agieval_logiqa_en",
+    "medqa",
+)
+
+#: Two hand-written Cases per family, in the shape the shared writer prepares. WHY by hand:
+#: the real Cases need the network to fetch; these stand in for any two Cases of the family
+#: and prove the grading path, not the content of the real ones. Case ids are 1..N (the
+#: writer numbers them; upstream Sample ids never reach a Case).
+_MCQ_CASES: list[PreparedCase] = [
+    {
+        "case": {"id": 1, "case_id": "1", "input": "Which seat is free?\n\nA) 1\nB) 2"},
+        "grading_material": {"target": "B", "choices": ["1", "2"]},
+    },
+    {
+        "case": {"id": 2, "case_id": "2", "input": "Who sits last?\n\nA) Ann\nB) Bo"},
+        "grading_material": {"target": "A", "choices": ["Ann", "Bo"]},
+    },
+]
+_FREE_TEXT_CASES: list[PreparedCase] = [
+    {
+        "case": {"id": 1, "case_id": "1", "input": "What is 6 times 7?"},
+        "grading_material": {"target": "42"},
+    },
+    {
+        "case": {"id": 2, "case_id": "2", "input": "What is 2 plus 2?"},
+        "grading_material": {"target": "4"},
+    },
+]
+
+
+def _node(benchmark: ImportedBenchmark, cases: list[PreparedCase], root: Path) -> Url4Node:
+    """A url4 node serving the Benchmark over two prepared Cases in its asset layout."""
+
+    _write_cases(cases, root / benchmark.benchmark.id)
+    node: Url4Node = Url4Node("test")
+    benchmark.benchmark.install(node, root)
+    return node
+
+
+async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
+    """Drive one route the way a run does: the payload as context, the intent as the ask."""
+
+    result = await node.evaluate(
+        render(
+            expr(
+                src(text(payload), name="payload", weight=0.0),
+                RelExpr(path=route, context="$payload", intent=Text(intent)),
+                intent=Text(""),
+            )
+        )
+    )
+    return result.text
+
+
+def _row(case_id: int, answer: str) -> dict[str, object]:
+    """One graded-answer row, as the run hands the aggregate route a Candidate's answer."""
+
+    record: dict[str, object] = {
+        "schema": CHECK_SCHEMA,
+        "case_id": case_id,
+        "attempt": 1,
+        "answer": answer,
+        "status": "completed",
+        "refusal": None,
+        "finish_reason": "stop",
+        "execution": None,
+    }
+    return graded_answer_payload(
+        case_id,
+        encode_candidate_invocation(answer, "stop", None),
+        [build_case_grade(case_id, [record])],
+    )
+
+
+async def _scores(node: Url4Node, benchmark: ImportedBenchmark, answers: list[str]) -> list[object]:
+    """Grade one answer per Case through the shared aggregate; return each Case's score."""
+
+    rows: str = json.dumps([_row(index, answer) for index, answer in enumerate(answers, start=1)])
+    result = json.loads(
+        await _call(node, benchmark.aggregate_route, rows, f"aggregate:{len(answers)}")
+    )
+    return [case["grade"]["score"] for case in result["cases"]]
+
+
+@pytest.mark.parametrize("key", [*_MCQ_KEYS, "mgsm_en"])
+def test_declaration_is_sealed_licensed_and_registered(key: str) -> None:
+    """The seal the image build checks, the owner's license decision, and a live registration."""
+
+    spec = TASK_REPLAY_CASES[key]
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+
+    assert spec.license != LICENSE_TODO
+    assert benchmark.benchmark.case_count == spec.case_count > 0
+    assert benchmark.benchmark.id == f"inspect-{key}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", _MCQ_KEYS)
+async def test_a_multiple_choice_benchmark_grades_with_no_network(
+    key: str, tmp_path: Path, no_network: None
+) -> None:
+    """Spec R17: the right letter scores 1.0 and a wrong one 0.0, with outbound network blocked."""
+
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+    node: Url4Node = _node(benchmark, _MCQ_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["ANSWER: B", "ANSWER: B"]) == [1.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_mgsm_en_grades_the_number_with_no_network(tmp_path: Path, no_network: None) -> None:
+    """mgsm's numeric match reads the last number of the answer; spec R17 as above."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("mgsm_en")
+    node: Url4Node = _node(benchmark, _FREE_TEXT_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["6 * 7 = 42\nAnswer: 42", "Answer: 5"]) == [1.0, 0.0]
+
+
+def test_mgsm_en_offers_mid_run_feedback_and_the_mcq_rows_do_not() -> None:
+    """OME-796: pass/fail feedback over a handful of options is an elimination attack."""
+
+    assert imported_benchmark("mgsm_en").benchmark.check_surface is not None
+    for key in _MCQ_KEYS:
+        assert imported_benchmark(key).benchmark.check_surface is None

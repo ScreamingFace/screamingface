@@ -807,6 +807,128 @@ BENCHMARK_CASES: dict[str, CasesSpec] = {
 #: Every Task-replay Imported Benchmark's Case Preparation, keyed like BENCHMARK_CASES.
 #: Empty until OME-1273's import PRs add agieval, medqa and mgsm.
 TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
+    # agieval_lsat_ar — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_lsat_ar.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/lsat-ar.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_lsat_ar": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_lsat_ar",
+        case_count=230,
+        case_digest="5f77e982829b4ce7a4fbb72abfd54d6cdf84e27fd73c470a7950e59abf599233",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # agieval_lsat_lr — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_lsat_lr.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/lsat-lr.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_lsat_lr": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_lsat_lr",
+        case_count=510,
+        case_digest="104db4473e5e86e7addb6f683f7c50cb279094ad2091ff270da1618d7cd6a42d",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # agieval_lsat_rc — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_lsat_rc.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/lsat-rc.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_lsat_rc": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_lsat_rc",
+        case_count=269,
+        case_digest="984f6070d532200fd9e92d1e0b91ce42c7dec1f6b72ab5316ec1cfe9ab2e8ddb",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # agieval_sat_math — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_sat_math.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/sat-math.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_sat_math": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_sat_math",
+        case_count=220,
+        case_digest="54ac8e2293cf2ac8e62d62383bfe8a9f8fa5dfdb4249f6eb603c5b4aef88b84d",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # agieval_sat_en — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_sat_en.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/sat-en.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_sat_en": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_sat_en",
+        case_count=206,
+        case_digest="02045f612ebb038734920b2007dbd49d200b801ec36c8b811d3c84ca773444ce",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # agieval_sat_en_without_passage — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_sat_en_without_passage.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/sat-en-without-passage.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_sat_en_without_passage": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_sat_en_without_passage",
+        case_count=206,
+        case_digest="fe8910e4238399ac39b277bc3beaaee5d89328f91e0dd375b94bf7ee091e218d",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # agieval_aqua_rat — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_aqua_rat.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/aqua-rat.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_aqua_rat": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_aqua_rat",
+        case_count=254,
+        case_digest="64dce3527cc1ef47977165c9f042992180d301352ec9d33e78cb1be18a612b6b",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # agieval_logiqa_en — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.agieval.agieval:agie_logiqa_en.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://raw.githubusercontent.com/ruixiangcui/AGIEval/84ab72d94318290aad2e4ec820d535a95a1f7552/data/v1_1/logiqa-en.jsonl
+    #     pin commit 84ab72d94318290aad2e4ec820d535a95a1f7552
+    "agieval_logiqa_en": TaskReplayCasesSpec(
+        task="inspect_evals.agieval.agieval:agie_logiqa_en",
+        case_count=651,
+        case_digest="7c80ae3ee57808416fbfb3a5e7d78e8c99f4c5afbc46367bad967c1b9f90d781",
+        # License: owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset card.
+        license="mit",
+    ),
+    # medqa — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.medqa.medqa:medqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face bigbio/med_qa
+    #     pin revision ddef95d268cdad413693d634279a9a679d468469
+    "medqa": TaskReplayCasesSpec(
+        task="inspect_evals.medqa.medqa:medqa",
+        case_count=1273,
+        case_digest="ea4634b0825292d91881c0e76dd571a023ad9e8fd037116b5ce908100b2b7944",
+        # License: owner decision 2026-10-01: MIT, jind11/MedQA LICENSE; the bigbio card says
+        #  unknown.
+        license="mit",
+    ),
+    # mgsm_en — imported by Task replay on 2026-10-02 from
+    #   inspect_evals.mgsm.mgsm:mgsm.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://openaipublic.blob.core.windows.net/simple-evals/mgsm_en.tsv
+    #     pin sha256 50021d0f28cc957edcb44e7806425b1c7fbd648ddcb9e0a8ec689d10e57d40fa
+    "mgsm_en": TaskReplayCasesSpec(
+        task="inspect_evals.mgsm.mgsm:mgsm",
+        task_args={"languages": ["en"]},
+        case_count=250,
+        case_digest="3f34b5110fc11408e435c1b6113c7f698e3c3b5d14ce604592644d4059e9320e",
+        # License: owner decision 2026-10-01: CC-BY-4.0, google-research/url-nlp mgsm/LICENSE.
+        license="cc-by-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
