@@ -151,3 +151,22 @@ def test_single_value_median_single_member_vote_and_median_agreement() -> None:
     assert evidence["median"] == "9"
     assert evidence["chosen"] == ["member_1"]
     assert evidence["agreement"] == 2 / 3
+
+
+def test_benchmark_rule_vote_groups_like_the_grader() -> None:
+    # The SDK resolved extract="benchmark" against the gsm8k rule (OME-1289 gap, GP-4): the spec
+    # carries the Inspect operators, so "$1,200" and "1200" are one answer and "1,300" another.
+    texts = ["The total is $1,200.", "1200", "I get 1,300"]
+    output, evidence = _evidence("vote_benchmark_gsm8k_3", texts)
+
+    assert evidence["operators"] == [
+        "inspect_number@1",
+        "inspect_numeric@1",
+        "mode@1",
+        "first_holder@1",
+    ]
+    assert [row["holders"] for row in evidence["tally"]] == [
+        ["member_1", "member_2"],
+        ["member_3"],
+    ]
+    assert output == texts[0]

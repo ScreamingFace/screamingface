@@ -12,6 +12,8 @@ on:
       # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
       # tests/test_combine_contract_fixture.py consume
       - "apps/screamingface-engine/tests/unit/data/combine_contract/**"
+      # the operator goldens that tests/test_vote_median_contract_fixtures.py checks
+      - "apps/screamingface-engine/tests/unit/fixtures/combine/**"
       # the engine's signal-key grammar and corpus that tests/unit/test_signal_key_conformance.py reads
       - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
       - "apps/screamingface-engine/tests/unit/test_combine_ports.py"
@@ -27,6 +29,8 @@ on:
       # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
       # tests/test_combine_contract_fixture.py consume
       - "apps/screamingface-engine/tests/unit/data/combine_contract/**"
+      # the operator goldens that tests/test_vote_median_contract_fixtures.py checks
+      - "apps/screamingface-engine/tests/unit/fixtures/combine/**"
       # the engine's signal-key grammar and corpus that tests/unit/test_signal_key_conformance.py reads
       - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
       - "apps/screamingface-engine/tests/unit/test_combine_ports.py"

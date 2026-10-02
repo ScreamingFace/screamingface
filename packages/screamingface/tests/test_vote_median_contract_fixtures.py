@@ -19,12 +19,15 @@ from _combine_contract import (
     COMBINE_CONTRACT,
     ENGINE_GOLDEN_DIR,
     ENGINE_OPERATOR_NAMES,
+    GSM8K_RULE_WIRE,
     engine_operators,
     read_contract,
     requires_engine_app,
+    rule,
 )
 
 import screamingface as sf
+from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.reducer import Reducer
@@ -32,17 +35,22 @@ from screamingface.reducer import Reducer
 _MEMBERS = ["prov/member-a", "prov/member-b", "prov/member-c"]
 _NUMBER_VOTE = sf.Vote(extract="last_number", normalize="numeric")
 
-# name -> (reducer, member count)
-_SPECS: dict[str, tuple[Reducer, int]] = {
-    "vote_number_5": (_NUMBER_VOTE, 5),
-    "vote_number_4": (_NUMBER_VOTE, 4),
-    "vote_number_1": (_NUMBER_VOTE, 1),
-    "vote_boxed_3": (sf.Vote(extract="boxed", normalize="numeric"), 3),
-    "vote_default_3": (sf.Vote(), 3),
-    "median_nearest_3": (sf.Median(extract="last_number", select="nearest"), 3),
-    "median_nearest_1": (sf.Median(extract="last_number", select="nearest"), 1),
-    "median_value_4": (sf.Median(extract="last_number", select="value"), 4),
-    "median_line_value_3": (sf.Median(extract="last_line", select="value"), 3),
+# name -> (reducer, member count, the benchmark rule an extract="benchmark" reducer reads)
+_SPECS: dict[str, tuple[Reducer, int, _BenchmarkAnswerRule | None]] = {
+    "vote_number_5": (_NUMBER_VOTE, 5, None),
+    "vote_number_4": (_NUMBER_VOTE, 4, None),
+    "vote_number_1": (_NUMBER_VOTE, 1, None),
+    "vote_boxed_3": (sf.Vote(extract="boxed", normalize="numeric"), 3, None),
+    "vote_default_3": (sf.Vote(), 3, None),
+    "vote_benchmark_gsm8k_3": (
+        sf.Vote(extract="benchmark"),
+        3,
+        _BenchmarkAnswerRule("inspect-gsm8k", rule(GSM8K_RULE_WIRE)),
+    ),
+    "median_nearest_3": (sf.Median(extract="last_number", select="nearest"), 3, None),
+    "median_nearest_1": (sf.Median(extract="last_number", select="nearest"), 1, None),
+    "median_value_4": (sf.Median(extract="last_number", select="value"), 4, None),
+    "median_line_value_3": (sf.Median(extract="last_line", select="value"), 3, None),
 }
 
 
@@ -58,8 +66,10 @@ def model_synthesizer_candidate_url4() -> str:
 def reducer_specs() -> dict[str, str]:
     operators = engine_operators()
     return {
-        name: combine_spec_text(reducer, member_count=count, operators=operators)
-        for name, (reducer, count) in _SPECS.items()
+        name: combine_spec_text(
+            reducer, member_count=count, operators=operators, benchmark_rule=benchmark_rule
+        )
+        for name, (reducer, count, benchmark_rule) in _SPECS.items()
     }
 
 
