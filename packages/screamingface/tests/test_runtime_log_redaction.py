@@ -137,7 +137,7 @@ def test_the_factory_preserves_an_already_installed_one(tmp_path: Path) -> None:
     logging.setLogRecordFactory(preinstalled)
     try:
         with runtime_logging.capture_runtime_log(tmp_path / "runtime.log", foreground=False):
-            logger.warning("fetch %r failed", f"/?q={PLANTED}")
+            logger.warning("fetch %s failed", f"/?q={PLANTED}")
         assert logging.getLogRecordFactory() is preinstalled
     finally:
         logging.setLogRecordFactory(original)
@@ -147,7 +147,7 @@ def test_the_factory_preserves_an_already_installed_one(tmp_path: Path) -> None:
     [record] = records
     assert getattr(record, "correlation_id", None) == "corr-1"
     # Redacted at the record, so EVERY handler sees the redacted text, not just RuntimeLog.
-    assert record.getMessage() == f"fetch '/?q={log_redaction.REDACTED}' failed"
+    assert record.getMessage() == f"fetch /?q={log_redaction.REDACTED} failed"
 
 
 def test_the_factory_is_installed_once_when_nested() -> None:
@@ -193,10 +193,11 @@ def test_a_record_whose_message_cannot_render_is_left_for_logging_to_report() ->
         ("plain line, nothing to hide", "plain line, nothing to hide"),
         ("GET /?top=10&q=abc&x=1", f"GET /?top=10&q={log_redaction.REDACTED}&x=1"),
         ("GET /?query=keep&top=3", "GET /?query=keep&top=3"),
-        ("url '/?q=a b c' failed", f"url '/?q={log_redaction.REDACTED}' failed"),
-        # Unquoted and unencoded: the value runs to the end of the line. Fail closed — losing
-        # trailing context beats leaking the rest of a prompt that contained a space.
-        ("GET /?q=a b c failed", f"GET /?q={log_redaction.REDACTED}"),
+        # Whitespace OUTSIDE quotes is the URL's end (review round 1, owner rule).
+        ("GET /?q=abc HTTP/1.1", f"GET /?q={log_redaction.REDACTED} HTTP/1.1"),
+        # A repr's closing quote reads as an unterminated quoted segment, so it fails closed to
+        # the end of the line. Losing the trailing context beats leaking a quoted intent.
+        ("fetch '/?q=abc' failed", f"fetch '/?q={log_redaction.REDACTED}"),
         ("Messages: `[1]`", f"Messages: {log_redaction.REDACTED}"),
         ("-d '{\"a\": 1}'", f"-d '{log_redaction.REDACTED}'"),
         ("rm-d 'x'", "rm-d 'x'"),
@@ -248,3 +249,92 @@ def test_the_runtime_boot_neutralises_litellm_before_any_app_import(
     server.require_runtime_extra()
 
     assert seen_at_import == ["WARNING"]
+
+
+# --- review round 1 (PR #1206) -------------------------------------------------------------
+
+
+class _UnprintableArg:
+    def __str__(self) -> str:
+        raise RuntimeError("this argument cannot be rendered")
+
+
+@pytest.mark.parametrize(
+    ("message", "args"),
+    [
+        # A mapping-style format with the key missing: getMessage raises KeyError.
+        ("%(a)s", ({"b": 1},)),
+        # An argument whose __str__ raises something other than TypeError/ValueError.
+        ("value: %s", (_UnprintableArg(),)),
+    ],
+)
+def test_a_record_that_cannot_render_never_raises_at_the_logging_call(
+    message: str, args: tuple[object, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # INVARIANT: logging never raises from our factory. A record that cannot render must reach
+    # logging's own "--- Logging error ---" path untouched, exactly as it would without us.
+    records: list[logging.LogRecord] = []
+    # WHY a Logger built directly, outside the manager: pytest's logging plugin attaches its
+    # own capture handlers, whose handleError RAISES. That would mask the stdlib error path
+    # this test pins. The global record factory still applies to an unmanaged Logger.
+    logger = logging.Logger("test.ome1050.unrenderable")
+    handler = logging.StreamHandler(sys.stderr)
+    handler.emit = lambda record: (
+        records.append(record),
+        logging.StreamHandler.emit(handler, record),
+    )  # type: ignore[method-assign]
+    logger.addHandler(handler)
+    logger.propagate = False
+    with log_redaction.redacting_record_factory():
+        logger.warning(message, *args)
+
+    [record] = records
+    assert record.msg == message
+    assert "--- Logging error ---" in capsys.readouterr().err
+
+
+# url4 renders a Text intent quoted (`render.py` `_quote`: single quotes, `\'` and `\\`
+# escaped), so the prompt sits INSIDE quotes within the q= value — with spaces, `&` and `#`
+# free to appear in it. The double-quoted twin covers a value quoted the other way.
+QUOTED_INTENTS: dict[str, tuple[str, str]] = {
+    "single-quoted": (
+        f"GET /?q=(x)!'summarize my {PLANTED} memo & keep # it' HTTP/1.1",
+        "GET /?q=",
+    ),
+    "single-quoted-escaped": (
+        f"GET /?q=(x)!'it\\'s {PLANTED} & more'&limit=1 HTTP/1.1",
+        "&limit=1 HTTP/1.1",
+    ),
+    "double-quoted": (
+        f'GET /?q=(x)!"summarize my {PLANTED} memo" HTTP/1.1',
+        "HTTP/1.1",
+    ),
+    "inside-a-repr": (
+        f"GET \"http://127.0.0.1:9108/?q=(x)!'summarize my {PLANTED} memo'\" failed",
+        "http://127.0.0.1:9108/?q=",
+    ),
+    "unterminated": (
+        f"GET /?q=(x)!'summarize my {PLANTED} memo",
+        "GET /?q=",
+    ),
+}
+
+
+@pytest.mark.parametrize("producer", PRODUCERS)
+@pytest.mark.parametrize("intent", QUOTED_INTENTS)
+def test_a_quoted_text_intent_never_reaches_the_runtime_log(
+    tmp_path: Path, producer: str, intent: str
+) -> None:
+    # INVARIANT: the whole q= value is redacted, quoted segments included, up to the URL's
+    # real end (`&`, `#` or whitespace OUTSIDE quotes, or the end of the line). An
+    # unterminated quote fails closed to the end of the line.
+    planted, context = QUOTED_INTENTS[intent]
+    path = tmp_path / "runtime.log"
+
+    with runtime_logging.capture_runtime_log(path, foreground=False):
+        PRODUCERS[producer](planted)
+
+    written = path.read_text()
+    assert PLANTED not in written
+    assert "memo" not in written
+    assert context in written

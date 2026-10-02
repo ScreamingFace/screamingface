@@ -118,3 +118,36 @@ Redact those carriers at both choke points: the record factory, and every line
     paths. Each swap has a WHY comment.
   - Out of scope, by decision: unmarked free text, such as url4 parser errors quoting a bare
     expression, and litellm's RAW RESPONSE.
+
+## Review round 1 (2026-10-02, owner decision on PR #1206)
+
+Two confirmed defects were fixed. Each got RED tests first.
+
+1. **The record factory raised at the logging call site.**
+   - The cause: it caught only `TypeError` and `ValueError` from `getMessage()`.
+   - The reproductions: `log.warning("%(a)s", {"b": 1})` raises `KeyError`, and an argument
+     whose `__str__` raises gives `RuntimeError`.
+   - The fix: catch `Exception` and leave the record untouched, so logging's own
+     "--- Logging error ---" path applies.
+   - The test builds its `Logger` outside the manager. Otherwise pytest's capture handlers,
+     whose `handleError` raises, would mask the stdlib path.
+2. **`_URL4_QUERY` stopped at a quote and leaked quoted Text intents.** url4 `_quote`
+   renders them single-quoted with `\'` and `\\` escaped.
+   - The value now includes `'…'` and `"…"` segments (escapes honoured) up to `&`, `#` or
+     whitespace outside quotes, or the end of the line.
+   - An unterminated quote fails closed to the end of the line. That includes a backslash
+     at the end of a line, and a repr's closing quote.
+   - New tests cover 5 quoted-intent shapes × 4 producers.
+- **Expectations changed in tests added by THIS PR, because the owner's rule supersedes my
+  earlier choice:**
+  - In the factory-preserve test, the message is now `%s` (unquoted).
+  - Two `redact()` cases encoded "whitespace continues the value". They are replaced by
+    "whitespace outside quotes ends it" and the repr fail-closed case.
+- **Trade-off:** `GET '<url>?q=abc' failed: …` now loses everything after `?q=` on that
+  line, because the repr's closing quote fails closed. This was accepted per the
+  fail-closed rule.
+- **Rebase:** rebased onto origin/main. The README and CHANGELOG conflicts with #1205
+  (OME-1048) were resolved by keeping both sides.
+- **Gates:** `run_gates.py screamingface --base origin/main` reports ALL GATES GREEN. The
+  base is origin/main because the test file is added in this PR. The full client suite with
+  the notebook and runtime extras: 2187 passed, 26 skipped, 96% coverage.

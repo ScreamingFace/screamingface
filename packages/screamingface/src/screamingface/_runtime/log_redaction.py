@@ -34,10 +34,18 @@ from typing import Any
 
 REDACTED = "[REDACTED]"
 
-# WHY the stop set `& # ' " newline` and NOT whitespace: an unencoded value may contain
-# spaces, and stopping early would leak the rest. A quote or the next parameter is the end of
-# the value; past that we would rather over-redact than leak.
-_URL4_QUERY = re.compile(r"([?&]q=)[^&#'\"\n]*")
+# The whole q= value, quoted segments included, up to the URL's real end.
+# WHY quotes are part of the value: url4 renders a Text intent quoted (`render.py` `_quote`:
+# single quotes with `\'` and `\\` escaped), so the prompt sits INSIDE quotes. Inside a
+# quote, spaces, `&` and `#` are prompt text, not URL structure. Outside quotes the value
+# ends at `&`, `#`, whitespace, or the end of the line.
+# WHY fail closed: an unterminated quote (a truncated line, or a repr's closing quote read
+# as an opening one) is redacted to the end of the line. Losing trailing context beats
+# leaking the rest of a prompt.
+# WHY `\\.?` and not `\\.`: a backslash that ends the line must still be consumed. Otherwise
+# the quoted alternative fails, the value stops BEFORE the quote, and the quoted text leaks.
+_QUOTED = r"'(?:[^'\\\n]|\\.?)*(?:'|$)|\"(?:[^\"\\\n]|\\.?)*(?:\"|$)"
+_URL4_QUERY = re.compile(rf"([?&]q=)(?:{_QUOTED}|[^&#\s'\"])*", re.MULTILINE)
 # litellm: `extra_information += f"\nMessages: `{messages}`"`. The repr runs to the end of
 # its line.
 _LITELLM_MESSAGES = re.compile(r"(\bMessages: ).*")
@@ -73,8 +81,12 @@ def _wrap(previous: Callable[..., logging.LogRecord]) -> Callable[..., logging.L
         record = previous(*args, **kwargs)
         try:
             rendered = record.getMessage()
-        except (TypeError, ValueError):
-            # A malformed record: leave it intact for logging's own "--- Logging error ---".
+        except Exception:  # noqa: BLE001 — see WHY
+            # WHY catch everything: getMessage runs arbitrary `__str__` and `%` formatting
+            # (KeyError, RuntimeError, ...). Raising here would raise AT THE LOGGING CALL
+            # SITE. Logging never raises from our factory, so a record that cannot render is
+            # left untouched and reaches logging's own "--- Logging error ---" path, exactly
+            # as it would without us.
             return record
         redacted = redact(rendered)
         if redacted != rendered:
