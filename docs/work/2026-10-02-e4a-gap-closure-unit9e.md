@@ -66,7 +66,8 @@ Red set right after the rebase: the whole built-in registry fails to import
   (merge and project field names) stays as it is.
 - F8: a final merge that abstains marks the invocation (unit 3); an integration guard pins it.
 - F9: `test_failures_name_the_rule_and_never_echo_values` checks the message at operator level and
-  checks that the abstain evidence JSON holds no `SECRET`.
+  checks that the abstain evidence JSON, except `members` (extracted values by design), holds no
+  `SECRET` (see the Outcome F9 note).
 - F10: `json_object@1.json` keeps the stage vocabulary; no change.
 
 ## Outcome
