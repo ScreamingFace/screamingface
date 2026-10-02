@@ -87,6 +87,12 @@ class _OperatorCatalog:
         return cls(entries=tuple(entries.values()))
 
 
+def is_pinned_operator_id(value: str) -> bool:
+    """Whether ``value`` is a pinned ``name@version`` operator id."""
+
+    return _ID.fullmatch(value) is not None
+
+
 def decode_operator_catalog(payload: object) -> _OperatorCatalog:
     """Decode ``GET /v1/operators``; extra keys are ignored, malformed content refuses."""
 

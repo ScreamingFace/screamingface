@@ -10,6 +10,8 @@ import pytest
 from _reducer_fixtures import ENGINE_OPERATOR_IDS
 from _reducer_fixtures import engine_operators as engine_operators  # re-exported for the tests
 
+from screamingface._evaluation.answer_rule import _AnswerRule
+
 # parents[3] = the monorepo root (tests → screamingface → packages → root)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENGINE_APP = REPO_ROOT / "apps" / "screamingface-engine"
@@ -54,6 +56,18 @@ AIME25_RULE_WIRE: dict[str, Any] = {
     "normalize": {"op": "inspect_numeric@1", "args": {}},
     "grader": "inspect_evals.aime2025.aime2025:aime_scorer@0.20.0",
 }
+
+
+def rule(wire: Mapping[str, Any]) -> _AnswerRule:
+    """The domain value a benchmark resource's ``answer_rule`` block decodes to."""
+
+    normalize = wire["normalize"]
+    return _AnswerRule(
+        extract=wire["extract"]["op"],
+        normalize=None if normalize is None else normalize["op"],
+        grader=wire["grader"],
+    )
+
 
 requires_engine_app = pytest.mark.skipif(
     not ENGINE_APP.exists(), reason="engine app not present (installed run)"

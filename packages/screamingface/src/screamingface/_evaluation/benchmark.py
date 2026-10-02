@@ -8,6 +8,7 @@ from typing import Literal, NoReturn, cast
 from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
+from screamingface._evaluation.answer_rule import _AnswerRule, decode_answer_rule
 from screamingface._evaluation.model import _canonical_url4
 from screamingface.discovery import BenchmarkInfo
 from screamingface.errors import PlanningError
@@ -37,6 +38,7 @@ class _BenchmarkResource:
     case_count: int
     url4: str
     check_surface: _CheckSurface | None = None
+    answer_rule: _AnswerRule | None = None
 
 
 def _decode_benchmark_resource(
@@ -80,6 +82,7 @@ def _decode_benchmark_resource(
         ),
         url4=url4,
         check_surface=_check_surface(resource.get("check_surface")),
+        answer_rule=decode_answer_rule(resource.get("answer_rule"), _invalid),
     )
 
 
