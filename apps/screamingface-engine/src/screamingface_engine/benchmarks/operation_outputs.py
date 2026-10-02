@@ -23,6 +23,7 @@ Stages, in execution order:
    Combine evidence (OME-1289) follows the stricter rule: it is attributed only
    when ONE binding claims the fingerprint, never when several do, even if their
    recorded outputs are identical.
+   The abstain mark (OME-1289) reads the final operation's evidence.
 
 Worked example — members ``/alpha?temperature=0.0``, ``/beta`` and synthesis
 ``/alpha?temperature=0.5`` with calls [(alpha@0.0 → "A"), (beta → "B"),
@@ -41,7 +42,7 @@ from screamingface_engine.benchmarks.contract import OperationOutput
 from screamingface_engine.operation_accounting import combine_operation_accounting
 from screamingface_engine.operation_calls import OperationCall
 from url4.core.errors import ParseError
-from url4.core.nodes import Expression, RelExpr, Source, walk
+from url4.core.nodes import Expression, RelExpr, Source, Text, walk
 from url4.core.parser import build
 
 # INVARIANT: kept in lock-step with the Client's operation projection, where
@@ -49,6 +50,9 @@ from url4.core.parser import build
 # (OME-1289 E4a). `tests/unit/data/combine_contract/binding_names.json` pins this pattern in
 # both packages.
 _BINDING = re.compile(r"^(?:model|synthesis|judge|writer)_\d+$")
+
+# The root intent that names exactly one source (`$synthesis_1`), nothing else around it.
+_FINAL_REFERENCE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 
 type _Fingerprint = tuple[str, tuple[tuple[str, str], ...]]
 
@@ -85,6 +89,40 @@ def attribute_operation_outputs(
     if len(bindings) == 1 and bindings[0].fingerprint is None:
         return None
     return operations
+
+
+def final_operation_abstained(
+    expression: str, operations: Sequence[OperationOutput] | None
+) -> bool:
+    """True when the expression's result IS one attributed combine operation that abstained.
+
+    The final node is the source the root intent names when that intent is exactly `$name`;
+    its evidence is the attributed `op_<name>` operation's `combine` (last call, one claimant).
+    Prose intents, other roots and unattributed names are never marked (OME-1289, erd section 9).
+    """
+
+    name = _final_reference(expression) if operations is not None else None
+    if name is None or operations is None:
+        return False
+    matches = [op for op in operations if op.operation_id == f"op_{name}"]
+    return (
+        len(matches) == 1
+        and matches[0].combine is not None
+        and matches[0].combine.result.status == "abstain"
+    )
+
+
+def _final_reference(expression: str) -> str | None:
+    """The `name` of a root intent that is exactly `$name`; None for any other root."""
+
+    try:
+        node = build(expression)
+    except ParseError:
+        return None
+    if not isinstance(node, Expression) or not isinstance(node.intent, Text):
+        return None
+    matched = _FINAL_REFERENCE.fullmatch(node.intent.value)
+    return None if matched is None else matched.group(1)
 
 
 def _attributed(
@@ -181,4 +219,4 @@ def _fingerprint(value: object) -> _Fingerprint | None:
     return (value.path, params)
 
 
-__all__ = ["attribute_operation_outputs"]
+__all__ = ["attribute_operation_outputs", "final_operation_abstained"]

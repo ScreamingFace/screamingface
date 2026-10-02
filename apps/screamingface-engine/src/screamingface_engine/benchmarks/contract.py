@@ -407,6 +407,9 @@ class CandidateInvocation(_StrictWireModel):
     operations: list[OperationOutput] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # FEATURE (OME-1289 E4a): the expression's final node is a combine that abstained. Excluded
+    # when False so every other envelope stays byte-identical (like `operations`).
+    abstained: bool = Field(default=False, exclude_if=lambda value: not value)
 
     @field_validator("finish_reason")
     @classmethod
@@ -426,6 +429,10 @@ class CandidateInvocation(_StrictWireModel):
             raise ValueError("a completed Candidate Invocation cannot carry refusal text")
         if self.status == "refused" and self.output:
             raise ValueError("a refused Candidate Invocation must carry an empty output")
+        if self.abstained and (
+            self.status != "completed" or self.output or self.refusal is not None
+        ):
+            raise ValueError("an abstained Candidate Invocation must be a completed empty answer")
         return self
 
 
@@ -748,6 +755,7 @@ def encode_candidate_invocation(
     *,
     status: CandidateInvocationStatus | None = None,
     operations: Sequence[OperationOutput] | None = None,
+    abstained: bool = False,
 ) -> str:
     """Encode one Candidate answer without discarding its provider-originated outcome."""
 
@@ -758,12 +766,30 @@ def encode_candidate_invocation(
         refusal=refusal,
         execution=execution,
         operations=None if operations is None else list(operations),
+        abstained=abstained,
     )
     return json.dumps(
         invocation.model_dump(by_alias=True),
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def _require_invocation_shape(decoded: Mapping[str, object]) -> None:
+    # WHY: `operations` (OME-843) and `abstained` (OME-1289) are the two optional keys — their
+    # absence keeps the legacy shape valid, and no other deviation is tolerated.
+    if set(decoded) - {"operations", "abstained"} != {
+        "schema",
+        "status",
+        "output",
+        "finish_reason",
+        "refusal",
+        "execution",
+    }:
+        raise ValueError("Candidate Invocation result has an invalid shape")
+    # WHY: one encoding only — the key is written when true and never as false.
+    if decoded.get("abstained", True) is not True:
+        raise ValueError("Candidate Invocation result has an invalid shape")
 
 
 def decode_candidate_invocation_record(value: str) -> CandidateInvocation:
@@ -775,17 +801,7 @@ def decode_candidate_invocation_record(value: str) -> CandidateInvocation:
         raise ValueError(f"Candidate Invocation result is not JSON: {exc}") from None
     if not isinstance(decoded, Mapping) or decoded.get("schema") != CANDIDATE_INVOCATION_SCHEMA:
         raise ValueError("Candidate Invocation result has an unsupported schema")
-    # WHY: `operations` (OME-843) is the one optional key — its absence keeps the
-    # legacy shape valid, and no other deviation is tolerated.
-    if set(decoded) - {"operations"} != {
-        "schema",
-        "status",
-        "output",
-        "finish_reason",
-        "refusal",
-        "execution",
-    }:
-        raise ValueError("Candidate Invocation result has an invalid shape")
+    _require_invocation_shape(decoded)
     if decoded["execution"] is not None:
         validate_corrective_execution(decoded["execution"])
     try:
