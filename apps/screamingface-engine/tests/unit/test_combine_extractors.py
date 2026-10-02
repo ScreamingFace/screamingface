@@ -172,11 +172,17 @@ _HOSTILE = {
 }
 
 
+_HOSTILE_ARGS: dict[str, OpArgs] = {
+    "json_field@1": _path("a"),
+    "regex@1": {"pattern": "Final: (\\w+)"},
+}
+
+
 @pytest.mark.parametrize(
-    "op_id", ["last_number@1", "boxed@1", "json_field@1", "last_line@1", "whole@1"]
+    "op_id", ["last_number@1", "boxed@1", "json_field@1", "regex@1", "last_line@1", "whole@1"]
 )
 def test_extractors_finish_under_50ms_on_hostile_1mib_input(op_id: str) -> None:
-    args = _path("a") if op_id == "json_field@1" else {}
+    args = _HOSTILE_ARGS.get(op_id, {})
     for name, text in _HOSTILE.items():
         best = float("inf")
         for _ in range(3):

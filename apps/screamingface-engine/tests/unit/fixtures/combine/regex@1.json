@@ -1,0 +1,271 @@
+{
+ "op": "regex@1",
+ "stage": "extract",
+ "cases": [
+  {
+   "name": "last match wins by default",
+   "input": "Final: A\nFinal: B",
+   "args": {
+    "pattern": "Final: (\\w+)",
+    "group": 1
+   },
+   "expect": {
+    "status": "voted",
+    "value": "B"
+   }
+  },
+  {
+   "name": "first occurrence on request",
+   "input": "Final: A\nFinal: B",
+   "args": {
+    "pattern": "Final: (\\w+)",
+    "group": 1,
+    "occurrence": "first"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "A"
+   }
+  },
+  {
+   "name": "group 0 is the whole match",
+   "input": "Final: A\nFinal: B",
+   "args": {
+    "pattern": "Final: (\\w+)"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "Final: B"
+   }
+  },
+  {
+   "name": "no match",
+   "input": "no marker here",
+   "args": {
+    "pattern": "Final: (\\w+)",
+    "group": 1
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "window drops the first character of the match",
+   "input": "Final: ABxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "args": {
+    "pattern": "Final: ([A-Z])",
+    "group": 1
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "window keeps the last 1024 characters",
+   "input": "Final: Axxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "args": {
+    "pattern": "Final: ([A-Z])",
+    "group": 1
+   },
+   "expect": {
+    "status": "voted",
+    "value": "A"
+   }
+  },
+  {
+   "name": "window excludes older text",
+   "input": "Final: Axxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "args": {
+    "pattern": "Final: ([A-Z])",
+    "group": 1
+   },
+   "expect": {
+    "status": "no_match",
+    "value": null
+   }
+  },
+  {
+   "name": "unicode word characters",
+   "input": "name Ü",
+   "args": {
+    "pattern": "(\\w+)$",
+    "group": 1
+   },
+   "expect": {
+    "status": "voted",
+    "value": "Ü"
+   }
+  },
+  {
+   "name": "unicode digits",
+   "input": "total １２",
+   "args": {
+    "pattern": "(\\d+)",
+    "group": 1
+   },
+   "expect": {
+    "status": "voted",
+    "value": "１２"
+   }
+  },
+  {
+   "name": "ignore case keeps the text case",
+   "input": "FINAL: B",
+   "args": {
+    "pattern": "final: (b)",
+    "group": 1,
+    "ignore_case": true
+   },
+   "expect": {
+    "status": "voted",
+    "value": "B"
+   }
+  },
+  {
+   "name": "ignore case folds unicode",
+   "input": "Ü",
+   "args": {
+    "pattern": "(ü)",
+    "group": 1,
+    "ignore_case": true
+   },
+   "expect": {
+    "status": "voted",
+    "value": "Ü"
+   }
+  },
+  {
+   "name": "named group",
+   "input": "C) because",
+   "args": {
+    "pattern": "(?P<ans>[A-D])\\)",
+    "group": "ans"
+   },
+   "expect": {
+    "status": "voted",
+    "value": "C"
+   }
+  },
+  {
+   "name": "empty group is empty",
+   "input": "xy",
+   "args": {
+    "pattern": "x(a*)y",
+    "group": 1
+   },
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "blank group is empty",
+   "input": "A:   ",
+   "args": {
+    "pattern": "A:(\\s*)",
+    "group": 1
+   },
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "group that did not take part is empty",
+   "input": "b",
+   "args": {
+    "pattern": "(a)|b",
+    "group": 1
+   },
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "pattern does not compile",
+   "input": "a",
+   "args": {
+    "pattern": "("
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "empty pattern",
+   "input": "a",
+   "args": {
+    "pattern": ""
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "group out of range",
+   "input": "a",
+   "args": {
+    "pattern": "(a)",
+    "group": 2
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "unknown group name",
+   "input": "a",
+   "args": {
+    "pattern": "(a)",
+    "group": "name"
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "unknown arg",
+   "input": "a",
+   "args": {
+    "pattern": "a",
+    "flags": "i"
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "nested quantifier is banned",
+   "input": "aaa",
+   "args": {
+    "pattern": "(a+)+"
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "quantified alternation is banned",
+   "input": "aaa",
+   "args": {
+    "pattern": "(a|aa)+"
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "adjacent overlap is banned",
+   "input": "123",
+   "args": {
+    "pattern": "\\d*\\d*"
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  }
+ ]
+}

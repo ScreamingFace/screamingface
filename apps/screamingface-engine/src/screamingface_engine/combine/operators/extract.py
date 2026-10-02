@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import re
 from types import MappingProxyType
+from typing import cast
 
+from screamingface_engine.combine.operators._regex_ban import backtracking_shape
 from screamingface_engine.combine.ports import (
     FIELD_PATH,
     OpArgs,
@@ -107,6 +109,77 @@ def json_field(text: str, args: OpArgs, /) -> StageResult:
     return _field_text(value) if found else rejected("field_missing")
 
 
+_REGEX_WINDOW = 1024  # characters; the scan reads text[-_REGEX_WINDOW:]
+_REGEX_MAX_PATTERN = 256
+_REGEX_ARGS = frozenset({"pattern", "group", "occurrence", "ignore_case"})
+
+
+def _regex_flags(args: OpArgs) -> int:
+    return re.IGNORECASE if args.get("ignore_case") else 0
+
+
+def _check_regex_keys(args: OpArgs) -> None:
+    if "pattern" not in args or not set(args) <= _REGEX_ARGS:
+        raise SpecInvalid(
+            "regex@1 needs a pattern and takes only pattern, group, occurrence and ignore_case"
+        )
+
+
+def _check_regex_values(args: OpArgs) -> None:
+    pattern = args["pattern"]
+    if not isinstance(pattern, str) or not 1 <= len(pattern) <= _REGEX_MAX_PATTERN:
+        raise SpecInvalid(
+            f"regex@1 pattern must be a string of 1 to {_REGEX_MAX_PATTERN} characters"
+        )
+    if not isinstance(args.get("ignore_case", False), bool):
+        raise SpecInvalid("regex@1 ignore_case must be a boolean")
+    if args.get("occurrence", "last") not in ("last", "first"):
+        raise SpecInvalid("regex@1 occurrence must be last or first")
+
+
+def _compile(args: OpArgs) -> re.Pattern[str]:
+    try:
+        return re.compile(str(args["pattern"]), _regex_flags(args))
+    except (re.error, OverflowError):
+        raise SpecInvalid("regex@1 pattern does not compile") from None
+
+
+def _group_exists(group: object, compiled: re.Pattern[str]) -> bool:
+    if isinstance(group, str):
+        return group in compiled.groupindex
+    return isinstance(group, int) and not isinstance(group, bool) and 0 <= group <= compiled.groups
+
+
+def _check_regex_args(args: OpArgs) -> None:
+    _check_regex_keys(args)
+    _check_regex_values(args)
+    compiled = _compile(args)
+    shape = backtracking_shape(str(args["pattern"]))
+    if shape is not None:
+        raise SpecInvalid(f"regex@1 pattern has a banned backtracking shape: {shape}")
+    if not _group_exists(args.get("group", 0), compiled):
+        raise SpecInvalid("regex@1 group must name a group of the pattern")
+
+
+def _last_match(compiled: re.Pattern[str], window: str) -> re.Match[str] | None:
+    last = None
+    for last in compiled.finditer(window):
+        pass
+    return last
+
+
+def regex(text: str, args: OpArgs, /) -> StageResult:
+    """The chosen group of the last (or first) match in the last 1024 characters."""
+    compiled = _compile(args)  # re keeps its own cache of compiled patterns
+    window = text[-_REGEX_WINDOW:]
+    first = args.get("occurrence", "last") == "first"
+    match = compiled.search(window) if first else _last_match(compiled, window)
+    if match is None:
+        return rejected("no_match")
+    value = match.group(cast("str | int", args.get("group", 0)))
+    return rejected("empty") if value is None else _found(value)
+
+
 def last_line(text: str, args: OpArgs, /) -> StageResult:
     """Last non-empty line; v1 line breaks are only ``\\n`` and ``\\r``."""
     stripped = text.rstrip()
@@ -141,6 +214,27 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
             }
         ),
         check_args=_check_json_field_args,
+    ),
+    OperatorDescriptor(
+        "regex",
+        1,
+        "extract",
+        "One regex group from the last 1024 characters.",
+        regex,
+        args_schema=MappingProxyType(
+            {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "group": {"type": ("integer", "string")},
+                    "occurrence": {"enum": ("last", "first")},
+                    "ignore_case": {"type": "boolean"},
+                },
+                "required": ("pattern",),
+                "additionalProperties": False,
+            }
+        ),
+        check_args=_check_regex_args,
     ),
     OperatorDescriptor("last_line", 1, "extract", "Last non-empty line.", last_line),
     OperatorDescriptor("whole", 1, "extract", "The whole text.", whole),
