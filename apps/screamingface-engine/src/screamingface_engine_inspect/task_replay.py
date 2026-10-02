@@ -6,7 +6,9 @@ see come from the eval's own loading code, pinned by a Case Digest.
 Think of it as asking the eval to print its question booklet in a clean room, not to run the
 test: the eval's task function is called in a fresh child process with empty caches, which
 makes it load its dataset exactly as inspect would, and the prepared Cases come back through
-a file. It never calls inspect's ``eval()``: no solver, scorer, model or Judge runs.
+a file. Each Sample's prompt is captured from the Task's own solvers, run up to their first
+``generate`` (:mod:`screamingface_engine_inspect.capture`). It never calls inspect's
+``eval()``: no model, scorer or Judge runs, and nothing is paid for.
 Stages, in execution order:
 
     Stage 1 — parent: write the declaration to a temp file; build the child's environment
@@ -14,7 +16,7 @@ Stages, in execution order:
               skip the fetch, and a stale cache would hide a dead URL).
     Stage 2 — child: call the task function with its args, take the Task's dataset (after
               the eval's own filtering, shuffling and conversion), and render each Sample
-              with the shared Case writer.
+              by capture, then write it with the shared Case writer.
     Stage 3 — child: write the prepared Cases as JSON to the result file. WHY a file and
               not stdout: evals print while they load.
     Stage 4 — parent: a non-zero exit, a timeout, or a missing or unreadable result is a
@@ -40,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.deployment import UNCONFIRMED_CASES_KEY
+from screamingface_engine_inspect.capture import captured_case_records
 from screamingface_engine_inspect.prepare import (
     SKIPPED_MARKER,
     PreparedCase,
@@ -48,7 +51,6 @@ from screamingface_engine_inspect.prepare import (
     _resolve,
     _write_cases,
     case_digest,
-    case_records,
 )
 
 #: Upper bound on one replay. A package's Cases download in minutes; this only stops a
@@ -216,7 +218,7 @@ def _replay_in_this_process(spec_path: Path, result_path: Path) -> None:
     fields: dict[str, Any] = json.loads(spec_path.read_text(encoding="utf-8"))
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(**fields)
     task: Any = _resolve(spec.task)(**(spec.task_args or {}))
-    prepared: list[PreparedCase] = case_records(list(task.dataset), spec)
+    prepared: list[PreparedCase] = captured_case_records(task, spec)
     result_path.write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
 
 

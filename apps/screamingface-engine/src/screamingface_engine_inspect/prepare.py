@@ -321,19 +321,19 @@ class TaskReplayCasesSpec:
     """One Task-replay Imported Benchmark's Case Preparation, as pure data (OME-1273).
 
     The Cases come from calling the eval's own task function (``task``, a ``"module:attr"``
-    reference, called with ``task_args``); building its Task loads the dataset. No evaluation
-    runs: no solver, scorer or model. No dataset pin applies, so ``case_count`` and
-    ``case_digest`` are CAPTURED at import and Case Preparation serves nothing unless both
-    match. The prompt fields mean exactly what they mean on :class:`CasesSpec`.
+    reference, called with ``task_args``); building its Task loads the dataset, and each
+    Sample is rendered by capture (:mod:`screamingface_engine_inspect.capture`): the Task's
+    own solvers run up to their first ``generate``, which records the prompt instead of
+    calling a model. No evaluation runs: no ``eval()``, scorer, model or Judge. No dataset
+    pin applies, so ``case_count`` and ``case_digest`` are CAPTURED at import and Case
+    Preparation serves nothing unless both match. WHY no template fields: the eval's own
+    solvers render the prompt, so nothing here could describe it better than they do.
     """
 
     task: str
     case_count: int
     case_digest: str
     task_args: dict[str, Any] | None = None
-    prompt_template: str | None = None
-    choice_template: str | None = None
-    system_message: str | None = None
     keep_sample_metadata: bool = False
     has_answer_key: bool = True
 
@@ -909,15 +909,14 @@ def emit_cases(
     return {"cases": len(prepared), "dataset_revision": spec.dataset_revision, "out": str(out)}
 
 
-def case_records(
-    samples: Sequence[Sample], spec: CasesSpec | TaskReplayCasesSpec
-) -> list[PreparedCase]:
+def case_records(samples: Sequence[Sample], spec: CasesSpec) -> list[PreparedCase]:
     """Stage 5 — turn Samples into prepared Cases: the rendered input plus its Grading Material.
 
-    Shared by both preparation paths (OME-1273), so a Hugging Face Benchmark and a
-    Task-replay Benchmark can never drift on how a Case is written. Per Sample: cross the one
-    validated boundary, render the prompt from the Sample's own shape, prepend the system
-    text, and build the private record.
+    The Hugging Face path's writer: it imitates the eval's render from the declaration's
+    prompt fields. A Task-replay Benchmark never comes through here; its render is captured
+    from the eval's own solvers (``capture.captured_case_records``), and the two share
+    :func:`prepared_case` so a Case is written one way. Per Sample: render the prompt from
+    the Sample's own shape, prepend the system text, and build the record.
 
     Args:
         samples: the Benchmark's Samples, in the order they are served.
@@ -934,27 +933,39 @@ def case_records(
     system_text: str | None = _resolved_system_text(spec)
     prepared: list[PreparedCase] = []
     for case_id, sample in enumerate(samples, start=1):
-        target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
+        _, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
         input_text: str = _prompt(sample, choices, template, choice_template)
         if system_text is not None:
             # Named deviation (contracteval pattern): the eval's SYSTEM
             # instruction becomes the input's leading text, render untouched.
             input_text = f"{system_text}\n\n{input_text}"
-        record: dict[str, Any] = (
-            {"target": target} if choices is None else {"target": target, "choices": choices}
-        )
-        if spec.keep_sample_metadata and sample.metadata:
-            record["metadata"] = _validated_metadata(sample.metadata, case_id)
-        # WHY "case_id" beside "id": the benchmark's url4 protocol template reads
-        # $item.case_id per Case (the transport contract's string spelling);
-        # "id" is the integer that cases.json rows and the targets/ files key on.
-        prepared.append(
-            {
-                "case": {"id": case_id, "case_id": str(case_id), "input": input_text},
-                "grading_material": record,
-            }
-        )
+        prepared.append(prepared_case(sample, case_id, input_text, spec))
     return prepared
+
+
+def prepared_case(
+    sample: Sample, case_id: int, input_text: str, spec: CasesSpec | TaskReplayCasesSpec
+) -> PreparedCase:
+    """One prepared Case from a Sample and its rendered input: the public row plus the
+    private Grading Material, after the one validated boundary on eval-produced Samples.
+
+    Shared by both preparation paths (OME-1273), so a Hugging Face Benchmark and a
+    Task-replay Benchmark can never drift on how a Case is written.
+    """
+
+    target, choices = _validated_answer_key(sample, case_id, spec.has_answer_key)
+    record: dict[str, Any] = (
+        {"target": target} if choices is None else {"target": target, "choices": choices}
+    )
+    if spec.keep_sample_metadata and sample.metadata:
+        record["metadata"] = _validated_metadata(sample.metadata, case_id)
+    # WHY "case_id" beside "id": the benchmark's url4 protocol template reads
+    # $item.case_id per Case (the transport contract's string spelling);
+    # "id" is the integer that cases.json rows and the targets/ files key on.
+    return {
+        "case": {"id": case_id, "case_id": str(case_id), "input": input_text},
+        "grading_material": record,
+    }
 
 
 def _pinned_samples(
@@ -1201,7 +1212,7 @@ def _shuffle_choices(samples: list[Sample], seed: int) -> None:
         ) from exc
 
 
-def _resolved_system_text(spec: CasesSpec | TaskReplayCasesSpec) -> str | None:
+def _resolved_system_text(spec: CasesSpec) -> str | None:
     """The eval's system instruction as leading input text, or None without one.
 
     WHY stripped once here: eval constants often carry framing newlines
@@ -1404,6 +1415,7 @@ __all__ = [
     "emit_cases",
     "mcq_prompt",
     "prepare_cases",
+    "prepared_case",
     "task_kept_samples",
     "templated_prompt",
 ]
