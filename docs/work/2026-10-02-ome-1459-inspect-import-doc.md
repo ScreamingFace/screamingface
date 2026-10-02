@@ -67,3 +67,6 @@ the three verdicts and the acceptance list, so no separate `docs/spec` artifact 
   solver gets a `TODO(review)` flag); the doc says so and marks the refusal-by-name as later.
   The how-to's grader-role line (`:39-42`, "not supported yet") is stale since OME-1370; left
   as is, out of scope here.
+  Status marks were refreshed on 2026-10-02 after capture rendering landed as open PR #1219
+  (the stack is now #1219 → #1191 → #1220 → #1221; #1194 and #1198 are closed): capture is 🔧,
+  not ⏳, and `capture.py` lines cite #1219 at `0ba6a62ea`.
