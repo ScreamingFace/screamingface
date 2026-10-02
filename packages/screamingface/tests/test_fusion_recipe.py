@@ -556,3 +556,12 @@ def test_both_forms_report_the_same_candidate_name_in_a_scripted_run() -> None:
         names.append(transport.candidate.name)
 
     assert names == ["opus+judge", "opus+judge"]
+
+
+def test_a_cyclic_value_is_left_for_the_compiler_to_refuse() -> None:
+    pipeline = sf.Pipeline(["provider/a", "provider/b"])
+    object.__setattr__(pipeline, "stages", (sf.Model("provider/a"), pipeline))
+
+    assert rewrite_fusion_recipe(pipeline) is pipeline
+    with pytest.raises(ValueError, match="cycle"):
+        compile_candidate(pipeline)

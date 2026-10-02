@@ -30,7 +30,15 @@ def rewrite_fusion_recipe(recipe: Recipe) -> Recipe:
     Fusion(m, S) when rest is empty and the Pipeline is unnamed. Pure, idempotent, runs before
     compile."""
 
-    return _REWRITES[_recipe_kind(recipe)](recipe)
+    return _rewrite(recipe, ())
+
+
+def _rewrite(recipe: Recipe, active: tuple[int, ...]) -> Recipe:
+    # WHY the active ids: a cyclic value (only built by hand) must reach the compiler, which names
+    # the cycle; the rewrite leaves a value it is already inside as it is.
+    if id(recipe) in active:
+        return recipe
+    return _REWRITES[_recipe_kind(recipe)](recipe, (*active, id(recipe)))
 
 
 def _is_context_fusion(recipe: Recipe) -> bool:
@@ -42,19 +50,19 @@ def _same(old: Sequence[object], new: Sequence[object]) -> bool:
     return len(old) == len(new) and all(a is b for a, b in zip(old, new, strict=True))
 
 
-def _unchanged(recipe: Recipe) -> Recipe:
+def _unchanged(recipe: Recipe, active: tuple[int, ...]) -> Recipe:
     return recipe
 
 
-def _fusion(fusion: Fusion) -> Recipe:
+def _fusion(fusion: Fusion, active: tuple[int, ...]) -> Recipe:
     """A Fusion met outside a Pipeline pair: a context Fusion here is misuse."""
 
     if _is_context_fusion(fusion):
         raise ValueError(CONTEXT_MISUSE)
-    members = tuple(rewrite_fusion_recipe(member) for member in fusion.members)
+    members = tuple(_rewrite(member, active) for member in fusion.members)
     synthesizer = fusion.synthesizer
     if not isinstance(synthesizer, Reducer):
-        synthesizer = rewrite_fusion_recipe(synthesizer)
+        synthesizer = _rewrite(synthesizer, active)
     if _same(fusion.members, members) and synthesizer is fusion.synthesizer:
         return fusion
     return Fusion(members, name=_fusion_name(fusion), synthesizer=synthesizer)
@@ -65,7 +73,7 @@ def _fusion_name(fusion: Fusion) -> str | None:
     return None if fusion.name == inferred else fusion.name
 
 
-def _lowered_pair(stages: Sequence[Recipe], index: int) -> Fusion:
+def _lowered_pair(stages: Sequence[Recipe], index: int, active: tuple[int, ...]) -> Fusion:
     """The Fusion that the context Fusion at ``index`` and the stage after it make together."""
 
     context = stages[index]
@@ -73,11 +81,11 @@ def _lowered_pair(stages: Sequence[Recipe], index: int) -> Fusion:
     follower = stages[index + 1] if index + 1 < len(stages) else None
     if follower is None or _is_context_fusion(follower):
         raise ValueError(CONTEXT_MISUSE)
-    members = tuple(rewrite_fusion_recipe(member) for member in context.members)
-    return Fusion(members, name=_fusion_name(context), synthesizer=rewrite_fusion_recipe(follower))
+    members = tuple(_rewrite(member, active) for member in context.members)
+    return Fusion(members, name=_fusion_name(context), synthesizer=_rewrite(follower, active))
 
 
-def _pipeline(pipeline: Pipeline) -> Recipe:
+def _pipeline(pipeline: Pipeline, active: tuple[int, ...]) -> Recipe:
     """Scan the stages left to right; a context Fusion and the stage after it become one Fusion."""
 
     stages: list[Recipe] = []
@@ -86,11 +94,11 @@ def _pipeline(pipeline: Pipeline) -> Recipe:
     while index < len(pipeline.stages):
         stage = pipeline.stages[index]
         if _is_context_fusion(stage):
-            stages.append(_lowered_pair(pipeline.stages, index))
+            stages.append(_lowered_pair(pipeline.stages, index, active))
             lowered = True
             index += 2
         else:
-            stages.append(rewrite_fusion_recipe(stage))
+            stages.append(_rewrite(stage, active))
             index += 1
     if not lowered and _same(pipeline.stages, stages):
         return pipeline
@@ -99,9 +107,9 @@ def _pipeline(pipeline: Pipeline) -> Recipe:
     return Pipeline(stages, name=pipeline.name if pipeline._is_named else None)
 
 
-def _loop(loop: CorrectiveLoop) -> Recipe:
-    members = tuple(rewrite_fusion_recipe(member) for member in loop.members)
-    judge = rewrite_fusion_recipe(loop.judge)
+def _loop(loop: CorrectiveLoop, active: tuple[int, ...]) -> Recipe:
+    members = tuple(_rewrite(member, active) for member in loop.members)
+    judge = _rewrite(loop.judge, active)
     if _same(loop.members, members) and judge is loop.judge:
         return loop
     inferred = "+".join(member.name for member in loop.members)
@@ -113,8 +121,8 @@ def _loop(loop: CorrectiveLoop) -> Recipe:
     )
 
 
-def _self_corrective(solo: SelfCorrective) -> Recipe:
-    member = rewrite_fusion_recipe(solo.member)
+def _self_corrective(solo: SelfCorrective, active: tuple[int, ...]) -> Recipe:
+    member = _rewrite(solo.member, active)
     if member is solo.member:
         return solo
     return SelfCorrective(
