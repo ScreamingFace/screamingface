@@ -812,6 +812,8 @@ def _check(root: Path) -> Callable[[Request], str]:
                     ]
                 }
             ),
+            # Written only when true (OME-1289), so every other record stays byte-identical.
+            **({"candidate_abstained": True} if answer.abstained else {}),
         }
         return compact_json(record)
 
@@ -1026,6 +1028,8 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
             "refusal": attempt.get("refusal"),
             "execution": attempt.get("execution"),
             "operations": attempt.get("operations"),
+            # Written only when true (OME-1289), so rows without the mark are unchanged.
+            **({"candidate_abstained": True} if attempt.get("candidate_abstained") is True else {}),
             "metadata": {},
         },
         "attempt": dict(attempt),

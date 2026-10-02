@@ -305,6 +305,9 @@ class CaseResult(_StrictWireModel):
     # INVARIANT: excluded when None, so a Benchmark without Attempts serializes byte-for-byte
     # as before; `output` and `grade` above are the shown answer and the per-Check fold.
     attempts: list[CaseAttempt] | None = Field(default=None, exclude_if=lambda value: value is None)
+    # FEATURE (OME-1289 E4a): the Candidate abstained, so the grader's score was replaced by 0.0.
+    # Excluded when False so every other Case stays byte-identical (like `operations`).
+    abstained: bool = Field(default=False, exclude_if=lambda value: not value)
 
     @field_validator("case_id")
     @classmethod
@@ -332,6 +335,8 @@ class CaseResult(_StrictWireModel):
         _require_case_outcome(self)
         if self.attempts is not None:
             _require_case_attempts(self)
+        if self.abstained:
+            _require_abstained_case(self)
         return self
 
 
@@ -510,6 +515,19 @@ def _require_case_outcome(case: CaseResult) -> None:
         _require_scored_case(case)
     else:
         _require_failed_case(case)
+
+
+def _require_abstained_case(case: CaseResult) -> None:
+    # INVARIANT (OME-1289): the mark and the Case must agree, so an impossible pairing fails
+    # loudly here instead of publishing a report that contradicts itself.
+    if (
+        case.status != "scored"
+        or case.grade is None
+        or case.grade.score != 0.0
+        or case.output != ""
+        or case.refusal is not None
+    ):
+        raise ValueError("an abstained Case is a scored empty answer with score 0.0")
 
 
 def _require_failed_case(case: CaseResult) -> None:
