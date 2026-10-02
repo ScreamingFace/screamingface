@@ -121,6 +121,11 @@ COMBINE_PLUGIN_DENY = {
     "concurrent", "io", "pathlib", "shutil", "tempfile", "logging",
 }  # fmt: skip
 
+# The one third-party module a plugin may import (a plugin otherwise gets only the stdlib and the
+# ports). WHY re2: linear-time regex for regex@1, so no author-written pattern can freeze a worker
+# (OME-1289 user decision). The core imports it nowhere; only a plugin does.
+COMBINE_PLUGIN_THIRD_PARTY = frozenset({"re2"})
+
 # (subtree under screamingface_engine/, forbidden screamingface_engine submodules, why)
 RULES: list[tuple[str, set[str], str]] = [
     (
@@ -329,6 +334,12 @@ def combine_files() -> tuple[list[pathlib.Path], list[pathlib.Path]]:
     return core, plugins
 
 
+def _third_party(modules: set[str]) -> set[str]:
+    """The imported top-level names that are neither stdlib, the engine itself, nor allowed."""
+    known = sys.stdlib_module_names | {"screamingface_engine", "__future__"}
+    return modules - known - COMBINE_PLUGIN_THIRD_PARTY - COMBINE_FORBIDDEN_ROOTS
+
+
 def check_combine() -> list[str]:
     """The hexagonal rule inside `combine/`: the core never imports a plugin or the wiring, a
     plugin imports only the ports (and its sibling plugins) and no I/O or nondeterminism module,
@@ -352,6 +363,14 @@ def check_combine() -> list[str]:
         "the combine package is pure and imports no url4 module; the route adapter lives in "
         "world/combine.py, the engine-importing half"
     )
+    third_party_why = (
+        "a combine plugin imports the standard library and the ports only, plus re2 (the "
+        "linear-time regex engine of regex@1); any other third-party module couples a pure "
+        "operator to a dependency the core does not vouch for"
+    )
+    re2_core_why = (
+        "only a combine plugin may import re2; the core stays free of the regex engine"
+    )
     offenders: list[str] = []
 
     def report(path: pathlib.Path, module: str, why: str) -> None:
@@ -361,12 +380,18 @@ def check_combine() -> list[str]:
         found = imported_screamingface_engine_submodules(path)
         for module in sorted(found & COMBINE_CORE_FORBIDDEN):
             report(path, f"screamingface_engine.{module}", core_why)
+        for module in sorted(
+            imported_top_level_modules(path) & COMBINE_PLUGIN_THIRD_PARTY
+        ):
+            report(path, module, re2_core_why)
     for path in plugins:
         found = imported_screamingface_engine_submodules(path)
         for module in sorted(found - COMBINE_PLUGIN_ALLOWED):
             report(path, f"screamingface_engine.{module}", plugin_why)
         for module in sorted(imported_top_level_modules(path) & COMBINE_PLUGIN_DENY):
             report(path, module, deny_why)
+        for module in sorted(_third_party(imported_top_level_modules(path))):
+            report(path, module, third_party_why)
     combine_root = SRC / COMBINE_CORE
     if combine_root.is_dir():
         for path in python_files(combine_root):

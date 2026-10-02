@@ -256,3 +256,33 @@ def test_the_gate_tolerates_a_tree_without_combine(
 ) -> None:
     _write(_source_tree(tmp_path), "job_env_stub.py", "")
     assert _offenders(tmp_path, monkeypatch) == []
+
+
+# --- the one third-party module a plugin may import: re2 (OME-1289, regex@1) --------------------
+
+
+def test_the_plugin_third_party_allowance_is_re2_only() -> None:
+    assert _layering().COMBINE_PLUGIN_THIRD_PARTY == frozenset({"re2"})
+
+
+@pytest.mark.parametrize("source", ["import re2\n", "from re2 import compile\n"])
+def test_a_plugin_may_import_re2(
+    source: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(_source_tree(tmp_path), "combine/operators/extract.py", source)
+    assert not _flags(_offenders(tmp_path, monkeypatch), "combine/operators/extract.py")
+
+
+@pytest.mark.parametrize("module", ["numpy", "regex", "pydantic"])
+def test_a_plugin_importing_another_third_party_module_fails(
+    module: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(_source_tree(tmp_path), "combine/operators/extract.py", f"import {module}\n")
+    assert _flags(_offenders(tmp_path, monkeypatch), "combine/operators/extract.py")
+
+
+def test_the_core_importing_re2_fails(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(_source_tree(tmp_path), "combine/endpoint.py", "import re2\n")
+    assert _flags(_offenders(tmp_path, monkeypatch), "combine/endpoint.py")

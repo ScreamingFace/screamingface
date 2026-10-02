@@ -42,6 +42,10 @@ dependencies = [
     "nltk>=3.9.1",
     "opentelemetry-sdk>=1.30.0",
     "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    # --- the combine regex@1 operator (OME-1289): the linear-time RE2 engine, so no pattern an
+    # author writes can freeze a worker. The only third-party module a combine plugin may import
+    # (.claude/scripts/check_layering.py COMBINE_PLUGIN_THIRD_PARTY).
+    "google-re2>=1.1,<2",
 ]
 
 [project.scripts]
