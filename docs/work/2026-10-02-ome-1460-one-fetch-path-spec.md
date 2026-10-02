@@ -1,9 +1,9 @@
 ---
 ticket: OME-1460
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-02
-finished:
+finished: 2026-10-02
 ---
 
 # ome-1460-one-fetch-path-spec — the spec and plan for one Case Preparation path
@@ -47,8 +47,8 @@ plan defines (spec before plan before code).
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned.
-- **Commits:** filled at PR-open.
-- **Gates:** `run_gates.py repo` (filled at PR-open); mermaid renders checked with `mmdc`.
+- **Commits:** `5832a20b9` docs(screamingface-engine): spec and plan for one Case Preparation path; plus the ledger-close commit.
+- **Gates:** `run_gates.py repo` ALL GATES GREEN (append-only, run_gates tests, mirror-status tests, pre-push tests, loop parity, mirror status). The three mermaid diagrams rendered with `mmdc` 11.14.0 and read: stacked lanes, strictly downward flow, no overlaps. Every symbol the spec names was printed from `main` `ec11a0608` (`BENCHMARK_CASES` 28 rows; `_revision_pins`, `_task_replay_pins`, `_cases_declaration`; `CaseSourceRecorder.install`, `PRIMITIVES`; `replay_environment`, `prepare_replayed_cases`; `captured_case_records`; `read_inspect_task` and its four `TaskReplayRoute` sites; `test_published_revisions.py` 18 literals; `test_inverted_grade.py:82`), the 19 task files at inspect_evals 0.20.0 (every `*_DATASET_REVISION` equals our pin; `shuffle`/`seed`/`shuffle_choices`/`system_message`/`.filter` per task), inspect_ai 0.3.263 `hf.py:122-221` (`revision` forwarded to `load_dataset`; cache bypassed when `revision` is set), the CI image job's strict and token flags, and the paid inspect smoke lane. Owner-verify: approve the spec before any plan task starts; the open questions and D1–D8 need an answer before PR A / PR B1.
 - **Deviations:** the facts the reading contradicted, each carried into the spec:
   - the ticket's "27 Benchmarks" are 28 rows of `BENCHMARK_CASES` (xstest's two rows
     counted once); the spec and acceptance count rows, 28;
