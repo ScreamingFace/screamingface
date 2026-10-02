@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 import pytest
 from combine_flow_support import judge_spec
-from combine_support import spec_text
+from combine_support import spec_text, vote_spec
 
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
@@ -85,7 +85,9 @@ def _fusion_context(*, with_judge: bool) -> str:
     return render(struct(body))
 
 
-def _expression(judge_path: str) -> str:
+def _expression(
+    judge_path: str, *, spec: dict[str, Any] | None = None, template: str = _TEMPLATE
+) -> str:
     """Three members, a judge on ``judge_path``, and the combine synthesis (the compiled shape)."""
     members = [
         src(
@@ -99,7 +101,7 @@ def _expression(judge_path: str) -> str:
         RelExpr(
             path=judge_path,
             context=_fusion_context(with_judge=False),
-            intent=Text(_TEMPLATE),
+            intent=Text(template),
             params=(("binding", "judge_1"),),
         ),
         name="judge_1",
@@ -109,7 +111,7 @@ def _expression(judge_path: str) -> str:
         RelExpr(
             path=COMBINE_ROUTE,
             context=_fusion_context(with_judge=True),
-            intent=Text(spec_text(judge_spec(3, "label"))),
+            intent=Text(spec_text(judge_spec(3, "label") if spec is None else spec)),
             params=(("binding", "synthesis_1"),),
         ),
         name="synthesis_1",
@@ -118,7 +120,13 @@ def _expression(judge_path: str) -> str:
     return render(expr(*members, judge, synthesis, intent=text("$synthesis_1")))
 
 
-async def _evaluate(responder: Callable[[httpx.Request], httpx.Response], judge_path: str) -> Any:
+async def _evaluate(
+    responder: Callable[[httpx.Request], httpx.Response],
+    judge_path: str,
+    *,
+    spec: dict[str, Any] | None = None,
+    template: str = _TEMPLATE,
+) -> Any:
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(responder), base_url="http://aigateway.test"
     )
@@ -130,7 +138,8 @@ async def _evaluate(responder: Callable[[httpx.Request], httpx.Response], judge_
     )
     install_combine_runtime(world.node, BUILTIN_OPERATORS)
     try:
-        return await evaluate_candidate_recipe(world.node, _expression(judge_path), "what is it?")
+        expression = _expression(judge_path, spec=spec, template=template)
+        return await evaluate_candidate_recipe(world.node, expression, "what is it?")
     finally:
         await world.aclose()
         await client.aclose()
@@ -231,3 +240,49 @@ async def test_catalog_lists_the_judge_operators() -> None:
         "by_label@1": "select",
         "max_score@1": "select",
     }.items() <= stages.items()
+
+
+@pytest.mark.asyncio
+async def test_vote_weighted_by_judge_scores_in_the_engine_world() -> None:
+    """SR#11: the judge reply is read as score:judge, so it weights a vote; no judge evidence."""
+    spec = vote_spec(
+        3,
+        extract={"op": "last_number@1", "args": {}},
+        normalize={"op": "numeric@1", "args": {}},
+        reduce={"op": "weighted_mode@1", "args": {}},
+        select={"op": "max_weight_holder@1", "args": {}},
+        weights={"signal": "score:judge"},
+    )
+    reply = '{"member_1": 1, "member_2": 5, "member_3": 3}'
+    answers = {"provider/alpha": "alpha says 12", "provider/beta": "beta says 7"}
+    answers["provider/gamma"] = "gamma says 12"
+    seen: list[dict[str, Any]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append(body)
+        return _completion(reply if _is_judge_call(body) else answers[body["model"]])
+
+    encoded = await _evaluate(
+        respond,
+        "/provider/alpha",
+        spec=spec,
+        template="judge-template@1 returns=scores. Score each answer.",
+    )
+
+    decoded = decode_candidate_invocation_record(encoded)
+    assert decoded.output == "beta says 7"
+    assert decoded.operations is not None
+    by_id = {operation.operation_id: operation for operation in decoded.operations}
+    combine = by_id["op_synthesis_1"].combine
+    assert combine is not None
+    assert combine.tally is not None
+    assert [(r.value, r.score, r.holders) for r in combine.tally] == [
+        ("7", 5.0, ["member_2"]),
+        ("12", 4.0, ["member_1", "member_3"]),
+    ]
+    assert [m.signals["score:judge"] for m in combine.members] == [1.0, 5.0, 3.0]
+    assert combine.judge is None
+    assert by_id["op_judge_1"].output == reply
+    assert sum(_is_judge_call(body) for body in seen) == 1
+    assert all("binding" not in body for body in seen)

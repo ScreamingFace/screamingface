@@ -6,21 +6,28 @@ INVARIANT: no iteration order of a dict or set, and no hash seed, reaches an out
 
 from __future__ import annotations
 
-from combine_judge_scenarios import label_scenario, scores_scenario
+from combine_judge_scenarios import label_scenario, score_weight_scenario, scores_scenario
 from hash_seed_support import stdout_across_seeds
 
 _SEEDS = range(20)
 _SCRIPT = (
-    "from combine_judge_scenarios import label_scenario, scores_scenario\n"
+    "from combine_judge_scenarios import label_scenario, score_weight_scenario, scores_scenario\n"
     "print(scores_scenario(), end='\\0')\n"
-    "print(label_scenario(), end='')\n"
+    "print(label_scenario(), end='\\0')\n"
+    "print(score_weight_scenario(), end='')\n"
 )
 
 
 def test_judge_reducers_are_identical_across_hash_seeds() -> None:
-    expected = scores_scenario() + "\0" + label_scenario()
+    expected = scores_scenario() + "\0" + label_scenario() + "\0" + score_weight_scenario()
     assert set(stdout_across_seeds(_SCRIPT, _SEEDS)) == {expected}
 
 
 def test_the_scores_scenario_picks_the_first_of_the_tied_members() -> None:
     assert scores_scenario().startswith("member 4: ")
+
+
+def test_the_score_weight_scenario_ties_two_rows_and_picks_the_first_holder() -> None:
+    result = score_weight_scenario()
+    assert result.startswith("member 1: ")
+    assert '"tie":true' in result

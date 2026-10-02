@@ -18,6 +18,7 @@ from screamingface._signals import (
     ACCOUNTING_SIGNALS,
     FIELD_PATH,
     FIELD_SIGNAL_PREFIX,
+    JUDGE_SIGNAL,
     is_signal_key,
 )
 
@@ -53,12 +54,13 @@ def test_sdk_field_path_and_accounting_keys_match_the_engine_ports() -> None:
 
     for name in ("_FIELD_KEY", "_FIELD_INDEX", "FIELD_PATH"):
         assert _segment(_ENGINE_PORTS, engine[name]) == _segment(_SDK_SIGNALS, sdk[name]), name
-    for name in ("ACCOUNTING_SIGNALS", "FIELD_SIGNAL_PREFIX"):
+    for name in ("ACCOUNTING_SIGNALS", "FIELD_SIGNAL_PREFIX", "JUDGE_SIGNAL"):
         assert ast.literal_eval(engine[name]) == ast.literal_eval(sdk[name]), name
     assert _FIELD_KEY == r"[A-Za-z_][A-Za-z0-9_]*"
     assert _FIELD_INDEX == r"\[(?:0|[1-9][0-9]*)\]"
     assert ACCOUNTING_SIGNALS == ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
     assert FIELD_SIGNAL_PREFIX == "field:"
+    assert JUDGE_SIGNAL == "score:judge"
     assert FIELD_PATH.fullmatch("a.b[0]") and not FIELD_PATH.fullmatch("a..b")
 
 
@@ -95,9 +97,6 @@ def _elements(node: ast.expr) -> list[object]:
 def test_sdk_signal_key_corpus_agrees_with_the_engine_corpus() -> None:
     accepted, rejected = _engine_corpus()
 
-    assert "field:a.b[0]" in accepted and "logprob_mean" in rejected
+    assert "field:a.b[0]" in accepted and "score:judge" in accepted and "logprob_mean" in rejected
     assert all(is_signal_key(key) for key in accepted)
-    # `score:judge` is accepted by the SDK now (I-S1) and by the Engine from unit 8E, so it is the
-    # one key the two corpora are allowed to disagree on.
-    assert not any(is_signal_key(key) for key in rejected if key != "score:judge")
-    assert is_signal_key("score:judge")
+    assert not any(is_signal_key(key) for key in rejected)
