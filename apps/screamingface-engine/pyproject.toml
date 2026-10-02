@@ -131,6 +131,7 @@ extend-exclude = [
     "src/screamingface_engine/benchmarks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
+    "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
 [tool.ruff.lint]
@@ -159,6 +160,7 @@ ignore = [
     "src/screamingface_engine/benchmarks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
+    "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
 [tool.pytest.ini_options]
@@ -183,6 +185,7 @@ omit = [
     "src/screamingface_engine/benchmarks/ifeval/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor/*",
+    "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
 [dependency-groups]
