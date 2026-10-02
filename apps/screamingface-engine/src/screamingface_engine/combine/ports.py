@@ -32,7 +32,7 @@ import copy
 import json
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from types import MappingProxyType
@@ -455,6 +455,65 @@ def field_signal_value(text: str, path: str) -> float | None:
     return float(value) if isinstance(value, bool) else finite_float(value)
 
 
+# --- judge replies ----------------------------------------------------------------------------
+JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU conformance)
+MAX_JUDGE_REPLY_BYTES = 64 * 1024
+_SCORES_INVALID = "the judge reply is not one JSON object with a finite score for each member"
+_JUDGE_REPLY_TOO_LARGE = "the judge reply exceeds 64 KiB"
+
+
+def judge_reply(signals: Mapping[str, str], owner: str) -> str:
+    """The context's ``judge`` text that ``owner`` (an op id, or score:judge) reads.
+
+    SpecInvalid(f"{owner} needs the judge signal") when absent; JudgeReplyInvalid over 64 KiB.
+    """
+    raw = signals.get("judge")
+    if raw is None:
+        raise SpecInvalid(f"{owner} needs the judge signal")
+    if utf8_exceeds(raw, MAX_JUDGE_REPLY_BYTES):
+        raise JudgeReplyInvalid(_JUDGE_REPLY_TOO_LARGE)
+    return raw
+
+
+def _unfenced_judge_reply(text: str) -> str:
+    """``text`` itself, or the body of it when the WHOLE reply is one fence (no tag or ``json``)."""
+    fence = _FENCE_CLOSE
+    if not (text.startswith(fence) and text.endswith(fence) and len(text) >= 2 * len(fence)):
+        return text
+    tag, newline, body = text[len(fence) : -len(fence)].partition("\n")
+    if not newline or tag.strip() not in ("", "json"):
+        raise JudgeReplyInvalid(_SCORES_INVALID)
+    return body
+
+
+def _judge_score(value: object) -> float:
+    """A JSON number (never a bool) as a finite float."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise JudgeReplyInvalid(_SCORES_INVALID)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise JudgeReplyInvalid(_SCORES_INVALID) from exc
+    if not math.isfinite(number):
+        raise JudgeReplyInvalid(_SCORES_INVALID)
+    return number
+
+
+def parse_scores(raw: str, members: Sequence[str]) -> dict[str, float]:
+    """One finite score for each member, in author order; the reply's key order is ignored."""
+    try:
+        decoded = loads_bounded(_unfenced_judge_reply(raw.strip()), unique_keys=True)
+    except ValueError as exc:
+        raise JudgeReplyInvalid(_SCORES_INVALID) from exc
+    if (
+        not isinstance(decoded, dict)
+        or len(decoded) != len(members)
+        or set(decoded) != set(members)
+    ):
+        raise JudgeReplyInvalid(_SCORES_INVALID)
+    return {member: _judge_score(decoded[member]) for member in members}
+
+
 @dataclass(frozen=True, slots=True)
 class SignalRead:
     """The one signal a spec reads, and the order a reducer asked for (None: no order)."""
@@ -558,7 +617,9 @@ __all__ = [
     "DECIMAL_CONTEXT",
     "FIELD_PATH",
     "FIELD_SIGNAL_PREFIX",
+    "JUDGE_SIGNAL",
     "MAX_JSON_DEPTH",
+    "MAX_JUDGE_REPLY_BYTES",
     "READING_TO_ANSWER",
     "STAGES",
     "AbstainReason",
@@ -605,8 +666,10 @@ __all__ = [
     "finite_float",
     "is_signal_key",
     "json_depth",
+    "judge_reply",
     "loads_bounded",
     "no_args",
+    "parse_scores",
     "rejected",
     "utf8_exceeds",
     "walk_field_path",

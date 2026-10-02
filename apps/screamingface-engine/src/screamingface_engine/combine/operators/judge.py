@@ -12,19 +12,21 @@ INVARIANT: each operator is pure and holds no mutable state; there is NO fallbac
 parse failure always raises). A message names the rule, never the judge's text.
 WHY not ``shared_grading/judge_evidence.py``: that parser is lenient on presentation and its
 failures are retryable. Here the format is the contract, and the failure is permanent.
+WHY the scores parse is in ports: the core reads ``score:judge`` with the same parser (OME-1289 gap
+SG#13); ``parse_label`` stays here.
 AIDEV-NOTE: the label format, the whole-reply fence rule and the 64 KiB cap are v1 behavior
 pinned by the golden fixtures. A change is a new ``@version``, never an edit.
 """
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Sequence
 from decimal import Decimal
 from types import MappingProxyType
 
 from screamingface_engine.combine.ports import (
+    MAX_JUDGE_REPLY_BYTES,
     CombineInput,
     JudgeReading,
     JudgeReplyInvalid,
@@ -33,15 +35,11 @@ from screamingface_engine.combine.ports import (
     Reduction,
     Selection,
     SpecInvalid,
-    loads_bounded,
-    utf8_exceeds,
+    judge_reply,
+    parse_scores,
 )
 
-MAX_JUDGE_REPLY_BYTES = 64 * 1024
 _LABEL_INVALID = "the judge reply is not exactly one member id"
-_SCORES_INVALID = "the judge reply is not one JSON object with a finite score for each member"
-_TOO_LARGE = "the judge reply exceeds 64 KiB"
-_FENCE = "```"
 # WHY only this form: it is what numeric@1 writes (see reduce.py `_CANONICAL_NUMBER`).
 _CANONICAL_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 
@@ -54,56 +52,9 @@ def parse_label(raw: str, members: Sequence[str]) -> str:
     return label
 
 
-def _unfenced(text: str) -> str:
-    """``text`` itself, or the body of it when the WHOLE reply is one fence (no tag or ``json``)."""
-    if not (text.startswith(_FENCE) and text.endswith(_FENCE) and len(text) >= 2 * len(_FENCE)):
-        return text
-    tag, newline, body = text[len(_FENCE) : -len(_FENCE)].partition("\n")
-    if not newline or tag.strip() not in ("", "json"):
-        raise JudgeReplyInvalid(_SCORES_INVALID)
-    return body
-
-
-def _score(value: object) -> float:
-    """A JSON number (never a bool) as a finite float."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise JudgeReplyInvalid(_SCORES_INVALID)
-    try:
-        number = float(value)
-    except OverflowError as exc:
-        raise JudgeReplyInvalid(_SCORES_INVALID) from exc
-    if not math.isfinite(number):
-        raise JudgeReplyInvalid(_SCORES_INVALID)
-    return number
-
-
-def parse_scores(raw: str, members: Sequence[str]) -> dict[str, float]:
-    """One finite score for each member, in author order; the reply's key order is ignored."""
-    try:
-        decoded = loads_bounded(_unfenced(raw.strip()), unique_keys=True)
-    except ValueError as exc:
-        raise JudgeReplyInvalid(_SCORES_INVALID) from exc
-    if (
-        not isinstance(decoded, dict)
-        or len(decoded) != len(members)
-        or set(decoded) != set(members)
-    ):
-        raise JudgeReplyInvalid(_SCORES_INVALID)
-    return {member: _score(decoded[member]) for member in members}
-
-
-def _judge_text(combine_input: CombineInput, op_id: str) -> str:
-    raw = combine_input.signals.get("judge")
-    if raw is None:
-        raise SpecInvalid(f"{op_id} needs the judge signal")
-    if utf8_exceeds(raw, MAX_JUDGE_REPLY_BYTES):
-        raise JudgeReplyInvalid(_TOO_LARGE)
-    return raw
-
-
 def label(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """The member the judge named. Any spec member is valid: the judge saw every text."""
-    raw = _judge_text(combine_input, "label@1")
+    raw = judge_reply(combine_input.signals, "label@1")
     return Reduction(judge=JudgeReading(raw, "label", parse_label(raw, combine_input.members)))
 
 
@@ -120,7 +71,7 @@ def scores(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """One score per member: from a strict judge reply, or from the voters' numeric values."""
     if args["source"] == "values":
         return _value_scores(combine_input)
-    raw = _judge_text(combine_input, "scores@1")
+    raw = judge_reply(combine_input.signals, "scores@1")
     parsed = parse_scores(raw, combine_input.members)
     return Reduction(
         scores=MappingProxyType({member: Decimal(repr(score)) for member, score in parsed.items()}),
