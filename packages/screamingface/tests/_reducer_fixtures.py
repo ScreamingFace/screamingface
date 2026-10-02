@@ -12,7 +12,7 @@ import httpx
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
-from screamingface.reducer import Reducer, _ReducerKind, _ReducerName, _Step, _Steps
+from screamingface.reducer import Reducer, _ReducerPlan, _Step, _Steps
 
 
 def _entry(name: str, version: int, stage: str) -> dict[str, object]:
@@ -79,24 +79,14 @@ class FixtureVote(Reducer):
         object.__setattr__(self, "weights", weights)
         object.__setattr__(self, "extract_args", extract_args)
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "vote"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "answer"
-
-    def _steps(self) -> _Steps:
-        return _Steps(
+    def _plan(self) -> _ReducerPlan:
+        steps = _Steps(
             extract=_Step(self.extract, self.extract_args),
             normalize=None if self.normalize is None else _Step(self.normalize),
             reduce=_Step("mode"),
             select=_Step("first_holder"),
         )
-
-    def _weights(self) -> tuple[float, ...] | None:
-        return self.weights
+        return _ReducerPlan("vote", "answer", steps, self.weights)
 
     def _check_members(self, count: int) -> None:
         if self.weights is not None and len(self.weights) != count:
@@ -138,16 +128,10 @@ class FixtureJudgeish(Reducer):
     def __init__(self) -> None:
         object.__setattr__(self, "name", "judge")
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "judge"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "answer"
-
-    def _steps(self) -> _Steps:
-        return _Steps(reduce=_Step("median"), select=_Step("value"))
+    def _plan(self) -> _ReducerPlan:
+        return _ReducerPlan(
+            "judge", "answer", _Steps(reduce=_Step("median"), select=_Step("value"))
+        )
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> FixtureJudgeish:

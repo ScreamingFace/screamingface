@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -28,7 +29,7 @@ from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface.operation import OperationInfo
-from screamingface.reducer import Reducer, _Step
+from screamingface.reducer import Reducer, _ReducerPlan, _Step
 from screamingface.url4 import _calls
 
 _TESTS = Path(__file__).parent
@@ -206,9 +207,8 @@ def test_reducer_without_catalog_fails_and_bad_specs_are_refused() -> None:
         compile_candidate(reducer_fusion())
 
     class Bogus(FixtureVote):
-        @property
-        def _reducer(self) -> str:  # type: ignore[override]
-            return "bogus"
+        def _plan(self) -> _ReducerPlan:
+            return dataclasses.replace(super()._plan(), reducer="bogus")  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="'bogus' is not a known reducer"):
         compile_candidate(

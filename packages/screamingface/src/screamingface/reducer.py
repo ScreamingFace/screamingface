@@ -40,6 +40,20 @@ class _Steps:
     normalize: _Step | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ReducerPlan:
+    """What a reducer compiles to: the combine spec minus its member list, with unpinned ops.
+
+    SEAM (OME-1289 gap, block-api delta 1): sf.Reduce builds one now; the named reducers (unit 5+)
+    build one too, so a block and its named form compile to the same bytes.
+    """
+
+    reducer: _ReducerName
+    kind: _ReducerKind
+    steps: _Steps
+    weights: tuple[float, ...] | None = None
+
+
 class Reducer(ABC):
     """Non-constructible umbrella type for deterministic Fusion synthesizers.
 
@@ -48,27 +62,19 @@ class Reducer(ABC):
 
     name: str
 
-    @property
     @abstractmethod
-    def _reducer(self) -> _ReducerName:
-        """The spec ``reducer`` value."""
-
-    @property
-    @abstractmethod
-    def _kind(self) -> _ReducerKind:
-        """answer | selection | projection (read by the later selection compile checks)."""
-
-    @abstractmethod
-    def _steps(self) -> _Steps:
-        """Unpinned operator steps; the compiler pins them against the Engine catalog."""
+    def _plan(self) -> _ReducerPlan:
+        """The reducer name, kind (answer | selection | projection), unpinned operator steps and
+        weights; the compiler pins the steps against the Engine catalog."""
 
     @classmethod
     @abstractmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Reducer:
         """Rebuild an equal reducer (pinned ids) from a decoded combine spec."""
 
-    def _weights(self) -> tuple[float, ...] | None:
-        return None
+    def _python(self) -> str:
+        """The ``sf.`` source that rebuilds this reducer (read by ``Url4.to_python``)."""
+        return f"sf.{self!r}"
 
     def _check_members(self, count: int) -> None:
         """Raise ValueError when this reducer cannot serve ``count`` members (Fusion build time)."""

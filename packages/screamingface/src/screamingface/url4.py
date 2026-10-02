@@ -265,7 +265,7 @@ def _render_topology(
     elif value.kind in {"corrective_loop", "self_corrective"}:
         lines = _render_corrective_topology(value, calls, indent=indent)
     elif value.kind == "reducer":
-        lines = [f"{' ' * indent}sf.{_reducer_from_call(calls[value.binding])!r}"]
+        lines = [f"{' ' * indent}{_reducer_from_call(calls[value.binding])._python()}"]
     else:
         lines = _render_fusion_topology(value, calls, indent=indent)
     if value.optional:

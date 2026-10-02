@@ -41,16 +41,17 @@ def canonical_json(value: object) -> str:
 def combine_spec_text(reducer: Reducer, *, member_count: int, operators: _OperatorCatalog) -> str:
     """Build the canonical combine spec for ``reducer`` with every operator pinned."""
 
-    if reducer._reducer not in REDUCER_NAMES:
-        raise ValueError(f"{reducer._reducer!r} is not a known reducer")
-    steps = reducer._steps()
-    weights = reducer._weights()
+    plan = reducer._plan()
+    if plan.reducer not in REDUCER_NAMES:
+        raise ValueError(f"{plan.reducer!r} is not a known reducer")
+    steps = plan.steps
+    weights = plan.weights
     if weights is not None and len(weights) != member_count:
         raise ValueError(f"{reducer.name} has {len(weights)} weights for {member_count} members")
     members = [f"member_{index}" for index in range(1, member_count + 1)]
     spec = {
         "schema": COMBINE_SPEC_SCHEMA,
-        "reducer": reducer._reducer,
+        "reducer": plan.reducer,
         "members": members,
         "extract": _pinned_step("extract", steps.extract, operators),
         "normalize": _pinned_step("normalize", steps.normalize, operators),
