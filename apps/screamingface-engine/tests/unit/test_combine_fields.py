@@ -18,8 +18,10 @@ from combine_flow_support import find_builtin
 from combine_golden_support import combine_input, member_readings, stage
 from combine_support import context_text, run, spec_text
 
+from screamingface_engine.combine import ports
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.evidence import ResultRecord
+from screamingface_engine.combine.operators import extract
 from screamingface_engine.combine.ports import NoVotes, Reduction, SpecInvalid, canonical_json
 
 _PICK_TEXTS = (
@@ -70,21 +72,29 @@ def _status_reason(outcome: Any, index: int) -> tuple[str, str | None]:
 # --- json_object@1 ----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ('{"a": 1, "b": [2, 3]}', '{"a":1,"b":[2,3]}'),
-        ('  {"b": "x", "a": null}  ', '{"a":null,"b":"x"}'),
-        ('Sure:\n```json\n{"a": 1}\n```', '{"a":1}'),
-        ('```json\n{"a": 1}\n```\nno, rather\n```json\n{"a": 2}\n```', '{"a":2}'),
-        ("{}", "{}"),
-        ('{"é": "ü"}', '{"é":"ü"}'),
-        ('{"a":1,"a":2}', '{"a":2}'),
-    ],
-)
+_OBJECT_CASES = [
+    ('{"a": 1, "b": [2, 3]}', '{"a":1,"b":[2,3]}'),
+    ('  {"b": "x", "a": null}  ', '{"a":null,"b":"x"}'),
+    ('Sure:\n```json\n{"a": 1}\n```', '{"a":1}'),
+    ('```json\n{"a": 1}\n```\nno, rather\n```json\n{"a": 2}\n```', '{"a":2}'),
+    ("{}", "{}"),
+    ('{"é": "ü"}', '{"é":"ü"}'),
+    ('{"a":1,"a":2}', '{"a":2}'),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), _OBJECT_CASES)
 def test_json_object_reads_a_whole_or_fenced_object(text: str, expected: str) -> None:
     result = stage("json_object@1", text)
     assert (result.status, result.value) == ("voted", expected)
+
+
+def test_json_object_reads_through_the_ports_json_reply() -> None:
+    """9E F1: the reply is decoded by the ports helper, not by a copy kept in the extractor."""
+    assert not hasattr(extract, "_decode")
+    assert extract.decode_json_reply is ports.decode_json_reply
+    for text, _ in _OBJECT_CASES:
+        assert stage("json_object@1", text).value == canonical_json(ports.decode_json_reply(text))
 
 
 @pytest.mark.parametrize(
@@ -216,6 +226,15 @@ def _raised(call: Any) -> NoVotes:
     with pytest.raises(NoVotes) as caught:
         call()
     return caught.value
+
+
+def test_values_field_is_a_field_path() -> None:
+    """9E F7: the compared field is the json_field@1 path, so it is a url4 field path."""
+    descriptor = find_builtin("values@1")
+    for field in ("a b", "a..b"):
+        with pytest.raises(SpecInvalid):
+            descriptor.check_args({"field": field})
+    descriptor.check_args({"field": "a.b[0]"})
 
 
 # --- PM-10 ------------------------------------------------------------------------------------

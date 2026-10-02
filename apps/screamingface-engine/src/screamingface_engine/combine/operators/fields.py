@@ -33,6 +33,7 @@ from typing import Any
 
 from screamingface_engine.combine.operators.normalize import numeric, text
 from screamingface_engine.combine.ports import (
+    FIELD_PATH,
     Answer,
     CombineInput,
     FieldReading,
@@ -121,7 +122,7 @@ def _check_values_args(args: OpArgs) -> None:
     if (
         set(args) != {"field"}
         or not isinstance(field, str)
-        or not field.strip()
+        or FIELD_PATH.fullmatch(field) is None
         or len(field) > _MAX_PATH_CHARS
     ):
         raise SpecInvalid('values@1 takes exactly {"field": <field path>}')

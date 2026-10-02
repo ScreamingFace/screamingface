@@ -238,6 +238,46 @@
    "expect": {
     "error": "combine_spec_invalid"
    }
+  },
+  {
+   "name": "a field that is not a field path",
+   "args": {
+    "field": "a b"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "1",
+      "value": "1",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "a field path with an empty key",
+   "args": {
+    "field": "a..b"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "1",
+      "value": "1",
+      "status": "voted",
+      "weight": null
+     }
+    ]
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
   }
  ]
 }
