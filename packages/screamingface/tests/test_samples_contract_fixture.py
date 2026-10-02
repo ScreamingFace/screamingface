@@ -20,7 +20,8 @@ from _reducer_fixtures import FixtureVote, _entry
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface._evaluation.operators import decode_operator_catalog
+from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
+from screamingface.reducer import Reducer
 
 # parents[3] = the monorepo root (tests → screamingface → packages → root)
 _ENGINE_APP = Path(__file__).resolve().parents[3] / "apps" / "screamingface-engine"
@@ -37,8 +38,8 @@ _ENGINE_OPERATORS = {
 }
 
 
-def samples_vote_url4() -> str:
-    catalog = decode_operator_catalog(
+def _catalog() -> _OperatorCatalog:
+    return decode_operator_catalog(
         {
             "object": "list",
             "data": [
@@ -48,8 +49,15 @@ def samples_vote_url4() -> str:
             ],
         }
     )
-    recipe = sf.Fusion(sf.samples("prov/member-a", 5, temperature=0.7), synthesizer=FixtureVote())
-    return compile_candidate(recipe, operators=catalog).url4
+
+
+def _samples_url4(synthesizer: Reducer) -> str:
+    recipe = sf.Fusion(sf.samples("prov/member-a", 5, temperature=0.7), synthesizer=synthesizer)
+    return compile_candidate(recipe, operators=_catalog()).url4
+
+
+def samples_vote_url4() -> str:
+    return _samples_url4(FixtureVote())
 
 
 def write_fixture() -> None:
@@ -64,3 +72,23 @@ def test_engine_samples_fixture_matches_the_sdk_compiler() -> None:
     # app with a missing fixture must FAIL, not skip.
     assert _FIXTURE.exists(), "combine_contract/samples_vote_candidate.url4 moved — update the bind"
     assert _FIXTURE.read_text(encoding="utf-8").removesuffix("\n") == samples_vote_url4()
+
+
+@pytest.mark.parametrize(
+    "synthesizer",
+    [
+        sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric")),
+        sf.Vote(extract="last_number", normalize="numeric"),
+    ],
+    ids=["reduce-plurality", "vote"],
+)
+def test_block_form_samples_vote_compiles_to_the_engine_fixture(synthesizer: Reducer) -> None:
+    """A block and a named vote compile to the engine fixture byte for byte,
+    so the Engine's samples world tests run the block form too (BK#12 engine half).
+    """
+
+    url4 = _samples_url4(synthesizer)
+
+    assert url4 == samples_vote_url4()
+    if _ENGINE_APP.exists():
+        assert _FIXTURE.read_text(encoding="utf-8").removesuffix("\n") == url4
