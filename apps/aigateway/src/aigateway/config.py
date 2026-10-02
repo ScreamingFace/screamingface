@@ -233,6 +233,16 @@ class Settings(BaseSettings):
         default=1_000_000, gt=0, validation_alias="AIGW_DISCOVERY_MAX_BYTES"
     )
 
+    # FEATURE (OME-1217, OME-1453): routes whose server span is never exported — health-check
+    # probes by default. Raw comma-separated, anchored regexes over ROUTE TEMPLATES; `None` (unset)
+    # means the probe default `^/healthz$`, blank means exclude nothing. Parsed, never raising, by
+    # `span_exclusion.SpanExclusion.from_setting`.
+    # WHY not `OTEL_PYTHON_EXCLUDED_URLS`: operators set it cluster-wide with unanchored values for
+    # the stock instrumentors, which against route templates would drop real routes (`/v1/models`).
+    trace_excluded_routes: str | None = Field(
+        default=None, validation_alias="AIGW_TRACE_EXCLUDED_ROUTES"
+    )
+
     @model_validator(mode="after")
     def _reconcile_auth_mode(self) -> Settings:
         """Derive the mode from the legacy flag, and refuse a configuration that means both.

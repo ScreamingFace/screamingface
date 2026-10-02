@@ -5,17 +5,24 @@ FEATURE (OME-1217): `GET /healthz` was 60.2% of aigateway's spans in SigNoz (14,
 come from `middleware/call_id.py`, not `FastAPIInstrumentor`, so OTel's own exclusion knob had
 no effect until this module gave the middleware one.
 
-WHY `OTEL_PYTHON_EXCLUDED_URLS`, with OTel's semantics (comma-separated regexes, `re.search`):
-an operator who knows OTel already knows this knob, and a service that later adopts the stock
-instrumentation (the engine's control plane, OME-1218) reads the same value the same way.
-The one deliberate difference: the pattern is searched against the RESOLVED ROUTE TEMPLATE, not
-the raw URL — a raw path invites bypass via `/healthz/` or a query string, and matching the
-template means a parametrised route is excluded as one route, not as a family of paths.
+WHY a gateway-specific `AIGW_TRACE_EXCLUDED_ROUTES` (OME-1453), not OTel's
+`OTEL_PYTHON_EXCLUDED_URLS`: the list is searched against the RESOLVED ROUTE TEMPLATE, not the raw
+URL — a raw path invites bypass via `/healthz/` or a query string, and matching the template
+means a parametrised route is excluded as one route, not as a family of paths. That makes it a
+different knob from OTel's, and sharing OTel's name was a trap: operators set that variable
+cluster-wide with UNANCHORED values for the stock instrumentors (e.g. `healthz,models`), and read
+here such a value silently dropped real gateway routes like `/v1/models`. The format is otherwise
+OTel's (comma-separated regexes, `re.search`), and entries are meant to be ANCHORED (`^…$`).
 
 HOW (owner decision 2026-10-01, option A): the route is only known AFTER routing — FastAPI's
 nested `_IncludedRouter` resolves nothing before dispatch through any public API — so the span is
 built as usual, FLAGGED once routing has resolved a probe route (`mark_excluded`), and dropped at
 export by `DropExcludedSpans`. Built-but-never-exported is the cost of using public APIs only.
+
+AIDEV-NOTE: `OTEL_PYTHON_EXCLUDED_URLS` is NOT honoured here, deliberately (OME-1453) — do not
+"restore" it as a fallback. aigateway reads `AIGW_TRACE_EXCLUDED_ROUTES` through its `Settings`
+and hands the raw value to `SpanExclusion.from_setting`; `from_env` remains for callers without a
+settings object. Write entries anchored: an unanchored `models` matches `/v1/models`.
 
 AIDEV-NOTE: stdlib + `opentelemetry-sdk` only, no aigateway import, on purpose. Apps must not
 import each other's internals (see `logs.py`), so the engine's control plane (OME-1218: `url4.run`
@@ -35,7 +42,7 @@ from opentelemetry.trace import Span as ApiSpan
 
 logger = logging.getLogger(__name__)
 
-ENV_VAR = "OTEL_PYTHON_EXCLUDED_URLS"
+ENV_VAR = "AIGW_TRACE_EXCLUDED_ROUTES"
 
 EXCLUDED_ATTRIBUTE = "aigw.span.excluded"
 """The internal flag `DropExcludedSpans` drops on. Never exported: a flagged span is dropped."""
@@ -53,9 +60,14 @@ class SpanExclusion:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> SpanExclusion:
-        """Read the list from `env`.
+        """Read the list from `env[ENV_VAR]`; see `from_setting` for the semantics."""
+        return cls.from_setting(env.get(ENV_VAR))
 
-        - unset → the probe default;
+    @classmethod
+    def from_setting(cls, raw: str | None) -> SpanExclusion:
+        """Parse the raw setting value (comma-separated, anchored regexes over route templates).
+
+        - unset (`None`) → the probe default;
         - set but blank (or only commas) → exclude nothing — an operator can turn probe spans
           back on without a code change;
         - an invalid regex → the probe default, with a warning.
@@ -63,7 +75,6 @@ class SpanExclusion:
         INVARIANT: never raises. Like `tracing.install`, a telemetry misconfiguration must not
         stop an AI gateway from serving.
         """
-        raw = env.get(ENV_VAR)
         if raw is None:
             return cls._compile(DEFAULT_EXCLUDED_ROUTES)
         entries = tuple(entry.strip() for entry in raw.split(",") if entry.strip())
