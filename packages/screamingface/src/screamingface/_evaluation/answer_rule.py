@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import NoReturn, cast
+from typing import NoReturn
 
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
@@ -71,7 +71,7 @@ def _step_op(value: object, field: str, invalid: _Invalid) -> str:
             f"Benchmark answer_rule {field} args must be an empty object "
             "(v1 rules take no operator args)"
         )
-    return cast(str, op)
+    return op
 
 
 def resolve_benchmark_rule(

@@ -171,8 +171,12 @@ class Vote(Reducer):
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "normalize", _vote_normalize(extract, normalize))
 
+    @property
+    def _is_benchmark(self) -> bool:
+        return self.extract == BENCHMARK_EXTRACT
+
     def _plan(self) -> _ReducerPlan:
-        benchmark = self.extract == BENCHMARK_EXTRACT
+        benchmark = self._is_benchmark
         steps = _Steps(
             reduce=_Step("mode"),
             select=_Step("first_holder"),
@@ -195,7 +199,7 @@ class Vote(Reducer):
         return cls(extract=extract, normalize=ops["normalize"])
 
     def __repr__(self) -> str:
-        if self.extract == BENCHMARK_EXTRACT:
+        if self._is_benchmark:
             return f"Vote(extract={self.extract!r})"
         return f"Vote(extract={self.extract!r}, normalize={self.normalize!r})"
 
