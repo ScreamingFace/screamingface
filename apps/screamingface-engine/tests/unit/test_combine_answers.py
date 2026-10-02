@@ -225,7 +225,9 @@ def test_no_votes_is_an_internal_signal_that_checks_its_reason() -> None:
     assert str(NoVotes()) == "no_votes"
 
 
-def test_a_stage_plugin_that_raises_no_votes_is_a_plugin_bug() -> None:
+def test_a_stage_plugin_that_raises_no_votes_is_a_plugin_bug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     def extract(text: str, args: OpArgs, /) -> StageResult:
         raise NoVotes("not allowed here")
 
@@ -233,8 +235,11 @@ def test_a_stage_plugin_that_raises_no_votes_is_a_plugin_bug() -> None:
         (*FAKE_REGISTRY, OperatorDescriptor("fake_abstaining", 1, "extract", "t.", extract))
     )
     spec = vote_spec(2, extract={"op": "fake_abstaining@1", "args": {}})
-    with pytest.raises(NoVotes):
-        run(spec_text(spec), context_text(["a", "b"]), registry=registry)
+    with caplog.at_level("INFO", logger="screamingface_engine.combine.endpoint"):
+        with pytest.raises(NoVotes):
+            run(spec_text(spec), context_text(["a", "b"]), registry=registry)
+    lines = [r.getMessage() for r in caplog.records if r.name.endswith("combine.endpoint")]
+    assert len(lines) == 1 and lines[0].endswith("outcome=internal_error")
 
 
 # --- AB#20 ------------------------------------------------------------------------------------

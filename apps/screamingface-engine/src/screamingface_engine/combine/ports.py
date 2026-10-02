@@ -36,7 +36,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from types import MappingProxyType
-from typing import ClassVar, Literal, Protocol
+from typing import ClassVar, Literal, Protocol, cast
 
 Stage = Literal["extract", "normalize", "reduce", "select"]
 Reducer = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat"]
@@ -166,9 +166,8 @@ def answer_status(status: object) -> tuple[MemberStatus, AnswerReason | None]:
     A status that is not a str, or not a key of ``READING_TO_ANSWER``, is a plugin bug and raises
     ``RuntimeError``; there is never a default.
     """
-    for known, answer in READING_TO_ANSWER.items():
-        if known == status:
-            return answer
+    if isinstance(status, str) and status in READING_TO_ANSWER:
+        return READING_TO_ANSWER[cast("ReadingStatus", status)]
     raise RuntimeError("a combine stage returned an unknown status")
 
 
@@ -544,13 +543,13 @@ def utf8_exceeds(text: str, limit: int) -> bool:
 
 __all__ = [
     "ABSTAIN_REASONS",
+    "ACCOUNTING_SIGNALS",
     "DECIMAL_CONTEXT",
+    "FIELD_PATH",
+    "FIELD_SIGNAL_PREFIX",
     "MAX_JSON_DEPTH",
     "READING_TO_ANSWER",
     "STAGES",
-    "ACCOUNTING_SIGNALS",
-    "FIELD_PATH",
-    "FIELD_SIGNAL_PREFIX",
     "AbstainReason",
     "AccountingReader",
     "Answer",

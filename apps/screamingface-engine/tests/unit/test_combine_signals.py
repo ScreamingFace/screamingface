@@ -32,6 +32,7 @@ from screamingface_engine.combine.ports import (
     field_signal_value,
 )
 from screamingface_engine.combine.registry import OperatorRegistry
+from screamingface_engine.combine.spec import MAX_WEIGHT
 
 _MIB = 1024 * 1024
 _FIELD_C = {"signal": "field:c"}
@@ -71,7 +72,7 @@ def test_field_signal_reads_number_or_bool(reply: str, number: float | None) -> 
     assert row.signals == {"field:c": number}
     assert outcome.evidence.signal == SignalRecord(key="field:c", order=None)
     # The core sets the vote weight from the signal; zero, negative and None do not vote.
-    if number is not None and 0 < number <= 7e305:
+    if number is not None and 0 < number <= MAX_WEIGHT:
         assert row.weight == number
     else:
         assert row.weight is None
