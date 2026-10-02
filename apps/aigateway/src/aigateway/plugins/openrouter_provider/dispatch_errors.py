@@ -2,7 +2,9 @@
 
 INVARIANT: gateway-authored text only. No raw provider message, metadata or
 caller value reaches a client through these — an upstream failure is reported as
-a status plus a gateway code, and nothing else.
+a status plus a gateway code. The ONE exception (OME-1136, owner decision
+2026-10-02) is an embedded error's `error.message`, and only as the output of
+`core.provider_error_text` — screened, capped, and added as ADDITIVE fields.
 
 WHY separate from ``response_errors``: that module DETECTS an error inside a
 provider payload; this one CONSTRUCTS the gateway's answer to one. Keeping them
@@ -12,8 +14,11 @@ client-facing error.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from fastapi import HTTPException
 
+from aigateway.core.provider_error_text import relayed_detail, sanitize_upstream_text
 from aigateway.core.provider_errors import NonRetryableProviderError
 
 
@@ -112,11 +117,14 @@ def _response_conversion_exception() -> HTTPException:
     )
 
 
-def _embedded_error_exception(status: int | None) -> HTTPException:
+def _embedded_error_exception(
+    status: int | None, message: str | None = None, *, forbidden: Iterable[str] = ()
+) -> HTTPException:
     """Sanitized gateway error for an embedded provider failure.
 
-    Only the numeric status survives; raw provider message/metadata is
-    discarded. Malformed/status-less embedded errors map to 502 (D9).
+    The numeric status survives; the provider ``message`` survives only through
+    `core.provider_error_text` (OME-1136) — ``forbidden`` is the call's credential.
+    Other metadata is discarded. Malformed/status-less embedded errors map to 502 (D9).
 
     # INVARIANT (CODE-2): the upstream call already returned this payload, so
     # the error is non-retryable — an embedded 429/503/529 must make exactly
@@ -126,7 +134,7 @@ def _embedded_error_exception(status: int | None) -> HTTPException:
     """
     resolved = status if status is not None else 502
     code = "provider_error"
-    message = "OpenRouter reported a provider error"
+    generic = "OpenRouter reported a provider error"
     if resolved == 401:
         code = "auth_required"
     elif resolved == 400:
@@ -138,12 +146,16 @@ def _embedded_error_exception(status: int | None) -> HTTPException:
         # chat_dispatch.py's own status→code mapping, so it needs the same
         # dedicated code+message here.
         code = "insufficient_credits"
-        message = "The upstream provider reported insufficient credits."
+        generic = "The upstream provider reported insufficient credits."
     elif resolved == 429:
         code = "rate_limited"
     elif resolved >= 500 and status is not None:
         code = "provider_unavailable"
     return _EmbeddedProviderBodyError(
         status_code=resolved,
-        detail={"code": code, "message": message},
+        detail=relayed_detail(
+            {"code": code, "message": generic},
+            status=status,
+            upstream_message=sanitize_upstream_text(message, forbidden=forbidden),
+        ),
     )

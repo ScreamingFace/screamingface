@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 from fastapi import HTTPException, Request
@@ -23,6 +23,7 @@ from fastapi import HTTPException, Request
 from ..core.concurrency import effective_provider_limit, provider_slot
 from ..core.http_status import valid_http_error_status
 from ..core.provider_access import CredentialTarget, provider_access_for
+from ..core.provider_error_text import relayable_upstream_message, relayed_detail
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 from ..tracing import provider_span
 from .chat_accounting import note_conversion_failure
@@ -257,15 +258,19 @@ def _provider_error_code(status: int, *, validated: bool) -> str:
     return "provider_error"
 
 
-def _litellm_http_exception(exc: Exception) -> HTTPException:
+def _litellm_http_exception(exc: Exception, *, forbidden: Iterable[str] = ()) -> HTTPException:
     status = _sanitized_provider_status(exc)
     resolved = status if status is not None else 502
     code = _provider_error_code(resolved, validated=status is not None)
-    return HTTPException(
-        status_code=resolved,
-        detail={"code": code, "message": _PROVIDER_ERROR_MESSAGE[code]},
-        headers=_retry_after_headers(exc),
+    # FEATURE (OME-1136): the provider's own explanation, screened by `core.provider_error_text`
+    # and added as `upstream_status`/`upstream_message` + a composed `message`. `forbidden` is
+    # the call's credential (Gate 2). Unusable text -> today's detail, byte-identical.
+    detail = relayed_detail(
+        {"code": code, "message": _PROVIDER_ERROR_MESSAGE[code]},
+        status=status,
+        upstream_message=relayable_upstream_message(exc, forbidden=forbidden),
     )
+    return HTTPException(status_code=resolved, detail=detail, headers=_retry_after_headers(exc))
 
 
 def convert_provider_response(

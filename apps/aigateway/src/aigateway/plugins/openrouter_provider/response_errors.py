@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from aigateway.core.http_status import valid_http_error_status
+from aigateway.core.provider_error_text import message_from_error_object
 
 _ERROR_TYPES = frozenset(
     {
@@ -27,6 +28,10 @@ class EmbeddedOpenRouterError:
     found: bool = False
     status: int | None = None
     error_type: str | None = None
+    # OME-1136: the allowlisted, UN-sanitized provider text (`error.message`, or one level of
+    # `metadata.raw`). Only `_embedded_error_exception` may render it, through the screen.
+    # WHY repr=False: a repr lands in logs and assertion output; the text is unscreened here.
+    message: str | None = field(default=None, repr=False)
 
 
 def _embedded_error_status(error: Any) -> int | None:
@@ -66,6 +71,9 @@ def _with_error(current: EmbeddedOpenRouterError, error: Any) -> EmbeddedOpenRou
         found=True,
         status=current.status if current.status is not None else _embedded_error_status(error),
         error_type=current.error_type if current.error_type is not None else _error_type(error),
+        message=current.message
+        if current.message is not None
+        else message_from_error_object(error),
     )
 
 
@@ -79,6 +87,7 @@ def _with_first_raw_error(
         found=True,
         status=_embedded_error_status(error),
         error_type=_error_type(error),
+        message=message_from_error_object(error),
     )
 
 
@@ -108,6 +117,7 @@ def find_converted_error(payload: dict[str, Any]) -> EmbeddedOpenRouterError:
                     found=True,
                     status=result.status,
                     error_type=result.error_type,
+                    message=result.message,
                 )
     return result
 
@@ -130,6 +140,7 @@ def find_raw_error(payload: dict[str, Any]) -> EmbeddedOpenRouterError:
                 found=True,
                 status=result.status,
                 error_type=result.error_type,
+                message=result.message,
             )
     return result
 
