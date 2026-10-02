@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from screamingface_engine.combine.evidence import CombineEvidence
-from screamingface_engine.operation_accounting import OperationAccounting
+from screamingface_engine.operation_accounting import OperationAccounting, SignalAccounting
 from screamingface_engine.request_identity import ModelRequestKey, model_request_key
 
 
@@ -28,6 +28,10 @@ class OperationCall:
 
     ``combine`` is set only by :func:`record_combine_call`: a combine step is not a provider
     round trip, so its ``accounting`` is None and its ``finish_reason`` is ``stop``.
+
+    ``signal_accounting`` is the ORIGINAL call's cost, latency and tokens for combine signals
+    (a cache hit keeps the numbers of the call it replays). In-process only: it is never part of
+    ``accounting`` and never reaches the wire.
 
     ``params`` is the request's parameter set sorted by name — the half of the
     OME-843 attribution fingerprint that distinguishes two members on the same
@@ -40,6 +44,7 @@ class OperationCall:
     finish_reason: str | None
     accounting: OperationAccounting | None
     combine: CombineEvidence | None = None
+    signal_accounting: SignalAccounting | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +153,7 @@ def record_operation_call(
     output: str,
     finish_reason: str | None,
     accounting: OperationAccounting | None = None,
+    signal_accounting: SignalAccounting | None = None,
 ) -> None:
     """Publish one terminal call to every active scope, if an identity is bound."""
 
@@ -164,6 +170,7 @@ def record_operation_call(
             output=output,
             finish_reason=finish_reason,
             accounting=accounting,
+            signal_accounting=signal_accounting,
         )
         for recorder in _recorders.get():
             recorder.append(call)

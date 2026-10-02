@@ -12,7 +12,7 @@ import logging
 import math
 import random
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import NoReturn
@@ -48,7 +48,9 @@ from screamingface_engine.model_outcomes import bind_model_outcome, record_model
 from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
+    SignalAccounting,
     combine_operation_accounting,
+    combine_signal_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
 from screamingface_engine.request_scope import RequestScope, RequestScopeError, current_scope
@@ -62,6 +64,7 @@ from screamingface_engine.world.accounting import (
     avoided_usd_for_outcome,
     read_aigw,
     retained_operation_accounting,
+    signal_accounting_from_aigw,
 )
 from screamingface_engine.world.cache import attempt_body_field, with_cache_policy
 from screamingface_engine.world.cache_readback import (
@@ -177,6 +180,7 @@ async def _logged_round_trip(
     max_tokens: object | None,
     operation_accounting: list[OperationAccounting | None],
     replay_frozen_copy: str | None = None,
+    signal_accounting: list[SignalAccounting] | None = None,
 ) -> Choice:
     # FEATURE: OME-1161 exposes execution facts to optional, node-associated observers.
     async with ModelCall(real_model_id, current_log_sink()) as observation:
@@ -188,12 +192,13 @@ async def _logged_round_trip(
             cache=cache,
             max_tokens=max_tokens,
             operation_accounting=operation_accounting,
+            signal_accounting=signal_accounting,
             observation=observation,
             replay_frozen_copy=replay_frozen_copy,
         )
 
 
-async def _observed_round_trip(
+async def _observed_round_trip(  # noqa: PLR0915  # one optional line more for signal accounting
     http_client: httpx.AsyncClient,
     *,
     real_model_id: str,
@@ -204,6 +209,7 @@ async def _observed_round_trip(
     operation_accounting: list[OperationAccounting | None],
     observation: ModelCall,
     replay_frozen_copy: str | None,
+    signal_accounting: list[SignalAccounting] | None = None,
 ) -> Choice:
     """One gateway round trip with its lifecycle in the log.
 
@@ -231,6 +237,8 @@ async def _observed_round_trip(
             cache=outcome,
         )
         operation_accounting.append(retained)
+        if signal_accounting is not None:
+            signal_accounting.append(_signal_accounting(data.get("_aigw"), outcome))
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
@@ -245,6 +253,7 @@ async def _observed_round_trip(
             choice,
             max_tokens=max_tokens,
             accounting=operation_accounting,
+            signal_accounting=signal_accounting,
         )
     except (RunnerRequestError, ResolutionError) as exc:
         observation.failed(exc.code)
@@ -1286,6 +1295,7 @@ async def _chat_completion_loop(
     )
     sampling = model_params(params)
     operation_accounting: list[OperationAccounting | None] = []
+    signal_accounting: list[SignalAccounting] = []
     for _ in range(cfg.web_tool_max_iterations):
         # FEATURE (OME-1458): Attempt 2+ names itself to the gateway's cache on every round
         # trip of the turn; Attempt 1 adds nothing, so its body is byte-identical to before.
@@ -1305,6 +1315,7 @@ async def _chat_completion_loop(
             max_tokens=sampling.get("max_tokens"),
             operation_accounting=operation_accounting,
             replay_frozen_copy=scope.replay_frozen_copy,
+            signal_accounting=signal_accounting,
         )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
@@ -1317,6 +1328,7 @@ async def _chat_completion_loop(
                 content or "",
                 choice.finish_reason,
                 combine_operation_accounting(operation_accounting),
+                combine_signal_accounting(signal_accounting),
             )
             return content or ""
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
@@ -1352,11 +1364,24 @@ def _retained_operation_accounting(
         return None
 
 
+def _signal_accounting(aigw: object, cache: CacheOutcome) -> SignalAccounting:
+    """Fail-open: the ORIGINAL call's numbers for combine signals, or all None."""
+
+    try:
+        return signal_accounting_from_aigw(aigw, cache)
+    except Exception as exc:
+        # INVARIANT: same as `_retained_operation_accounting` -- optional bookkeeping over an
+        # already-consumed response, and the log names the exception type only.
+        logger.warning("signal accounting unavailable after %s", type(exc).__name__)
+        return SignalAccounting()
+
+
 def _raise_if_unusable_with_accounting(
     choice: Choice,
     *,
     max_tokens: object,
     accounting: list[OperationAccounting | None],
+    signal_accounting: Sequence[SignalAccounting] | None = None,
 ) -> None:
     """Classify one response while retaining a consumed provider refusal."""
 
@@ -1370,6 +1395,7 @@ def _raise_if_unusable_with_accounting(
                 "",
                 choice.finish_reason,
                 combine_operation_accounting(accounting),
+                None if signal_accounting is None else combine_signal_accounting(signal_accounting),
             )
         raise
 
