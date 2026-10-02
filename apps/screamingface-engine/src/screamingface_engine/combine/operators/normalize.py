@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
+from typing import cast
 
 from screamingface_engine.combine.operators._inspect_vendor import (
     _is_number,
@@ -81,14 +82,17 @@ def _listed(raw: str) -> list[str] | None:
         decoded = loads_bounded(raw)
     except ValueError:
         return None
-    if not isinstance(decoded, list):
-        return None
-    items = [_item_text(item) for item in decoded]
+    # the text starts with "[", so a valid JSON value is a list
+    items = [_item_text(item) for item in cast("list[object]", decoded)]
     return None if None in items else [item for item in items if item is not None]
 
 
 def set_(raw: str, args: OpArgs, /) -> StageResult:
-    """A JSON list (or comma text) as its sorted, casefolded, distinct items in canonical JSON."""
+    """A JSON list (or comma text) as its sorted, casefolded, distinct items in canonical JSON.
+
+    JSON numbers keep their canonical JSON spelling (``[1.0]`` -> ``"1.0"``), while comma text
+    ``1`` stays ``"1"``: the two spellings are two answers, as designed (F16).
+    """
     items = _listed(raw) if raw.lstrip().startswith("[") else raw.split(",")
     if items is None:
         return rejected("not_json")

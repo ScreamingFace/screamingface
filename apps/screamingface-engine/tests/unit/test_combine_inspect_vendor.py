@@ -69,3 +69,13 @@ def test_vendored_module_holds_only_listed_definitions() -> None:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             found.update(target.id for target in targets if isinstance(target, ast.Name))
     assert found == listed | _PINS
+
+
+def test_vendored_module_holds_only_plain_definitions() -> None:
+    # no class, branch, try block or bare call: nothing in the copy runs at import except bindings
+    allowed = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.Assign, ast.AnnAssign)
+    for index, node in enumerate(ast.parse(_vendor_path().read_text("utf-8")).body):
+        docstring = (
+            index == 0 and isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+        )
+        assert docstring or isinstance(node, allowed), ast.dump(node)[:80]
