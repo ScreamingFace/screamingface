@@ -88,9 +88,10 @@ Deviations from the spec text:
 
 - Row 3 is two tests, not one parametrized test: the four reduce cases check `fields is None`, the
   by_field case checks the kept `values@1` reading (F6).
-- F9: the evidence of a merge keeps each member's own text, so a whole-JSON `SECRET` check cannot
-  hold for the merge case. The test checks that `result` holds only the reason code, and for the
-  by_field target (which is not member text) that the whole evidence JSON holds no `SECRET`.
+- F9: the evidence keeps each member's extracted value (`members[].raw` and `value`, as
+  `evidence.py` allows), so a whole-JSON `SECRET` check cannot hold for the merge case. The test
+  checks every evidence key except `members`, and for the by_field target (which is not a member
+  value) that the whole evidence JSON holds no `SECRET`.
 
 Gates (base `e4a-judge-pick-engine`):
 
@@ -100,4 +101,4 @@ Gates (base `e4a-judge-pick-engine`):
 - screamingface (SDK): not run, no SDK file changed. repo: ALL GATES GREEN.
 
 Errata for the orchestrator: AB-D4 covers `majority`, `max` and `union` only. `from_member` null
-and a `model` `""` are values (F5).
+and a `model` `""` are values (F5). This erratum is already GE16 in the docs branch.
