@@ -15,7 +15,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import NoReturn
+from typing import Any, NoReturn
 from weakref import WeakKeyDictionary
 
 import httpx
@@ -198,7 +198,7 @@ async def _logged_round_trip(
         )
 
 
-async def _observed_round_trip(  # noqa: PLR0915  # one optional line more for signal accounting
+async def _observed_round_trip(
     http_client: httpx.AsyncClient,
     *,
     real_model_id: str,
@@ -230,15 +230,7 @@ async def _observed_round_trip(  # noqa: PLR0915  # one optional line more for s
         )
         data = _json_or_raise(resp)
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
-        retained = _retained_operation_accounting(
-            request_model=real_model_id,
-            usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
-            aigw=data.get("_aigw"),
-            cache=outcome,
-        )
-        operation_accounting.append(retained)
-        if signal_accounting is not None:
-            signal_accounting.append(_signal_accounting(data.get("_aigw"), outcome))
+        _retain_accounting(data, outcome, real_model_id, operation_accounting, signal_accounting)
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
@@ -1338,6 +1330,27 @@ async def _chat_completion_loop(
         code="web_tool_loop_limit",
         permanent=False,
     )
+
+
+def _retain_accounting(
+    data: Mapping[str, Any],
+    cache: CacheOutcome,
+    real_model_id: str,
+    operation_accounting: list[OperationAccounting | None],
+    signal_accounting: list[SignalAccounting] | None,
+) -> None:
+    """Keep one consumed response's retained accounting and, when asked, its signal accounting."""
+    usage = data.get("usage")
+    operation_accounting.append(
+        _retained_operation_accounting(
+            request_model=real_model_id,
+            usage=usage if isinstance(usage, dict) else None,
+            aigw=data.get("_aigw"),
+            cache=cache,
+        )
+    )
+    if signal_accounting is not None:
+        signal_accounting.append(_signal_accounting(data.get("_aigw"), cache))
 
 
 def _retained_operation_accounting(
