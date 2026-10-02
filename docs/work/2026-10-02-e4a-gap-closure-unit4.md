@@ -196,3 +196,9 @@ The branch was rebased by the orchestrator onto the final unit 3 tip (`1e356cb7d
 
 RED seen first: items 1, 2, 3, 4, 6, 7 (item 7 by temporarily restoring the old source). Items 5, 8
 and the nits changed tests or wording only and passed at once (item 5 was a rewrite of a vacuous test).
+
+Gates after the review round (base `e4a-engine-wiring-evidence`): `screamingface` once with the
+append-only check: `GATE FAILED`, only `tests/public_surface_snapshot.json` offends (the surface did
+not change in this round, the offender is the unit's own earlier regeneration); `screamingface
+--skip-append-only`, `screamingface-engine --skip-append-only` and `repo`: `ALL GATES GREEN`.
+SDK coverage 97 % (2490 passed, 26 skipped); `blocks.py` and `_regex_rule.py` 100 %.
