@@ -177,10 +177,12 @@ def evidence_wire(member_count: int = 3, **overrides: Any) -> dict[str, Any]:
         "operators": ["last_number@1", "numeric@1", "mode@1", "first_holder@1"],
         "members": [
             {
-                "member": member,
+                "member_id": member,
                 "raw": "12",
                 "value": "12",
-                "status": "voted",
+                "status": "answered",
+                "reason": None,
+                "signals": {},
                 "weight": 1.0,
                 "score": 1.0,
             }
@@ -196,6 +198,9 @@ def evidence_wire(member_count: int = 3, **overrides: Any) -> dict[str, Any]:
         "median": None,
         "presentation_order": None,
         "separator_collision": None,
+        "signal": None,
+        "result": {"member_id": "member_1", "value": "12", "status": "answered", "reason": None},
+        "dropped": 0,
         "finish_reason": "stop",
     }
     wire.update(copy.deepcopy(overrides))

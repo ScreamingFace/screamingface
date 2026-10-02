@@ -13,55 +13,124 @@ from typing import Literal, get_args
 
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
 from screamingface._report_primitives import _nonblank_text, _optional_number, _required_number
+from screamingface._signals import is_signal_key
+from screamingface.answer import (
+    _MEMBER_ID,
+    ABSTAIN_REASONS,
+    ANSWER_REASONS,
+    MEMBER_STATUSES,
+    SIGNAL_ORDERS,
+    AbstainReason,
+    AnswerReason,
+    MemberStatus,
+    SignalOrder,
+    frozen_signals,
+)
 from screamingface.reducer import REDUCER_KINDS, REDUCER_NAMES, _ReducerKind
 
 COMBINE_EVIDENCE_SCHEMA = "screamingface.combine-evidence.v1"
 
 type CombineKind = _ReducerKind
-type ReadingStatus = Literal[
-    "voted", "empty", "not_numeric", "not_json", "field_missing", "too_large"
-]
+type ResultStatus = Literal["answered", "abstain"]
 type JudgeReturns = Literal["label", "scores"]
 
 # One source for each vocabulary: the Literal is the list, the set is derived from it.
-_STATUSES = frozenset(get_args(ReadingStatus.__value__))
+_RESULT_STATUSES = frozenset(get_args(ResultStatus.__value__))
 _RETURNS = frozenset(get_args(JudgeReturns.__value__))
-_MEMBER_ID = re.compile(r"member_[1-9][0-9]*")
 _OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]*@[1-9][0-9]*")
 
 
 @dataclass(frozen=True, slots=True)
-class CombineMemberReading:
-    """What the combine step read from one member's answer."""
+class CombineAnswerRow:
+    """What the combine step read from one member's answer (the evidence Answer row, no text).
 
-    member: str
+    INVARIANT (I-E1): the member text lives on the member operation's own output, never here.
+    """
+
+    member_id: str
     raw: str | None
     value: str | None
-    status: ReadingStatus
+    status: MemberStatus
+    reason: AnswerReason | None
+    signals: Mapping[str, float | None]
     weight: float | None = None
     score: float | None = None
 
     def __post_init__(self) -> None:
-        _member_id(self.member, "Combine member reading member")
-        _optional_text(self.raw, "Combine member reading raw")
-        _optional_text(self.value, "Combine member reading value")
-        _one_of(self.status, _STATUSES, "Combine member reading status")
+        _member_id(self.member_id, "Combine answer row member_id")
+        _optional_text(self.raw, "Combine answer row raw")
+        _optional_text(self.value, "Combine answer row value")
+        _one_of(self.status, MEMBER_STATUSES, "Combine answer row status")
+        if self.reason is not None:
+            _one_of(self.reason, ANSWER_REASONS, "Combine answer row reason")
+        if (self.reason is None) != (self.status == "answered"):
+            raise ValueError("Combine answer row has a reason exactly when it failed")
+        if self.status == "fail" and self.value is not None:
+            raise ValueError("Combine answer row of a failed member has no value")
+        object.__setattr__(self, "signals", frozen_signals(self.signals, "Combine answer signals"))
         object.__setattr__(
-            self, "weight", _optional_number(self.weight, "Combine member reading weight")
+            self, "weight", _optional_number(self.weight, "Combine answer row weight")
         )
-        object.__setattr__(
-            self, "score", _optional_number(self.score, "Combine member reading score")
-        )
+        object.__setattr__(self, "score", _optional_number(self.score, "Combine answer row score"))
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "member": self.member,
+            "member_id": self.member_id,
             "raw": self.raw,
             "value": self.value,
             "status": self.status,
+            "reason": self.reason,
+            "signals": dict(self.signals),
             "weight": self.weight,
             "score": self.score,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class CombineResult:
+    """The computed answer of the step: a member's text, a built text, or an abstain."""
+
+    member_id: str | None
+    value: str | None
+    status: ResultStatus
+    reason: AbstainReason | None
+
+    def __post_init__(self) -> None:
+        if self.member_id is not None:
+            _member_id(self.member_id, "Combine result member_id")
+        _optional_text(self.value, "Combine result value")
+        _one_of(self.status, _RESULT_STATUSES, "Combine result status")
+        if self.reason is not None:
+            _one_of(self.reason, ABSTAIN_REASONS, "Combine result reason")
+        if (self.reason is None) != (self.status == "answered"):
+            raise ValueError("Combine result has a reason exactly when it abstained")
+        if self.status == "abstain" and (self.value is not None or self.member_id is not None):
+            raise ValueError("an abstain Combine result has no value and no member")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "member_id": self.member_id,
+            "value": self.value,
+            "status": self.status,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CombineSignal:
+    """The one signal the spec reads, and the order a reducer asked for (None: no order)."""
+
+    key: str
+    order: SignalOrder | None
+
+    def __post_init__(self) -> None:
+        if not is_signal_key(self.key):
+            raise ValueError("Combine signal key must be an E4a signal key")
+        if self.order is not None:
+            _one_of(self.order, SIGNAL_ORDERS, "Combine signal order")
+
+    def to_dict(self) -> dict[str, object]:
+        return {"key": self.key, "order": self.order}
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,7 +210,7 @@ class CombineEvidence:
     kind: CombineKind
     reducer: str
     operators: tuple[str, ...]
-    members: tuple[CombineMemberReading, ...]
+    members: tuple[CombineAnswerRow, ...]
     tally: tuple[CombineTallyRow, ...] | None
     judge: CombineJudgeReading | None
     fields: tuple[CombineFieldReading, ...] | None
@@ -152,6 +221,9 @@ class CombineEvidence:
     median: str | None
     presentation_order: Literal["author"] | None
     separator_collision: bool | None
+    signal: CombineSignal | None
+    result: CombineResult
+    dropped: int
     finish_reason: str
 
     def __init__(
@@ -160,10 +232,12 @@ class CombineEvidence:
         kind: CombineKind,
         reducer: str,
         operators: Sequence[str],
-        members: Sequence[CombineMemberReading],
+        members: Sequence[CombineAnswerRow],
         chosen: Sequence[str],
         built: bool,
         tie: bool,
+        result: CombineResult,
+        dropped: int,
         finish_reason: str,
         tally: Sequence[CombineTallyRow] | None = None,
         judge: CombineJudgeReading | None = None,
@@ -172,11 +246,12 @@ class CombineEvidence:
         median: str | None = None,
         presentation_order: Literal["author"] | None = None,
         separator_collision: bool | None = None,
+        signal: CombineSignal | None = None,
     ) -> None:
         _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
-        selected_members = _typed_tuple(members, CombineMemberReading, "Combine evidence members")
-        member_ids = tuple(item.member for item in selected_members)
+        selected_members = _typed_tuple(members, CombineAnswerRow, "Combine evidence members")
+        member_ids = tuple(item.member_id for item in selected_members)
         if not member_ids or len(set(member_ids)) != len(member_ids):
             raise ValueError("Combine evidence members must be non-empty and unique")
         selected_tally = _optional_typed_tuple(tally, CombineTallyRow, "Combine evidence tally")
@@ -186,6 +261,8 @@ class CombineEvidence:
         _subset(chosen, member_ids, "Combine evidence chosen")
         for row in selected_tally or ():
             _subset(row.holders, member_ids, "Combine tally holders")
+        selected_dropped = _dropped(dropped, selected_members)
+        selected_result = _result(result, tuple(chosen), built)
         values = {
             "kind": kind,
             "reducer": reducer,
@@ -203,6 +280,9 @@ class CombineEvidence:
             "separator_collision": _optional_flag(
                 separator_collision, "Combine evidence separator_collision"
             ),
+            "signal": _optional_instance(signal, CombineSignal, "Combine evidence signal"),
+            "result": selected_result,
+            "dropped": selected_dropped,
             "finish_reason": _nonblank_text(finish_reason, "Combine evidence finish_reason"),
         }
         for name, value in values.items():
@@ -225,6 +305,9 @@ class CombineEvidence:
             "median": self.median,
             "presentation_order": self.presentation_order,
             "separator_collision": self.separator_collision,
+            "signal": None if self.signal is None else self.signal.to_dict(),
+            "result": self.result.to_dict(),
+            "dropped": self.dropped,
             "finish_reason": self.finish_reason,
         }
 
@@ -280,6 +363,24 @@ def _operator_ids(values: object) -> tuple[str, ...]:
     return tuple(values)
 
 
+def _dropped(value: object, members: tuple[CombineAnswerRow, ...]) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("Combine evidence dropped must be an integer")
+    if value < 0 or value != sum(row.status == "fail" for row in members):
+        raise ValueError("Combine evidence dropped must count the failed members")
+    return value
+
+
+def _result(value: object, chosen: tuple[str, ...], built: object) -> CombineResult:
+    if not isinstance(value, CombineResult):
+        raise TypeError("Combine evidence result must be a CombineResult")
+    if value.status == "abstain" and (chosen or built):
+        raise ValueError("an abstained Combine evidence chooses and builds nothing")
+    if value.member_id is not None and (built or chosen != (value.member_id,)):
+        raise ValueError("a member Combine result must be the one chosen member and not built")
+    return value
+
+
 def _agreement(value: object) -> float | None:
     selected = _optional_number(value, "Combine evidence agreement")
     if selected is not None and not 0.0 <= selected <= 1.0:
@@ -326,9 +427,11 @@ def _optional_instance[T](value: object, kind: type[T], label: str) -> T | None:
 
 __all__ = [
     "COMBINE_EVIDENCE_SCHEMA",
+    "CombineAnswerRow",
     "CombineEvidence",
     "CombineFieldReading",
     "CombineJudgeReading",
-    "CombineMemberReading",
+    "CombineResult",
+    "CombineSignal",
     "CombineTallyRow",
 ]

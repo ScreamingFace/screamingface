@@ -31,10 +31,11 @@ from screamingface._evaluation.results import _case_operation
 from screamingface._scoreboard.leaderboards import _submission
 from screamingface.case_result import CaseOperation
 from screamingface.combine_evidence import (
+    CombineAnswerRow,
     CombineEvidence,
     CombineFieldReading,
     CombineJudgeReading,
-    CombineMemberReading,
+    CombineResult,
     CombineTallyRow,
 )
 from screamingface.errors import ExecutionError
@@ -77,6 +78,7 @@ def _judge_variant() -> dict[str, Any]:
         presentation_order="author",
         chosen=["member_2"],
         agreement=None,
+        result={"member_id": "member_2", "value": "12", "status": "answered", "reason": None},
     )
 
 
@@ -112,6 +114,7 @@ def _fields_variant() -> dict[str, Any]:
         median="9",
         tie=True,
         built=True,
+        result={"member_id": None, "value": "12", "status": "answered", "reason": None},
     )
 
 
@@ -139,7 +142,7 @@ def test_decoded_readings_expose_typed_values() -> None:
     assert evidence.chosen == ("member_1",)
     assert evidence.tally is not None
     assert evidence.tally[0].holders == ("member_1", "member_2", "member_3")
-    assert [reading.status for reading in evidence.members] == ["voted"] * 3
+    assert [reading.status for reading in evidence.members] == ["answered"] * 3
     judge = decode_combine_evidence(_judge_variant(), _LABEL)
     assert judge is not None
     assert isinstance(judge.judge, CombineJudgeReading)
@@ -261,7 +264,17 @@ def test_two_reducers_keep_separate_evidence() -> None:
         _operation(
             "op_synthesis_2",
             "14",
-            combine=evidence_wire(2, chosen=["member_2"], agreement=0.5),
+            combine=evidence_wire(
+                2,
+                chosen=["member_2"],
+                agreement=0.5,
+                result={
+                    "member_id": "member_2",
+                    "value": "12",
+                    "status": "answered",
+                    "reason": None,
+                },
+            ),
         ),
     ]
     report = _evaluate(pipeline, operations)
@@ -375,7 +388,7 @@ def test_evidence_for_64_members_has_no_text_and_fits_64kib() -> None:
         agreement=1 / 64,
     )
     for reading in wire["members"]:
-        index = reading["member"].removeprefix("member_")
+        index = reading["member_id"].removeprefix("member_")
         reading["raw"] = reading["value"] = index
 
     evidence = decode_combine_evidence(wire, _LABEL)
@@ -383,14 +396,23 @@ def test_evidence_for_64_members_has_no_text_and_fits_64kib() -> None:
     assert evidence is not None
     assert len(evidence.members) == 64
     for reading in evidence.members:
-        assert list(reading.to_dict()) == ["member", "raw", "value", "status", "weight", "score"]
+        assert list(reading.to_dict()) == [
+            "member_id",
+            "raw",
+            "value",
+            "status",
+            "reason",
+            "signals",
+            "weight",
+            "score",
+        ]
     exported = json.dumps(
         evidence.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     assert len(exported.encode("utf-8")) <= 65536
     for member, text in outputs.items():
         assert text not in exported
-        reading = next(item for item in evidence.members if item.member == member)
+        reading = next(item for item in evidence.members if item.member_id == member)
         assert reading.raw != text
         assert reading.value != text
     assert all(row.value != text for row in evidence.tally or () for text in outputs.values())
@@ -415,8 +437,20 @@ def test_blank_text_in_a_reading_does_not_make_the_evidence_undecodable() -> Non
     assert row.value == ""
 
 
+def _fail_row(**change: Any) -> CombineAnswerRow:
+    values: dict[str, Any] = {
+        "member_id": "member_1",
+        "raw": None,
+        "value": None,
+        "status": "fail",
+        "reason": "empty",
+        "signals": {},
+    }
+    return CombineAnswerRow(**{**values, **change})
+
+
 def test_evidence_values_validate_their_own_construction() -> None:
-    reading = CombineMemberReading(member="member_1", raw=None, value=None, status="empty")
+    reading = _fail_row()
     row = CombineTallyRow(value="12", score=2, holders=("member_1",))
     assert (reading.weight, row.score) == (None, 2.0)
     with pytest.raises(TypeError, match="finite number"):
@@ -424,30 +458,33 @@ def test_evidence_values_validate_their_own_construction() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         CombineTallyRow(value="12", score=1.0, holders=())
     with pytest.raises(TypeError, match="finite number"):
-        CombineMemberReading(member="member_1", raw=None, value=None, status="empty", weight=True)
+        _fail_row(weight=True)
     with pytest.raises(ValueError, match="finite"):
-        CombineMemberReading(
-            member="member_1", raw=None, value=None, status="empty", score=float("inf")
-        )
+        _fail_row(score=float("inf"))
     with pytest.raises(TypeError, match="must be text"):
-        CombineMemberReading(member="member_1", raw=3, value=None, status="empty")  # type: ignore[arg-type]
+        _fail_row(raw=3)
     with pytest.raises(TypeError, match="finite|number"):
-        CombineMemberReading(member="member_1", raw=None, value=None, status="empty", weight="1")  # type: ignore[arg-type]
+        _fail_row(weight="1")
     with pytest.raises(ValueError, match="must be one of"):
         CombineJudgeReading(raw="x", returns="rank", parsed="member_1")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="object"):
         CombineJudgeReading(raw="x", returns="scores", parsed="member_1")
     with pytest.raises(TypeError, match="must be text"):
         CombineFieldReading(field=3, rule="r", values={}, result=None)  # type: ignore[arg-type]
+    answered = CombineAnswerRow(
+        member_id="member_1", raw="1", value="1", status="answered", reason=None, signals={}
+    )
     base: dict[str, Any] = {
         "kind": "answer",
         "reducer": "vote",
         "operators": ("mode@1",),
-        "members": (reading,),
+        "members": (answered,),
         "chosen": ("member_1",),
         "built": False,
         "tie": False,
         "finish_reason": "stop",
+        "result": CombineResult("member_1", "1", "answered", None),
+        "dropped": 0,
     }
     assert CombineEvidence(**base).to_dict()["tally"] is None
     for change, error in (
@@ -467,6 +504,11 @@ def test_evidence_values_validate_their_own_construction() -> None:
         ({"finish_reason": " "}, ValueError),
         ({"finish_reason": None}, ValueError),
         ({"agreement": "1"}, TypeError),
+        ({"result": "x"}, TypeError),
+        ({"signal": "x"}, TypeError),
+        ({"dropped": True}, TypeError),
+        ({"dropped": -1}, ValueError),
+        ({"dropped": 1}, ValueError),
     ):
         with pytest.raises(error):
             CombineEvidence(**{**base, **change})

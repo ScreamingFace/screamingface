@@ -60,8 +60,7 @@ def test_binding_pattern_fixture_matches_sdk_and_engine() -> None:
 
 
 def test_engine_binding_pattern_matches_the_shared_fixture() -> None:
-    # EXPECTED RED until the engine widens `_BINDING` (unit 3 of OME-1289): the SDK side of
-    # the bind is the test above and must stay green on its own.
+    # The engine widened `_BINDING` in unit 3 of OME-1289; both sides bind to the shared fixture.
     fixture = _fixture()
     tree = ast.parse(_ENGINE_OUTPUTS.read_text(encoding="utf-8"))
     engine_pattern: str | None = None

@@ -7,15 +7,21 @@ the new derivations (answers, trace) provably never leak into ``to_dict``.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from test_report import candidate, report
 
 import screamingface as sf
+from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface.case_result import CaseOperation
 from screamingface.operation_accounting import OperationAccounting, OperationCache
 
 GOLDEN = Path(__file__).parent / "data" / "report_v1_reducer_report.json"
+COMBINE_GOLDEN = Path(__file__).parent / "data" / "report_v1_combine_report.json"
+_EVIDENCE = json.loads(
+    (Path(__file__).parent / "data" / "combine_evidence_cases.json").read_text(encoding="utf-8")
+)
 
 
 def _accounting() -> OperationAccounting:
@@ -55,6 +61,22 @@ def reducer_report() -> sf.Report:
     return report(candidate("opus", cases=(model_only, with_accounting)))
 
 
+def combine_report() -> sf.Report:
+    """The reducer report plus a Case whose synthesis operation carries combine evidence."""
+
+    evidence = decode_combine_evidence(_EVIDENCE["vote_one_failed"], "Case Operation combine")
+    combined = _case(
+        3,
+        (
+            CaseOperation("op_opus", "Answer 3", "stop", _accounting()),
+            CaseOperation("op_opus_aggregate", "42", "stop", None, combine=evidence),
+        ),
+    )
+    base = reducer_report().candidates[0]
+    result = candidate("opus", cases=(*base.cases, combined))
+    return sf.Report(benchmark=result.benchmark, case_count=3, candidates=(result,))
+
+
 def _call_new_derivations(value: sf.Report) -> None:
     for candidate_result in value.candidates:
         for case in candidate_result.cases:
@@ -70,3 +92,10 @@ def test_report_to_dict_is_byte_identical() -> None:
     _call_new_derivations(value)
 
     assert value.to_json() + "\n" == GOLDEN.read_text(encoding="utf-8")
+
+
+def test_report_with_combine_evidence_is_byte_identical() -> None:
+    value = combine_report()
+    _call_new_derivations(value)
+
+    assert value.to_json() + "\n" == COMBINE_GOLDEN.read_text(encoding="utf-8")
