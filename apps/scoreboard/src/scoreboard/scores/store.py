@@ -25,6 +25,7 @@ from scoreboard.classification.openness import Openness
 from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score
 from .pareto import ParetoEntry
+from .reproduction_cost import reproduction_cost
 from .schemas import (
     BenchmarkSchema,
     LeaderboardEntry,
@@ -37,10 +38,10 @@ from .schemas import (
 
 # INVARIANT: columns the raw leaderboard projection must convert itself. The
 # projection bypasses the ORM, so nothing else will do it.
-_RAW_ROW_FIELDS = ("ran_with_providers", "authors", "run_cost_usd")
+_RAW_ROW_FIELDS = ("ran_with_providers", "authors", "run_cost_usd", "cache_saved_cost_usd")
 # Columns whose DTO type admits None, so an unreadable value can degrade in place.
 # Anything not listed here forces the row to be dropped instead — see _to_python_rows.
-_NULLABLE_RAW_FIELDS = frozenset({"authors", "run_cost_usd"})
+_NULLABLE_RAW_FIELDS = frozenset({"authors", "run_cost_usd", "cache_saved_cost_usd"})
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,21 @@ async def _chunked_values(
         chunk = list(score_ids[start : start + _MODELS_READ_CHUNK])
         rows.extend(await Score.filter(id__in=chunk).using_db(connection).values(*fields))
     return rows
+
+
+def _serve_reproduction_cost(row: dict[str, Any]) -> Decimal | None:
+    """Replace a raw row's stored spend with what reproducing it costs, in place (OME-1382).
+
+    Pops the two columns only the rule reads, so the row still matches its read DTO, which has no
+    status or saving field. Returns the served cost for callers that build the DTO themselves.
+    """
+    served = reproduction_cost(
+        cast("Decimal | None", row["run_cost_usd"]),
+        cast("RunCostStatus | None", row.pop("run_cost_status")),
+        cast("Decimal | None", row.pop("cache_saved_cost_usd")),
+    )
+    row["run_cost_usd"] = served
+    return served
 
 
 class _Unset:
@@ -636,6 +652,8 @@ def _build_leaderboard_query(
             scores.verified_by_screamingface,
             scores.url4_expression,
             scores.run_cost_usd,
+            scores.run_cost_status,
+            scores.cache_saved_cost_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -677,6 +695,8 @@ def _build_leaderboard_query(
             ranked.verified_by_screamingface,
             ranked.url4_expression,
             ranked.run_cost_usd,
+            ranked.run_cost_status,
+            ranked.cache_saved_cost_usd,
         )
         .where(ranked.rn == 1)
         .orderby(ranked.score, order=Order.desc)
@@ -719,6 +739,8 @@ def _build_pareto_inputs_query(
             scores.benchmark_revision,
             scores.score,
             scores.run_cost_usd,
+            scores.run_cost_status,
+            scores.cache_saved_cost_usd,
             row_number,
         )
         .where(scores.benchmark_id == benchmark_id)
@@ -736,6 +758,8 @@ def _build_pareto_inputs_query(
             ranked.benchmark_revision,
             ranked.score,
             ranked.run_cost_usd,
+            ranked.run_cost_status,
+            ranked.cache_saved_cost_usd,
         )
         .where(ranked.rn == 1)
     )
@@ -1435,6 +1459,7 @@ class ScoreStore:
         rows = _to_python_rows(result.rows)
         for row in rows:
             row["source_id"] = str(row.pop("id"))
+            _serve_reproduction_cost(row)
         return [LeaderboardStoreEntry(**row) for row in rows]
 
     async def benchmark_scope(
@@ -1479,7 +1504,7 @@ class ScoreStore:
                 spec_id=cast(str, row["spec_id"]),
                 benchmark_revision=cast(str | None, row["benchmark_revision"]),
                 score=cast(float, row["score"]),
-                run_cost_usd=cast(Decimal | None, row["run_cost_usd"]),
+                run_cost_usd=_serve_reproduction_cost(row),
             )
             for row in rows
         ]
@@ -1532,7 +1557,11 @@ class ScoreStore:
                 authors=_resolved_authors(row.authors, row.submitted_by),
                 verified_by_screamingface=row.verified_by_screamingface,
                 url4_expression=row.url4_expression,
-                run_cost_usd=row.run_cost_usd,
+                run_cost_usd=reproduction_cost(
+                    row.run_cost_usd,
+                    cast("RunCostStatus | None", row.run_cost_status),
+                    row.cache_saved_cost_usd,
+                ),
             )
             for row in rows
         ]
@@ -1645,14 +1674,25 @@ class ScoreStore:
         if registered_case_count is not None:
             query = query.filter(total_questions__gte=registered_case_count)
         rows = await query.order_by("submitted_at", "id").values(
-            "id", "spec_id", "score", "run_cost_usd", "submitted_at", "enriched_at"
+            "id",
+            "spec_id",
+            "score",
+            "run_cost_usd",
+            "run_cost_status",
+            "cache_saved_cost_usd",
+            "submitted_at",
+            "enriched_at",
         )
         return [
             HistoryRow(
                 source_id=str(row["id"]),
                 spec_id=cast(str, row["spec_id"]),
                 score=cast(float, row["score"]),
-                run_cost_usd=cast("Decimal | None", row["run_cost_usd"]),
+                run_cost_usd=reproduction_cost(
+                    cast("Decimal | None", row["run_cost_usd"]),
+                    cast("RunCostStatus | None", row["run_cost_status"]),
+                    cast("Decimal | None", row["cache_saved_cost_usd"]),
+                ),
                 submitted_at=cast(datetime, row["submitted_at"]),
                 enriched_at=cast("datetime | None", row["enriched_at"]),
             )
