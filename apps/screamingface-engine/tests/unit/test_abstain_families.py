@@ -123,6 +123,10 @@ def test_abstained_cases_count_as_zero_in_the_benchmark_score() -> None:
     assert all(graded_on[case_id] == TextPayload(text="") for case_id in abstained)
 
 
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == _LOGGER and r.levelno == logging.WARNING]
+
+
 def _failing_outcome(**overrides: Any) -> CaseGradeOutcome:
     fields: dict[str, Any] = {
         "score": None,
@@ -147,11 +151,7 @@ def test_abstained_grader_error_is_ignored_and_logged(caplog: pytest.LogCaptureF
     assert case["grade"]["metrics"] == {"judged": 0, "expected": 1, "invalid_replies": 1}
     assert [check["outcome"] for check in case["grade"]["checks"]] == ["MET"]
     assert case["failures"] == []
-    warnings = [r for r in caplog.records if r.name == _LOGGER and r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "4" in warnings[0].getMessage()
-    assert "incomplete_verdicts" in warnings[0].getMessage()
-    assert "I am not sure" not in caplog.text
+    assert [r.args for r in _warnings(caplog)] == [(4, "incomplete_verdicts")]
     # Control: the same grader error on a Case the model answered stays a failed Case.
     assert control["cases"][0]["status"] == "failed"
     assert "abstained" not in control["cases"][0]
@@ -173,7 +173,7 @@ def test_an_asset_defect_stays_failed_on_an_abstained_case(
     assert case["status"] == "failed"
     assert "abstained" not in case
     assert case["failures"][0]["code"] == code
-    warnings = [r for r in caplog.records if r.name == _LOGGER and r.levelno == logging.WARNING]
+    warnings = _warnings(caplog)
     assert [r.args for r in warnings] == [(4, code)]
     assert "asset defect" in warnings[0].getMessage()
 
@@ -191,10 +191,7 @@ def test_abstained_case_without_any_grade_stays_failed_and_is_logged(
     assert failed["status"] == "failed"
     assert "abstained" not in failed
     assert failed["grade"]["score"] is None
-    assert any(
-        r.name == _LOGGER and r.levelno == logging.WARNING and "1" in r.getMessage()
-        for r in caplog.records
-    )
+    assert [r.args for r in _warnings(caplog)] == [(1,)]
 
     # (b) the polarity_mismatch shape: a hook failure that left neither metrics nor checks.
     caplog.clear()
@@ -206,10 +203,7 @@ def test_abstained_case_without_any_grade_stays_failed_and_is_logged(
     assert failed["status"] == "failed"
     assert "abstained" not in failed
     assert failed["failures"][0]["code"] == "case_error"
-    assert any(
-        r.name == _LOGGER and r.levelno == logging.WARNING and "case_error" in r.getMessage()
-        for r in caplog.records
-    )
+    assert [r.args for r in _warnings(caplog)] == [(2, "case_error")]
 
 
 # --- IFEval end to end ------------------------------------------------------------------------

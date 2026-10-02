@@ -250,6 +250,8 @@ def test_evidence_fixtures_are_what_their_names_say() -> None:
             _combine_final("$synthesis_1"), _operations(None), False, id="g-no-combine-evidence"
         ),
         pytest.param("(((", _operations(_abstain_evidence()), False, id="h-unparseable"),
+        # The real F11 proof (a corrective loop's own record is never marked) is in
+        # test_abstain_corrective.py; this row pins only the name rule.
         pytest.param(
             _combine_final("$loop_candidate"),
             _operations(_abstain_evidence()),

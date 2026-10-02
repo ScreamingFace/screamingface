@@ -101,8 +101,7 @@ def final_operation_abstained(
     Prose intents, other roots and unattributed names are never marked (OME-1289, erd section 9).
     """
 
-    name = _final_reference(expression) if operations is not None else None
-    if name is None or operations is None:
+    if operations is None or (name := _final_reference(expression)) is None:
         return False
     matches = [op for op in operations if op.operation_id == f"op_{name}"]
     return (

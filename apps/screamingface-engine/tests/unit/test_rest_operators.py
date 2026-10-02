@@ -55,10 +55,10 @@ _BUILTIN_IDS = [
     "weighted_mode@1",
     "whole@1",
 ]
-# The ids that shipped before the regex, set and Inspect-rule operators.
 _NEW_IDS = frozenset(
     {"inspect_aime@1", "inspect_number@1", "inspect_numeric@1", "regex@1", "set@1"}
 )
+# The ids that shipped before the regex, set and Inspect-rule operators.
 _V1_IDS = frozenset(_BUILTIN_IDS) - _NEW_IDS
 
 
