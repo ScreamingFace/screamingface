@@ -184,3 +184,55 @@ def test_a_pick_or_merge_url4_is_recovered_as_the_named_class_for_both_forms(
         recovered = _recovered(compile_candidate(_fusion(source), operators=flow_operators()).url4)
         assert type(recovered) is type(named)
         assert recovered._python() == named._python()
+
+
+def _wrapped(synthesizer: Reducer) -> sf.Pipeline:
+    """A selection hands its result to the next stage, so it cannot end a candidate (10S)."""
+
+    return sf.Pipeline([_fusion(synthesizer), "provider/next"])
+
+
+def _recovered_selection(url4: str) -> Reducer:
+    namespace: dict[str, Any] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    fusion = namespace["candidate"].stages[0]
+    assert isinstance(fusion.synthesizer, Reducer)
+    return fusion.synthesizer
+
+
+_JUDGE = sf.Judge("provider/j", returns="scores", rubric="Score each answer.")
+
+
+@pytest.mark.parametrize(
+    ("block", "named"),
+    [
+        (
+            sf.Reduce("top_k", k=2, by=_JUDGE),
+            sf.Rank(2, by=_JUDGE),
+        ),
+        (
+            sf.Reduce("top_k", k=2, by_field="score", order="min"),
+            sf.Rank(2, by_field="score", order="min"),
+        ),
+        (
+            sf.Reduce("top_k", k=1, by_signal=sf.signal("cost_usd"), order="min"),
+            sf.Rank(1, by_signal=sf.signal("cost_usd"), order="min"),
+        ),
+        (
+            sf.Reduce("top_k", k=3, by_signal=sf.signal("field:score")),
+            sf.Rank(3, by_signal=sf.signal("field:score")),
+        ),
+    ],
+    ids=["rank-judge", "rank-field-min", "rank-signal-min", "rank-signal"],
+)
+def test_a_selection_url4_is_recovered_as_the_named_class_for_both_forms(
+    block: sf.Reduce, named: Reducer
+) -> None:
+    url4 = compile_candidate(_wrapped(named), operators=flow_operators()).url4
+
+    assert compile_candidate(_wrapped(block), operators=flow_operators()).url4 == url4
+    for source in (named, block):
+        compiled = compile_candidate(_wrapped(source), operators=flow_operators())
+        recovered = _recovered_selection(compiled.url4)
+        assert type(recovered) is type(named)
+        assert recovered._python() == named._python()

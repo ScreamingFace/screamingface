@@ -92,7 +92,7 @@ def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
         sf.Reduce("plurality", extract=LAST, k=2)
     with pytest.raises(ValueError, match="takes no options"):
         sf.Reduce("context", k=1)
-    with pytest.raises(ValueError, match="arrives with sf.Rank"):
+    with pytest.raises(TypeError, match="option 'by' must be an sf.Judge"):
         sf.Reduce("top_k", k=2, by="x")
     with pytest.raises(TypeError, match="option 'judge' must be an sf.Judge"):
         sf.Reduce("judge", judge="m")  # type: ignore[arg-type]
@@ -251,7 +251,6 @@ def test_reduce_plurality_compiles_byte_identical_to_the_fixture_vote() -> None:
 
 def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     not_yet = [
-        sf.Reduce("top_k", k=1, by_field="a"),
         sf.Reduce("filter", where=sf.matches("a")),
         sf.Reduce("concat"),
     ]
@@ -272,6 +271,13 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     for block in (argmax, pick):
         spec = json.loads(combine_spec_text(block, member_count=3, operators=flow_operators()))
         assert spec["reducer"] == "pick"
+    # top_k has Engine operators since 10E, and compiles to a Rank (10S); the unit 1-3 catalog
+    # lacks scores@1
+    top_k = sf.Reduce("top_k", k=1, by_field="a")
+    with pytest.raises(ValueError, match="unknown reduce operator 'scores'"):
+        _compiled_text(top_k)
+    spec = json.loads(combine_spec_text(top_k, member_count=3, operators=flow_operators()))
+    assert spec["reducer"] == "rank"
     # a signal-weighted block compiles since unit 7; only score:judge waits for the judge
     assert '"weights":{"signal":"field:c"}' in _compiled_text(
         sf.Reduce("weighted", extract=LAST, weights=sf.signal("field:c"))

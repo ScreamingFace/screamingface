@@ -78,9 +78,9 @@ def test_k_bounds_are_enforced() -> None:
 
 
 def test_rank_needs_exactly_one_ranking_source() -> None:
-    with pytest.raises(ValueError, match="exactly one of by= or by_field="):
+    with pytest.raises(ValueError, match="exactly one of by=, by_field= or by_signal="):
         sf.Rank(k=2)
-    with pytest.raises(ValueError, match="exactly one of by= or by_field="):
+    with pytest.raises(ValueError, match="exactly one of by=, by_field= or by_signal="):
         sf.Rank(k=2, by=_scores_judge(), by_field="score")
     with pytest.raises(ValueError, match=r"Rank\(by=\.\.\.\) needs sf.Judge"):
         sf.Rank(k=2, by=sf.Judge("provider/j", returns="label", rubric=RUBRIC))

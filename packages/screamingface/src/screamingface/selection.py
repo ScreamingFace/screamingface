@@ -9,20 +9,25 @@ Pipeline stage receives exactly the selection.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, Literal, cast
 
+from screamingface._signals import Signal
+from screamingface.blocks import _BLOCK_FORMS, _BlockForm
 from screamingface.judge import Judge, judge_from_signals
 from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
     _REDUCER_CLASSES,
     Reducer,
+    _as_python,
     _cannot_rebuild,
     _decoded,
     _field_path,
     _ModelSignal,
+    _op_name,
     _ReducerPlan,
+    _refuse_judge_signal,
     _require_steps,
     _spec_steps,
     _Step,
@@ -41,40 +46,74 @@ _DEFAULT_SEPARATOR = "\n\n---\n\n"
 _RANK_NORMALIZER = "numeric@1"
 
 
+def _check_rank_source(by: object, by_field: object, by_signal: object) -> None:
+    """Refuse a Rank source the Engine would only refuse after the paid member calls."""
+
+    if by is not None and not isinstance(by, Judge):
+        raise TypeError("Rank by must be an sf.Judge")
+    if by is not None and by.returns != "scores":
+        raise ValueError("Rank(by=...) needs sf.Judge(..., returns='scores')")
+    if by_field is not None:
+        _field_path(by_field, "Rank by_field")
+    if by_signal is not None and not isinstance(by_signal, Signal):
+        raise TypeError("Rank by_signal must be an sf.signal")
+    if isinstance(by_signal, Signal):
+        _refuse_judge_signal(by_signal, "Rank", "sf.Rank(k, by=sf.Judge(..., returns='scores'))")
+
+
+def _check_rank_order(order: object) -> Literal["max", "min"]:
+    if order not in ("max", "min"):
+        raise ValueError("Rank order must be 'max' or 'min'")
+    return cast("Literal['max', 'min']", order)
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Rank(Reducer):
     """Keep the ``k`` best-scored members: the next stage gets their original texts, best first.
 
     ``by=sf.Judge(..., returns="scores")`` scores every member with a judge model;
-    ``by_field="score"`` reads a number from each member's JSON reply. A tie at the cut goes to the
-    earlier member. A Rank Fusion must be followed by another Pipeline stage.
+    ``by_field="score"`` reads a number from each member's JSON reply; ``by_signal=sf.signal(key)``
+    reads a named number on each member's Answer (for example ``cost_usd``). Give exactly one.
+    ``order="max"`` (the default) keeps the highest scores and ``order="min"`` the lowest. A tie at
+    the cut goes to the earlier member. A Rank Fusion must be followed by another Pipeline stage.
     """
 
     name: str
     k: int
     by: Judge | None
     by_field: str | None
+    by_signal: Signal | None
+    order: Literal["max", "min"]
 
-    def __init__(self, k: int, *, by: Judge | None = None, by_field: str | None = None) -> None:
+    def __init__(
+        self,
+        k: int,
+        *,
+        by: Judge | None = None,
+        by_field: str | None = None,
+        by_signal: Signal | None = None,
+        order: Literal["max", "min"] = "max",
+    ) -> None:
         if isinstance(k, bool) or not isinstance(k, int):
             raise TypeError("Rank k must be an integer")
         if not 1 <= k <= _MAX_K:
             raise ValueError(f"Rank k must be between 1 and {_MAX_K}")
-        if (by is None) == (by_field is None):
-            raise ValueError("Rank needs exactly one of by= or by_field=")
-        if by is not None and not isinstance(by, Judge):
-            raise TypeError("Rank by must be an sf.Judge")
-        if by is not None and by.returns != "scores":
-            raise ValueError("Rank(by=...) needs sf.Judge(..., returns='scores')")
-        if by_field is not None:
-            _field_path(by_field, "Rank by_field")
+        if sum(source is not None for source in (by, by_field, by_signal)) != 1:
+            raise ValueError("Rank needs exactly one of by=, by_field= or by_signal=")
+        _check_rank_source(by, by_field, by_signal)
         object.__setattr__(self, "name", "rank")
         object.__setattr__(self, "k", k)
         object.__setattr__(self, "by", by)
         object.__setattr__(self, "by_field", by_field)
+        object.__setattr__(self, "by_signal", by_signal)
+        object.__setattr__(self, "order", _check_rank_order(order))
 
     def _plan(self) -> _ReducerPlan:
-        select = _Step("top_k", {"k": self.k})
+        if self.by_signal is not None:
+            return _signal_plan(self.k, self.by_signal, self.order)
+        # WHY the order only when it is "min": the "max" default keeps the bytes Rank wrote before
+        # it had an order.
+        select = _Step("top_k", {"k": self.k, **({} if self.order == "max" else {"order": "min"})})
         if self.by_field is None:
             steps = _Steps(reduce=_Step("scores", {"source": "judge"}), select=select)
         else:
@@ -98,32 +137,69 @@ class Rank(Reducer):
     @classmethod
     def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Rank:
         steps = _spec_steps(spec)
-        select, extract = steps["select"], steps["extract"]
-        k = None if select is None else select[1].get("k")
+        select = steps["select"]
+        args = {} if select is None else select[1]
+        k = args.get("k")
         if isinstance(k, bool) or not isinstance(k, int):
             raise _cannot_rebuild("rank")
-        if signals:
-            rank = _decoded("rank", cls, k, by=judge_from_signals(signals, "scores"))
-        else:
-            path = None if extract is None else extract[1].get("path")
-            if not isinstance(path, str):
-                raise _cannot_rebuild("rank")
-            rank = _decoded("rank", cls, k, by_field=path)
+        source = _recovered_source(steps, signals)
+        rank = _decoded("rank", cls, k, order=args.get("order", "max"), **source)
         _require_steps(spec, rank._plan().steps, "rank")
         # WHY: the Fusion refuses a k above its member count, so a recovery must too
         _decoded("rank", rank._check_members, len(cast("Sequence[str]", spec["members"])))
         return rank
 
     def _python(self) -> str:
-        if self.by is None:
-            return f"sf.{self!r}"
-        return f"sf.Rank(k={self.k}, by={self.by._python()})"
+        return self._render("sf.Rank", _as_python)
 
     def __repr__(self) -> str:
-        ranking = f"by={self.by!r}" if self.by is not None else f"by_field={self.by_field!r}"
-        return f"Rank(k={self.k}, {ranking})"
+        return self._render("Rank", repr)
+
+    def _render(self, head: str, show: Callable[[object], str]) -> str:
+        if self.by_signal is not None:
+            ranking = f"by_signal={show(self.by_signal)}"
+        elif self.by is not None:
+            ranking = f"by={show(self.by)}"
+        else:
+            ranking = f"by_field={show(self.by_field)}"
+        order = ", order='min'" if self.order == "min" else ""
+        return f"{head}(k={self.k}, {ranking}{order})"
 
     __hash__: ClassVar[Any] = None
+
+
+def _signal_plan(k: int, signal: Signal, order: str) -> _ReducerPlan:
+    """The plan of a Rank by signal: ``by_signal@1`` scores each member, ``top_k@1`` keeps k.
+
+    INVARIANT (10E F3): the SAME order goes in both steps; the Engine does not cross-check them,
+    and the select step's order decides which members are kept.
+    """
+
+    steps = _Steps(
+        reduce=_Step("by_signal", {"key": signal.key, "order": order}),
+        select=_Step("top_k", {"k": k, "order": order}),
+    )
+    return _ReducerPlan("rank", "selection", steps, reads=signal)
+
+
+def _recovered_source(
+    steps: Mapping[str, tuple[str, Mapping[str, object]] | None],
+    signals: tuple[_ModelSignal, ...],
+) -> dict[str, object]:
+    """The ``by``, ``by_field`` or ``by_signal`` keyword a decoded Rank spec holds, else refuse."""
+
+    reduce, extract = steps["reduce"], steps["extract"]
+    if reduce is not None and _op_name(reduce[0]) == "by_signal":
+        key = reduce[1].get("key")
+        if not isinstance(key, str):
+            raise _cannot_rebuild("rank")
+        return {"by_signal": _decoded("rank", Signal, key)}  # an unknown key is a hand edit
+    if signals:
+        return {"by": judge_from_signals(signals, "scores")}
+    path = None if extract is None else extract[1].get("path")
+    if not isinstance(path, str):
+        raise _cannot_rebuild("rank")
+    return {"by_field": path}
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -175,6 +251,29 @@ class Concat(Reducer):
     __hash__: ClassVar[Any] = None
 
 
+def _top_k_from_options(options: Mapping[str, object]) -> Rank:
+    return Rank(
+        cast("int", options["k"]),
+        by=cast("Judge | None", options.get("by")),
+        by_field=cast("str | None", options.get("by_field")),
+        by_signal=cast("Signal | None", options.get("by_signal")),
+        order=cast("Literal['max', 'min']", options.get("order", "max")),
+    )
+
+
+def _top_k_options(named: Reducer) -> Mapping[str, object]:
+    """The canonical options of a top_k block, in op-table row order: the default order ``max``
+    is not stored."""
+
+    rank = cast("Rank", named)
+    source = {
+        name: getattr(rank, name) for name in _RANK_SOURCES if getattr(rank, name) is not None
+    }
+    return {"k": rank.k, **source, **({"order": "min"} if rank.order == "min" else {})}
+
+
+_RANK_SOURCES = ("by", "by_field", "by_signal")
 _REDUCER_CLASSES.update(rank=Rank, concat=Concat)
+_BLOCK_FORMS["top_k"] = _BlockForm(build=_top_k_from_options, options=_top_k_options)
 
 __all__ = ["Concat", "Rank"]

@@ -67,6 +67,13 @@ def _shapes() -> dict[str, sf.Recipe]:
             )
         ),
         "rank by field": _after(sf.Rank(k=2, by_field="result.score[0]")),
+        "rank by field min": _after(sf.Rank(k=2, by_field="score", order="min")),
+        "rank by judge min": _after(sf.Rank(k=1, by=_scores_judge(), order="min")),
+        "rank by signal": _after(sf.Rank(k=2, by_signal=sf.signal("field:score"))),
+        "rank by signal min": _after(sf.Rank(k=2, by_signal=sf.signal("field:score"), order="min")),
+        "rank by accounting signal": _after(
+            sf.Rank(k=2, by_signal=sf.signal("cost_usd"), order="min")
+        ),
         "concat": _after(sf.Concat()),
         "concat plain": _after(sf.Concat("||")),
         "concat without labels": _after(sf.Concat("<<$|>>", label=False)),
@@ -109,12 +116,23 @@ def test_to_python_writes_the_reducers() -> None:
     ) in judged
     field = sf.Url4(_compiled(_shapes()["rank by field"]).url4).to_python()
     assert "synthesizer=sf.Rank(k=2, by_field='result.score[0]')," in field
+    signal = sf.Url4(_compiled(_shapes()["rank by signal min"]).url4).to_python()
+    assert "synthesizer=sf.Rank(k=2, by_signal=sf.signal('field:score'), order='min')," in signal
+    plain = sf.Url4(_compiled(_shapes()["rank by signal"]).url4).to_python()
+    assert "synthesizer=sf.Rank(k=2, by_signal=sf.signal('field:score'))," in plain
     concat = sf.Url4(_compiled(_shapes()["concat"]).url4).to_python()
     assert "synthesizer=sf.Concat(separator='\\n\\n---\\n\\n', label=True)," in concat
 
 
 def test_the_recovered_reducers_equal_the_originals() -> None:
-    for shape in ("rank by judge with params", "rank by field", "concat without labels"):
+    for shape in (
+        "rank by judge with params",
+        "rank by field",
+        "rank by field min",
+        "rank by signal min",
+        "rank by accounting signal",
+        "concat without labels",
+    ):
         original = _shapes()[shape]
         rebuilt = _recovered(_compiled(original).url4)
         assert isinstance(original, sf.Pipeline)
@@ -185,6 +203,60 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
             "rank by judge",
             '"extract":null',
             '"extract":{"args":{"path":"s"},"op":"json_field@1"}',
+            _CANNOT_REBUILD,
+        ),
+        "by_signal: orders that differ": (
+            "rank by signal",
+            '"args":{"key":"field:score","order":"max"},"op":"by_signal@1"',
+            '"args":{"key":"field:score","order":"min"},"op":"by_signal@1"',
+            _CANNOT_REBUILD,
+        ),
+        "by_signal: select order missing": (
+            "rank by signal",
+            '"args":{"k":2,"order":"max"}',
+            '"args":{"k":2}',
+            _CANNOT_REBUILD,
+        ),
+        "by_signal: order is not max or min": (
+            "rank by signal",
+            '"args":{"k":2,"order":"max"}',
+            '"args":{"k":2,"order":"avg"}',
+            _CANNOT_REBUILD,
+        ),
+        "by_signal: k above the member count": (
+            "rank by signal",
+            '"args":{"k":2,"order":"max"}',
+            '"args":{"k":5,"order":"max"}',
+            _CANNOT_REBUILD,
+        ),
+        "by_signal: unknown key": (
+            "rank by signal",
+            '"key":"field:score"',
+            '"key":"logprob"',
+            _CANNOT_REBUILD,
+        ),
+        "by_signal: key is not a string": (
+            "rank by signal",
+            '"key":"field:score"',
+            '"key":3',
+            _CANNOT_REBUILD,
+        ),
+        "by_signal: extra reduce arg": (
+            "rank by signal",
+            '"args":{"key":"field:score","order":"max"}',
+            '"args":{"key":"field:score","order":"max","x":1}',
+            _CANNOT_REBUILD,
+        ),
+        "by_field: the default order written out": (
+            "rank by field",
+            '"args":{"k":2}',
+            '"args":{"k":2,"order":"max"}',
+            _CANNOT_REBUILD,
+        ),
+        "by_field: order is not max or min": (
+            "rank by field min",
+            '"order":"min"',
+            '"order":"avg"',
             _CANNOT_REBUILD,
         ),
         "separator empty": (

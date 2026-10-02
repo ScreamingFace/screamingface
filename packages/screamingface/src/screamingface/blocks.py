@@ -206,7 +206,6 @@ class _OpRow:
     required: tuple[str, ...]
     optional: tuple[str, ...] = ()
     one_of: tuple[str, ...] = ()  # exactly one of these (they are also listed in optional)
-    reserved: frozenset[str] = frozenset()
     named: str = ""  # the named form, for messages
 
 
@@ -230,7 +229,6 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             ("k",),
             ("by", "by_field", "by_signal", "order"),
             one_of=("by", "by_field", "by_signal"),
-            reserved=frozenset({"by"}),
             named="sf.Rank",
         ),
         "filter": _OpRow("filter", ("select",), ("where",), ("extract",), named="sf.Filter"),
@@ -320,6 +318,15 @@ def _check_judge(op: str, value: object) -> object:
     return value
 
 
+def _check_by(op: str, value: object) -> object:
+    # WHY lazy: judge.py imports this module to register its block form (F10)
+    from screamingface.judge import Judge
+
+    if not isinstance(value, Judge):
+        raise TypeError(f"sf.Reduce({op!r}) option 'by' must be an sf.Judge")
+    return value
+
+
 def _check_rubric(op: str, value: object) -> str:
     if not isinstance(value, str):
         raise TypeError(f"sf.Reduce({op!r}) option 'rubric' must be text")
@@ -382,6 +389,7 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
         "equals": _check_equals,
         "separator": _check_separator,
         "label": _check_label,
+        "by": _check_by,
         "judge": _check_judge,
         "rubric": _check_rubric,
     }
@@ -507,12 +515,6 @@ def _check_option_names(op: str, row: _OpRow, options: Mapping[str, object]) -> 
             raise ValueError(f"sf.Reduce({op!r}) needs option {name!r}")
     if row.one_of and sum(name in options for name in row.one_of) != 1:
         raise ValueError(f"sf.Reduce({op!r}) needs exactly one of {', '.join(row.one_of)}")
-    for name in options:
-        if name in row.reserved:
-            raise ValueError(
-                f"sf.Reduce({op!r}) option {name!r} is not supported by this SDK version yet; "
-                f"it arrives with {row.named}"
-            )
 
 
 def _median_extract(extract: object) -> Extract:

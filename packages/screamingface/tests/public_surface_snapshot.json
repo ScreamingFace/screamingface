@@ -812,11 +812,13 @@
       "Rank": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, k: 'int', *, by: 'Judge | None' = None, by_field: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, k: 'int', *, by: 'Judge | None' = None, by_field: 'str | None' = None, by_signal: 'Signal | None' = None, order: \"Literal['max', 'min']\" = 'max') -> 'None'",
           "by": "field",
           "by_field": "field",
+          "by_signal": "field",
           "k": "field",
-          "name": "field"
+          "name": "field",
+          "order": "field"
         }
       },
       "Recipe": {
