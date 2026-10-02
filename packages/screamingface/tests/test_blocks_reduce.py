@@ -94,7 +94,7 @@ def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
         sf.Reduce("top_k", k=2, by="x")
     with pytest.raises(ValueError, match="arrives with sf.Judge"):
         sf.Reduce("judge", judge="m")
-    with pytest.raises(ValueError, match="arrives with sf.Merge|arrives with"):
+    with pytest.raises(ValueError, match="arrives with sf.Merge"):
         sf.Reduce("merge", fields={"a": "b"})
     with pytest.raises(ValueError, match="sf.Judge"):
         sf.Reduce("judge", judge="m", rubric="r")
@@ -360,3 +360,17 @@ def test_reduce_from_spec_refuses_shapes_it_cannot_rebuild() -> None:
     assert Reduce._from_spec(plurality) == sf.Reduce("plurality", extract=NUMERIC)
     assert Reduce._from_spec(weighted) == sf.Reduce("weighted", extract=NUMERIC, weights=[1, 2, 3])
     assert Reduce._from_spec(median) == sf.Reduce("median", extract=LAST)
+
+
+def test_weighted_from_spec_keeps_member_order_past_ten_members() -> None:
+    # canonical JSON sorts member_10 before member_2: the weights must follow the member list
+    weights = [float(k) for k in range(1, 13)]
+    block = sf.Reduce("weighted", extract=NUMERIC, weights=weights)
+    text = _compiled_text(block, members=12)
+    spec = json.loads(text)
+
+    sorted_weights = text[text.index('"weights"') :]
+    assert sorted_weights.index('"member_10"') < sorted_weights.index('"member_2"')
+    assert list(spec["weights"])[:3] == ["member_1", "member_10", "member_11"]
+    assert Reduce._from_spec(spec) == block
+    assert Reduce._from_spec(spec).options["weights"] == tuple(weights)

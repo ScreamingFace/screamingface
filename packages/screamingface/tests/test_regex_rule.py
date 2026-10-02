@@ -133,11 +133,22 @@ def test_the_private_parser_is_imported_lazily() -> None:
     # `re` itself imports `re._parser`, so sys.modules cannot show the SDK's own habit: the
     # module level of _regex_rule must not bind it (a use inside a function is the lazy import).
     tree = ast.parse(Path(_regex_rule.__file__ or "").read_text(encoding="utf-8"))
-    top_level = [
-        name.name
-        for node in tree.body
-        if isinstance(node, ast.Import | ast.ImportFrom)
-        for name in node.names
-    ]
-    assert not any("_parser" in name for name in top_level)
-    assert "_parser" in ast.unparse(tree)
+
+    def imports(nodes: list[ast.AST]) -> list[str]:
+        return [
+            name.name
+            for node in nodes
+            if isinstance(node, ast.Import | ast.ImportFrom)
+            for name in node.names
+        ]
+
+    in_functions = imports(
+        [
+            inner
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            for inner in ast.walk(node)
+        ]
+    )
+    assert not any("_parser" in name for name in imports(list(tree.body)))
+    assert "re._parser" in in_functions

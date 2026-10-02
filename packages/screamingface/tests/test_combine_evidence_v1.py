@@ -78,7 +78,10 @@ def _mutated(name: str, mutation: Any) -> dict[str, Any]:
         (lambda w: w["result"].__setitem__("status", "fail"), "result status"),
         (lambda w: w.__setitem__("dropped", 2), "is invalid"),
         (lambda w: w["result"].__setitem__("reason", "bogus"), "result reason"),
-        (lambda w: w["signal"] or w.__setitem__("signal", {"key": "x", "order": None}), "signal"),
+        (
+            lambda w: w["signal"] or w.__setitem__("signal", {"key": "x", "order": None}),
+            "signal key must be",
+        ),
         (lambda w: w["members"][0].__setitem__("signals", {"cost_usd": "1"}), "signals"),
         (lambda w: w["members"][0].__setitem__("signals", []), "signals"),
         (lambda w: w["members"][0].__setitem__("member", "member_1"), "unsupported field"),
