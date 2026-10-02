@@ -71,17 +71,19 @@ class ReducerRule:
 
 
 # Global rule (also checked below): normalize present => extract present.
-# AIDEV-NOTE: units 8-10 may tighten the rows of their own reducers (never add an operator rule).
+# AIDEV-NOTE: units 8-10 may tighten or loosen the presence rows of their own reducers, and still
+# add no operator rule.
 REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
     {
         "vote": ReducerRule("answer", "required", "optional", "optional"),
         "median": ReducerRule("answer", "required", "required", "forbidden", "numeric"),
         "judge": ReducerRule("answer", "forbidden", "forbidden", "forbidden"),
-        "pick": ReducerRule("answer", "required", "optional", "forbidden"),
+        "pick": ReducerRule("answer", "optional", "optional", "forbidden"),
         "merge": ReducerRule("answer", "optional", "optional", "forbidden"),
         "project": ReducerRule("projection", "optional", "optional", "forbidden"),
         "rank": ReducerRule("selection", "optional", "optional", "forbidden"),
         "concat": ReducerRule("selection", "forbidden", "forbidden", "forbidden"),
+        "filter": ReducerRule("selection", "optional", "optional", "forbidden"),
     }
 )
 

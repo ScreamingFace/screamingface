@@ -41,7 +41,7 @@ from types import MappingProxyType
 from typing import ClassVar, Literal, Protocol, cast
 
 Stage = Literal["extract", "normalize", "reduce", "select"]
-Reducer = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat"]
+Reducer = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter"]
 EvidenceKind = Literal["answer", "selection", "projection"]
 ReadingStatus = Literal[
     "voted", "empty", "not_numeric", "not_json", "field_missing", "too_large", "no_match"
@@ -273,7 +273,8 @@ class Reduction:
     """What a reduce step found. Each reducer family fills its own part; the rest stay None.
 
     tally: vote families, rows sorted by score (high first) then first-holder position.
-    statistic: median. scores: member -> score (judge scores, rank, numeric field).
+    statistic: median. scores: member -> score (judge scores, rank, numeric field, signal values,
+    filter pass marks).
     judge: judge reducers. fields: pick and merge. text: a text this step built for select to
     emit (merge JSON, projection JSON, joined text). separator_collision: concat only.
     """
