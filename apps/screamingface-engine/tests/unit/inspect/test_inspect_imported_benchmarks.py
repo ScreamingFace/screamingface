@@ -110,6 +110,10 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "sad_stages_oversight": "mcq",
     # OME-1273: cyberseceval_4's false-refusal set, graded by its own refusal regex (R19).
     "cyse4_mitre_frr": "reply_only",
+    # OME-1273: pre_flight asks four or five options through multiple_choice; bbeh asks for a
+    # bare free-text answer graded by the eval's own rule-based matcher.
+    "pre_flight": "mcq",
+    "bbeh": "free_text",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
