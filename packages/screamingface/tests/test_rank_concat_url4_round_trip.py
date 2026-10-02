@@ -132,12 +132,12 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
         "k is a bool": ("rank by field", '"args":{"k":2}', '"args":{"k":true}', _CANNOT_REBUILD),
         "k is a string": ("rank by field", '"args":{"k":2}', '"args":{"k":"2"}', _CANNOT_REBUILD),
         "k is a float": ("rank by field", '"args":{"k":2}', '"args":{"k":2.0}', _CANNOT_REBUILD),
-        "k is zero": ("rank by field", '"args":{"k":2}', '"args":{"k":0}', "between 1 and 256"),
+        "k is zero": ("rank by field", '"args":{"k":2}', '"args":{"k":0}', _CANNOT_REBUILD),
         "k above the member count": (
             "rank by field",
             '"args":{"k":2}',
             '"args":{"k":5}',
-            "k=5 members but the Fusion has 3",
+            _CANNOT_REBUILD,
         ),
         "extra select arg": (
             "rank by field",
@@ -149,7 +149,7 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
             "rank by field",
             '"path":"result.score[0]"',
             '"path":"a b"',
-            "must be a JSON path",
+            _CANNOT_REBUILD,
         ),
         "path is not a string": (
             "rank by field",
@@ -187,7 +187,12 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
             '"extract":{"args":{"path":"s"},"op":"json_field@1"}',
             _CANNOT_REBUILD,
         ),
-        "separator empty": ("concat plain", '"separator":"||"', '"separator":""', "empty"),
+        "separator empty": (
+            "concat plain",
+            '"separator":"||"',
+            '"separator":""',
+            _CANNOT_REBUILD,
+        ),
         "separator not a string": (
             "concat plain",
             '"separator":"||"',

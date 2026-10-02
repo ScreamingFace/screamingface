@@ -19,6 +19,7 @@ from screamingface.reducer import (
     _REDUCER_CLASSES,
     Reducer,
     _cannot_rebuild,
+    _decoded,
     _field_path,
     _ModelSignal,
     _ReducerPlan,
@@ -102,15 +103,15 @@ class Rank(Reducer):
         if isinstance(k, bool) or not isinstance(k, int):
             raise _cannot_rebuild("rank")
         if signals:
-            rank = cls(k, by=judge_from_signals(signals, "scores"))
+            rank = _decoded("rank", cls, k, by=judge_from_signals(signals, "scores"))
         else:
             path = None if extract is None else extract[1].get("path")
             if not isinstance(path, str):
                 raise _cannot_rebuild("rank")
-            rank = cls(k, by_field=path)
+            rank = _decoded("rank", cls, k, by_field=path)
         _require_steps(spec, rank._plan().steps, "rank")
         # WHY: the Fusion refuses a k above its member count, so a recovery must too
-        rank._check_members(len(cast("Sequence[str]", spec["members"])))
+        _decoded("rank", rank._check_members, len(cast("Sequence[str]", spec["members"])))
         return rank
 
     def _python(self) -> str:
@@ -164,7 +165,7 @@ class Concat(Reducer):
         separator, label = args.get("separator"), args.get("label")
         if not isinstance(separator, str) or not isinstance(label, bool):
             raise _cannot_rebuild("concat")
-        concat = cls(separator, label=label)
+        concat = _decoded("concat", cls, separator, label=label)
         _require_steps(spec, concat._plan().steps, "concat")
         return concat
 
