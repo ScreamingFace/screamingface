@@ -217,8 +217,12 @@ def test_archive_money_never_reaches_the_result_or_the_board() -> None:
     assert result.run_cost_status == "unavailable"
     payload = _submission(result)
     assert "cache_saved_cost_usd" not in payload
-    assert "0.5" not in json.dumps(payload)
-    assert "0.5" not in json.dumps(result.to_dict())
+    # WHY: whole-JSON substring checks also match timestamps such as 22:00:00.565488Z.
+    assert payload["run_cost_usd"] is None
+    assert payload["run_cost_status"] == "unavailable"
+    exported = result.to_dict()
+    assert exported["cache_saved_cost_usd"] is None
+    assert exported["usage"] == sf.Usage().to_dict()
 
 
 def test_no_evaluated_run_pairs_unavailable_with_a_saving() -> None:
