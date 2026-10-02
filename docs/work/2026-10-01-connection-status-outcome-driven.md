@@ -97,3 +97,19 @@ forgets on restart).
 - **Commits:** ledger commit on the branch, not pushed.
 - **Gates:** not run (no code).
 - **Deviations:** stopped before RED — design needs a breaking wire change and a migration.
+
+## Owner decision 2026-10-02 and second STOP
+
+Owner chose rollout A + DB columns (`degraded_until`, `degraded_reason`) + the proposed rule.
+PR1 was to make decoding lenient for unknown future values. That contradicts two prior tests,
+so the run stops again before RED (append-only rule):
+
+- `apps/screamingface-engine/tests/unit/test_connections_provider_access_availability.py::
+  test_a_malformed_availability_body_is_a_bad_gateway_response[legacy-profile-state-vocabulary]`
+  — `{"provider": "openrouter", "status": "authenticated"}` must raise `ConnectionBadResponse`
+  (502). INVARIANT there: "a malformed body is refused, never guessed".
+- `packages/screamingface/tests/test_connections.py::
+  test_connection_catalog_rejects_malformed_payloads` (payload `_row(status="unknown")`) —
+  must raise `ProviderConnectionError(code="invalid_connection_response")`.
+
+Accepting the new `unavailable` value alone needs no prior-test change.
