@@ -113,3 +113,18 @@ so the run stops again before RED (append-only rule):
   must raise `ProviderConnectionError(code="invalid_connection_response")`.
 
 Accepting the new `unavailable` value alone needs no prior-test change.
+
+## Owner decision 2026-10-02 (STRICT) and third STOP
+
+Owner chose STRICT decoding: PR1 only adds `unavailable` to the Engine and SDK status sets
+plus the widget case; both pinned malformed-body tests stay. AIDEV-NOTE: any future status
+value again needs a step-1 consumer release (Engine deploy + SDK publish) before the gateway
+emits it.
+
+Third STOP before RED: widening the SDK's public `ConnectionStatus` Literal changes
+`packages/screamingface/tests/public_surface_snapshot.json` line 800
+(`typing.Literal['not_connected', 'pending', 'connected', 'needs_reauth', 'error']` →
+`…, 'error', 'unavailable']`). That file is under the stack's `test_globs`; run_gates'
+append-only check treats any modified non-.py test artifact as an offender, and
+`approved_test_changes.py` only approves `.ts/.tsx`. So the gate cannot go green without
+`--skip-append-only`, which this lane forbids. Engine and aigateway have no such pin.
