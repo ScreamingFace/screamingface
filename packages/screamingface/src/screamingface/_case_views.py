@@ -201,7 +201,8 @@ def _accounting_data(accounting: OperationAccounting | None) -> dict[str, object
 
 
 def _cache_label(cache: OperationCache) -> str:
-    """erd s8: hit when only hits (and unknowns) were seen, miss when any miss, else bypass."""
+    """erd s8: hit = hits with no miss or bypass; miss = any miss; bypass = any bypass with no
+    miss; otherwise unknown. Unknown counts never change the label."""
 
     if cache.hits > 0 and cache.misses == 0 and cache.bypasses == 0:
         return "hit"

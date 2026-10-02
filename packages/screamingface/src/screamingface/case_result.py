@@ -697,7 +697,13 @@ def _require_abstained(
 ) -> None:
     """An abstained Case is a scored empty answer with score 0.0 (the Engine's mirror rule)."""
 
-    if status != "scored" or grade is None or grade.score != 0.0 or output != "" or refusal:
+    if (
+        status != "scored"
+        or grade is None
+        or grade.score != 0.0
+        or output != ""
+        or refusal is not None
+    ):
         raise ValueError("an abstained Case is a scored empty answer with score 0.0")
 
 
