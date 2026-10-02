@@ -169,7 +169,10 @@ def test_a_too_large_member_with_the_top_score_is_kept_whole() -> None:
 
     assert outcome.output == _selected(("member_2", big))
     assert outcome.evidence.chosen == ["member_2"]
-    assert [m.status for m in outcome.evidence.members] == ["voted", "too_large"]
+    assert [(m.status, m.reason) for m in outcome.evidence.members] == [
+        ("answered", None),
+        ("fail", "too_large"),
+    ]
     assert [m.score for m in outcome.evidence.members] == [0.1, 0.9]
 
 
@@ -288,7 +291,10 @@ def test_a_too_large_member_is_still_joined() -> None:
     )
 
     assert outcome.output == "small|" + big
-    assert [m.status for m in outcome.evidence.members] == ["voted", "too_large"]
+    assert [(m.status, m.reason) for m in outcome.evidence.members] == [
+        ("answered", None),
+        ("fail", "too_large"),
+    ]
 
 
 # --- CC-7 -------------------------------------------------------------------------------------
