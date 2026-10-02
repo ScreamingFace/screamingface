@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
-from screamingface._case_views import case_answers
+from screamingface._case_views import case_answers, case_trace
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
 from screamingface._report_primitives import (
     CaseId,
@@ -24,6 +24,7 @@ from screamingface.operation_accounting import OperationAccounting
 
 if TYPE_CHECKING:
     from screamingface.operation import OperationInfo
+    from screamingface.report_trace import TraceEntry
 
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
 # with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
@@ -567,6 +568,14 @@ class CaseResult:
         """
 
         return case_answers(self, operation_id)
+
+    def trace(self) -> tuple[TraceEntry, ...]:
+        """What every block did for this Case, in order (model calls, extracts, reduce).
+
+        Empty when the Case has no operations. Derived; never part of ``to_dict``.
+        """
+
+        return case_trace(self, self._operation_graph)
 
     def to_dict(self) -> dict[str, object]:
         selected = {

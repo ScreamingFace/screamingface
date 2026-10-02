@@ -232,7 +232,8 @@
           "rounds_executed": "field",
           "status": "field",
           "stop_reason": "field",
-          "to_dict": "method (self) -> 'dict[str, object]'"
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "trace": "method (self) -> 'tuple[TraceEntry, ...]'"
         }
       },
       "Check": {
@@ -742,6 +743,7 @@
           "started_at": "property",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "to_json": "method (self) -> 'str'",
+          "trace_dict": "method (self) -> 'dict[str, object]'",
           "usage": "property"
         }
       },
@@ -1157,6 +1159,7 @@
       "OperationCache",
       "OperationInfo",
       "Report",
+      "TraceEntry",
       "Usage"
     ],
     "exports": {
@@ -1233,7 +1236,8 @@
           "rounds_executed": "field",
           "status": "field",
           "stop_reason": "field",
-          "to_dict": "method (self) -> 'dict[str, object]'"
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "trace": "method (self) -> 'tuple[TraceEntry, ...]'"
         }
       },
       "Check": {
@@ -1377,7 +1381,17 @@
           "started_at": "property",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "to_json": "method (self) -> 'str'",
+          "trace_dict": "method (self) -> 'dict[str, object]'",
           "usage": "property"
+        }
+      },
+      "TraceEntry": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, kind: 'TraceKind', data: 'Mapping[str, object]') -> None",
+          "data": "field",
+          "kind": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },
       "Usage": {

@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Literal, cast, overload
 from uuid import UUID
 
+from screamingface._case_views import case_trace
 from screamingface._client_provenance import client_version as _client_version
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
@@ -43,6 +44,7 @@ from screamingface.combine_evidence import CombineEvidence
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.operation_accounting import OperationAccounting, OperationCache
+from screamingface.report_trace import TRACE_SCHEMA, TraceEntry
 from screamingface.url4 import Url4
 
 type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
@@ -643,6 +645,14 @@ class Report:
         # candidate's case dictionaries at once. File export remains bounded.
         return "".join(iter_report_json(self))
 
+    def trace_dict(self) -> dict[str, object]:
+        """The per-Case traces as ``screamingface.report-trace.v1`` (derived; not report.v1)."""
+
+        return {
+            "schema": TRACE_SCHEMA,
+            "candidates": [_candidate_trace(candidate) for candidate in self.candidates],
+        }
+
     def export(
         self,
         path: str | PathLike[str] = "report.json",
@@ -958,6 +968,22 @@ def _optional_number(value: object, label: str) -> float | None:
     return selected
 
 
+def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
+    # WHY the graph is passed explicitly: it is always the Candidate's own, whatever a shared
+    # Case happens to be bound to.
+    graph = {operation.id: operation for operation in candidate.operations}
+    return {
+        "candidate": candidate.name,
+        "cases": [
+            {
+                "case_id": case.case_id,
+                "entries": [entry.to_dict() for entry in case_trace(case, graph)],
+            }
+            for case in candidate.cases
+        ],
+    }
+
+
 def _bind_graphs(cases: Sequence[CaseResult], operations: Sequence[OperationInfo]) -> None:
     """Bind this Candidate's operation graph to each of its Cases, in place (never a copy)."""
 
@@ -1043,5 +1069,6 @@ __all__ = [
     "OperationCache",
     "OperationInfo",
     "Report",
+    "TraceEntry",
     "Usage",
 ]
