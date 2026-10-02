@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from _combine_contract import engine_operators
 from _reducer_fixtures import FixtureVote, fixture_operators
-from url4 import build, render, struct
+from url4 import Expression, RelExpr, Source, build, render, struct
 
 import screamingface as sf
 from screamingface._evaluation.benchmark import _CheckSurface
@@ -36,9 +36,13 @@ def _url4(recipe: sf.Recipe) -> str:
 def context_of(url4: str, binding: str) -> str:
     """The context text of one call of the candidate (it equals `render(struct(...))`, F6)."""
 
-    for source in build(url4).sources:  # type: ignore[union-attr]
-        if source.name == binding:
-            return source.value.context  # type: ignore[union-attr]
+    root = build(url4)
+    assert isinstance(root, Expression)
+    for source in root.sources:
+        if isinstance(source, Source) and source.name == binding:
+            assert isinstance(source.value, RelExpr)
+            assert source.value.context is not None
+            return source.value.context
     raise AssertionError(f"no call {binding!r} in the candidate")
 
 

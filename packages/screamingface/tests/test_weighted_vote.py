@@ -72,7 +72,7 @@ def test_non_numeric_weights_raise_type_error(bad: Any) -> None:
 def test_weights_are_stored_as_a_float_tuple() -> None:
     vote = sf.Vote(weights=[2, 1.5])
     assert vote.weights == (2.0, 1.5)
-    assert vote.weights is not None
+    assert isinstance(vote.weights, tuple)
     assert all(type(weight) is float for weight in vote.weights)
     assert sf.Vote().weights is None
     assert sf.Vote(weights=[2, 1]) == sf.Vote(weights=(2.0, 1.0))

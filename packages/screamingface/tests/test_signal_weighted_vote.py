@@ -18,6 +18,7 @@ from url4 import Expression, build
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
+from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
 
 _MEMBERS = ["provider/a", "provider/b", "provider/c"]
@@ -25,7 +26,7 @@ _NUMBER: dict[str, Any] = {"extract": "last_number", "normalize": "numeric"}
 _FIELD = sf.Extract("field", path="answer", normalize="text")
 
 
-def _url4(synthesizer: sf.reducer.Reducer) -> str:
+def _url4(synthesizer: Reducer) -> str:
     fusion = sf.Fusion(_MEMBERS, synthesizer=synthesizer)
     return compile_candidate(fusion, operators=engine_operators()).url4
 
@@ -116,7 +117,7 @@ def test_signal_block_with_a_field_path_recovers_as_reduce() -> None:
     assert _url4(namespace["candidate"].synthesizer) == url4
 
 
-@pytest.mark.parametrize("weights", [{"signal": 3}, {"signal": "x", "y": 1}])
+@pytest.mark.parametrize("weights", [{"signal": 3}, {"signal": "x", "y": 1}, [1, 2, 3], "cost_usd"])
 def test_from_spec_refuses_a_malformed_signal_weight(weights: dict[str, Any]) -> None:
     spec = _signal_vote_spec("cost_usd")
     spec["weights"] = weights
