@@ -7,6 +7,8 @@ Mental model: a stamp that writes every answer in one house style before the cou
 stamp writes plain digits; the text stamp writes small, single-spaced words.
 
 INVARIANT: each operator is pure; this module holds no mutable state (ports.py).
+WHY ``set`` has a trailing-underscore function: the name ``set`` would shadow the builtin; the
+operator's own name stays ``"set"``.
 WHY ASCII digits only: ``[0-9]``, never ``\\d`` -- full-width digits are ``not_numeric`` in v1.
 """
 
@@ -21,6 +23,8 @@ from screamingface_engine.combine.ports import (
     StageResult,
     accepted,
     canonical_decimal,
+    canonical_json,
+    loads_bounded,
     rejected,
 )
 
@@ -53,6 +57,42 @@ def text(raw: str, args: OpArgs, /) -> StageResult:
     return accepted(value) if value else rejected("empty")
 
 
+_SET_MAX_ITEMS = 256
+
+
+def _item_text(item: object) -> str | None:
+    """A list item as text: a str as is, a bool or a finite number in canonical JSON, else None."""
+    if isinstance(item, str):
+        return item
+    try:
+        return canonical_json(item) if isinstance(item, (bool, int, float)) else None
+    except ValueError:
+        return None  # a JSON number too big for a float (1e999) has no canonical form
+
+
+def _listed(raw: str) -> list[str] | None:
+    """The items of a JSON list answer, or None when it is not a flat list of scalars."""
+    try:
+        decoded = loads_bounded(raw)
+    except ValueError:
+        return None
+    if not isinstance(decoded, list):
+        return None
+    items = [_item_text(item) for item in decoded]
+    return None if None in items else [item for item in items if item is not None]
+
+
+def set_(raw: str, args: OpArgs, /) -> StageResult:
+    """A JSON list (or comma text) as its sorted, casefolded, distinct items in canonical JSON."""
+    items = _listed(raw) if raw.lstrip().startswith("[") else raw.split(",")
+    if items is None:
+        return rejected("not_json")
+    distinct = {" ".join(item.split()).casefold() for item in items} - {""}
+    if len(distinct) > _SET_MAX_ITEMS:
+        return rejected("too_large")
+    return accepted(canonical_json(sorted(distinct))) if distinct else rejected("empty")
+
+
 def identity(raw: str, args: OpArgs, /) -> StageResult:
     """No change."""
     return accepted(raw)
@@ -68,6 +108,13 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         text,
     ),
     OperatorDescriptor("identity", 1, "normalize", "No change.", identity),
+    OperatorDescriptor(
+        "set",
+        1,
+        "normalize",
+        "Sorted, casefolded, distinct list items as canonical JSON.",
+        set_,
+    ),
 )
 
 __all__ = ["OPERATORS"]
