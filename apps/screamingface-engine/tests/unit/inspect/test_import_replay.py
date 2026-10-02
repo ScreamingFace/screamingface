@@ -174,7 +174,6 @@ def test_the_child_returns_cases_case_sources_and_facts(fake_eval: str, tmp_path
         CaseSource("file", str((tmp_path / "cases.jsonl").resolve()), "unpinned"),
     )
     assert replay.sample_ids == ("1", "2")
-    assert replay.facts.prompt_template == f"{fake_eval}:TEMPLATE"
     assert replay.facts.scorer == "inspect_ai.scorer:match"
     assert replay.facts.scorer_kwargs == {"numeric": True}
     assert replay.facts.mcq is False
@@ -220,14 +219,14 @@ def test_task_args_reach_the_task_function(fake_eval: str) -> None:
 
 
 def test_the_import_child_and_the_image_child_render_the_same_cases(fake_eval: str) -> None:
-    """INVARIANT: one writer. The declaration the importer records reproduces at build."""
+    """INVARIANT: one renderer, capture, in both children. The declaration the importer
+    records reproduces at build."""
 
     replay: ImportReplay = replay_for_import(f"{fake_eval}:arithmetic", None)
     declaration: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=f"{fake_eval}:arithmetic",
         case_count=2,
         case_digest=case_digest(replay.prepared),
-        prompt_template=replay.facts.prompt_template,
     )
 
     assert case_digest(replayed_cases(declaration)) == declaration.case_digest
@@ -266,7 +265,6 @@ def test_an_import_seals_the_cases_with_a_digest_both_runs_agree_on(fake_eval: s
 
     assert imported.declaration.case_count == 2
     assert len(imported.declaration.case_digest) == 64
-    assert imported.declaration.prompt_template == f"{fake_eval}:TEMPLATE"
     assert imported.declaration.task_args is None
     assert case_digest(replayed_cases(imported.declaration)) == imported.declaration.case_digest
 

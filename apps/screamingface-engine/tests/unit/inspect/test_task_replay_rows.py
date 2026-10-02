@@ -51,10 +51,6 @@ def _facts(**overrides: Any) -> TaskReplayFacts:
     values: dict[str, Any] = {
         "task_ref": _AGIEVAL_TASK,
         "task_args": None,
-        "prompt_template": None,
-        "choice_template": "inspect_evals.agieval.utils:MULTIPLE_CHOICE_TEMPLATE_EN",
-        "system_message": None,
-        "unreproduced_solvers": (),
         "mcq": True,
         "scorer": "inspect_ai.scorer:choice",
         "scorer_kwargs": {},
@@ -79,7 +75,6 @@ def _imported(
             "task": the_facts.task_ref,
             "case_count": 230,
             "case_digest": "e" * 64,
-            "choice_template": the_facts.choice_template,
             **spec,
         }
     )
@@ -128,7 +123,6 @@ def test_task_replay_rows_carry_the_sources_as_comments_and_the_seal_as_values()
         f'        task="{_AGIEVAL_TASK}",\n'
         "        case_count=230,\n"
         f'        case_digest="{"e" * 64}",\n'
-        '        choice_template="inspect_evals.agieval.utils:MULTIPLE_CHOICE_TEMPLATE_EN",\n'
         "        # TODO(review): no dataset card to read; the owner decides.\n"
         '        license="TODO",\n'
         "    ),\n"
@@ -196,12 +190,14 @@ def test_the_metadata_choice_the_digest_covers_is_written() -> None:
     assert _declared(rows)["chembench"].keep_sample_metadata is True
 
 
-def test_an_unreproduced_solver_is_flagged_for_review() -> None:
-    facts: TaskReplayFacts = _facts(unreproduced_solvers=("inspect_evals/sad_mcq_format",))
+def test_the_declaration_carries_no_prompt_field() -> None:
+    """Capture (PR #1219) renders the prompt from the Task's own solvers, so no row names a
+    template; a declaration that did would describe a render nothing reads."""
 
-    rows: TaskReplayRows = render_task_replay_rows("sad", _imported(facts=facts), "TODO")
+    rows: TaskReplayRows = render_task_replay_rows("sad", _imported(), "TODO")
 
-    assert "solver inspect_evals/sad_mcq_format is not reproduced" in rows.cases
+    for field in ("prompt_template", "choice_template", "system_message", "TODO(review): solver"):
+        assert field not in rows.cases
 
 
 @pytest.mark.parametrize(
@@ -262,7 +258,6 @@ def test_a_source_with_no_web_page_leaves_the_dataset_url_for_review() -> None:
 def test_a_free_text_task_offers_the_check_surface() -> None:
     facts: TaskReplayFacts = _facts(
         task_ref="inspect_evals.mgsm.mgsm:mgsm",
-        choice_template=None,
         mcq=False,
         scorer="inspect_ai.scorer:match",
         scorer_kwargs={"numeric": True},
@@ -380,26 +375,22 @@ def test_a_card_with_no_license_is_todo() -> None:
     )
 
 
-def test_a_solver_flag_with_a_parenthesis_lands_as_a_comment() -> None:
-    """Found on the first real import (agieval): the flag text is our own wording, written
-    only into a comment, so only a line break could escape it."""
+def test_a_metric_name_with_a_parenthesis_lands_as_a_comment() -> None:
+    """A custom metric name is written only into a comment, so only a line break could
+    escape it."""
 
-    facts: TaskReplayFacts = _facts(
-        unreproduced_solvers=(
-            "inspect_ai/multiple_choice (custom choice template is not prepared)",
-        )
-    )
+    facts: TaskReplayFacts = _facts(custom_metrics=("inspect_evals/f1 (macro)",))
 
     rows: TaskReplayRows = render_task_replay_rows("agieval", _imported(facts=facts), "TODO")
 
-    assert "multiple_choice (custom choice template is not prepared)" in rows.cases
+    assert "inspect_evals/f1 (macro)" in rows.benchmark
     assert _declared(rows)["agieval"].task == _AGIEVAL_TASK
 
 
 def test_a_comment_string_with_a_line_break_is_refused() -> None:
     """A newline would end the comment and start a line of code (injection guard)."""
 
-    facts: TaskReplayFacts = _facts(unreproduced_solvers=("x\nimport os",))
+    facts: TaskReplayFacts = _facts(custom_metrics=("x\nimport os",))
 
     with pytest.raises(ImporterError, match="injection guard"):
         render_task_replay_rows("x", _imported(facts=facts), "TODO")

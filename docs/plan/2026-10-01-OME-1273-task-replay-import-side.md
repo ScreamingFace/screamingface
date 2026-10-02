@@ -6,11 +6,18 @@
 child, record every Case Source, seal the Cases with a Case Digest taken twice, write the
 declaration), then import the first Task-replay Benchmarks with network-blocked grading tests.
 
+> **Amended 2026-10-02 (owner direction, PR #1219):** the Cases are rendered by **capture**,
+> not by the shared imitation writer. The import child runs the Task's own `setup` and
+> `solver` on each Sample with a stand-in `generate` and records the prompt; the declaration
+> carries no `prompt_template`, `choice_template` or `system_message`, and the facts carry no
+> template references or "unreproduced solver" flags. Where this plan's tasks below name
+> those fields, read "captured". Plan: `docs/plan/2026-10-02-OME-1273-capture-rendering.md`.
+
 **Architecture:** Two new plugin modules. `case_sources.py` wraps the fetch primitives by
 identity and records one Case Source per top-level fetch. `import_replay.py` is the import-mode
-child: it installs the recorder, calls the task function, reads the solver and scorer facts
-from the built Task, renders the Cases with the shared writer, and returns Cases, Case Sources
-and facts through `result.json`. The parent runs it once, writes a declaration from the result,
+child: it installs the recorder, calls the task function, reads the scorer facts and the
+multiple-choice witness off the built Task, renders the Cases by capture, and returns Cases,
+Case Sources and facts through `result.json`. The parent runs it once, writes a declaration from the result,
 then runs the image-side `replayed_cases` on that declaration as the second run; the two Case
 Digests must agree. `importer.py` routes its four "can't see the fetch" refusals to that path
 and renders the `TaskReplayCasesSpec` entry plus the usual `BenchmarkSpec` row. The image side

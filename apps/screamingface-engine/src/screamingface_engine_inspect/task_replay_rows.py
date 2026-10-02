@@ -11,9 +11,9 @@ reviewer judges it. Stages of ``write_task_replay_rows``, in execution order:
 
     Stage 1 — refuse a key either importer already declared.
     Stage 2 — refuse any text that could escape the generated code (injection guard): the
-              task and template references, the solver flags, the license, the Case Sources.
-    Stage 3 — render the declaration: Case Sources as comments, the seal and the facts that
-              shape a Case as values, the license with its review note.
+              task and scorer references, the metric names, the license, the Case Sources.
+    Stage 3 — render the declaration: Case Sources as comments, the seal and the one fact
+              that shapes a Case (kept metadata) as values, the license with its review note.
     Stage 4 — render the BenchmarkSpec row: catalogue prose as TODOs, the first browsable
               Case Source as ``dataset_url``, the scorer lines shared with the Hugging Face rows.
     Stage 5 — insert both rows above their anchors and write each file only if it parses.
@@ -64,8 +64,6 @@ _TASK_REPLAY_CASES_ANCHOR: str = (
 #: What a Case Source may hold to land in a generated comment. URLs carry ? = & % (sad's
 #: `structs.zip?ref=…`); a quote, a backslash or a newline could escape, and stays refused.
 _CASE_SOURCE_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._:/\-?=&%+#~@ ]*\Z")
-#: The declaration fields that name a module attribute, in the order the row writes them.
-_REFERENCE_FIELDS: tuple[str, ...] = ("prompt_template", "choice_template", "system_message")
 
 
 @dataclass(frozen=True)
@@ -154,15 +152,10 @@ def _refuse_injectable_import(
     """Stage 2 — refuse any string that could escape the generated rows."""
 
     declaration: TaskReplayCasesSpec = imported.declaration
-    references: list[str | None] = [
-        declaration.task,
-        imported.facts.scorer,
-        *(getattr(declaration, name) for name in _REFERENCE_FIELDS),
-    ]
-    # WHY a looser rule for these: they land only inside comments, and the solver flags carry
-    # our own wording ("multiple_choice (custom choice template is not prepared)"); only a
-    # line break or another control character could end the comment and start code.
-    for text in (*imported.facts.unreproduced_solvers, *imported.facts.custom_metrics):
+    references: list[str | None] = [declaration.task, imported.facts.scorer]
+    # WHY a looser rule for these: they land only inside comments; only a line break or
+    # another control character could end the comment and start code.
+    for text in imported.facts.custom_metrics:
         if not text.isprintable():
             raise ImporterError(
                 f"{text!r} cannot be written into a generated comment — refusing (injection guard)"
@@ -207,19 +200,9 @@ def _declaration_lines(
         lines.append(f"        task_args={_python_literal_source(declaration.task_args)},")
     lines.append(f"        case_count={declaration.case_count},")
     lines.append(f'        case_digest="{declaration.case_digest}",')
-    for name in _REFERENCE_FIELDS:
-        value: str | None = getattr(declaration, name)
-        if value is not None:
-            lines.append(f'        {name}="{value}",')
     if declaration.keep_sample_metadata:
         # WHY written: the metadata is inside the Case Digest, so the row must say so (D11).
         lines.append("        keep_sample_metadata=True,")
-    for solver_name in imported.facts.unreproduced_solvers:
-        # WHY two lines: one would overflow the 100-column gate the generated file must pass.
-        lines.append(f"        # TODO(review): solver {solver_name} is not reproduced by")
-        lines.append(
-            "        # the prepare step — verify the prepared prompt matches the eval's render."
-        )
     lines.extend(_license_lines(license, card_license))
     lines.append("    ),")
     return lines

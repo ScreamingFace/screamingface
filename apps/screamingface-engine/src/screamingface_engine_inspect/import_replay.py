@@ -5,9 +5,9 @@
 
 FEATURE: Task-replay Imported Benchmarks (spec R2–R4). The image side (task_replay.py)
 replays a DECLARATION it already has. The importer has none yet: it needs the Cases, where
-they came from, and the solver and scorer facts of the built Task, all from one clean child.
-This module is that child and its parent-side call. It never calls inspect's ``eval()``: no
-solver, scorer, model or Judge runs.
+they came from, and the scorer facts of the built Task, all from one clean child. This module
+is that child and its parent-side call. It never calls inspect's ``eval()``: no model, scorer
+or Judge runs; the Task's own solvers run only up to their first ``generate``, by capture.
 
 Stages of ``replay_for_import``, in execution order:
 
@@ -17,8 +17,8 @@ Stages of ``replay_for_import``, in execution order:
               name the module bound at import (`from inspect_ai.util import download`) is
               rebound too; call the task function with its args.
     Stage 3 — child: read the facts off the built Task with the importer's own readers
-              (_solver_facts, _scorer_reference, _custom_metrics); render the Samples with
-              the shared Case writer, using those facts.
+              (_scorer_reference, _custom_metrics, plus the multiple_choice witness); render
+              the Samples by capture (the Task's own solvers with a stand-in generate).
     Stage 4 — child: write result.json: prepared Cases, Sample ids, Case Sources, facts.
               WHY a file: evals print while they load.
     Stage 5 — parent: a non-zero exit, a timeout or an unreadable result is a
@@ -38,18 +38,18 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+from screamingface_engine_inspect.capture import captured_case_records
 from screamingface_engine_inspect.case_sources import CaseSource, CaseSourceRecorder
 from screamingface_engine_inspect.importer import (
     ImporterError,
     _custom_metrics,
     _scorer_reference,
-    _solver_facts,
+    _solver_list,
 )
 from screamingface_engine_inspect.prepare import (
     PreparedCase,
     TaskReplayCasesSpec,
     case_digest,
-    case_records,
 )
 from screamingface_engine_inspect.task_replay import (
     TASK_REPLAY_TIMEOUT_SECONDS,
@@ -69,14 +69,12 @@ _INSPECT_SCORER_PREFIX: str = "inspect_ai.scorer:"
 
 @dataclass(frozen=True)
 class TaskReplayFacts:
-    """What the importer reads off the built Task: the prompt and scorer facts (spec R6)."""
+    """What the importer reads off the built Task: the scorer facts and the MCQ witness
+    (spec R6). WHY no prompt facts: the Cases are captured from the Task's own solvers, so
+    nothing here could describe the prompt better than they do."""
 
     task_ref: str
     task_args: dict[str, Any] | None
-    prompt_template: str | None
-    choice_template: str | None
-    system_message: str | None
-    unreproduced_solvers: tuple[str, ...]
     mcq: bool
     scorer: str
     scorer_kwargs: dict[str, Any]
@@ -161,11 +159,7 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
 
     raw_facts: dict[str, Any] = dict(result["facts"])
     facts: TaskReplayFacts = TaskReplayFacts(
-        **{
-            **raw_facts,
-            "unreproduced_solvers": tuple(raw_facts["unreproduced_solvers"]),
-            "custom_metrics": tuple(raw_facts["custom_metrics"]),
-        }
+        **{**raw_facts, "custom_metrics": tuple(raw_facts["custom_metrics"])}
     )
     return ImportReplay(
         prepared=result["prepared"],
@@ -178,22 +172,15 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
 def _facts_of(
     task: Any, module: Any, task_ref: str, task_args: dict[str, Any] | None
 ) -> TaskReplayFacts:
-    """Stage 3a — read the built Task with the Hugging Face reader's own readers."""
+    """Stage 3a — read the built Task with the Hugging Face reader's own scorer readers."""
 
-    template_ref, choice_ref, system_ref, custom, uses_multiple_choice = _solver_facts(
-        task, module, task_ref
-    )
     scorer_ref, scorer_kwargs, scorer_name = _scorer_reference(task, module)
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
-        prompt_template=template_ref,
-        choice_template=choice_ref,
-        system_message=system_ref,
-        unreproduced_solvers=custom,
         # INVARIANT: the same two MCQ witnesses as read_inspect_task — the multiple_choice
         # solver, OR the choice scorer (mmlu hides its solver inside its own @solver).
-        mcq=uses_multiple_choice or scorer_name == "choice",
+        mcq=_uses_multiple_choice(task) or scorer_name == "choice",
         scorer=scorer_ref,
         scorer_kwargs=scorer_kwargs,
         custom_metrics=_custom_metrics(task),
@@ -201,6 +188,26 @@ def _facts_of(
         # metadata sits inside the Case Digest, so it is decided here, never by a hand edit.
         keep_sample_metadata=not scorer_ref.startswith(_INSPECT_SCORER_PREFIX),
     )
+
+
+def _uses_multiple_choice(task: Any) -> bool:
+    """Whether the Task's setup or solver chain holds inspect's multiple_choice solver.
+
+    WHY a walk of our own and not the Hugging Face reader's: that reader also binds template
+    references and refuses chains it cannot imitate (two prompt templates, a rewritten system
+    message); capture renders those fine, so only the MCQ witness is read here.
+    """
+
+    from inspect_ai._util.registry import registry_info
+
+    pending: list[Any] = [*_solver_list(task.setup), *_solver_list(task.solver)]
+    for solver in pending:
+        name: str = registry_info(solver).name.rpartition("/")[2]
+        if name == "chain" and hasattr(solver, "__iter__"):
+            pending.extend(solver)
+        elif name == "multiple_choice":
+            return True
+    return False
 
 
 def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
@@ -216,20 +223,17 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
     recorder.install()
     task: Any = getattr(module, attribute)(**(task_args or {}))
-    # Stage 3 — facts from the built Task, then the Cases through the shared writer.
+    # Stage 3 — facts from the built Task, then the Cases by capture.
     facts: TaskReplayFacts = _facts_of(task, module, task_ref, task_args)
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=task_ref,
         case_count=0,
         case_digest=UNSEALED_DIGEST,
         task_args=task_args,
-        prompt_template=facts.prompt_template,
-        choice_template=facts.choice_template,
-        system_message=facts.system_message,
         keep_sample_metadata=facts.keep_sample_metadata,
     )
     samples: list[Any] = list(task.dataset)
-    prepared: list[PreparedCase] = case_records(samples, spec)
+    prepared: list[PreparedCase] = captured_case_records(task, spec)
     # Stage 4 — one file back to the parent. WHY sample_ids: the writer numbers Cases 1..N,
     # so the upstream ids R4's duplicate check reads exist only here.
     result: dict[str, Any] = {
@@ -265,7 +269,7 @@ def import_by_task_replay(
         Stage 2 — refuse by name (spec R4): the task raised; no Samples; Samples but no Case
                   Source; two Samples share an id (id-less Samples never collide).
         Stage 3 — seal: the declaration carries run 1's Case count and Case Digest, plus the
-                  facts that shape a Case (templates, keep_sample_metadata).
+                  one fact that shapes a Case (keep_sample_metadata).
         Stage 4 — run 2, the IMAGE-SIDE child (task_replay.replayed_cases) on that
                   declaration: what every build will do. A different digest is refused: an
                   unseeded shuffle would pass once and go SKIPPED at every build.
@@ -298,9 +302,6 @@ def import_by_task_replay(
         case_count=len(first.prepared),
         case_digest=case_digest(first.prepared),
         task_args=dict(task_args) if task_args else None,
-        prompt_template=first.facts.prompt_template,
-        choice_template=first.facts.choice_template,
-        system_message=first.facts.system_message,
         keep_sample_metadata=first.facts.keep_sample_metadata,
     )
     # Stage 4

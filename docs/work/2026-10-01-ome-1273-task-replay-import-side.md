@@ -62,6 +62,11 @@ run through the image-side path), and write the `TaskReplayCasesSpec` declaratio
   pyright, layering, pytest with coverage ≥ 80); `tests/unit/inspect` 603 passed;
   `test_published_revisions.py` unchanged and green.
 - **Deviations:**
+  - Amended 2026-10-02 after PR #1219 (capture rendering): the import child renders by
+    `captured_case_records`, not the imitation writer; `TaskReplayFacts` lost its three
+    template references and the "unreproduced solver" flags; the declaration row writes no
+    template field; the MCQ witness is a solver walk of its own (`_uses_multiple_choice`),
+    because the Hugging Face reader's walk also refuses chains capture renders fine.
   - Plan review folded in first (8e8b0bbb): D11 `keep_sample_metadata` for an eval's own scorer,
     D12 `--task-replay`, D13 uncleared card license → TODO; task args render as Python, not
     JSON (Review Focus 6); both MCQ witnesses (7); web `dataset_url` (8); recorder
