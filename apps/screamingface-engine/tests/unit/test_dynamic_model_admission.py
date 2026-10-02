@@ -44,7 +44,7 @@ from screamingface_engine.world.models.registry import EMPTY_MODEL_WORLD
 
 _DECLARED = "openrouter/openai/gpt-5.5"
 _TARGET = "openrouter/qwen/qwen2.5-7b-instruct"
-_CREDENTIAL = Credential.derive("default", {"X-User-Email": "alice@example.com"})
+_CREDENTIAL = Credential.derive({"X-User-Email": "alice@example.com"})
 
 
 # --- the shape gate ----------------------------------------------------------
@@ -98,7 +98,7 @@ async def test_admit_model_posts_the_id_under_the_callers_identity() -> None:
     assert seen[0].url.path == "/v1/models/admit"
     assert json.loads(seen[0].content) == {"model_id": _TARGET}
     assert seen[0].headers["X-User-Email"] == "alice@example.com"
-    assert seen[0].headers["X-Profile"] == "default"
+    assert "X-Profile" not in seen[0].headers
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""AI Gateway adapter for model-list and profile-bound model-detail discovery.
+"""AI Gateway adapter for model-list and model-detail discovery.
 
 Implements both discovery ports in ``catalog/port.py`` with one HTTP client and one identity
 boundary. The model list is cached by its decorator; detailed parameter contracts deliberately
@@ -12,6 +12,7 @@ from typing import Any, Never
 
 import httpx
 
+from screamingface_engine import job_env
 from screamingface_engine.catalog.admission import AdmissionAnswer
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 _CATALOG_PATH = "/v1/models"
 _MODEL_PARAMETERS_PATH = "/v1/model-parameters"
 _ADMIT_PATH = "/v1/models/admit"
-# WHY: these statuses describe caller-correctable identity, profile, or model choices. Preserve
+# WHY: these statuses describe caller-correctable identity or model choices. Preserve
 # their JSON verbatim; mask every server/transport failure behind the Engine's stable 502/504.
 _CALLER_CORRECTABLE_STATUSES = frozenset({400, 401, 403, 404, 409})
 
@@ -82,7 +83,7 @@ class AigatewayCatalogSource:
         *,
         traceparent: str | None = None,
     ) -> ModelParameterResponse:
-        """Fetch one detailed model contract for the caller's profile.
+        """Fetch one detailed model contract for the caller's identity.
 
         ``traceparent`` is the inbound request's (OME-1134): this call is one-to-one with it.
         """
@@ -229,14 +230,10 @@ def _reject_non_json_constant(value: str) -> Never:
 
 
 def _headers(credential: Credential, *, traceparent: str | None = None) -> dict[str, str]:
-    """Build the upstream request headers from the credential's identity and profile.
+    """Build upstream request headers from the credential's verified identity.
 
     ``traceparent``, when given, is sent as-is. It is an explicit argument, never read from an
     ambient scope, so whether a call carries a trace is visible at its call site (OME-1134).
-
-    INVARIANT: the gateway-owned header is written LAST, mirroring ``world.connector._headers`` —
-    the identity mapping is not guaranteed to hold only identity keys, so no value in it can
-    displace ``X-Profile``.
 
     No ``Authorization``: a deployed aigateway (``cloudflare_headers``) reads only the identity
     header, and a local one (``disabled``) reads nothing at all.
@@ -260,11 +257,9 @@ def _headers(credential: Credential, *, traceparent: str | None = None) -> dict[
       ``Credential``: it holds a derived cache ``key``, so a per-request field on it would give
       every request its own cache entry and destroy the catalog cache.
     """
-    headers = dict(credential.identity)
+    headers = job_env.identity_for_forwarding(credential.identity)
     if traceparent is not None:
         headers["traceparent"] = traceparent
-    if credential.profile is not None:
-        headers["X-Profile"] = credential.profile
     return headers
 
 

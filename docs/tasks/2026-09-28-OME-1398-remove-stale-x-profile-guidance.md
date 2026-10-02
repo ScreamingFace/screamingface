@@ -1,13 +1,13 @@
 ---
 id: OME-1398
 linear_url: https://linear.app/openmined/issue/OME-1398/aigateway-uidocs-remove-stale-x-profile-selection-guidance
-status: in_progress
+status: completed
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-09-28
-closed:
+closed: 2026-10-01
 ---
 
 # OME-1398 — Remove stale X-Profile selection guidance
@@ -34,7 +34,7 @@ when the pair is ambiguous.
 
 ## Implementation Status
 
-Implementation and local checks are complete on `OME-1398-remove-x-profile-guidance`. The form keeps
-the legacy `default` name required by the current admin route but no longer presents it as a request
-selector. The generated schema now says nonblank `X-Profile` is rejected, and the identity flow shows
-selector-less pair resolution with explicit 409 ambiguity. The branch is ready for review.
+Merged in PR #1210 as `57e78d71a9582b238ac4fe7cf0f682cb012c06a2`. The form keeps the
+legacy `default` name required by the current admin route but no longer presents it as a request
+selector. The generated schema says nonblank `X-Profile` is rejected, and the identity flow shows
+selector-less pair resolution with explicit 409 ambiguity.

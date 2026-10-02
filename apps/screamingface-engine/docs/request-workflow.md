@@ -98,7 +98,7 @@ sequenceDiagram
     Child->>Child: params_from_env → RunnerParams(topic,url4,nats_url)
     Child->>Child: build_executor(env); load_config → /etc/url4/url4.toml
     alt [aigateway] declared
-        Child->>+Conn: build_aigateway_world(cfg, tavily_api_key=…)<br/>no token; identity (and a legacy profile) ride the per-request scope
+        Child->>+Conn: build_aigateway_world(cfg, tavily_api_key=…)<br/>no token; verified identity rides the per-request scope
         Conn->>Conn: routes_for(declared models) → one Url4Node route per model
         Conn-->>Child: AigatewayWorld(node, world_aclose)
     else no [aigateway] table
@@ -110,7 +110,7 @@ sequenceDiagram
         Child->>Child: url4.dag.run(url4, io=node, observer=_Bridge)
         Note right of Child: sync Observer → async generator bridge
         Child->>+Conn: node dispatches processor route /<provider>/<model>
-        Conn->>+AGW: POST /v1/chat/completions<br/>{model, messages[, tools]}<br/>X-User-Email[, X-Profile: legacy message only]
+        Conn->>+AGW: POST /v1/chat/completions<br/>{model, messages[, tools]}<br/>X-User-Email; never X-Profile
         opt web tools enabled (Tavily key present)
             AGW-->>Conn: choices[0].message.tool_calls
             par parallel tool execution
@@ -193,15 +193,12 @@ the Runner and on to aigateway (`job_env.IDENTITY_HEADER_ENV`):
 2. It is NOT plain header pass-through: the App and the run's child process are different
    processes and the outgoing request does not exist yet. The App serializes it into the
    queue message's per-run env as `URL4_CLOUD_IDENTITY_USER_EMAIL` (plain env, not a Secret —
-   identity authorizes nothing on its own), and the child re-renders it. No run is scheduled
-   with `AIGATEWAY_PROFILE` any more (OME-1381): ingress refuses a nonblank `X-Profile`, and the
-   worker drops an ambient value instead of inheriting it. A queue message accepted before that
-   change still carries the field, and it is honoured until the drain.
+   identity authorizes nothing on its own), and the child re-renders it. The queue/env contract
+   has no Profile selector; every ingress refuses a nonblank `X-Profile` before scheduling.
 3. The run mode's `build_executor` (`runner/main.py`) branches on the declared world in
    `url4.toml`:
    - an `[aigateway]` table → `build_aigateway_world` builds a `Url4Node` whose declared routes
-     call `POST /v1/chat/completions` with `X-User-Email` (and `X-Profile` only for a legacy
-     message that still carries `AIGATEWAY_PROFILE`);
+     call `POST /v1/chat/completions` with `X-User-Email` and never `X-Profile`;
    - no table → the run's IO is `deny_by_default_world()` (empty `StaticIOLayer` — no routes,
      no holdings, no fetch map).
 4. **No bearer token is carried anywhere.** aigateway runs `cloudflare_headers` when deployed

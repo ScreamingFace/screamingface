@@ -77,9 +77,8 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
 
     One run has exactly one caller, so every value the connector used to pin on the handler is
     here instead, resolved once before the world is built and bound around the run by
-    `Url4Executor`. The identity and profile are optional (absent means anonymous / the
-    gateway's default); the cache policy is total; the seed is the one value that REFUSES the
-    run when malformed.
+    `Url4Executor`. The identity is optional (absent means anonymous); the cache policy is total;
+    the seed is the one value that REFUSES the run when malformed.
 
     Raises:
         RunnerConfigError: ``ANSWER_SEED`` is present but not an integer. This is the same
@@ -101,7 +100,6 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
     job_deadline = _deadline_from_env(env) if direct else None
     return RequestScope(
         identity_headers=job_env.identity_from_env(env),
-        profile=env.get(job_env.AIGATEWAY_PROFILE),
         answer_seed=answer_seed,
         cache=job_env.cache_policy_from_env(env),
         origin="sync" if direct else "run",
@@ -661,8 +659,8 @@ async def warm_up(
     the declared world from its config file — the per-run world build was the largest share of
     a simple call's latency (kind B4: ~600 ms of ~800 ms). A broken config is reported in READY.
 
-    INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, the profile,
-    the io budget. The world holds no caller state: the request scope (identity, profile, seed)
+    INVARIANT (WRM-4): no per-run key is read here — not the topic, the identity, or the io budget.
+    The world holds no caller state: the request scope (identity and seed)
     is bound per run and read at call time. A run whose admitted overlay (`EXTRA_MODELS`) this
     world does not route builds its own world instead (`shared_world_serves`), as before.
     """

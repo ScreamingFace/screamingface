@@ -200,7 +200,6 @@ async def test_routes_valid_inbound_traceparent_forwards_into_schedule() -> None
             deadline_s=app.state.settings.job_deadline_s,
             traceparent=valid_tp,
             credential=None,
-            profile=None,
         )
     ]
 

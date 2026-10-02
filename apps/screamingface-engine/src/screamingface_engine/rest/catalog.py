@@ -11,7 +11,7 @@ Owns request-side concerns only (credential resolution, conditional-request/ETag
 in ``screamingface_engine.catalog.cache.CatalogService``.
 
 ``GET /v1/models`` is the cached summary. ``GET /v1/model-parameters`` is the uncached,
-profile-bound detail. Every response is private and varies by the identity inputs that can
+identity-bound detail. Every response is private and varies by the identity inputs that can
 change it.
 
 BOTH surfaces are bounded by the same declared execution world
@@ -98,15 +98,14 @@ _MODEL_PARAMETER_RESPONSES: dict[int | str, dict[str, object]] = {
         ),
         "content": {**_PROBLEM_CONTENT, "application/json": {"schema": {}}},
     },
-    401: {"description": "The selected profile requires authentication."},
-    403: {"description": "The caller cannot access the selected profile."},
+    401: {"description": "The caller must authenticate to AI Gateway."},
+    403: {"description": "The caller cannot access the requested model."},
     404: {
         "description": (
-            "The model is not installed on this Engine, or AI Gateway does not know the "
-            "model or profile."
+            "The model is not installed on this Engine, or AI Gateway does not know the model."
         )
     },
-    409: {"description": "The selected profile is not ready."},
+    409: {"description": "The requested model's provider connection is not ready."},
     502: {"description": "AI Gateway returned an unusable contract."},
     503: {"description": "AI Gateway is not configured, or the declared world is unusable."},
     504: {"description": "AI Gateway did not respond in time."},
@@ -182,7 +181,7 @@ async def list_models(
     responses=_MODEL_PARAMETER_RESPONSES,
     openapi_extra=_MODEL_PARAMETER_OPENAPI,
     description=(
-        "Return AI Gateway's profile-bound parameter contract for one canonical model. "
+        "Return AI Gateway's parameter contract for one canonical model. "
         "The body is AI Gateway's, verbatim, and is never cached by URL4 Cloud.\n\n"
         "Bounded by the same declared execution world as ``GET /v1/models``: a model this "
         "Engine has not declared answers 404 without contacting AI Gateway, so this surface "
@@ -291,11 +290,9 @@ def _caller(headers: Mapping[str, str]) -> Credential:
     circuit (spec §11 acceptance 2), which was only sound while a bearer token was mandatory. The
     flood protection that remains is `catalog.cache`'s entry cap and single-flight bulkhead.
 
-    INVARIANT (OME-1381): selector-less. The route has already refused a stated ``X-Profile``, and
-    the absent-profile key is the one a selector-less caller always had, so no cached catalog is
-    invalidated by the producer-off change.
+    INVARIANT (OME-1381): selector-less. The route has already refused a stated ``X-Profile``.
     """
-    return Credential.derive(None, job_env.identity_from_headers(headers))
+    return Credential.derive(job_env.identity_from_headers(headers))
 
 
 __all__ = ["router"]

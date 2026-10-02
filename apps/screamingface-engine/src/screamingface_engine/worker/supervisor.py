@@ -211,15 +211,9 @@ def cold_child_env(
     is written last so it is the authority on how wide a run may fan out (the fair-share
     gate cannot span processes, so the budget travels by env).
     """
-    env = dict(environ)
+    env = job_env.without_retired_keys(environ)
     # INVARIANT: only this queue message may declare its Client version.
     env.pop(CLIENT_VERSION_ENV, None)
-    # INVARIANT (OME-1381): only this queue message may carry a profile selector. An ambient
-    # value would route a selector-less run through a credential its caller never named — a
-    # warm child's `deploy_env` and the in-process runner already drop it. A legacy message that
-    # carries the field (work accepted before producer-off) still sets it from `run_env` below,
-    # and is honoured until the drain.
-    env.pop(job_env.AIGATEWAY_PROFILE, None)
     env.update(run_env)
     env[job_env.IO_CONCURRENCY] = str(io_concurrency)
     return env

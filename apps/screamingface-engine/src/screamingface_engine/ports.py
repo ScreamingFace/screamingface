@@ -41,8 +41,7 @@ class IdentityAwareJobRunner(JobRunner):
     WHY it is not simply forwarded as headers: the App that receives them and the
     Runner Pod that calls aigateway are different processes, and the outgoing
     request does not exist yet when the headers arrive. Identity has to be captured,
-    serialized, and re-rendered — the same path ``credential`` and ``profile``
-    already take.
+    serialized, and re-rendered.
 
     ``cache`` takes that same path for the same reason, and is declared HERE rather
     than on the engine's port for the same one again: whether a run participates in
@@ -66,7 +65,6 @@ class IdentityAwareJobRunner(JobRunner):
         *,
         traceparent: str | None = None,
         credential: str | None = None,
-        profile: str | None = None,
         identity: Mapping[str, str] | None = None,
         cache: CachePolicy | None = None,
         answer_seed: int | None = None,

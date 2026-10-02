@@ -388,9 +388,10 @@ invariant suites.
   accepted-work disposition approved; retirement returns a code, never an empty list.
 - Selectors (D4): the provenance census is **waived 2026-09-25 (owner, recorded on
   `OME-1381`)** — dev evidence and the absence of first-party callers that send `X-Profile` are
-  accepted as sufficient; queued and in-flight work carrying `AIGATEWAY_PROFILE` drained or
-  dispositioned, worker ambient env audited, Engine emission and URL4 argument retired, then the
-  gateway rejects present selectors with 400.
+  accepted as sufficient. Gateway rejection merged before final carrier cleanup under the accepted
+  alpha-canary risk. On 2026-10-01 the owner confirmed no legacy queue messages remain; `OME-1449`
+  and `OME-1450` therefore remove the Engine queue/env/request carrier and URL4 argument together,
+  without a compatibility reader. Every ingress keeps rejecting present selectors with 400.
 - Storage: after the backing switch, no unresolved quarantine, D6 retention fulfilled, the named
   rollback build no longer needs the legacy index.
 - History: separately authorised cleanup; reference validation and deletion share one atomic
@@ -473,7 +474,7 @@ mechanism survives in §7. No owner decision is contradicted.
 | S3 admin Connection API + `effective=true` | reshaped (D17/D18); `connection_id` addressing redundant as a consumer boundary | it hard-codes the backing; in-process admin interface lands at A3 instead |
 | S4 backfill | necessary for D11(a), unchanged in content; after D14 | option (b) needs the same discipline for its own migration |
 | S5 Hosted Engine | reordered to A4 (after D17), before any storage work | one switch only |
-| S6/S9 carrier retirement | unchanged; Stage D | disposition-gated |
+| S6/S9 carrier retirement | coordinated `OME-1449` Engine and `OME-1450` URL4 landing; Stage D | owner confirmed no legacy queue messages on 2026-10-01; no compatibility reader |
 | S7 Admin UI | later than before: the defaults fieldset dropped at C (`OME-1322`); list/delete and the key-only attach/replace move with D18 | the attach call carried defaults until C |
 | S8 SDK | no work in the window; mapping edit only at D | codes unchanged |
 | S11 cutover, S12 cleanup, S13 catalog | unchanged in content; S13 gains additive text at A1 | as before |
@@ -486,8 +487,8 @@ mechanism survives in §7. No owner decision is contradicted.
   delete-leaves-shadow reachability; security-relevant; census not run.
 - Hosted availability semantics for Connection-only accounts and `needs_reauth` change at the
   backing switch unless deliberately reproduced (D17).
-- Post-sunset 400 on queued runs with `AIGATEWAY_PROFILE` and on workers with an ambient value
-  (out-of-band injection unverified; chart supplies none).
+- The no-legacy-message disposition is an owner-provided assertion, not a production census claim;
+  the retired carrier has no compatibility reader after `OME-1449`/`OME-1450`.
 - After the sunset a pair with several active Connections has no selection escape: its 409 stands
   and only removing the extra Connections recovers it; how many such pairs exist is unmeasured.
 - Re-pointing the 4 storage-invariant, 2 facade or 1 bootstrap suites to a shared seed fixture would
@@ -517,8 +518,8 @@ mechanism survives in §7. No owner decision is contradicted.
 - Hosted Engine: per-fixture aggregation equality; mutation refusal before I/O; DTO field-set pin.
 - Backing (B): slots/authority crossing/mapping/bridge/backfill/rollback matrices of the previous
   revision, on SQLite and PostgreSQL.
-- Cutover (C) and sunset (D): REMOVE matrix; cache agreement; 400 tests; carrier compatibility
-  matrix; SDK mapping with retryable pending; e2e replay pin updated in the same PR.
+- Cutover (C) and sunset (D): REMOVE matrix; cache agreement; 400 tests; carrier-absence contracts;
+  SDK mapping with retryable pending; e2e replay pin updated in the same PR.
 - Cleanup (E): reference fencing; tooling retirement list; disappearance guard still fails on an
   unlisted disappearance.
 

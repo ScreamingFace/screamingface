@@ -94,10 +94,7 @@ def _run_of(request: httpx.Request) -> str:
 
 
 async def _run(run: str, client: httpx.AsyncClient) -> None:
-    env = {
-        **job_env.identity_to_env({"X-User-Email": _identity(run)}),
-        job_env.AIGATEWAY_PROFILE: f"profile-{run}",
-    }
+    env = job_env.identity_to_env({"X-User-Email": _identity(run)})
     executor = build_executor(env, _config(), client=client)
     async for _ in executor.execute(_fan_out(run)):
         pass
@@ -117,15 +114,12 @@ async def test_every_fan_out_call_carries_its_own_runs_identity_under_concurrent
     for request in chats:
         run = _run_of(request)
         assert request.headers["X-User-Email"] == _identity(run), _user_content(request)
-        assert request.headers["X-Profile"] == f"profile-{run}", _user_content(request)
+        assert "X-Profile" not in request.headers
 
 
 async def _run_on_shared(run: str, shared: IOLayer) -> None:
     """Same run body as ``_run``, but on the SHARED world (the local-mode shape, item 9)."""
-    env = {
-        **job_env.identity_to_env({"X-User-Email": _identity(run)}),
-        job_env.AIGATEWAY_PROFILE: f"profile-{run}",
-    }
+    env = job_env.identity_to_env({"X-User-Email": _identity(run)})
     provider = lambda: SharedWorld(io=shared, section=None)  # noqa: E731 - binding read
     executor = build_executor(env, shared_world_provider=provider)
     async for _ in executor.execute(_fan_out(run)):
@@ -156,4 +150,4 @@ async def test_every_fan_out_call_carries_its_own_runs_identity_on_one_shared_wo
     for request in chats:
         run = _run_of(request)
         assert request.headers["X-User-Email"] == _identity(run), _user_content(request)
-        assert request.headers["X-Profile"] == f"profile-{run}", _user_content(request)
+        assert "X-Profile" not in request.headers

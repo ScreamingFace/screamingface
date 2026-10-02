@@ -25,8 +25,8 @@ ConnectionStatus = Literal[
 class Caller:
     """Verified identity headers associated with one Engine request.
 
-    FEATURE (OME-1119): also carries the request's own ``traceparent`` and routing ``profile``,
-    which the adapter renders onto every upstream call it makes on this caller's behalf.
+    FEATURE (OME-1119): also carries the request's own ``traceparent``, which the adapter renders
+    onto every upstream call it makes on this caller's behalf.
 
     WHY here rather than a ContextVar: this object already IS the per-request scope, one
     instance per inbound Engine request, so the value cannot be read by a request that did not
@@ -36,7 +36,6 @@ class Caller:
 
     identity: Mapping[str, str] = field(default_factory=dict)
     traceparent: str | None = None
-    profile: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

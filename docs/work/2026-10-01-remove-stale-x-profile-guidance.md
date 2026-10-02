@@ -1,9 +1,9 @@
 ---
 ticket: OME-1398
 stack: repo
-status: in_progress
+status: completed
 started: 2026-10-01
-finished:
+finished: 2026-10-01
 ---
 
 # remove-stale-x-profile-guidance — align UI and diagrams with the selector sunset
@@ -48,7 +48,9 @@ E untouched. The generated declaration remains reproducible from the local AIGat
 - **Actual files:** the credential form and its focused test; regenerated `schema.d.ts`; the gateway
   identity Markdown, Mermaid source, SVG and PNG; the OME-1398 task mirror and this ledger. No
   AIGateway Python source or test change was needed.
-- **Commits:** this commit — `fix(aigateway-ui): remove stale X-Profile guidance`.
+- **Commits:** `71192cf1c12cf7fd1d24bd0bd708f9455e594af7` —
+  `fix(aigateway-ui): remove stale X-Profile guidance`; PR #1210 squash-merged as
+  `57e78d71a9582b238ac4fe7cf0f682cb012c06a2`.
 - **Gates:** `npm ci` succeeded; focused form suite 16 passed; ESLint 0 errors (two pre-existing
   unused-parameter warnings in `upload-form.test.tsx`); CSS lint, TypeScript, and Next production
   build passed; full Vitest 17 files / 238 tests passed with 89.43% statements and 90.55% lines.
