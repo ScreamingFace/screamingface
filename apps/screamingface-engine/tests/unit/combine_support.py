@@ -18,6 +18,7 @@ from screamingface_engine.combine.ports import (
     CombineInput,
     FieldReading,
     JudgeReading,
+    NoVotes,
     OpArgs,
     OperatorDescriptor,
     Reduction,
@@ -82,6 +83,23 @@ def fake_first(reduction: Reduction, combine_input: CombineInput, args: OpArgs, 
         tie=len(rows) > 1 and rows[1].score == top.score,
         agreement=float(top.score / total),
     )
+
+
+def fake_no_votes(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """A reducer that finds no usable vote after all."""
+    raise NoVotes("none")
+
+
+def fake_cut(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
+    """A select step whose cut is not met."""
+    raise NoVotes("cut", reason="cut_not_met")
+
+
+def fake_empty_join(
+    reduction: Reduction, combine_input: CombineInput, args: OpArgs, /
+) -> Selection:
+    """A join of every member that happens to be the empty text."""
+    return Selection(chosen=tuple(combine_input.members), output="")
 
 
 def fake_constant(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
@@ -175,7 +193,10 @@ FAKE_REGISTRY = OperatorRegistry(
         OperatorDescriptor(
             "fake_all_parts_scores", 1, "reduce", "Fills every part, scores.", fake_all_parts_scores
         ),
+        OperatorDescriptor("fake_no_votes", 1, "reduce", "Abstains.", fake_no_votes),
         OperatorDescriptor("fake_first", 1, "select", "First holder.", fake_first),
+        OperatorDescriptor("fake_cut", 1, "select", "Cut not met.", fake_cut),
+        OperatorDescriptor("fake_empty_join", 1, "select", "Joins to ''.", fake_empty_join),
         OperatorDescriptor("fake_built_many", 1, "select", "Builds from two.", fake_built_many),
         OperatorDescriptor("fake_boom", 1, "select", "Raises.", fake_boom),
         OperatorDescriptor("fake_constant", 1, "select", "Builds BUILT.", fake_constant),

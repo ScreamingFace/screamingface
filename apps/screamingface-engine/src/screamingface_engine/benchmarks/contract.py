@@ -142,10 +142,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "benchmark_contract_error",
         "benchmark_definition_error",
         "upstream_error",
-        # combine endpoint codes (OME-1289 E4a); judge_reply_invalid is reused, not added
+        # the combine endpoint declares three codes (OME-1289 E4a); judge_reply_invalid is reused,
+        # not added. A step with no usable member abstains (a normal output), not a failure.
         "combine_spec_invalid",
         "combine_operator_unknown",
-        "combine_no_votes",
         "combine_input_too_large",
     }
 )

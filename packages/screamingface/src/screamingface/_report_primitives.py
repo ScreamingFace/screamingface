@@ -108,11 +108,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "benchmark_contract_error",
         "benchmark_definition_error",
         "upstream_error",
-        # WHY (OME-1289): the E4a combine endpoint raises these four; judge_reply_invalid
+        # WHY (OME-1289): the E4a combine endpoint raises these three; judge_reply_invalid
         # is reused for an unparseable judge reply, not added.
         "combine_spec_invalid",
         "combine_operator_unknown",
-        "combine_no_votes",
         "combine_input_too_large",
     }
 )

@@ -186,14 +186,6 @@ def test_evidence_rejects_a_chosen_member_outside_the_members() -> None:
         CombineEvidence.model_validate({**data, "built": True})  # built with a member result
 
 
-# --- FW-5 -----------------------------------------------------------------------------------
-
-
-def test_endpoint_raises_combine_no_votes_when_no_member_votes() -> None:
-    error = _failure(spec_text(vote_spec(3)), context_text(["", "  ", "\n"]))
-    assert error.code == "combine_no_votes"
-
-
 # --- FW-6 -----------------------------------------------------------------------------------
 
 
@@ -339,12 +331,12 @@ def test_combine_log_line_has_the_documented_fields(caplog: pytest.LogCaptureFix
     intent = spec_text(vote_spec(3))
     with caplog.at_level("INFO", logger=_LOGGER):
         run(intent, context_text(["x", "  ", "x"]))
-        _failure(intent, context_text(["", "", ""]))
+        run(intent, context_text(["", "", ""]))
         _failure(intent, context_text(["a", "b", "c"]), {})
     assert _log_lines(caplog) == [
         "combine binding=synthesis_1 reducer=vote voters=2/3 agreement=1.0 tie=false outcome=ok",
         "combine binding=synthesis_1 reducer=vote voters=0/3 agreement=- tie=- "
-        "outcome=combine_no_votes",
+        "outcome=abstain_no_votes",
         "combine binding=- reducer=- voters=-/- agreement=- tie=- outcome=combine_spec_invalid",
     ]
 
@@ -383,11 +375,6 @@ def _sentinel_cases() -> dict[str, tuple[str, str, dict[str, str] | None]]:
     bad_args = vote_spec(2, extract={"op": "fake_args@1", "args": {"sep": 1}})
     huge = vote_spec(2, select={"op": "fake_huge@1", "args": {}})
     return {
-        "no-votes": (
-            spec_text(vote_spec(1)),
-            context_text([_SENTINEL + "x" * _MIB]),
-            None,
-        ),
         "operator-unknown": (spec_text(unknown), context, None),
         "spec-invalid": (spec_text(vote_spec(2, surprise=1)), context, None),
         "bad-args": (spec_text(bad_args), context, None),

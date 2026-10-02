@@ -17,7 +17,7 @@ from screamingface_engine.combine.ports import (
 
 @pytest.mark.parametrize(
     "error",
-    [SpecInvalid, OperatorUnknown, NoVotes, InputTooLarge, JudgeReplyInvalid],
+    [SpecInvalid, OperatorUnknown, InputTooLarge, JudgeReplyInvalid],
     ids=lambda error: error.__name__,
 )
 def test_new_failure_codes_are_declared(error: type[CombineError]) -> None:
@@ -25,10 +25,15 @@ def test_new_failure_codes_are_declared(error: type[CombineError]) -> None:
 
 
 def test_the_combine_error_codes_are_the_pinned_names() -> None:
-    assert {SpecInvalid.code, OperatorUnknown.code, NoVotes.code, InputTooLarge.code} == {
+    assert {SpecInvalid.code, OperatorUnknown.code, InputTooLarge.code} == {
         "combine_spec_invalid",
         "combine_operator_unknown",
-        "combine_no_votes",
         "combine_input_too_large",
     }
     assert JudgeReplyInvalid.code == "judge_reply_invalid"
+
+
+def test_combine_no_votes_is_not_a_declared_code() -> None:
+    """A vote with no usable member abstains (AB#16); it is not a failure code any more."""
+    assert "combine_no_votes" not in DECLARED_FAILURE_CODES
+    assert not issubclass(NoVotes, CombineError)

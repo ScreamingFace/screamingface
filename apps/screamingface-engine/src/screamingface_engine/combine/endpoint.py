@@ -12,7 +12,9 @@ INVARIANT: this module imports no ``url4`` module -- the adapter owns the route,
 ``ResolutionError`` mapping and the task-local record (a side effect), so the core stays pure.
 INVARIANT: pure CPU work -- no HTTP client, no clock, no cache, no module state. Order always
 comes from ``spec.members``; nothing iterates a dict or set to decide an output.
-INVARIANT: only a ``CombineError`` is a declared failure. A plugin bug stays loud.
+INVARIANT: only a ``CombineError`` is a declared failure. A plugin bug stays loud. A step that
+finds no answer (no usable member, or a reduce or select step raising ``NoVotes``) is not a
+failure: it returns the empty text and evidence with ``result.status == "abstain"``.
 INVARIANT: a failure message names ids, counts and limits -- never member text or arg values.
 WHY no ``record_model_outcome``: the step is not a model call, so the Candidate's terminal finish
 reason stays the members' common reason; the operation's own finish reason is ``stop``.
@@ -41,6 +43,7 @@ from screamingface_engine.combine.evidence import (
 )
 from screamingface_engine.combine.ports import (
     READING_TO_ANSWER,
+    AbstainReason,
     Answer,
     CombineError,
     CombineInput,
@@ -158,7 +161,8 @@ def run_combine(
         # A plugin bug: log the one line, then let it travel unchanged (it is not a declared code).
         trace.log("internal_error")
         raise
-    trace.log("ok")
+    result = outcome.evidence.result
+    trace.log("ok" if result.status == "answered" else f"abstain_{result.reason}")
     return outcome
 
 
@@ -179,17 +183,45 @@ def _combine(
     context = parse_context(context_text, spec.members)
     combine_input = _read_members(spec, plan, context)
     trace.voters = str(len(combine_input.voters))
-    if not combine_input.voters:
-        raise NoVotes(f"no member gave a usable value ({len(spec.members)} members)")
-    reduction = plan.reduce.run(combine_input, plan.reduce.args)
-    _check_tally(reduction, combine_input.members, plan.reduce.op_id)
-    selection = plan.select.run(reduction, combine_input, plan.select.args)
+    reduction, selection = _reduce_select(plan, combine_input)
+    if isinstance(selection, str):  # an AbstainReason
+        return _abstain(spec, plan, combine_input, reduction, selection)
     output = _output(selection, plan.select.op_id, context)
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
     trace.tie = "true" if selection.tie else "false"
     result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
     evidence = _evidence(spec, plan, combine_input, reduction, selection, result)
     return CombineOutcome(output, evidence)
+
+
+def _reduce_select(
+    plan: _Plan, combine_input: CombineInput
+) -> tuple[Reduction | None, Selection | AbstainReason]:
+    """Run reduce, then select. Returns the reduction (None when reduce did not finish) and the
+    selection, or the reason to abstain. Only a reduce or select step may abstain."""
+    reduction: Reduction | None = None
+    outcome: Selection | AbstainReason = "no_votes"
+    try:
+        if combine_input.voters:
+            reduction = plan.reduce.run(combine_input, plan.reduce.args)
+            _check_tally(reduction, combine_input.members, plan.reduce.op_id)
+            outcome = plan.select.run(reduction, combine_input, plan.select.args)
+    except NoVotes as exc:
+        outcome = exc.reason
+    return reduction, outcome
+
+
+def _abstain(
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    reduction: Reduction | None,
+    reason: AbstainReason,
+) -> CombineOutcome:
+    """The normal output of a step that finds no answer: the empty text and an abstain result."""
+    result = ResultRecord(member_id=None, value=None, status="abstain", reason=reason)
+    evidence = _evidence(spec, plan, combine_input, reduction, None, result)
+    return CombineOutcome("", evidence)
 
 
 def _binding(params: Mapping[str, str]) -> str:
@@ -348,10 +380,12 @@ def _evidence(
     spec: CombineSpec,
     plan: _Plan,
     combine_input: CombineInput,
-    reduction: Reduction,
-    selection: Selection,
+    reduction: Reduction | None,
+    selection: Selection | None,
     result: ResultRecord,
 ) -> CombineEvidence:
+    # An abstain has no selection, and none or only part of a reduction (a select step may abstain).
+    reduction = Reduction() if reduction is None else reduction
     scores = reduction.scores or {}
     statistic = reduction.statistic
     return CombineEvidence(
@@ -362,10 +396,14 @@ def _evidence(
         tally=_tally_records(reduction),
         judge=_judge_record(reduction),
         fields=_field_records(reduction, plan.reduce.op_id),
-        chosen=list(selection.chosen),
-        built=selection.output is not None,
-        agreement=None if selection.agreement is None else _finite(selection.agreement),
-        tie=selection.tie,
+        chosen=[] if selection is None else list(selection.chosen),
+        built=selection is not None and selection.output is not None,
+        agreement=(
+            None
+            if selection is None or selection.agreement is None
+            else _finite(selection.agreement)
+        ),
+        tie=selection is not None and selection.tie,
         median=None if statistic is None else canonical_decimal(statistic),
         presentation_order="author" if "judge" in combine_input.signals else None,
         separator_collision=reduction.separator_collision,

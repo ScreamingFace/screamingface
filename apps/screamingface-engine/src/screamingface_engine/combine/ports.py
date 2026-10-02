@@ -93,10 +93,15 @@ class OperatorUnknown(CombineError):
     code = "combine_operator_unknown"
 
 
-class NoVotes(CombineError):
-    """No member gave a usable value, or a cut cannot be met."""
+class NoVotes(Exception):
+    """Internal: a plugin asks the core to abstain. The core catches it (reduce or select only) and
+    records result.status="abstain" with this reason; it is never a failure code."""
 
-    code = "combine_no_votes"
+    def __init__(self, message: str = "", *, reason: AbstainReason = "no_votes") -> None:
+        if reason not in ABSTAIN_REASONS:
+            raise ValueError("unknown abstain reason")
+        super().__init__(message or reason)
+        self.reason: AbstainReason = reason
 
 
 class InputTooLarge(CombineError):

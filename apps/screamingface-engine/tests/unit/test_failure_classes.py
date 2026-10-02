@@ -162,7 +162,6 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             # combine endpoint codes declared by OME-1289 (E4a); owner-approved edit, 2026-09-30
             "combine_spec_invalid",
             "combine_operator_unknown",
-            "combine_no_votes",
             "combine_input_too_large",
         }
     )

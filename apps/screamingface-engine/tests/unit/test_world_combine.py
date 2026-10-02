@@ -110,10 +110,6 @@ def test_the_route_exposes_its_registry() -> None:
 # --- the ResolutionError mapping and EV-E1 ---------------------------------------------------
 
 
-def _no_votes() -> tuple[str, str, dict[str, str]]:
-    return spec_text(vote_spec(2)), context_text(["", " "]), {"binding": "synthesis_1"}
-
-
 def _unknown_operator() -> tuple[str, str, dict[str, str]]:
     spec = vote_spec(2, extract={"op": "fake_last_word@9", "args": {}})
     return spec_text(spec), context_text(["a", "b"]), {"binding": "synthesis_1"}
@@ -130,12 +126,11 @@ def _too_large() -> tuple[str, str, dict[str, str]]:
 @pytest.mark.parametrize(
     ("make", "code"),
     [
-        (_no_votes, "combine_no_votes"),
         (_unknown_operator, "combine_operator_unknown"),
         (_invalid_spec, "combine_spec_invalid"),
         (_too_large, "combine_input_too_large"),
     ],
-    ids=["no-votes", "operator-unknown", "spec-invalid", "input-too-large"],
+    ids=["operator-unknown", "spec-invalid", "input-too-large"],
 )
 def test_a_combine_error_becomes_a_permanent_resolution_error_and_records_nothing(
     make: Callable[[], tuple[str, str, dict[str, str]]], code: str
@@ -174,3 +169,26 @@ async def test_spec_strings_may_escape_dollar_as_u0024() -> None:
     assert evidence is not None and evidence.tally is not None
     assert evidence.tally[0].value == "$input"
     assert [row.raw for row in evidence.members] == ["$input", "$input"]
+
+
+# --- AB#7 -------------------------------------------------------------------------------------
+
+
+def test_abstained_combine_output_is_empty_with_stop() -> None:
+    output, calls = run_recorded(spec_text(vote_spec(3)), context_text(["", " ", "\n"]))
+    assert output == ""
+    assert len(calls) == 1
+    call = calls[0]
+    assert (call.output, call.finish_reason) == ("", "stop")
+    assert call.combine is not None
+    assert call.combine.result.status == "abstain"
+    assert call.combine.finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_an_abstained_combine_reaches_url4_as_an_empty_text() -> None:
+    with capture_operation_calls() as calls:
+        result = await _evaluate(_node(), spec_text(vote_spec(3)), context_text(["", " ", "\n"]))
+    assert result == ""
+    assert len(calls) == 1
+    assert calls[0].combine is not None and calls[0].combine.result.status == "abstain"
