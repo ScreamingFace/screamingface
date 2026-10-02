@@ -171,3 +171,127 @@ def test_mgsm_en_offers_mid_run_feedback_and_the_mcq_rows_do_not() -> None:
     assert imported_benchmark("mgsm_en").benchmark.check_surface is not None
     for key in _MCQ_KEYS:
         assert imported_benchmark(key).benchmark.check_surface is None
+
+
+# ── OME-1273: the plain packages ─────────────────────────────────────────────────
+
+#: The multiple-choice keys graded by inspect's choice scorer (worldsense has its own).
+_PLAIN_MCQ_KEYS: tuple[str, ...] = (
+    "bbq",
+    "piqa",
+    "cybermetric_80",
+    "cybermetric_500",
+    "cybermetric_2000",
+    "cybermetric_10000",
+    "sevenllm_mcq_zh",
+    "sevenllm_mcq_en",
+)
+
+#: Two worldsense-shaped Cases: the question lists its own numbered options and the answer
+#: key is the number, as capture serves them (the Task's chain is a bare generate()).
+#: Stand-ins: they prove the grading path, not the content of the real 40,176.
+_NUMBERED_CASES: list[PreparedCase] = [
+    {
+        "case": {"id": 1, "case_id": "1", "input": "Ann is before Bo. (1) yes (2) no (3) unsure"},
+        "grading_material": {
+            "target": "1",
+            "choices": ["1", "2", "3"],
+            "metadata": {"tuple_ID": 1, "problemname": "Compl.trivial", "problemsize": 3},
+        },
+    },
+    {
+        "case": {"id": 2, "case_id": "2", "input": "Bo is before Ann. (1) yes (2) no (3) unsure"},
+        "grading_material": {
+            "target": "2",
+            "choices": ["1", "2", "3"],
+            "metadata": {"tuple_ID": 2, "problemname": "Compl.trivial", "problemsize": 3},
+        },
+    },
+]
+
+
+@pytest.mark.parametrize("key", [*_PLAIN_MCQ_KEYS, "worldsense"])
+def test_plain_package_declaration_is_sealed_licensed_and_registered(key: str) -> None:
+    """The seal, the owner's license decision, and a live registration with no check surface."""
+
+    spec = TASK_REPLAY_CASES[key]
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+
+    assert spec.license != LICENSE_TODO
+    assert benchmark.benchmark.case_count == spec.case_count > 0
+    assert benchmark.benchmark.check_surface is None  # OME-796: every one is choice-shaped
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", _PLAIN_MCQ_KEYS)
+async def test_a_plain_package_grades_with_no_network(
+    key: str, tmp_path: Path, no_network: None
+) -> None:
+    """Spec R17: the right letter scores 1.0 and a wrong one 0.0, with outbound network blocked."""
+
+    benchmark: ImportedBenchmark = imported_benchmark(key)
+    node: Url4Node = _node(benchmark, _MCQ_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["ANSWER: B", "ANSWER: B"]) == [1.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_worldsense_grades_the_number_with_no_network(
+    tmp_path: Path, no_network: None
+) -> None:
+    """worldsense's own pattern scorer reads the leading number of the answer (spec R17)."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("worldsense")
+    node: Url4Node = _node(benchmark, _NUMBERED_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["1", "1"]) == [1.0, 0.0]
+
+
+#: Two worldsense Cases of its commonest shape (83% of them are two-way): the question ends
+#: in a TRUE/FALSE ask and the answer key is the word. Stand-ins, as above.
+_TRUE_FALSE_CASES: list[PreparedCase] = [
+    {
+        "case": {
+            "id": 1,
+            "case_id": "1",
+            "input": "Ann sits left of Bo. Bo sits left of Cy. Is Ann left of Cy? TRUE or FALSE",
+        },
+        "grading_material": {
+            "target": "TRUE",
+            "choices": ["TRUE", "FALSE"],
+            "metadata": {"tuple_ID": 3, "problemname": "Infer.trivial", "problemsize": 3},
+        },
+    },
+    {
+        "case": {
+            "id": 2,
+            "case_id": "2",
+            "input": "Ann sits left of Bo. Is Bo left of Ann? TRUE or FALSE",
+        },
+        "grading_material": {
+            "target": "FALSE",
+            "choices": ["TRUE", "FALSE"],
+            "metadata": {"tuple_ID": 4, "problemname": "Infer.trivial", "problemsize": 2},
+        },
+    },
+]
+
+
+@pytest.mark.asyncio
+async def test_worldsense_grades_a_true_false_answer_with_no_network(
+    tmp_path: Path, no_network: None
+) -> None:
+    """worldsense's own pattern scorer also reads TRUE/FALSE, the shape most of its Cases
+    take; the numbered shape above covers the other 17% (spec R17)."""
+
+    benchmark: ImportedBenchmark = imported_benchmark("worldsense")
+    node: Url4Node = _node(benchmark, _TRUE_FALSE_CASES, tmp_path)
+
+    assert await _scores(node, benchmark, ["TRUE", "TRUE"]) == [1.0, 0.0]
+
+
+def test_worldsense_keeps_the_metadata_its_scorer_reads() -> None:
+    """Its own scorer reads state.metadata, so the metadata sits inside the Case Digest."""
+
+    assert TASK_REPLAY_CASES["worldsense"].keep_sample_metadata is True
+    assert TASK_REPLAY_CASES["worldsense"].task_args == {"shuffle": False}

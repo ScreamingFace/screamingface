@@ -227,6 +227,16 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-agieval_logiqa_en": ("coverage_declare", "single_shot", "hard"),
         "inspect-medqa": ("coverage_declare", "single_shot", "medium"),
         "inspect-mgsm_en": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: the plain Task-replay packages.
+        "inspect-bbq": ("coverage_declare", "single_shot", "medium"),
+        "inspect-piqa": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_80": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_500": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_2000": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cybermetric_10000": ("coverage_declare", "single_shot", "easy"),
+        "inspect-worldsense": ("coverage_declare", "single_shot", "hard"),
+        "inspect-sevenllm_mcq_zh": ("coverage_declare", "single_shot", "medium"),
+        "inspect-sevenllm_mcq_en": ("coverage_declare", "single_shot", "medium"),
     }
     actual = {
         benchmark.id: (

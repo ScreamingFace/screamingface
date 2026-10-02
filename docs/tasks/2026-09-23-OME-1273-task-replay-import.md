@@ -30,3 +30,5 @@ the eval's own solvers (`docs/plan/2026-10-02-OME-1273-capture-rendering.md`, le
   `docs/plan/2026-10-01-OME-1273-task-replay-import-side.md`.
 - First ten Benchmarks (agieval ×8, medqa, mgsm_en) by capture: ledger
   `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-1.md`.
+- Nine more (bbq, piqa, cybermetric ×4, sevenllm ×2, worldsense) by capture: ledger
+  `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-2.md`.
