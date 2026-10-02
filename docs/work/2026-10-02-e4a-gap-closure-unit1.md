@@ -1,8 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-02
+finished: 2026-10-02
 ---
 
 # e4a-gap-closure unit 1 -- Answer, abstain and signals in the combine core
@@ -57,4 +58,28 @@ Decisions F1-F12 (from the unit spec):
 - F11 log outcome `abstain_no_votes` / `abstain_cut_not_met`.
 - F12 `NoVotes(message="", *, reason="no_votes")`.
 
-CHAR results: recorded below as they run.
+
+## Outcome
+
+- **CHAR (green on today's code before any change):** AR#1 `test_combine_endpoint.py::
+  test_vote_evidence_has_every_pinned_field` and AB#1 `test_endpoint_raises_combine_no_votes_when_no_
+  member_votes` plus `test_world_combine.py::...[no-votes]` (57 passed). The delta commits changed
+  them in place (F10). Also green at once, as guards: AB#5 (spec errors still fail the case), AB#6
+  (a member transport error still fails the case), SG#1 (the cache hit keeps its zero retained cost).
+- **Commits:** B Answer + result, C abstain, D signals in the core, E signal accounting, F route
+  lookup. Each RED was seen on a stub first; mutation checks were run for the spec/signal/accounting
+  rules (every live mutation was killed).
+- **Not done:** row 34 (tool-loop rounds through a web-tool fake) is skipped: no cheap web-tool fake
+  exists. The fold itself is covered by `test_combine_signal_accounting_is_contagious_and_order_free`.
+- **Small choices the spec left open:** `fake_best@1` raises `NoVotes` when no member has a score;
+  `_observed_round_trip` gets `# noqa: PLR0915` (the two signal-accounting lines pass the 26
+  statement cap); `_reduce_select` and `_member_numbers` are small helpers added to stay under the
+  ruff branch/return caps; a `_checked` stage result also rejects a non-str value.
+- **Append-only:** the only base test file edited is `test_failure_classes.py` (the approved pin;
+  the net diff from base is the three combine codes).
+- **Gates (last run, base 4eca379d1):** focused pytest (spec section 5): 280 passed. Engine gate
+  (`--skip-append-only`; ruff, format, pyright, check_layering, pytest with coverage): ALL GATES
+  GREEN. SDK gate (`screamingface --skip-append-only`; includes the failure-code twin
+  conformance and the notebook and distribution checks): ALL GATES GREEN. Repo gate: ALL GATES
+  GREEN. The engine and SDK conformance tests both pass with the three-code set. No `url4` import
+  under `combine/` and no plugin import in the core (check_layering).
