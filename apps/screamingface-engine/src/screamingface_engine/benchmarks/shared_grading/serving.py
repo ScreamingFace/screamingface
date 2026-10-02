@@ -287,7 +287,7 @@ def candidate_record(
     benchmarks must produce byte-identical records through this helper:
 
         schema · case_id · attempt · <verdict…> · status · refusal · finish_reason
-        · <tail…> · execution · [operations]
+        · <tail…> · execution · [operations] · [candidate_abstained]
     """
 
     record: JsonObject = {
@@ -307,6 +307,10 @@ def candidate_record(
         record["operations"] = [
             operation.model_dump(by_alias=True) for operation in reply.operations
         ]
+    # WHY `candidate_abstained`: the verdict a benchmark merges in may already own `abstained`
+    # (ContractEval); the Candidate's own mark gets a key no verdict uses (OME-1289).
+    if reply.abstained:
+        record["candidate_abstained"] = True
     return record
 
 

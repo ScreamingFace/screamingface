@@ -215,6 +215,12 @@ def _decode(specs: Mapping[int, Mapping[str, Any]]) -> Callable[[object, int], d
                 "refusal": record.get("refusal"),
                 "execution": record["execution"],
                 "operations": record.get("operations"),
+                # Written only when true (OME-1289), so rows without the mark are unchanged.
+                **(
+                    {"candidate_abstained": True}
+                    if record.get("candidate_abstained") is True
+                    else {}
+                ),
                 "metadata": {},
             },
             "record": record,

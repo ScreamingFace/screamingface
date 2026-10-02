@@ -61,6 +61,11 @@ def build_case_record(
         record["operations"] = [
             operation.model_dump(by_alias=True) for operation in candidate.operations
         ]
+    # WHY `candidate_abstained` and not `abstained`: ContractEval's check record already carries
+    # a benchmark verdict called `abstained` (the reply said "no related clause"). Written only
+    # when true, so every other record stays byte-identical (OME-1289).
+    if candidate.abstained:
+        record["candidate_abstained"] = True
     return record
 
 

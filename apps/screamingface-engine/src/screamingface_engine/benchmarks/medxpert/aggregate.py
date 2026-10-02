@@ -141,6 +141,8 @@ def _decode(grading: object, expected_case_id: int) -> dict[str, Any]:
             "refusal": attempt.get("refusal"),
             "execution": attempt.get("execution"),
             "operations": attempt.get("operations"),
+            # Written only when true (OME-1289), so rows without the mark are unchanged.
+            **({"candidate_abstained": True} if attempt.get("candidate_abstained") is True else {}),
             "metadata": fields,
         },
         "attempt": dict(attempt),

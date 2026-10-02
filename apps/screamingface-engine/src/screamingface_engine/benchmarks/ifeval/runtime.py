@@ -122,6 +122,9 @@ def _check(root: Path):
                     ]
                 }
             ),
+            # WHY `candidate_abstained` (OME-1289): written only when true, so every other
+            # record stays byte-identical.
+            **({"candidate_abstained": True} if candidate.abstained else {}),
             "instruction_id_list": spec["instruction_id_list"],
             "descriptions": grading.describe_instructions(
                 instruction_id_list=spec["instruction_id_list"],

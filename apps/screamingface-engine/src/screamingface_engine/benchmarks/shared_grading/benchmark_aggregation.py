@@ -873,7 +873,9 @@ class CandidateFields:
     ``output``/``finish_reason``/``refusal`` are ``None`` unless the row carried a
     usable string (a blank refusal is unusable): "no usable answer" is a grading fact
     here, never a validation error. ``status``/``execution``/``operations`` pass
-    through untouched — the result builders own their interpretation.
+    through untouched — the result builders own their interpretation. ``abstained`` is the
+    Candidate's abstain mark (OME-1289): true only when the row carried
+    ``candidate_abstained: true``.
     """
 
     status: Any
@@ -883,6 +885,7 @@ class CandidateFields:
     execution: Any
     operations: Any
     metadata: dict[str, Any]
+    abstained: bool = False
 
 
 def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
@@ -911,6 +914,7 @@ def _candidate_fields(row: Mapping[str, Any] | None) -> CandidateFields:
         execution=case.get("execution"),
         operations=case.get("operations"),
         metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
+        abstained=case.get("candidate_abstained") is True,
     )
 
 
