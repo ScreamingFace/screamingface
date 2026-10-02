@@ -16,7 +16,12 @@ from functools import cache
 from types import FrameType
 from typing import Any, Protocol
 
-from screamingface._runtime.bootstrap import enable_local_providers, scoreboard_seed_json
+from screamingface._runtime.bootstrap import (
+    enable_local_providers,
+    neutralise_litellm_debug,
+    pin_litellm_redaction,
+    scoreboard_seed_json,
+)
 from screamingface._runtime.config import RuntimeConfig, scoreboard_assets
 from screamingface._runtime.runtime_logging import log_service
 from screamingface._runtime.source import (
@@ -141,6 +146,9 @@ def require_runtime_extra() -> RuntimeSource:
     # Configure provider discovery before importing URL4 Cloud: its compiled model world may load
     # AI Gateway plugins, whose module-level instances capture provider settings at import time.
     enable_local_providers(os.environ)
+    # INVARIANT (OME-1050): before ANY app import. litellm binds its handler level when it is
+    # imported, and the gateway import pulls it in.
+    neutralise_litellm_debug(os.environ)
     try:
         import aigateway
         import scoreboard
@@ -169,6 +177,9 @@ async def run(
     publish_config: Callable[[dict[str, str]], None] | None = None,
 ) -> None:
     source = require_runtime_extra()
+    # WHY in `run` and not in `require_runtime_extra`: importing litellm costs seconds, and
+    # `up`, `status` and `doctor` also call the guard. Only this process serves model calls.
+    pin_litellm_redaction()
     # WHY logged at boot: whether a stack serves the live checkout or the installed
     # package decides what a benchmark actually tests — it must be auditable in the
     # runtime log (OME-1001).

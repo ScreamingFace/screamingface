@@ -45,6 +45,28 @@ def enable_local_providers(environment: MutableMapping[str, str]) -> None:
         environment.setdefault(name, value)
 
 
+def neutralise_litellm_debug(environment: MutableMapping[str, str]) -> None:
+    """Force litellm's handler level off DEBUG for the runtime (OME-1050).
+
+    WHY: at debug level litellm logs every outbound request as a curl command carrying the
+    full body (messages included) and the raw response, and its handler writes to stderr,
+    which is runtime.log. `LITELLM_LOG=DEBUG` is the first thing a user sets when a run
+    misbehaves. aigateway's `request_hardening` already strips the per-request twin of this
+    switch (`litellm_request_debug`).
+    WHY set and never unset: litellm reads `os.getenv("LITELLM_LOG", "DEBUG")` at import, so
+    an ABSENT variable is debug. WHY override an explicit choice: unlike the provider
+    defaults above, this one exists to stop a leak, so the user's value does not win here.
+    """
+    environment["LITELLM_LOG"] = "WARNING"
+
+
+def pin_litellm_redaction() -> None:
+    """Stop litellm appending the request's messages to exception text (OME-1050)."""
+    import litellm  # pyright: ignore[reportMissingImports]
+
+    litellm.redact_messages_in_exceptions = True
+
+
 def scoreboard_seed_json(benchmarks: Iterable[BenchmarkDefinition]) -> str:
     """Project the Engine-owned registry onto Scoreboard's registration contract.
 
