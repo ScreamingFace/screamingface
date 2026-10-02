@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import re
 from collections.abc import Mapping
@@ -445,10 +446,19 @@ def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
 
 
 def _reducer_from_call(call: _Call) -> Reducer:
+    """The named reducer when its own _from_spec accepts the spec exactly (BK-D2), else sf.Reduce.
+
+    WHY suppress: a named class refusing a spec (step args, weights it cannot hold) means only
+    "not this named form"; sf.Reduce then rebuilds it or refuses with "cannot rebuild".
+    """
+
     spec = decode_combine_spec(call.raw_intent)
     # WHY through the module: the registry may be replaced as a whole (tests do).
     named = reducer_module._REDUCER_CLASSES.get(str(spec["reducer"]))
-    return named._from_spec(spec) if named is not None else Reduce._from_spec(spec)
+    if named is not None:
+        with contextlib.suppress(TypeError, ValueError):
+            return named._from_spec(spec)
+    return Reduce._from_spec(spec)
 
 
 def _validate_compiled_corrective(

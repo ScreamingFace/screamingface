@@ -18,6 +18,7 @@ import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.blocks import Matches, Reduce
+from screamingface.reducer import Reducer
 
 LAST = sf.Extract("last_number")
 NUMERIC = sf.Extract("last_number", normalize="numeric")
@@ -303,6 +304,17 @@ def _roundtrip_cases() -> list[Reduce]:
     return cases
 
 
+def _named_or_block(reducer: Reduce) -> type[Reducer]:
+    """What a url4 of this block is recovered as (BK#8): the named class when it fits exactly."""
+
+    if reducer.op == "median":
+        return sf.Median
+    extract = reducer.options.get("extract")
+    if reducer.op == "plurality" and isinstance(extract, sf.Extract) and not extract.args:
+        return sf.Vote
+    return Reduce
+
+
 @pytest.mark.parametrize("reducer", _roundtrip_cases(), ids=lambda value: repr(value)[:90])
 def test_reduce_to_python_round_trips(reducer: Reduce) -> None:
     fusion = sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=reducer)
@@ -311,7 +323,10 @@ def test_reduce_to_python_round_trips(reducer: Reduce) -> None:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102
 
-    assert namespace["candidate"] == fusion
+    # The named form wins when it holds the spec exactly (Vote, Median); sf.Reduce keeps the rest.
+    assert type(namespace["candidate"].synthesizer) is _named_or_block(reducer)
+    if isinstance(namespace["candidate"].synthesizer, Reduce):
+        assert namespace["candidate"] == fusion
     assert compile_candidate(namespace["candidate"], operators=engine_operators()).url4 == url4
 
 
