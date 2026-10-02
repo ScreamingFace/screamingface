@@ -38,7 +38,7 @@ from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSetti
 _KEY = "sk-or-v1-conv"
 _MODEL = "openrouter/anthropic/claude-fable-5"
 # Raw provider text that must NEVER surface to the client / logs / persisted state.
-_SECRET = "SECRET-provider-detail-do-not-leak"
+_SECRET = "secret: provider-detail-do-not-leak"
 
 
 @pytest.fixture()

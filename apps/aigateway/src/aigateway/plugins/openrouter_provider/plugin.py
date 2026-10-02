@@ -40,6 +40,7 @@ from aigateway.core.plugin_base import (
     ModelEntry,
     ProviderPluginBase,
 )
+from aigateway.core.provider_error_text import credential_values
 from aigateway.core.standard_parameters import (
     direct_parameter_observations,
     tool_parameter_observations,
@@ -86,16 +87,17 @@ from .live_models import (
 )
 from .observations import ROUTING_POLICY_OBSERVATIONS
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
-from .provenance import converter_error_status, is_http200_body_error
+from .provenance import converter_error_message, converter_error_status, is_http200_body_error
 from .response_errors import (
     _embedded_error_status as _embedded_error_status,
 )
 from .response_errors import (
-    _find_embedded_error,
+    _find_embedded_error as _find_embedded_error,
 )
 from .response_errors import (
     _top_level_error_is_meaningful as _top_level_error_is_meaningful,
 )
+from .response_errors import find_converted_error
 from .routing_policy import build_provider_policy
 from .settings import (
     GATEWAY_MODEL_PREFIX,
@@ -538,18 +540,24 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             # INVARIANT: a genuine transport failure is re-raised unchanged so
             # the shared overload-retry loop (core.retry) still applies to it.
             if is_http200_body_error(exc):
-                raise _embedded_error_exception(converter_error_status(exc)) from exc
+                raise _embedded_error_exception(
+                    converter_error_status(exc),
+                    converter_error_message(exc),
+                    forbidden=credential_values(body),
+                ) from exc
             raise
         try:
             payload: Any = response.model_dump() if hasattr(response, "model_dump") else response
         except Exception:
             raise _response_conversion_exception() from None
         if isinstance(payload, dict):
-            found, status = _find_embedded_error(payload)
-            if found:
+            embedded = find_converted_error(payload)
+            if embedded.found:
                 # A 401 here flows through the route's dispatch-failure path
                 # and marks only the selected connection (D9 local).
-                raise _embedded_error_exception(status)
+                raise _embedded_error_exception(
+                    embedded.status, embedded.message, forbidden=credential_values(body)
+                )
         # Return the dumped dict so native usage/cost/generation metadata
         # reaches the caller byte-for-byte (D10 — URL4 per-leaf telemetry).
         return payload
