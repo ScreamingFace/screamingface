@@ -1,6 +1,7 @@
 {
   "screamingface": {
     "__all__": [
+      "Answer",
       "AsyncClient",
       "AsyncOAuthFlow",
       "AuthenticationError",
@@ -72,6 +73,21 @@
       "signal"
     ],
     "exports": {
+      "Answer": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, member_id: 'str | None', text: 'str | None', raw: 'str | None', value: 'str | None', status: 'AnswerStatus', reason: 'AnswerReason | None', signals: 'Mapping[str, float | None]' = <factory>) -> None",
+          "from_dict": "classmethod (value: 'Mapping[str, object]') -> 'Answer'",
+          "member_id": "field",
+          "raw": "field",
+          "reason": "field",
+          "signals": "field",
+          "status": "field",
+          "text": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "value": "field"
+        }
+      },
       "AsyncClient": {
         "kind": "class",
         "members": {
@@ -196,6 +212,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None, attempts: 'Sequence[CaseAttempt] | None' = None) -> 'None'",
+          "answers": "method (self, operation_id: 'str | None' = None) -> 'tuple[Answer, ...]'",
           "attempts": "field",
           "case_id": "field",
           "conversation": "property",
@@ -1194,6 +1211,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, *, case_id: 'CaseId', input: 'str', output: 'str | None', finish_reason: 'str | None', grade: 'CaseGrade | None', failures: 'Sequence[Failure]', metadata: 'Mapping[str, object]', status: 'CaseStatus | None' = None, refusal: 'str | None' = None, stop_reason: 'StopReason | None' = None, rounds_executed: 'int | None' = None, operations: 'Sequence[CaseOperation] | None' = None, attempts: 'Sequence[CaseAttempt] | None' = None) -> 'None'",
+          "answers": "method (self, operation_id: 'str | None' = None) -> 'tuple[Answer, ...]'",
           "attempts": "field",
           "case_id": "field",
           "conversation": "property",

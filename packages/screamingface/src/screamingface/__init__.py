@@ -13,6 +13,7 @@ from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._signals import signal
 from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
+from screamingface.answer import Answer
 from screamingface.blocks import Extract, Reduce, matches
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
@@ -74,6 +75,7 @@ __version__ = resolve_version()
 __all__ = [
     "__version__",
     "reports",
+    "Answer",
     "AsyncClient",
     "AuthenticationError",
     "Benchmark",

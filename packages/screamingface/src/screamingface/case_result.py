@@ -6,8 +6,9 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+from screamingface._case_views import case_answers
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
 from screamingface._report_primitives import (
     CaseId,
@@ -17,8 +18,12 @@ from screamingface._report_primitives import (
     _nonempty_text,
     _optional_number,
 )
+from screamingface.answer import Answer
 from screamingface.combine_evidence import CombineEvidence
 from screamingface.operation_accounting import OperationAccounting
+
+if TYPE_CHECKING:
+    from screamingface.operation import OperationInfo
 
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
 # with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
@@ -411,6 +416,11 @@ class CaseResult:
     operations: tuple[CaseOperation, ...] | None
     attempts: tuple[CaseAttempt, ...] | None
     _metadata: Mapping[str, object] = field(repr=False)
+    # AIDEV-NOTE: write-once, set by CandidateResult for the Candidate that holds this Case; a
+    # Case shared by two Candidates keeps its first graph. Never serialized, never compared.
+    _operation_graph: Mapping[str, OperationInfo] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     def __init__(
         self,
@@ -471,6 +481,7 @@ class CaseResult:
             "operations": selected_operations,
             "attempts": selected_attempts,
             "_metadata": freeze_mapping(metadata, "Case Result metadata"),
+            "_operation_graph": None,
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
@@ -544,6 +555,15 @@ class CaseResult:
                 return content
         return turns[0][1]
 
+    def answers(self, operation_id: str | None = None) -> tuple[Answer, ...]:
+        """What each member, then each combine step, answered, in author order.
+
+        Empty when the Case has no operations or no combine step. ``operation_id`` limits it to one
+        combine operation; an id that is not an operation of this Case raises ValueError.
+        """
+
+        return case_answers(self, operation_id)
+
     def to_dict(self) -> dict[str, object]:
         selected = {
             "status": self.status,
@@ -604,6 +624,14 @@ def _validated_attempts(
             item.status, case_id, item.refusal, item.grade, item.output, item.failures
         )
     return selected
+
+
+def _bind_operation_graph(case: CaseResult, operations: Sequence[OperationInfo]) -> None:
+    """Give a Case the operation graph of its Candidate, once, in place (never a copy)."""
+
+    if case._operation_graph is None:
+        graph = MappingProxyType({operation.id: operation for operation in operations})
+        object.__setattr__(case, "_operation_graph", graph)
 
 
 def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | None:

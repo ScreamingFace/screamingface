@@ -36,6 +36,7 @@ from screamingface.case_result import (
     Check,
     Evidence,
     EvidenceProducer,
+    _bind_operation_graph,
     named_scores,
 )
 from screamingface.combine_evidence import CombineEvidence
@@ -386,6 +387,7 @@ class CandidateResult:
         )
         selected_operations = _operation_dag(operations)
         selected_cases = _CaseResults(cases)
+        _bind_graphs(selected_cases, selected_operations)
         _validate_candidate_outcome(
             selected_score,
             selected_coverage,
@@ -948,6 +950,13 @@ def _optional_number(value: object, label: str) -> float | None:
     if not math.isfinite(selected):
         raise ValueError(f"{label} must be a finite number or None")
     return selected
+
+
+def _bind_graphs(cases: Sequence[CaseResult], operations: Sequence[OperationInfo]) -> None:
+    """Bind this Candidate's operation graph to each of its Cases, in place (never a copy)."""
+
+    for case in cases:
+        _bind_operation_graph(case, operations)
 
 
 def _coverage(value: object) -> float:
