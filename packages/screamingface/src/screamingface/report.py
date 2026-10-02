@@ -465,6 +465,12 @@ class CandidateResult:
         return accounting_breakdown(self)
 
     @property
+    def abstained_count(self) -> int:
+        """How many Cases the combine step abstained on (derived; not in ``to_dict``)."""
+
+        return sum(case.abstained for case in self.cases)
+
+    @property
     def metrics(self) -> Mapping[str, object]:
         return MappingProxyType(dict(self._metric_items))
 

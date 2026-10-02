@@ -416,6 +416,7 @@ class CaseResult:
     operations: tuple[CaseOperation, ...] | None
     attempts: tuple[CaseAttempt, ...] | None
     _metadata: Mapping[str, object] = field(repr=False)
+    abstained: bool
     # AIDEV-NOTE: write-once, set by CandidateResult for the Candidate that holds this Case; a
     # Case shared by two Candidates keeps its first graph. Never serialized, never compared.
     _operation_graph: Mapping[str, OperationInfo] | None = field(
@@ -438,6 +439,7 @@ class CaseResult:
         rounds_executed: int | None = None,
         operations: Sequence[CaseOperation] | None = None,
         attempts: Sequence[CaseAttempt] | None = None,
+        abstained: bool = False,
     ) -> None:
         case_id = _case_id(case_id)
         input = _nonempty_text(input, "Case Result input")
@@ -467,6 +469,7 @@ class CaseResult:
             output,
             selected_failures,
         )
+        abstained = _validated_abstained(abstained, status, grade, output, refusal)
         values = {
             "status": status,
             "case_id": case_id,
@@ -482,6 +485,7 @@ class CaseResult:
             "attempts": selected_attempts,
             "_metadata": freeze_mapping(metadata, "Case Result metadata"),
             "_operation_graph": None,
+            "abstained": abstained,
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
@@ -585,6 +589,9 @@ class CaseResult:
         # INVARIANT (OME-1458): a Benchmark without Attempts exports byte-identically.
         if self.attempts is not None:
             selected["attempts"] = [attempt.to_dict() for attempt in self.attempts]
+        # INVARIANT: the mark appears only when true, so every other Case exports unchanged.
+        if self.abstained:
+            selected["abstained"] = True
         return selected
 
 
@@ -660,6 +667,29 @@ def _turn(message: object) -> tuple[str, str] | None:
     role = message.get("role") if isinstance(message, Mapping) else None
     content = message.get("content") if isinstance(message, Mapping) else None
     return (role, content) if isinstance(role, str) and isinstance(content, str) else None
+
+
+def _validated_abstained(
+    abstained: object,
+    status: CaseStatus,
+    grade: CaseGrade | None,
+    output: str | None,
+    refusal: str | None,
+) -> bool:
+    if not isinstance(abstained, bool):
+        raise TypeError("Case Result abstained must be a bool")
+    if abstained:
+        _require_abstained(status, grade, output, refusal)
+    return abstained
+
+
+def _require_abstained(
+    status: CaseStatus, grade: CaseGrade | None, output: str | None, refusal: str | None
+) -> None:
+    """An abstained Case is a scored empty answer with score 0.0 (the Engine's mirror rule)."""
+
+    if status != "scored" or grade is None or grade.score != 0.0 or output != "" or refusal:
+        raise ValueError("an abstained Case is a scored empty answer with score 0.0")
 
 
 def _validate_execution(

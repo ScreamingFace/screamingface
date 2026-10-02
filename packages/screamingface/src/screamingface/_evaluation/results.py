@@ -379,7 +379,7 @@ def _case_result(value: object) -> CaseResult:
         # content still decodes strictly below.
         # WHY: `attempts` (OME-1458) is optional the same way — present only when the
         # Benchmark declares more than one Attempt per Case.
-        optional={"operations", "attempts"},
+        optional={"operations", "attempts", "abstained"},
         label="Case Result",
     )
     case_id = _case_id(raw.get("case_id"), "Case Result case_id")
@@ -412,6 +412,7 @@ def _case_result(value: object) -> CaseResult:
             metadata=_mapping(_required(raw, "metadata", "Case Result"), "Case Result metadata"),
             operations=operations,
             attempts=attempts,
+            abstained=_abstained(raw),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Result is invalid: {exc}") from exc
@@ -451,6 +452,16 @@ def _case_attempt(value: object) -> CaseAttempt:
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Attempt is invalid: {exc}") from exc
+
+
+def _abstained(raw: Mapping[str, object]) -> bool:
+    """The optional abstained mark: absent is False; when present it must be exactly true."""
+
+    if "abstained" not in raw:
+        return False
+    if raw["abstained"] is not True:
+        raise ExecutionError("Case Result abstained must be true when present")
+    return True
 
 
 def _case_operations(value: object) -> tuple[CaseOperation, ...]:
