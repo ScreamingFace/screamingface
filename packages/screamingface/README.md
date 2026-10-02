@@ -282,9 +282,24 @@ by_median = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", selec
 
 The combine step makes no model call. The answer is one member's text byte for byte, or the median
 number itself for `select="value"`. A tie goes to the first member in author order and sets `tie`.
-A member with no usable value does not vote, and a run with no votes fails with
-`combine_no_votes`. The evidence (the reading per member, the tally, the agreement and the chosen
-member) is in the `combine` field of each case's `operations` entry (`op_synthesis_1` for a single reducer). This needs an Engine that serves `GET /v1/operators`.
+A member with no usable value does not vote. When no member votes, the Case abstains: its output is
+`""`, its score is 0.0 and `case.abstained` is true. It does not fail.
+
+To group answers the way the benchmark grades them, let the benchmark choose the extract rule. The
+SDK reads the rule from the benchmark before any spend:
+
+```python
+by_grader = sf.Fusion(routes, synthesizer=sf.Vote(extract="benchmark"))
+report = client.evaluate(by_grader, benchmark="inspect-gsm8k")
+```
+
+A benchmark with no answer rule raises `ValueError` before any spend. For a rule with arguments, use
+`sf.Reduce("plurality", extract=sf.Extract("regex", pattern=...))`.
+
+The evidence (the Answer row per member, the tally, the result, the agreement and the chosen member)
+is in the `combine` field of each case's `operations` entry (`op_synthesis_1` for a single reducer).
+`case.answers()` joins each member's text to its Answer. `case.trace()` and `report.trace_dict()`
+show what each block did, in order. This needs an Engine that serves `GET /v1/operators`.
 
 ## Install
 
