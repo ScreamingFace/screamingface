@@ -1,8 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-02
+finished: 2026-10-02
 ---
 
 # e4a-gap-closure unit 4 -- SDK: sf.Reduce, sf.Extract, sf.signal, Answer, trace, abstain
@@ -86,4 +87,82 @@ F9, F14, F16, F17 (see above).
 
 ## Results
 
-(filled at commit L)
+### Commits
+
+A ledger; B `test(sdk): pin report.v1 bytes ...`; C `feat(sdk): decode the Answer rows ...`;
+D `feat(sdk): add sf.signal ...`; E `feat(sdk): add sf.Extract and sf.matches ...`;
+F `refactor(sdk): build every combine spec from one reducer plan`; G `feat(sdk): add sf.Reduce ...`;
+H `feat(sdk): join member and computed Answers to a Case`; I `feat(sdk): decode an abstained Case ...`;
+J `feat(sdk): derive the per-Case trace ...`; K `test(sdk): pin the public block names`; L this commit.
+
+### Rows with no RED of their own (by design)
+
+- B (RT#8, RT-D2): CHAR. The two `report.v1` goldens (`report_v1_reducer_report.json` from B,
+  `report_v1_combine_report.json` from C) are unchanged since the commit that wrote them.
+- Row 6 (engine ports conformance): guard, green at once (the SDK grammar copy came first, in C).
+  Row 9 (RE2 docstring) is a guard too, but it failed against the stub module docstring and went
+  green when `_regex_rule.py` got its real docstring.
+- F: the `_ReducerPlan` seam refactor. Guards: `test_reducer_characterization`,
+  `test_combine_contract_fixture`, `test_reducer_slot`, `test_reducer_url4_round_trip`, plus the new
+  `test_combine_spec_reads_only_the_reducer_plan` (`tests/test_reducer_plan.py`).
+- K (row 36): guard.
+- RED by an error, not an assertion: row 1 (C, the decoder rejected `member_id` with an
+  `ExecutionError`, as the spec says); rows 14, 17, 18 and the compile rows of G (the stub `_plan`
+  and `_from_spec` raised `ValueError("stub")`).
+
+### Deviations from the spec (all small and faithful)
+
+- D1 `_signals.py` is split across two commits. Commit C needs `is_signal_key` and the grammar for
+  `CombineSignal`, so C creates `_signals.py` and `answer.py` with the vocabulary; D adds `Signal`,
+  `signal()` and the reserved-key table (RED: a stub `Signal` that accepts everything).
+- D2 `Matches` passes `ignore_case` to the check when it is not `False` (not only when `True`), so
+  `sf.matches("a", ignore_case="yes")` is refused like `sf.Extract("regex", ignore_case="yes")`. A
+  default `False` still never enters the args.
+- D3 The `re._parser` check: `sys.modules` cannot show it, because the stdlib `re` package imports
+  `re._parser` itself. `test_the_private_parser_is_imported_lazily` checks instead that
+  `_regex_rule.py` has no module-level import of it (and a function-level one).
+- D4 `_reducer_class` was deleted from `reducer.py`: `_reducer_from_call` no longer uses it.
+- D5 Option value checks raise `TypeError` for a wrong type and `ValueError` for a wrong value (the
+  spec did not fix the type per check).
+- D6 The extra RT#8 golden (`report_v1_combine_report.json`) was added in C as the second golden.
+- D7 `Extract.args` are stored sorted by key (repr and hash use the same order).
+- D8 The engine gate needed `uv sync --directory apps/screamingface-engine --extra inspect` (the
+  inspect lane of unit 2 imports `inspect_ai`; pyright could not resolve it). Environment only; no
+  engine file changed.
+- D9 `report_view` had no `_abstained_text` before; the helper sits beside `_card_html`.
+
+### Gates (from the worktree)
+
+- `run_gates.py screamingface --base e4a-engine-wiring-evidence` (once): the only offender is
+  `tests/public_surface_snapshot.json` ("existing test artifact is unsupported or unparseable"), as
+  planned. `GATE FAILED` is the expected exit.
+- `... screamingface --base e4a-engine-wiring-evidence --skip-append-only`: `ALL GATES GREEN`
+  (ruff, format, pyright, pytest with `--cov-fail-under=95`, notebooks, build, distribution).
+- `... screamingface-engine --base e4a-engine-wiring-evidence --skip-append-only`: `ALL GATES GREEN`.
+- `... repo`: `ALL GATES GREEN`.
+- SDK coverage 97 % (full suite: 2467 passed, 26 skipped). New modules: `blocks.py` 100 %,
+  `_regex_rule.py` 100 %, `report_trace.py` 100 %, `_case_views.py` 99 %.
+
+### Snapshot diff
+
+`git diff e4a-engine-wiring-evidence -- packages/screamingface/tests/public_surface_snapshot.json`
+shows only: `sf.Answer`, `sf.Extract`, `sf.Reduce`, `sf.matches`, `sf.signal`; `sf.report.TraceEntry`;
+`CaseResult.abstained`/`answers`/`trace`; `CandidateResult.abstained_count`/`answers`/`trace`;
+`Report.trace_dict`; the `CombineEvidence` signature (`result`, `dropped`, `signal`, Answer rows);
+and the entries the earlier unit 4 commits already added (`EngineCapabilityError`, the Fusion
+`synthesizer` annotation).
+
+### Notes for the evidence caveat (RT#15)
+
+`whole@1` and `last_line@1` extract the member text itself, so their `raw`/`value` in the evidence
+and in the trace `extract` entries are member text by design (the I-E1 caveat). The sentinel test
+uses `last_number`.
+
+### Errata for the orchestrator
+
+- F9: `reduce.rule` and `signal.values` refine erd s8.
+- F14: RX-2 holds with `whole` + `set`, not `json`.
+- F16: the VERBOSE-flag refusal is beyond the coordinator's list; it can be dropped.
+- F17: the `Answer` field set has no `operation_id`; callers scope with `answers(operation_id=...)`.
+- Open for review: `Reduce("pick_field", equals=True) == Reduce("pick_field", equals=1)` (Python
+  equality of `True` and `1`); `pick_field` does not compile in this unit, so no bytes depend on it.
