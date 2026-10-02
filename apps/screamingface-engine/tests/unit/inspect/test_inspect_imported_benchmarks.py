@@ -100,6 +100,10 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "sad_facts_human_defaults": "mcq",
     "sad_influence": "mcq",
     "sad_stages_oversight": "mcq",
+    # OME-1273: pre_flight asks four or five options through multiple_choice; bbeh asks for a
+    # bare free-text answer graded by the eval's own rule-based matcher.
+    "pre_flight": "mcq",
+    "bbeh": "free_text",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))

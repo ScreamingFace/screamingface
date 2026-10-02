@@ -37,3 +37,9 @@ the eval's own solvers (`docs/plan/2026-10-02-OME-1273-capture-rendering.md`, le
   cyberseceval_4's three deterministically graded tasks probed and refused by name
   (no answer key; list-valued answer keys and a two-part score; a dead archive fetch):
   ledger `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-3.md`.
+- Step 7 complete pending merge: pre_flight and bbeh by capture; chembench refused by name
+  (an answer key naming several options at once). The four upstream issues re-checked
+  against inspect_evals 0.20.0: one drafted (novelty_bench), three do not reproduce as
+  upstream bugs (`docs/work/2026-10-02-ome-1273-upstream-issue-drafts.md`; the owner posts).
+  Ledger `docs/work/2026-10-02-ome-1273-task-replay-benchmarks-4.md`. Step 8 (`OME-1460`)
+  remains.

@@ -242,6 +242,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-sad_facts_human_defaults": ("coverage_declare", "single_shot", "easy"),
         "inspect-sad_influence": ("coverage_declare", "single_shot", "medium"),
         "inspect-sad_stages_oversight": ("coverage_declare", "single_shot", "hard"),
+        # OME-1273: pre_flight and bbeh; tiers as their rows argue them from the evals' own
+        # reports.
+        "inspect-pre_flight": ("coverage_declare", "single_shot", "medium"),
+        "inspect-bbeh": ("coverage_declare", "single_shot", "hard"),
     }
     actual = {
         benchmark.id: (

@@ -1388,6 +1388,72 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #  dataset card).
         scorer="inspect_evals.sad.sad:lenient_mcq_choice",
     ),
+    BenchmarkSpec(
+        key="pre_flight",
+        title="Pre-Flight",
+        description=(
+            "300 four- or five-option questions on aviation operations (airport ground "
+            "operations safety manuals, flight dispatch rules, ICAO annexes and rules of the "
+            "air, US aviation role training, and reasoning scenarios over stand and snow "
+            'plans), the last option always "no suitable option", imported from '
+            "inspect_evals by Task replay: the Cases are fetched the way inspect fetches them "
+            "and sealed by a Case Digest. Asked with inspect's multiple-choice template and "
+            "graded by inspect's choice scorer against the published answer, so no judge tokens "
+            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
+            "surface (elimination attack over the options)."
+        ),
+        focus="Aviation operations and ground-safety knowledge (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/AirsideLabs/pre-flight-06",
+        # The eval's own report puts the strongest 2025 models at 0.75 over four or five
+        #  options: well above chance, a quarter short of ceiling (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.pre_flight.pre_flight:pre_flight.
+        # License: mit (owner decision 2026-10-01: MIT, the AirsideLabs/pre-flight-06 card on
+        #  Hugging Face).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="bbeh",
+        title="BIG-Bench Extra Hard",
+        description=(
+            "4,519 reasoning problems across BBEH's 23 tasks (about 200 each: boardgame QA, "
+            "boolean expressions, buggy tables, causal understanding, dyck languages, "
+            "multistep arithmetic, shuffled objects, spatial reasoning, time arithmetic, web "
+            "of lies, word sorting, zebra puzzles and eleven more), each a harder successor to "
+            "a BIG-Bench Hard task; the eval drops one duplicated problem from the published "
+            "4,520. Every prompt carries the paper's instruction to think step by step and end "
+            'with "The answer is:" and a bare answer: free text, a number, a listed '
+            "option's letter like (a), or yes/no. Imported from inspect_evals by Task replay: "
+            "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
+            "Graded by the eval's own rule-based matcher (the paper's evaluate.py): it reads "
+            "the text after the prefix and accepts the published answer, a letter with or "
+            "without its brackets, an equal number, or quote and bracket variants, so no "
+            "judge tokens are spent. Benchmark score = plain accuracy (micro average) over "
+            "the cases run, the figure the paper reports for BBEH Mini; the paper's headline "
+            "BBEH score is the harmonic mean of the 23 per-task accuracies (each plus 0.01), "
+            "which the board does not compute; each Case keeps its task name, so the per-task "
+            "accuracies can be regrouped from a full run. Offers mid-run Draft Feedback "
+            "(free-form answers)."
+        ),
+        focus="Hard multi-step reasoning across 23 BIG-Bench task families (free text)",
+        dataset_url="https://huggingface.co/datasets/BBEH/bbeh",
+        # The eval's own report puts gpt-4o at 0.079 (harmonic mean over tasks) and 0.224 on the
+        #  mini subset (micro average): near floor for a strong model (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.bbeh.bbeh:bbeh.
+        # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the BBEH/bbeh card on
+        #  Hugging Face).
+        scorer="inspect_evals.bbeh.bbeh:bbeh_scorer",
+        # The eval's own accuracy metric IS the board's mean per-case score.
+        # Its per-task accuracies (inspect_ai/grouped) and their harmonic mean
+        # (inspect_evals/harmonic_mean_across_tasks) are not reported; the description names
+        # that and how to regroup them from the kept task metadata.
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ benchmarks must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
