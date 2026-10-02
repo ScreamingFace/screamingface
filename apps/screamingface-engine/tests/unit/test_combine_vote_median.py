@@ -7,8 +7,9 @@ agreement, and get a loud signal for a tie, an empty answer or a non-number.
 WHY the specs come from ``reducer_specs.json``: the SDK writes that file (its drift guard keeps it
 current), so these tests prove "the SDK spec runs on the Engine" and never rebuild a spec by hand.
 
-PRD ids: VT-1 .. VT-4, VT-6 .. VT-8, VT-11, VT-14. They are contract pins: units 1-3 already
-deliver the behavior, so they pass on their first run by design.
+PRD ids: VT-1 .. VT-4, VT-6 .. VT-8, VT-11, VT-14. They are contract pins: the Engine already
+delivers the behavior, so they pass on their first run by design. The evidence is the Answer-row
+wire (status ``answered|fail``, ``reason``, ``result``, ``dropped``).
 """
 
 from __future__ import annotations
@@ -81,8 +82,16 @@ def test_empty_extracts_do_not_vote_and_are_reported() -> None:
     texts = ["no box here", "so \\boxed{5}", "\\boxed{}"]
     output, evidence = _evidence("vote_boxed_3", texts)
     assert output == texts[1]
-    assert [member["status"] for member in evidence["members"]] == ["empty", "voted", "empty"]
+    assert [member["status"] for member in evidence["members"]] == ["fail", "answered", "fail"]
+    assert [member["reason"] for member in evidence["members"]] == ["empty", None, "empty"]
     assert [member["raw"] for member in evidence["members"]] == [None, "5", None]
+    assert evidence["dropped"] == 2
+    assert evidence["result"] == {
+        "member_id": "member_2",
+        "value": "5",
+        "status": "answered",
+        "reason": None,
+    }
     assert evidence["agreement"] == 1.0
     assert _tally(evidence) == [("5", 1.0, ["member_2"])]
 
@@ -110,7 +119,12 @@ def test_median_skips_non_numeric_members() -> None:
     output, evidence = _evidence("median_line_value_3", ["4", "n/a", "8"])
     assert output == "6"
     member = evidence["members"][1]
-    assert (member["raw"], member["value"], member["status"]) == ("n/a", None, "not_numeric")
+    assert (member["raw"], member["value"], member["status"], member["reason"]) == (
+        "n/a",
+        None,
+        "fail",
+        "not_numeric",
+    )
 
 
 def test_free_text_vote_uses_exact_normalized_text() -> None:

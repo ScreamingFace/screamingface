@@ -2,12 +2,12 @@
 
 FEATURE: a Candidate compiled by ``sf.Fusion(..., synthesizer=sf.Vote(...))`` runs VERBATIM
 (``combine_contract/*.url4`` are written by the SDK; its drift guard keeps them current).
-STORY: as a researcher, a vote with no usable answer fails the case with a loud code, a member
-failure fails the candidate exactly like a model synthesizer, the grader reads the chosen member's
-text byte for byte, two reducers and two turns keep their own evidence.
+STORY: as a researcher, a vote with no usable answer abstains the case (scored 0.0, flagged), a
+member failure fails the candidate exactly like a model synthesizer, the grader reads the chosen
+member's text byte for byte, two reducers and two turns keep their own evidence.
 
-PRD ids: VT-5, VT-12, VT-13 (IFEval twin), EV-6, EV-13. These are contract pins: units 1-3 already
-deliver the behavior, so they pass on their first run by design.
+PRD ids: VT-5 (now the abstain outcome, GE-1), VT-12, VT-13 (IFEval twin), EV-6, EV-13. These are
+contract pins: the Engine already delivers the behavior, so they pass on their first run by design.
 """
 
 from __future__ import annotations
@@ -93,19 +93,25 @@ async def _ifeval_case(
     return payload, payload["cases"][0]
 
 
-async def test_no_votes_fails_case_with_combine_no_votes(tmp_path: Path) -> None:
+async def test_no_votes_abstains_the_case(tmp_path: Path) -> None:
     replies: _Replies = dict.fromkeys(_MEMBERS, "tea has no digits")
     result, case = await _ifeval_case(tmp_path, "vote_candidate.url4", replies)
-    assert case["status"] == "failed"
-    [failure] = case["failures"]
-    assert (failure["stage"], failure["code"], failure["retryable"]) == (
-        "candidate",
-        "combine_no_votes",
-        False,
-    )
-    assert result["score"] is None
-    # EV-E1: a failed step invents no evidence.
-    assert case.get("operations") is None
+    # An abstain is an answer of "no answer": the case is scored 0.0, not failed (GE-1).
+    assert case["status"] == "scored"
+    assert case["abstained"] is True
+    assert case["output"] == ""
+    assert case["grade"]["score"] == 0.0
+    assert case["failures"] == []
+    assert result["score"] == 0.0
+    synthesis = {op["operation_id"]: op for op in case["operations"]}["op_synthesis_1"]
+    evidence = synthesis["combine"]
+    assert evidence["result"] == {
+        "member_id": None,
+        "value": None,
+        "status": "abstain",
+        "reason": "no_votes",
+    }
+    assert evidence["dropped"] == 3
 
 
 async def test_member_failure_fails_candidate_like_model_synthesizer(tmp_path: Path) -> None:
