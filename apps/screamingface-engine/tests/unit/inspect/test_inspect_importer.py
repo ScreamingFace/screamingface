@@ -2531,6 +2531,41 @@ def test_main_reports_a_task_replay_refusal_and_writes_nothing(
     assert (engine_src_copy / "prepare.py").read_text() == (_SRC_DIR / "prepare.py").read_text()
 
 
+def test_a_seed_flag_with_task_replay_is_refused(
+    monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--shuffle-seed and --choice-shuffle-seed drive the Hugging Face path's own shuffles; a
+    Task-replay import takes the Task's order as built, so a seed would be silently inert
+    (review finding on #1191). Refuse, naming the task args that do pin an order."""
+
+    module = _install_fake_eval(monkeypatch, sums=_free_text_task)
+    del module.hf_dataset  # type: ignore[attr-defined]
+    calls: list[str] = []
+
+    def never_called(task_ref: str, task_args: Mapping[str, Any] | None) -> TaskReplayImport:
+        calls.append(task_ref)
+        raise AssertionError("the import must not run")
+
+    code: int = main(
+        [
+            f"{_FAKE_MODULE}:sums",
+            "--key",
+            "x",
+            "--task-replay",
+            "--shuffle-seed",
+            "7",
+            "--engine-src",
+            str(engine_src_copy),
+        ],
+        import_by_task_replay=never_called,
+    )
+
+    assert code == 1
+    assert "do not apply to a Task-replay import" in capsys.readouterr().err
+    assert calls == []
+    assert (engine_src_copy / "prepare.py").read_text() == (_SRC_DIR / "prepare.py").read_text()
+
+
 def test_main_writes_an_uncleared_card_license_as_todo(
     monkeypatch: pytest.MonkeyPatch, engine_src_copy: Path
 ) -> None:

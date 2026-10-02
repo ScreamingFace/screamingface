@@ -136,9 +136,16 @@ fetch happen.
   (`needs_hf_token`) refuse a tokenless main build by name; a Task-replay Benchmark would go
   SKIPPED instead, and fail every secretless PR's strict image job. Accepted: none of the 14
   packages fetches a gated source; add the token path when one does.
-- **A fetch we don't wrap can't be imported.** An eval that downloads through plain `requests`
-  or `urllib` produces Cases with no recorded Case Source, and is refused. It stays refused
-  until upstream moves to an Inspect helper or we add its primitive to the recorder.
+- **A fetch we don't wrap can't be imported, and one made beside a wrapped fetch is invisible.**
+  An eval that downloads only through plain `requests` or `urllib` produces Cases with no
+  recorded Case Source, and is refused. An eval that makes one wrapped fetch and one unwrapped
+  fetch imports cleanly with one Case Source listed; the reviewer reading the loader is the
+  only check. Both stay so until upstream moves to an Inspect helper or we add the primitive.
+- **A folded system message is not shown in the row.** Capture turns an eval's system message
+  into the input's leading text (the named deviation); the generated declaration does not say
+  which Benchmarks this touches (cybermetric's four, among the first 19). Accepted for now:
+  the Case text carries it, and the catalogue prose can say so; a per-row note is a cheap
+  follow-up if a reviewer asks.
 - **The Case Digest says *that* the Cases changed, not *what* changed.** Accepted: the fix is
   always a re-import and a fresh review, and that diff shows the difference.
 - **Case Sources are review comments, not checked at build.** A source that moves but serves
@@ -207,8 +214,13 @@ fetch happen.
   The wrap rebinds every loaded module attribute that is the same function object.
 - **R4. Import refusals, each by name.** The task raises; it yields no Samples; it yields
   Samples but no Case Source was recorded; two Samples share an id; the two runs' Case Digests
-  differ. The existing solver and scorer refusals (templates, system messages, scorer count)
-  still apply.
+  differ. The existing scorer refusals (scorer count, a Judge where none is declared) still
+  apply; the solver-template refusals of the Hugging Face reader do not, because capture
+  renders those chains (R2, amended 2026-10-02). "No Case Source was recorded" fires only
+  when the task recorded none at all: a fetch through a primitive the recorder does not wrap,
+  made beside one it does, imports with the seen one listed (see Known limitations). A fetch
+  a solver makes while capture renders a Sample is recorded too, tagged as made while
+  rendering, so the reviewer can tell it from where the Cases come from.
 - **R5. Case Digest.** The sha256 of the canonical JSON (sorted keys, no whitespace, UTF-8) of
   the ordered list of prepared Cases, each exactly as the writer writes it: id, rendered input,
   and Grading Material (target, choices, and metadata when kept). It is computed from the same

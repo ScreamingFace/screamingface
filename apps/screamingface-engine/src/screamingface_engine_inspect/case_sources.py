@@ -54,6 +54,10 @@ URL: str = "url"
 FILE: str = "file"
 #: The pin of a Case Source nothing upstream pins: the Case Digest is then the only pin.
 UNPINNED: str = "unpinned"
+#: When a Case Source was fetched: while the task function loaded its dataset, or while
+#: capture rendered a Sample (see CaseSource.phase).
+LOAD_PHASE: str = "load"
+RENDER_PHASE: str = "render"
 
 #: What a describe step returns: the Case Sources one call fetched (often one, maybe none).
 Described = list["CaseSource"]
@@ -61,11 +65,19 @@ Described = list["CaseSource"]
 
 @dataclass(frozen=True)
 class CaseSource:
-    """One place Cases were fetched from, and what pins its content."""
+    """One place Cases were fetched from, and what pins its content.
+
+    ``phase`` says WHEN the fetch happened: while the task function loaded its dataset
+    (``load``, the usual case) or while capture ran the Task's solvers on a Sample
+    (``render``: a solver that reads a few-shot file or a template at solve time). The
+    reviewer reads the two differently: a load fetch is where the Cases come from, a render
+    fetch is something the prompt depends on.
+    """
 
     kind: str
     location: str
     pin: str
+    phase: str = LOAD_PHASE
 
     def as_comment(self) -> str:
         """The one-line review note the importer prints for this Case Source (spec R6)."""
@@ -82,7 +94,10 @@ class CaseSource:
         pin: str = f"pin {self.pin}"
         if self.pin == UNPINNED:
             pin += " (no upstream hash: the Case Digest is the only pin)"
-        return f"{self.kind} {self.location}", pin
+        what: str = f"{self.kind} {self.location}"
+        if self.phase == RENDER_PHASE:
+            what += " (fetched while rendering a Case, not while loading the dataset)"
+        return what, pin
 
     def hub_repo_id(self) -> str:
         """The Hugging Face repository a hugging-face location names: `owner/name`.

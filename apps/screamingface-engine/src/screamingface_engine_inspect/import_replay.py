@@ -33,13 +33,13 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from screamingface_engine_inspect.capture import captured_case_records
-from screamingface_engine_inspect.case_sources import CaseSource, CaseSourceRecorder
+from screamingface_engine_inspect.case_sources import RENDER_PHASE, CaseSource, CaseSourceRecorder
 from screamingface_engine_inspect.importer import (
     ImporterError,
     _custom_metrics,
@@ -229,6 +229,9 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
     recorder.install()
     task: Any = getattr(module, attribute)(**(task_args or {}))
+    # WHY count here: every Case Source recorded from now on was fetched by a solver while
+    # capture rendered a Sample, not by the loader; the row says so (CaseSource.phase).
+    loaded: int = len(recorder.sources)
     samples: list[Any] = list(task.dataset)
     # Stage 3 — facts from the built Task, then the Cases by capture.
     facts: TaskReplayFacts = _facts_of(
@@ -242,12 +245,16 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         keep_sample_metadata=facts.keep_sample_metadata,
     )
     prepared: list[PreparedCase] = captured_case_records(task, spec)
+    sources: list[CaseSource] = [
+        source if index < loaded else replace(source, phase=RENDER_PHASE)
+        for index, source in enumerate(recorder.sources)
+    ]
     # Stage 4 — one file back to the parent. WHY sample_ids: the writer numbers Cases 1..N,
     # so the upstream ids R4's duplicate check reads exist only here.
     result: dict[str, Any] = {
         "prepared": prepared,
         "sample_ids": [None if sample.id is None else str(sample.id) for sample in samples],
-        "case_sources": [asdict(source) for source in recorder.sources],
+        "case_sources": [asdict(source) for source in sources],
         "facts": asdict(facts),
     }
     result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -322,8 +329,9 @@ def import_by_task_replay(
         raise ImporterError(
             f"{task_ref}: two Task replays produced different Cases (Case Digest "
             f"{declaration.case_digest[:12]}… then {second_digest[:12]}…) — an unseeded "
-            "shuffle or generated Cases; pass task args that fix the order, e.g. "
-            "--task-arg shuffle=False or --task-arg seed=42"
+            "shuffle, generated Cases, or a per-run value such as a temp path in a Sample's "
+            "metadata; pass task args that fix the order, e.g. --task-arg shuffle=False or "
+            "--task-arg seed=42"
         )
     return TaskReplayImport(
         declaration=declaration, case_sources=first.case_sources, facts=first.facts

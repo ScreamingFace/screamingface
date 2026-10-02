@@ -301,6 +301,63 @@ def test_samples_with_choices_are_mcq_even_without_a_choice_solver(numbered_eval
     assert replay.prepared[0]["grading_material"] == {"target": "1", "choices": ["1", "2"]}
 
 
+# ── a fetch made while rendering is listed as such (review finding on #1191) ─────
+
+#: A stand-in whose solver reads a template file at solve time, through inspect's
+#: resource(), which the recorder sees as a `file` Case Source. It proves the phase tag; it
+#: does not prove any real eval fetches while rendering.
+RENDER_FETCH_EVAL: str = textwrap.dedent(
+    """
+    import os
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import FieldSpec, json_dataset
+    from inspect_ai.scorer import match
+    from inspect_ai.solver import Generate, Solver, TaskState, generate, solver
+    from inspect_ai.util import resource
+
+    @solver
+    def reads_a_template() -> Solver:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            state.user_prompt.text = resource(os.environ["FAKE_RENDER_TEMPLATE"]).format(
+                prompt=state.user_prompt.text
+            )
+            return state
+        return solve
+
+    @task
+    def templated() -> Task:
+        return Task(dataset=json_dataset(os.environ["FAKE_IMPORT_EVAL_DATA"],
+                                         FieldSpec(input="q", target="a", id="id")),
+                    solver=[reads_a_template(), generate()], scorer=match())
+    """
+)
+
+
+@pytest.fixture
+def render_fetch_eval(fake_eval: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Add the render-time-fetch stand-in beside the first stand-in."""
+
+    (tmp_path / "fake_render_fetch_eval.py").write_text(RENDER_FETCH_EVAL, encoding="utf-8")
+    (tmp_path / "template.txt").write_text("T: {prompt}", encoding="utf-8")
+    monkeypatch.setenv("FAKE_RENDER_TEMPLATE", str(tmp_path / "template.txt"))
+    return "fake_render_fetch_eval:templated"
+
+
+def test_a_fetch_made_while_rendering_is_tagged_as_such(
+    render_fetch_eval: str, tmp_path: Path
+) -> None:
+    """The recorder stays installed through capture, so a solver's file read is recorded
+    too; the row must say it was fetched while rendering, not where the Cases come from."""
+
+    replay: ImportReplay = replay_for_import(render_fetch_eval, None)
+
+    phases: dict[str, str] = {Path(s.location).name: s.phase for s in replay.case_sources}
+    assert phases == {"cases.jsonl": "load", "template.txt": "render"}
+    assert replay.prepared[0]["case"]["input"] == "T: What is 6 times 7?"
+    rendered: CaseSource = next(s for s in replay.case_sources if s.phase == "render")
+    assert "fetched while rendering a Case" in rendered.comment_lines()[0]
+
+
 # ── the double run and the import refusals (spec R4) ────────────────────────────
 
 from screamingface_engine_inspect.import_replay import (  # noqa: E402

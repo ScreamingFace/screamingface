@@ -1595,6 +1595,15 @@ def main(
             else _read_or_route(args.task_ref, _parse_task_args(args.task_arg))
         )
         if facts is None:
+            if args.shuffle_seed is not None or args.choice_shuffle_seed is not None:
+                # WHY refuse: the seeds drive the Hugging Face path's own shuffles; a
+                # Task-replay import takes the Task's order as built, so a seed here would be
+                # silently inert and the row would promise an order nothing pins.
+                raise ImporterError(
+                    "--shuffle-seed and --choice-shuffle-seed do not apply to a Task-replay "
+                    "import: the task's own args pin its order (e.g. --task-arg shuffle=False "
+                    "or --task-arg seed=42)"
+                )
             _import_by_task_replay_cli(args, dataset_info, import_by_task_replay)
             return 0
         # WHY: shuffle=True without a seed means the upstream order is random per
