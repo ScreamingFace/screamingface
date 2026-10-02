@@ -605,12 +605,105 @@ keeps its place. The separator is 1 to 1024 characters. If a member text contain
 the text is joined unchanged and the evidence sets `separator_collision`, because then the
 boundaries are not unique. A joined text of more than 8 MiB fails with `combine_input_too_large`.
 
-The compiler checks the place of a selection before any call. A Fusion with `Rank` or `Concat`
-cannot be the last step of a candidate, cannot be a member of another Fusion (also not through a
-`sf.Pipeline` that ends in one), and cannot be a member of a corrective loop. Each case raises
-`ValueError`. The next stage does not receive the original question or the other member texts, so
-put the task in the prompt of that stage. This needs an Engine whose operator catalog has `scores@1` and
-`top_k@1` for `Rank` (both forms), or `join@1` and `all@1` for `Concat`.
+`sf.Rank(k, by_signal=sf.signal(key), order="max")` ranks by a named number on the Answer of each
+member: a field signal such as `field:score`, or an accounting key such as `cost_usd`. With
+`order="max"` (the default) it keeps the members with the highest values. With `order="min"` it keeps
+the members with the lowest values, for example the cheapest members. `order=` also works with `by=`
+and `by_field=`. Give exactly one of `by`, `by_field` and `by_signal`; two, or none, raise
+`ValueError`. A member with no value for the signal is not ranked. `sf.signal("score:judge")` is
+refused, because a Rank with no judge has no judge score: use `by=sf.Judge(..., returns="scores")`.
+
+```python
+cheapest_two = sf.Pipeline(
+    [
+        sf.Fusion(routes, synthesizer=sf.Rank(k=2, by_signal=sf.signal("cost_usd"), order="min")),
+        sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."),
+    ]
+)
+```
+
+The block forms are `sf.Reduce("top_k", k=2, by_signal=..., order=...)` (also `by=` and `by_field=`)
+and `sf.Reduce("concat", separator=..., label=...)`. Each compiles to the same url4 as `sf.Rank` and
+`sf.Concat`, and a url4 is written back as `sf.Rank(...)` or `sf.Concat(...)`.
+
+The compiler checks the place of a selection before any call. A Fusion with `Rank`, `Concat` or
+`Filter` cannot be the last step of a candidate, cannot be a member of another Fusion (also not
+through a `sf.Pipeline` that ends in one), and cannot be a member of a corrective loop. Each case
+raises `ValueError`. The next stage does not receive the original question or the other member
+texts, so put the task in the prompt of that stage. This needs an Engine whose operator catalog has
+`scores@1` and `top_k@1` for `Rank` by a judge or by a field, `by_signal@1` and `top_k@1` for `Rank`
+by a signal, or `join@1` and `all@1` for `Concat`.
+
+### Filter selection
+
+`sf.Filter` keeps the members that pass a test. The next stage gets only those members, as the
+same JSON that `sf.Rank` writes, in author order. `where=` is a regex or a signal comparison:
+
+```python
+confident = sf.Pipeline(
+    [
+        sf.Fusion(
+            routes,
+            # Each member replies with JSON such as {"answer": "B", "confidence": 0.4}.
+            synthesizer=sf.Filter(where=sf.signal("field:confidence") >= 0.6),
+        ),
+        sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."),
+    ]
+)
+formatted = sf.Filter(where=sf.matches(r"ANSWER: \d+", ignore_case=True))
+checked = sf.Filter(where=sf.matches("yes"), extract=sf.Extract("field", path="verdict"))
+```
+
+`sf.signal(key)` compares with `>`, `>=`, `<`, `<=` and `==`. The number must be finite. There is
+no `!=`, and no `and` or `or`: a Filter has one test. `sf.signal(key) == sf.signal(key)` stays a
+plain `bool`, and a comparison is not a `bool` (`if sf.signal("cost_usd") < 1:` raises
+`TypeError`). `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a
+signal holds a float. A member with no value for the signal, or that failed to answer, is dropped.
+An accounting key (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) reads the model calls of
+each member, and `sf.signal("score:judge")` is refused. A regex reads the original text of the
+member, never the extracted answer. `extract=` reads each answer first: a member whose answer
+cannot be read is dropped, and the report shows the value it read.
+
+A Filter that keeps no member fails the Case with `combine_no_votes`. The report shows a pass mark in
+`members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
+dropped, and `None` when the member failed to answer. The block form is
+`sf.Reduce("filter", where=..., extract=...)`. The place rules of "Rank and Concat selections" apply
+to a Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
+
+### Fusion as a named recipe
+
+`sf.Fusion(members, synthesizer=sf.Model(p))` is the named recipe Fan-out, then
+`Reduce.compute(context)`, then Model. The block form says the same in blocks:
+
+```python
+block = sf.Pipeline(
+    [
+        sf.Fusion(routes, synthesizer=sf.Reduce("context")),
+        sf.Model("openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts."),
+    ]
+)
+same = sf.Fusion(
+    routes,
+    synthesizer=sf.Model(
+        "openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts."
+    ),
+)
+```
+
+Before the compile, the SDK rewrites the block form to the Fusion. The two give the same url4, byte
+for byte, and the same operation ids (`op_synthesis_N`). The rewrite keeps the stages after the
+synthesizer (`Pipeline([Fusion(m, Reduce("context")), S, *rest])` is `Pipeline([Fusion(m, S), *rest])`),
+and a named Pipeline keeps its name. A Fusion that was made with `sf.Fusion(...)` is not changed by
+the rewrite. The candidate is named from the rewritten value, so both forms report `a+b`. The
+`context` block makes no combine call: it needs no operator catalog (no `GET /v1/operators`) and it
+has no member limit.
+
+Use `sf.Reduce("context")` only as the synthesizer of a Fusion that is followed by the real
+synthesizer in the same Pipeline. In every other place (the last stage, a Fusion member, a loop
+member, or before another `context` Fusion) it raises `ValueError` before any call. To write a
+multi-stage synthesizer in the block form, give it a name: `sf.Pipeline` makes an unnamed nested
+Pipeline flat, so `sf.Pipeline([sf.Fusion(m, sf.Reduce("context")), sf.Pipeline([j, w])])` is read as
+`[Fusion, j, w]`. Use `sf.Pipeline([j, w], name="judge-write")`, or a Fusion, as the synthesizer.
 
 ## Install
 
