@@ -1,8 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-02
+finished: 2026-10-02
 ---
 
 # e4a-gap-closure unit 8S -- sf.Judge, sf.Reduce('judge') and the judge-weighted vote
@@ -42,7 +43,11 @@ snapshot. `topology.py`, `_evaluation/url4.py`, `_operation_bindings.py`, `accou
 parent.
 
 Rebase: `git rebase --onto e4a-rank-concat-engine 6aeaf4ce4 e4a-judge-pick-sdk`. Replayed commits:
-`313e1a678` -> `fbe164b43`, `a47ead6a1` -> `e8c2a121c`, `933c28c1c` -> `1bf901ffa`.
+`313e1a678` -> `fa0cccf12`, `a47ead6a1` -> `5a24d9a35`, `933c28c1c` -> `8c4438745`.
+
+Second rebase (orchestrator message): the parent moved from `eb138aa9b` to `f4858fcfe` (3 engine-only
+review-fix commits, no SDK file). `git rebase --onto e4a-rank-concat-engine eb138aa9b e4a-judge-pick-sdk`
+ran without a conflict, after Commit B.
 
 | Stop | Commit | Conflicted files | Resolution |
 |---|---|---|---|
@@ -88,6 +93,82 @@ vote has `evidence.judge is None`; the scores are in `members[].signals["score:j
 `ST/test_judge_reducer.py` is not on main (`git cat-file -e 4eca379d1:...` fails), so the spec's in-place
 change at line 109 (F4) is allowed.
 
+## Notes on the work (deviations and findings)
+
+- **N1 (F1, restore of the 9 files).** Six of the nine pre-existing src files (`__init__.py`,
+  `_candidate_policy.py`, `topology.py`, `_evaluation/url4.py`, `_operation_bindings.py`, `accounting.py`)
+  merged without a conflict, and their merged result equals the old 8S hunks. Commit B kept them and
+  ported only the three conflicted files (`reducer.py`, `candidate.py`, `url4.py`) onto the plan. The
+  resulting tree is the same as restore-then-reapply.
+- **N2 (F9, error text).** `url4._rebuilt_reducer` re-raises the named class's error when both the named
+  class and `sf.Reduce` refuse (spec F9 step 3). For a pure rule this changes the text of a refusal from
+  the `sf.Reduce` "cannot rebuild" to the named class's own error. Unit 5's
+  `test_benchmark_extract_op_in_a_hand_edited_url4_is_refused` pinned the old text; it is edited in place
+  (`match="benchmark"`, Commit B). The tamper tests of 8S pin the named text and pass.
+- **N3 (`_Call.context`).** `_Call` gets a new required field `context`. Unit 5's `_call_with` helper in
+  `test_reducer_recovery_preference.py` builds a `_Call` by hand, so it passes `context=""` (Commit B).
+- **N4 (pure-rule test).** `test_a_pure_rule_reducer_refuses_signals` (replayed 8S test) used a plain
+  `Vote`. A `Vote` now reads a scores judge call (F5), so the test uses `sf.Median` for "a pure rule
+  refuses signals", and a new test pins that a `Vote` refuses a label-judge call (Commit E, in place).
+- **N5 (`Vote._from_spec`).** A `score:judge` spec with no judge call raises `_cannot_rebuild("vote")`
+  explicitly in `Vote._from_spec_parts` (the spec says the pairing rule "becomes the url4 cannot rebuild
+  error"; without it F9 step 3 would re-raise the pairing text).
+- **N6 (`_next_binding("synthesis")`).** The `synthesis` branch has no production caller (the old 8S code
+  had none either; `_fusion` still counts directly). A unit test covers it. Left as in 8S.
+- **N7 (pyright on tests).** The gate runs pyright on the tests too. The new test files were fixed for it
+  (folded into Commits D and E).
+- **N8 (sandbox).** The SDK tests that start a local HTTP/WebSocket server need the unsandboxed shell
+  (local sockets). The SDK gate and the engine tests ran unsandboxed.
+- **N9 (SDK gate, known red, not from 8S).** `test_client_run.py::test_interrupting_concurrent_candidates_stops_every_active_engine_run`
+  and `::test_concurrent_interrupt_deletes_every_active_engine_capability` fail when `test_client_protocol.py`
+  runs before them (two files: `JSONDecodeError` in `_decoded_result_body`; the reconnect loops of the two
+  100 s tests are still alive). Both pass alone (`14 passed`). The same two fail on the parent tip
+  `f4858fcfe` (SDK source archived from the branch, same venv, same two files: `2 failed, 58 passed`). They
+  are an order-dependent failure of the reconnect transport, not of 8S. The orchestrator must decide.
+
 ## Outcome
 
-In progress.
+Commits (after the second rebase): A `docs(work): add the e4a gap-closure unit 8S ledger`, B `refactor(sdk):
+port sf.Judge and the reducer signal seams onto the reducer plan`, C `fix(sdk): read the combine context
+signal keys when sources follow them`, D `feat(sdk): make sf.Judge a hashable value and compile
+sf.Reduce('judge', judge=...) as it`, E `feat(sdk): weight sf.Vote by judge scores with judge=sf.Judge(...,
+returns='scores')`, F `test(sdk,engine): run an SDK-written judge-weighted vote in the engine world`, G
+`docs(sdk): document sf.Judge, its block form and judge-weighted votes`, H this ledger.
+
+### RED / GREEN
+
+| Row | Test | RED | GREEN |
+|---|---|---|---|
+| B (port) | all replayed 8S tests | post-rebase red set: `ImportError _ModelSignal`, 159 collection errors (rebase artifact) | Commit B |
+| B#1 | `test_judge_plan.py::test_judge_builds_a_reducer_plan` | assertion: `() == (_ModelSignal(...),)` (stub `_plan` without `signal_calls`) | Commit B |
+| B#2 | replayed 8S tests green | (no RED: the post-rebase set above) | Commit B |
+| B#3 | guards: `test_reducer_characterization`, `test_combine_contract_fixture`, `test_vote_median_contract_fixtures`, `test_weighted_vote_contract_fixture`, `test_signal_vote_contract_fixture`, `test_samples_contract_fixture`; `combine_contract` diff empty | none (guards pass at once) | Commit B |
+| C#4 | `test_reducer_signals.py::test_context_signal_keys_survive_a_sources_key` | assertion `() == ('judge',)` | Commit C |
+| D#5 | `test_judge_blocks.py::test_every_op_table_row_matches_its_named_form` (8 params) | unit 4 `ValueError ... arrives with sf.Judge` | Commit D |
+| D#6 | `test_judge_blocks.py` (canonical form, hash, errors, form registry) and `test_judge_reducer.py:109` | same `ValueError`; hash stub assertion `0 != 0` | Commit D |
+| D#7 | `test_blocks_reduce.py` (BK#7 judge rows, `_one_per_row`, round trip) | collection `ValueError` (the module builds the judge row at import) | Commit D |
+| D#8 | `test_reducer_recovery_preference.py::test_a_judge_url4_is_recovered_as_the_named_judge_for_both_forms` | same `ValueError` | Commit D |
+| E#9 | `test_judge_weighted_vote.py::test_vote_judge_scores_compile_the_judge_call_and_signals` (+ nested F14) | unit 7 `ValueError ... needs a judge on the same reducer` | Commit E |
+| E#10 | `test_score_judge_weights_and_a_vote_judge_pair_up` (vote and block) and unit 7 `test_score_judge_weights_wait_for_the_judge` | `DID NOT RAISE ValueError` | Commit E |
+| E#11 | `test_weighted_judge_block_matches_vote` (6 params) | unit 7 `ValueError` | Commit E |
+| E#12 | round trip, regex block form, 3 tamperings, topology without signals, rebuild refusals | unit 7 `ValueError` | Commit E |
+| E#13 | `test_vote_repr_python_and_equality_carry_the_judge` | assertion on `repr` | Commit E |
+| F#14 | `test_judge_vote_contract_fixture.py` | assertion: fixture file missing | `write_fixture()` |
+| F#15 | `ET/test_judge_vote_contract.py` | none (CHAR; passes at once). Separator pinned: U+2028 after `judge-template@1 returns=scores` | Commit F |
+
+### Gates (base `e4a-rank-concat-engine`, tip `f4858fcfe`)
+
+- `screamingface` (append-only on): offenders are `tests/public_surface_snapshot.json`,
+  `test_blocks_reduce.py`, `test_reducer_recovery_preference.py`, `test_signal_weighted_vote.py` (the
+  in-place stack tests of rule 2 and the snapshot).
+- `screamingface --skip-append-only`: ruff, format, pyright green; coverage 96.88% (gate 95%); pytest:
+  only the two known failures of N9.
+- `screamingface-engine --skip-append-only`: ALL GATES GREEN.
+- `repo`: ALL GATES GREEN.
+
+### Errata (for block-api 2.2)
+
+- F3: `sf.Reduce('judge', judge=<sf.Judge>[, rubric=...])`. `rubric` replaces the rubric of that judge and
+  is never stored.
+- F5: the construction-time pairing rule replaces unit 7's compile-time `score:judge` refusal.
+- F6: `judge` is an optional option of the `weighted` row.
