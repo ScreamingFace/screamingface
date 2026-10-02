@@ -3,6 +3,8 @@
 The Engine runs regex@1 on RE2 (linear time) and its RE2 compile is AUTHORITATIVE: a pattern this
 check accepts but RE2 rejects fails the Case with combine_spec_invalid at run time.
 RE2 semantics: \\d and \\w are ASCII; use \\p{L} / \\p{N} for Unicode letters / digits.
+The check is STRICTER than RE2 for \\Q...\\E, \\C, \\x{...} and POSIX [[:class:]]: the SDK refuses
+them. Write \\p{...}, \\xHH or explicit escapes and ranges instead. \\z (end of text) is accepted.
 WHY re._parser (private): the stdlib parse tree is the only dependency-free view of a pattern's
 constructs; it is imported lazily, so `import screamingface` never depends on it.
 INVARIANT: no message contains the pattern.
@@ -21,6 +23,7 @@ REGEX_ARGS = frozenset({"pattern", "group", "occurrence", "ignore_case"})
 _OCCURRENCES = ("last", "first")
 _FLAG_TEXT = "an ASCII, LOCALE or VERBOSE flag"
 _BAD_FLAGS = re.ASCII | re.LOCALE | re.VERBOSE
+_POSIX_CLASS = re.compile(r"\[:\^?[a-z]+:\]")
 
 
 def check_regex(args: Mapping[str, object], label: str) -> None:
@@ -40,6 +43,7 @@ def check_regex(args: Mapping[str, object], label: str) -> None:
         raise TypeError(f"{label} ignore_case must be a bool")
     if args.get("occurrence", "last") not in _OCCURRENCES:
         raise ValueError(f"{label} occurrence must be 'last' or 'first'")
+    _refuse_posix_class(pattern, label)
     compiled = _compile(pattern, ignore_case, label)
     if (shape := unsupported_construct(pattern)) is not None:
         raise ValueError(
@@ -47,6 +51,22 @@ def check_regex(args: Mapping[str, object], label: str) -> None:
         )
     if not _group_exists(args.get("group", 0), compiled):
         raise ValueError(f"{label} group must name a group of the pattern")
+
+
+def _refuse_posix_class(pattern: str, label: str) -> None:
+    """Python reads [[:alpha:]] as a nested set (with a FutureWarning), RE2 as a POSIX class."""
+
+    index = 0
+    while index < len(pattern):
+        if pattern[index] == "\\":
+            index += 2
+        elif _POSIX_CLASS.match(pattern, index):
+            raise ValueError(
+                f"{label} pattern uses a POSIX [[:class:]], which this SDK check does not support; "
+                "write \\p{..} or an explicit range"
+            )
+        else:
+            index += 1
 
 
 def _compile(pattern: str, ignore_case: bool, label: str) -> re.Pattern[str]:
@@ -76,6 +96,9 @@ def _python_view(pattern: str) -> str:
         if pair[1:] in {"p", "P"} and pair[0] == "\\":
             out.append("\\w")
             index = _after_property(pattern, index + 2)
+        elif pair == "\\z":
+            out.append("\\Z")  # RE2 \\z is the end of text; Python spells it \\Z
+            index += 2
         else:
             out.append(pair if pair[0] == "\\" else pair[0])
             index += len(out[-1])

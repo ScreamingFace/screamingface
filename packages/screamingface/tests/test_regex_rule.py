@@ -15,6 +15,8 @@ import pytest
 import screamingface as sf
 from screamingface import _regex_rule
 
+pytestmark = pytest.mark.filterwarnings("error::FutureWarning")  # no Python warning may escape
+
 _LONG = "a" * 257
 
 # (pattern, extra args, expected error type, expected message part)
@@ -37,6 +39,12 @@ _REFUSED: list[tuple[Any, dict[str, Any], type[Exception], str]] = [
     ("a++", {}, ValueError, "a possessive repeat"),
     ("a{1001}", {}, ValueError, "a repeat count over 1000"),
     ("a{2,1001}", {}, ValueError, "a repeat count over 1000"),
+    ("[[:alpha:]]", {}, ValueError, "POSIX"),
+    ("[^[:digit:]x]", {}, ValueError, "POSIX"),
+    ("[:alpha:]", {}, ValueError, "POSIX"),
+    (r"\Q.\E", {}, ValueError, "does not compile"),
+    (r"\C", {}, ValueError, "does not compile"),
+    (r"\x{41}", {}, ValueError, "does not compile"),
     (r"(?a)\w", {}, ValueError, "ASCII, LOCALE or VERBOSE"),
     (r"(?a:\w)", {}, ValueError, "ASCII, LOCALE or VERBOSE"),
     ("(?x) a", {}, ValueError, "ASCII, LOCALE or VERBOSE"),
@@ -49,6 +57,9 @@ _ACCEPTED: list[tuple[str, dict[str, Any]]] = [
     (r"\p{L}+", {}),
     (r"[\p{N}x]", {}),
     (r"\\p", {}),
+    (r"a\z", {}),
+    (r"a\\z", {}),
+    (r"\[[:alpha]", {}),
     (r"\P{L}\pL", {}),
     ("(a)", {"group": 0, "occurrence": "first", "ignore_case": True}),
 ]
