@@ -23,6 +23,7 @@ from url4 import (
 )
 from url4.core.nodes import children
 
+from screamingface import reducer as reducer_module
 from screamingface._benchmark_identity import benchmark_id as _flat_benchmark_id
 from screamingface._evaluation.combine_spec import (
     COMBINE_MODEL,
@@ -37,7 +38,8 @@ from screamingface._evaluation.topology import (
     _topology_from_expression,
 )
 from screamingface._operation_bindings import OPERATION_BINDING
-from screamingface.reducer import Reducer, _reducer_class
+from screamingface.blocks import Reduce
+from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
     from screamingface.recipe import Recipe
@@ -419,7 +421,9 @@ def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
 
 def _reducer_from_call(call: _Call) -> Reducer:
     spec = decode_combine_spec(call.raw_intent)
-    return _reducer_class(str(spec["reducer"]))._from_spec(spec)
+    # WHY through the module: the registry may be replaced as a whole (tests do).
+    named = reducer_module._REDUCER_CLASSES.get(str(spec["reducer"]))
+    return named._from_spec(spec) if named is not None else Reduce._from_spec(spec)
 
 
 def _validate_compiled_corrective(

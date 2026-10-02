@@ -43,6 +43,36 @@ OPERATOR_WIRE: dict[str, object] = {
 }
 
 
+# The ids the Engine serves after units 1-3 (BUILTIN_OPERATORS.describe()): id -> stage. All @1.
+ENGINE_OPERATOR_IDS: dict[str, str] = {
+    **dict.fromkeys(
+        (
+            "boxed@1",
+            "inspect_aime@1",
+            "inspect_number@1",
+            "json_field@1",
+            "last_line@1",
+            "last_number@1",
+            "regex@1",
+            "whole@1",
+        ),
+        "extract",
+    ),
+    **dict.fromkeys(
+        ("identity@1", "inspect_numeric@1", "numeric@1", "set@1", "text@1"), "normalize"
+    ),
+    **dict.fromkeys(("median@1", "mode@1", "weighted_mode@1"), "reduce"),
+    **dict.fromkeys(("first_holder@1", "max_weight_holder@1", "nearest@1", "value@1"), "select"),
+}
+
+
+def engine_operators() -> _OperatorCatalog:
+    """A catalog shaped like the real Engine's after units 1-3."""
+
+    data = [_entry(op_id.split("@")[0], 1, stage) for op_id, stage in ENGINE_OPERATOR_IDS.items()]
+    return decode_operator_catalog({"object": "list", "data": data})
+
+
 def fixture_operators() -> _OperatorCatalog:
     return decode_operator_catalog(OPERATOR_WIRE)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from _reducer_fixtures import FixtureVote, fixture_operators, reducer_fusion
+from _reducer_fixtures import FixtureJudgeish, FixtureVote, fixture_operators, reducer_fusion
 from url4 import Expression, build, expr, render, src, text
 
 import screamingface as sf
@@ -189,8 +189,15 @@ def test_to_python_and_corrective_replay_use_the_reducer_registry(
     url4 = _compiled(reducer_fusion())
 
     monkeypatch.setattr(reducer_module, "_REDUCER_CLASSES", {})
+    # no named class registered: the block form rebuilds it (BK-D2)
+    source = sf.Url4(url4).to_python()
+    assert (
+        "synthesizer=sf.Reduce('plurality', extract=sf.Extract('last_number', "
+        "normalize='numeric'))" in source
+    )
+    judgeish = _compiled(sf.Fusion(["provider/a", "provider/b"], synthesizer=FixtureJudgeish()))
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Url4(url4).to_python()
+        sf.Url4(judgeish).to_python()
 
     monkeypatch.setitem(reducer_module._REDUCER_CLASSES, "vote", FixtureVote)
     source = sf.Url4(url4).to_python()

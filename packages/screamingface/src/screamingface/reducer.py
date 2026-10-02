@@ -85,13 +85,4 @@ class Reducer(ABC):
 _REDUCER_CLASSES: dict[str, type[Reducer]] = {}
 
 
-def _reducer_class(name: str) -> type[Reducer]:
-    selected = _REDUCER_CLASSES.get(name)
-    if selected is None:
-        raise ValueError(
-            f"URL4 Candidate uses the {name!r} reducer, which this SDK version cannot rebuild"
-        )
-    return selected
-
-
 __all__ = ["Reducer"]
