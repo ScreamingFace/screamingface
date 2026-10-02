@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.0.0](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.1...url4-v2.0.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **engine:** one executor for every engine request; remove the node tier ([#1085](https://github.com/ScreamingFace/screamingface/issues/1085))
+
+### Features
+
+* **url4:** expose a native iteration index ([#1039](https://github.com/ScreamingFace/screamingface/issues/1039)) ([375b680](https://github.com/ScreamingFace/screamingface/commit/375b6803499a6f5d7473f4caeed82684fcbc0715))
+
+
+### Refactors
+
+* **engine:** one executor for every engine request; remove the node tier ([#1085](https://github.com/ScreamingFace/screamingface/issues/1085)) ([d64d5e9](https://github.com/ScreamingFace/screamingface/commit/d64d5e942b37fab45ce14f95a015ee9a2e44a775))
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 
