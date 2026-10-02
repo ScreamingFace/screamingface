@@ -24,6 +24,7 @@ from test_contracteval_aggregate import _aggregate as contracteval_aggregate
 from test_contracteval_aggregate import _record, _root
 from test_healthbench_runtime import _ANSWER, _write_assets
 from test_shared_grading_aggregation import (
+    MESSAGES,
     _aggregate,
     _envelope,
     _grading,
@@ -154,6 +155,27 @@ def test_abstained_grader_error_is_ignored_and_logged(caplog: pytest.LogCaptureF
     # Control: the same grader error on a Case the model answered stays a failed Case.
     assert control["cases"][0]["status"] == "failed"
     assert "abstained" not in control["cases"][0]
+
+
+@pytest.mark.parametrize("code", ["no_positive_points", "polarity_mismatch"])
+def test_an_asset_defect_stays_failed_on_an_abstained_case(
+    code: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A broken prepared asset says nothing about the answer, so the Case is not forgiven."""
+    path = _path(
+        _Hook(_failing_outcome(failure_code=code)),
+        failure_messages={**MESSAGES, "polarity_mismatch": "test: polarity mismatch"},
+    )
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        result = _aggregate(path, [_abstained_row(4)], _selected(4))
+
+    case = result["cases"][0]
+    assert case["status"] == "failed"
+    assert "abstained" not in case
+    assert case["failures"][0]["code"] == code
+    warnings = [r for r in caplog.records if r.name == _LOGGER and r.levelno == logging.WARNING]
+    assert [r.args for r in warnings] == [(4, code)]
+    assert "asset defect" in warnings[0].getMessage()
 
 
 def test_abstained_case_without_any_grade_stays_failed_and_is_logged(

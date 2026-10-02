@@ -99,6 +99,13 @@ CASE_GRADING_CONCURRENCY: int = 4
 
 logger = logging.getLogger(__name__)
 
+# WHY these codes are never forgiven on an abstained Case (OME-1289): they say the PREPARED
+# ASSET is broken (a rubric with no positive-points item, a key whose polarity disagrees with the
+# run), which tells nothing about the answer. The report must keep an asset defect distinguishable
+# from judge loss (see `rubric.py`, "a prepared-asset defect, not judge loss"), so the Case stays
+# failed even though the grader returned metrics.
+_ASSET_DEFECT_CODES = frozenset({"no_positive_points", "polarity_mismatch"})
+
 
 @dataclass(frozen=True, slots=True)
 class GradeRequest:
@@ -672,10 +679,18 @@ class BenchmarkAggregation:
         a scored Case with `metrics={}` breaks the scorers that read them: `mean_scorer` and
         `draco_scorer` read `metrics[key]`, and ContractEval would read an abstained positive
         row as a false positive (`bool(metrics.get("is_positive"))`), which its INVARIANT
-        forbids. That Case stays failed. Both outcomes are logged with the Case id and code only.
+        forbids. That Case stays failed. An asset-defect code stays failed too. Every outcome is
+        logged with the Case id and code only.
         """
 
         if not _candidate_fields(row).abstained:
+            return False
+        if outcome.failure_code in _ASSET_DEFECT_CODES:
+            logger.warning(
+                "abstained Case %s: asset defect %s; the Case stays failed",
+                int(selected.case_id),
+                outcome.failure_code,
+            )
             return False
         kept = bool(outcome.metrics or outcome.checks)
         case_id = int(selected.case_id)
