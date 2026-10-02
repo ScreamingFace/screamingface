@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.operators import STAGES
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
-from screamingface._signals import JUDGE_SIGNAL, Signal
+from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
 
 if TYPE_CHECKING:
     from screamingface.judge import Judge
@@ -81,6 +81,22 @@ class _ReducerPlan:
     # The signal a by_signal reduce step reads (Pick by signal; 10S adds Rank and Filter). A
     # weighted vote reads its signal through ``weights`` instead; see ``_read_signal``.
     reads: Signal | None = None
+
+
+_MAX_PATH_CHARS = 256
+
+
+def _field_path(value: object, label: str) -> str:
+    """``value`` if it is a JSON field path of at most 256 characters, else TypeError/ValueError."""
+
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string")
+    if len(value) > _MAX_PATH_CHARS or FIELD_PATH.fullmatch(value) is None:
+        raise ValueError(
+            f"{label} {value!r} must be a JSON path like 'score', 'a.b' or 'a[0].b' "
+            f"(at most {_MAX_PATH_CHARS} characters)"
+        )
+    return value
 
 
 def _read_signal(plan: _ReducerPlan) -> Signal | None:

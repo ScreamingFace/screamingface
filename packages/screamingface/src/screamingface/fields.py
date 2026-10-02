@@ -22,7 +22,7 @@ from typing import Any, ClassVar, Literal, cast
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.topology import _writer_key
-from screamingface._signals import FIELD_PATH, Signal
+from screamingface._signals import Signal
 from screamingface.blocks import _BLOCK_FORMS, _BlockForm
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
@@ -30,6 +30,7 @@ from screamingface.reducer import (
     Reducer,
     _cannot_rebuild,
     _decoded,
+    _field_path,
     _ModelSignal,
     _op_name,
     _ReducerPlan,
@@ -49,7 +50,6 @@ _NORMALIZERS: tuple[str, ...] = ("text", "numeric")
 _FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 _MEMBER_ID = re.compile(r"member_[1-9][0-9]*")
 _MAX_FIELDS = 64
-_MAX_PATH_CHARS = 256
 _RULE_KEYS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "majority": frozenset({"field", "rule", "normalize"}),
@@ -439,16 +439,6 @@ def _target_text(value: object) -> str:
     raise TypeError("Pick equals must be a string, number or boolean")
 
 
-def _check_pick_field(field: object) -> None:
-    if not isinstance(field, str):
-        raise TypeError("Pick field must be a string")
-    if len(field) > _MAX_PATH_CHARS or FIELD_PATH.fullmatch(field) is None:
-        raise ValueError(
-            f"Pick field {field!r} must be a JSON path like 'confidence', 'a.b' or 'a[0].b' "
-            f"(at most {_MAX_PATH_CHARS} characters)"
-        )
-
-
 def _check_pick_mode(order: object, equals: object, normalize: object) -> str | None:
     """Refuse a Pick the Engine would only refuse after the paid member calls; the target text."""
 
@@ -527,7 +517,7 @@ class Pick(Reducer):
         if by_signal is not None:
             order = _check_pick_signal(by_signal, order, equals, normalize)
         else:
-            _check_pick_field(field)
+            _field_path(field, "Pick field")
             target = _check_pick_mode(order, equals, normalize)
             chosen = _normalizer(normalize, "Pick")
         object.__setattr__(self, "name", "pick")

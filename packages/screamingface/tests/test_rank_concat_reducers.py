@@ -263,8 +263,8 @@ def test_vote_and_judge_are_not_selections() -> None:
     for synthesizer in (sf.Vote(), sf.Judge("provider/j", returns="label", rubric=RUBRIC)):
         compiled = _compile(sf.Fusion(members3(), synthesizer=synthesizer))
         assert compiled.operations[-1].kind == "combine"
-    assert sf.Rank(k=1, by_field="s")._kind == "selection"
-    assert sf.Concat()._kind == "selection"
+    assert sf.Rank(k=1, by_field="s")._plan().kind == "selection"
+    assert sf.Concat()._plan().kind == "selection"
 
 
 def _rank_any() -> Any:

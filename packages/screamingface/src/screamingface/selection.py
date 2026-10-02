@@ -21,8 +21,7 @@ from screamingface.reducer import (
     _cannot_rebuild,
     _field_path,
     _ModelSignal,
-    _ReducerKind,
-    _ReducerName,
+    _ReducerPlan,
     _require_steps,
     _spec_steps,
     _Step,
@@ -73,27 +72,19 @@ class Rank(Reducer):
         object.__setattr__(self, "by", by)
         object.__setattr__(self, "by_field", by_field)
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "rank"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "selection"
-
-    def _steps(self) -> _Steps:
+    def _plan(self) -> _ReducerPlan:
         select = _Step("top_k", {"k": self.k})
         if self.by_field is None:
-            return _Steps(reduce=_Step("scores", {"source": "judge"}), select=select)
-        return _Steps(
-            extract=_Step("json_field", {"path": self.by_field}),
-            normalize=_Step(_RANK_NORMALIZER),
-            reduce=_Step("scores", {"source": "values"}),
-            select=select,
-        )
-
-    def _signals(self) -> tuple[_ModelSignal, ...]:
-        return () if self.by is None else self.by._signals()
+            steps = _Steps(reduce=_Step("scores", {"source": "judge"}), select=select)
+        else:
+            steps = _Steps(
+                extract=_Step("json_field", {"path": self.by_field}),
+                normalize=_Step(_RANK_NORMALIZER),
+                reduce=_Step("scores", {"source": "values"}),
+                select=select,
+            )
+        calls = () if self.by is None else (self.by._signal_call(),)
+        return _ReducerPlan("rank", "selection", steps, signal_calls=calls)
 
     def _check_members(self, count: int) -> None:
         if self.k > count:
@@ -117,7 +108,7 @@ class Rank(Reducer):
             if not isinstance(path, str):
                 raise _cannot_rebuild("rank")
             rank = cls(k, by_field=path)
-        _require_steps(spec, rank._steps(), "rank")
+        _require_steps(spec, rank._plan().steps, "rank")
         # WHY: the Fusion refuses a k above its member count, so a recovery must too
         rank._check_members(len(cast("Sequence[str]", spec["members"])))
         return rank
@@ -159,19 +150,12 @@ class Concat(Reducer):
         object.__setattr__(self, "separator", separator)
         object.__setattr__(self, "label", label)
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "concat"
-
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "selection"
-
-    def _steps(self) -> _Steps:
-        return _Steps(
+    def _plan(self) -> _ReducerPlan:
+        steps = _Steps(
             reduce=_Step("join", {"separator": self.separator, "label": self.label}),
             select=_Step("all"),
         )
+        return _ReducerPlan("concat", "selection", steps)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Concat:
@@ -181,7 +165,7 @@ class Concat(Reducer):
         if not isinstance(separator, str) or not isinstance(label, bool):
             raise _cannot_rebuild("concat")
         concat = cls(separator, label=label)
-        _require_steps(spec, concat._steps(), "concat")
+        _require_steps(spec, concat._plan().steps, "concat")
         return concat
 
     def __repr__(self) -> str:

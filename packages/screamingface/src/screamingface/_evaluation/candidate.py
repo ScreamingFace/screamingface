@@ -36,6 +36,7 @@ from screamingface._evaluation.topology import (
     _topology_source,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
+from screamingface.blocks import Reduce
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.fusion import Fusion
@@ -74,6 +75,9 @@ class _ResolvedRecipe:
     topology: _RecipeTopology
     members: tuple[_ResolvedRecipe, ...] = ()
     calls: tuple[_SourceCall, ...] = ()
+    # The reducer's label ("Rank", "Concat", "Reduce('top_k')") when this Recipe's output is a
+    # selection for the next Pipeline stage, else None; also the flag the compile checks read.
+    selection: str | None = None
 
 
 def compile_candidate(
@@ -207,6 +211,11 @@ class _CandidateCompiler:
             root = _compile_corrective(self, recipe, self._check_surface)
         else:
             root = self._recipe(recipe)
+            if root.selection is not None:
+                raise ValueError(
+                    f"a {root.selection} must be followed by another stage: {recipe.name!r} "
+                    "ends the candidate with a selection"
+                )
         members = (
             tuple(
                 _member_projection(
@@ -252,6 +261,11 @@ class _CandidateCompiler:
             input_dependencies=input_dependencies,
             synthesis=synthesis,
         )
+        if resolved.selection is not None:
+            raise ValueError(
+                f"a {resolved.selection} cannot feed a corrective loop: its selection goes "
+                "only to the next Pipeline stage"
+            )
         captured = tuple(self._sources[start:])
         del self._sources[start:]
         return resolved, captured
@@ -299,6 +313,7 @@ class _CandidateCompiler:
                 )
                 for member in fusion.members
             )
+            _reject_selection_members(members)
             return self._fusion(fusion, members, input_context=input_context)
         captured = tuple(
             self._capture_recipe(
@@ -310,6 +325,7 @@ class _CandidateCompiler:
             for member in fusion.members
         )
         members = tuple(member for member, _ in captured)
+        _reject_selection_members(members)
         self._panel_count += 1
         panel = f"panel_{self._panel_count}"
         slots = tuple(
@@ -537,6 +553,7 @@ class _CandidateCompiler:
             ),
             members=members,
             calls=(*_member_calls(members), *resolved_synthesizer.calls),
+            selection=resolved_synthesizer.selection,
         )
 
     def _reducer_synthesizer(
@@ -579,10 +596,11 @@ class _CandidateCompiler:
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 
+        plan = reducer._plan()
         signals = _compile_signals(
             self,
             fusion,
-            reducer._plan(),
+            plan,
             members,
             input_context=input_context,
             dependencies=dependencies,
@@ -624,6 +642,7 @@ class _CandidateCompiler:
             # AIDEV-NOTE: the combine call itself is never a claimant; judge and writer calls
             # stay out too, because their `binding` param already makes their fingerprint unique.
             calls=_member_calls(members),
+            selection=_selection_label(reducer) if plan.kind == "selection" else None,
         )
 
     def _claim_accounting_sources(
@@ -678,6 +697,7 @@ class _CandidateCompiler:
                 stages=tuple(stage_topologies),
             ),
             calls=calls,
+            selection=resolved.selection,
         )
 
     def _append_combine(
@@ -818,6 +838,25 @@ def _member_calls(members: tuple[_ResolvedRecipe, ...]) -> tuple[_SourceCall, ..
 
 def _member_models(members: tuple[_ResolvedRecipe, ...]) -> tuple[str, ...]:
     return tuple(route for member in members for route in member.models)
+
+
+def _reject_selection_members(members: tuple[_ResolvedRecipe, ...]) -> None:
+    """A selection goes only to the next Pipeline stage, so it can never be a Fusion member."""
+
+    for member in members:
+        if member.selection is not None:
+            raise ValueError(
+                f"a {member.selection} Fusion cannot be a Fusion member: its selection goes "
+                "only to the next Pipeline stage"
+            )
+
+
+def _selection_label(reducer: Reducer) -> str:
+    """What a selection compile check calls this reducer: the class, or the block and its op."""
+
+    if isinstance(reducer, Reduce):
+        return f"Reduce({reducer.op!r})"
+    return type(reducer).__name__
 
 
 def _required_topology(value: _ResolvedRecipe) -> _RecipeTopology:
