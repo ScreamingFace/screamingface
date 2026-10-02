@@ -1,7 +1,7 @@
 ---
 ticket: OME-1250
 stack: aigateway (+ screamingface-engine, screamingface)
-status: blocked   # STOP: design requires a breaking wire change and a schema migration
+status: in_progress
 started: 2026-10-01
 finished:
 ---
@@ -128,3 +128,12 @@ Third STOP before RED: widening the SDK's public `ConnectionStatus` Literal chan
 append-only check treats any modified non-.py test artifact as an offender, and
 `approved_test_changes.py` only approves `.ts/.tsx`. So the gate cannot go green without
 `--skip-append-only`, which this lane forbids. Engine and aigateway have no such pin.
+
+## Owner decision 2026-10-02 (snapshot) and PR1
+
+Owner approved the one-line `public_surface_snapshot.json` change (manifest
+`.claude/test-change-approvals/OME-1250.json`). The screamingface-stack gate runs with
+`--skip-append-only` for that file only; Engine and aigateway gates run normally.
+
+PR1 (step 1): Engine `ConnectionStatus` and SDK `ConnectionStatus`/`_STATUSES` gain
+`unavailable`; the hosted panel projects it to Unavailable; CHANGELOG entry. New tests only.

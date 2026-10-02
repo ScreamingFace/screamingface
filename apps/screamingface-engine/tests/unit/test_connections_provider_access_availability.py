@@ -358,3 +358,38 @@ async def test_the_connections_dto_field_set_is_unchanged() -> None:
 
     assert set(ConnectionResponse.model_fields) == {"object", *public}
     assert {field.name for field in fields(Connection)} == public
+
+
+async def test_unavailable_reaches_the_catalogue_row_and_the_rest_body_unchanged() -> None:
+    # FEATURE (OME-1250, step 1 of 2): `unavailable` = the credential authenticates but the
+    # provider cannot serve it right now (402 / quota). The Engine must accept it BEFORE the
+    # gateway emits it, or a deployed Engine would 502 the whole listing.
+    # INVARIANT: distinct from `error` (a rejected credential) all the way to the REST body.
+    adapter, _ = _adapter(
+        _gateway(_availability(("anthropic", "error"), ("openrouter", "unavailable")))
+    )
+
+    rows = await adapter.list(Caller(ALICE))
+
+    assert [(row.provider, row.status) for row in rows] == [
+        ("anthropic", "error"),
+        ("openrouter", "unavailable"),
+    ]
+    body = ConnectionResponse(
+        provider="openrouter",
+        display_name="OpenRouter",
+        auth_methods=("api_key",),
+        status="unavailable",
+    )
+    assert body.model_dump()["status"] == "unavailable"
+
+
+async def test_an_unknown_status_beyond_unavailable_is_still_refused() -> None:
+    # INVARIANT (owner decision 2026-10-02, STRICT): widening the family by one value does not
+    # make the decoder lenient — any other unknown status still fails as a bad response.
+    adapter, _ = _adapter(_gateway(_availability(("openrouter", "degraded"))))
+
+    with pytest.raises(ConnectionBadResponse) as failure:
+        await adapter.list(Caller(ALICE))
+
+    assert failure.value.status == 502

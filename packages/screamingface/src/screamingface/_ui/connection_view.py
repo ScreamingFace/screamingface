@@ -460,7 +460,7 @@ def _provider_presentation(
                 status_label="Connected",
                 source="Available via ScreamingFace",
             )
-        case "not_connected" | "pending" | "needs_reauth" | "error":
+        case "not_connected" | "pending" | "needs_reauth" | "error" | "unavailable":
             return _ProviderPresentation(
                 status_class="unavailable",
                 status_label="Unavailable",
