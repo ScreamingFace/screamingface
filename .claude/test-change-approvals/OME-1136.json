@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1136",
+  "branch": "bershadsky/ome-1136-every-rejected-model-call-says-only-the-upstream-provider",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-10-02",
+  "scope": "flip upstream-message-never-relayed assertions to expect the sanitized relay (OME-1136 decision 1); one _SECRET fixture value. Exactly: test_openrouter_error_policy.py (exact 402 message + 'Insufficient credits' not-in, and 'upstream boom' not-in, now assert the composed/sanitized upstream_message); test_openrouter_no_eligible_endpoint.py and test_openrouter_routing_policy_routes.py (the second 'No endpoints found' not-in each, now assert upstream_message); test_openrouter_toplevel_conversion_retry.py (_SECRET -> 'secret: provider-detail-do-not-leak', a value the Gate-1 screen withholds, so its 9 never-leaks assertions stay unchanged and still prove a credential-shaped upstream message is withheld). No other edits, no new cases.",
+  "reason": "OME-1136 owner decision 1 (2026-10-02) relays a sanitized provider message on every gateway error code except 401/429. These prior tests pinned the opposite (provider text never reaches the client) using benign-looking messages; the owner approved Option A on 2026-10-02.",
+  "files": {
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_toplevel_conversion_retry.py": {
+      "base_blob": "825775b0198bd3e2f973a4f6eaf88dbec96264be",
+      "approved_blob": "bd444d6743fad6a608a284cc99be534d2cea1339"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_error_policy.py": {
+      "base_blob": "85dffb0c67a7b0d969f20846ae4325e3044b5321",
+      "approved_blob": "d7b36874f16b3cb8c85194847c7dad8150cec4e8"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_no_eligible_endpoint.py": {
+      "base_blob": "c4760533de1b4d5b3f672dc36b0e689a2da111d3",
+      "approved_blob": "faafdd563a14a9d64b8e538d0b0c8a557d0114a2"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_routing_policy_routes.py": {
+      "base_blob": "66179b65527100647471d1130b77eb01b883bd27",
+      "approved_blob": "75315c0ac782ff2e160ff4b05dba6a12edd5c9e2"
+    }
+  }
+}

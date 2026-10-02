@@ -1,0 +1,6 @@
+{
+  "code": "bad_request",
+  "message": "The upstream provider rejected the request (400): Unsupported parameter: 'temperature' is not supported with this model.",
+  "upstream_status": 400,
+  "upstream_message": "Unsupported parameter: 'temperature' is not supported with this model."
+}

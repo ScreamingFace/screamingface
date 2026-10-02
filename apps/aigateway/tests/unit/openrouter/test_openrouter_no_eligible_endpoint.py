@@ -165,5 +165,9 @@ def test_no_eligible_endpoint_embedded_in_a_200_body_surfaces_sanitized(
 
     assert resp.status_code == 404, resp.text
     assert resp.json()["detail"]["code"] == "provider_error"
-    assert "No endpoints found" not in resp.text
+    # OME-1136: the provider message is relayed only sanitized.
+    assert (
+        resp.json()["detail"]["upstream_message"]
+        == "No endpoints found that support all parameters: n"
+    )
     assert "secret-internal-router" not in resp.text
