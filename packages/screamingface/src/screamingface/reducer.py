@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, get_args
 
@@ -150,6 +151,74 @@ def _vote_normalize(extract: str, normalize: str | None) -> str | None:
     return None
 
 
+# WHY the cap: the Engine sums weights, and a sum over every member must stay a finite float
+# (D-7/D-12). It is the Engine's own cap, sys.float_info.max / the member limit.
+_MAX_REDUCER_MEMBERS = 256
+_MAX_WEIGHT = sys.float_info.max / _MAX_REDUCER_MEMBERS
+
+
+def _weights_option(value: object, label: str) -> tuple[float, ...]:
+    """One positive finite float per member: the one rule of sf.Vote and sf.Reduce('weighted')."""
+
+    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
+        raise _weights_type_error(label)
+    if not value:
+        raise ValueError(f"{label} must not be empty")
+    return tuple(_weight(item, label) for item in value)
+
+
+def _weight(item: object, label: str) -> float:
+    if isinstance(item, bool) or not isinstance(item, int | float):
+        raise _weights_type_error(label)
+    if not 0 < item <= _MAX_WEIGHT:  # NaN fails the comparison; an int compares exactly
+        raise ValueError(
+            f"{label} must be finite and greater than zero, and at most {_MAX_WEIGHT!r}, "
+            f"not {item!r}"
+        )
+    return float(item)
+
+
+def _weights_type_error(label: str) -> TypeError:
+    return TypeError(f"{label} must be a sequence of numbers, one per member, or an sf.signal")
+
+
+def _vote_plan(
+    extract: _Step | None,
+    normalize: _Step | None,
+    weights: tuple[float, ...] | None,
+    *,
+    benchmark_rule: bool,
+) -> _ReducerPlan:
+    """The one plan behind sf.Vote and sf.Reduce('plurality'|'weighted') (BK-1, BK#4)."""
+
+    weighted = weights is not None
+    steps = _Steps(
+        reduce=_Step("weighted_mode" if weighted else "mode"),
+        select=_Step("max_weight_holder" if weighted else "first_holder"),
+        extract=extract,
+        normalize=normalize,
+    )
+    return _ReducerPlan("vote", "answer", steps, weights, benchmark_rule=benchmark_rule)
+
+
+def _recovered_weights(spec: Mapping[str, object]) -> tuple[float, ...] | None:
+    """The weights of a decoded vote spec in member order, or ValueError when it is not one."""
+
+    weights = spec["weights"]
+    members = spec["members"]
+    if weights is None:
+        return None
+    if not isinstance(weights, Mapping) or not isinstance(members, list):
+        raise _cannot_rebuild("vote")
+    if set(weights) != set(members):
+        raise _cannot_rebuild("vote")
+    # member order, not the weights' key order: canonical JSON sorts member_10 before member_2
+    values = [weights[member] for member in members]
+    if any(isinstance(v, bool) or not isinstance(v, int | float) for v in values):
+        raise _cannot_rebuild("vote")
+    return tuple(values)
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Vote(Reducer):
     """Plurality vote: the first member (author order) holding the most common answer, verbatim.
@@ -162,14 +231,22 @@ class Vote(Reducer):
     name: str
     extract: str
     normalize: str | None
+    weights: tuple[float, ...] | None
 
     def __init__(
-        self, *, extract: str = "last_line", normalize: str | None = _DEFAULT_NORMALIZE
+        self,
+        *,
+        extract: str = "last_line",
+        normalize: str | None = _DEFAULT_NORMALIZE,
+        weights: Sequence[float] | None = None,
     ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
         object.__setattr__(self, "name", "vote")
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "normalize", _vote_normalize(extract, normalize))
+        object.__setattr__(
+            self, "weights", None if weights is None else _weights_option(weights, "Vote weights")
+        )
 
     @property
     def _is_benchmark(self) -> bool:
@@ -177,31 +254,36 @@ class Vote(Reducer):
 
     def _plan(self) -> _ReducerPlan:
         benchmark = self._is_benchmark
-        steps = _Steps(
-            reduce=_Step("mode"),
-            select=_Step("first_holder"),
-            extract=None if benchmark else _Step(self.extract),
-            normalize=None if self.normalize is None else _Step(self.normalize),
+        return _vote_plan(
+            None if benchmark else _Step(self.extract),
+            None if self.normalize is None else _Step(self.normalize),
+            self.weights,
+            benchmark_rule=benchmark,
         )
-        return _ReducerPlan("vote", "answer", steps, benchmark_rule=benchmark)
+
+    def _check_members(self, count: int) -> None:
+        if self.weights is not None and len(self.weights) != count:
+            raise ValueError(f"{self.name} has {len(self.weights)} weights for {count} members")
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Vote:
         ops = _spec_ops(spec, "vote")
         extract = ops["extract"]
-        if (
-            extract is None
-            or _op_name(ops["reduce"]) != "mode"
-            or _op_name(ops["select"]) != "first_holder"
-            or spec["weights"] is not None
-        ):
+        weights = _recovered_weights(spec)
+        pair = (_op_name(ops["reduce"]), _op_name(ops["select"]))
+        # the operator pair must agree with the weights, or the spec is not a Vote this SDK writes
+        expected = (
+            ("mode", "first_holder") if weights is None else ("weighted_mode", "max_weight_holder")
+        )
+        if extract is None or pair != expected:
             raise _cannot_rebuild("vote")
-        return cls(extract=extract, normalize=ops["normalize"])
+        return cls(extract=extract, normalize=ops["normalize"], weights=weights)
 
     def __repr__(self) -> str:
+        weights = "" if self.weights is None else f", weights={self.weights!r}"
         if self._is_benchmark:
-            return f"Vote(extract={self.extract!r})"
-        return f"Vote(extract={self.extract!r}, normalize={self.normalize!r})"
+            return f"Vote(extract={self.extract!r}{weights})"
+        return f"Vote(extract={self.extract!r}, normalize={self.normalize!r}{weights})"
 
     __hash__: ClassVar[Any] = None
 
@@ -214,7 +296,11 @@ class Median(Reducer):
     extract: str
     select: str
 
-    def __init__(self, *, extract: str = "last_number", select: str = "nearest") -> None:
+    def __init__(
+        self, *, extract: str = "last_number", select: str = "nearest", weights: None = None
+    ) -> None:
+        if weights is not None:
+            raise TypeError("weights apply to Vote only")
         _Step(extract)
         _Step(select)
         if _op_name(extract) == BENCHMARK_EXTRACT:

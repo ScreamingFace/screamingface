@@ -8,15 +8,22 @@ INVARIANT: v1 blocks use short operator names only (D-13); the catalog pins the 
 from __future__ import annotations
 
 import math
-import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
 from screamingface._regex_rule import check_regex
 from screamingface._signals import FIELD_PATH, Signal
-from screamingface.reducer import BENCHMARK_EXTRACT, Reducer, _ReducerPlan, _Step, _Steps
+from screamingface.reducer import (
+    BENCHMARK_EXTRACT,
+    Reducer,
+    _ReducerPlan,
+    _Step,
+    _Steps,
+    _vote_plan,
+    _weights_option,
+)
 
 type ExtractRule = Literal[
     "boxed",
@@ -231,7 +238,6 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
         "context": _OpRow("context", ("compute",), (), named="the Fusion recipe rewrite"),
     }
 )
-_MAX_WEIGHT = sys.float_info.max / 256  # D-12: keeps a weighted sum finite
 _MAX_K = 256
 _MAX_SEPARATOR = 1024
 
@@ -245,19 +251,7 @@ def _check_extract(op: str, value: object) -> Extract:
 def _check_weights(op: str, value: object) -> Signal | tuple[float, ...]:
     if isinstance(value, Signal):
         return value
-    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
-        raise TypeError(f"sf.Reduce({op!r}) option 'weights' must be a sf.signal or a list")
-    if not value:
-        raise ValueError(f"sf.Reduce({op!r}) option 'weights' must not be empty")
-    return tuple(_check_weight(op, weight) for weight in value)
-
-
-def _check_weight(op: str, weight: object) -> float:
-    if isinstance(weight, bool) or not isinstance(weight, int | float):
-        raise TypeError(f"sf.Reduce({op!r}) weights must be numbers")
-    if not 0 < weight <= _MAX_WEIGHT:
-        raise ValueError(f"sf.Reduce({op!r}) weights must be above 0 and finite")
-    return float(weight)
+    return _weights_option(value, f"sf.Reduce({op!r}) weights")
 
 
 def _check_by_signal(op: str, value: object) -> Signal:
@@ -485,21 +479,9 @@ def _answer_steps(extract: Extract) -> tuple[_Step | None, _Step | None, bool]:
     return (*extract._steps(), False)
 
 
-def _vote_plan(block: Reduce, *, reduce: str, select: str) -> _ReducerPlan:
-    extract, normalize, benchmark = _answer_steps(_extract_of(block))
-    weights = block.options.get("weights")
-    steps = _Steps(extract=extract, normalize=normalize, reduce=_Step(reduce), select=_Step(select))
-    return _ReducerPlan(
-        "vote",
-        "answer",
-        steps,
-        weights if isinstance(weights, tuple) else None,
-        benchmark_rule=benchmark,
-    )
-
-
 def _plurality_plan(block: Reduce) -> _ReducerPlan:
-    return _vote_plan(block, reduce="mode", select="first_holder")
+    extract, normalize, benchmark = _answer_steps(_extract_of(block))
+    return _vote_plan(extract, normalize, None, benchmark_rule=benchmark)
 
 
 def _weighted_plan(block: Reduce) -> _ReducerPlan:
@@ -508,7 +490,10 @@ def _weighted_plan(block: Reduce) -> _ReducerPlan:
             "sf.Reduce('weighted') with sf.signal weights does not compile in this SDK version "
             "yet; it arrives with sf.Vote(weights=sf.signal(...))"
         )
-    return _vote_plan(block, reduce="weighted_mode", select="max_weight_holder")
+    extract, normalize, benchmark = _answer_steps(_extract_of(block))
+    weights = block.options["weights"]
+    assert isinstance(weights, tuple)
+    return _vote_plan(extract, normalize, weights, benchmark_rule=benchmark)
 
 
 def _median_plan(block: Reduce) -> _ReducerPlan:

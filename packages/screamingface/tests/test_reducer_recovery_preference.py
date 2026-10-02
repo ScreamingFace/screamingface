@@ -1,7 +1,7 @@
 """A url4 reducer is recovered as its named class when that class accepts the spec exactly (BK#8).
 
 FEATURE: ``Url4(...).to_python()`` writes ``sf.Vote(...)`` or ``sf.Median(...)`` when the combine
-spec is exactly one, and ``sf.Reduce(...)`` for every other shape (operator args, weights).
+spec is exactly one, and ``sf.Reduce(...)`` for every other shape (operator args).
 INVARIANT: the recovered Python recompiles to the very same url4.
 """
 
@@ -74,7 +74,12 @@ _ROWS: list[tuple[Reducer, type[Reducer], str | None]] = [
     ),
     (sf.Reduce("plurality", extract=_REGEX), sf.Reduce, None),
     (sf.Reduce("plurality", extract=_FIELD), sf.Reduce, None),
-    (sf.Reduce("weighted", extract=_NUMERIC, weights=[1, 2.5, 3]), sf.Reduce, None),
+    (
+        sf.Reduce("weighted", extract=_NUMERIC, weights=[1, 2.5, 3]),
+        sf.Vote,
+        "sf.Vote(extract='last_number@1', normalize='numeric@1', weights=(1.0, 2.5, 3.0))",
+    ),
+    (sf.Reduce("weighted", extract=_REGEX, weights=[1, 2.5, 3]), sf.Reduce, None),
 ]
 
 

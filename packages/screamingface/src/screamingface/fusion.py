@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 from screamingface.recipe import Recipe, _name, _optional, _recipe
-from screamingface.reducer import Reducer
+from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -84,9 +84,6 @@ def _quorum(value: object, member_count: int) -> int | Literal["all"]:
     if value < 0 or value > member_count:
         raise ValueError("Fusion quorum must be between zero and the member count")
     return value
-
-
-_MAX_REDUCER_MEMBERS = 256
 
 
 def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer:

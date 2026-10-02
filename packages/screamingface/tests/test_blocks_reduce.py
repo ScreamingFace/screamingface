@@ -310,7 +310,11 @@ def _named_or_block(reducer: Reduce) -> type[Reducer]:
     if reducer.op == "median":
         return sf.Median
     extract = reducer.options.get("extract")
-    if reducer.op == "plurality" and isinstance(extract, sf.Extract) and not extract.args:
+    if (
+        reducer.op in ("plurality", "weighted")
+        and isinstance(extract, sf.Extract)
+        and not extract.args
+    ):
         return sf.Vote
     return Reduce
 

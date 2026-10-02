@@ -558,7 +558,7 @@
       "Median": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_number', select: 'str' = 'nearest') -> 'None'",
+          "__init__": "method (self, *, extract: 'str' = 'last_number', select: 'str' = 'nearest', weights: 'None' = None) -> 'None'",
           "extract": "field",
           "name": "field",
           "select": "field"
@@ -854,10 +854,11 @@
       "Vote": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text') -> 'None'",
+          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text', weights: 'Sequence[float] | None' = None) -> 'None'",
           "extract": "field",
           "name": "field",
-          "normalize": "field"
+          "normalize": "field",
+          "weights": "field"
         }
       },
       "__version__": {
