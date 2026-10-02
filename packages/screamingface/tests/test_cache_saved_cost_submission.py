@@ -227,19 +227,23 @@ def test_an_evaluated_run_carries_the_reported_saving_onto_the_submission() -> N
     assert payload["run_cost_usd"] is None
 
 
-def test_archive_money_never_reaches_the_result_or_the_board() -> None:
-    """INVARIANT (OME-1251 D3): `archive_matched` is measured from a different call.
+def test_archive_money_reaches_the_result_and_the_board() -> None:
+    """INVARIANT (OME-1463, D7 on OME-1251, reverses D3): archive-matched money is published.
 
-    It is not provably this run's, so it is never published, alone or added to the reported sum.
+    It travels in its own field, never folded into the reported sum or the spend. With an unpriced
+    spend it is saving evidence, so the run is `partial`, never `unavailable` (the board refuses
+    `unavailable` beside any saving). Rewritten from the D3 test with owner approval, 2026-10-02.
     """
     result = _evaluate(_CachedReplayTransport(reported=None, archive="0.500"))
 
     assert result.cache_saved_cost_usd is None
-    assert result.run_cost_status == "unavailable"
+    assert result.cache_saved_cost_archive_usd == Decimal("0.500")
+    assert result.run_cost_status == "partial"
     payload = _submission(result)
     assert "cache_saved_cost_usd" not in payload
-    _assert_no_money(payload, "0.500")
-    _assert_no_money(result.to_dict(), "0.500")
+    assert payload["cache_saved_cost_archive_usd"] == "0.500"
+    assert payload["run_cost_status"] != "unavailable"
+    assert result.to_dict()["cache_saved_cost_archive_usd"] == "0.500"
 
 
 def test_no_evaluated_run_pairs_unavailable_with_a_saving() -> None:
@@ -252,8 +256,25 @@ def test_no_evaluated_run_pairs_unavailable_with_a_saving() -> None:
             result = _evaluate(_CachedReplayTransport(reported=reported, archive=archive))
             if result.run_cost_status == "unavailable":
                 assert result.cache_saved_cost_usd is None
+                assert result.cache_saved_cost_archive_usd is None
             else:
-                assert result.cache_saved_cost_usd is not None
+                # OME-1463 (D7): either saving backs `partial` (was: the reported one only).
+                assert (
+                    result.cache_saved_cost_usd is not None
+                    or result.cache_saved_cost_archive_usd is not None
+                )
+
+
+def test_no_evaluated_run_pairs_unavailable_with_an_archive_saving() -> None:
+    """OME-1463 (D7): the archive saving is published, so the board refuses `unavailable` beside it
+    exactly as beside the reported one. No submitted pair may combine the two."""
+    for reported in (None, "0", "0.031"):
+        for archive in (None, "0", "0.500"):
+            result = _evaluate(_CachedReplayTransport(reported=reported, archive=archive))
+            payload = _submission(result)
+            if payload["run_cost_status"] == "unavailable":
+                assert "cache_saved_cost_usd" not in payload
+                assert "cache_saved_cost_archive_usd" not in payload
 
 
 # --- OME-1445: money rules are checked on values, never on serialized text ------------------------
@@ -305,16 +326,19 @@ def _assert_no_money(obj: object, amount: str) -> None:
 
 
 def test_the_archive_rule_holds_when_the_clock_reads_zero_point_five() -> None:
-    """INVARIANT (OME-1445): the archive rule fails only when archive money leaks, never on time.
+    """INVARIANT (OME-1445): the archive rule is checked on values, never confused by the clock.
 
     CI on #1149 failed this rule's test with `ran_at_local` `2026-10-01T08:40:30.507912Z`: the
     text `0.5` sits inside `30.507`, and the old assertion searched the whole serialized payload.
     The clock is pinned here to exactly that time, so the check runs against it every time.
+    Under D7 (OME-1463) the archive amount must appear in EXACTLY its own field: compared as
+    numbers across every leaf, so a timestamp can never count as an occurrence.
     """
     pinned = datetime(2026, 10, 1, 8, 40, 30, 507912, tzinfo=UTC)
     result = _evaluate(_CachedReplayTransport(reported=None, archive="0.500", finished=pinned))
     payload = _submission(result)
 
     assert payload["ran_at_local"] == "2026-10-01T08:40:30.507912Z"
-    _assert_no_money(payload, "0.500")
-    _assert_no_money(result.to_dict(), "0.500")
+    assert payload["cache_saved_cost_archive_usd"] == "0.500"
+    assert _money_values(payload).count(Decimal("0.500")) == 1
+    assert _money_values(result.to_dict()).count(Decimal("0.500")) == 1

@@ -218,6 +218,14 @@ class CandidateResult:
     # the response cache served. Local facts stay true (`usage`, `run_cost_status`); the
     # submission reads this to refuse publishing a cached run's spend as its complete cost.
     cache_hits: int
+    # FEATURE (OME-1463, D7 on OME-1251, reverses D3): what the hits served from archive-matched
+    # entries would have cost. Real measured money from a paired call of the same model and kind.
+    # Kept apart from the spend AND the reported saving, never added to either: the board sums all
+    # three at the point of use (OME-1382). None means none observed, which is not zero.
+    cache_saved_cost_archive_usd: Decimal | None
+    # FEATURE (OME-1463): the Engine run summary's count of hits with no price at all; None when no
+    # summary arrived. Only 0 lets a cached run be published as `complete`.
+    cache_unpriced_hits: int | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
 
     def __init__(
@@ -245,11 +253,19 @@ class CandidateResult:
         answer_seed: int | None = None,
         client_version: str | None = None,
         cache_hits: int = 0,
+        cache_saved_cost_archive_usd: Decimal | str | None = None,
+        cache_unpriced_hits: int | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
         if isinstance(cache_hits, bool) or not isinstance(cache_hits, int) or cache_hits < 0:
             raise ValueError("Candidate cache_hits must be a non-negative integer")
+        if cache_unpriced_hits is not None and (
+            isinstance(cache_unpriced_hits, bool)
+            or not isinstance(cache_unpriced_hits, int)
+            or cache_unpriced_hits < 0
+        ):
+            raise ValueError("Candidate cache_unpriced_hits must be a non-negative integer or None")
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
@@ -280,7 +296,17 @@ class CandidateResult:
             label="Candidate",
         )
         selected_saving = _cost(cache_saved_cost_usd, "Candidate cache_saved_cost_usd")
-        selected_status = _run_cost_status(run_cost_status, usage, selected_saving)
+        selected_archive = _cost(
+            cache_saved_cost_archive_usd, "Candidate cache_saved_cost_archive_usd"
+        )
+        # INVARIANT (OME-1463, D7): either saving is cache evidence. Passed as ONE piece of
+        # evidence for the status, never as a sum: it only decides `partial` vs `unavailable`.
+        # The board refuses `unavailable` beside either saving, so the Client must too.
+        selected_status = _run_cost_status(
+            run_cost_status,
+            usage,
+            selected_saving if selected_saving is not None else selected_archive,
+        )
         values = {
             "benchmark": benchmark,
             "run_id": _nonblank(run_id, "Candidate run_id"),
@@ -313,6 +339,8 @@ class CandidateResult:
             "run_cost_status": selected_status,
             "cache_saved_cost_usd": selected_saving,
             "cache_hits": cache_hits,
+            "cache_saved_cost_archive_usd": selected_archive,
+            "cache_unpriced_hits": cache_unpriced_hits,
             "_metric_items": metric_items,
         }
         for attribute, value in values.items():
@@ -373,6 +401,13 @@ class CandidateResult:
             # Always emitted: a reader of the export must be able to tell a cached run's spend
             # from a real cost.
             "cache_hits": self.cache_hits,
+            # OME-1463: always emitted, like the reported saving, so an export keeps both.
+            "cache_saved_cost_archive_usd": (
+                None
+                if self.cache_saved_cost_archive_usd is None
+                else str(self.cache_saved_cost_archive_usd)
+            ),
+            "cache_unpriced_hits": self.cache_unpriced_hits,
         }
 
 

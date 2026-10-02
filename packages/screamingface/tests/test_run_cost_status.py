@@ -219,26 +219,22 @@ def test_an_unpriced_run_with_reported_savings_derives_partial() -> None:
     assert _run_cost_status(_outcome(cost_usd=None, reported="0.031")) == "partial"
 
 
-def test_an_unpriced_run_with_only_archive_savings_derives_unavailable() -> None:
-    """INVARIANT: archive money alone is NOT evidence about this run.
+def test_an_unpriced_run_with_only_archive_savings_derives_partial() -> None:
+    """INVARIANT (OME-1463, D7 on `OME-1251`, reverses D3): archive money IS saving evidence.
 
-    `archive_matched` is a real measured amount from a DIFFERENT call of the same model and
-    kind, so it says nothing provable about this row — `OME-1251` D3 keeps it unpublished. A run
-    whose only evidence is archive-matched therefore has nothing publishable about its own cost.
-
-    This is the case the reviewer's field swap inverted. Reading the archive sum here would call
-    such a run `partial`, which claims a lower bound the board cannot stand behind.
+    `archive_matched` is a real measured amount from a paired call of the same model and kind.
+    D7 publishes it, so a run whose only evidence is archive-matched has a saving the board will
+    sum, and `partial` is the honest status. `unavailable` beside it would be refused by the
+    board. Rewritten from the D3 test with owner approval, 2026-10-02.
     """
-    assert _run_cost_status(_outcome(cost_usd=None, archive="0.500")) == "unavailable"
+    assert _run_cost_status(_outcome(cost_usd=None, archive="0.500")) == "partial"
 
 
-def test_archive_savings_never_promote_a_run_that_has_no_reported_evidence() -> None:
-    """The same rule from the other side: adding archive money to a `partial` run changes nothing,
-    and adding it to an `unavailable` one must not rescue it. Pins the asymmetry directly, so a
-    future edit reaching for "just use whichever sum is present" fails here.
-    """
+def test_either_saving_is_evidence_and_no_saving_stays_unavailable() -> None:
+    """The D7 rule from both sides: either saving, or both, backs `partial`; with no saving at all
+    the run stays `unavailable`. Rewritten from the D3 asymmetry test (OME-1463)."""
     assert _run_cost_status(_outcome(cost_usd=None, reported="0.031", archive="0.500")) == "partial"
-    assert _run_cost_status(_outcome(cost_usd=None, archive="9.000")) == "unavailable"
+    assert _run_cost_status(_outcome(cost_usd=None, archive="9.000")) == "partial"
     assert _run_cost_status(_outcome(cost_usd=None)) == "unavailable"
 
 

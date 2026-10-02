@@ -65,6 +65,9 @@ class _RunState:
         # engine that sends no summary. The outcome takes the larger of the two.
         self._summary_cache_hits = 0
         self._hit_spans = 0
+        # OME-1463: None until a root summary carrying the count arrives. Spans cannot stand in
+        # for it: they cannot prove that NO hit was unpriced (see `_RunOutcome`).
+        self._summary_unpriced_hits: int | None = None
         self._client_version: str | None = None
         self._version_conflict = False
         self._last_sequence = 0
@@ -208,6 +211,9 @@ class _RunState:
             self._summary_cache_hits = max(
                 self._summary_cache_hits, _cache_hit_count(event.attributes[_CACHE_HITS])
             )
+            if _UNPRICED_HITS in event.attributes:
+                unpriced = _cache_hit_count(event.attributes[_UNPRICED_HITS], _UNPRICED_HITS)
+                self._summary_unpriced_hits = max(self._summary_unpriced_hits or 0, unpriced)
         return _Accepted(event=event)
 
     def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
@@ -284,6 +290,7 @@ class _RunState:
                 cache_saved_cost_usd=self._saved_cost_usd,
                 cache_saved_cost_archive_usd=self._saved_cost_archive_usd,
                 cache_hits=max(self._summary_cache_hits, self._hit_spans),
+                cache_unpriced_hits=self._summary_unpriced_hits,
                 artifact=self._result[2],
                 client_version=None if self._version_conflict else self._client_version,
             ),
@@ -293,16 +300,18 @@ class _RunState:
 # The engine's run-summary attribute counting every gateway round trip the cache served
 # (`screamingface_engine.runner.cache_counters.CACHE_HITS`).
 _CACHE_HITS = "cache.hits"
+# Hits whose entry carried no price at all (`cache_counters.UNPRICED_HITS`). OME-1463.
+_UNPRICED_HITS = "cache.saved_cost.unpriced_hits"
 
 
-def _cache_hit_count(value: object) -> int:
-    """The summary's hit count, or a refusal: a malformed count must not read as 'no hits'.
+def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:
+    """A summary count, or a refusal: a malformed count must not read as zero.
 
-    INVARIANT: fail CLOSED. This number decides whether a cost may be published as exact, so a
+    INVARIANT: fail CLOSED. These numbers decide whether a cost may be published as exact, so a
     value that cannot be trusted stops the run rather than silently becoming zero.
     """
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ExecutionError("SF Engine cache summary cache.hits is invalid")
+        raise ExecutionError(f"SF Engine cache summary {attribute} is invalid")
     return value
 
 

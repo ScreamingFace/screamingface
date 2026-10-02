@@ -132,12 +132,14 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None) -> 'None'",
           "accounting": "property",
           "answer_seed": "field",
           "benchmark": "field",
           "cache_hits": "field",
+          "cache_saved_cost_archive_usd": "field",
           "cache_saved_cost_usd": "field",
+          "cache_unpriced_hits": "field",
           "cases": "field",
           "client_version": "field",
           "completed_at": "field",
@@ -1019,12 +1021,14 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None) -> 'None'",
           "accounting": "property",
           "answer_seed": "field",
           "benchmark": "field",
           "cache_hits": "field",
+          "cache_saved_cost_archive_usd": "field",
           "cache_saved_cost_usd": "field",
+          "cache_unpriced_hits": "field",
           "cases": "field",
           "client_version": "field",
           "completed_at": "field",
