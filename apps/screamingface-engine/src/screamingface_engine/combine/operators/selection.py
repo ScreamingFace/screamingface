@@ -1,14 +1,15 @@
-"""Selection operators: keep the top k originals, or join every original (OME-1289, E4a).
+"""Selection operators: keep the top k or the filtered originals, or join them (OME-1289, E4a).
 
 FEATURE: rank and concat hand the NEXT stage original member texts, never a rewrite. ``top_k``
 keeps the k best-scored members in score order (the highest, or with ``order`` "min" the lowest);
-``join`` and ``all`` join every member, in author order, with visible boundaries.
+``kept`` keeps the members that passed a filter, in author order; ``join`` and ``all`` join every
+member, in author order, with visible boundaries.
 STORY: as a researcher, "focus on the best three" is enforced by the engine and not asked of a
 prompt, and a multi-document hand-off does not go through a model that summarizes.
 
-Mental model: a clerk who photocopies. Rank photocopies the k best pages in rank order and staples
-them in one JSON envelope; concat photocopies every page in the order of the recipe and tapes a
-divider between them. The clerk never rewords a page.
+Mental model: a clerk who photocopies. Rank photocopies the k best pages in rank order, and a filter
+the pages that passed, and staples them in one JSON envelope; concat photocopies every page in the
+order of the recipe and tapes a divider between them. The clerk never rewords a page.
 
 INVARIANT: each operator is pure and holds no mutable state; no model call. Order comes from the
 author order of the members -- ties at a score keep it (a stable sort), and ``join`` walks
@@ -23,6 +24,7 @@ pinned by the golden fixtures. A change is a new ``@version``, never an edit.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from types import MappingProxyType
 from typing import cast
 
@@ -39,7 +41,14 @@ from screamingface_engine.combine.ports import (
 
 _MAX_K = 256
 _ORDERS = ("max", "min")
+_MARKS = frozenset({Decimal(0), Decimal(1)})
 _MAX_SEPARATOR_CHARS = 1024
+
+
+def _selection_text(chosen: tuple[str, ...], combine_input: CombineInput) -> str:
+    """The selection JSON: the chosen members' original texts, in the order given."""
+    selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
+    return canonical_json({"selected": selected})
 
 
 def _check_top_k_args(args: OpArgs) -> None:
@@ -78,12 +87,28 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
             f"top_k@1 needs {k} scored members, {len(ranked)} have a score", reason="cut_not_met"
         )
     chosen = tuple(member for member, _ in ranked[:k])
-    selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
     return Selection(
         chosen=chosen,
-        output=canonical_json({"selected": selected}),
+        output=_selection_text(chosen, combine_input),
         tie=len(ranked) > k and ranked[k - 1][1] == ranked[k][1],
     )
+
+
+def kept(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
+    """Every member that passed a filter, in author order; the output is the selection JSON.
+
+    The marks come from ``filter@1``: 1 for a pass, 0 for a miss; a member without a mark (it
+    failed to answer) is not kept.
+    """
+    marks = reduction.scores
+    if marks is None:
+        raise SpecInvalid("kept@1 needs filter marks")
+    if any(mark not in _MARKS for mark in marks.values()):
+        raise SpecInvalid("kept@1 needs filter marks of 0 or 1")
+    chosen = tuple(member for member in combine_input.members if marks.get(member) == 1)
+    if not chosen:
+        raise NoVotes("no member passed the filter", reason="no_votes")
+    return Selection(chosen=chosen, output=_selection_text(chosen, combine_input))
 
 
 def _check_join_args(args: OpArgs) -> None:
@@ -163,6 +188,13 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
             }
         ),
         check_args=_check_top_k_args,
+    ),
+    OperatorDescriptor(
+        "kept",
+        1,
+        "select",
+        "Every member that passed, in author order, as the selection JSON.",
+        kept,
     ),
     OperatorDescriptor(
         "join",

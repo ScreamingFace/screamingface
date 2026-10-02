@@ -210,11 +210,26 @@ def _last_match(compiled: Any, window: str) -> Any:
     return last
 
 
+def _regex_window(text: str) -> str:
+    # WHY: RE2 reads UTF-8 only, so a lone surrogate (JSON can carry one) reads as U+FFFD.
+    return _SURROGATE.sub("\ufffd", text[-_REGEX_WINDOW:])
+
+
+def check_regex_pattern(args: OpArgs) -> None:
+    """regex@1's pattern and ignore_case rules plus its RE2 compile (filter@1 reuses them)."""
+    _check_regex_values(args)
+    _compile(args)
+
+
+def regex_finds(text: str, args: OpArgs) -> bool:
+    """Whether the regex@1 rule finds a match in the last 1024 characters of ``text``."""
+    return _compile(args).search(_regex_window(text)) is not None
+
+
 def regex(text: str, args: OpArgs, /) -> StageResult:
     """The chosen group of the last (or first) match in the last 1024 characters, by RE2."""
     compiled = _compile(args)
-    # WHY: RE2 reads UTF-8 only, so a lone surrogate (JSON can carry one) reads as U+FFFD.
-    window = _SURROGATE.sub("\ufffd", text[-_REGEX_WINDOW:])
+    window = _regex_window(text)
     first = args.get("occurrence", "last") == "first"
     match = compiled.search(window) if first else _last_match(compiled, window)
     if match is None:

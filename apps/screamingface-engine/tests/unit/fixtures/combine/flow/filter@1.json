@@ -1,0 +1,1727 @@
+{
+ "op": "filter@1",
+ "stage": "reduce",
+ "cases": [
+  {
+   "name": "gt keeps the strictly greater",
+   "args": {
+    "key": "field:c",
+    "cmp": "gt",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.6
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "0",
+     "member_3": "1"
+    }
+   }
+  },
+  {
+   "name": "ge keeps the equal and greater",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.6
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1",
+     "member_3": "1"
+    }
+   }
+  },
+  {
+   "name": "lt keeps the strictly lower",
+   "args": {
+    "key": "field:c",
+    "cmp": "lt",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.6
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "le keeps the equal and lower",
+   "args": {
+    "key": "field:c",
+    "cmp": "le",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.6
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "1",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "eq keeps the equal",
+   "args": {
+    "key": "field:c",
+    "cmp": "eq",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.6
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "a missing signal never passes lt",
+   "args": {
+    "key": "field:c",
+    "cmp": "lt",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "a missing signal never passes ge",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": 0.0
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "1"
+    }
+   }
+  },
+  {
+   "name": "a signal key that is absent never passes",
+   "args": {
+    "key": "field:c",
+    "cmp": "le",
+    "value": 9
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.5
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {}
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.7
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "1"
+    }
+   }
+  },
+  {
+   "name": "an integer value compares as a float",
+   "args": {
+    "key": "field:c",
+    "cmp": "eq",
+    "value": 1
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 1.0
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.0
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "a negative value",
+   "args": {
+    "key": "field:c",
+    "cmp": "gt",
+    "value": -1
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": -2.0
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": -0.5
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.0
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1",
+     "member_3": "1"
+    }
+   }
+  },
+  {
+   "name": "bool true with eq compares as 1",
+   "args": {
+    "key": "field:c",
+    "cmp": "eq",
+    "value": true
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 1.0
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.0
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "bool false with eq compares as 0",
+   "args": {
+    "key": "field:c",
+    "cmp": "eq",
+    "value": false
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 1.0
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.0
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "a failed member gets no mark",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "empty",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.1
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "every voter failed leaves no marks",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": 0.6
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "empty",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "empty",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {}
+   }
+  },
+  {
+   "name": "an accounting key reads its signal",
+   "args": {
+    "key": "cost_usd",
+    "cmp": "le",
+    "value": 0.002
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "cost_usd": 0.004
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "cost_usd": 0.001
+      }
+     }
+    ]
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1"
+    }
+   }
+  },
+  {
+   "name": "pattern keeps the members that match",
+   "args": {
+    "pattern": "ANSWER: [0-9]+"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "ANSWER: 4",
+     "member_2": "no",
+     "member_3": "x ANSWER: 7"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "1"
+    }
+   }
+  },
+  {
+   "name": "pattern is case sensitive by default",
+   "args": {
+    "pattern": "ANSWER: [0-9]+"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "answer: 9",
+     "member_2": "ANSWER: 9"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1"
+    }
+   }
+  },
+  {
+   "name": "ignore_case folds the case",
+   "args": {
+    "pattern": "ANSWER: [0-9]+",
+    "ignore_case": true
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "answer: 9",
+     "member_2": "ANSWER: 9",
+     "member_3": "nope"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "1",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "ignore_case false is the default",
+   "args": {
+    "pattern": "ANSWER: [0-9]+",
+    "ignore_case": false
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "answer: 9",
+     "member_2": "ANSWER: 9"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1"
+    }
+   }
+  },
+  {
+   "name": "a match before the last 1024 characters is not read",
+   "args": {
+    "pattern": "ANSWER: [0-9]+"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "ANSWER: 4zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+     "member_2": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzANSWER: 4"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "0",
+     "member_2": "1"
+    }
+   }
+  },
+  {
+   "name": "a match that starts at the window edge is read",
+   "args": {
+    "pattern": "ANSWER: [0-9]+"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzANSWER: 4"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1"
+    }
+   }
+  },
+  {
+   "name": "a lone surrogate reads as one replacement character",
+   "args": {
+    "pattern": "a.b"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "a\ud800b",
+     "member_2": "ab"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0"
+    }
+   }
+  },
+  {
+   "name": "pattern reads the original text and unicode",
+   "args": {
+    "pattern": "caf\u00e9"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "un caf\u00e9",
+     "member_2": "cafe"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0"
+    }
+   }
+  },
+  {
+   "name": "a failed member does not pass a match",
+   "args": {
+    "pattern": "ANSWER: [0-9]+"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "empty",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "ANSWER: 1",
+     "member_2": "ANSWER: 2"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1"
+    }
+   }
+  },
+  {
+   "name": "a pattern with an anchor and a class",
+   "args": {
+    "pattern": "^[A-C]$"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_2",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     },
+     {
+      "member": "member_3",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null
+     }
+    ],
+    "outputs": {
+     "member_1": "B",
+     "member_2": "D",
+     "member_3": "AB"
+    }
+   },
+   "expect": {
+    "scores": {
+     "member_1": "1",
+     "member_2": "0",
+     "member_3": "0"
+    }
+   }
+  },
+  {
+   "name": "args: none",
+   "args": {},
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: only ignore_case",
+   "args": {
+    "ignore_case": true
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: unknown signal key",
+   "args": {
+    "key": "logprob_mean",
+    "cmp": "ge",
+    "value": 0.5
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: bad field path",
+   "args": {
+    "key": "field:a b",
+    "cmp": "ge",
+    "value": 0.5
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: key is not a string",
+   "args": {
+    "key": 1,
+    "cmp": "ge",
+    "value": 0.5
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: cmp is not known",
+   "args": {
+    "key": "field:c",
+    "cmp": "ne",
+    "value": 0.5
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: cmp is not a string",
+   "args": {
+    "key": "field:c",
+    "cmp": [
+     "ge"
+    ],
+    "value": 0.5
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: value is missing",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: cmp is missing",
+   "args": {
+    "key": "field:c",
+    "value": 0.5
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: value is a string",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": "0.6"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: value is null",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": null
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: value is a bool with gt",
+   "args": {
+    "key": "field:c",
+    "cmp": "gt",
+    "value": true
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: value is a bool with le",
+   "args": {
+    "key": "field:c",
+    "cmp": "le",
+    "value": false
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: value is too large for a float",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: threshold with an extra arg",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": 0.5,
+    "x": 1
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: threshold mixed with a pattern",
+   "args": {
+    "key": "field:c",
+    "cmp": "ge",
+    "value": 0.5,
+    "pattern": "a"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: pattern is empty",
+   "args": {
+    "pattern": ""
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: pattern is not a string",
+   "args": {
+    "pattern": 1
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: pattern is too long",
+   "args": {
+    "pattern": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: pattern does not compile under RE2",
+   "args": {
+    "pattern": "(?=x)"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: pattern has an unclosed group",
+   "args": {
+    "pattern": "(a"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: ignore_case is not a bool",
+   "args": {
+    "pattern": "a",
+    "ignore_case": "yes"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: pattern with a regex group arg",
+   "args": {
+    "pattern": "a",
+    "group": 1
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
+   "name": "args: pattern with an occurrence arg",
+   "args": {
+    "pattern": "a",
+    "occurrence": "first"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  }
+ ]
+}

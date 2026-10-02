@@ -19,11 +19,14 @@ golden fixtures. A change is a new ``@version``, never an edit.
 
 from __future__ import annotations
 
+import operator
 from decimal import Decimal
 from types import MappingProxyType
 from typing import cast
 
+from screamingface_engine.combine.operators.extract import check_regex_pattern, regex_finds
 from screamingface_engine.combine.ports import (
+    Answer,
     CombineInput,
     NoVotes,
     OpArgs,
@@ -33,10 +36,18 @@ from screamingface_engine.combine.ports import (
     SignalOrder,
     SignalRead,
     SpecInvalid,
+    finite_float,
     is_signal_key,
 )
 
 _ORDERS = ("max", "min")
+_COMPARE = MappingProxyType(
+    {"gt": operator.gt, "ge": operator.ge, "lt": operator.lt, "le": operator.le, "eq": operator.eq}
+)
+_THRESHOLD_KEYS = frozenset({"key", "cmp", "value"})
+_FILTER_INVALID = (
+    'filter@1 takes {"key", "cmp", "value"} or {"pattern"} with an optional "ignore_case"'
+)
 
 
 def _check_by_signal_args(args: OpArgs) -> None:
@@ -88,6 +99,59 @@ def best_holder(reduction: Reduction, combine_input: CombineInput, args: OpArgs,
     return Selection(chosen=(holders[0],), tie=len(holders) > 1)
 
 
+def _check_threshold(args: OpArgs) -> None:
+    if not is_signal_key(args["key"]):
+        raise SpecInvalid("filter@1 key must be a known signal key")
+    cmp, value = args["cmp"], args["value"]
+    if not isinstance(cmp, str) or cmp not in _COMPARE:
+        raise SpecInvalid("filter@1 cmp must be gt, ge, lt, le or eq")
+    if (cmp != "eq" and isinstance(value, bool)) or (
+        not isinstance(value, bool) and finite_float(value) is None
+    ):
+        raise SpecInvalid("filter@1 value must be a finite number, or a boolean compared with eq")
+
+
+def _check_filter_args(args: OpArgs) -> None:
+    if set(args) == _THRESHOLD_KEYS:
+        _check_threshold(args)
+    elif "pattern" in args and set(args) <= {"pattern", "ignore_case"}:
+        check_regex_pattern(args)
+    else:
+        raise SpecInvalid(_FILTER_INVALID)
+
+
+def _filter_read(args: OpArgs) -> SignalRead | None:
+    return SignalRead(cast("str", args["key"])) if "key" in args else None
+
+
+def _passes_threshold(answer: Answer, args: OpArgs) -> bool:
+    number = answer.signals.get(cast("str", args["key"]))
+    # A bool value compares as 1.0 or 0.0 (the signals hold floats); a missing number never passes.
+    return number is not None and _COMPARE[cast("str", args["cmp"])](
+        number, float(cast("float", args["value"]))
+    )
+
+
+def _passes(answer: Answer, combine_input: CombineInput, args: OpArgs) -> bool:
+    if "key" in args:
+        return _passes_threshold(answer, args)
+    return regex_finds(combine_input.outputs[answer.member_id], args)
+
+
+def filter_members(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
+    """One pass mark for each voter: 1 when it passes the check, else 0.
+
+    The threshold form reads the signal the core put on each member. The pattern form reads the
+    member's original output through the regex@1 rule, never the extracted value. A member that
+    failed has no mark and never passes.
+    """
+    marks = {
+        answer.member_id: Decimal(1 if _passes(answer, combine_input, args) else 0)
+        for answer in combine_input.voters
+    }
+    return Reduction(scores=MappingProxyType(marks))
+
+
 OPERATORS: tuple[OperatorDescriptor, ...] = (
     OperatorDescriptor(
         "by_signal",
@@ -123,6 +187,40 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
             }
         ),
         check_args=_check_best_holder_args,
+    ),
+    OperatorDescriptor(
+        "filter",
+        1,
+        "reduce",
+        "Marks each voter that passes a signal threshold or a regex (RE2) check.",
+        filter_members,
+        args_schema=MappingProxyType(
+            {
+                "oneOf": (
+                    {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                            "cmp": {"enum": ("gt", "ge", "lt", "le", "eq")},
+                            "value": {"type": ("number", "boolean")},
+                        },
+                        "required": ("key", "cmp", "value"),
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {"type": "string", "minLength": 1, "maxLength": 256},
+                            "ignore_case": {"type": "boolean"},
+                        },
+                        "required": ("pattern",),
+                        "additionalProperties": False,
+                    },
+                )
+            }
+        ),
+        check_args=_check_filter_args,
+        signal_read=_filter_read,
     ),
 )
 
