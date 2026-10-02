@@ -481,7 +481,7 @@ class _CandidateCompiler:
         spec = combine_spec_text(reducer, member_count=len(members), operators=self._operators)
         # The combine call reads the same question-and-panel value a Model synthesizer does;
         # building it here keeps a later extra input (signals) a local change.
-        context = context if context is not None else _fusion_context(input_context, members)
+        context = _fusion_context(input_context, members)
         self._sources.append(
             src(
                 RelExpr(

@@ -12,6 +12,8 @@ on:
       # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
       # tests/test_combine_contract_fixture.py consume
       - "apps/screamingface-engine/tests/unit/data/combine_contract/**"
+      # the engine's signal-key grammar that tests/unit/test_signal_key_conformance.py reads
+      - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
@@ -24,6 +26,8 @@ on:
       # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
       # tests/test_combine_contract_fixture.py consume
       - "apps/screamingface-engine/tests/unit/data/combine_contract/**"
+      # the engine's signal-key grammar that tests/unit/test_signal_key_conformance.py reads
+      - "apps/screamingface-engine/src/screamingface_engine/combine/ports.py"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 

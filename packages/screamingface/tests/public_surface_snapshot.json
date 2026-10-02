@@ -65,7 +65,8 @@
       "leaderboards",
       "models",
       "reports",
-      "reproduce"
+      "reproduce",
+      "signal"
     ],
     "exports": {
       "AsyncClient": {
@@ -824,6 +825,10 @@
       "reproduce": {
         "kind": "function",
         "signature": "(score: 'LeaderboardScore | UUID | str', *, record: 'bool' = True) -> 'Reproduction'"
+      },
+      "signal": {
+        "kind": "function",
+        "signature": "(key: 'str') -> 'Signal'"
       }
     }
   },
