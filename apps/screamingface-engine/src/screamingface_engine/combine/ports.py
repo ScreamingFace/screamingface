@@ -417,6 +417,7 @@ def walk_field_path(node: object, path: str) -> tuple[bool, object]:
 
 ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
 FIELD_SIGNAL_PREFIX = "field:"
+JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU conformance)
 
 
 def is_signal_key(key: object) -> bool:
@@ -454,10 +455,10 @@ def field_signal_value(text: str, path: str) -> float | None:
 
 
 # --- judge replies ----------------------------------------------------------------------------
-JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU conformance)
 MAX_JUDGE_REPLY_BYTES = 64 * 1024
 _SCORES_INVALID = "the judge reply is not one JSON object with a finite score for each member"
 _JUDGE_REPLY_TOO_LARGE = "the judge reply exceeds 64 KiB"
+_JUDGE_FENCE = "```"  # the strict rule; decode_json_reply keeps its own loose _FENCE_CLOSE
 
 
 def judge_reply(signals: Mapping[str, str], owner: str) -> str:
@@ -475,7 +476,7 @@ def judge_reply(signals: Mapping[str, str], owner: str) -> str:
 
 def _unfenced_judge_reply(text: str) -> str:
     """``text`` itself, or the body of it when the WHOLE reply is one fence (no tag or ``json``)."""
-    fence = _FENCE_CLOSE
+    fence = _JUDGE_FENCE
     if not (text.startswith(fence) and text.endswith(fence) and len(text) >= 2 * len(fence)):
         return text
     tag, newline, body = text[len(fence) : -len(fence)].partition("\n")
