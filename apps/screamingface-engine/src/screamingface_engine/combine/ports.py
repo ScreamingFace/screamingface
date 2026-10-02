@@ -18,7 +18,8 @@ One combine call runs four stages over the members, always in author order:
 4. select    -- the reduction   -> one ``Selection``                  (``SelectOp``)
 
 Before reduce the core resolves the one signal the spec reads (a ``field:`` number from the member
-text, or an accounting number through an injected ``AccountingReader``) onto each ``Answer``.
+text, each member's ``score:judge`` from the strict judge reply, or an accounting number through an
+injected ``AccountingReader``) onto each ``Answer``.
 
 INVARIANT: an operator is a pure function of its arguments. No I/O, no clock, no environment, no
 module-level mutable state, and no result that depends on dict or set iteration order. A behavior
@@ -419,13 +420,10 @@ FIELD_SIGNAL_PREFIX = "field:"
 
 
 def is_signal_key(key: object) -> bool:
-    """I-S1 for E4a unit 1: an accounting key or field:<FIELD_PATH>.
-
-    ``score:judge`` is not a signal key yet; unit 8E adds it.
-    """
+    """I-S1: an accounting key, score:judge, or field:<FIELD_PATH>."""
     if not isinstance(key, str):
         return False
-    if key in ACCOUNTING_SIGNALS:
+    if key in ACCOUNTING_SIGNALS or key == JUDGE_SIGNAL:
         return True
     return key.startswith(FIELD_SIGNAL_PREFIX) and (
         FIELD_PATH.fullmatch(key[len(FIELD_SIGNAL_PREFIX) :]) is not None

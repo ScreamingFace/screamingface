@@ -345,11 +345,10 @@ def test_canonical_params_round_trip() -> None:
 
 
 def test_weights_accept_a_signal_ref_and_reject_unknown_keys() -> None:
-    for key in ("field:confidence", "cost_usd", "field:a.b[0]", "tokens_out"):
+    for key in ("field:confidence", "cost_usd", "field:a.b[0]", "tokens_out", "score:judge"):
         parsed = parse_spec(_dump(vote_spec(2, weights={"signal": key})))
         assert parsed.weights == SignalWeights(signal=key)
     bad_weights = [
-        {"signal": "score:judge"},
         {"signal": "logprob_mean"},
         {"signal": "field:a..b"},
         {"signal": "cost_usd", "member_1": 1},
@@ -359,7 +358,7 @@ def test_weights_accept_a_signal_ref_and_reject_unknown_keys() -> None:
     for weights in bad_weights:
         with pytest.raises(SpecInvalid) as caught:
             parse_spec(_dump(vote_spec(2, weights=weights)))
-        for leaked in ("score:judge", "logprob_mean", "a..b"):
+        for leaked in ("logprob_mean", "a..b"):
             assert leaked not in str(caught.value)
     median = vote_spec(
         3,

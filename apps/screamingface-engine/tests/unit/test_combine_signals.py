@@ -143,13 +143,13 @@ def _registry_with_read(read: Any) -> OperatorRegistry:
 
 
 def test_a_plugin_that_reads_an_unknown_signal_is_spec_invalid() -> None:
-    registry = _registry_with_read(lambda args: SignalRead("score:judge", "max"))
+    registry = _registry_with_read(lambda args: SignalRead("logprob_mean", "max"))
     spec = vote_spec(2, reduce={"op": "fake_reads@1", "args": {}})
     with pytest.raises(CombineError) as caught:
         run(spec_text(spec), context_text(["a", "b"]), registry=registry)
     assert caught.value.code == "combine_spec_invalid"
     assert "fake_reads@1 reads an unknown signal" in str(caught.value)
-    assert "score:judge" not in str(caught.value)
+    assert "logprob_mean" not in str(caught.value)
 
 
 def test_a_plugin_that_reads_with_a_bad_order_is_a_plugin_bug() -> None:

@@ -45,6 +45,7 @@ from screamingface_engine.combine.evidence import (
 from screamingface_engine.combine.ports import (
     ACCOUNTING_SIGNALS,
     FIELD_SIGNAL_PREFIX,
+    JUDGE_SIGNAL,
     READING_TO_ANSWER,
     AbstainReason,
     AccountingReader,
@@ -72,6 +73,8 @@ from screamingface_engine.combine.ports import (
     field_signal_value,
     finite_float,
     is_signal_key,
+    judge_reply,
+    parse_scores,
     utf8_exceeds,
 )
 from screamingface_engine.combine.registry import OperatorRegistry
@@ -236,6 +239,9 @@ def _signal_numbers(
     """One number (or None) for each member, from the source that the signal key names."""
     if key in ACCOUNTING_SIGNALS:
         return _accounting_numbers(key, spec, context, accounting)
+    if key == JUDGE_SIGNAL:
+        # WHY strict (F4): the judge reply format is the contract; judge reducers fail the same way.
+        return parse_scores(judge_reply(context.signals, JUDGE_SIGNAL), spec.members)
     return _field_numbers(key[len(FIELD_SIGNAL_PREFIX) :], spec, context)
 
 

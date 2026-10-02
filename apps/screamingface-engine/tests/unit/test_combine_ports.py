@@ -125,10 +125,10 @@ def test_decode_json_reply_reads_whole_text_then_last_fence() -> None:
 
 def test_signal_keys_are_the_accounting_keys_and_field_paths() -> None:
     assert ACCOUNTING_SIGNALS == ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
-    for key in (*ACCOUNTING_SIGNALS, "field:c", "field:a.b[0]", "field:[0].x"):
+    for key in (*ACCOUNTING_SIGNALS, "score:judge", "field:c", "field:a.b[0]", "field:[0].x"):
         assert is_signal_key(key)
-    # score:judge comes with unit 8E; the rest are not signals at all.
-    for key in ("score:judge", "logprob_mean", "field:", "field:a..b", "Cost_usd", "", 1, None):
+    # the rest are not signals at all.
+    for key in ("logprob_mean", "field:", "field:a..b", "Cost_usd", "", 1, None):
         assert not is_signal_key(key)
 
 
