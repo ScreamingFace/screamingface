@@ -49,7 +49,7 @@ the three verdicts and the acceptance list, so no separate `docs/spec` artifact 
   (`apps/screamingface-engine/docs/diagrams/inspect-import-before-after.{drawio,png}` and
   `inspect-eval-split.{drawio,png}`, drawio `sf-dark`; the split PNG is palette-quantised to
   stay under the 500 KB `check-added-large-files` limit).
-- **Commits:** recorded in the follow-up commit below once the content commit has a sha.
+- **Commits:** `33f009bbd` docs(screamingface-engine): document what we take from an inspect eval and who runs each step; plus this ledger sha commit.
 - **Gates:** no code, so no test gate. Checks run instead: all 37 `Task.__init__` parameters
   (33 + 4 deprecated aliases) appear in §1 exactly once (scripted grep against the signature);
   the 24 inspect source files cited are byte-identical between the installed 0.3.263 / 0.20.0
