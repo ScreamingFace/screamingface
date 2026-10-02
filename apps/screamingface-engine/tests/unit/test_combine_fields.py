@@ -50,6 +50,11 @@ def _evidence(outcome: Any) -> dict[str, Any]:
     return outcome.evidence.model_dump(by_alias=True)
 
 
+def _status_reason(outcome: Any, index: int) -> tuple[str, str | None]:
+    row = _evidence(outcome)["members"][index]
+    return (row["status"], row["reason"])
+
+
 # --- json_object@1 ----------------------------------------------------------------------------
 
 
@@ -123,10 +128,10 @@ def test_non_json_member_is_skipped_and_reported() -> None:
     texts = [_PICK_TEXTS[0], 'Sure! Here it is: {"confidence": 1}', _PICK_TEXTS[2]]
     picked = _run(pick_spec(3, step("by_field@1", order="max")), texts)
     assert picked.output == _PICK_TEXTS[2]
-    assert _evidence(picked)["members"][1]["status"] == "not_json"
+    assert _status_reason(picked, 1) == ("fail", "not_json")
     merged = _run(merge_spec(3, _MERGE_RULES[:2]), [_MERGE_TEXTS[0], texts[1], _MERGE_TEXTS[2]])
     assert json.loads(merged.output) == {"answer": "Paris.", "score": 3}
-    assert _evidence(merged)["members"][1]["status"] == "not_json"
+    assert _status_reason(merged, 1) == ("fail", "not_json")
 
 
 # --- PM-9 -------------------------------------------------------------------------------------
@@ -234,7 +239,7 @@ def test_from_member_not_json_gives_null_field_and_reason() -> None:
     assert outcome.output == '{"source":null}'
     evidence = _evidence(outcome)
     assert evidence["fields"][0]["result"] is None
-    assert evidence["members"][1]["status"] == "not_json"
+    assert _status_reason(outcome, 1) == ("fail", "not_json")
 
 
 def test_from_member_outside_the_spec_members_is_a_spec_error() -> None:
@@ -306,7 +311,7 @@ def test_large_member_json_is_too_large_and_skipped() -> None:
     texts = [_MERGE_TEXTS[0], huge, _MERGE_TEXTS[1]]
     outcome = _run(merge_spec(3, [{"field": "score", "rule": "max"}]), texts)
     assert outcome.output == '{"score":5}'
-    assert _evidence(outcome)["members"][1]["status"] == "too_large"
+    assert _status_reason(outcome, 1) == ("fail", "too_large")
 
 
 # --- args bounds and messages -----------------------------------------------------------------

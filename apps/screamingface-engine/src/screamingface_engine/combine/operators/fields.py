@@ -31,9 +31,9 @@ from typing import Any
 
 from screamingface_engine.combine.operators.normalize import numeric, text
 from screamingface_engine.combine.ports import (
+    Answer,
     CombineInput,
     FieldReading,
-    MemberReading,
     NoVotes,
     OpArgs,
     OperatorDescriptor,
@@ -87,7 +87,7 @@ def _object(value: str | None, op_id: str) -> dict[str, object]:
 def _objects(combine_input: CombineInput, op_id: str) -> _Objects:
     """Every voter's JSON object, in author order."""
     return tuple(
-        (reading.member, _object(reading.value, op_id)) for reading in combine_input.voters
+        (answer.member_id, _object(answer.value, op_id)) for answer in combine_input.voters
     )
 
 
@@ -127,7 +127,7 @@ def _check_values_args(args: OpArgs) -> None:
 
 def values(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     """Each voter's value of the compared field, for the evidence."""
-    held = MappingProxyType({reading.member: reading.value for reading in combine_input.voters})
+    held = MappingProxyType({answer.member_id: answer.value for answer in combine_input.voters})
     return Reduction(fields=(FieldReading(str(args["field"]), "values", held, None),))
 
 
@@ -167,12 +167,12 @@ def _check_by_field_args(args: OpArgs) -> None:
     )
 
 
-def _by_extreme(voters: Sequence[MemberReading], order: object) -> Selection:
+def _by_extreme(voters: Sequence[Answer], order: object) -> Selection:
     numbers: list[tuple[str, Decimal]] = []
-    for reading in voters:
-        if reading.value is None or _CANONICAL_NUMBER.fullmatch(reading.value) is None:
+    for answer in voters:
+        if answer.value is None or _CANONICAL_NUMBER.fullmatch(answer.value) is None:
             raise SpecInvalid("by_field@1 max and min need numeric values")
-        numbers.append((reading.member, Decimal(reading.value)))
+        numbers.append((answer.member_id, Decimal(answer.value)))
     scores = [number for _, number in numbers]
     best = max(scores) if order == "max" else min(scores)
     holders = [member for member, number in numbers if number == best]
@@ -190,9 +190,9 @@ def _target(args: OpArgs) -> str:
     return target
 
 
-def _by_equals(voters: Sequence[MemberReading], args: OpArgs) -> Selection:
+def _by_equals(voters: Sequence[Answer], args: OpArgs) -> Selection:
     target = _target(args)
-    holders = [reading.member for reading in voters if reading.value == target]
+    holders = [answer.member_id for answer in voters if answer.value == target]
     if not holders:
         raise NoVotes("no member value equals the by_field@1 target")
     return Selection(chosen=(holders[0],), tie=len(holders) > 1)
