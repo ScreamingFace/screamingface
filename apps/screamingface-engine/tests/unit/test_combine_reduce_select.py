@@ -17,6 +17,7 @@ from combine_golden_support import (
 
 from screamingface_engine.combine.ports import (
     Answer,
+    NoVotes,
     Reduction,
     Selection,
     SpecInvalid,
@@ -70,6 +71,27 @@ def test_weighted_mode_needs_weights() -> None:
         reduce_result("weighted_mode@1", member_readings(["9", "9"]))
     skipped = member_readings(["9", None], ["2", None])
     assert _rows(reduce_result("weighted_mode@1", skipped)) == [("9", "2", ("member_1",))]
+
+
+def test_weighted_mode_skips_a_voter_whose_signal_weight_is_missing() -> None:
+    answers = member_readings(
+        ["9", "9", "12"],
+        ["2", None, "1"],
+        signals=[{"field:c": 2.0}, {"field:c": None}, {"field:c": 1.0}],
+    )
+    assert _rows(reduce_result("weighted_mode@1", answers)) == [
+        ("9", "2", ("member_1",)),
+        ("12", "1", ("member_3",)),
+    ]
+
+
+def test_weighted_mode_with_no_usable_weight_raises_no_votes() -> None:
+    answers = member_readings(
+        ["9", "12"], [None, None], signals=[{"field:c": None}, {"field:c": None}]
+    )
+    with pytest.raises(NoVotes) as raised:
+        reduce_result("weighted_mode@1", answers)
+    assert raised.value.reason == "no_votes"
 
 
 def test_mode_needs_extracted_values() -> None:

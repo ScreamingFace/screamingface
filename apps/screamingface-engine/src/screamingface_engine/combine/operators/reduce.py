@@ -15,11 +15,13 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from decimal import Decimal, localcontext
+from typing import cast
 
 from screamingface_engine.combine.ports import (
     DECIMAL_CONTEXT,
     Answer,
     CombineInput,
+    NoVotes,
     OpArgs,
     OperatorDescriptor,
     Reduction,
@@ -57,15 +59,19 @@ def mode(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     return _tally(combine_input.voters, "mode@1", lambda answer: Decimal(1))
 
 
-def _weight(answer: Answer) -> Decimal:
-    if answer.weight is None:
+def _signal_weight(answer: Answer) -> Decimal | None:
+    """A fixed weight as authored; a missing signal weight does not vote (SR-D1)."""
+    if answer.weight is None and not answer.signals:
         raise SpecInvalid("weighted_mode@1 needs weights")
     return answer.weight
 
 
 def weighted_mode(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
-    """The member's weight per vote."""
-    return _tally(combine_input.voters, "weighted_mode@1", _weight)
+    """The member's weight per vote; a voter whose signal weight is missing does not vote."""
+    weighted = tuple(a for a in combine_input.voters if _signal_weight(a) is not None)
+    if not weighted:
+        raise NoVotes("no voter has a usable weight")
+    return _tally(weighted, "weighted_mode@1", lambda a: cast(Decimal, a.weight))
 
 
 def _decimal(answer: Answer) -> Decimal:

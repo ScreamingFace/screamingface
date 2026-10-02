@@ -160,6 +160,94 @@
     ],
     "statistic": null
    }
+  },
+  {
+   "name": "signal weight missing does not vote",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": "2",
+      "signals": {
+       "field:c": 2
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     },
+     {
+      "member": "member_3",
+      "raw": "12",
+      "value": "12",
+      "status": "voted",
+      "weight": "1",
+      "signals": {
+       "field:c": 1
+      }
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "tally": [
+     {
+      "value": "9",
+      "score": "2",
+      "holders": [
+       "member_1"
+      ]
+     },
+     {
+      "value": "12",
+      "score": "1",
+      "holders": [
+       "member_3"
+      ]
+     }
+    ],
+    "statistic": null
+   }
+  },
+  {
+   "name": "all signal weights missing",
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": "9",
+      "value": "9",
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     },
+     {
+      "member": "member_2",
+      "raw": "12",
+      "value": "12",
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": null
+      }
+     }
+    ]
+   },
+   "args": {},
+   "expect": {
+    "abstain": "no_votes"
+   }
   }
  ]
 }
