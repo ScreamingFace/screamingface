@@ -77,12 +77,10 @@ Decisions F1-F14 (from the unit spec):
 
 Run notes:
 
-- The base branch moved after the rebase: `e4a-answer-operators` is now at `d5db863d7` (regex@1
-  compiles with RE2 options), and this branch still sits on `77f045a37`. Nothing here depends on it
-  (`regex@1` summary and `args_schema` are unchanged by it). The append-only gate run against the
-  moved base lists two files this branch never touched (`test_combine_regex.py` changed,
-  `test_combine_regex_re2_options.py` missing); that is the base's own commit. Against the true
-  merge-base `77f045a37` the list is empty.
+- Rebases: the branch was first replayed onto `77f045a37`; the base then gained `d5db863d7`
+  (regex@1 compiles with RE2 options), and the orchestrator rebased the branch again, so
+  `git merge-base HEAD e4a-answer-operators` is `d5db863d7`. The `regex@1` summary and
+  `args_schema` pinned in the catalog test are unchanged by that commit.
 - Single-shot GREEN (EI `single_shot.py` check record and `_decode`) landed in Commit G with row 12,
   not in Commit F, so row 12 had its own RED. Commit F covers the rest of spec 2.3.
 - MedXpertQA in row 11 is exercised through `serving.candidate_record` and `_decode` (the exact
@@ -92,15 +90,35 @@ Run notes:
   fixture test; row 9 (guard); in row 13 the "key is last" half (the stub field already sits last);
   in row 19 the Case already scored 0.0 by itself (only the `abstained` mark was RED).
 
+Review round (Opus review of unit 3: accept after fixes, no structural or major finding):
+
+- M1 (orchestrator decision): `_ASSET_DEFECT_CODES = {no_positive_points, polarity_mismatch}`. An
+  abstained Case with one of these codes stays failed even when the grader returned metrics, because
+  a broken prepared asset says nothing about the answer and the report must keep it distinguishable
+  from judge loss. It is logged as `asset defect`. Test RED first, in `test_abstain_families.py`;
+  the kept case (`incomplete_verdicts` with metrics) still passes.
+- M2/M3: one constant `CANDIDATE_ABSTAINED` and two helpers (`abstain_mark` for records and hoisted
+  rows, `answer_abstain_mark` for the decoded Candidate Invocation) in `case_records.py`, used by
+  every writer, the four hoists, `_candidate_fields` and the HealthBench validator. A behavior-
+  preserving refactor, so no RED; one cross-check test per hoisting family
+  (`test_a_marked_record_survives_its_hoist`, ifeval/contracteval/medxpert; the Inspect lane has its
+  own in `test_abstain_inspect.py`). Dropping the splat from the MedXpertQA hoist makes it fail.
+- M5: `test_abstain_draco.py` pins that an abstained Case with an unusable DRACO judge verdict is
+  kept with the zeroed block, and the hand-computed means (score 0.5, verdict_coverage 0.5,
+  pass_rate 0.5, verdicts expected 2, accepted 1, invalid 1, n_runs 1). It passes at once: it
+  guards behavior the F5 rule already gave.
+- M4: this note. N1-N6: comment moved onto `_V1_IDS`; single guard in `final_operation_abstained`;
+  exact `record.args` assertions in the log tests; the always-true caplog check dropped; a comment on
+  case i pointing to `test_abstain_corrective.py` for the real F11 proof; one comment form for the
+  hoists (the helper removed most of them).
+
 Verification:
 
 - `uv run .claude/scripts/run_gates.py screamingface-engine --base e4a-answer-operators --skip-append-only`: ALL GATES GREEN
-- same, without `--skip-append-only`, against `e4a-answer-operators` (moved base): append-only offenders
-  `test_combine_regex.py`, `test_combine_regex_re2_options.py` (the base's own commit); against
-  `--base 77f045a37`: ALL GATES GREEN, no offenders.
+- same, without `--skip-append-only` (after the final rebase): ALL GATES GREEN, no append-only offenders
 - `uv run .claude/scripts/run_gates.py screamingface --base e4a-answer-operators --skip-append-only`: ALL GATES GREEN
 - `uv run .claude/scripts/run_gates.py repo`: ALL GATES GREEN
 - Inspect lane (`--extra inspect pytest -q tests/unit/inspect`): 612 passed, 0 skipped; GP#8
   (`test_benchmark_answer_rules.py`) and AB#12 (`test_abstain_inspect.py`) passed.
-- Whole engine suite with the inspect extra: 5844 passed, 6 skipped (all need a live NATS server, or Linux-only
+- Whole engine suite with the inspect extra: 5857 passed, 6 skipped (all need a live NATS server, or Linux-only
   `RLIMIT_AS`; none is an Inspect or abstain test).
