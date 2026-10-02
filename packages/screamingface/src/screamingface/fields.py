@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
@@ -29,6 +29,7 @@ from screamingface.reducer import (
     _REDUCER_CLASSES,
     Reducer,
     _cannot_rebuild,
+    _decoded,
     _ModelSignal,
     _op_name,
     _ReducerPlan,
@@ -80,19 +81,6 @@ def writer_intent(field: str, prompt: str) -> str:
 
     framing = _WRITER_FRAMING.format(field=field)
     return f"{WRITER_TEMPLATE_ID} field={field}\n{framing}Task:\n{prompt}"
-
-
-def _decoded[T](name: str, build: Callable[..., T], *args: object, **kwargs: object) -> T:
-    """Run a public constructor on url4 data (a person may have edited it).
-
-    A refusal means the spec is not one this SDK writes, so it is the one "cannot rebuild" error
-    and never the constructor's own text.
-    """
-
-    try:
-        return build(*args, **kwargs)
-    except (TypeError, ValueError):
-        raise _cannot_rebuild(name) from None
 
 
 def _author_prompt(field: str, system_prompt: str) -> str:

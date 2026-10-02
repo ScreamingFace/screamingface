@@ -86,6 +86,8 @@ class _ReducerPlan:
 def _read_signal(plan: _ReducerPlan) -> Signal | None:
     """The one signal a plan reads, through its weights or its ``reads`` (GE5: at most one)."""
 
+    # INVARIANT (GE5): a spec reads at most one signal, so weights and reads never both hold one.
+    assert not (isinstance(plan.weights, Signal) and plan.reads is not None)
     return plan.weights if isinstance(plan.weights, Signal) else plan.reads
 
 
@@ -155,6 +157,19 @@ def _op_name(op: str | None) -> str | None:
 
 def _cannot_rebuild(name: str) -> ValueError:
     return ValueError(f"URL4 Candidate has a {name} spec this SDK version cannot rebuild")
+
+
+def _decoded[T](name: str, build: Callable[..., T], *args: object, **kwargs: object) -> T:
+    """Run a public constructor on url4 data (a person may have edited it).
+
+    A refusal means the spec is not one this SDK writes, so it is the one "cannot rebuild" error
+    and never the constructor's own text (for example a score:judge spec with no judge call).
+    """
+
+    try:
+        return build(*args, **kwargs)
+    except (TypeError, ValueError) as exc:
+        raise _cannot_rebuild(name) from exc
 
 
 def _spec_steps(spec: Mapping[str, object]) -> dict[str, tuple[str, Mapping[str, object]] | None]:
@@ -454,12 +469,9 @@ class Vote(Reducer):
         )
         if extract is None or pair != expected:
             raise _cannot_rebuild("vote")
-        try:
-            return cls(extract=extract, normalize=ops["normalize"], weights=weights, judge=judge)
-        except (TypeError, ValueError) as exc:
-            # WHY: a builder message (a score:judge spec with no judge call, extract='benchmark')
-            # is wrong for a url4 decode; the spec is simply not a Vote this SDK writes.
-            raise _cannot_rebuild("vote") from exc
+        return _decoded(
+            "vote", cls, extract=extract, normalize=ops["normalize"], weights=weights, judge=judge
+        )
 
     def __repr__(self) -> str:
         return self._render("Vote", repr)

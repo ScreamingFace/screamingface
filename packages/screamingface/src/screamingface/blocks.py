@@ -189,7 +189,8 @@ type ReduceMode = Literal["select", "compute"]
 @dataclass(frozen=True, slots=True)
 class _BlockForm:
     """How a named reducer registers as the block form of one op (F10): the named modules fill
-    ``_BLOCK_FORMS``, so this module never imports them."""
+    ``_BLOCK_FORMS``, so this module imports none of them at module level. A check that needs a
+    named module's type (``Judge``, ``fields._FieldRules``) imports it lazily, in the function."""
 
     build: Callable[[Mapping[str, object]], Reducer]  # checked options -> the named reducer
     options: Callable[[Reducer], Mapping[str, object]]  # named reducer -> canonical options
