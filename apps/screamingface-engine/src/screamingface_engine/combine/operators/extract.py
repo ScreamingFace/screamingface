@@ -8,6 +8,11 @@ of text (the last 128 characters ending at the last digit; 4096 characters after
 a hostile 1 MiB reply costs them the same as a short one. The other three make one linear pass
 over the text at C speed (a strip, a ``json.loads`` or a ``rfind``).
 
+regex reads only the last 1024 characters under a static backtracking ban. The two Inspect rules
+follow the grader exactly: they are linear in the text but slower than the rest on adversarial
+input (digit-free prose is a C-speed exit; a text of many ``1a`` words is about 1 s per MiB), and
+the boxed step is linear (the upstream regex is quadratic).
+
 INVARIANT: each extractor is pure and O(n); this module holds no mutable state.
 WHY ASCII digits only: ``[0-9]``, never ``\\d``.
 AIDEV-NOTE: the scan limits are v1 behavior pinned by the golden fixtures. A change is a new
@@ -20,6 +25,11 @@ import re
 from types import MappingProxyType
 from typing import cast
 
+from screamingface_engine.combine.operators._inspect_vendor import (
+    _find_last_substantive_line,
+    _is_number,
+    strip_numeric_punctuation,
+)
 from screamingface_engine.combine.operators._regex_ban import backtracking_shape
 from screamingface_engine.combine.ports import (
     FIELD_PATH,
@@ -180,6 +190,47 @@ def regex(text: str, args: OpArgs, /) -> StageResult:
     return rejected("empty") if value is None else _found(value)
 
 
+_ASCII_DIGIT = re.compile(r"[0-9]")
+_BOX = "\\boxed{"
+
+
+def _inspect_number_word(value: str) -> str | None:
+    """The value side of inspect_ai match_str(location="end", numeric=True) (SP/inspect_ai/
+    scorer/_common.py:49-73): strip, casefold, strip_numeric_punctuation, split on \\s+, then the
+    LAST word that _is_number accepts. Returns the cleaned word (not normalized), or None."""
+    cleaned = strip_numeric_punctuation(value.strip().casefold())
+    # WHY sound: an ASCII word parses as a finite number only with an ASCII digit (float()
+    # needs one; every other unicode_number_to_float path needs a non-ASCII character).
+    if cleaned.isascii() and _ASCII_DIGIT.search(cleaned) is None:
+        return None
+    words = re.split(r"\s+", cleaned)
+    words.reverse()
+    return next((word for word in words if _is_number(word)), None)
+
+
+def _unbox(line: str) -> str:
+    """Linear, exact equivalent of remove_boxed_from_ans on ONE splitlines() line (no "\\n"):
+    the greedy (.+) runs to the line's last "}", so the first box that ends before it is opened."""
+    start, end = line.find(_BOX), line.rfind("}")
+    if start < 0 or end < start + len(_BOX) + 1:
+        return line
+    return line[:start] + line[start + len(_BOX) : end] + line[end + 1 :]
+
+
+def inspect_number(text: str, args: OpArgs, /) -> StageResult:
+    """The last number word of the text, by inspect-ai's numeric ``match``."""
+    word = _inspect_number_word(text)
+    return rejected("empty") if word is None else _found(word)
+
+
+def inspect_aime(text: str, args: OpArgs, /) -> StageResult:
+    """The AIME answer: the last substantive line, boxed answer unwrapped, then the number rule."""
+    if not text.strip().splitlines():
+        return rejected("empty")
+    word = _inspect_number_word(_unbox(_find_last_substantive_line(text)))
+    return rejected("empty") if word is None else _found(word)
+
+
 def last_line(text: str, args: OpArgs, /) -> StageResult:
     """Last non-empty line; v1 line breaks are only ``\\n`` and ``\\r``."""
     stripped = text.rstrip()
@@ -235,6 +286,20 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
             }
         ),
         check_args=_check_regex_args,
+    ),
+    OperatorDescriptor(
+        "inspect_number",
+        1,
+        "extract",
+        "The last number word, by inspect-ai 0.3.263 match(numeric=True).",
+        inspect_number,
+    ),
+    OperatorDescriptor(
+        "inspect_aime",
+        1,
+        "extract",
+        "The AIME answer, by inspect-evals 0.20.0 aime_scorer.",
+        inspect_aime,
     ),
     OperatorDescriptor("last_line", 1, "extract", "Last non-empty line.", last_line),
     OperatorDescriptor("whole", 1, "extract", "The whole text.", whole),

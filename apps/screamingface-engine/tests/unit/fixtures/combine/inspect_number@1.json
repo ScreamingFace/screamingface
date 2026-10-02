@@ -1,0 +1,312 @@
+{
+ "op": "inspect_number@1",
+ "stage": "extract",
+ "cases": [
+  {
+   "name": "currency and thousands separator",
+   "input": "The total is $1,200.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1200"
+   }
+  },
+  {
+   "name": "assignment is not a number word",
+   "input": "x=42",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "enclosing parentheses are kept",
+   "input": "(42)",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "(42)"
+   }
+  },
+  {
+   "name": "the last number word wins",
+   "input": "12 apples, then 7 more",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "7"
+   }
+  },
+  {
+   "name": "sentence period is dropped",
+   "input": "I think 18. Final answer: 26",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "26"
+   }
+  },
+  {
+   "name": "no number",
+   "input": "no number here",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "empty text",
+   "input": "",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "negative number",
+   "input": "-5 degrees",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "-5"
+   }
+  },
+  {
+   "name": "trailing period",
+   "input": "9.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9"
+   }
+  },
+  {
+   "name": "markdown emphasis",
+   "input": "**42**",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "42"
+   }
+  },
+  {
+   "name": "unicode minus",
+   "input": "−5",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "−5"
+   }
+  },
+  {
+   "name": "full-width digits",
+   "input": "１２",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "１２"
+   }
+  },
+  {
+   "name": "too large for a float",
+   "input": "1e999",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "nan is not a number",
+   "input": "nan",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "corpus 'The answer is 42.'",
+   "input": "The answer is 42.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "42"
+   }
+  },
+  {
+   "name": "corpus '#### 42'",
+   "input": "#### 42",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "42"
+   }
+  },
+  {
+   "name": "corpus '$1,200.'",
+   "input": "$1,200.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1200"
+   }
+  },
+  {
+   "name": "corpus '1200'",
+   "input": "1200",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1200"
+   }
+  },
+  {
+   "name": "corpus 'It costs \\\\$20'",
+   "input": "It costs \\$20",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "20"
+   }
+  },
+  {
+   "name": "corpus '1,23'",
+   "input": "1,23",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "123"
+   }
+  },
+  {
+   "name": "corpus '42%'",
+   "input": "42%",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "corpus '~42'",
+   "input": "~42",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "corpus '½'",
+   "input": "½",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "½"
+   }
+  },
+  {
+   "name": "corpus '2½'",
+   "input": "2½",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "2½"
+   }
+  },
+  {
+   "name": "corpus '3²'",
+   "input": "3²",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "3²"
+   }
+  },
+  {
+   "name": "corpus '十二'",
+   "input": "十二",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "十二"
+   }
+  },
+  {
+   "name": "corpus '一点五'",
+   "input": "一点五",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "一点五"
+   }
+  },
+  {
+   "name": "corpus '3.5e10'",
+   "input": "3.5e10",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "3.5e10"
+   }
+  },
+  {
+   "name": "corpus '123457'",
+   "input": "123457",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "123457"
+   }
+  },
+  {
+   "name": "corpus '9.0'",
+   "input": "9.0",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9.0"
+   }
+  },
+  {
+   "name": "corpus '.5'",
+   "input": ".5",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": ".5"
+   }
+  },
+  {
+   "name": "corpus '4_2'",
+   "input": "4_2",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "42"
+   }
+  },
+  {
+   "name": "corpus '€1.000,50'",
+   "input": "€1.000,50",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1.00050"
+   }
+  },
+  {
+   "name": "corpus '-0'",
+   "input": "-0",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "-0"
+   }
+  }
+ ]
+}

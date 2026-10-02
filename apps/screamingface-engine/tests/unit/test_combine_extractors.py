@@ -156,7 +156,16 @@ def test_whole_keeps_the_text_and_rejects_blank() -> None:
 
 
 def test_only_json_field_takes_args() -> None:
-    for op_id in ("last_number@1", "boxed@1", "last_line@1", "whole@1", "set@1"):
+    for op_id in (
+        "last_number@1",
+        "boxed@1",
+        "last_line@1",
+        "whole@1",
+        "set@1",
+        "inspect_number@1",
+        "inspect_aime@1",
+        "inspect_numeric@1",
+    ):
         with pytest.raises(SpecInvalid, match="no args"):
             find(op_id).check_args({"x": 1})
 

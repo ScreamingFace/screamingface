@@ -17,6 +17,11 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
+from screamingface_engine.combine.operators._inspect_vendor import (
+    _is_number,
+    normalize_number,
+    strip_numeric_punctuation,
+)
 from screamingface_engine.combine.ports import (
     OpArgs,
     OperatorDescriptor,
@@ -93,6 +98,13 @@ def set_(raw: str, args: OpArgs, /) -> StageResult:
     return accepted(canonical_json(sorted(distinct))) if distinct else rejected("empty")
 
 
+def inspect_numeric(raw: str, args: OpArgs, /) -> StageResult:
+    """inspect_ai's target path (SP/inspect_ai/scorer/_common.py:50-67): the cleaned number at
+    five significant digits, so 123456 and 123457 are one answer."""
+    cleaned = strip_numeric_punctuation(raw.strip().casefold())
+    return accepted(normalize_number(cleaned)) if _is_number(cleaned) else rejected("not_numeric")
+
+
 def identity(raw: str, args: OpArgs, /) -> StageResult:
     """No change."""
     return accepted(raw)
@@ -106,6 +118,13 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "normalize",
         "Trimmed, collapsed, casefolded text without one trailing period.",
         text,
+    ),
+    OperatorDescriptor(
+        "inspect_numeric",
+        1,
+        "normalize",
+        "The number as inspect-ai 0.3.263 compares it (5 significant digits).",
+        inspect_numeric,
     ),
     OperatorDescriptor("identity", 1, "normalize", "No change.", identity),
     OperatorDescriptor(

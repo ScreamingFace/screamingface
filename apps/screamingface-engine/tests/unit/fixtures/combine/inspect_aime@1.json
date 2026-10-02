@@ -1,0 +1,132 @@
+{
+ "op": "inspect_aime@1",
+ "stage": "extract",
+ "cases": [
+  {
+   "name": "last line answer",
+   "input": "Reasoning\nANSWER: 70",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "70"
+   }
+  },
+  {
+   "name": "boxed on its own line between display delimiters",
+   "input": "$$\n\\boxed{70}\n$$",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "70"
+   }
+  },
+  {
+   "name": "leading zeros kept",
+   "input": "ANSWER: 070",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "070"
+   }
+  },
+  {
+   "name": "empty completion",
+   "input": "",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "blank lines only",
+   "input": "\n\n",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "boxed inside the answer line",
+   "input": "ANSWER: \\boxed{204}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "204"
+   }
+  },
+  {
+   "name": "thousands separator",
+   "input": "ANSWER: 1,000",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "1000"
+   }
+  },
+  {
+   "name": "assignment is not a number word",
+   "input": "ANSWER: x=5",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "corpus '\\\\boxed{\\\\boxed{5}}'",
+   "input": "\\boxed{\\boxed{5}}",
+   "args": {},
+   "expect": {
+    "status": "empty",
+    "value": null
+   }
+  },
+  {
+   "name": "corpus 'ANSWER: 70\\nThis follows from 3 cases.'",
+   "input": "ANSWER: 70\nThis follows from 3 cases.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "3"
+   }
+  },
+  {
+   "name": "corpus 'The answer is $\\\\boxed{12}$.'",
+   "input": "The answer is $\\boxed{12}$.",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "12"
+   }
+  },
+  {
+   "name": "corpus '***\\nANSWER: 33\\n---'",
+   "input": "***\nANSWER: 33\n---",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "33"
+   }
+  },
+  {
+   "name": "corpus '\\\\boxed{3} and \\\\boxed{4}'",
+   "input": "\\boxed{3} and \\boxed{4}",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "3}"
+   }
+  },
+  {
+   "name": "corpus 'line\\u2028ANSWER: 9'",
+   "input": "line ANSWER: 9",
+   "args": {},
+   "expect": {
+    "status": "voted",
+    "value": "9"
+   }
+  }
+ ]
+}
