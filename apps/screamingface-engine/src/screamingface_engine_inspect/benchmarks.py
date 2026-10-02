@@ -852,6 +852,235 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
     ),
+    BenchmarkSpec(
+        key="agieval_lsat_ar",
+        title="AGIEval LSAT-AR",
+        description=(
+            "230 LSAT analytical-reasoning (logic games) questions from the AGIEval benchmark's "
+            "English set, imported from inspect_evals by Task replay: the Cases are fetched the "
+            "way inspect fetches them and sealed by a Case Digest. Prompts use agieval's own "
+            "multiple-choice template with no few-shot examples and no chain of thought. Graded by "
+            "inspect's choice scorer against the published answer, so no judge tokens are spent. "
+            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over the options)."
+        ),
+        focus="Law-school logic games (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # Constraint puzzles the AGIEval paper reports as its weakest task for strong models
+        #  (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_lsat_ar.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="agieval_lsat_lr",
+        title="AGIEval LSAT-LR",
+        description=(
+            "510 LSAT logical-reasoning questions from the AGIEval benchmark's English set, "
+            "imported from inspect_evals by Task replay: the Cases are fetched the way inspect "
+            "fetches them and sealed by a Case Digest. Prompts use agieval's own multiple-choice "
+            "template with no few-shot examples and no chain of thought. Graded by inspect's "
+            "choice scorer against the published answer, so no judge tokens are spent. Benchmark "
+            "score = plain accuracy over the cases run. No mid-run check surface (elimination "
+            "attack over the options)."
+        ),
+        focus="Law-school logical reasoning (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # Short-argument reasoning; strong models score well but below SAT level (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_lsat_lr.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="agieval_lsat_rc",
+        title="AGIEval LSAT-RC",
+        description=(
+            "269 LSAT reading-comprehension questions over long passages from the AGIEval "
+            "benchmark's English set, imported from inspect_evals by Task replay: the Cases are "
+            "fetched the way inspect fetches them and sealed by a Case Digest. Prompts use "
+            "agieval's own multiple-choice template with no few-shot examples and no chain of "
+            "thought. Graded by inspect's choice scorer against the published answer, so no judge "
+            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
+            "check surface (elimination attack over the options)."
+        ),
+        focus="Law-school reading comprehension (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # Long-passage comprehension; strong models score well but not near ceiling (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_lsat_rc.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="agieval_sat_math",
+        title="AGIEval SAT-Math",
+        description=(
+            "220 SAT math questions from the AGIEval benchmark's English set, imported from "
+            "inspect_evals by Task replay: the Cases are fetched the way inspect fetches them and "
+            "sealed by a Case Digest. Prompts use agieval's own multiple-choice template with no "
+            "few-shot examples and no chain of thought. Graded by inspect's choice scorer against "
+            "the published answer, so no judge tokens are spent. Benchmark score = plain accuracy "
+            "over the cases run. No mid-run check surface (elimination attack over the options)."
+        ),
+        focus="High-school math (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # High-school exam math that frontier models nearly saturate (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_sat_math.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="agieval_sat_en",
+        title="AGIEval SAT-English",
+        description=(
+            "206 SAT English reading questions, each with its passage from the AGIEval benchmark's "
+            "English set, imported from inspect_evals by Task replay: the Cases are fetched the "
+            "way inspect fetches them and sealed by a Case Digest. Prompts use agieval's own "
+            "multiple-choice template with no few-shot examples and no chain of thought. Graded by "
+            "inspect's choice scorer against the published answer, so no judge tokens are spent. "
+            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over the options)."
+        ),
+        focus="High-school reading comprehension (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # High-school reading with the passage given; frontier models nearly saturate it (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_sat_en.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="agieval_sat_en_without_passage",
+        title="AGIEval SAT-English (no passage)",
+        description=(
+            "206 SAT English reading questions with the passage removed from the AGIEval "
+            "benchmark's English set, imported from inspect_evals by Task replay: the Cases are "
+            "fetched the way inspect fetches them and sealed by a Case Digest. Prompts use "
+            "agieval's own multiple-choice template with no few-shot examples and no chain of "
+            "thought. Graded by inspect's choice scorer against the published answer, so no judge "
+            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
+            "check surface (elimination attack over the options)."
+        ),
+        focus="Reading questions answered without their passage (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # The passage is withheld, so many questions are underdetermined; scores stay low
+        #  (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_sat_en_without_passage.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="agieval_aqua_rat",
+        title="AGIEval AQuA-RAT",
+        description=(
+            "254 algebra word problems (AQuA-RAT) from the AGIEval benchmark's English set, "
+            "imported from inspect_evals by Task replay: the Cases are fetched the way inspect "
+            "fetches them and sealed by a Case Digest. Prompts use agieval's own multiple-choice "
+            "template with no few-shot examples and no chain of thought. Graded by inspect's "
+            "choice scorer against the published answer, so no judge tokens are spent. Benchmark "
+            "score = plain accuracy over the cases run. No mid-run check surface (elimination "
+            "attack over the options)."
+        ),
+        focus="Algebra word problems (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # Multi-step algebra word problems; harder than SAT math for current models (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_aqua_rat.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="agieval_logiqa_en",
+        title="AGIEval LogiQA (English)",
+        description=(
+            "651 logical-reasoning questions from the Chinese civil-service exam, in English "
+            "(LogiQA) from the AGIEval benchmark's English set, imported from inspect_evals by "
+            "Task replay: the Cases are fetched the way inspect fetches them and sealed by a Case "
+            "Digest. Prompts use agieval's own multiple-choice template with no few-shot examples "
+            "and no chain of thought. Graded by inspect's choice scorer against the published "
+            "answer, so no judge tokens are spent. Benchmark score = plain accuracy over the cases "
+            "run. No mid-run check surface (elimination attack over the options)."
+        ),
+        focus="Civil-service exam logical reasoning (multiple choice)",
+        dataset_url="https://github.com/ruixiangcui/AGIEval",
+        # Translated exam logic questions where strong models stay well below SAT-level scores
+        #  (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.agieval.agieval:agie_logiqa_en.
+        # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
+        #  card).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="medqa",
+        title="MedQA (USMLE)",
+        description=(
+            "1,273 US medical-licensing-exam style questions with five options each (the MedQA "
+            "English test set), imported from inspect_evals by Task replay: the Cases are fetched "
+            "the way inspect fetches them (the bigbio/med_qa repository at a pinned revision, read "
+            "by its loader script) and sealed by a Case Digest. Graded by inspect's choice scorer "
+            "against the published answer, so no judge tokens are spent. Benchmark score = plain "
+            "accuracy over the cases run. No mid-run check surface (elimination attack over five "
+            "options)."
+        ),
+        focus="Medical licensing exam questions (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/bigbio/med_qa",
+        # Professional-exam medicine; frontier models pass comfortably but not at ceiling
+        #  (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.medqa.medqa:medqa.
+        # License: mit (owner decision 2026-10-01: MIT, jind11/MedQA LICENSE; the bigbio card says
+        #  unknown).
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="mgsm_en",
+        title="MGSM (English)",
+        description=(
+            "250 grade-school math word problems (the English set of MGSM, the multilingual GSM8K "
+            "translation), imported from inspect_evals by Task replay: the Cases are fetched from "
+            "the TSV inspect downloads and checks against upstream's sha256, then sealed by a Case "
+            "Digest. Each prompt carries the eval's own instruction to reason first and give the "
+            "final answer on the last line. Graded by inspect's numeric match, so no judge tokens "
+            "are spent. Benchmark score = plain accuracy over the cases run; the eval also reports "
+            "a standard error clustered by question, which the board does not."
+        ),
+        focus="Grade-school math word problems (English)",
+        dataset_url="https://github.com/google-research/url-nlp/tree/main/mgsm",
+        # Grade-school material frontier models saturate, as with GSM8K (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.mgsm.mgsm:mgsm.
+        # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, google-research/url-nlp
+        #  mgsm/LICENSE).
+        scorer="inspect_ai.scorer:match",
+        scorer_kwargs={"numeric": True},
+        # The eval's own accuracy metric IS the board's mean per-case score.
+        # Its clustered stderr is not reported; the description names that.
+        # Free-form answers make mid-run feedback legitimate (spec §4);
+        # MCQ benchmarks must NOT set this (OME-796).
+        with_check_surface=True,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

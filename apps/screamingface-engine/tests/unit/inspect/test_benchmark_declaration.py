@@ -215,6 +215,18 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-xstest_safe": ("coverage_declare", "single_shot", "easy"),
         # OME-1400: refusal of mild unsafe prompts, LLM-judged, scored by refusal rate.
         "inspect-xstest_unsafe": ("coverage_declare", "single_shot", "easy"),
+        # OME-1273: the first Task-replay Benchmarks — AGIEval's English MCQ exams, MedQA
+        # and MGSM's English set; tiers as their rows argue them.
+        "inspect-agieval_lsat_ar": ("coverage_declare", "single_shot", "hard"),
+        "inspect-agieval_lsat_lr": ("coverage_declare", "single_shot", "medium"),
+        "inspect-agieval_lsat_rc": ("coverage_declare", "single_shot", "medium"),
+        "inspect-agieval_sat_math": ("coverage_declare", "single_shot", "easy"),
+        "inspect-agieval_sat_en": ("coverage_declare", "single_shot", "easy"),
+        "inspect-agieval_sat_en_without_passage": ("coverage_declare", "single_shot", "hard"),
+        "inspect-agieval_aqua_rat": ("coverage_declare", "single_shot", "medium"),
+        "inspect-agieval_logiqa_en": ("coverage_declare", "single_shot", "hard"),
+        "inspect-medqa": ("coverage_declare", "single_shot", "medium"),
+        "inspect-mgsm_en": ("coverage_declare", "single_shot", "easy"),
     }
     actual = {
         benchmark.id: (
