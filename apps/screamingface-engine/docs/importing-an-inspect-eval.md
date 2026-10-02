@@ -160,6 +160,31 @@ model's seat is the one piece we own.** Everything above the model call happens 
 build, with no model in the room. Everything below it happens per Case at run time, with the
 eval's own scorer and our own rules of the sitting.
 
+### Why inspect is one call and we are many parts
+
+<img src="diagrams/inspect-vs-screamingface-seams.png" width="1000">
+
+inspect's simplicity is interface simplicity: `Task` takes 37 parameters and `eval()` takes 59
+([`eval.py#L118`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/eval.py#L118)),
+and the parts are all there as keyword arguments. What inspect never does is hand anything to
+someone else: **one process fetches the Samples, builds the prompt, holds the model key, holds the
+answer key, scores and writes the log, so nothing in between needs a name, a contract or a proof.**
+Every ScreamingFace term in this page is the name of something that changes hands at one of five
+seams inspect does not have.
+
+| Seam | What changes hands | Why inspect has no seam here | The parts it names |
+| -- | -- | -- | -- |
+| ⏱ **Time** | the prepared Cases, from an image build to a sitting weeks later | the process that fetched the data is the process that runs it: `hf_dataset` is called inside the task, inside `eval()` | Case Preparation, Case Source, Case Digest, Benchmark Revision |
+| 🌐 **Place** | the prompt out to the Candidate, the answer back | one laptop with internet and the provider keys in its environment; the Engine pod reaches nothing but the AI gateway | Candidate Invocation, the candidate route, the Report |
+| 🔐 **Trust** | nothing: the answer key must stay on the Engine side of the hop | input and target ride in one `Sample` through one process ([`_dataset.py#L29`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/dataset/_dataset.py#L29)); the model being graded is the author's own | the Case against its Grading Material, Judge, Benchmark-owned Model |
+| 🔀 **Seat** | the one model call becomes a Recipe: a Fusion's members and synthesizer, or a Corrective Loop | `generate` is bound to one `Model` ([`run.py#L1187`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L1187)) | Candidate, Recipe, Fusion, Model (the product, not overhead) |
+| 💰 **Cost** | money spent and a number published on a leaderboard | a failed local sitting aborts under `fail_on_error` and is rerun for free | Failure Policy, Coverage, Partial Report |
+
+Not every part is a seam. Two fetch paths (§4) and two renderings (§3) are one job done twice
+during a transition; §5's Later rows delete one of each. After that, an import is again close to
+inspect's shape: call the task function, record what it fetched, freeze what it would have sent,
+and keep only the five seams.
+
 ## 3. The solver seam: what capture reproduces and what it refuses
 
 A solver is any `async (state, generate) -> state`
