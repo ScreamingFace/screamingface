@@ -147,11 +147,14 @@ Gates (base `e4a-judge-pick-sdk`, tip `155a71ae6`):
   Three replayed rows that pinned constructor text now pin `cannot rebuild`.
 - **N7 (GE21).** `FieldRule.__eq__` and `__hash__` use one typed key. `_FieldRules` and `Merge` compare
   through it. `Pick.equals` is stored as text, so it has no bool/int/float ambiguity.
-- **N8 (engine world harness).** `ET/test_argmax_contract.py` imports `_body` and `_operation` from unit 7's
-  `test_signal_vote_replay.py` and holds its own `_gateway` and `_run` (the candidate and the model table
-  differ). That is one more near-copy of the world harness (the 9E follow-up asks for a shared support module).
+- **N8 (engine world harness).** Review fix: `tests/unit/_signal_world.py` holds the gateway body and
+  `run_candidate(candidate, models, cache)`. `test_signal_vote_replay.py` and `test_argmax_contract.py` use
+  it, and 10S reuses it.
 - **N9 (in-place tests).** `test_merge_writer_compile.py` builds the new combine-evidence wire (`member_id`,
   `reason`, `signals`) and `_MergeWithSignals` overrides `_plan()`. `test_pick_merge_url4_round_trip.py` reads
   `_plan().kind`.
 - **N10 (F11).** The workflow `paths:` lists name the engine `fields.py` (the `spec.py` path was already there).
 - **N11 (gate runs).** `test_client_run.py` interrupt tests did not fail in the final runs.
+- **N12 (review fix round).** `_decoded` moved to `reducer.py` (chained with `from exc`, also used by
+  `Vote._from_spec_parts`). `_read_signal` asserts the GE5 one-signal rule. The `_BlockForm` docstring allows
+  lazy imports. `test_argmax_contract.py` asserts `sources:` in the fixture.
