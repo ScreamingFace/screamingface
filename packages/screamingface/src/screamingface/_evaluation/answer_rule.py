@@ -12,13 +12,15 @@ resource once, so resolution adds no request.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NoReturn, cast
 
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
-from screamingface._evaluation.operators import _OperatorCatalog, is_pinned_operator_id
-from screamingface.reducer import _ReducerPlan
+from screamingface._evaluation.operators import Stage, _OperatorCatalog, is_pinned_operator_id
+from screamingface.blocks import NAMED_EXTRACT_RULES
+from screamingface.errors import EngineCapabilityError
+from screamingface.reducer import _ReducerPlan, _Step
 
 type _Invalid = Callable[[str], NoReturn]
 
@@ -84,7 +86,39 @@ def resolve_benchmark_rule(
             "extract='benchmark' needs a benchmark; "
             "evaluate the Candidate with client.evaluate(..., benchmark=...)"
         )
-    raise NotImplementedError  # STUB: the rule branches arrive with the evaluation commit
+    rule = benchmark.rule
+    if rule is None:
+        raise ValueError(
+            f"benchmark {benchmark.benchmark_id!r} declares no answer rule, so "
+            "extract='benchmark' cannot be used on it; "
+            f"use a named extract rule: {', '.join(NAMED_EXTRACT_RULES)}"
+        )
+    pairs: tuple[tuple[Stage, str | None], ...] = (
+        ("extract", rule.extract),
+        ("normalize", rule.normalize),
+    )
+    for stage, op in pairs:
+        if op is not None and not operators.serves(stage, op):
+            raise _missing_operator(benchmark.benchmark_id, stage, op)
+    steps = replace(
+        plan.steps,
+        extract=_Step(rule.extract),
+        normalize=None if rule.normalize is None else _Step(rule.normalize),
+    )
+    return replace(plan, steps=steps, benchmark_rule=False)
+
+
+def _missing_operator(benchmark_id: str, stage: Stage, op: str) -> EngineCapabilityError:
+    return EngineCapabilityError(
+        f"this SF Engine does not serve {op!r}, the {stage} operator benchmark {benchmark_id!r} "
+        "declares for extract='benchmark'",
+        permanent=True,
+        details={"benchmark": benchmark_id, "stage": stage, "operator": op},
+        hint=(
+            "Use an SF Engine that serves the benchmark's answer operators "
+            "(GET /v1/operators), or a named extract rule."
+        ),
+    )
 
 
 __all__: list[str] = []

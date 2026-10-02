@@ -7,18 +7,22 @@ INVARIANT: both build a ``_ReducerPlan`` (the seam), so their url4 bytes are equ
 from __future__ import annotations
 
 import pytest
+from _combine_contract import AIME24_RULE_WIRE, GSM8K_RULE_WIRE, rule
 from _reducer_fixtures import engine_operators
 
 import screamingface as sf
+from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 
 _MEMBERS = ["provider/a", "provider/b", "provider/c"]
 
 
-def _url4(synthesizer: Reducer) -> str:
+def _url4(synthesizer: Reducer, benchmark_rule: _BenchmarkAnswerRule | None = None) -> str:
     recipe = sf.Fusion(_MEMBERS, synthesizer=synthesizer)
-    return compile_candidate(recipe, operators=engine_operators()).url4
+    return compile_candidate(
+        recipe, operators=engine_operators(), benchmark_rule=benchmark_rule
+    ).url4
 
 
 def test_named_reducers_build_a_reducer_plan() -> None:
@@ -65,3 +69,16 @@ def test_every_median_row_matches_median(rule: str, select: str, mode: str | Non
     block = sf.Reduce("median", mode=mode, extract=sf.Extract(rule))  # type: ignore[arg-type]
 
     assert _url4(median) == _url4(block)
+
+
+@pytest.mark.parametrize(
+    ("benchmark_id", "wire"),
+    [("inspect-gsm8k", GSM8K_RULE_WIRE), ("inspect-aime24", AIME24_RULE_WIRE)],
+)
+def test_benchmark_rows_match_their_named_form(benchmark_id: str, wire: dict[str, object]) -> None:
+    # BK#4, benchmark rows: both forms read the benchmark's own rule.
+    bound = _BenchmarkAnswerRule(benchmark_id, rule(wire))  # type: ignore[arg-type]
+    vote = sf.Vote(extract="benchmark")
+    block = sf.Reduce("plurality", extract=sf.Extract("benchmark"))
+
+    assert _url4(vote, bound) == _url4(block, bound)

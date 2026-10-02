@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import (
     _CompiledCandidate,
@@ -28,8 +29,16 @@ def compile_evaluation(
 ) -> _Evaluation:
     """Compile all Candidates locally against one selected Benchmark."""
 
+    # FEATURE (GP-1): extract="benchmark" resolves here, at the plan seam, from the resource
+    # already fetched; the compiled url4 then pins the rule's concrete operator ids.
+    benchmark_rule = _BenchmarkAnswerRule(resource.info.id, resource.answer_rule)
     compiled = tuple(
-        compile_candidate(recipe, check_surface=resource.check_surface, operators=operators)
+        compile_candidate(
+            recipe,
+            check_surface=resource.check_surface,
+            operators=operators,
+            benchmark_rule=benchmark_rule,
+        )
         for recipe in recipes
     )
     # WHY: the Benchmark is identical for every Candidate — parse it once and bind

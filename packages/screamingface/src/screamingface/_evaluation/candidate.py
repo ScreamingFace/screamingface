@@ -36,6 +36,7 @@ from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
+    from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
     from screamingface._evaluation.benchmark import _CheckSurface
     from screamingface._evaluation.operators import _OperatorCatalog
 
@@ -68,6 +69,7 @@ def compile_candidate(
     *,
     check_surface: _CheckSurface | None = None,
     operators: _OperatorCatalog | None = None,
+    benchmark_rule: _BenchmarkAnswerRule | None = None,
 ) -> _CompiledCandidate:
     """Compile one complete, benchmark-independent Recipe into Candidate URL4.
 
@@ -77,10 +79,14 @@ def compile_candidate(
 
     ``operators`` is the Engine's combine-operator catalog (OME-1289): a reducer
     pins its operator names against it, and a Recipe without a reducer ignores it.
+
+    ``benchmark_rule`` is the benchmark's answer rule, read only by ``extract='benchmark'``.
     """
 
     try:
-        return _CandidateCompiler(check_surface=check_surface, operators=operators).compile(recipe)
+        return _CandidateCompiler(
+            check_surface=check_surface, operators=operators, benchmark_rule=benchmark_rule
+        ).compile(recipe)
     except RenderError as exc:
         raise PlanningError(
             "The SDK could not encode Candidate generation parameters for the SF Engine",
@@ -126,6 +132,7 @@ class _CandidateCompiler:
         *,
         check_surface: _CheckSurface | None = None,
         operators: _OperatorCatalog | None = None,
+        benchmark_rule: _BenchmarkAnswerRule | None = None,
     ) -> None:
         self._sources: list[Node] = []
         self._operations: list[OperationInfo] = []
@@ -136,6 +143,7 @@ class _CandidateCompiler:
         self._panel_count = 0
         self._check_surface = check_surface
         self._operators = operators
+        self._benchmark_rule = benchmark_rule
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
@@ -493,7 +501,12 @@ class _CandidateCompiler:
                 "a reducer needs the SF Engine operator catalog to compile; "
                 "evaluate it through an sf.Client"
             )
-        spec = combine_spec_text(reducer, member_count=len(members), operators=self._operators)
+        spec = combine_spec_text(
+            reducer,
+            member_count=len(members),
+            operators=self._operators,
+            benchmark_rule=self._benchmark_rule,
+        )
         # The combine call reads the same question-and-panel value a Model synthesizer does;
         # building it here keeps a later extra input (signals) a local change.
         context = _fusion_context(input_context, members, panel=panel)

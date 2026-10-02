@@ -43,6 +43,11 @@ class _OperatorCatalog:
             "or a pinned id like 'last_number@1'"
         )
 
+    def serves(self, stage: Stage, value: str) -> bool:
+        """Whether the Engine serves exactly this pinned id as an operator of this stage."""
+
+        return any(item.id == value and item.stage == stage for item in self.entries)
+
     def _pin_id(self, stage: Stage, value: str) -> str:
         entry = next((item for item in self.entries if item.id == value), None)
         if entry is None:

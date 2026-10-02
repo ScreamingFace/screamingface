@@ -90,6 +90,8 @@ def evaluate_sync(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
+    # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
+    # spend (GP-1).
     evaluation = compile_evaluation(
         values, resource, limit, operators=_operators_sync(values, load_operators)
     )
@@ -155,6 +157,8 @@ async def evaluate_async(
     values = _evaluation_inputs(candidates, benchmark, limit)
     resource = await load_benchmark(benchmark, limit)
     check_disclosure = _validate_check_surface(values, benchmark, resource)
+    # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
+    # spend (GP-1).
     evaluation = compile_evaluation(
         values, resource, limit, operators=await _operators_async(values, load_operators)
     )
