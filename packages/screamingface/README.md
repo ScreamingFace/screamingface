@@ -379,8 +379,8 @@ member's `weight` and each answer's summed `score`.
 A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError`
 at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights
 raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to
-`sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. `sf.signal("score:judge")` raises
-`ValueError` until the judge arrives.
+`sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. `sf.signal("score:judge")` needs a judge
+on the same vote (see "Judge synthesizer" below).
 
 The accounting keys are `cost_usd`, `latency_ms`, `tokens_in` and `tokens_out`. For a member they
 are the sum over the model calls that member made, which the Engine finds by each call's route and
@@ -431,6 +431,44 @@ template changes the url4, so it changes the replay identity.
 **Position bias.** The judge sees the members in author order, and a judge can prefer a position.
 The parameter name `binding` is reserved: you cannot use it in `params`. This needs an Engine whose
 operator catalog has `label@1` and `scores@1`.
+
+**The block form.** `sf.Reduce("judge", judge=sf.Judge(...))` compiles to the same url4 as the
+`sf.Judge` itself. The optional `rubric=` replaces the rubric of that judge, so one judge can serve
+several rubrics: `sf.Reduce("judge", judge=j, rubric="Prefer the shortest correct answer.")`. A
+`judge` that is not an `sf.Judge` raises `TypeError`, and an empty `rubric` raises `ValueError`. An
+`sf.Judge` is a value: equal judges are equal and have the same hash.
+
+**A judge-weighted vote.** A judge that returns scores can also weigh a vote. Each answer scores the
+sum of the judge scores of the members who gave it. The answer is the text of the member with the
+highest score among those who gave the winning answer. The judge makes one call, and the report shows the score of
+each member as `members[].signals["score:judge"]` and `weight`.
+
+```python
+weighted = sf.Fusion(
+    routes,
+    synthesizer=sf.Vote(
+        extract="last_number",
+        normalize="numeric",
+        weights=sf.signal("score:judge"),
+        judge=sf.Judge("anthropic/claude-opus-5", returns="scores", rubric="Score each answer."),
+    ),
+)
+# The same vote in the block form:
+weighted_block = sf.Fusion(
+    routes,
+    synthesizer=sf.Reduce(
+        "weighted",
+        extract=sf.Extract("last_number", normalize="numeric"),
+        weights=sf.signal("score:judge"),
+        judge=sf.Judge("anthropic/claude-opus-5", returns="scores", rubric="Score each answer."),
+    ),
+)
+```
+
+The weights and the judge must go together. `weights=sf.signal("score:judge")` without a judge, a
+judge without that weight, or a judge that returns labels each raise `ValueError` when the vote is
+built, before any call is paid (the Engine reads `score:judge` strictly, so a lone half would fail
+after the member calls). A judge that is not an `sf.Judge` raises `TypeError`.
 
 ## Install
 

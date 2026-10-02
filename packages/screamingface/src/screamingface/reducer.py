@@ -319,6 +319,10 @@ class Vote(Reducer):
     ``extract='benchmark'`` reads answers with the benchmark's own grading rule (resolved before any
     spend); for rules with arguments use
     ``sf.Reduce('plurality', extract=sf.Extract('regex', pattern=...))``.
+
+    ``judge=sf.Judge(..., returns='scores')`` goes with ``weights=sf.signal('score:judge')`` and
+    never alone: the judge scores each member in one call, and each answer weighs the scores of its
+    holders. A half pair raises ``ValueError`` when the vote is built.
     """
 
     name: str
