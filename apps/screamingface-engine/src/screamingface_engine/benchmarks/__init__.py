@@ -6,6 +6,7 @@ Adding a benchmark: see ``apps/screamingface-engine/docs/adding-a-benchmark-manu
 
 from screamingface_engine.benchmarks.definition import (
     CANDIDATE_REF,
+    AnswerRule,
     Benchmark,
     BenchmarkDeclaration,
     BenchmarkInstaller,
@@ -29,6 +30,7 @@ __all__ = [
     "BENCHMARK_ASSETS_ENV",
     "CANDIDATE_REF",
     "DEFAULT_BENCHMARK_ASSETS_ROOT",
+    "AnswerRule",
     "Benchmark",
     "BenchmarkDeclaration",
     "BenchmarkInstaller",

@@ -41,6 +41,7 @@ from screamingface_engine.benchmarks.contract import (
     CaseResult,
 )
 from screamingface_engine.benchmarks.definition import (
+    AnswerRule,
     Benchmark,
     BenchmarkDeclaration,
     BenchmarkOrigin,
@@ -365,6 +366,7 @@ def single_shot_benchmark(
     attempts: int = 1,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
     candidate_input_envelope: bool = False,
+    answer_rule: AnswerRule | None = None,
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -429,6 +431,8 @@ def single_shot_benchmark(
             the envelope; a Fusion synthesizer is pasted ``$input`` raw, so only this keeps a
             migrated Benchmark's Fusion bytes, and its recorded golden, unchanged. The scorer
             and ``cases.json`` keep plain text. Hashed into the revision below when set.
+        answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
+            Published in the catalog; NOT hashed into the revision (like ``focus``).
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -539,6 +543,7 @@ def single_shot_benchmark(
         dataset_url=dataset_url,
         # Benchmark Provenance, baselines, notebook (OME-1455): authored on the BenchmarkSpec
         # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
+        answer_rule=answer_rule,
         **provenance,
         declaration=BenchmarkDeclaration(
             # WHY "coverage_declare": imported benchmarks reduce through the shared

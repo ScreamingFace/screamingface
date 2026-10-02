@@ -160,6 +160,8 @@ over a handful of options is an elimination attack, OME-796); judged rows are re
 assembly until the check-cost knob lands (OME-1116). To turn it on for a free-text row, the
 owner says so, and the row carries a comment naming that decision.
 
+`answer_rule` is set only for benchmarks whose grader the combine operators copy exactly.
+
 ### Live activity comes from the shared adapter
 
 Benchmarks created through `single_shot_benchmark` inherit loading, answering, grading and
