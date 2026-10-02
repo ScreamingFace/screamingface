@@ -433,3 +433,22 @@ def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
     assert (task.config.temperature, task.config.max_tokens) == (0.0, 256)
     benchmark = next(spec for spec in BENCHMARKS if spec.key == "xstest_safe")
     assert "refusal rate = 100 x (1 - correct / scored cases)" in benchmark.description
+
+
+# ── OME-1273: Task-replay declarations (spec R7) ────────────────────────────────
+
+from screamingface_engine_inspect.prepare import LICENSE_TODO, TASK_REPLAY_CASES  # noqa: E402
+
+
+def test_task_replay_declarations_carry_an_owner_license_decision() -> None:
+    """Spec R7: a license left as TODO means the owner never decided; the diff is unfinished.
+
+    Sits next to test_benchmark_row_prose_is_filled_not_todo, which guards the catalogue
+    prose. Empty registry today; it earns its keep when PR 4 lands the first declarations.
+    """
+
+    undecided: list[str] = [
+        key for key, spec in TASK_REPLAY_CASES.items() if spec.license == LICENSE_TODO
+    ]
+
+    assert undecided == []

@@ -53,7 +53,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # WHY type-only: import_replay imports this module, so a runtime import would cycle.
+    from screamingface_engine_inspect.import_replay import TaskReplayImport
 
 #: Dataset licenses cleared for the public catalogue. An unlisted license still
 #: emits rows, with a WARNING — the generated pins comment carries the license so
@@ -81,6 +85,14 @@ _PINS_IMPORT_HEADER = "from screamingface_engine_inspect.pins import ("
 
 class ImporterError(Exception):
     """The importer refuses to emit. Always says which fact stopped it."""
+
+
+class TaskReplayRoute(ImporterError):
+    """The Hugging Face reader cannot see this eval's fetch; Task replay can import it (OME-1273).
+
+    WHY a subclass: to every caller that only knows refusals it IS one; the CLI alone tells
+    the two apart and takes the Task-replay path (spec R1).
+    """
 
 
 @dataclass(frozen=True)
@@ -187,7 +199,7 @@ def read_inspect_task(
     module = import_module(module_name)
     task_fn: Any = getattr(module, attribute)
     if not hasattr(module, "hf_dataset"):
-        raise ImporterError(
+        raise TaskReplayRoute(
             f"{module_name} has no hf_dataset binding — the importer only reads evals "
             "that load their questions from the HuggingFace Hub"
         )
@@ -488,7 +500,7 @@ def _require_module_level_record_to_sample(sample_fields: Any, task_ref: str) ->
         # WHY: some evals (truthfulqa) define record_to_sample INSIDE the task
         # function; the row's dotted reference could never resolve it, so the
         # dangling row would fail at image build instead of at import review.
-        raise ImporterError(
+        raise TaskReplayRoute(
             f"{task_ref}: record_to_sample is a task-local function — the row can only "
             "POINT at a module-level attribute; import this eval by hand or upstream a fix"
         )
@@ -505,7 +517,7 @@ def _question_dataset_kwargs(
     """
 
     if not recorded:
-        raise ImporterError(f"{task_ref}: the task never called hf_dataset")
+        raise TaskReplayRoute(f"{task_ref}: the task never called hf_dataset")
     for kwargs, stub in recorded:
         if task.dataset is stub:
             return kwargs, stub
@@ -515,7 +527,7 @@ def _question_dataset_kwargs(
         # A single HF call whose stub never reached the Task (a json benchmark with HF
         # fewshots) must refuse: that call is not the benchmark (review round 2026-09-17).
         return recorded[0]
-    raise ImporterError(
+    raise TaskReplayRoute(
         f"{task_ref}: {len(recorded)} hf_dataset call(s) and none is the Task's dataset — "
         "cannot tell the question load apart; pass task args that disable the extras"
     )
@@ -1195,19 +1207,41 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
         "        # Provenance: this scorer is declared by the Task of",
         f"        #   {facts.task_ref}.",
         f"        # License: {license_note}.",
-        f'        scorer="{facts.scorer}",',
     ]
-    if facts.scorer_kwargs:
+    benchmark_lines.extend(
+        _scorer_lines(
+            facts.scorer, facts.scorer_kwargs, facts.custom_metrics, facts.mcq, _is_judged(facts)
+        )
+    )
+    benchmark_lines.append("    ),")
+    return benchmark_lines
+
+
+def _scorer_lines(
+    scorer: str,
+    scorer_kwargs: Mapping[str, Any],
+    custom_metrics: tuple[str, ...],
+    mcq: bool,
+    judged: bool,
+) -> list[str]:
+    """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
+
+    Shared by the Hugging Face rows and the Task-replay rows (OME-1273), so the two importers
+    can never drift on how a scorer is declared.
+    """
+
+    benchmark_lines: list[str] = [f'        scorer="{scorer}",']
+    if scorer_kwargs:
         # WHY json.dumps for str values AND names: repr's single quotes fail the
         # emitted file's ruff-format gate; json escaping is as injection-safe as
         # repr's. Names are registry_params keys — identifiers in practice, but
         # a **kwargs-taking scorer could carry arbitrary upstream strings.
         rendered_kwargs: str = ", ".join(
             f"{json.dumps(name)}: {_python_literal_source(value)}"
-            for name, value in sorted(facts.scorer_kwargs.items())
+            for name, value in sorted(scorer_kwargs.items())
         )
         benchmark_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
-    for metric_name in facts.custom_metrics:
+    for metric_name in custom_metrics:
         benchmark_lines.append(
             f"        # TODO(review): the eval reports its own metric {metric_name}, but the"
         )
@@ -1217,7 +1251,6 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
         benchmark_lines.append(
             "        # to convert between the two) in the benchmark's description."
         )
-    judged: bool = _is_judged(facts)
     if judged:
         # OME-1240: a judged row must never land silently — the TODO model is
         # refused at assembly by name, so an unreviewed judge cannot ship.
@@ -1234,13 +1267,12 @@ def _benchmark_lines(key: str, facts: InspectTaskFacts, license_note: str) -> li
         benchmark_lines.append("        # If the scorer dispatches on sample metadata, also set")
         benchmark_lines.append("        # keep_sample_metadata=True on the CasesSpec row.")
         benchmark_lines.append('        judge=JudgeSpec(model="TODO"),')
-    if not facts.mcq and not judged:
+    if not mcq and not judged:
         benchmark_lines.append(
             "        # Free-form answers make mid-run feedback legitimate (spec §4);"
         )
         benchmark_lines.append("        # MCQ benchmarks must NOT set this (OME-796).")
         benchmark_lines.append("        with_check_surface=True,")
-    benchmark_lines.append("    ),")
     return benchmark_lines
 
 
@@ -1250,6 +1282,12 @@ _JUDGE_MODEL_KWARG_NAMES = frozenset({"model", "grader_model", "judge_model", "s
 
 
 def _is_judged(facts: InspectTaskFacts) -> bool:
+    """A Hugging Face row is judged exactly when its scorer is (see _is_judged_by)."""
+
+    return _is_judged_by(facts.scorer, facts.scorer_kwargs)
+
+
+def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     """A row is judged when its scorer takes a judge — by builtin NAME or by KWARG.
 
     WHY the kwarg check: a custom eval-module scorer (frontierscience) carries its
@@ -1259,14 +1297,32 @@ def _is_judged(facts: InspectTaskFacts) -> bool:
     check-cost knob (OME-1116), so the generated row stays green-by-construction.
     """
 
-    if facts.scorer.rpartition(":")[2].startswith("model_graded_"):
+    if scorer.rpartition(":")[2].startswith("model_graded_"):
         return True
-    return any(name in _JUDGE_MODEL_KWARG_NAMES for name in facts.scorer_kwargs)
+    return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
 
 
 def _python_literal_source(value: Any) -> str:
-    """One scorer kwarg value as source text the emitted file's gates accept."""
+    """One scorer kwarg or task-arg value as Python source the emitted file's gates accept.
 
+    WHY recurse instead of json.dumps a container: JSON spells False/None as false/null,
+    which ast.parse accepts as NAMES, so the emitted file would parse and then raise
+    NameError on import (OME-1273 Review Focus 6). Strings keep json.dumps (double quotes,
+    as ruff format writes them); every other scalar keeps repr.
+
+    Example: the task args ``{"shuffle": False, "limit": None}`` render as that same text,
+    where json.dumps would write ``{"shuffle": false, "limit": null}``.
+    """
+
+    if isinstance(value, dict):
+        items: str = ", ".join(
+            f"{json.dumps(str(name))}: {_python_literal_source(item)}"
+            for name, item in value.items()
+        )
+        return f"{{{items}}}"
+    if isinstance(value, list | tuple):
+        # WHY a list for a tuple too: task args cross request.json, which has no tuple.
+        return f"[{', '.join(_python_literal_source(item) for item in value)}]"
     return json.dumps(value) if isinstance(value, str) else repr(value)
 
 
@@ -1482,8 +1538,15 @@ def main(
     *,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     count_rows: Callable[[InspectTaskFacts, str], int] | None = None,
+    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport]
+    | None = None,
 ) -> int:
-    """Stage 1 → 2 → 3, then tell the dev to review the diff."""
+    """Stage 1 → 2 → 3, then tell the dev to review the diff.
+
+    An eval whose fetch the Hugging Face reader cannot see (a TaskReplayRoute), or any eval
+    under ``--task-replay``, is imported by Task replay instead (OME-1273, spec R1, D12).
+    ``import_by_task_replay`` is injectable for tests, like ``dataset_info``.
+    """
 
     parser = argparse.ArgumentParser(
         prog="python -m screamingface_engine_inspect.importer",
@@ -1517,10 +1580,32 @@ def main(
         default=Path(__file__).resolve().parent,
         help="directory holding pins.py/prepare.py/benchmarks.py (default: this package)",
     )
+    parser.add_argument(
+        "--task-replay",
+        action="store_true",
+        help="skip the Hugging Face reader and import by Task replay: call the task function "
+        "in a clean child, twice, and seal its Cases with a Case Digest (OME-1273)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        facts: InspectTaskFacts = read_inspect_task(args.task_ref, _parse_task_args(args.task_arg))
+        facts: InspectTaskFacts | None = (
+            None
+            if args.task_replay
+            else _read_or_route(args.task_ref, _parse_task_args(args.task_arg))
+        )
+        if facts is None:
+            if args.shuffle_seed is not None or args.choice_shuffle_seed is not None:
+                # WHY refuse: the seeds drive the Hugging Face path's own shuffles; a
+                # Task-replay import takes the Task's order as built, so a seed here would be
+                # silently inert and the row would promise an order nothing pins.
+                raise ImporterError(
+                    "--shuffle-seed and --choice-shuffle-seed do not apply to a Task-replay "
+                    "import: the task's own args pin its order (e.g. --task-arg shuffle=False "
+                    "or --task-arg seed=42)"
+                )
+            _import_by_task_replay_cli(args, dataset_info, import_by_task_replay)
+            return 0
         # WHY: shuffle=True without a seed means the upstream order is random per
         # run — the import must pin ONE order. An explicit --shuffle-seed (policy)
         # wins; otherwise the eval's own seed is pinned AS EXAM IDENTITY.
@@ -1564,6 +1649,65 @@ def main(
         "every TODO(review), then run the gates — a human must review the diff before merge."
     )
     return 0
+
+
+def _read_or_route(task_ref: str, task_args: Mapping[str, Any]) -> InspectTaskFacts | None:
+    """The Hugging Face reader's facts, or None when it routes the eval to Task replay (R1)."""
+
+    try:
+        return read_inspect_task(task_ref, task_args)
+    except TaskReplayRoute as route:
+        print(f"NOTE: {route} — importing by Task replay", file=sys.stderr)
+        return None
+
+
+def _import_by_task_replay_cli(
+    args: argparse.Namespace,
+    dataset_info: Callable[[str, str | None], Any] | None,
+    import_by_task_replay: Callable[[str, Mapping[str, Any] | None], TaskReplayImport] | None,
+) -> None:
+    """The CLI's Task-replay path: two replays, the card license, the two rows (OME-1273).
+
+    Stages: (1) import_by_task_replay seals the Cases (both replays run here; refusals are
+    ImporterErrors); (2) the one Hugging Face card, if any, gives a cleared license or TODO
+    (D13); (3) the declaration and the BenchmarkSpec row are written; (4) stderr lists each
+    Case Source so the importing agent can check them against the eval's loader.
+    """
+
+    # WHY lazy: task_replay_rows and import_replay import this module.
+    from screamingface_engine_inspect.import_replay import (
+        import_by_task_replay as replay_both_times,
+    )
+    from screamingface_engine_inspect.task_replay_rows import (
+        CardLicense,
+        card_license_of,
+        write_task_replay_rows,
+    )
+
+    imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
+        args.task_ref, _parse_task_args(args.task_arg)
+    )
+    card: CardLicense = card_license_of(
+        imported.case_sources, dataset_info=dataset_info or _hub_dataset_info
+    )
+    write_task_replay_rows(
+        args.key,
+        imported,
+        engine_src=args.engine_src,
+        license=card.value,
+        card_license=card.card_says,
+    )
+    sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
+    print(
+        f"Task-replay rows for {args.key!r} written into {args.engine_src} — "
+        f"{imported.declaration.case_count} Cases, Case Digest "
+        f"{imported.declaration.case_digest[:12]}…, license {card.value}. Case Sources:\n"
+        f"{sources}\n"
+        "Onboarding is AI-first: agent, check each Case Source against the eval's loader, "
+        "fill the TODO catalogue prose and resolve every TODO(review), then run the gates — "
+        "a human decides the license and reviews the diff before merge.",
+        file=sys.stderr,
+    )
 
 
 def _resolved_choice_shuffle_seed(
@@ -1635,4 +1779,9 @@ def _parse_task_args(pairs: list[str]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":  # pragma: no cover — the module IS the command
-    sys.exit(main())
+    # WHY re-import: under `python -m` this file runs as __main__, a second copy of the
+    # module whose ImporterError is a different class from the one task_replay_rows and
+    # import_replay raise; main's `except` must name the canonical class (OME-1273).
+    from screamingface_engine_inspect.importer import main as _canonical_main
+
+    sys.exit(_canonical_main())
