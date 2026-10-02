@@ -19,8 +19,9 @@ AIDEV-NOTE: the comparison key conflates JSON types on purpose (v1): the text ``
 boolean ``true`` share a key, so do ``"[1,2]"`` and ``[1,2]``, and ``text`` casefolds a whole
 object's canonical text, keys included. A JSON number is read as the number it is (max), never
 through the 64-char / 2-digit-exponent limits of ``numeric@1``; only a string goes through them.
-A field rule, projection or equals pick that finds no usable value raises ``NoVotes`` (reason
-``no_votes``); the core turns it into an abstain (OME-1289 gap AB-D4). from_member null is a value.
+INVARIANT: a field rule, projection or equals pick that finds no usable value raises ``NoVotes``
+(reason ``no_votes``); the core turns it into an abstain (OME-1289 gap AB-D4). from_member null is
+a value.
 """
 
 from __future__ import annotations

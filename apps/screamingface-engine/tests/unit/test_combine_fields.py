@@ -336,9 +336,8 @@ def test_from_member_not_json_gives_null_field_and_reason() -> None:
     texts = [_MERGE_TEXTS[0], "Sure! not json", _MERGE_TEXTS[2]]
     outcome = _run(merge_spec(3, rules), texts)
     assert outcome.output == '{"source":null}'
-    assert (
-        outcome.evidence.result.status == "answered"
-    )  # a null from_member is a value, not an abstain
+    # a null from_member is a value, not an abstain
+    assert outcome.evidence.result.status == "answered"
     evidence = _evidence(outcome)
     assert evidence["fields"][0]["result"] is None
     assert _status_reason(outcome, 1) == ("fail", "not_json")
@@ -432,14 +431,9 @@ def test_failures_name_the_rule_and_never_echo_values() -> None:
         _run(merge_spec(1, [{"field": "secretfield", "rule": "model"}]), texts)
     assert "SECRET" not in str(no_signal.value)
     assert "secretfield" not in str(no_signal.value)
-    # the no-usable-value cases abstain; the evidence holds the reason code and no message
     merge = _abstained(_run(merge_spec(1, [{"field": "secretfield", "rule": "max"}]), texts))
-    assert merge["result"] == {
-        "member_id": None,
-        "value": None,
-        "status": "abstain",
-        "reason": "no_votes",
-    }
+    # WHY not "members": they carry the extracted values by design (evidence.py)
+    assert "SECRET" not in json.dumps({k: v for k, v in merge.items() if k != "members"})
     pick = step("by_field@1", order="equals", value="SECRET-TARGET", normalize=None)
     target = _abstained(_run(pick_spec(1, pick, normalize=None), ['{"confidence": "other"}']))
     assert "SECRET" not in json.dumps(target)

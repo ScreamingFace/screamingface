@@ -11,7 +11,6 @@ mark reads only the final operation's own evidence (unit 3).
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 
 import httpx
 import pytest
@@ -80,9 +79,9 @@ def _expression() -> str:
     return render(expr(*members, combine, intent=text("$synthesis_1")))
 
 
-async def _evaluate(responder: Callable[[httpx.Request], httpx.Response]) -> str:
+async def _evaluate() -> str:
     client = httpx.AsyncClient(
-        transport=httpx.MockTransport(responder), base_url="http://aigateway.test"
+        transport=httpx.MockTransport(_respond), base_url="http://aigateway.test"
     )
     world = await build_aigateway_world(
         AigatewayConfig(
@@ -100,7 +99,7 @@ async def _evaluate(responder: Callable[[httpx.Request], httpx.Response]) -> str
 
 @pytest.mark.asyncio
 async def test_a_final_merge_that_abstains_marks_the_case() -> None:
-    encoded = await _evaluate(_respond)
+    encoded = await _evaluate()
 
     decoded = decode_candidate_invocation_record(encoded)
 
