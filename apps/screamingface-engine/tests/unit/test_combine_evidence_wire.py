@@ -253,6 +253,9 @@ def test_envelope_dump_key_order_is_declaration_order() -> None:
         "median",
         "presentation_order",
         "separator_collision",
+        "signal",
+        "result",
+        "dropped",
         "finish_reason",
     ]
 
