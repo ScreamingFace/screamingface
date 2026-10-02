@@ -169,3 +169,21 @@ only `vote_benchmark_gsm8k_3`. Unit 4's `report.v1` goldens are unchanged.
 - `json`, `field` and `regex` have no arg-less Vote form; `json_object@1` arrives in 9E (BK#4 note).
 - Not done by design (section 4): BK#14, weights on Vote, `sf.Extract` into Vote, `answer_rule` on
   `discovery.Benchmark`, any Engine source change, the D-10 stage check in `_from_spec`.
+
+### PRD row to test name
+
+The spec names one test per row; three rows were split, and the names changed.
+
+| Row | Tests |
+|---|---|
+| BK#4 | `test_every_plurality_row_matches_vote`, `test_every_median_row_matches_median`, `test_benchmark_rows_match_their_named_form` (`test_vote_median_blocks.py`) |
+| GP#11 | `test_benchmark_extract_with_normalize_raises`, `test_benchmark_extract_takes_no_version_and_no_median`, `test_benchmark_vote_value_semantics` (`test_benchmark_answer_rule.py`) |
+| AR#11 | `test_pipeline_member_text_is_its_final_operation_output` (a), `test_vote_inside_a_pipeline_answers_only_for_its_own_combine_step` (b) (`test_vote_answers_trace.py`) |
+| BK#8 | `test_recovered_spec_prefers_named_class_else_reduce`, `test_named_refusal_falls_back_and_an_unrebuildable_spec_still_refuses`, `test_benchmark_extract_op_in_a_hand_edited_url4_is_refused` (`bare` and `benchmark@1`) |
+
+### Known gap (next to D-10)
+
+`Vote._from_spec`, `Median._from_spec` and `Reduce._from_spec` compare the reduce and select ops, and
+Median's normalize op, by name only (`_op_name`). A url4 that carries `mode@2` is rebuilt as the
+named form, and a recompile re-pins `mode` to the newest version the Engine serves. This is the same
+shape as D-10 (no stage check in `_from_spec`). Not fixed in this unit.
