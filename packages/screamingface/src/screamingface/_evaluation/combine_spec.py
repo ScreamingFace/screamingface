@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping
 from typing import NoReturn, cast
 
+from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule, resolve_benchmark_rule
 from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
 from screamingface.reducer import REDUCER_NAMES, Reducer, _Step
@@ -38,10 +39,19 @@ def canonical_json(value: object) -> str:
     )
 
 
-def combine_spec_text(reducer: Reducer, *, member_count: int, operators: _OperatorCatalog) -> str:
-    """Build the canonical combine spec for ``reducer`` with every operator pinned."""
+def combine_spec_text(
+    reducer: Reducer,
+    *,
+    member_count: int,
+    operators: _OperatorCatalog,
+    benchmark_rule: _BenchmarkAnswerRule | None = None,
+) -> str:
+    """Build the canonical combine spec for ``reducer`` with every operator pinned.
 
-    plan = reducer._plan()
+    ``benchmark_rule`` is read only by ``extract='benchmark'`` (GP-1).
+    """
+
+    plan = resolve_benchmark_rule(reducer._plan(), benchmark_rule, operators)
     if plan.reducer not in REDUCER_NAMES:
         raise ValueError(f"{plan.reducer!r} is not a known reducer")
     steps = plan.steps

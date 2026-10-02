@@ -17,7 +17,8 @@ from typing import NoReturn, cast
 
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
-from screamingface._evaluation.operators import is_pinned_operator_id
+from screamingface._evaluation.operators import _OperatorCatalog, is_pinned_operator_id
+from screamingface.reducer import _ReducerPlan
 
 type _Invalid = Callable[[str], NoReturn]
 
@@ -69,6 +70,21 @@ def _step_op(value: object, field: str, invalid: _Invalid) -> str:
             "(v1 rules take no operator args)"
         )
     return cast(str, op)
+
+
+def resolve_benchmark_rule(
+    plan: _ReducerPlan, benchmark: _BenchmarkAnswerRule | None, operators: _OperatorCatalog
+) -> _ReducerPlan:
+    """Fill a plan's extract and normalize steps from the benchmark's answer rule (GP-1)."""
+
+    if not plan.benchmark_rule:
+        return plan
+    if benchmark is None:
+        raise ValueError(
+            "extract='benchmark' needs a benchmark; "
+            "evaluate the Candidate with client.evaluate(..., benchmark=...)"
+        )
+    raise NotImplementedError  # STUB: the rule branches arrive with the evaluation commit
 
 
 __all__: list[str] = []

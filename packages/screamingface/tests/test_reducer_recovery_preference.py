@@ -103,6 +103,11 @@ def test_named_refusal_falls_back_and_an_unrebuildable_spec_still_refuses(
     with pytest.raises(ValueError, match="cannot rebuild"):
         _reducer_from_call(_call_with(spec_median))
 
+    # A hand-edited url4 cannot name the benchmark's rule: Vote refuses it, so does sf.Reduce.
+    benchmark_extract = {**spec, "extract": {"op": "benchmark@1", "args": {}}}
+    with pytest.raises(ValueError, match="cannot rebuild"):
+        _reducer_from_call(_call_with(benchmark_extract))
+
     # With no named class registered, the same url4 comes back as the block.
     monkeypatch.setattr(reducer_module, "_REDUCER_CLASSES", {})
     recovered = _reducer_from_call(_synthesis_call(vote_url4))

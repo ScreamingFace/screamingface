@@ -53,6 +53,12 @@ class _ReducerPlan:
     kind: _ReducerKind
     steps: _Steps
     weights: tuple[float, ...] | None = None
+    # FEATURE (GP-1): extract and normalize come from the selected benchmark's answer rule; the
+    # builder leaves both steps None and compile (resolve_benchmark_rule) fills them before pinning.
+    benchmark_rule: bool = False
+
+
+BENCHMARK_EXTRACT = "benchmark"  # the rule name sf.Vote, sf.Median and sf.Extract share
 
 
 class Reducer(ABC):
@@ -113,30 +119,67 @@ def _spec_ops(spec: Mapping[str, object], name: str) -> dict[str, str | None]:
     return ops
 
 
+class _DefaultNormalize(str):
+    """sf.Vote's default normalizer, told apart from an explicit normalize='text' (GP-E2).
+
+    WHY a str subclass: the public signature (and its snapshot) still renders ``= 'text'``.
+    """
+
+    __slots__ = ()
+
+
+_DEFAULT_NORMALIZE: str = _DefaultNormalize("text")
+
+
+def _vote_normalize(extract: str, normalize: str | None) -> str | None:
+    """The normalizer a Vote stores; extract='benchmark' takes the benchmark's own (GP-E2)."""
+
+    if _op_name(extract) != BENCHMARK_EXTRACT:
+        if normalize is not None:
+            _Step(normalize)  # TypeError for a non-str or blank name
+        return None if normalize is None else str(normalize)
+    if extract != BENCHMARK_EXTRACT:
+        raise ValueError(
+            "extract='benchmark' names the benchmark's answer rule and takes no version"
+        )
+    if normalize is not _DEFAULT_NORMALIZE:
+        raise ValueError(
+            "sf.Vote(extract='benchmark') takes the benchmark's own normalizer; "
+            "v1 does not let a recipe change it"
+        )
+    return None
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Vote(Reducer):
-    """Plurality vote: the first member (author order) holding the most common answer, verbatim."""
+    """Plurality vote: the first member (author order) holding the most common answer, verbatim.
+
+    ``extract='benchmark'`` reads answers with the benchmark's own grading rule (resolved before any
+    spend); for rules with arguments use
+    ``sf.Reduce('plurality', extract=sf.Extract('regex', pattern=...))``.
+    """
 
     name: str
     extract: str
     normalize: str | None
 
-    def __init__(self, *, extract: str = "last_line", normalize: str | None = "text") -> None:
+    def __init__(
+        self, *, extract: str = "last_line", normalize: str | None = _DEFAULT_NORMALIZE
+    ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
-        if normalize is not None:
-            _Step(normalize)
         object.__setattr__(self, "name", "vote")
         object.__setattr__(self, "extract", extract)
-        object.__setattr__(self, "normalize", normalize)
+        object.__setattr__(self, "normalize", _vote_normalize(extract, normalize))
 
     def _plan(self) -> _ReducerPlan:
+        benchmark = self.extract == BENCHMARK_EXTRACT
         steps = _Steps(
             reduce=_Step("mode"),
             select=_Step("first_holder"),
-            extract=_Step(self.extract),
+            extract=None if benchmark else _Step(self.extract),
             normalize=None if self.normalize is None else _Step(self.normalize),
         )
-        return _ReducerPlan("vote", "answer", steps)
+        return _ReducerPlan("vote", "answer", steps, benchmark_rule=benchmark)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Vote:
@@ -152,6 +195,8 @@ class Vote(Reducer):
         return cls(extract=extract, normalize=ops["normalize"])
 
     def __repr__(self) -> str:
+        if self.extract == BENCHMARK_EXTRACT:
+            return f"Vote(extract={self.extract!r})"
         return f"Vote(extract={self.extract!r}, normalize={self.normalize!r})"
 
     __hash__: ClassVar[Any] = None
@@ -168,6 +213,11 @@ class Median(Reducer):
     def __init__(self, *, extract: str = "last_number", select: str = "nearest") -> None:
         _Step(extract)
         _Step(select)
+        if _op_name(extract) == BENCHMARK_EXTRACT:
+            raise ValueError(
+                "sf.Median needs the numeric normalizer, so it cannot read extract='benchmark' "
+                "(the benchmark brings its own normalizer)"
+            )
         if _op_name(select) not in _MEDIAN_SELECTS:
             raise ValueError(f"Median select must be 'nearest' or 'value', not {select!r}")
         object.__setattr__(self, "name", "median")

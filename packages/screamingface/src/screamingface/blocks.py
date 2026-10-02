@@ -16,7 +16,7 @@ from typing import Literal
 
 from screamingface._regex_rule import check_regex
 from screamingface._signals import FIELD_PATH, Signal
-from screamingface.reducer import Reducer, _ReducerPlan, _Step, _Steps
+from screamingface.reducer import BENCHMARK_EXTRACT, Reducer, _ReducerPlan, _Step, _Steps
 
 type ExtractRule = Literal[
     "boxed",
@@ -42,12 +42,14 @@ _RULES: Mapping[str, tuple[str | None, tuple[str, ...], tuple[str, ...]]] = Mapp
         "last_line": ("last_line", (), ()),
         "whole": ("whole", (), ()),
         "json": ("json_object", (), ()),
-        "benchmark": (None, (), ()),
+        BENCHMARK_EXTRACT: (None, (), ()),
         "inspect_number": ("inspect_number", (), ()),
         "inspect_aime": ("inspect_aime", (), ()),
     }
 )
 _NORMALIZERS = ("numeric", "text", "set", "inspect_numeric", "identity")
+# The rules a recipe can name for itself: every rule except the benchmark's own (GP-E1 message).
+NAMED_EXTRACT_RULES: tuple[str, ...] = tuple(rule for rule in _RULES if rule != BENCHMARK_EXTRACT)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -475,11 +477,25 @@ def _source(value: object) -> str:
     return repr(value) if python is None else python()
 
 
+def _answer_steps(extract: Extract) -> tuple[_Step | None, _Step | None, bool]:
+    """The extract and normalize steps of an Extract, and whether the benchmark supplies them."""
+
+    if extract.rule == BENCHMARK_EXTRACT:
+        return None, None, True
+    return (*extract._steps(), False)
+
+
 def _vote_plan(block: Reduce, *, reduce: str, select: str) -> _ReducerPlan:
-    extract, normalize = _extract_of(block)._steps()
+    extract, normalize, benchmark = _answer_steps(_extract_of(block))
     weights = block.options.get("weights")
     steps = _Steps(extract=extract, normalize=normalize, reduce=_Step(reduce), select=_Step(select))
-    return _ReducerPlan("vote", "answer", steps, weights if isinstance(weights, tuple) else None)
+    return _ReducerPlan(
+        "vote",
+        "answer",
+        steps,
+        weights if isinstance(weights, tuple) else None,
+        benchmark_rule=benchmark,
+    )
 
 
 def _plurality_plan(block: Reduce) -> _ReducerPlan:
