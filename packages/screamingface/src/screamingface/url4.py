@@ -26,6 +26,7 @@ from url4 import (
 )
 from url4.core.nodes import children
 
+from screamingface import _candidate_policy
 from screamingface import reducer as reducer_module
 from screamingface._benchmark_identity import benchmark_id as _flat_benchmark_id
 from screamingface._evaluation.combine_spec import (
@@ -36,13 +37,18 @@ from screamingface._evaluation.combine_spec import (
 from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
 from screamingface._evaluation.topology import (
+    _SIGNAL_ROLES,
     _RecipeTopology,
+    _SignalTopology,
     _topology_bindings,
     _topology_from_expression,
 )
-from screamingface._operation_bindings import OPERATION_BINDING
+from screamingface._operation_bindings import (
+    OPERATION_BINDING,
+    OPERATION_BINDING_PARAM,
+)
 from screamingface.blocks import Reduce
-from screamingface.reducer import Reducer
+from screamingface.reducer import Reducer, _ModelSignal
 from screamingface.warnings import DuplicateMembersWarning
 
 if TYPE_CHECKING:
@@ -65,6 +71,9 @@ _NESTED_RECIPE_ROUTES = frozenset(
     }
 )
 _DEFAULT_CORRECTIVE_ROUNDS = 3
+_MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
+_CONTEXT_SIGNALS = re.compile(r"signals: \{([^{}]*)\}\}\Z")
+_SIGNAL_KEY = re.compile(r"([A-Za-z0-9_]+): '")
 
 
 class Url4(str):
@@ -88,6 +97,7 @@ class _Call:
     binding: str
     model: str
     dependencies: tuple[str, ...]
+    context: str
     prompt: str
     params: tuple[tuple[str, str], ...]
     raw_intent: str
@@ -152,6 +162,7 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
             binding=node.name,
             model=node.value.path.removeprefix("/"),
             dependencies=dependencies,
+            context=context,
             prompt=_python_text(node.value.intent.value),
             params=_params(node.value.params),
             raw_intent=node.value.intent.value,
@@ -272,7 +283,7 @@ def _render_topology(
     elif value.kind in {"corrective_loop", "self_corrective"}:
         lines = _render_corrective_topology(value, calls, indent=indent)
     elif value.kind == "reducer":
-        lines = [f"{' ' * indent}{_reducer_from_call(calls[value.binding])._python()}"]
+        lines = [f"{' ' * indent}{_reducer_from_topology(value, calls)._python()}"]
     else:
         lines = _render_fusion_topology(value, calls, indent=indent)
     if value.optional:
@@ -437,34 +448,91 @@ def _has_fusion_policy(value: _RecipeTopology) -> bool:
     return any(_has_fusion_policy(child) for child in children)
 
 
+def _binding_first(call: _Call) -> bool:
+    return call.params[:1] == ((OPERATION_BINDING_PARAM, call.binding),)
+
+
 def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
     """A reducer node is exactly a combine call (and its intent a valid spec), and only that."""
 
     if (node.kind == "reducer") != (call.model == COMBINE_MODEL):
-        raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
-    if node.kind != "reducer":
-        return
+        raise ValueError(_MODEL_CALLS)
+    if node.kind == "reducer":
+        _require_reducer_call(node, call)
+    elif node.role in _SIGNAL_ROLES:
+        # INVARIANT: the binding param also keeps a signal call apart from a same-route member.
+        if not _binding_first(call):
+            raise ValueError(_MODEL_CALLS)
+    elif any(name == OPERATION_BINDING_PARAM for name, _ in call.params):
+        # A member or synthesis call never carries it (a user param cannot name it either).
+        raise ValueError(_MODEL_CALLS)
+
+
+def _require_reducer_call(node: _RecipeTopology, call: _Call) -> None:
     spec = decode_combine_spec(call.raw_intent)
-    # INVARIANT: the binding param is what keeps two reducers' evidence apart, and the node's
-    # name is the spec's reducer; either one drifting means the url4 was edited by hand.
-    if call.params != (("binding", call.binding),) or node.name != spec["reducer"]:
-        raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+    # INVARIANT: the binding param is what keeps two reducers' evidence apart, the node's name is
+    # the spec's reducer, and the context's signal keys are the node's: any of them drifting means
+    # the url4 was edited by hand.
+    if (
+        call.params != ((OPERATION_BINDING_PARAM, call.binding),)
+        or node.name != spec["reducer"]
+        or _context_signal_keys(call.context) != tuple(signal.key for signal in node.signals)
+    ):
+        raise ValueError(_MODEL_CALLS)
+
+
+def _context_signal_keys(context: str) -> tuple[str, ...]:
+    """The keys of the ``signals`` struct that ends a combine call's context (none if absent)."""
+
+    match = _CONTEXT_SIGNALS.search(context)
+    return () if match is None else tuple(_SIGNAL_KEY.findall(match.group(1)))
 
 
 def _reducer_from_call(call: _Call) -> Reducer:
-    """The named reducer when its own _from_spec accepts the spec exactly (BK-D2), else sf.Reduce.
+    """The reducer a combine call holds when it reads no signal call (a pure rule)."""
+
+    return _rebuilt_reducer(decode_combine_spec(call.raw_intent), ())
+
+
+def _reducer_from_topology(node: _RecipeTopology, calls: dict[str, _Call]) -> Reducer:
+    """Rebuild the reducer a node names from its combine call and the signal calls it reads."""
+
+    call = calls.get(node.binding)
+    if call is None:
+        raise ValueError(_MODEL_CALLS)
+    spec = decode_combine_spec(call.raw_intent)
+    return _rebuilt_reducer(spec, tuple(_model_signal(signal, calls) for signal in node.signals))
+
+
+def _rebuilt_reducer(spec: dict[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
+    """The named reducer when its own _rebuild accepts the spec exactly (BK-D2), else sf.Reduce.
 
     WHY suppress: a named class refusing a spec (step args, weights it cannot hold) means only
-    "not this named form"; sf.Reduce then rebuilds it or refuses with "cannot rebuild".
+    "not this named form"; sf.Reduce then rebuilds it. When both refuse, the named class's error
+    is the one raised, because it says what the spec was meant to be.
     """
 
-    spec = decode_combine_spec(call.raw_intent)
     # WHY through the module: the registry may be replaced as a whole (tests do).
     named = reducer_module._REDUCER_CLASSES.get(str(spec["reducer"]))
-    if named is not None:
+    if named is None:
+        return Reduce._rebuild(spec, signals)
+    try:
+        return named._rebuild(spec, signals)
+    except (TypeError, ValueError):
         with contextlib.suppress(TypeError, ValueError):
-            return named._from_spec(spec)
-    return Reduce._from_spec(spec)
+            return Reduce._rebuild(spec, signals)
+        raise
+
+
+def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSignal:
+    call = calls.get(signal.source.binding)
+    if call is None or not _binding_first(call):
+        raise ValueError(_MODEL_CALLS)
+    params = _candidate_policy.params(
+        {name: _scalar(value) for name, value in call.params[1:]},
+        f"{signal.source.role} params",
+    )
+    return _ModelSignal(signal.key, call.model, call.prompt, params)
 
 
 def _validate_compiled_corrective(
@@ -553,10 +621,7 @@ def _recipe_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
 def _synthesizer_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe | Reducer:
     if value.kind != "reducer":
         return _recipe_from_topology(value, calls)
-    call = calls.get(value.binding)
-    if call is None:
-        raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
-    return _reducer_from_call(call)
+    return _reducer_from_topology(value, calls)
 
 
 def _editable_params(call: _Call) -> dict[str, str | int | float | bool]:

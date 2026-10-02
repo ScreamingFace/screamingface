@@ -35,6 +35,7 @@ from screamingface._evaluation.topology import (
     _RecipeTopology,
     _topology_source,
 )
+from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.fusion import Fusion
@@ -168,6 +169,8 @@ class _CandidateCompiler:
         self._model_count = 0
         self._synthesis_count = 0
         self._panel_count = 0
+        self._judge_count = 0
+        self._writer_count = 0
         self._check_surface = check_surface
         self._operators = operators
         self._benchmark_rule = benchmark_rule
@@ -573,37 +576,37 @@ class _CandidateCompiler:
             operators=self._operators,
             benchmark_rule=self._benchmark_rule,
         )
-        # The combine call reads the same question-and-panel value a Model synthesizer does;
-        # building it here keeps a later extra input (signals) a local change.
-        context = _fusion_context(
-            input_context, members, self._claim_accounting_sources(reducer, members), panel=panel
+        sources = self._claim_accounting_sources(reducer, members)
+        # Lazy: reducer_signals imports this module's helpers at module top.
+        from screamingface._evaluation.reducer_signals import _compile_signals
+
+        signals = _compile_signals(
+            self,
+            fusion,
+            reducer._plan(),
+            members,
+            input_context=input_context,
+            dependencies=dependencies,
         )
-        self._sources.append(
-            src(
-                RelExpr(
-                    path=COMBINE_ROUTE,
-                    context=context,
-                    intent=Text(spec),
-                    params=(("binding", binding),),
-                ),
-                name=binding,
-                weight=0.0,
-            )
-        )
-        self._operations.append(
-            _compiled_operation(
-                id=operation_id,
-                kind="combine",
-                label=f"{fusion.name} combine",
-                depends_on=dependencies,
-            )
+        # The combine call reads the same question-and-panel value a Model synthesizer does,
+        # plus the references of the model calls it reads (the signals).
+        _append_combine(
+            self,
+            binding=binding,
+            operation_id=operation_id,
+            context=_fusion_context(
+                input_context, members, signals.references, sources=sources, panel=panel
+            ),
+            spec_text=spec,
+            label=f"{fusion.name} combine",
+            depends_on=(*dependencies, *signals.operation_ids),
         )
         return _ResolvedRecipe(
             reference=f"${binding}",
             operation_id=operation_id,
             name=fusion.name,
             kind="fusion",
-            models=_ordered_unique(_member_models(members)),
+            models=_ordered_unique((*_member_models(members), *signals.models)),
             topology=_RecipeTopology(
                 kind="fusion",
                 quorum=fusion.quorum,
@@ -611,10 +614,15 @@ class _CandidateCompiler:
                 name=fusion.name,
                 binding=binding,
                 members=tuple(_required_topology(member) for member in members),
-                synthesizer=_RecipeTopology(kind="reducer", name=reducer.name, binding=binding),
+                synthesizer=_RecipeTopology(
+                    kind="reducer",
+                    name=reducer.name,
+                    binding=binding,
+                    signals=signals.topology,
+                ),
             ),
             members=members,
-            # AIDEV-NOTE: the combine call itself is never a claimant; 8S judge and writer calls
+            # AIDEV-NOTE: the combine call itself is never a claimant; judge and writer calls
             # stay out too, because their `binding` param already makes their fingerprint unique.
             calls=_member_calls(members),
         )
@@ -673,6 +681,25 @@ class _CandidateCompiler:
             calls=calls,
         )
 
+    def _next_binding(self, prefix: Literal["synthesis", "judge", "writer"]) -> str:
+        """The next ``<prefix>_N`` binding; each prefix counts on its own."""
+
+        if prefix == "synthesis":
+            self._synthesis_count += 1
+            number = self._synthesis_count
+        elif prefix == "judge":
+            self._judge_count += 1
+            number = self._judge_count
+        else:
+            self._writer_count += 1
+            number = self._writer_count
+        return f"{prefix}_{number}"
+
+    def _append_operation(self, operation: OperationInfo) -> None:
+        """Attach one operation owned by a composite compiler extension."""
+
+        self._operations.append(operation)
+
     def _record_parameter_assignment(
         self,
         operation_id: str,
@@ -690,18 +717,53 @@ class _CandidateCompiler:
         )
 
 
+def _append_combine(
+    compiler: _CandidateCompiler,
+    *,
+    binding: str,
+    operation_id: str,
+    context: str,
+    spec_text: str,
+    label: str,
+    depends_on: tuple[str, ...],
+) -> None:
+    """Attach one ``/ensemble/combine/v1`` source and its ``combine`` operation.
+
+    WHY the ``binding`` param: every combine call shares one path, so the binding is what keeps
+    two combine calls' evidence apart (the Engine matches an output by ``(path, params)``).
+    """
+
+    compiler._append_source(
+        src(
+            RelExpr(
+                path=COMBINE_ROUTE,
+                context=context,
+                intent=Text(spec_text),
+                params=((OPERATION_BINDING_PARAM, binding),),
+            ),
+            name=binding,
+            weight=0.0,
+        )
+    )
+    compiler._append_operation(
+        _compiled_operation(id=operation_id, kind="combine", label=label, depends_on=depends_on)
+    )
+
+
 def _fusion_context(
     input_context: str,
     members: tuple[_ResolvedRecipe, ...],
-    sources: Mapping[str, object] | None = None,
+    signals: Mapping[str, str] | None = None,
     *,
+    sources: Mapping[str, object] | None = None,
     panel: str | None = None,
 ) -> str:
     """Build canonical JSON at runtime so arbitrary answers remain safely escaped.
 
-    `sources` comes last and only when given, so a context without it keeps its bytes (SG#6).
-    ``panel`` replaces ``outputs`` for a quorum Fusion: it lists only the members that answered
-    (OME-1557).
+    Key order is input, outputs (or panel), signals, sources. ``signals`` (the references of the
+    model calls a reducer reads) is written only when not empty, and ``sources`` only when given,
+    so a Fusion without them keeps its exact bytes (SG#6). ``panel`` replaces ``outputs`` for a
+    quorum Fusion: it lists only the members that answered (OME-1557).
     """
 
     value: dict[str, object] = {"input": input_context}
@@ -711,6 +773,8 @@ def _fusion_context(
         }
     else:
         value["panel"] = panel
+    if signals:
+        value["signals"] = dict(signals)
     if sources is not None:
         value["sources"] = sources
     return render(struct(value))

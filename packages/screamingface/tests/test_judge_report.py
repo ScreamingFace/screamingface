@@ -35,8 +35,16 @@ def _evaluate(recipe: sf.Recipe, operations: list[dict[str, Any]]) -> sf.Report:
 
 def _judge_evidence() -> dict[str, Any]:
     members = [
-        {"member": f"member_{index}", "raw": None, "value": None, "status": "voted"}
-        | {"weight": None, "score": None}
+        {
+            "member_id": f"member_{index}",
+            "raw": None,
+            "value": None,
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        }
         for index in (1, 2, 3)
     ]
     return evidence_wire(
@@ -48,6 +56,9 @@ def _judge_evidence() -> dict[str, Any]:
         chosen=["member_2"],
         agreement=None,
         presentation_order="author",
+        result={"member_id": "member_2", "value": None, "status": "answered", "reason": None},
+        dropped=0,
+        signal=None,
     )
 
 

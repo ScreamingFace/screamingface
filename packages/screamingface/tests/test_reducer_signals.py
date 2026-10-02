@@ -16,7 +16,8 @@ from screamingface._evaluation.candidate import (
 )
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.topology import _operation_shape, _RecipeTopology
-from screamingface.reducer import FIELD_PATH, _spec_ops, _spec_steps
+from screamingface._signals import FIELD_PATH
+from screamingface.reducer import _spec_ops, _spec_steps
 
 
 def test_a_reducer_without_signals_compiles_as_before() -> None:

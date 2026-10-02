@@ -22,8 +22,7 @@ from screamingface.reducer import (
     _cannot_rebuild,
     _ModelSignal,
     _op_name,
-    _ReducerKind,
-    _ReducerName,
+    _ReducerPlan,
     _spec_steps,
     _Step,
     _Steps,
@@ -60,7 +59,7 @@ JUDGE_TEMPLATES: Mapping[str, str] = MappingProxyType(
         for returns in ("label", "scores")
     }
 )
-# The ONE description of the two judge shapes: Judge._steps() writes it, _returns_of() reads it.
+# The ONE description of the two judge shapes: Judge._plan() writes it, _returns_of() reads it.
 _JUDGE_STEPS: Mapping[JudgeReturns, _Steps] = MappingProxyType(
     {
         "label": _Steps(reduce=_Step("label"), select=_Step("by_label")),
@@ -110,20 +109,14 @@ class Judge(Reducer):
         object.__setattr__(self, "rubric", selected_rubric)
         object.__setattr__(self, "params", _candidate_policy.params(params, "judge params"))
 
-    @property
-    def _reducer(self) -> _ReducerName:
-        return "judge"
+    def _signal_call(self) -> _ModelSignal:
+        return _ModelSignal(
+            "judge", self.model, judge_intent(self.returns, self.rubric), self.params
+        )
 
-    @property
-    def _kind(self) -> _ReducerKind:
-        return "answer"
-
-    def _steps(self) -> _Steps:
-        return _JUDGE_STEPS[self.returns]
-
-    def _signals(self) -> tuple[_ModelSignal, ...]:
-        return (
-            _ModelSignal("judge", self.model, judge_intent(self.returns, self.rubric), self.params),
+    def _plan(self) -> _ReducerPlan:
+        return _ReducerPlan(
+            "judge", "answer", _JUDGE_STEPS[self.returns], signal_calls=(self._signal_call(),)
         )
 
     @classmethod

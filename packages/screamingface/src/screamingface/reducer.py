@@ -6,8 +6,9 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal, get_args
+from typing import Any, ClassVar, Literal, cast, get_args
 
+from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.operators import STAGES
 from screamingface._immutable_json import freeze_mapping
 from screamingface._signals import JUDGE_SIGNAL, Signal
@@ -44,6 +45,16 @@ class _Steps:
 
 
 @dataclass(frozen=True, slots=True)
+class _ModelSignal:
+    """One model call whose reply the combine call reads as ``context.signals[key]``."""
+
+    key: str  # "judge"; 9S adds "writer_<field>"
+    model: str  # the route as sf.Model stores it
+    prompt: str  # the full system text in Python form ("\n" newlines)
+    params: GenerationParams
+
+
+@dataclass(frozen=True, slots=True)
 class _ReducerPlan:
     """What a reducer compiles to: the combine spec minus its member list, with unpinned ops.
 
@@ -58,6 +69,9 @@ class _ReducerPlan:
     # FEATURE (GP-1): extract and normalize come from the selected benchmark's answer rule; the
     # builder leaves both steps None and compile (resolve_benchmark_rule) fills them before pinning.
     benchmark_rule: bool = False
+    # AIDEV-NOTE: the model calls the combine call reads besides its members. 9S adds writer calls
+    # and 10S Rank-by-judge calls here, so a block and its named form keep sharing one plan.
+    signal_calls: tuple[_ModelSignal, ...] = ()
 
 
 BENCHMARK_EXTRACT = "benchmark"  # the rule name sf.Vote, sf.Median and sf.Extract share
@@ -80,6 +94,14 @@ class Reducer(ABC):
     @abstractmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Reducer:
         """Rebuild an equal reducer (pinned ids) from a decoded combine spec."""
+
+    @classmethod
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
+        """Rebuild from a decoded spec plus the model calls it reads (url4). A pure rule refuses
+        signals."""
+        if signals:
+            raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
+        return cls._from_spec(spec)
 
     def _python(self) -> str:
         """The ``sf.`` source that rebuilds this reducer (read by ``Url4.to_python``)."""
@@ -105,19 +127,28 @@ def _cannot_rebuild(name: str) -> ValueError:
     return ValueError(f"URL4 Candidate has a {name} spec this SDK version cannot rebuild")
 
 
+def _spec_steps(spec: Mapping[str, object]) -> dict[str, tuple[str, Mapping[str, object]] | None]:
+    """stage -> (pinned op id, args), None for an absent step: what a decoded spec holds."""
+
+    steps: dict[str, tuple[str, Mapping[str, object]] | None] = {}
+    for stage in STAGES:
+        step = spec[stage]
+        if step is None:
+            steps[stage] = None
+            continue
+        assert isinstance(step, Mapping)
+        steps[stage] = (str(step["op"]), cast("Mapping[str, object]", step["args"]))
+    return steps
+
+
 def _spec_ops(spec: Mapping[str, object], name: str) -> dict[str, str | None]:
     """stage -> pinned op id (None for an absent step). Refuses step args: v1 takes none."""
 
     ops: dict[str, str | None] = {}
-    for stage in STAGES:
-        step = spec[stage]
-        if step is None:
-            ops[stage] = None
-            continue
-        assert isinstance(step, Mapping)
-        if step["args"]:
+    for stage, step in _spec_steps(spec).items():
+        if step is not None and step[1]:
             raise _cannot_rebuild(name)
-        ops[stage] = str(step["op"])
+        ops[stage] = None if step is None else step[0]
     return ops
 
 

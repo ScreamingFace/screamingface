@@ -2,7 +2,7 @@
 
 A signal is one extra model call whose reply the combine call receives as
 ``context.signals[key]``. This module is the one place that turns a reducer's
-``_ModelSignal`` values into url4 sources, operations and topology nodes.
+``_ModelSignal`` values (``plan.signal_calls``) into url4 sources, operations and topology nodes.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from screamingface._evaluation.topology import (
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface.fusion import Fusion
-from screamingface.reducer import Reducer, _ModelSignal
+from screamingface.reducer import _ModelSignal, _ReducerPlan
 
 if TYPE_CHECKING:
     from screamingface._evaluation.candidate import _CandidateCompiler
@@ -49,7 +49,7 @@ class _CompiledSignals:
 def _compile_signals(
     compiler: _CandidateCompiler,
     fusion: Fusion,
-    reducer: Reducer,
+    plan: _ReducerPlan,
     members: tuple[_ResolvedRecipe, ...],
     *,
     input_context: str,
@@ -57,7 +57,7 @@ def _compile_signals(
 ) -> _CompiledSignals:
     """Attach one source per signal, in declared order, and describe them for the combine call."""
 
-    signals = reducer._signals()
+    signals = plan.signal_calls
     if not signals:
         return _CompiledSignals(MappingProxyType({}), (), (), ())
     # WHY no signals in the signal calls' own context: a signal reads the members, not itself.
