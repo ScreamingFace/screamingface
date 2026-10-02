@@ -52,7 +52,8 @@ mechanism to `.py` test files and JSON fixtures under `tests/`. The ticket (`OME
   and type changes still fail regardless.
 - **Commits:** `feat(gates): let blob-pinned owner approvals cover Python tests and JSON fixtures`
   (sha in the PR and the Linear close comment).
-- **Gates:** new suite 14/14; `test_approved_ts_change.py`, `test_run_gates.py`,
+- **Gates:** new suite 16/16 (review follow-up added two changed-baseline tests; mutating
+  the `base_blob` comparison to `True` now fails both); `test_approved_ts_change.py`, `test_run_gates.py`,
   `test_pre_push.py`, `test_check_mirror_status.py` green and unmodified;
   `run_gates.py aigateway --base origin/main` → ALL GATES GREEN with the append-only check on.
   Existing approvals replayed on their branches with the new scripts: OME-939 (aigateway +
@@ -60,4 +61,4 @@ mechanism to `.py` test files and JSON fixtures under `tests/`. The ticket (`OME
   pass where the old scripts failed; OME-1322 (aigateway-ui, TS) passes under both.
 - **Deviations:** `.claude/scripts/tests` are not run by any CI workflow except
   `test_check_mirror_status.py`; they were run locally via `uv run <file>` per their docstrings.
-  The OME-1134 manifest's `note` ("never exempts Python tests") is now stale; left untouched.
+  The OME-1134 manifest's stale `note` was updated (doc-only; blobs untouched) on review request.

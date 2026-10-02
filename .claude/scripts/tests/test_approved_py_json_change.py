@@ -263,5 +263,51 @@ class ApprovedJsonFixtureTests(unittest.TestCase):
             self.assertFalse(check(root, base)[0])
 
 
+def rebase_baseline(root: pathlib.Path, rel: str, content: str) -> str:
+    """Commit a different baseline for `rel` after approval; keep the approved bytes."""
+    approved = (root / rel).read_bytes()
+    write(root, rel, content)
+    git(root, "add", rel)
+    git(
+        root,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "baseline moved",
+    )
+    (root / rel).write_bytes(approved)
+    return git(root, "rev-parse", "HEAD")
+
+
+class ChangedBaselineTests(unittest.TestCase):
+    # INVARIANT: the approval pins the transition, not just the result — the same
+    # approved bytes over a baseline the owner never saw must fail (review of #1232:
+    # dropping the base_blob comparison survived every other test).
+    def _assert_moved_baseline_fails(self, rel: str, new: str, moved: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            base = setup(root)
+            write(root, rel, new)
+            approve(root, base, [rel])
+            self.assertTrue(check(root, base)[0])  # control: valid at its own base
+            moved_base = rebase_baseline(root, rel, moved)
+            ok, out = check(root, moved_base)
+            self.assertFalse(ok)
+            self.assertIn(rel.removeprefix(f"{_STACK}/"), out)
+
+    def test_a_python_approval_over_a_changed_baseline_fails(self) -> None:
+        moved = 'def test_message():\n    assert render() == "provider call failed"\n'
+        self._assert_moved_baseline_fails(_PY, _PY_NEW, moved)
+
+    def test_a_json_approval_over_a_changed_baseline_fails(self) -> None:
+        moved = '{"ConnectionStatus": "Literal[\'connected\']"}\n'
+        self._assert_moved_baseline_fails(_JSON, _JSON_NEW, moved)
+
+
 if __name__ == "__main__":
     unittest.main()

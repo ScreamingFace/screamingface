@@ -5,7 +5,7 @@
   "date": "2026-10-01",
   "scope": "signature-only: keyword-only traceparent param on 9 fakes implementing ModelParameterSource/ModelAdmissionSource; no assertion changes",
   "reason": "protocol widened to thread traceparent explicitly per ticket; avoids Credential cache-key trap",
-  "note": "Applied as 8 fake methods in 4 files. test_selector_refusal.py imports _ParameterSource from test_model_parameters_proxy.py, so it needed no edit. The append-only checker never exempts Python tests through this manifest (approved_test_changes.py is TS/TSX only). The manifest records the approval and pins the exact blobs.",
+  "note": "Applied as 8 fake methods in 4 files. test_selector_refusal.py imports _ParameterSource from test_model_parameters_proxy.py, so it needed no edit. When this landed, approved_test_changes.py was TS/TSX only, so the gate ran with --skip-append-only. Since OME-1468 the checker also honors Python-test and JSON-fixture approvals, so these blob pins are now enforced.",
   "files": {
     "apps/screamingface-engine/tests/unit/test_dynamic_model_admission.py": {
       "base_blob": "ce392217dbc3c786445aeead9f0e223b2c175b44",
