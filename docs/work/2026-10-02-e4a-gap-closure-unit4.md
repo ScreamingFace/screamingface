@@ -147,7 +147,7 @@ J `feat(sdk): derive the per-Case trace ...`; K `test(sdk): pin the public block
 
 `git diff e4a-engine-wiring-evidence -- packages/screamingface/tests/public_surface_snapshot.json`
 shows only: `sf.Answer`, `sf.Extract`, `sf.Reduce`, `sf.matches`, `sf.signal`; `sf.report.TraceEntry`;
-`CaseResult.abstained`/`answers`/`trace`; `CandidateResult.abstained_count`/`answers`/`trace`;
+`CaseResult.abstained`/`answers`/`trace` (under both `sf` and `sf.report`); `CandidateResult.abstained_count`;
 `Report.trace_dict`; the `CombineEvidence` signature (`result`, `dropped`, `signal`, Answer rows);
 and the entries the earlier unit 4 commits already added (`EngineCapabilityError`, the Fusion
 `synthesizer` annotation).
@@ -166,3 +166,33 @@ uses `last_number`.
 - F17: the `Answer` field set has no `operation_id`; callers scope with `answers(operation_id=...)`.
 - Open for review: `Reduce("pick_field", equals=True) == Reduce("pick_field", equals=1)` (Python
   equality of `True` and `1`); `pick_field` does not compile in this unit, so no bytes depend on it.
+
+## Review round (Opus review: accept after fixes)
+
+The branch was rebased by the orchestrator onto the final unit 3 tip (`1e356cb7d`). One fix round:
+
+- `e798cda39` MAJOR 1: `sf.Extract("field", path=...)` needs text (`TypeError` for `True`, `None`, `3`).
+- `dc29603a5` 2: `sf.Reduce` has its own `__eq__`/`__hash__` over a key with each option's type, so
+  `equals=True`, `1` and `1.0` stay three blocks; one renderer for `__repr__`/`_python`; `Extract`
+  drops the default `ignore_case=False` (as `sf.matches` already did).
+- `b0f9a95d0` 3: the url4 recovery (`_from_spec`) checks data with `isinstance` and raises
+  `ValueError` ("cannot rebuild"), no `assert`; merged the identical median raises.
+- `0681d4738` 4: `CandidateResult.__init__` binds the operation graph as its last step; a Candidate
+  that fails validation leaves its Cases unbound.
+- `e30a0ecc8` 5: the signal-key conformance test reads the Engine's corpus by AST from
+  `apps/screamingface-engine/tests/unit/test_combine_ports.py` (the workflow path filters gain that
+  file).
+- `ef9818028` 6: `\z` is accepted (rewritten to `\Z` for the Python-side check); `[[:class:]]` and
+  `[:class:]` are refused before the compile (no `FutureWarning`); `\Q..\E`, `\C`, `\x{..}` stay
+  refused; docstring and CHANGELOG say the check is stricter than RE2 there. The test module runs
+  with `error::FutureWarning`. Not covered: other Python-only `FutureWarning` set syntax such as
+  `[a&&b]` (same meaning in RE2 and Python today, only the warning differs).
+- `236a5cd28` 7: `CombineAnswerRow` refuses a `fail` row with an abstain reason.
+- `c8cfbc330` 8: weighted `_from_spec` with 12 members (the `member_10` ordering), exact messages in
+  the Reduce and evidence tests, the lazy-import test reads `ast` imports.
+- `c4d6fccb6` NITs: `_require_abstained` tests `refusal is not None`; `_cache_label` docstring;
+  `sf.__all__` order; the snapshot note above; the needless `type: ignore` is gone (the one on the
+  `normalize` argument stays: pyright needs it).
+
+RED seen first: items 1, 2, 3, 4, 6, 7 (item 7 by temporarily restoring the old source). Items 5, 8
+and the nits changed tests or wording only and passed at once (item 5 was a rewrite of a vacuous test).
