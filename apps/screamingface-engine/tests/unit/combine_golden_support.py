@@ -180,6 +180,62 @@ def median_scenario() -> str:
     return _bytes_of(builtin_median_spec(len(_SPREAD_TEXTS)), _SPREAD_TEXTS)
 
 
+def regex_scenario() -> str:
+    """Output and evidence JSON of a regex@1 vote with ties, a U-umlaut and a no-match member."""
+    texts = (
+        "Final: B",
+        "Final: A",
+        "Final: b",
+        "Final: a",
+        "no marker",
+        "Final: \u00dc",
+        "Final: \u00fc",
+    )
+    extract = {"op": "regex@1", "args": {"pattern": r"Final: (\w+)", "group": 1}}
+    spec = vote_spec(
+        len(texts),
+        extract=extract,
+        normalize=_step("text@1"),
+        reduce=_step("mode@1"),
+        select=_step("first_holder@1"),
+    )
+    return _bytes_of(spec, texts)
+
+
+def set_scenario() -> str:
+    """Output and evidence JSON of a set@1 vote over comma text and JSON lists."""
+    texts = ("rome, paris", "Paris,Rome", "b, a", "A , B", '["x","y"]', "c")
+    spec = vote_spec(
+        len(texts),
+        extract=_step("whole@1"),
+        normalize=_step("set@1"),
+        reduce=_step("mode@1"),
+        select=_step("first_holder@1"),
+    )
+    return _bytes_of(spec, texts)
+
+
+def inspect_scenario() -> str:
+    """Output and evidence JSON of the Inspect-rule vote (the CJK text holds both decimal words)."""
+    texts = (
+        "\u4e00\u70b9\u4e8c\u9ede\u4e09",
+        "\u00bd",
+        "$1,200.",
+        "123456",
+        "123457",
+        "about 0.5",
+        "x=42",
+    )
+    spec = vote_spec(
+        len(texts),
+        extract=_step("inspect_number@1"),
+        normalize=_step("inspect_numeric@1"),
+        reduce=_step("mode@1"),
+        select=_step("first_holder@1"),
+    )
+    return _bytes_of(spec, texts)
+
+
 def _tally(rows: list[dict[str, Any]] | None) -> tuple[TallyRow, ...] | None:
     if rows is None:
         return None
@@ -252,12 +308,15 @@ __all__ = [
     "combine_input",
     "find",
     "load_fixtures",
+    "inspect_scenario",
     "median_scenario",
     "member_readings",
     "readings_from_rows",
     "reduce_result",
+    "regex_scenario",
     "run_case",
     "select_result",
+    "set_scenario",
     "stage",
     "vote_scenario",
 ]
