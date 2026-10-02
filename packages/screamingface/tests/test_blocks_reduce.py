@@ -251,7 +251,6 @@ def test_reduce_plurality_compiles_byte_identical_to_the_fixture_vote() -> None:
 
 def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     not_yet = [
-        sf.Reduce("argmax", by_signal=sf.signal("cost_usd")),
         sf.Reduce("top_k", k=1, by_field="a"),
         sf.Reduce("filter", where=sf.matches("a")),
         sf.Reduce("concat"),
@@ -260,12 +259,17 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
     for block in not_yet:
         with pytest.raises(ValueError, match="does not compile in this SDK version yet"):
             _compiled_text(block)
-    # pick_field has Engine operators since 9S, but the fixture catalog (units 1-3) lacks them
+    # argmax and pick_field have Engine operators since 9S, but the fixture catalog (units 1-3)
+    # lacks them; they compile against the Engine's flow catalog
+    argmax = sf.Reduce("argmax", by_signal=sf.signal("cost_usd"))
     pick = sf.Reduce("pick_field", field="a", order="max")
+    with pytest.raises(ValueError, match="unknown reduce operator 'by_signal'"):
+        _compiled_text(argmax)
     with pytest.raises(ValueError, match="unknown reduce operator 'values'"):
         _compiled_text(pick)
-    spec = json.loads(combine_spec_text(pick, member_count=3, operators=flow_operators()))
-    assert spec["reducer"] == "pick"
+    for block in (argmax, pick):
+        spec = json.loads(combine_spec_text(block, member_count=3, operators=flow_operators()))
+        assert spec["reducer"] == "pick"
     # a signal-weighted block compiles since unit 7; only score:judge waits for the judge
     assert '"weights":{"signal":"field:c"}' in _compiled_text(
         sf.Reduce("weighted", extract=LAST, weights=sf.signal("field:c"))
@@ -322,6 +326,8 @@ def _roundtrip_cases() -> list[Reduce]:
     )
     cases.extend(
         [
+            sf.Reduce("argmax", by_signal=sf.signal("cost_usd"), order="min"),
+            sf.Reduce("argmax", by_signal=sf.signal("field:confidence")),
             sf.Reduce("pick_field", field="score", order="min"),
             sf.Reduce("pick_field", field="verdict", normalize="text", equals="yes"),
             sf.Reduce("merge", fields={"a": sf.FieldRule.majority(normalize="text")}),
@@ -343,6 +349,7 @@ def _named_or_block(reducer: Reduce) -> type[Reducer]:
     named: dict[str, type[Reducer]] = {
         "median": sf.Median,
         "judge": sf.Judge,
+        "argmax": sf.Pick,
         "pick_field": sf.Pick,
         "merge": sf.Merge,
     }
@@ -352,8 +359,8 @@ def _named_or_block(reducer: Reduce) -> type[Reducer]:
 @pytest.mark.parametrize("reducer", _roundtrip_cases(), ids=lambda value: repr(value)[:90])
 def test_reduce_to_python_round_trips(reducer: Reduce) -> None:
     fusion = sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=reducer)
-    # the judge, pick and merge ops come with the Engine's flow catalog, not units 1-3
-    flow = reducer.op in ("judge", "pick_field", "merge")
+    # the judge, argmax, pick and merge ops come with the Engine's flow catalog, not units 1-3
+    flow = reducer.op in ("judge", "argmax", "pick_field", "merge")
     operators = flow_operators() if flow else engine_operators()
     url4 = compile_candidate(fusion, operators=operators).url4
 

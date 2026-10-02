@@ -78,6 +78,25 @@ class _ReducerPlan:
     # AIDEV-NOTE: the model calls the combine call reads besides its members. 9S adds writer calls
     # and 10S Rank-by-judge calls here, so a block and its named form keep sharing one plan.
     signal_calls: tuple[_ModelSignal, ...] = ()
+    # The signal a by_signal reduce step reads (Pick by signal; 10S adds Rank and Filter). A
+    # weighted vote reads its signal through ``weights`` instead; see ``_read_signal``.
+    reads: Signal | None = None
+
+
+def _read_signal(plan: _ReducerPlan) -> Signal | None:
+    """The one signal a plan reads, through its weights or its ``reads`` (GE5: at most one)."""
+
+    return plan.weights if isinstance(plan.weights, Signal) else plan.reads
+
+
+def _refuse_judge_signal(signal: Signal, label: str, use: str) -> None:
+    """Refuse ``score:judge`` on a reducer that has no judge: the Engine reads it strictly (GE15),
+    so the case would fail after the member calls are paid. ``use`` names what to do instead."""
+
+    if signal.key == JUDGE_SIGNAL:
+        raise ValueError(
+            f"{label} cannot read sf.signal({JUDGE_SIGNAL!r}): it has no judge; use {use}"
+        )
 
 
 BENCHMARK_EXTRACT = "benchmark"  # the rule name sf.Vote, sf.Median and sf.Extract share

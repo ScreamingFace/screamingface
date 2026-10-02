@@ -152,6 +152,10 @@ def test_a_judge_url4_is_recovered_as_the_named_judge_for_both_forms() -> None:
     ("block", "named"),
     [
         (
+            sf.Reduce("argmax", by_signal=sf.signal("cost_usd"), order="min"),
+            sf.Pick(by_signal=sf.signal("cost_usd"), order="min"),
+        ),
+        (
             sf.Reduce("pick_field", field="score", order="max"),
             sf.Pick("score", order="max"),
         ),
@@ -168,7 +172,7 @@ def test_a_judge_url4_is_recovered_as_the_named_judge_for_both_forms() -> None:
             sf.Merge({"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
         ),
     ],
-    ids=["pick-order", "pick-equals", "merge", "merge-model-field"],
+    ids=["argmax", "pick-order", "pick-equals", "merge", "merge-model-field"],
 )
 def test_a_pick_or_merge_url4_is_recovered_as_the_named_class_for_both_forms(
     block: sf.Reduce, named: Reducer

@@ -10,7 +10,7 @@ from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule, resolve_
 from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
 from screamingface._signals import ACCOUNTING_SIGNALS, Signal
-from screamingface.reducer import REDUCER_NAMES, Reducer, _Step
+from screamingface.reducer import REDUCER_NAMES, Reducer, _read_signal, _Step
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
 COMBINE_MODEL = COMBINE_ROUTE.removeprefix("/")  # how url4._calls sees the route
@@ -98,12 +98,13 @@ def _pinned_step(
 def accounting_signal(reducer: Reducer) -> str | None:
     """The accounting key (cost_usd, latency_ms, tokens_in, tokens_out) the reducer's plan reads.
 
-    SEAM (9S/10S): by_signal reads join here.
+    SEAM (9S/10S): a plan reads a signal through its weights or its ``reads``; 10S adds Rank and
+    Filter to the second.
     """
 
-    weights = reducer._plan().weights
-    if isinstance(weights, Signal) and weights.key in ACCOUNTING_SIGNALS:
-        return weights.key
+    signal = _read_signal(reducer._plan())
+    if signal is not None and signal.key in ACCOUNTING_SIGNALS:
+        return signal.key
     return None
 
 
