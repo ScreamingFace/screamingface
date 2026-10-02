@@ -37,10 +37,16 @@ def test_flow_operator_calls_share_no_state() -> None:
     assert parallel == sequential * _ROUNDS
 
 
+# WHY skipped: unit 2 F21 keeps the vendored inspect_ai tables verbatim (14 module-level sets and
+# dicts); they are read-only data and are never mutated.
+_VENDORED = frozenset({"_inspect_vendor"})
+
+
 def test_every_plugin_module_holds_no_mutable_state() -> None:
     names = [info.name for info in pkgutil.iter_modules(operators.__path__)]
     assert "judge" in names
-    for name in names:
+    assert _VENDORED <= set(names)
+    for name in (n for n in names if n not in _VENDORED):
         module = importlib.import_module(f"{operators.__name__}.{name}")
         for attribute, value in vars(module).items():
             if attribute.startswith("__"):

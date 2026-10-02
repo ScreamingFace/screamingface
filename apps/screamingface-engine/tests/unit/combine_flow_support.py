@@ -13,7 +13,8 @@ the flow folder. Later units add fixture files only. Fixture format: the unit 2 
   ``{"field", "rule", "values", "result"}``), ``text``, ``separator_collision``.
 - reduce ``expect`` holds ONLY the non-None Reduction parts, decimals as strings
   (``canonical_decimal``); an empty Reduction is ``{}``. Select ``expect`` is
-  ``{"chosen", "output", "tie", "agreement"}``. Any ``CombineError`` gives ``{"error": code}``.
+  ``{"chosen", "output", "tie", "agreement"}``. Any ``CombineError`` gives ``{"error": code}``; a
+  ``NoVotes`` (an abstain) gives ``{"abstain": reason}``, the same shape as unit 2's ``run_case``.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from screamingface_engine.combine.ports import (
     CombineInput,
     FieldReading,
     JudgeReading,
+    NoVotes,
     OperatorDescriptor,
     ReduceOp,
     Reduction,
@@ -65,10 +67,10 @@ def load_flow_fixtures() -> dict[str, dict[str, Any]]:
 
 def flow_input(given: Mapping[str, Any]) -> CombineInput:
     """The ``CombineInput`` of one case: readings, optional outputs and optional signals."""
-    readings = readings_from_rows(given["readings"])
-    outputs = given.get("outputs", {reading.member: "" for reading in readings})
+    answers = readings_from_rows(given["readings"])
+    outputs = given.get("outputs", {answer.member_id: "" for answer in answers})
     return CombineInput(
-        readings=readings,
+        answers=answers,
         outputs=MappingProxyType(dict(outputs)),
         signals=MappingProxyType(dict(given.get("signals", {}))),
     )
@@ -163,6 +165,8 @@ def run_flow_case(descriptor: OperatorDescriptor, case: Case) -> dict[str, Any]:
     """What the operator did for one fixture case, in the fixture's ``expect`` shape."""
     try:
         return _run(descriptor, case)
+    except NoVotes as exc:
+        return {"abstain": exc.reason}
     except CombineError as exc:
         return {"error": exc.code}
 

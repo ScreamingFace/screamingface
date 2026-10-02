@@ -109,10 +109,10 @@ def label(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
 
 def _value_scores(combine_input: CombineInput) -> Reduction:
     scores: dict[str, Decimal] = {}
-    for reading in combine_input.voters:
-        if reading.value is None or _CANONICAL_NUMBER.fullmatch(reading.value) is None:
+    for answer in combine_input.voters:
+        if answer.value is None or _CANONICAL_NUMBER.fullmatch(answer.value) is None:
             raise SpecInvalid("scores@1 needs numeric values")
-        scores[reading.member] = Decimal(reading.value)
+        scores[answer.member_id] = Decimal(answer.value)
     return Reduction(scores=MappingProxyType(scores))
 
 

@@ -224,7 +224,10 @@ def test_label_accepts_a_member_marked_too_large() -> None:
         registry=BUILTIN_OPERATORS,
     )
     assert outcome.output == big
-    assert [m.status for m in outcome.evidence.members] == ["voted", "too_large"]
+    assert [(m.status, m.reason) for m in outcome.evidence.members] == [
+        ("answered", None),
+        ("fail", "too_large"),
+    ]
 
 
 # --- JG-5 -------------------------------------------------------------------------------------
@@ -260,7 +263,10 @@ def test_scores_from_numeric_values_for_rank_by_field() -> None:
     )
     assert outcome.output == '{"score": 9}'
     assert [m.score for m in outcome.evidence.members] == [5.0, 9.0, None]
-    assert outcome.evidence.members[2].status == "not_numeric"
+    assert (outcome.evidence.members[2].status, outcome.evidence.members[2].reason) == (
+        "fail",
+        "not_numeric",
+    )
 
 
 # --- missing signal and bad args --------------------------------------------------------------
@@ -298,10 +304,12 @@ def test_label_rejects_a_missing_signal() -> None:
 def _members(scores: tuple[float | None, ...]) -> list[dict[str, Any]]:
     return [
         {
-            "member": f"member_{i}",
+            "member_id": f"member_{i}",
             "raw": None,
             "value": None,
-            "status": "voted",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
             "weight": None,
             "score": scores[i - 1],
         }
@@ -332,6 +340,9 @@ def test_evidence_has_raw_parsed_and_presentation_order() -> None:
         "median": None,
         "presentation_order": "author",
         "separator_collision": None,
+        "signal": None,
+        "result": {"member_id": "member_2", "value": None, "status": "answered", "reason": None},
+        "dropped": 0,
         "finish_reason": "stop",
     }
 
@@ -361,5 +372,8 @@ def test_evidence_has_raw_parsed_and_presentation_order() -> None:
         "median": None,
         "presentation_order": "author",
         "separator_collision": None,
+        "signal": None,
+        "result": {"member_id": "member_2", "value": None, "status": "answered", "reason": None},
+        "dropped": 0,
         "finish_reason": "stop",
     }
