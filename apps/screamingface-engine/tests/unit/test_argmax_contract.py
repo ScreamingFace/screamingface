@@ -10,72 +10,31 @@ reference), never the retained accounting of the replay, so both runs give the s
 The data file under ``data/combine_contract/`` is what the SDK compiles (the SDK drift guard keeps
 it byte-equal), so this runs the real compiler output. The first run is a cache miss, the second a
 hit. This is a CHAR test: it passes on its first run by design (units 1, 3 and 10E deliver the
-behavior). The gateway body and the operation helper are the ones of ``test_signal_vote_replay``.
+behavior). The world runner is ``_signal_world.run_candidate``.
 """
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
-from test_samples_seed_contract import _wrapped_candidate
-from test_signal_vote_replay import _body, _operation
-
-from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
-from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.world.candidate_adapter import install_candidate_invocation
-from screamingface_engine.world.combine import install_combine_runtime
-from screamingface_engine.world.config import ModelSpec
-from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
-from url4.dag import run as url4_run
+from _signal_world import run_candidate
+from test_signal_vote_replay import _operation
 
 _CANDIDATE = (
     (Path(__file__).parent / "data" / "combine_contract" / "argmax_cost_candidate.url4")
     .read_text(encoding="utf-8")
     .removesuffix("\n")
 )
+# WHY: without `sources` the engine finds no cost, and the case fails after the member calls
+assert "sources:" in _CANDIDATE
 # request model -> (reply, cost in credits); the cheapest member is member_2
 _MODELS = {
     "prov/alpha": ("A", "0.004"),
     "prov/beta": ("B", "0.001"),
     "prov/gamma": ("C", "0.002"),
 }
-
-
-def _gateway(cache: str) -> Callable[[httpx.Request], httpx.Response]:
-    def handle(request: httpx.Request) -> httpx.Response:
-        content, cost = _MODELS[json.loads(request.content)["model"]]
-        return httpx.Response(
-            200, headers={"X-AIGW-Cache": cache}, json=_body(content, cost, cache)
-        )
-
-    return handle
-
-
-async def _run(cache: str) -> dict[str, Any]:
-    client = httpx.AsyncClient(
-        transport=httpx.MockTransport(_gateway(cache)), base_url="http://aigateway.test"
-    )
-    world = await build_aigateway_world(
-        AigatewayConfig(
-            default_model="prov/alpha", models=tuple(ModelSpec(id=model) for model in _MODELS)
-        ),
-        client=client,
-    )
-    try:
-        install_candidate_invocation(world.node)
-        install_combine_runtime(world.node, BUILTIN_OPERATORS)
-        with request_scope(RequestScope(origin="run")):
-            result = await url4_run(_wrapped_candidate(_CANDIDATE), io=world.node)
-    finally:
-        await world.aclose()
-        await client.aclose()
-    record: dict[str, Any] = json.loads(result)
-    return record
 
 
 def _assert_cheapest_member(record: dict[str, Any]) -> None:
@@ -97,8 +56,8 @@ def _assert_cheapest_member(record: dict[str, Any]) -> None:
 
 @pytest.mark.asyncio
 async def test_sdk_argmax_by_cost_runs_and_replays_from_cache() -> None:
-    first = await _run("miss")
-    second = await _run("hit")
+    first = await run_candidate(_CANDIDATE, _MODELS, "miss")
+    second = await run_candidate(_CANDIDATE, _MODELS, "hit")
 
     _assert_cheapest_member(first)
     _assert_cheapest_member(second)
