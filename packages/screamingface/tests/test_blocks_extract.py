@@ -88,3 +88,15 @@ def test_extract_steps_map_rules_to_engine_operators() -> None:
     assert (extract.op, normalize) == ("json_object", None)
     with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
         Extract("benchmark")._steps()
+
+
+def test_extract_regex_ignore_case_false_is_the_default() -> None:
+    plain = sf.Extract("regex", pattern="a")
+    explicit = sf.Extract("regex", pattern="a", ignore_case=False)
+
+    assert explicit == plain
+    assert hash(explicit) == hash(plain)
+    assert "ignore_case" not in explicit.args
+    assert sf.Extract("regex", pattern="a", ignore_case=True) != plain
+    with pytest.raises(TypeError, match="ignore_case must be a bool"):
+        sf.Extract("regex", pattern="a", ignore_case=0)

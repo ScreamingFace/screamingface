@@ -172,6 +172,12 @@ def test_equal_reduce_blocks_are_equal_and_hash_equal() -> None:
     )
     assert sf.Reduce("median", extract=LAST) == sf.Reduce("median", extract=NUMERIC)
     assert hash(sf.Reduce("median", extract=LAST)) == hash(sf.Reduce("median", extract=NUMERIC))
+    # Python's True == 1 == 1.0, but the three compile to different JSON: they are three blocks
+    blocks = [sf.Reduce("pick_field", field="a", equals=value) for value in (True, 1, 1.0)]
+    assert blocks[0] != blocks[1] != blocks[2]
+    assert blocks[0] != blocks[2]
+    assert len({hash(block) for block in blocks}) == 3
+    assert len(set(blocks)) == 3
     assert sf.Reduce("median", mode="select", extract=LAST) != sf.Reduce(
         "median", mode="compute", extract=LAST
     )

@@ -67,9 +67,13 @@ class Extract:
             raise ValueError(f"unknown sf.Extract rule {rule!r}; the rules are {', '.join(_RULES)}")
         _check_normalizer(rule, normalize)
         _check_args(rule, args)
+        # canonical: the default ignore_case=False is not stored (as sf.matches does)
+        kept = {
+            name: value for name, value in args.items() if (name, value) != ("ignore_case", False)
+        }
         object.__setattr__(self, "rule", rule)
         object.__setattr__(self, "normalize", normalize)
-        object.__setattr__(self, "args", MappingProxyType(dict(sorted(args.items()))))
+        object.__setattr__(self, "args", MappingProxyType(dict(sorted(kept.items()))))
 
     def __hash__(self) -> int:
         return hash((self.rule, self.normalize, tuple(sorted(self.args.items()))))
@@ -344,7 +348,7 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
 )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, eq=False)
 class Reduce(Reducer):
     """One reduce block in the Fusion synthesizer slot; compiles to the same combine call as its
     named form (block-api ans:Q1). select returns original member text; compute builds a value."""
@@ -374,22 +378,30 @@ class Reduce(Reducer):
         object.__setattr__(self, "mode", selected_mode)
         object.__setattr__(self, "options", MappingProxyType(checked))
 
+    def _key(self) -> tuple[object, ...]:
+        # WHY the type is in the key: Python's True == 1 == 1.0, but a bool, an int and a float
+        # compile to different JSON, so they must stay three different blocks.
+        options = tuple((name, type(value), value) for name, value in sorted(self.options.items()))
+        return (self.op, self.mode, options)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Reduce) and self._key() == other._key()
+
     def __hash__(self) -> int:
-        return hash((self.op, self.mode, tuple(sorted(self.options.items()))))
+        return hash(self._key())
 
     def __repr__(self) -> str:
-        parts = [repr(self.op)]
-        if self.mode != _OPS[self.op].modes[0]:
-            parts.append(f"mode={self.mode!r}")
-        parts.extend(f"{name}={value!r}" for name, value in self.options.items())
-        return f"Reduce({', '.join(parts)})"
+        return self._render("Reduce", repr)
 
     def _python(self) -> str:
+        return self._render("sf.Reduce", _source)
+
+    def _render(self, head: str, show: Callable[[object], str]) -> str:
         parts = [repr(self.op)]
         if self.mode != _OPS[self.op].modes[0]:
             parts.append(f"mode={self.mode!r}")
-        parts.extend(f"{name}={_source(value)}" for name, value in self.options.items())
-        return f"sf.Reduce({', '.join(parts)})"
+        parts.extend(f"{name}={show(value)}" for name, value in self.options.items())
+        return f"{head}({', '.join(parts)})"
 
     def _plan(self) -> _ReducerPlan:
         build = _PLANS.get(self.op)
