@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from html import escape
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from screamingface.accounting import AccountingRow, AccountingSummary, summarize
+from screamingface.accounting import (
+    AccountingBreakdown,
+    AccountingRow,
+    AccountingSummary,
+    _AccountingContext,
+    _iter_rows,
+    summarize,
+)
 
 if TYPE_CHECKING:
     from screamingface._report_primitives import CaseId
+    from screamingface.case_result import CaseResult
     from screamingface.report import CandidateResult
 
 STYLE = """<style>
@@ -59,9 +68,11 @@ def case_tabs(answer: str, cost: str) -> str:
     )
 
 
-def run_accounting_note(candidate: CandidateResult) -> str:
+def run_accounting_note(
+    candidate: CandidateResult, *, context: _AccountingContext | None = None
+) -> str:
     """A remainder belongs to the run, never to an individual Case by inference."""
-    view = candidate.accounting
+    view = candidate.accounting if context is None else context
     if not view.consistent:
         text = "Accounting breakdown unavailable: inconsistent records."
     elif view.unattributed_cost_usd == 0:
@@ -71,12 +82,37 @@ def run_accounting_note(candidate: CandidateResult) -> str:
     return f'<p class="sf-run-accounting-note">{escape(text)}</p>'
 
 
-def case_accounting(candidate: CandidateResult) -> dict[CaseId, str]:
+def case_accounting(
+    candidate: CandidateResult,
+    *,
+    case_ids: set[CaseId] | None = None,
+    context: _AccountingContext | None = None,
+    cases: Sequence[CaseResult] | None = None,
+) -> dict[CaseId, str]:
     """Group once per Candidate, retaining only the selected Case's actual owners."""
-    view = candidate.accounting
-    groups: dict[CaseId, list[AccountingRow]] = {case.case_id: [] for case in candidate.cases}
-    for row in view.rows:
-        groups[row.case_id].append(row)
+    view: AccountingBreakdown | _AccountingContext
+    rows: Iterable[AccountingRow]
+    if context is None:
+        view = candidate.accounting
+        rows = view.rows
+    else:
+        view = context
+        rows = (
+            _iter_rows(
+                candidate,
+                cases if cases is not None else candidate.cases,
+                context.operation_models,
+                context.judge_models,
+            )
+            if context.consistent
+            else ()
+        )
+    # WHY: page identities are already known; finding them must not reread every prompt.
+    selected = case_ids if case_ids is not None else {case.case_id for case in candidate.cases}
+    groups: dict[CaseId, list[AccountingRow]] = {case_id: [] for case_id in selected}
+    for row in rows:
+        if row.case_id in groups:
+            groups[row.case_id].append(row)
     return {
         case_id: (
             "".join(_activity(row) for row in rows)

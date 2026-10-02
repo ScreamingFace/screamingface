@@ -68,6 +68,25 @@ def raise_candidates_failed(evaluation: _Evaluation, settled: _Settled) -> NoRet
     AIDEV-NOTE: call it OUTSIDE the `except _CandidatesFailed` block, so the raised error's
     `__context__` does not keep the carrier (and every settled result body) alive.
     """
+    successes, failures = _decode_candidates(evaluation, settled)
+    _raise_failed(evaluation, len(settled), successes, failures)
+
+
+def completed_report(
+    evaluation: _Evaluation, outcomes: tuple[tuple[Candidate, _RunOutcome], ...]
+) -> Report:
+    # INVARIANT: completed transports still settle indexing/decoding per candidate.
+    successes, failures = _decode_candidates(evaluation, outcomes)
+    if failures:
+        _raise_failed(evaluation, len(outcomes), successes, failures)
+    return Report(
+        benchmark=evaluation.benchmark, case_count=evaluation.case_count, candidates=successes
+    )
+
+
+def _decode_candidates(
+    evaluation: _Evaluation, settled: _Settled
+) -> tuple[list[CandidateResult], list[tuple[Candidate, Exception]]]:
     successes: list[CandidateResult] = []
     failures: list[tuple[Candidate, Exception]] = []
     for candidate, outcome in settled:
@@ -80,10 +99,19 @@ def raise_candidates_failed(evaluation: _Evaluation, settled: _Settled) -> NoRet
             # WHY: a Run that succeeded but whose result does not decode has no Candidate
             # Result; it is named as failed rather than hiding its siblings' results.
             failures.append((candidate, exc))
+    return successes, failures
+
+
+def _raise_failed(
+    evaluation: _Evaluation,
+    count: int,
+    successes: list[CandidateResult],
+    failures: list[tuple[Candidate, Exception]],
+) -> NoReturn:
     partial, unavailable = _partial_report(evaluation, successes)
     named = ", ".join(f"{candidate.name} ({failure_code(exc)})" for candidate, exc in failures)
     error = ExecutionError(
-        f"{len(failures)} of {len(settled)} Candidates failed: {named}",
+        f"{len(failures)} of {count} Candidates failed: {named}",
         code="candidates_failed",
         details={"failed": {candidate.name: failure_code(exc) for candidate, exc in failures}},
         # WHY a hint: IPython shows only message, hint and code, so it must say where the
@@ -99,6 +127,10 @@ def raise_candidates_failed(evaluation: _Evaluation, settled: _Settled) -> NoRet
     )
     if unavailable is not None:
         error.add_note(f"The Partial Report could not be built: {unavailable}")
+    if partial is not None:
+        from screamingface._results.lifecycle import mark_report
+
+        mark_report(partial, "ready")
     raise error from failures[0][1]
 
 

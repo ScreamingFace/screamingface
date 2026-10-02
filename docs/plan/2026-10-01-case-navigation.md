@@ -1,0 +1,3 @@
+# Shared case navigation
+
+Approved by the owner: implement the proposed layout, preserving original report detail panes. Add a private navigation model retaining only IDs and flattened positions. All compares one case across candidates in pages of at most 25 results; a candidate shows ordinary 25-case pages. Exact case lookup selects the appropriate page. Previous/Next remain responsive under repeated clicks. One-candidate All naturally uses ordinary pagination. Summary names select the same candidate selector. Build and test the model before wiring widgets; refresh the notebook and draft PR after all gates pass.

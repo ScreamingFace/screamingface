@@ -130,7 +130,8 @@ def test_an_owner_sweep_never_stops_a_completed_run() -> None:
         finally:
             transport.close()
 
-    assert outcome.result_body == ARTIFACT_BODY
+    assert outcome.result_path is not None
+    assert outcome.result_path.read_text() == ARTIFACT_BODY
     assert engine.state.deleted == []
 
 
@@ -148,7 +149,8 @@ async def test_async_an_owner_sweep_never_stops_a_completed_run() -> None:
         finally:
             await transport.close()
 
-    assert outcome.result_body == ARTIFACT_BODY
+    assert outcome.result_path is not None
+    assert outcome.result_path.read_text() == ARTIFACT_BODY
     assert engine.state.deleted == []
 
 

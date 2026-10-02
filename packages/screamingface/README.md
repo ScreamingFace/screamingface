@@ -388,7 +388,30 @@ report.export("runs/draco.json")
 `Report.export(...)` writes the exact complete JSON document returned by `to_json()`, creates
 parent directories, replaces an existing selected file for deterministic reruns, and returns its
 `Path`. A Report remains one JSON document even when it contains multiple Candidates; JSONL is
-reserved for a future collection of independent Reports.
+reserved for a future collection of independent Reports. JSON export streams one Case at a time
+and replaces the destination only after the new file is complete.
+
+In a live notebook, displaying `report` opens a Case browser with 25 results per page.
+The case range, Previous/Next buttons, and single export/download control sit inline in
+the cases box header, wrapping within that header on narrow screens.
+Use **Previous** and **Next**, then select a Case in the original report rail to view its
+detail. The existing presentation and text previews are preserved; full JSON export contains
+every field. The summary describes the original Evaluation, including partial coverage.
+
+**Export JSON** writes the complete Report on demand to
+`screamingface-reports/<unique-id>/report.json` under the notebook's working directory and
+provides a download link. While preparing the file, the button is disabled and shows
+**Preparing…** with a spinner; repeated clicks do not start another export. On success the
+same control becomes **Download JSON**; an error enables **Export JSON**. If the notebook host cannot serve local downloads, the browser shows
+the saved path instead. Export errors leave the saved source results available for recovery
+or `report.export()` to another location. Automatic result retention happens during collection,
+before decoding; it does not depend on displaying or exporting the Report.
+
+Interactive controls require `screamingface[notebook]` and a live kernel. Static HTML is a bounded
+preview of the first 25 Case Results; full programmatic access and export remain available. Small
+static reports retain their inline download, capped at 64 KiB. For an offline large-report trial,
+run `scripts/report_browser_demo.py` in a notebook, then display `demo_report()`; it contains only
+synthetic data and makes no model calls.
 
 `CandidateResult.client_version` records the caller-reported Client version retained by the
 Engine for that run. It is also present in each candidate in `report.json`; missing or ambiguous
@@ -611,3 +634,57 @@ uv run --extra notebook python scripts/check_notebooks.py
 uv build
 uv run python scripts/check_distribution.py
 ```
+
+### Recovering completed evaluations
+
+In notebooks, healthy evaluations show no recovery banner. When the SDK next opens after
+an interrupted evaluation, it can show an informational notice with the exact recovery call.
+It checks retained completion records and the previous process’s lifecycle markers; this
+automatic interruption detection currently uses POSIX process liveness. Existing saved
+reports and active evaluations stay quiet. Explicit recovery works independently of notices.
+
+Completed candidate results are saved automatically before Report decoding. The default
+location is `~/.screamingface/results` (under `SCREAMINGFACE_DATA_DIR` when configured).
+Set `SCREAMINGFACE_RESULTS_DIR` before creating a client to choose another disk. Saved
+results include prompts and answers; they are retained until explicitly deleted.
+
+```python
+import screamingface as sf
+
+saved = sf.reports.list()  # one entry per evaluation
+report = sf.reports.get(saved[0].id)  # reopens the containing evaluation, no model calls
+report.export("report.json")
+```
+
+JSON export streams one case at a time through an atomic, fsynced file replacement,
+preserving existing permissions and output symlinks. `to_json()` uses the same serializer
+but still allocates the complete returned string; use `export()` for large reports.
+
+Recovery uses local files when available and fresh Engine authentication for missing
+downloads. A recovery ticket cannot outlive the Engine's retention of an undownloaded
+result. An unavailable remote result reports its age. Once downloaded, the local copy
+survives Engine expiry and notebook restarts. `get_async` offers the same operation
+for asynchronous callers.
+
+For an incomplete evaluation, recovery raises `sf.ExecutionError` with
+`code="candidates_failed"`, a `partial_report` containing the recoverable candidates,
+and `details["failed"]` mapping missing or failed candidates to stable error codes.
+`details["failure_messages"]` retains available remediation messages, and the first
+failure is chained as the cause. Recovery never starts their
+models again or invents missing results.
+
+If a disk fills, free space or use
+`sf.reports.get(report_id, directory="/old/results", destination="/other/results")`.
+The original remains available. `sf.reports.delete(report_id)` explicitly removes that saved
+report’s candidates and their recovery metadata; existing Reports using its files then become
+unreadable. There is no automatic expiry or silent cleanup.
+
+Case indexing, slicing, `by_id`, and iteration read from a local index as needed.
+Report display paginates 25 cases, and JSON export streams every case in the existing
+report.v1 format. Explicit `to_dict()`, `to_json()`, or `list(candidate.cases)` still
+materializes the requested data and can require substantial RAM. The raw download and
+its index each take disk space; an exported JSON file is an additional copy.
+
+`sf.Client(save_results=False)` explicitly opts out of durable storage and retains the
+legacy in-memory loading behavior. It is unsuitable for large evaluations or crash
+recovery. Custom run transports remain responsible for their own persistence.

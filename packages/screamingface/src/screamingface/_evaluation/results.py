@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
@@ -49,6 +50,15 @@ def _decoded_result_body(outcome: _RunOutcome) -> object:
     count so the researcher learns what happened from the error alone; (4) anything else
     keeps the generic message.
     """
+    if outcome.result_path is not None and outcome.result_body is None:
+        from screamingface._results.cases import index_result
+        from screamingface._results.store import storage_error
+
+        try:
+            metadata, cases = index_result(outcome.result_path)
+        except (OSError, sqlite3.Error) as exc:
+            raise storage_error(exc, outcome.run_id) from exc
+        return {**metadata, "cases": cases}
     body = outcome.result_body
     if body is None:
         raise ExecutionError(
@@ -81,11 +91,12 @@ def report_from_outcomes(
     candidates = tuple(
         _candidate_result(evaluation, candidate, outcome) for candidate, outcome in outcomes
     )
-    return Report(
+    report = Report(
         benchmark=evaluation.benchmark,
         case_count=evaluation.case_count,
         candidates=candidates,
     )
+    return report
 
 
 def report_from_url4_outcome(candidate: Candidate, outcome: _RunOutcome) -> Report:
@@ -131,7 +142,7 @@ def _candidate_result(
             evaluation,
             candidate,
         )
-        return CandidateResult(
+        result = CandidateResult(
             benchmark=evaluation.benchmark,
             run_id=outcome.run_id,
             # OME-1121: carried across the boundary verbatim. The transport stamped the id
@@ -178,6 +189,11 @@ def _candidate_result(
             cache_saved_cost_usd=outcome.cache_saved_cost_usd,
             cache_hits=outcome.cache_hits,
         )
+        if result.cases._disk_path is not None:
+            from screamingface._results.accounting import saved_accounting_context
+
+            saved_accounting_context(result)
+        return result
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"SF Engine Candidate result is invalid: {exc}") from exc
 
@@ -262,7 +278,7 @@ def _candidate_components(
     float | None,
     float,
     dict[str, object],
-    tuple[CaseResult, ...],
+    Sequence[CaseResult],
     tuple[Failure, ...],
 ]:
     score_value = value.get("score")
@@ -289,7 +305,11 @@ def _metrics(value: object) -> dict[str, object]:
     return dict(raw)
 
 
-def _cases(value: object) -> tuple[CaseResult, ...]:
+def _cases(value: object) -> Sequence[CaseResult]:
+    from screamingface._results.cases import DiskCases
+
+    if isinstance(value, DiskCases):
+        return value
     return tuple(_case_result(item) for item in _sequence(value, "Candidate cases"))
 
 

@@ -8,8 +8,10 @@ import re
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from html import escape
+from itertools import islice
 from typing import TYPE_CHECKING, Any
 
+from screamingface._report_export import inline_json
 from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.cards import INVERTED_GRADE_MEANING
@@ -17,6 +19,7 @@ from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface.report import _candidate_failures
 
 if TYPE_CHECKING:
+    from screamingface.accounting import _AccountingContext
     from screamingface.case_result import CaseResult
     from screamingface.report import CandidateResult, MemberResult, Report
 
@@ -140,6 +143,12 @@ _STYLE = (
 .sf-rail__who{{font-size:11px;color:var(--sf-ink-3);white-space:nowrap}}
 .sf-rail__q{{font-size:12px;color:var(--sf-ink-2);overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;min-width:0}}
+/* Snap once on insertion, then release it: manual scrolling must never snap back
+   to the selected row. This changes scroll policy, with no animated movement. */
+.sf-master--browser>.sf-rail{{max-height:min(440px,38vh);overflow-y:auto;
+  scroll-snap-type:none;animation:sf-reveal-case .2s step-end}}
+@keyframes sf-reveal-case{{from{{scroll-snap-type:y mandatory}}to{{scroll-snap-type:none}}}}
+.sf-master--browser .sf-rail__item{{height:44px;box-sizing:border-box;padding:8px 12px}}
 /* the ✓/✗ marker: a drawn square, never a bare coloured dot */
 .sf-mark{{flex:0 0 auto;width:16px;height:16px;display:flex;align-items:center;
   justify-content:center;font-size:11px;font-weight:700;color:var(--sf-success);
@@ -201,28 +210,54 @@ _STYLE = (
 )
 
 
-def report_html(report: Report) -> str:
+def report_html(
+    report: Report,
+    *,
+    cases: bool = True,
+    download: bool = True,
+    accounting_contexts: Mapping[int, _AccountingContext] | None = None,
+) -> str:
     """Render a completed Report as one self-contained panel."""
 
-    cards = "".join(_card_html(item, report) for item in report.candidates)
+    if accounting_contexts is None:
+        from screamingface._results.accounting import saved_accounting_context
+
+        accounting_contexts = {
+            id(item): saved_accounting_context(item) for item in report.candidates
+        }
+    cards = "".join(
+        _card_html(
+            item, report, context=accounting_contexts.get(id(item)) if accounting_contexts else None
+        )
+        for item in report.candidates
+    )
     return (
         f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
         "aria-label='ScreamingFace evaluation report'>"
-        f"{_head_html(report)}"
+        f"{_head_html(report, download=download)}"
         f"{_strip_html(report)}"
         f"{cards}"
         f"{_failures_html(report)}"
-        f"{_cases_html(report)}</div>"
+        f"{_cases_html(report, accounting_contexts) if cases else ''}</div>"
     )
 
 
-def _head_html(report: Report) -> str:
+def report_overview_html(report: Report) -> str:
+    """Original identity/receipt for the live browser's linked Candidate cards."""
+    return (
+        f"{_STYLE}<div class='sf-ui sf-report {NO_MATH}' "
+        "aria-label='ScreamingFace evaluation report'>"
+        f"{_head_html(report, download=False)}{_strip_html(report)}</div>"
+    )
+
+
+def _head_html(report: Report, *, download: bool = True) -> str:
     return (
         "<div class='sf-report__head-row'><div>"
         "<div class='sf-report__title'>Report</div>"
         f"<div class='sf-report__sub'>Benchmark · {escape(str(report.benchmark.id))}</div>"
         f"{_inverted_grade_html(report)}"
-        f"</div>{_download_html(report)}</div>"
+        f"</div>{_download_html(report) if download else ''}</div>"
     )
 
 
@@ -238,12 +273,15 @@ def _download_html(report: Report) -> str:
     """Export the portable artifact as a real file.
 
     A `data:` URI on a download anchor, because notebook HTML is routinely stripped of
-    <script> — a JS-built Blob would render as a dead button. The whole Report is
-    base64'd inline, so this grows the saved .ipynb by roughly 4/3 of the JSON size.
+    <script> — a JS-built Blob would render as a dead button. Only artifacts up to
+    64 KiB are embedded. Larger exports stay on disk;
+    serializing them into notebook output would recreate OME-1422.
     """
 
     try:
-        payload = report.to_json()
+        payload = inline_json(report)
+        if payload is None:
+            return "<span>Full export: <code>report.export('report.json')</code></span>"
     except Exception:
         # Export is a convenience; a Report that cannot serialise must still render.
         return ""
@@ -292,7 +330,13 @@ def _strip_html(report: Report) -> str:
     )
 
 
-def _card_html(candidate: CandidateResult, report: Report) -> str:
+def _card_html(
+    candidate: CandidateResult,
+    report: Report,
+    *,
+    context: _AccountingContext | None = None,
+    linked: bool = False,
+) -> str:
     """One candidate's result card: identity, the figures grid, then what it was made of."""
 
     metrics = candidate.metrics
@@ -330,7 +374,8 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
     ]
     return (
         "<div class='sf-report__card'><div class='sf-report__card-h'>"
-        f"<span class='sf-report__name'>{escape(candidate.name)}</span>"
+        f"<span class='sf-report__name'{' aria-hidden=true' if linked else ''}>"
+        f"{escape(candidate.name)}</span>"
         f"<span class='sf-report__ctx'>{escape(ctx)}</span>"
         f"<span class='sf-report__run'>{escape(_short(candidate.run_id))}</span></div>"
         f"{_models_html(candidate)}"
@@ -339,7 +384,7 @@ def _card_html(candidate: CandidateResult, report: Report) -> str:
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
-        f"{run_accounting_note(candidate)}"
+        f"{run_accounting_note(candidate, context=context)}"
         f"{_recipe_html(candidate)}</div>"
     )
 
@@ -538,7 +583,12 @@ def _failures_html(report: Report) -> str:
     (OME-793: the worst30 fusion incident rendered 3 id-less duplicate lines).
     """
 
-    failures = report.failures
+    failures, count, size = _failure_preview(report)
+    if count > 25 or size > 16000:
+        return (
+            f"<div class='sf-report__warn'>{count:,} failures. "
+            "Browse cases or export the report for all failure details.</div>"
+        )
     if not failures:
         return ""
     candidates = getattr(report, "candidates", ())
@@ -557,6 +607,24 @@ def _failures_html(report: Report) -> str:
         "<details><summary>failure details</summary>"
         f"<pre class='sf-report__pre'>{escape(details)}</pre></details>"
     )
+
+
+def _failure_preview(report: Report) -> tuple[list[Any], int, int]:
+    preview = []
+    count = size = 0
+    candidates = getattr(report, "candidates", None)
+    failures = (
+        (failure for candidate in candidates for failure in _candidate_failures(candidate))
+        if candidates is not None
+        else iter(report.failures)
+    )
+    for failure in failures:
+        count += 1
+        if count <= 25 and size <= 16000:
+            size += len(json.dumps(failure.to_dict()))
+            if size <= 16000:
+                preview.append(failure)
+    return preview, count, size
 
 
 def _candidate_failures_html(candidate: CandidateResult) -> str:
@@ -614,37 +682,102 @@ def _first_collected_error(failure: Any) -> str:
     return f" ({kind}: {message})" if kind else f" ({message})"
 
 
-def _cases_html(report: Report) -> str:
+def _cases_html(
+    report: Report, accounting_contexts: Mapping[int, _AccountingContext] | None = None
+) -> str:
     """Master/detail over every case: a rail of outcomes beside the selected case.
 
     Selection is pure CSS (a radio group + `:checked ~` sibling rules). Notebook HTML is
     routinely sanitised of <script>, so a JS-driven widget would silently render dead.
     """
 
-    entries = [(candidate, case) for candidate in report.candidates for case in candidate.cases]
+    entries = list(
+        islice(
+            ((candidate, case) for candidate in report.candidates for case in candidate.cases), 25
+        )
+    )
+    return cases_page_html(report, entries, preview=True, accounting_contexts=accounting_contexts)
+
+
+def cases_page_html(
+    report: Report,
+    entries: list,
+    *,
+    preview: bool = False,
+    framed: bool = True,
+    accounting_contexts: Mapping[int, _AccountingContext] | None = None,
+    selected: int = 0,
+    navigation_mode: str | None = None,
+) -> str:
+    """Use the original rail and detail panes for one bounded page of cases."""
     if not entries:
         return ""
     # Group name must be unique per rendered Report, or two reports in one notebook would
     # share a radio group and fight over the selection. Candidate run IDs are unique.
     group = f"sf-case-{_group_key(report)}"
     inputs, rail, panes = [], [], []
-    costs = {id(candidate): case_accounting(candidate) for candidate in report.candidates}
+    visible_owners = {id(owner) for owner, _ in entries}
+    costs = {
+        id(candidate): case_accounting(
+            candidate,
+            case_ids={case.case_id for owner, case in entries if owner is candidate},
+            context=accounting_contexts.get(id(candidate)) if accounting_contexts else None,
+            cases=[case for owner, case in entries if owner is candidate],
+        )
+        for candidate in report.candidates
+        if id(candidate) in visible_owners
+    }
     for index, (candidate, case) in enumerate(entries):
         item = f"{group}-{index}"
-        checked = " checked" if index == 0 else ""
+        checked = " checked" if index == selected else ""
         inputs.append(
             f"<input class='sf-case-radio' type='radio' name='{group}' id='{item}'{checked}>"
         )
-        rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1))
-        panes.append(_pane_html(candidate, case, costs[id(candidate)][case.case_id]))
+        rail.append(_rail_item(item, candidate, case, len(report.candidates) > 1, navigation_mode))
+        renderer = bounded_pane if preview else _pane_html
+        panes.append(renderer(candidate, case, costs[id(candidate)][case.case_id]))
     total = len(entries)
-    label = f"{total} case result" + ("" if total == 1 else "s")
-    return (
-        f"<details class='sf-report__det' open><summary>{escape(label)}</summary>"
+    count = sum(len(candidate.cases) for candidate in report.candidates)
+    label = f"{count} case result" + ("" if count == 1 else "s")
+    if preview and count > total:
+        label += f" · preview of first {total}; display report in a live notebook to browse all"
+    master_class = "sf-master sf-master--browser" if navigation_mode else "sf-master"
+    body = (
         f"{_selection_css(group, total)}"
-        f"<div class='sf-master'>{''.join(inputs)}"
+        f"<div class='{master_class}'>{''.join(inputs)}"
         f"<div class='sf-rail'>{''.join(rail)}</div>"
-        f"<div class='sf-detail'>{''.join(panes)}</div></div></details>"
+        f"<div class='sf-detail'>{''.join(panes)}</div></div>"
+    )
+
+    if not framed:
+        return body
+    return (
+        f"<details class='sf-report__det' open><summary>{escape(label)}</summary>{body}</details>"
+    )
+
+
+def bounded_pane(candidate: CandidateResult, case: CaseResult, cost_html: str) -> str:
+    """Bound static previews; full result content remains available in JSON export."""
+    encoded = json.JSONEncoder(ensure_ascii=False).iterencode(case.to_dict())
+    size = 0
+    for chunk in encoded:
+        size += len(chunk)
+        if size > 32000:
+            return _large_pane(candidate, case)
+    pane = _pane_html(candidate, case, cost_html)
+    return pane if len(pane.encode("utf-8")) <= 24000 else _large_pane(candidate, case)
+
+
+def _large_pane(candidate: CandidateResult, case: CaseResult) -> str:
+    return (
+        "<div class='sf-pane'><div class='sf-pane__h'>"
+        f"<b>Case {escape(_clip(str(case.case_id), 80))} · "
+        f"{escape(_clip(candidate.name, 80))}</b> · {_case_state(case)}</div>"
+        "<p>Preview · export the complete report to read every field.</p>"
+        "<div class='sf-detail__k'>Input</div>"
+        f"<pre class='sf-report__pre'>{escape(_clip(case.display_input, 2000))}</pre>"
+        "<div class='sf-detail__k'>Answer</div>"
+        f"<pre class='sf-report__pre'>{escape(_clip(case.output, 2000))}</pre></div>"
     )
 
 
@@ -662,7 +795,7 @@ def _selection_css(group: str, total: int) -> str:
         rules.append(
             f"#{item}:checked~.sf-detail>.sf-pane:nth-child({nth}){{display:block}}"
             f"#{item}:checked~.sf-rail>.sf-rail__item:nth-child({nth})"
-            f"{{background:var(--sf-surface);border-left-color:var(--sf-accent)}}"
+            f"{{background:var(--sf-surface);border-left-color:var(--sf-accent);scroll-snap-align:start}}"
         )
     return f"<style>{''.join(rules)}</style>"
 
@@ -672,7 +805,13 @@ def _group_key(report: Report) -> str:
     return f"{abs(hash(names)) % 10**8:08d}"
 
 
-def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who: bool) -> str:
+def _rail_item(
+    item: str,
+    candidate: CandidateResult,
+    case: CaseResult,
+    show_who: bool,
+    navigation_mode: str | None = None,
+) -> str:
     state = _case_state(case)
     # WHY (OME-793): a failed case gets the warning mark, never the incorrect ✗ — the rail
     # must not present an infra failure as a graded wrong answer.
@@ -692,9 +831,11 @@ def _rail_item(item: str, candidate: CandidateResult, case: CaseResult, show_who
         "unscored": "?",
     }[state]
     who = f" <span class='sf-rail__who'>{escape(candidate.name)}</span>" if show_who else ""
+    if navigation_mode == "candidate":
+        who = ""
     preview = _clip(case.prompt_preview, 90) if case.input is not None else "input unavailable"
     return (
-        f"<label class='sf-rail__item' for='{item}'>"
+        f"<label class='sf-rail__item' id='{item}-row' for='{item}'>"
         f"<span class='{mark}' aria-hidden='true'>{glyph}</span>"
         f"<span class='sf-rail__id'>case {escape(str(case.case_id))}</span>{who}"
         f"<span class='sf-rail__q'>{escape(preview)}</span></label>"

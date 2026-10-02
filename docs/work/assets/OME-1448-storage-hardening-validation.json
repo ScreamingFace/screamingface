@@ -1,0 +1,8 @@
+{
+  "case_results": 46002,
+  "peak_rss_bytes": 54493184,
+  "export_bytes": 2219533910,
+  "sha256": "a4988fb137e6a998c439d5e9bb9f257f659c45e176c095a0f867dde8e8f050b7",
+  "baseline_sha256": "a4988fb137e6a998c439d5e9bb9f257f659c45e176c095a0f867dde8e8f050b7",
+  "export_and_checksum_seconds": 21.253691958998388
+}

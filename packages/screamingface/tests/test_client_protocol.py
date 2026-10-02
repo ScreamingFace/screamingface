@@ -289,9 +289,11 @@ async def test_async_silent_event_stream_has_the_same_bounded_timeout(
 
 
 def test_disconnect_before_terminal_state_is_an_execution_error() -> None:
+    # WHY: this tests exhaustion, not the production reconnect waiting period.
     with protocol_server(mode="disconnect") as engine:
-        with pytest.raises(sf.ExecutionError, match="disconnected") as caught:
-            _run(engine.url)
+        with closing(Url4CloudTransport(engine.url, reconnect_budget_s=0)) as transport:
+            with pytest.raises(sf.ExecutionError, match="disconnected") as caught:
+                transport.run(_candidate(), None)
 
     assert caught.value.code == "websocket_disconnected"
     assert caught.value.permanent is False
@@ -300,8 +302,12 @@ def test_disconnect_before_terminal_state_is_an_execution_error() -> None:
 @pytest.mark.asyncio
 async def test_async_disconnect_before_terminal_state_is_an_execution_error() -> None:
     with protocol_server(mode="disconnect") as engine:
-        with pytest.raises(sf.ExecutionError, match="disconnected") as caught:
-            await _arun(engine.url)
+        transport = AsyncUrl4CloudTransport(engine.url, reconnect_budget_s=0)
+        try:
+            with pytest.raises(sf.ExecutionError, match="disconnected") as caught:
+                await transport.run(_candidate(), None)
+        finally:
+            await transport.close()
 
     assert caught.value.code == "websocket_disconnected"
     assert caught.value.permanent is False

@@ -1,0 +1,28 @@
+{
+  "base": "54520642",
+  "focused_regressions_passed": 39,
+  "gate_runner": "packages/screamingface/.venv/bin/python -u .claude/scripts/run_gates.py screamingface --base 54520642",
+  "gate_result": "ALL GATES GREEN",
+  "fusion_fixture": {
+    "candidates": 1,
+    "cases": 100000,
+    "prompt_bytes": 20,
+    "members": 2,
+    "operations_per_case": 3,
+    "raw_bytes": 161077993,
+    "export_bytes": 146479522,
+    "peak_rss_bytes": 55787520
+  },
+  "member_usage_traced_peaks": [
+    {
+      "cases": 1000,
+      "peak_traced_bytes": 22351
+    },
+    {
+      "cases": 100000,
+      "peak_traced_bytes": 7792
+    }
+  ],
+  "paid_calls": 0,
+  "limits": "Synthetic local fixture; hosted/paid workload not repeated. Hash validation adds sequential disk I/O. Legacy read-only comparison requires temporary disk."
+}
