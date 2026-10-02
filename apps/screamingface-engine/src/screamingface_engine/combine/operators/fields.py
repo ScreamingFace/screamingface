@@ -19,6 +19,8 @@ AIDEV-NOTE: the comparison key conflates JSON types on purpose (v1): the text ``
 boolean ``true`` share a key, so do ``"[1,2]"`` and ``[1,2]``, and ``text`` casefolds a whole
 object's canonical text, keys included. A JSON number is read as the number it is (max), never
 through the 64-char / 2-digit-exponent limits of ``numeric@1``; only a string goes through them.
+A field rule, projection or equals pick that finds no usable value raises ``NoVotes`` (reason
+``no_votes``); the core turns it into an abstain (OME-1289 gap AB-D4). from_member null is a value.
 """
 
 from __future__ import annotations
@@ -108,7 +110,7 @@ def _key(value: object, normalize: str | None) -> str | None:
 
 
 def _no_usable(index: int) -> NoVotes:
-    return NoVotes(f"field_rules@1 field {index} has no usable value")
+    return NoVotes(f"field_rules@1 field {index} has no usable value", reason="no_votes")
 
 
 # --- values@1 and project_field@1 -------------------------------------------------------------
@@ -142,7 +144,7 @@ def project_field(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     field = str(args["field"])
     present = dict(_present(_objects(combine_input, "project_field@1"), field))
     if not present:
-        raise NoVotes("project_field@1: no member has the field")
+        raise NoVotes("project_field@1: no member has the field", reason="no_votes")
     reading = FieldReading(field, "project", MappingProxyType(present), None)
     return Reduction(text=canonical_json(present), fields=(reading,))
 
@@ -194,7 +196,7 @@ def _by_equals(voters: Sequence[Answer], args: OpArgs) -> Selection:
     target = _target(args)
     holders = [answer.member_id for answer in voters if answer.value == target]
     if not holders:
-        raise NoVotes("no member value equals the by_field@1 target")
+        raise NoVotes("no member value equals the by_field@1 target", reason="no_votes")
     return Selection(chosen=(holders[0],), tie=len(holders) > 1)
 
 

@@ -15,11 +15,12 @@ from typing import Any
 import pytest
 from combine_fields_support import merge_spec, pick_spec, project_spec, step
 from combine_flow_support import find_builtin
-from combine_golden_support import stage
+from combine_golden_support import combine_input, member_readings, stage
 from combine_support import context_text, run, spec_text
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
-from screamingface_engine.combine.ports import NoVotes, SpecInvalid, canonical_json
+from screamingface_engine.combine.evidence import ResultRecord
+from screamingface_engine.combine.ports import NoVotes, Reduction, SpecInvalid, canonical_json
 
 _PICK_TEXTS = (
     '{"a": 1, "confidence": 0.4}',
@@ -48,6 +49,17 @@ def _run(
 
 def _evidence(outcome: Any) -> dict[str, Any]:
     return outcome.evidence.model_dump(by_alias=True)
+
+
+def _abstained(outcome: Any) -> dict[str, Any]:
+    """Assert the outcome is a ``no_votes`` abstain with no chosen member; return its evidence."""
+    evidence = outcome.evidence
+    assert outcome.output == ""
+    assert evidence.result == ResultRecord(
+        member_id=None, value=None, status="abstain", reason="no_votes"
+    )
+    assert (evidence.chosen, evidence.built) == ([], False)
+    return _evidence(outcome)
 
 
 def _status_reason(outcome: Any, index: int) -> tuple[str, str | None]:
@@ -137,17 +149,73 @@ def test_non_json_member_is_skipped_and_reported() -> None:
 # --- PM-9 -------------------------------------------------------------------------------------
 
 
-def test_all_members_unusable_fails_with_combine_no_votes() -> None:
+def test_all_members_unusable_abstains() -> None:
     prose = ["Sure!", "Here it is.", "No JSON."]
-    with pytest.raises(NoVotes):
-        _run(pick_spec(3, step("by_field@1", order="max")), prose)
-    with pytest.raises(NoVotes):
-        _run(merge_spec(3, _MERGE_RULES[:1]), prose)
+    _abstained(_run(pick_spec(3, step("by_field@1", order="max")), prose))
+    _abstained(_run(merge_spec(3, _MERGE_RULES[:1]), prose))
     # every member is JSON, but no member has the majority field
-    with pytest.raises(NoVotes):
-        _run(merge_spec(3, [{"field": "x", "rule": "majority", "normalize": None}]), _MERGE_TEXTS)
-    with pytest.raises(NoVotes):
-        _run(pick_spec(3, step("by_field@1", order="max")), ['{"a": 1}'] * 3)
+    rule = [{"field": "x", "rule": "majority", "normalize": None}]
+    _abstained(_run(merge_spec(3, rule), _MERGE_TEXTS))
+    _abstained(_run(pick_spec(3, step("by_field@1", order="max")), ['{"a": 1}'] * 3))
+
+
+@pytest.mark.parametrize(
+    ("spec", "texts"),
+    [
+        (merge_spec(3, [{"field": "x", "rule": "majority", "normalize": None}]), _MERGE_TEXTS),
+        (merge_spec(3, [{"field": "source", "rule": "max"}]), _MERGE_TEXTS),
+        (merge_spec(3, [{"field": "answer", "rule": "union", "normalize": None}]), _MERGE_TEXTS),
+        (project_spec(2, "summary"), ('{"x":1}', '{"summary":null}')),
+    ],
+    ids=["majority", "max", "union", "projection"],
+)
+def test_merge_and_projection_without_usable_value_abstain(
+    spec: Any, texts: tuple[str, ...]
+) -> None:
+    """AB#4: a reduce that finds no usable value abstains; no field readings are kept (F6)."""
+    evidence = _abstained(_run(spec, texts))
+    assert evidence["fields"] is None
+    assert evidence["dropped"] == 0
+    assert {row["status"] for row in evidence["members"]} == {"answered"}
+
+
+def test_by_field_equals_that_finds_nothing_abstains_and_keeps_the_values() -> None:
+    """AB#4 and F6: a select raise keeps the values@1 reading of the compared field."""
+    select = step("by_field@1", order="equals", value="0.1", normalize="numeric")
+    evidence = _abstained(_run(pick_spec(3, select), _PICK_TEXTS))
+    assert evidence["fields"] == [
+        {
+            "field": "confidence",
+            "rule": "values",
+            "values": {"member_1": "0.4", "member_2": "0.9", "member_3": "0.7"},
+            "result": None,
+        }
+    ]
+    assert evidence["dropped"] == 0
+    assert {row["status"] for row in evidence["members"]} == {"answered"}
+
+
+def test_field_operators_ask_to_abstain_with_the_no_votes_reason() -> None:
+    """The operators raise ``NoVotes(reason="no_votes")`` and name a rule or a field number."""
+    given = combine_input(member_readings(['{"secretfield":"SECRET-TEXT"}']))
+    rules = {"fields": [{"field": "secretfield", "rule": "max"}]}
+    target = {"order": "equals", "value": "SECRET-TARGET", "normalize": None}
+    raised = [
+        _raised(lambda: find_builtin("field_rules@1").run(given, rules)),
+        _raised(lambda: find_builtin("project_field@1").run(given, {"field": "other"})),
+        _raised(lambda: find_builtin("by_field@1").run(Reduction(), given, target)),
+    ]
+    assert [caught.reason for caught in raised] == ["no_votes"] * 3
+    assert "field 1" in str(raised[0])
+    for caught in raised:
+        assert "SECRET" not in str(caught)
+        assert "secretfield" not in str(caught)
+
+
+def _raised(call: Any) -> NoVotes:
+    with pytest.raises(NoVotes) as caught:
+        call()
+    return caught.value
 
 
 # --- PM-10 ------------------------------------------------------------------------------------
@@ -174,8 +242,7 @@ def test_pick_equals_uses_declared_normalizer() -> None:
 
     assert pick("yes", "text", "text@1").output == texts[0]
     assert pick("Yes.", "text", "text@1").output == texts[0]
-    with pytest.raises(NoVotes):
-        pick("yes", None, None)
+    _abstained(pick("yes", None, None))
 
 
 # --- PM-3 / PM-4 / PM-5 / PM-13 ---------------------------------------------------------------
@@ -237,6 +304,9 @@ def test_from_member_not_json_gives_null_field_and_reason() -> None:
     texts = [_MERGE_TEXTS[0], "Sure! not json", _MERGE_TEXTS[2]]
     outcome = _run(merge_spec(3, rules), texts)
     assert outcome.output == '{"source":null}'
+    assert (
+        outcome.evidence.result.status == "answered"
+    )  # a null from_member is a value, not an abstain
     evidence = _evidence(outcome)
     assert evidence["fields"][0]["result"] is None
     assert _status_reason(outcome, 1) == ("fail", "not_json")
@@ -284,9 +354,8 @@ def test_projection_returns_only_the_field_values() -> None:
     ]
 
 
-def test_projection_with_no_member_field_fails_with_no_votes() -> None:
-    with pytest.raises(NoVotes):
-        _run(project_spec(2, "summary"), ['{"x":1}', '{"summary":null}'])
+def test_projection_with_no_member_field_abstains() -> None:
+    _abstained(_run(project_spec(2, "summary"), ['{"x":1}', '{"summary":null}']))
 
 
 # --- model field ------------------------------------------------------------------------------
@@ -329,15 +398,19 @@ def test_failures_name_the_rule_and_never_echo_values() -> None:
     texts = ['{"secretfield": "SECRET-TEXT"}']
     with pytest.raises(SpecInvalid) as no_signal:
         _run(merge_spec(1, [{"field": "secretfield", "rule": "model"}]), texts)
-    with pytest.raises(NoVotes) as no_votes:
-        _run(merge_spec(1, [{"field": "secretfield", "rule": "max"}]), texts)
-    with pytest.raises(NoVotes) as no_match:
-        pick = step("by_field@1", order="equals", value="SECRET-TARGET", normalize=None)
-        _run(pick_spec(1, pick, normalize=None), ['{"confidence": "other"}'])
-    for caught in (no_signal, no_votes, no_match):
-        assert "SECRET" not in str(caught.value)
-        assert "secretfield" not in str(caught.value)
-    assert "field 1" in str(no_votes.value)
+    assert "SECRET" not in str(no_signal.value)
+    assert "secretfield" not in str(no_signal.value)
+    # the no-usable-value cases abstain; the evidence holds the reason code and no message
+    merge = _abstained(_run(merge_spec(1, [{"field": "secretfield", "rule": "max"}]), texts))
+    assert merge["result"] == {
+        "member_id": None,
+        "value": None,
+        "status": "abstain",
+        "reason": "no_votes",
+    }
+    pick = step("by_field@1", order="equals", value="SECRET-TARGET", normalize=None)
+    target = _abstained(_run(pick_spec(1, pick, normalize=None), ['{"confidence": "other"}']))
+    assert "SECRET" not in json.dumps(target)
 
 
 def test_a_non_finite_number_from_another_extractor_is_a_spec_error() -> None:

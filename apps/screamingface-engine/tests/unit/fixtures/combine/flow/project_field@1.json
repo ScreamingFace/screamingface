@@ -187,7 +187,7 @@
     ]
    },
    "expect": {
-    "error": "combine_no_votes"
+    "abstain": "no_votes"
    }
   },
   {
