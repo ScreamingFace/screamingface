@@ -342,7 +342,53 @@ is in the `combine` field of each case's `operations` entry (`op_synthesis_1` fo
 `case.answers()` joins each member's text to its Answer. `case.trace()` and `report.trace_dict()`
 show what each block did, in order. This needs an Engine that serves `GET /v1/operators`.
 
-`sf.Vote(weights=[2, 1, 1])` gives each member a fixed positive weight, one number per member in author order. Each answer scores the sum of the weights of the members who gave it, and the answer is the text of the heaviest member who gave the winning answer (the first in author order on equal weights). A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError` at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to `sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. The report shows each member's `weight` and each answer's summed `score`.
+Give a vote weights to make some members count more. A list gives each member a fixed weight, one
+positive number per member in author order. A `sf.signal` weighs each member by a number on its own
+Answer:
+
+```python
+fixed = sf.Fusion(routes, synthesizer=sf.Vote(weights=[2, 1, 1]))
+
+# Each member replies with JSON such as {"answer": "B", "confidence": 0.4}.
+by_confidence = sf.Fusion(
+    routes,
+    synthesizer=sf.Reduce(
+        "weighted",
+        extract=sf.Extract("field", path="answer", normalize="text"),
+        weights=sf.signal("field:confidence"),
+    ),
+)
+
+# The same rule in the named form, with the cost of each member's own model calls as the weight.
+by_cost = sf.Fusion(routes, synthesizer=sf.Vote(weights=sf.signal("cost_usd")))
+by_cost_block = sf.Fusion(
+    routes,
+    synthesizer=sf.Reduce(
+        "weighted",
+        extract=sf.Extract("last_line", normalize="text"),
+        weights=sf.signal("cost_usd"),
+    ),
+)
+```
+
+Each answer scores the sum of the weights of the members who gave it. The answer is the text of the
+heaviest member who gave the winning answer (the first in author order on equal weights). A member
+with no weight does not vote, and when no member is left the Case abstains. The report shows each
+member's `weight` and each answer's summed `score`.
+
+A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError`
+at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights
+raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to
+`sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. `sf.signal("score:judge")` raises
+`ValueError` until the judge arrives.
+
+The accounting keys are `cost_usd`, `latency_ms`, `tokens_in` and `tokens_out`. For a member they
+are the sum over the model calls that member made, which the Engine finds by each call's route and
+params. When two members send the same route and params (for example a repeated model, or a model
+that a later stage or another Fusion also calls), the Engine cannot tell the calls apart, so those
+members have no accounting value and do not vote. This also holds in a corrective loop with
+`max_rounds` of 2 or more, where every round sends the member's calls again. To give each member
+its own calls, use `sf.samples()` (a different `seed` for each member).
 
 ## Install
 
