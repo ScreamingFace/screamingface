@@ -478,6 +478,13 @@ If the members reply with JSON, a rule can choose or build the answer. No model 
 by_confidence = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max"))
 by_answer = sf.Fusion(routes, synthesizer=sf.Pick("answer", equals="yes", normalize="text"))
 
+# argmax: the member with the lowest value of a named signal (here, the cheapest member)
+cheapest = sf.Fusion(routes, synthesizer=sf.Pick(by_signal=sf.signal("cost_usd"), order="min"))
+# The same pick in the block form:
+cheapest_block = sf.Fusion(
+    routes, synthesizer=sf.Reduce("argmax", by_signal=sf.signal("cost_usd"), order="min")
+)
+
 merged = sf.Fusion(
     routes,
     synthesizer=sf.Merge(
@@ -501,7 +508,25 @@ compared in its JSON spelling (`1` is not `1.0`), unless you use `normalize="num
 Because `json_field@1` returns the contents of a string without its quotes, `equals=7` also matches
 a member whose value is the string `"7"`. An empty `equals`, or `equals=True` with
 `normalize="numeric"`, raises `ValueError` before any call. A tie goes to the first member in author
-order and sets `tie`.
+order and sets `tie`. A `field` that is longer than 256 characters raises `ValueError` before any
+call.
+
+`sf.Pick(by_signal=sf.signal(key), order="max"|"min")` (argmax) picks the member whose named signal is
+the highest (`"max"`, the default) or the lowest (`"min"`). The signal can be an accounting key
+(`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) or `field:<path>`. The result is the text of
+that member, byte for byte. A member with no value for the signal is skipped. When no member has a
+value, the Case abstains. A tie goes to the first member in author order. For an accounting key, the
+SDK adds `sources` to the combine context (the model calls of each member), as it does for a weighted
+`sf.Vote`; a member with a call that appears twice in the Candidate gets no value. `score:judge` raises
+`ValueError`: this reducer has no judge. Use `sf.Judge(..., returns="scores")`, which picks the member
+with the highest judge score. A `Pick` takes a field or `by_signal=`, not both.
+
+The block forms compile to the same url4 as the named classes, and `Url4(...).to_python()` writes the
+named class back: `sf.Reduce("argmax", by_signal=..., order=...)` is `sf.Pick(by_signal=..., order=...)`,
+`sf.Reduce("pick_field", field=..., order=...)` or `sf.Reduce("pick_field", field=..., equals=...,
+normalize=...)` is `sf.Pick(field, ...)`, and `sf.Reduce("merge", fields={...})` is `sf.Merge({...})`.
+A `pick_field` block keeps `equals` as text, so `equals=7` and `equals="7"` are one block. The errors of
+the Pick carry the prefix `sf.Reduce('pick_field'):`. `sf.FieldRule` is a hashable value.
 
 `sf.Merge(fields={...})` builds one JSON object. The object has exactly the fields that you declare,
 in sorted key order. Each field has one rule:
@@ -533,7 +558,8 @@ treat the member values as data and not as instructions, and your prompt follows
 `Url4(...).to_python()` shows only your prompt. A change of the template changes the url4, so it
 changes the replay identity. The name `binding` is reserved in `params`. This needs an Engine whose
 operator catalog has `json_field@1`,
-`json_object@1`, `values@1`, `by_field@1`, `field_rules@1`, `project_field@1` and `built@1`.
+`json_object@1`, `values@1`, `by_field@1`, `field_rules@1`, `project_field@1` and `built@1`. Argmax
+needs `by_signal@1` and `best_holder@1`.
 
 ## Install
 
