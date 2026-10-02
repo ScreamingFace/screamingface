@@ -1617,6 +1617,32 @@
    }
   },
   {
+   "name": "args: pattern program is over 5000 RE2 instructions",
+   "args": {
+    "pattern": "(.{0,1000})(.{0,1000})(.{0,1000})x"
+   },
+   "input": {
+    "readings": [
+     {
+      "member": "member_1",
+      "raw": null,
+      "value": null,
+      "status": "voted",
+      "weight": null,
+      "signals": {
+       "field:c": 0.9
+      }
+     }
+    ],
+    "outputs": {
+     "member_1": "a"
+    }
+   },
+   "expect": {
+    "error": "combine_spec_invalid"
+   }
+  },
+  {
    "name": "args: pattern has an unclosed group",
    "args": {
     "pattern": "(a"

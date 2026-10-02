@@ -17,7 +17,8 @@ from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.ports import canonical_json
 
 _NOTE = "caf\u00e9 \u4e2d\u6587 \U0001f600"
-# The best score 0.9 is held by member_2, member_5 and member_9: the first in author order wins.
+# The best score 0.9 is held by six members (member_2, 4, 5, 7, 9 and 10): the first in author
+# order wins.
 _TIES = [0.5, 0.9, 0.1, 0.9, 0.9, 0.2, 0.9, 0.3, 0.9, 0.9]
 # The cut at k=3 falls inside four members that share 0.7: the first one in author order is kept.
 _CUT = [0.7, 0.95, 0.7, 0.2, 0.7, 0.9, 0.7, 0.1]
@@ -34,7 +35,7 @@ def _bytes_of(spec: Mapping[str, Any], texts: list[str]) -> str:
 
 
 def argmax_scenario() -> str:
-    """Output and evidence JSON of an argmax whose best score is held by five members."""
+    """Output and evidence JSON of an argmax whose best score is held by six members."""
     return _bytes_of(argmax_spec(len(_TIES), "field:s", "max"), _texts(_TIES, "s"))
 
 
