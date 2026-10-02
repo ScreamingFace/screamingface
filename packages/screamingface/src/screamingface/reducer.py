@@ -6,12 +6,15 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.operators import STAGES
 from screamingface._immutable_json import freeze_mapping
 from screamingface._signals import JUDGE_SIGNAL, Signal
+
+if TYPE_CHECKING:
+    from screamingface.judge import Judge
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
 type _ReducerName = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat"]
@@ -216,20 +219,46 @@ def _weights_type_error(label: str) -> TypeError:
     return TypeError(f"{label} must be a sequence of numbers, one per member, or an sf.signal")
 
 
+def _reads_judge(weights: object) -> bool:
+    return isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL
+
+
+def _check_judge_weights(weights: object, judge: object, label: str) -> None:
+    """The one pairing rule (8S F5): weights=sf.signal('score:judge') and a scores judge go
+    together. The Engine reads score:judge strictly, so a lone half would fail after the member
+    calls are paid. The messages never echo the rubric.
+    """
+
+    if judge is not None:
+        # WHY lazy: judge.py imports this module (cycle)
+        from screamingface.judge import Judge
+
+        if not isinstance(judge, Judge):
+            raise TypeError(f"{label} judge must be an sf.Judge")
+        if judge.returns != "scores":
+            raise ValueError(
+                f"{label} judge needs sf.Judge(..., returns='scores'): "
+                "the vote reads one score per member"
+            )
+        if not _reads_judge(weights):
+            raise ValueError(f"{label} judge is read only by weights=sf.signal('score:judge')")
+    elif _reads_judge(weights):
+        raise ValueError(
+            "weights=sf.signal('score:judge') needs a judge on the same reducer: "
+            "add judge=sf.Judge(..., returns='scores')"
+        )
+
+
 def _vote_plan(
     extract: _Step | None,
     normalize: _Step | None,
     weights: tuple[float, ...] | Signal | None,
     *,
     benchmark_rule: bool,
+    judge: Judge | None = None,
 ) -> _ReducerPlan:
     """The one plan behind sf.Vote and sf.Reduce('plurality'|'weighted') (BK-1, BK#4)."""
 
-    if isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL:
-        raise ValueError(
-            "weights=sf.signal('score:judge') needs a judge on the same reducer; "
-            "it arrives with sf.Vote(..., judge=sf.Judge(...))"
-        )
     weighted = weights is not None
     steps = _Steps(
         reduce=_Step("weighted_mode" if weighted else "mode"),
@@ -237,7 +266,14 @@ def _vote_plan(
         extract=extract,
         normalize=normalize,
     )
-    return _ReducerPlan("vote", "answer", steps, weights, benchmark_rule=benchmark_rule)
+    return _ReducerPlan(
+        "vote",
+        "answer",
+        steps,
+        weights,
+        benchmark_rule=benchmark_rule,
+        signal_calls=() if judge is None else (judge._signal_call(),),
+    )
 
 
 def _recovered_weights(spec: Mapping[str, object]) -> tuple[float, ...] | Signal | None:
@@ -272,7 +308,8 @@ def _recovered_member_weights(weights: object, members: object) -> tuple[float, 
 
 
 def _as_python(value: object) -> str:
-    return value._python() if isinstance(value, Signal) else repr(value)
+    python = getattr(value, "_python", None)
+    return repr(value) if python is None else python()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -288,6 +325,7 @@ class Vote(Reducer):
     extract: str
     normalize: str | None
     weights: tuple[float, ...] | Signal | None
+    judge: Judge | None
 
     def __init__(
         self,
@@ -295,6 +333,7 @@ class Vote(Reducer):
         extract: str = "last_line",
         normalize: str | None = _DEFAULT_NORMALIZE,
         weights: Sequence[float] | Signal | None = None,
+        judge: Judge | None = None,
     ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
         object.__setattr__(self, "name", "vote")
@@ -303,6 +342,8 @@ class Vote(Reducer):
         object.__setattr__(
             self, "weights", None if weights is None else _weights_option(weights, "Vote weights")
         )
+        _check_judge_weights(self.weights, judge, "Vote")
+        object.__setattr__(self, "judge", judge)
 
     @property
     def _is_benchmark(self) -> bool:
@@ -315,6 +356,7 @@ class Vote(Reducer):
             None if self.normalize is None else _Step(self.normalize),
             self.weights,
             benchmark_rule=benchmark,
+            judge=self.judge,
         )
 
     def _check_members(self, count: int) -> None:
@@ -323,6 +365,22 @@ class Vote(Reducer):
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Vote:
+        return cls._from_spec_parts(spec, None)
+
+    @classmethod
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Vote:
+        if not signals:
+            return cls._from_spec(spec)
+        # WHY lazy: judge.py imports this module (cycle)
+        from screamingface.judge import judge_from_signals
+
+        judge = judge_from_signals(signals, "scores")
+        if spec["weights"] != {"signal": JUDGE_SIGNAL}:
+            raise _cannot_rebuild("vote")
+        return cls._from_spec_parts(spec, judge)
+
+    @classmethod
+    def _from_spec_parts(cls, spec: Mapping[str, object], judge: Judge | None) -> Vote:
         ops = _spec_ops(spec, "vote")
         extract = ops["extract"]
         weights = _recovered_weights(spec)
@@ -331,9 +389,10 @@ class Vote(Reducer):
         expected = (
             ("mode", "first_holder") if weights is None else ("weighted_mode", "max_weight_holder")
         )
-        if extract is None or pair != expected:
+        # a score:judge spec needs its judge call, which only a url4 with signals holds
+        if extract is None or pair != expected or (judge is None and _reads_judge(weights)):
             raise _cannot_rebuild("vote")
-        return cls(extract=extract, normalize=ops["normalize"], weights=weights)
+        return cls(extract=extract, normalize=ops["normalize"], weights=weights, judge=judge)
 
     def __repr__(self) -> str:
         return self._render("Vote", repr)
@@ -343,9 +402,10 @@ class Vote(Reducer):
 
     def _render(self, head: str, show: Callable[[object], str]) -> str:
         weights = "" if self.weights is None else f", weights={show(self.weights)}"
+        judge = "" if self.judge is None else f", judge={show(self.judge)}"
         if self._is_benchmark:
-            return f"{head}(extract={self.extract!r}{weights})"
-        return f"{head}(extract={self.extract!r}, normalize={self.normalize!r}{weights})"
+            return f"{head}(extract={self.extract!r}{weights}{judge})"
+        return f"{head}(extract={self.extract!r}, normalize={self.normalize!r}{weights}{judge})"
 
     __hash__: ClassVar[Any] = None
 

@@ -68,11 +68,12 @@ def test_vote_signal_weights_compile_to_a_signal_spec() -> None:
 
 
 def test_score_judge_weights_wait_for_the_judge() -> None:
+    # 8S F5: the pairing rule fails at construction, before any compile or paid call
     judge = sf.signal("score:judge")
     with pytest.raises(ValueError, match="needs a judge"):
-        _url4(sf.Reduce("weighted", extract=_FIELD, weights=judge))
+        sf.Reduce("weighted", extract=_FIELD, weights=judge)
     with pytest.raises(ValueError, match="needs a judge"):
-        _url4(sf.Vote(**_NUMBER, weights=judge))
+        sf.Vote(**_NUMBER, weights=judge)
 
 
 def _signal_vote_spec(key: str) -> dict[str, Any]:

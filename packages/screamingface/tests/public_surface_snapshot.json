@@ -866,8 +866,9 @@
       "Vote": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text', weights: 'Sequence[float] | Signal | None' = None) -> 'None'",
+          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text', weights: 'Sequence[float] | Signal | None' = None, judge: 'Judge | None' = None) -> 'None'",
           "extract": "field",
+          "judge": "field",
           "name": "field",
           "normalize": "field",
           "weights": "field"

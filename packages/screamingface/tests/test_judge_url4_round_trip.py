@@ -207,13 +207,24 @@ def test_judge_topology_tampering_is_refused(case: str) -> None:
 
 def test_a_pure_rule_reducer_refuses_signals() -> None:
     spec = decode_combine_spec(
-        combine_spec_text(sf.Vote(), member_count=3, operators=flow_operators())
+        combine_spec_text(sf.Median(), member_count=3, operators=flow_operators())
     )
     signal = _ModelSignal("judge", "provider/j", JUDGE_TEMPLATES["label"], MappingProxyType({}))
 
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
-        sf.Vote._rebuild(spec, (signal,))
+        sf.Median._rebuild(spec, (signal,))
+    assert sf.Median._rebuild(spec, ()) == sf.Median(extract="last_number@1", select="nearest@1")
+
+
+def test_a_vote_reads_a_scores_judge_call_only() -> None:
+    spec = decode_combine_spec(
+        combine_spec_text(sf.Vote(), member_count=3, operators=flow_operators())
+    )
+    signal = _ModelSignal("judge", "provider/j", JUDGE_TEMPLATES["label"], MappingProxyType({}))
+
     assert sf.Vote._rebuild(spec, ()) == sf.Vote(extract="last_line@1", normalize="text@1")
+    with pytest.raises(ValueError, match="unsupported judge call"):
+        sf.Vote._rebuild(spec, (signal,))
 
 
 def test_a_judge_spec_without_its_judge_call_is_refused() -> None:

@@ -11,14 +11,16 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._regex_rule import check_regex
-from screamingface._signals import FIELD_PATH, Signal
+from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
 from screamingface.reducer import (
     BENCHMARK_EXTRACT,
     Reducer,
+    _check_judge_weights,
+    _ModelSignal,
     _recovered_weights,
     _ReducerPlan,
     _Step,
@@ -26,6 +28,9 @@ from screamingface.reducer import (
     _vote_plan,
     _weights_option,
 )
+
+if TYPE_CHECKING:
+    from screamingface.judge import Judge
 
 type ExtractRule = Literal[
     "boxed",
@@ -209,7 +214,11 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
     {
         "plurality": _OpRow("vote", ("select",), ("extract",), named="sf.Vote"),
         "weighted": _OpRow(
-            "vote", ("select",), ("extract", "weights"), named="sf.Vote(weights=...)"
+            "vote",
+            ("select",),
+            ("extract", "weights"),
+            ("judge",),
+            named="sf.Vote(weights=...)",
         ),
         "argmax": _OpRow(
             "pick", ("select",), ("by_signal",), ("order",), named="sf.Pick(by_signal=...)"
@@ -450,15 +459,13 @@ class Reduce(Reducer):
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Reduce:
-        try:
-            rebuilt = _REBUILD.get(str(spec.get("reducer")))
-            if rebuilt is None:
-                raise ValueError("not a rebuildable reducer")
-            return rebuilt(spec)
-        except (KeyError, TypeError, ValueError, AttributeError) as exc:
-            raise ValueError(
-                f"URL4 Candidate has a {spec.get('reducer')} spec this SDK version cannot rebuild"
-            ) from exc
+        return _rebuilt_block(spec, lambda: _rebuild_plain(spec))
+
+    @classmethod
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Reduce:
+        if not signals:
+            return cls._from_spec(spec)
+        return _rebuilt_block(spec, lambda: _rebuild_with_signals(spec, signals))
 
 
 def _resolve_mode(op: str, row: _OpRow, mode: object) -> ReduceMode:
@@ -503,9 +510,13 @@ def _canonical_median(checked: dict[str, object]) -> None:
     checked["extract"] = _median_extract(checked["extract"])
 
 
+def _canonical_weighted(checked: dict[str, object]) -> None:
+    _check_judge_weights(checked["weights"], checked.get("judge"), "sf.Reduce('weighted')")
+
+
 # op -> the in-place canonicalization of its checked options (BK#4: one canonical block per op)
 _CANONICAL: Mapping[str, Callable[[dict[str, object]], None]] = MappingProxyType(
-    {"median": _canonical_median}
+    {"median": _canonical_median, "weighted": _canonical_weighted}
 )
 
 
@@ -543,7 +554,8 @@ def _weighted_plan(block: Reduce) -> _ReducerPlan:
     extract, normalize, benchmark = _answer_steps(_extract_of(block))
     weights = block.options["weights"]
     assert isinstance(weights, tuple | Signal)
-    return _vote_plan(extract, normalize, weights, benchmark_rule=benchmark)
+    judge = cast("Judge | None", block.options.get("judge"))
+    return _vote_plan(extract, normalize, weights, benchmark_rule=benchmark, judge=judge)
 
 
 def _median_plan(block: Reduce) -> _ReducerPlan:
@@ -606,7 +618,7 @@ def _normalize_from_spec(spec: Mapping[str, object]) -> str | None:
     return _op_name(step)
 
 
-def _rebuild_vote(spec: Mapping[str, object]) -> Reduce:
+def _rebuild_vote(spec: Mapping[str, object], *, judge: Judge | None = None) -> Reduce:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
     extract = _extract_from_spec(spec, _normalize_from_spec(spec))
@@ -615,7 +627,9 @@ def _rebuild_vote(spec: Mapping[str, object]) -> Reduce:
     if pair == ("mode", "first_holder") and weights is None:
         return Reduce("plurality", extract=extract)
     if pair == ("weighted_mode", "max_weight_holder") and weights is not None:
-        return Reduce("weighted", extract=extract, weights=weights)
+        if judge is None:
+            return Reduce("weighted", extract=extract, weights=weights)
+        return Reduce("weighted", extract=extract, weights=weights, judge=judge)
     raise ValueError("a vote shape this SDK version cannot rebuild")
 
 
@@ -637,6 +651,35 @@ def _rebuild_median(spec: Mapping[str, object]) -> Reduce:
 _REBUILD: Mapping[str, Callable[[Mapping[str, object]], Reduce]] = MappingProxyType(
     {"vote": _rebuild_vote, "median": _rebuild_median}
 )
+
+
+def _rebuild_plain(spec: Mapping[str, object]) -> Reduce:
+    rebuilt = _REBUILD.get(str(spec.get("reducer")))
+    if rebuilt is None:
+        raise ValueError("not a rebuildable reducer")
+    return rebuilt(spec)
+
+
+def _rebuild_with_signals(spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Reduce:
+    """Only a judge-weighted vote reads model calls (8S F6); anything else is refused."""
+
+    if spec.get("reducer") != "vote" or spec.get("weights") != {"signal": JUDGE_SIGNAL}:
+        raise ValueError("a signal shape this SDK version cannot rebuild")
+    # WHY lazy: judge.py imports this module to register its block form (F10)
+    from screamingface.judge import judge_from_signals
+
+    return _rebuild_vote(spec, judge=judge_from_signals(signals, "scores"))
+
+
+def _rebuilt_block(spec: Mapping[str, object], rebuild: Callable[[], Reduce]) -> Reduce:
+    """Run one rebuild; every refusal is the one "cannot rebuild" error."""
+
+    try:
+        return rebuild()
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ValueError(
+            f"URL4 Candidate has a {spec.get('reducer')} spec this SDK version cannot rebuild"
+        ) from exc
 
 
 __all__: list[str] = []
