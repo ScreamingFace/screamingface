@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1250",
+  "branch": "bershadsky/ome-1250-connection-status-can-report-connected-while-every-provider",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-10-02",
+  "scope": "public_surface_snapshot.json: ConnectionStatus Literal gains 'unavailable'",
+  "reason": "Owner approved widening the SDK's public ConnectionStatus with 'unavailable' (OME-1250 step 1, strict decoding). The snapshot diff is exactly that one Literal line; regenerated with UPDATE_SURFACE_SNAPSHOT=1. JSON is outside approved_test_changes.py's TS-only scope, so the screamingface-stack gate ran with --skip-append-only for this file only.",
+  "files": {
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "2a1670a104c3a06665d40087a872308dfe084e48",
+      "approved_blob": "1a970f6093a448d8afec3be17987707b932243bf"
+    }
+  }
+}

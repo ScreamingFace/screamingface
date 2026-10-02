@@ -18,6 +18,11 @@ ConnectionStatus = Literal[
     "connected",
     "needs_reauth",
     "error",
+    # FEATURE (OME-1250): authenticates, but the provider cannot serve it right now (402 /
+    # quota). Distinct from `error`, which means the credential itself was rejected (401).
+    # AIDEV-NOTE: the decoder stays STRICT (owner decision 2026-10-02). Any further value must
+    # ship here and in the SDK, deployed and published, BEFORE the gateway emits it.
+    "unavailable",
 ]
 
 
