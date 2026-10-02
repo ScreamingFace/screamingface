@@ -1,8 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-02
+finished: 2026-10-02
 ---
 
 # e4a-gap-closure unit 8E -- Engine judge scores: parse_scores in ports and the score:judge signal
@@ -32,7 +33,8 @@ Branch `e4a-judge-pick-engine` is rebased onto `e4a-weighted-vote` (tip `dce57f3
 A: this ledger. B: repair, no RED. C: rows 1-2 (SG#13). D: rows 3-9 (SG#13, SR#11).
 E: rows 10-12 (guards, pass at once). F: results.
 
-Rows with no RED by design: Commit B, row 2 (see Notes), rows 10-12.
+Rows with no RED by design: Commit B, rows 10-12 (guards, pass at once). Row 2 was RED too: the
+test asserts `callable(ports.judge_reply)` first, so it failed on an assertion.
 
 ### Rebase (spec section 2.0)
 
@@ -67,4 +69,27 @@ Red set after the rebase (engine unit suite, 59 failed / 5951 passed):
 
 ## Outcome
 
-(in progress)
+Commits (after the second rebase onto `e4a-weighted-vote` `d5138b026`, an SDK-only refactor): A
+ledger, B repair (no RED), C rows 1-2, D rows 3-9, E rows 10-12, F this record.
+
+RED seen: rows 1-2 (assertion on `ports.parse_scores` / `callable(judge_reply)`); row 3
+(`is_signal_key` False); rows 5-9 (`combine_spec_invalid`, "unknown signal"); the three F8 edits
+failed before `is_signal_key` accepted the key.
+
+Gates (base `e4a-weighted-vote`):
+
+- engine, `--skip-append-only`: ruff check, ruff format, pyright, check_layering, pytest with
+  coverage all green.
+- engine, with append-only: offenders are exactly the three F8 files `test_combine_ports.py`,
+  `test_combine_signals.py`, `test_combine_spec.py` (stack-added at unit 1, edited in place).
+  F9 `STU/test_signal_key_conformance.py` is stack-added at unit 4 and is not flagged in the
+  engine run; it is covered by the SDK run with `--skip-append-only`.
+- screamingface (SDK), `--skip-append-only`: all green. repo: all green.
+
+Errata for the orchestrator:
+
+- F4: erd 4.1, `score:judge` row. The judge reply is read strictly; there is no "None when the
+  reducer has no judge".
+- F5: a vote weighted by `score:judge` has `evidence.judge is None`.
+
+Follow-up (8S): drop unit 7's SDK refusal of `score:judge` weights.
