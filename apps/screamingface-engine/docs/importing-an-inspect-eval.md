@@ -10,7 +10,7 @@
   [`0.3.263`](https://github.com/UKGovernmentBEIS/inspect_ai/tree/0.3.263) or
   [`v0.20.0`](https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0). Engine lines are
   `main` at `ba1545d81` (2026-10-02), relative to `src/screamingface_engine_inspect/` unless
-  another path is given; `capture.py` lines are #1219 at `0ba6a62ea`.
+  another path is given; `capture.py` lines are #1219 at `1c2967c31`.
 - How to read the status marks: ✅ built, on `main` · 🔧 in the open OME-1273 PR stack, in merge
   order ([#1219](https://github.com/ScreamingFace/screamingface/pull/1219) capture rendering →
   [#1191](https://github.com/ScreamingFace/screamingface/pull/1191) Task replay →
@@ -58,7 +58,9 @@ with 33 parameters and four deprecated aliases. Three real kits, to read the tab
   prompt wrapper, one answer-matching rule.
 - **sevenllm_mcq_zh**,
   [`sevenllm.py#L54`](https://github.com/UKGovernmentBEIS/inspect_evals/blob/v0.20.0/src/inspect_evals/sevenllm/sevenllm.py#L54):
-  a JSONL fetched from GitHub at a pinned commit, `solver=[prompt_template(TEMPLATE),
+  a JSONL fetched as a raw file from the Hugging Face Hub at a pinned commit
+  ([`sevenllm.py#L37`](https://github.com/UKGovernmentBEIS/inspect_evals/blob/v0.20.0/src/inspect_evals/sevenllm/sevenllm.py#L37)),
+  `solver=[prompt_template(TEMPLATE),
   multiple_choice()]`, `scorer=choice()`. Two chained prompt-building solvers: the first wraps the
   Sample's input in an instruction, the second lists the choices A to D. §3 uses it.
 - **worldsense**,
@@ -90,7 +92,7 @@ the Benchmark; this table is where the reader learns there is one).
 
 | `Task` field | What the gate decides | Where it lands | Status |
 | -- | -- | -- | -- |
-| `sandbox` ([#L95](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/task.py#L95)) | Agentic evals are out of scope: a Task with a sandbox (for example [gdm_intercode_ctf, `#L162`](https://github.com/UKGovernmentBEIS/inspect_evals/blob/v0.20.0/src/inspect_evals/gdm_intercode_ctf/gdm_intercode_ctf.py#L162)) needs Docker per Sample and a tool loop. Today nothing reads the field: an agentic eval's solver is simply not one of the three the importer reproduces, so it earns a `TODO(review)` flag (`_FULLY_REPRODUCED_SOLVERS`, `importer.py:69`) and the how-to says such evals are out of scope. Capture refuses a sandbox before any Sample runs (`captured_case_records`, `capture.py:102`), and a tool call or a second `generate` per Sample (§3). | a refusal reason | 🔧 refusal by name (#1219); the execution lane is OME-1239 |
+| `sandbox` ([#L95](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/task.py#L95)) | Agentic evals are out of scope: a Task with a sandbox (for example [gdm_intercode_ctf, `#L162`](https://github.com/UKGovernmentBEIS/inspect_evals/blob/v0.20.0/src/inspect_evals/gdm_intercode_ctf/gdm_intercode_ctf.py#L162)) needs Docker per Sample and a tool loop. Today nothing reads the field: an agentic eval's solver is simply not one of the three the importer reproduces, so it earns a `TODO(review)` flag (`_FULLY_REPRODUCED_SOLVERS`, `importer.py:69`) and the how-to says such evals are out of scope. Capture refuses a sandbox before any Sample runs (`captured_case_records`, `capture.py:106`), and a tool call or a second `generate` per Sample (§3). | a refusal reason | 🔧 refusal by name (#1219); the execution lane is OME-1239 |
 | `model_roles` ([#L94](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/task.py#L94)) | No eval in inspect_evals 0.20.0 sets this field. The grader role reaches us through the scorer instead: `model_graded_fact` and `model_graded_qa` default to `model_role="grader"` ([`_model.py#L42`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/scorer/_model.py#L42), [`#L122`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/scorer/_model.py#L122)), and simpleqa's scorer asks for it directly ([`scorer.py#L108`](https://github.com/UKGovernmentBEIS/inspect_evals/blob/v0.20.0/src/inspect_evals/simpleqa/scorer.py#L108)). A judge scorer imports with `JudgeSpec(model="TODO")` (`importer.py:1236`); assembly refuses a `TODO`, any role other than `grader` (`_SUPPORTED_MODEL_ROLES`, `benchmarks.py:923`), and any provider but the AI gateway. The Judge is Benchmark-owned and pinned in the Benchmark Revision. | `JudgeSpec` on the declaration; the judge provider (`judge_provider.py`) | ✅ (OME-1240, OME-1370) |
 | `metrics` ([#L89](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/task.py#L89)) | Custom metrics are read by name and surfaced as a review flag (`_custom_metrics`, `importer.py:258`); none is computed. Aggregation is always the mean per-Case score (§2). worldsense's `ws_bias` is such a flag. | the import PR's review notes | ✅ |
 
@@ -172,8 +174,8 @@ with it, and why that and not the imitation `main` ships today.
 
 | # | What `eval()` does per Sample | inspect line | What OME-1273 does instead | Why |
 | -- | -- | -- | -- | -- |
-| 1 | make a `TaskState` from the Sample: input → messages, plus choices, target, metadata | [`create_sample_state`, `run.py#L1449`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L1449) | Task replay (🔧 #1191): the eval's own task function runs in a child process, so `task.dataset` holds the Samples after the eval's own loading and filter; every fetch is recorded as a Case Source and the Case Digest seals the result. Capture (🔧 #1219) then builds the same `TaskState` per Sample with the same private helper inspect uses, `sample_messages` (`_capture_one`, `capture.py:153`). | our reader re-did the loading: 18 Benchmarks serve an order inspect never produces, and a `.filter()` in the task needed its own hook (OME-1269). Running the real function once removes the copy (§4). |
-| 2 | run `setup`, then `solver`, on that state; the solvers edit the messages and eventually call `generate` | [`resolve_plan`, `run.py#L680`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L680); [`plan(state, generate)`, `#L2647`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L2647) | Capture (🔧 #1219): `chain([task.setup, task.solver])` runs on the state with a stand-in `generate` (`_StandIn`, `capture.py:69`). Refused by name: a sandbox (`captured_case_records`, stage 1), tools on the state, a second `generate`, a chain that never calls `generate`, reordered choices, and any message shape but system turns then one user turn. | imitation read facts off the chain and re-rendered them with our copy of inspect's formatting; sevenllm's chained template was dropped, both replays agreed, and the Digest sealed a wrong prompt (§3). The real code cannot drop a step. |
+| 1 | make a `TaskState` from the Sample: input → messages, plus choices, target, metadata | [`create_sample_state`, `run.py#L1449`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L1449) | Task replay (🔧 #1191): the eval's own task function runs in a child process, so `task.dataset` holds the Samples after the eval's own loading and filter; every fetch is recorded as a Case Source and the Case Digest seals the result. Capture (🔧 #1219) then builds the same `TaskState` per Sample with the same private helper inspect uses, `sample_messages` (`_capture_one`, `capture.py:157`). | our reader re-did the loading: 18 Benchmarks serve an order inspect never produces, and a `.filter()` in the task needed its own hook (OME-1269). Running the real function once removes the copy (§4). |
+| 2 | run `setup`, then `solver`, on that state; the solvers edit the messages and eventually call `generate` | [`resolve_plan`, `run.py#L680`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L680); [`plan(state, generate)`, `#L2647`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L2647) | Capture (🔧 #1219): `chain([task.setup, task.solver])` runs on the state with a stand-in `generate` (`_StandIn`, `capture.py:71`). Refused by name: a sandbox (`captured_case_records`, stage 1), tools on the state, a second `generate`, a chain that never calls `generate`, reordered choices, and any message shape but system turns then one user turn. | imitation read facts off the chain and re-rendered them with our copy of inspect's formatting; sevenllm's chained template was dropped, both replays agreed, and the Digest sealed a wrong prompt (§3). The real code cannot drop a step. |
 | 3 | `generate` sends the messages to a real model and appends the reply | [`run.py#L1187`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L1187); [`generate.py#L28`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/generate.py#L28) | **the cut.** At build the stand-in records `state.messages` as the Case input and appends an empty reply. At run time the Recipe calls the Candidate with that text, once per Case. | the model's seat is the one piece we own (§2). The paper is frozen with no model in the room, so no Candidate shapes it and no money is spent at build. |
 | 4 | keep running solvers after the reply: answer parsing | [`multiple_choice` after `generate`, `_multiple_choice.py#L334`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/solver/_multiple_choice.py#L334) | at build it runs on the blank reply, finds nothing, and leaves the state inspect would hold after a silent model. At grade time the scorer adapter replays the answer-marking step on the Candidate's real answer (`scorer_adapter.py`, stage 2; ✅). | this step needs the real answer, which exists only at run time. It is the one solver step that moves across the cut, into Grading. |
 | 5 | run `scorer` on the finished state | [`run.py#L2884`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/_eval/task/run.py#L2884) | Grading rebuilds the `TaskState` from the Case's Grading Material and the answer and awaits the eval's own scorer; no network (✅). | the scorer is the marking scheme, taken unchanged (§1a). |
@@ -199,8 +201,9 @@ seams inspect does not have.
 | 💰 **Cost** | money spent and a number published on a leaderboard | a failed local sitting aborts under `fail_on_error` and is rerun for free | Failure Policy, Coverage, Partial Report |
 
 Not every part is a seam. Two fetch paths (§4) and two renderings (§3) are one job done twice
-during a transition; capture (§5, open PRs) deletes one rendering and OME-1460 (§5, Later) one
-fetch path. After that, an import is again close to
+during a transition. Capture adds a second rendering for the Task-replay Benchmarks; the imitation
+rendering stays for the 28 Hugging Face-path Benchmarks until OME-1460 deletes it together with
+the Hugging Face fetch path. After that, an import is again close to
 inspect's shape: call the task function, record what it fetched, freeze what it would have sent,
 and keep only the five seams.
 
@@ -228,11 +231,15 @@ then reads.
 **Capture rendering** (🔧 #1219; `capture.py`) runs the eval's real chain, `task.setup` then
 `task.solver`, on every Sample with `generate` swapped for a stand-in that records the messages
 it is handed and returns an empty answer. Whatever reaches the stand-in is the Case's input.
+At image build only the task function and its solver chain run: no model, no scorer, no Judge,
+no sandbox, no tool, nothing paid.
 
 - **Reproduced:** any solver that only rewrites the prompt, standard or custom, because the real
-  code runs. gsm8k's few-shot system message, sevenllm's two chained solvers, sad's custom
-  solver and agieval's run-time template are then what inspect sends, byte for byte; a test
-  that runs inspect's own chain on a stand-in Sample pins it (OME-1273, acceptance 3).
+  code runs. sevenllm's two chained solvers and agieval's run-time template are then what
+  inspect sends, byte for byte (🔧 #1221, #1220); gsm8k's few-shot system message follows when
+  OME-1460 moves it off the Hugging Face path; sad is not imported yet. The test
+  `test_a_chained_template_and_multiple_choice_renders_as_inspect_does` (`tests/unit/inspect/test_capture.py`,
+  #1219) runs inspect's own chain on a stand-in Sample and pins the rendering.
 - **Refused by name:** a second `generate` call, a tool call, a sandbox, and a prompt that
   differs between the two replays of the same Sample (an unseeded shuffle). An eval whose solver
   needs a real answer to continue cannot be captured.
@@ -244,8 +251,8 @@ it is handed and returns an empty answer. Whatever reaches the stand-in is the C
 `multiple_choice()`. Today's writer picks one rendering per Case: choices present, so it renders
 the multiple-choice template and drops the instruction wrapper (`_prompt`, `prepare.py:1255`
 goes straight to `mcq_prompt` when choices exist). Both Task replays agreed, because both ran the
-same writer, so the Case Digest sealed a wrong prompt. Capture removes the writer and the four
-patches it needed (the choice-template override, agieval's constant, the planned sad renderer and
+same writer, so the Case Digest sealed a wrong prompt. Capture takes the imitation writer out of
+the Task-replay path, and with it the four patches it needed (the choice-template override, agieval's constant, the planned sad renderer and
 a choice-rendering switch).
 
 ## 4. The fetch seam: one path
@@ -264,13 +271,14 @@ in the URL, or an upstream sha256.
 | -- | -- | -- | -- |
 | who fetches | our reader parses the `hf_dataset` call off the task file and loads that dataset itself, at the revision captured in `pins.py` (`read_hub_dataset_facts`, `importer.py:904`; mutable refs refused by `require_commit_sha`, `prepare.py:803`) | the eval's own task function, called in a child process with empty caches (`task_replay.py:127`); a recorder wraps every fetch primitive and writes one Case Source per call (`case_sources.py`) | Task replay for every Benchmark; the recorder forces the declaration's pinned Hub revision onto each `hf_dataset` call, and refuses a repo the declaration has no pin for |
 | what pins the Cases | the Hub revision plus the Case count | the Case Digest (`case_digest`, `prepare.py:341`), taken twice at import and checked at every image build (`prepare_replayed_cases`, `task_replay.py:165`); a mismatch writes `SKIPPED` and fails the PR image job (`SCREAMINGFACE_FAIL_BENCHMARK_BUILD_ON_UNCONFIRMED_CASES=1`) | the Hub revision plus the Case Digest |
-| whose shuffle | ours, seeded on the declaration; 18 Benchmarks serve an order inspect never produces | inspect's own | inspect's own; the 27 moved Benchmarks get a new Benchmark Revision under their existing keys |
+| whose shuffle | ours, seeded on the declaration; 18 Benchmarks serve an order inspect never produces | inspect's own | inspect's own; all 28 Hugging Face-path rows get a new Benchmark Revision under their existing keys (OME-1460 says 27: it counts xstest's two rows as one) |
 | the question filter (OME-1269) | our reader calls the task with the pinned Samples in place of its `hf_dataset` load, so a `.filter()` written in the task keeps the same ids | the task runs its own filter | the task runs its own filter |
 
 The Hugging Face path is retired when OME-1460 lands; until then two preparation paths live side
 by side and only Task-replay Benchmarks carry a Case Digest. The run-time side never fetches:
-only Case Preparation has network access, Grading downloads nothing, and every Benchmark's
-grading test runs with outbound network blocked (OME-1273 spec, R16 and R17).
+only Case Preparation has network access and Grading downloads nothing. The Task-replay
+Benchmarks' grading tests run with outbound network blocked (the `no_network` fixture, 🔧 #1191;
+OME-1273 spec, R16 and R17); `main`'s 28 Benchmarks have no such test yet.
 
 ## 5. Now / Later / Out
 
@@ -278,7 +286,7 @@ grading test runs with outbound network blocked (OME-1273 spec, R16 and R17).
 | -- | -- | -- |
 | **Now** (on `main`) | 28 Imported Benchmarks on the Hugging Face path, imitation rendering, pinned Hub revisions; the scorer adapter, gateway Judges with the `grader` role, the inspect log export | OME-1113, OME-1240, OME-1370, OME-1117 |
 | **Now** (open PRs) | capture rendering: the real solver chain with a stand-in `generate`; Task replay for 19 more Benchmarks, sealed by capture; the Case Source recorder; the Case Digest taken twice | #1219 → #1191 → #1220, #1221 under OME-1273 |
-| **Later** | one fetch path: every Benchmark by Task replay with a forced Hub revision; the Hugging Face reader deleted; 27 revisions move once | OME-1460 |
+| **Later** | one fetch path: every Benchmark by Task replay with a forced Hub revision; the Hugging Face reader deleted; 28 revisions move once | OME-1460 |
 | **Out** | agentic evals: a sandbox, a tool loop or a second model call per Sample. The single-shot lane captures a prompt and owns one model seat; an agent's transcript is the thing being graded, which needs the execution lane. | OME-1239 |
 
 ## Related docs

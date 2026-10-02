@@ -68,7 +68,7 @@
         <mxCell id="r7" value="⑦ the Report: every Case Result, lossless; Report.export(format=&quot;inspect&quot;) rebuilds an .eval log for inspect view (OME-1117)&#xa;⏱ end of the Evaluation; export on demand" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0a2b1e;strokeColor=#34d399;fontColor=#dcfce7;fontFamily=Courier New;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="680" y="820" width="580" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="st2" value="🗄️ the Report&#xa;💾 the run's artefact,&#xa;kept by the SDK" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#ede9fe;fontFamily=Courier New;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
+        <mxCell id="st2" value="🗄️ the Report&#xa;💾 the Evaluation&#39;s artefact,&#xa;kept by the SDK" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#221a33;strokeColor=#a78bfa;fontColor=#ede9fe;fontFamily=Courier New;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
           <mxGeometry x="1310" y="805" width="190" height="110" as="geometry" />
         </mxCell>
         <mxCell id="e1" value="done instead by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9fb0c3;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l1" target="r1">
@@ -98,7 +98,7 @@
         <mxCell id="es2" value="writes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#a78bfa;fontColor=#a78bfa;fontFamily=Courier New;fontSize=11;labelBackgroundColor=#0a0f1c;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="r7" target="st2">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="key" value="HOW TO READ: left column = inspect's steps, dashed grey because none of them ever runs here; the line numbers are inspect_ai tag 0.3.263. Right column = the ScreamingFace component, coloured by WHEN: blue = image build, once · gold = the model seat, run time · green = run time, per Case or per Candidate · purple cylinder = where data rests. ① to ⑦ match the rows of the table under this diagram. Tags inside a box: ⏱ when · 🌐 network · 🔐 trust · 🧩 meaning · 🔀 ordering · 💰 paid." style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="key" value="HOW TO READ: left column = inspect's steps, dashed grey because none of them ever runs here; the line numbers are inspect_ai tag 0.3.263. Right column = the ScreamingFace component, coloured by WHEN: blue = image build, once · gold = the model seat, run time · green = run time, per Case or per Candidate · purple cylinder = where data rests. ① to ⑦ number the rows of the table under this diagram that have a box: the model-roles row is part of ③, epochs is part of ④, and the sandbox row has no box because it is refused at import. Tags inside a box: ⏱ when · 🌐 network · 🔐 trust · 🧩 meaning · 🔀 ordering · 💰 paid." style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontColor=#9fb0c3;fontFamily=Courier New;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="40" y="930" width="1460" height="60" as="geometry" />
         </mxCell>
       </root>

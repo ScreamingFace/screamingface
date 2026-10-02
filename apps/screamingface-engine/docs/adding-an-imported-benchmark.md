@@ -43,9 +43,9 @@ check:
 - **Model-graded (LLM-judged) evals are importable since OME-1240**, with three extra
   conditions:
   - The scorer takes its judge as an explicit model argument (xstest's `model=`,
-    frontierscience's `model=`). A scorer that only resolves inspect's grader *role*
-    (`get_model(role="grader")` with no model kwarg) is not supported yet — assembly
-    refuses it by name.
+    frontierscience's `model=`), or resolves inspect's grader *role*
+    (`get_model(role="grader")` with no model kwarg), which the row's `JudgeSpec` fills
+    since OME-1370; any other role is refused by name.
   - The scorer must not carry its own generation settings or tools into the judge
     call. The wire carries ONLY the row's `JudgeSpec.params`; at grading, the
     provider refuses by name any `GenerateConfig` field the eval sets beyond
