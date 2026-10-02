@@ -79,6 +79,11 @@ class BenchmarkSpec:
     #: The description must name what the flipped score means (refusal rate, or
     #: sosbench's safe-reply rate): the flag flips, it never names.
     inverted_grade: bool = False
+    #: For a judge that answers in WORDS, not inspect's C/I/P/N letters: each verdict
+    #: word → its grade, copied from the eval's own reducer (coconot: UNACCEPTABLE → 1).
+    #: It replaces the letters and is matched ignoring case; a word outside it fails the
+    #: Case by name. The flip, if any, runs after it (OME-1371).
+    verdict_grades: Mapping[str, float] | None = None
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -1308,6 +1313,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     """Row pair in, registered benchmark out — the whole per-benchmark 'code' path."""
 
     _check_judge_declaration(spec)
+    _check_verdict_grades(spec)
     cases_spec: CasesSpec | TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
     identity_pins: tuple[str, ...]
@@ -1326,7 +1332,12 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
         case_count=cases_spec.case_count,
-        revision_pins=identity_pins + _judge_prompt_pins(spec) + _inverted_grade_pins(spec),
+        revision_pins=(
+            identity_pins
+            + _judge_prompt_pins(spec)
+            + _inverted_grade_pins(spec)
+            + _verdict_grades_pins(spec)
+        ),
         scorer_factory=_scorer_factory(spec),
         prepare=prepare,
         install=_installer(f"inspect-{spec.key}"),
@@ -1334,7 +1345,35 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         multiple_correct=spec.multiple_correct,
         judge=spec.judge,
         inverted_grade=spec.inverted_grade,
+        verdict_grades=spec.verdict_grades,
     )
+
+
+def _check_verdict_grades(spec: BenchmarkSpec) -> None:
+    """Refuse a verdict map that cannot grade honestly, at ASSEMBLY (CI) (OME-1371).
+
+    WHY each rule: an empty map fails every Case; a grade outside 0..1 (or NaN) has no
+    honest flip and is not a grade; two spellings of one word with different grades
+    make the case-insensitive lookup depend on dict order.
+    """
+
+    if spec.verdict_grades is None:
+        return
+    if not spec.verdict_grades:
+        raise ValueError(f"{spec.key}: verdict_grades is empty — every Case would fail")
+    out_of_range: list[str] = [
+        word for word, grade in spec.verdict_grades.items() if not 0.0 <= grade <= 1.0
+    ]
+    if out_of_range:
+        raise ValueError(
+            f"{spec.key}: verdict_grades {out_of_range} must be a grade between 0 and 1"
+        )
+    folded: set[str] = {word.casefold() for word in spec.verdict_grades}
+    if len(folded) != len(spec.verdict_grades):
+        raise ValueError(
+            f"{spec.key}: verdict_grades repeats a word ignoring case — the lookup ignores "
+            "case, so each word may appear once"
+        )
 
 
 #: The gateway judge spelling a scorer kwarg uses — its presence IS the "this
@@ -1579,6 +1618,17 @@ def _inverted_grade_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     # WHY: flipping the grade changes what every score means; a flipped Benchmark
     # must never keep a revision its members' published scores hang off.
     return ("inverted_grade=1",) if spec.inverted_grade else ()
+
+
+def _verdict_grades_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """The verdict map as Benchmark identity — a pin only when set, so no published
+    revision moves (OME-1371)."""
+
+    # WHY: the map decides what every judge verdict is worth; regrading NEITHER must
+    # never keep a revision its members' published scores hang off.
+    if spec.verdict_grades is None:
+        return ()
+    return (f"verdict_grades={json.dumps(dict(spec.verdict_grades), sort_keys=True)}",)
 
 
 def _revision_pins(cases_spec: CasesSpec) -> tuple[str, ...]:
