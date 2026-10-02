@@ -11,7 +11,9 @@ import time
 import pytest
 from combine_golden_support import find, stage
 
-from screamingface_engine.combine.ports import OpArgs, SpecInvalid, StageResult
+from screamingface_engine.combine import ports
+from screamingface_engine.combine.operators import extract
+from screamingface_engine.combine.ports import OpArgs, SpecInvalid, StageResult, is_signal_key
 
 
 def _path(path: str) -> OpArgs:
@@ -182,3 +184,21 @@ def test_extractors_finish_under_50ms_on_hostile_1mib_input(op_id: str) -> None:
             stage(op_id, text, args)
             best = min(best, time.perf_counter() - started)
         assert best < 0.05, f"{op_id} took {best:.4f}s on {name}"
+
+
+def test_json_field_reads_paths_through_the_ports_walk() -> None:
+    assert not hasattr(extract, "_walk")
+    assert not hasattr(extract, "_decode")
+    assert not hasattr(extract, "_PATH")
+    assert extract.walk_field_path is ports.walk_field_path
+    assert extract.decode_json_reply is ports.decode_json_reply
+
+
+@pytest.mark.parametrize("path", ["a", "a.b[0]", "[0].a", "", "a.", "a[01]", "1a", "a b", "a..b"])
+def test_json_field_paths_are_the_field_signal_grammar(path: str) -> None:
+    try:
+        find("json_field@1").check_args(_path(path))
+        accepted = True
+    except SpecInvalid:
+        accepted = False
+    assert accepted == is_signal_key("field:" + path)

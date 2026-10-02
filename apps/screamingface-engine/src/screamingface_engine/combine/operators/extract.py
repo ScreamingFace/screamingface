@@ -20,14 +20,16 @@ import re
 from types import MappingProxyType
 
 from screamingface_engine.combine.ports import (
+    FIELD_PATH,
     OpArgs,
     OperatorDescriptor,
     SpecInvalid,
     StageResult,
     accepted,
     canonical_json,
-    loads_bounded,
+    decode_json_reply,
     rejected,
+    walk_field_path,
 )
 
 _DIGITS = "0123456789"
@@ -38,14 +40,6 @@ _NUMBER = re.compile(r"[-\u2212]?[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?")
 _BOX_OPEN = "\\boxed{"
 _BOX_SCAN_CHARS = 4096
 _BOX_MAX_DEPTH = 8
-_FENCE_OPEN = "```json"
-_FENCE_CLOSE = "```"
-# AIDEV-NOTE: a copy of url4's field-path grammar (dag/semantics/ensemble.py `_PATH`), extended
-# with a leading `[N]` segment; copied so a plugin keeps the "ports + stdlib" import rule.
-_KEY = r"[A-Za-z_][A-Za-z0-9_]*"
-_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
-_PATH = re.compile(rf"(?:{_KEY}|{_INDEX})(?:\.{_KEY}|{_INDEX})*")
-_STEP = re.compile(rf"\.?({_KEY})|\[(0|[1-9][0-9]*)\]")
 
 
 def _found(value: str) -> StageResult:
@@ -89,34 +83,8 @@ def boxed(text: str, args: OpArgs, /) -> StageResult:
 
 def _check_json_field_args(args: OpArgs) -> None:
     path = args.get("path")
-    if set(args) != {"path"} or not isinstance(path, str) or _PATH.fullmatch(path) is None:
+    if set(args) != {"path"} or not isinstance(path, str) or FIELD_PATH.fullmatch(path) is None:
         raise SpecInvalid('json_field@1 takes exactly {"path": <field path>}')
-
-
-def _decode(text: str) -> object:
-    """The whole trimmed text as JSON, else the last ```json fenced block; ValueError if neither."""
-    try:
-        return loads_bounded(text.strip())
-    except ValueError:
-        pass
-    opened = text.rfind(_FENCE_OPEN)
-    closed = text.find(_FENCE_CLOSE, opened + len(_FENCE_OPEN))
-    if opened < 0 or closed < 0:
-        raise ValueError("no JSON and no fenced block")
-    return loads_bounded(text[opened + len(_FENCE_OPEN) : closed])
-
-
-def _walk(node: object, path: str) -> tuple[bool, object]:
-    """Follow ``path`` through ``node``: (found, value)."""
-    for step in _STEP.finditer(path):
-        key, index = step.group(1), step.group(2)
-        if key is not None and isinstance(node, dict) and key in node:
-            node = node[key]
-        elif index is not None and isinstance(node, list) and int(index) < len(node):
-            node = node[int(index)]
-        else:
-            return False, None
-    return True, node
 
 
 def _field_text(value: object) -> StageResult:
@@ -132,10 +100,10 @@ def _field_text(value: object) -> StageResult:
 def json_field(text: str, args: OpArgs, /) -> StageResult:
     """One JSON field, read by a url4 field path (``a.b[0]``)."""
     try:
-        decoded = _decode(text)
+        decoded = decode_json_reply(text)
     except ValueError:
         return rejected("not_json")
-    found, value = _walk(decoded, str(args["path"]))
+    found, value = walk_field_path(decoded, str(args["path"]))
     return _field_text(value) if found else rejected("field_missing")
 
 
