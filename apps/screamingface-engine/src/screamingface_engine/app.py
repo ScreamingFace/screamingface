@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -64,6 +64,7 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
+from screamingface_engine.tracing.relay import SpanSink, otlp_configured
 from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
@@ -111,6 +112,7 @@ def create_app(
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
+    span_sink: SpanSink | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -179,8 +181,49 @@ def create_app(
     _install_max_deliveries_advisor(app, settings)
     if clock is not None:
         app.state.clock = clock
-    _install_surfaces(app)
+    _install_surfaces(app, span_sink)
     return app
+
+
+def control_plane_span_sink(env: Mapping[str, str]) -> SpanSink | None:
+    """The App's span sink, or ``None`` when this deployment configured no OTLP endpoint.
+
+    WHY the import is lazy: `tracing.otlp` pulls the OTel SDK, protobuf and `requests`; an App
+    with no endpoint pays none of it. INVARIANT: never raises — a broken exporter config must
+    not stop the App from serving runs; telemetry degrades alone.
+
+    AIDEV-NOTE: the run half has the same loader (`runner.main.span_sink`). It is not shared
+    yet because the control plane may not import the run half, and moving it means editing
+    `runner/main.py` (deferred, see the OME-1218 ledger).
+    """
+    if not otlp_configured(env):
+        return None
+    try:
+        from screamingface_engine.tracing.otlp import sink_from_env
+
+        return sink_from_env(env)
+    except Exception:
+        _logger.warning("span export is configured but could not be started", exc_info=True)
+        return None
+
+
+def _install_span_sink(app: FastAPI, sink: SpanSink | None) -> None:
+    """Publish the sink to the routes and flush it at shutdown.
+
+    WHY `to_thread`: `OtlpSpanSink.close` blocks for up to its flush bound, and the event loop
+    is still serving other shutdown hooks.
+    """
+    app.state.span_sink = sink
+    if sink is None:
+        return
+
+    async def _close() -> None:
+        try:
+            await asyncio.to_thread(sink.close)
+        except Exception:
+            _logger.warning("the span sink did not shut down cleanly", exc_info=True)
+
+    app.router.on_shutdown.append(_close)
 
 
 def _install_middleware(app: FastAPI, settings: Settings) -> None:
@@ -191,9 +234,12 @@ def _install_middleware(app: FastAPI, settings: Settings) -> None:
     install_cors(app, settings.cors_allowed_origins)
 
 
-def _install_surfaces(app: FastAPI) -> None:
+def _install_surfaces(app: FastAPI, span_sink: SpanSink | None = None) -> None:
     """Register every engine HTTP surface; declared mounts are registered separately, by
     `install_mounts` at startup."""
+    # FEATURE (OME-1218): the run-submission route's accept span. `None` (the default) keeps
+    # the route exactly as it was: no span, the inbound traceparent forwarded verbatim.
+    _install_span_sink(app, span_sink)
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)
@@ -663,6 +709,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
         benchmarks=BUILTIN_BENCHMARKS,
+        span_sink=control_plane_span_sink(os.environ),
     )
     # The App owns the configured limits: declare the shared events stream (and apply a
     # changed limit) before the first request, and fail startup on a config it cannot apply.

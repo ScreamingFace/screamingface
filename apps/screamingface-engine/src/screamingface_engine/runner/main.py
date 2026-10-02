@@ -725,7 +725,7 @@ async def _run_process(
     # JetStream's, not the wire port's — the relay only stands where frames are published.
     with (
         run_scope(params.topic, trace_id),
-        SpanRelay(publisher, span_sink(os.environ)) as relay,
+        SpanRelay(publisher, span_sink(os.environ), traceparent=traceparent) as relay,
     ):
         run_once = lambda: _run_and_log(executor, relay, params, traceparent)  # noqa: E731
         if os.environ.get(job_env.RECLAIM_OWNER) == "worker":
