@@ -76,10 +76,17 @@ async def _safe_dispatch_failure_response(
     account_id: str,
     profile_name: str,
     target: CredentialTarget,
+    error_type: str | None = None,
 ) -> HTTPException:
-    """Contain secondary failures while rendering/persisting dispatch errors."""
+    """Contain secondary failures while rendering/persisting dispatch errors.
+
+    FEATURE (OME-968): also the ONE place a mapped dispatch failure is recorded. Every
+    non-streaming dispatch failure branch in `routes/chat.py` already funnels through here
+    with the final, sanitized exception in hand — so recording here gives exactly one
+    terminal record per failing request without each branch having to remember to log.
+    """
     try:
-        return await _dispatch_failure_response(request, exc, plugin=plugin, target=target)
+        final = await _dispatch_failure_response(request, exc, plugin=plugin, target=target)
     except Exception as failure:
         logger.error(
             "dispatch failure handling error type=%s provider=%s account=%s profile=%s",
@@ -88,7 +95,57 @@ async def _safe_dispatch_failure_response(
             account_id,
             profile_name,
         )
-        return _unknown_provider_exception()
+        final = _unknown_provider_exception()
+    log_dispatch_failure(
+        final,
+        provider=provider,
+        error_type=error_type,
+        account_id=account_id,
+        profile_name=profile_name,
+    )
+    return final
+
+
+def failure_classification(detail: Any) -> str:
+    """The gateway-authored machine code of a failure, never its free text.
+
+    INVARIANT: only a `code` the gateway or a plugin put in a structured detail is echoed. A
+    string detail may carry provider-influenced text, so it is reduced to `unclassified`.
+    """
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        if isinstance(code, str):
+            return code
+    return "unclassified"
+
+
+def log_dispatch_failure(
+    exc: HTTPException,
+    *,
+    provider: str,
+    error_type: str | None,
+    account_id: str,
+    profile_name: str,
+) -> None:
+    """Emit the terminal record of a failed non-streaming dispatch (OME-968).
+
+    WHY ERROR for 5xx and WARNING for 4xx: an operator alerting on WARNING+ must see every
+    failing call (the defect was ZERO records), while a caller's own bad request should not
+    page anyone the way a provider outage does.
+    `gateway_call_id`/`trace_id` are NOT arguments: the OME-938 record factory stamps them
+    from the request scope, as on every other line.
+    INVARIANT: class-name-only — `error_type` is `type(exc).__name__`, never `str(exc)`.
+    """
+    logger.log(
+        logging.ERROR if exc.status_code >= 500 else logging.WARNING,
+        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s",
+        provider,
+        failure_classification(exc.detail),
+        exc.status_code,
+        error_type or "HTTPException",
+        account_id,
+        profile_name,
+    )
 
 
 def _retry_after_headers(exc: Exception) -> dict[str, str]:
@@ -211,7 +268,9 @@ def _litellm_http_exception(exc: Exception) -> HTTPException:
     )
 
 
-def convert_provider_response(provider_response: Any, session: Any = None) -> Any:
+def convert_provider_response(
+    provider_response: Any, session: Any = None, *, provider: str | None = None
+) -> Any:
     """Render the provider's response object to a plain JSON-able body.
 
     OME-303 §9.20: when this fails the provider ANSWERED — and very likely billed — but
@@ -231,14 +290,25 @@ def convert_provider_response(provider_response: Any, session: Any = None) -> An
         result = dumpable.model_dump() if hasattr(dumpable, "model_dump") else provider_response
     except Exception as failure:
         # INVARIANT: type only. The exception text is provider-influenced.
-        logger.error("provider response conversion failed type=%s", type(failure).__name__)
+        _log_conversion_failure(provider, type(failure).__name__)
         note_conversion_failure(session)
         raise _unknown_provider_exception() from None
     if not isinstance(result, dict):
-        logger.error("provider response conversion failed type=non_object")
+        _log_conversion_failure(provider, "non_object")
         note_conversion_failure(session)
         raise _unknown_provider_exception() from None
     return result
+
+
+def _log_conversion_failure(provider: str | None, error_type: str) -> None:
+    # FEATURE (OME-968): the terminal record of this path, same fields as `dispatch failed`.
+    # The status/classification are what `_unknown_provider_exception` renders.
+    logger.error(
+        "provider response conversion failed type=%s provider=%s classification=provider_error "
+        "status=502",
+        error_type,
+        provider,
+    )
 
 
 def _unknown_provider_exception() -> HTTPException:
@@ -248,7 +318,7 @@ def _unknown_provider_exception() -> HTTPException:
     )
 
 
-async def _stream(plugin: Any, body: dict[str, Any]):
+async def _stream(plugin: Any, body: dict[str, Any], *, provider: str | None = None):
     try:
         async for chunk in plugin.chat_completion_stream(body):
             payload = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
@@ -256,10 +326,16 @@ async def _stream(plugin: Any, body: dict[str, Any]):
         yield "data: [DONE]\n\n"
     except Exception as exc:
         # INVARIANT: provider-controlled exception text and traceback data stay out of logs.
+        # FEATURE (OME-968): the terminal record of a failed stream. `status=200` is the
+        # truth, not a typo: the status line was committed before the first chunk, so the
+        # failure travels in the SSE error frame and this record is the only place it is
+        # attributable (the call id is stamped from the request scope, which the pure-ASGI
+        # `CallIdMiddleware` keeps bound for the whole stream).
         logger.error(
-            "stream failed type=%s plugin=%s",
+            "stream failed type=%s plugin=%s provider=%s classification=provider_error status=200",
             type(exc).__name__,
             type(plugin).__name__,
+            provider,
         )
         err = {
             "error": {
