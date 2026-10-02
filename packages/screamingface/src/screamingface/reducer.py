@@ -393,10 +393,14 @@ class Vote(Reducer):
         expected = (
             ("mode", "first_holder") if weights is None else ("weighted_mode", "max_weight_holder")
         )
-        # a score:judge spec needs its judge call, which only a url4 with signals holds
-        if extract is None or pair != expected or (judge is None and _reads_judge(weights)):
+        if extract is None or pair != expected:
             raise _cannot_rebuild("vote")
-        return cls(extract=extract, normalize=ops["normalize"], weights=weights, judge=judge)
+        try:
+            return cls(extract=extract, normalize=ops["normalize"], weights=weights, judge=judge)
+        except (TypeError, ValueError) as exc:
+            # WHY: a builder message (a score:judge spec with no judge call, extract='benchmark')
+            # is wrong for a url4 decode; the spec is simply not a Vote this SDK writes.
+            raise _cannot_rebuild("vote") from exc
 
     def __repr__(self) -> str:
         return self._render("Vote", repr)

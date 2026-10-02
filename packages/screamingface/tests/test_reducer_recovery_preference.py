@@ -129,11 +129,10 @@ def test_named_refusal_falls_back_and_an_unrebuildable_spec_still_refuses(
 @pytest.mark.parametrize("op", ["benchmark", "benchmark@1"])
 def test_benchmark_extract_op_in_a_hand_edited_url4_is_refused(op: str) -> None:
     # A hand-edited url4 cannot name the benchmark's rule: Vote refuses it, so does sf.Reduce.
-    # Both refusing, the named class's own error is the one raised (8S F9), and it names the rule.
     vote_url4 = _url4(sf.Vote(extract="last_number", normalize="numeric"))
     spec = decode_combine_spec(_synthesis_call(vote_url4).raw_intent)
 
-    with pytest.raises(ValueError, match="benchmark"):
+    with pytest.raises(ValueError, match="cannot rebuild"):
         _reducer_from_call(_call_with({**spec, "extract": {"op": op, "args": {}}}))
 
 

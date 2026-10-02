@@ -183,5 +183,7 @@ def test_from_spec_refuses_a_weight_value_that_is_not_a_number(bad: Any) -> None
 def test_from_spec_applies_the_weight_cap() -> None:
     spec = _spec()
     spec["weights"]["member_2"] = 1e308
-    with pytest.raises(ValueError, match="at most"):
+    # a decode refusal is "cannot rebuild" (8S review); the cap error is its cause
+    with pytest.raises(ValueError, match="cannot rebuild") as caught:
         sf.Vote._from_spec(spec)
+    assert "at most" in str(caught.value.__cause__)
