@@ -1,8 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-02
+finished: 2026-10-02
 ---
 
 # e4a-gap-closure unit 2 -- Answer operators: regex, set, Inspect rules, signal weights
@@ -63,3 +64,40 @@ Decisions F1-F22 (from the unit spec):
 - F20 SDK half of RX#2, RX#10, RX#11 are not in this unit.
 - F21 the vendor file keeps its module-level sets and dicts; they are never mutated or imported.
 - F22 `_parse_chinese_number` is hash-seed independent; a determinism scenario pins it.
+
+## Results
+
+- Commit B (`fix(engine): move the answer operators onto the core's Answer port`) restores green and
+  has no RED of its own: before it, the unit 2 suite failed at collection (ImportError on
+  `MemberReading`); after it, every unit 1 and unit 2 combine test passed (501 tests).
+- Commit D CHAR row SR#1: the existing `weighted_mode@1` and `max_weight_holder@1` goldens
+  (`weighted_mode@1.json`, `max_weight_holder@1.json`) stayed green with no edit. SR#4 (the
+  field-signal vote) is green on the new core without an operator change, as the core already
+  resolves the weights; only the missing-weight rows (SR#2, SR#3) needed the operator change.
+- Gates, run from the worktree with `--base e4a-combine-core --skip-append-only`:
+  `screamingface-engine`, `screamingface` and `repo` all ended `ALL GATES GREEN`.
+- Inspect lane (`uv run --extra inspect pytest -q -rs tests/unit/inspect`, Python 3.13): 605 passed,
+  0 skipped; the grep guard for `could not import|no tests ran` found nothing.
+- Python 3.12 (isolated env): the regex, vendor, determinism, golden and Inspect-lane suites pass;
+  the unidata test skips with a reason that does not contain "could not import" (F13).
+
+## Tripwires (expected to fire first)
+
+- RX-D1 (F9): the three banned shapes do not bound quadratic scans. A pattern with a leading
+  quantifier such as `(\d+)\s*$` takes about 5 ms on a failing 1024-character window; with 64
+  members that is about 300 ms. The acceptance is pinned untimed in
+  `test_acceptance_decisions_are_pinned`. A pattern with a bounded repeat of an alternation is also
+  accepted (no fourth shape here).
+- F11: the Inspect number rule costs about 1 s per MiB on a text of many `1a ` or `é ` words
+  (measured 0.33 s and 0.50 s at 256 KiB). `test_inspect_rules_stay_linear_on_hostile_input` fails
+  above 2 s at 256 KiB.
+
+## Deviations from the unit spec
+
+- The Inspect-lane tests (`tests/unit/inspect/`) do not import `combine_golden_support`: the
+  directory `tests/unit` is not on that lane's import path. The parity file runs the built-in
+  operators through `BUILTIN_OPERATORS.resolve(...)` and reads the golden fixtures by path.
+- Row 13 uses a registry whose `regex@1` run function raises, to prove that a bad pattern fails the
+  spec check before any member is read.
+- Row 26 also accepts `AnnAssign` at the top level, because `VENDORED_NAMES` is annotated.
+- Row 9 and the golden fixture check the shape and the absence of the pattern text in the message.
